@@ -1,6 +1,10 @@
 import { IntegrationType } from '~/types'
 
-import { isVerifiedEmailSender, resolveDefaultEmailSender } from '../../Channels/defaultEmailSender'
+import {
+    isDeliverableEmailSender,
+    isVerifiedEmailSender,
+    resolveDefaultEmailSender,
+} from '../../Channels/defaultEmailSender'
 
 export type SendingDomain =
     | { status: 'none' }
@@ -26,13 +30,25 @@ export function senderAddress(name: string | undefined, email: string): string {
     return `${displayName} <${email}>`
 }
 
+const senderToVerifyOf = (
+    integrations: IntegrationType[],
+    defaultIntegrationId: number | null | undefined
+): IntegrationType | undefined => {
+    const emailSenders = integrations.filter((integration) => integration.kind === 'email')
+    return (
+        emailSenders.find((integration) => integration.id === defaultIntegrationId) ??
+        emailSenders.find(isVerifiedEmailSender) ??
+        emailSenders[0]
+    )
+}
+
 export function sendingDomainOf(
     integrations: IntegrationType[],
     defaultIntegrationId: number | null | undefined
 ): SendingDomain {
-    const verified = integrations.filter(isVerifiedEmailSender)
+    const deliverable = integrations.filter(isDeliverableEmailSender)
     const defaultSender = resolveDefaultEmailSender(integrations, defaultIntegrationId)
-    const sender = verified.find((integration) => integration.id === defaultSender?.integrationId) ?? verified[0]
+    const sender = deliverable.find((integration) => integration.id === defaultSender?.integrationId) ?? deliverable[0]
     if (sender) {
         const { domain = '', email = '', name } = fieldsOf(sender)
         return {
@@ -43,7 +59,7 @@ export function sendingDomainOf(
             from: senderAddress(name, email),
         }
     }
-    const pending = integrations.find((integration) => integration.kind === 'email')
+    const pending = senderToVerifyOf(integrations, defaultIntegrationId)
     if (pending) {
         return { status: 'pending', integrationId: pending.id, domain: fieldsOf(pending).domain ?? '' }
     }

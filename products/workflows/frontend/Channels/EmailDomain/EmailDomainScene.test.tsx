@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
@@ -14,6 +14,8 @@ import { urls } from 'scenes/urls'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+
+import { integrationsEmailStatusRetrieve } from 'products/integrations/frontend/generated/api'
 
 import type { DataSuggestionApi } from '../../generated/api.schemas'
 import { FakeEmailDomainBackend } from './__mocks__/fakeEmailDomainBackend'
@@ -399,6 +401,7 @@ describe('EmailDomainScene', () => {
 
         backend.verifyDomain(DOMAIN)
         cleanup()
+        jest.setSystemTime(Date.now() + 60_000)
         await open(`${urls.workflowsEmailDomain(SENDER_ID)}?from=transactional`)
         expectStep(/You can send from/)
         expect(element('email-domain-ready-back-to-origin')).toHaveAttribute(
@@ -468,6 +471,155 @@ describe('EmailDomainScene', () => {
         expectStep('Add 8 settings at your DNS host')
         expect(document.querySelector('[data-attr="email-domain-auto-configure"]')).toBeNull()
         expect(element('email-domain-records-added')).toBeInTheDocument()
+    })
+
+    it.each([
+        ['reaches ready once its records verify again', true, undefined],
+        ['stays stopped while the provider still reports it pending', false, 'failed'],
+    ])('a domain whose sending stopped %s after one verify', async (_, recordsFixed, sendingStatusAfter) => {
+        seedSender()
+        backend.stopsSending(DOMAIN)
+        await open(urls.workflowsEmailDomain(SENDER_ID))
+        expectStep('Verification stopped')
+        expect(screen.queryByText(/You can send from/)).not.toBeInTheDocument()
+
+        if (recordsFixed) {
+            backend.verifyAtProviderOnly(DOMAIN)
+        }
+        click('email-domain-restart-verification')
+        await flush()
+
+        expect(!!screen.queryByText(/You can send from/)).toBe(recordsFixed)
+        expect((backend.sender(SENDER_ID)?.config as Record<string, unknown>).ses_sending_status).toBe(
+            sendingStatusAfter
+        )
+        expect(backend.requestsTo('email_verify')).toHaveLength(1)
+    })
+
+    it.each([
+        ['verified', true],
+        ['failed', false],
+    ])(
+        'shows a stopped domain the provider reports %s as ready once someone else restores sending, to a member who may not verify',
+        async (_, providerVerified) => {
+            seedSender()
+            backend.stopsSending(DOMAIN)
+            if (providerVerified) {
+                backend.verifyAtProviderOnly(DOMAIN)
+            }
+            backend.fail('email_verify', { status: 403, body: { detail: 'You do not have permission to do this.' } })
+            await open(urls.workflowsEmailDomain(SENDER_ID))
+            await flush(30_000)
+            expect(screen.queryByText(/You can send from/)).not.toBeInTheDocument()
+
+            backend.verifyDomain(DOMAIN)
+            await flush(60_000)
+
+            expectStep(/You can send from/)
+        }
+    )
+
+    it('offers a check at once for a stopped domain the provider reports pending, and the check repairs it', async () => {
+        seedSender()
+        backend.stopsSending(DOMAIN)
+        backend.sesReports(DOMAIN, 'pending')
+        await open(urls.workflowsEmailDomain(SENDER_ID))
+        expect(screen.queryByText(/You can send from/)).not.toBeInTheDocument()
+
+        backend.verifyAtProviderOnly(DOMAIN)
+        click('email-domain-check-again')
+        await flush()
+
+        expectStep(/You can send from/)
+        expect(backend.sender(SENDER_ID)?.config).not.toHaveProperty('ses_sending_status')
+    })
+
+    it('shows a repaired domain as stopped again when a sender name save returns a new stop', async () => {
+        seedSender()
+        backend.stopsSending(DOMAIN)
+        backend.verifyAtProviderOnly(DOMAIN)
+        await open(urls.workflowsEmailDomain(SENDER_ID))
+        expectStep(/You can send from/)
+        backend.stopsSending(DOMAIN)
+
+        typeInto('email-domain-sender-name', 'Acme Team')
+        click('email-domain-save-sender-name')
+        await flush()
+
+        expectStep('Verification stopped')
+    })
+
+    it('keeps a MAIL FROM subdomain adopted after the page loaded when the sender name is saved', async () => {
+        seedSender()
+        backend.verifyDomain(DOMAIN)
+        await open(urls.workflowsEmailDomain(SENDER_ID))
+        expectStep(/You can send from/)
+        backend.adoptsMailFrom(DOMAIN, 'bounce')
+
+        typeInto('email-domain-sender-name', 'Acme Team')
+        click('email-domain-save-sender-name')
+        await flush()
+
+        expect(backend.senderConfig(SENDER_ID)).toMatchObject({ name: 'Acme Team', mail_from_subdomain: 'bounce' })
+    })
+
+    it.each([
+        ['a stopped domain whose records were fixed', true, 1],
+        ['a verified domain', false, 0],
+    ])('shows %s as ready when its status answers before the sender', async (_, stopped, verifyCalls) => {
+        seedSender()
+        if (stopped) {
+            backend.stopsSending(DOMAIN)
+            backend.verifyAtProviderOnly(DOMAIN)
+        } else {
+            backend.verifyDomain(DOMAIN)
+        }
+        const releaseSender = backend.hold('integration_get')
+        await open(urls.workflowsEmailDomain(SENDER_ID))
+
+        releaseSender()
+        await flush()
+
+        expectStep(/You can send from/)
+        expect(backend.sender(SENDER_ID)?.config).not.toHaveProperty('ses_sending_status')
+        expect(backend.requestsTo('email_verify')).toHaveLength(verifyCalls)
+    })
+
+    it('checks the status again before it repairs a stopped domain whose sender loaded on a retry', async () => {
+        seedSender()
+        backend.stopsSending(DOMAIN)
+        backend.verifyAtProviderOnly(DOMAIN)
+        const releaseSender = backend.hold('integration_get')
+        backend.failOnce('integration_get', { status: 500, body: { detail: 'Could not reach the email provider' } })
+        silenceKeaLoadersErrors()
+        await open(urls.workflowsEmailDomain(SENDER_ID))
+        backend.sesReports(DOMAIN, 'failed')
+        releaseSender()
+        await flush()
+        resumeKeaLoadersErrors()
+        expectStep('We could not load your sending domain')
+
+        click('email-domain-retry')
+        await flush()
+
+        expectStep('Verification stopped')
+        expect(backend.requestsTo('email_verify')).toHaveLength(0)
+    })
+
+    it('checks live before it repairs a stopped domain whose cached status is out of date', async () => {
+        seedSender()
+        backend.stopsSending(DOMAIN)
+        backend.verifyAtProviderOnly(DOMAIN)
+        await integrationsEmailStatusRetrieve(String(MOCK_TEAM_ID), SENDER_ID)
+        backend.sesReports(DOMAIN, 'failed')
+        const releaseStatus = backend.hold('email_status')
+        await open(urls.workflowsEmailDomain(SENDER_ID))
+
+        releaseStatus()
+        await flush()
+
+        expectStep('Verification stopped')
+        expect(backend.requestsTo('email_verify')).toHaveLength(0)
     })
 
     it('lets the person restart a stopped verification again after the first restart fails', async () => {
