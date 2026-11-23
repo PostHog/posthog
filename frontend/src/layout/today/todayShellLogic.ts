@@ -23,7 +23,6 @@ import { dataProductForPath, isDefinitionDetailPath } from './todayData'
 import { isErrorTrackingIssuePath, monitorProductForPath } from './todayMonitor'
 import { isTodayPaneEnabled } from './todayPaneFlags'
 import { isPeopleDetailPath, isPeopleListPath } from './todayPeople'
-import { phoneTabPanes, togglePhoneTab } from './todayPhoneTabs'
 
 export type TodayRailPane =
     | 'home'
@@ -283,10 +282,7 @@ export interface todayShellLogicValues {
     phoneHeaderHidden: boolean
     phoneHeaderShown: boolean
     phoneLayout: boolean
-    phoneMorePanes: TodayRailPane[]
     phonePages: TodayPhonePage[]
-    phoneTabChoice: TodayRailPane[] | null
-    phoneTabPanes: TodayRailPane[]
     pickedPane: TodayRailPane | null
     railPanes: TodayRailPane[]
     routePane: TodayRailPane | null
@@ -337,9 +333,6 @@ export interface todayShellLogicActions {
             search: string
         }
     }
-    resetPhoneTabs: () => {
-        value: true
-    }
     restoreView: (view: TodayView) => {
         view: TodayView
     }
@@ -348,9 +341,6 @@ export interface todayShellLogicActions {
     }
     setPhonePages: (pages: TodayPhonePage[]) => {
         pages: TodayPhonePage[]
-    }
-    setPhoneTabChoice: (panes: TodayRailPane[] | null) => {
-        panes: TodayRailPane[] | null
     }
     setPickedPane: (pane: TodayRailPane | null) => {
         pane: TodayRailPane | null
@@ -362,9 +352,6 @@ export interface todayShellLogicActions {
         width: number
     }
     showPane: (pane: TodayRailPane) => {
-        pane: TodayRailPane
-    }
-    togglePhoneTab: (pane: TodayRailPane) => {
         pane: TodayRailPane
     }
     toggleSidebar: (source: TodaySidebarToggleSource) => {
@@ -416,8 +403,6 @@ export interface todayShellLogicMeta {
         ) => boolean
         todayRailEnabled: (featureFlags: FeatureFlagsSet) => boolean
         railPanes: (featureFlags: FeatureFlagsSet) => TodayRailPane[]
-        phoneTabPanes: (phoneTabChoice: TodayRailPane[] | null, railPanes: TodayRailPane[]) => TodayRailPane[]
-        phoneMorePanes: (railPanes: TodayRailPane[], tabs: TodayRailPane[]) => TodayRailPane[]
         peoplePaneLinksTabs: (todayRailEnabled: boolean, activePane: TodayRailPane) => boolean
         dataPaneLinksTabs: (todayRailEnabled: boolean, activePane: TodayRailPane) => boolean
         onAiPage: (location: { hash: string; pathname: string; search: string }) => boolean
@@ -480,9 +465,6 @@ export const todayShellLogic = kea<todayShellLogicType>([
         setPickedPane: (pane: TodayRailPane | null) => ({ pane }),
         goBackOnPhone: true,
         setPhonePages: (pages: TodayPhonePage[]) => ({ pages }),
-        setPhoneTabChoice: (panes: TodayRailPane[] | null) => ({ panes }),
-        togglePhoneTab: (pane: TodayRailPane) => ({ pane }),
-        resetPhoneTabs: true,
         setMobileSidebarOpen: (open: boolean) => ({ open }),
         setSidebarOpen: (open: boolean) => ({ open }),
         setSidebarWidth: (width: number) => ({ width }),
@@ -516,14 +498,6 @@ export const todayShellLogic = kea<todayShellLogicType>([
             { persist: true },
             {
                 toggleSidebarPinned: (state) => !state,
-            },
-        ],
-        phoneTabChoice: [
-            null as TodayRailPane[] | null,
-            { persist: true },
-            {
-                setPhoneTabChoice: (_, { panes }) => panes,
-                resetPhoneTabs: () => null,
             },
         ],
         mobileSidebarOpen: [
@@ -613,16 +587,6 @@ export const todayShellLogic = kea<todayShellLogicType>([
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): TodayRailPane[] =>
                 TODAY_RAIL_PANES.filter((pane) => isTodayPaneEnabled(pane, featureFlags)),
-        ],
-        phoneTabPanes: [
-            (s) => [s.phoneTabChoice, s.railPanes],
-            (phoneTabChoice: TodayRailPane[] | null, railPanes: TodayRailPane[]): TodayRailPane[] =>
-                phoneTabPanes(phoneTabChoice, railPanes),
-        ],
-        phoneMorePanes: [
-            (s) => [s.railPanes, s.phoneTabPanes],
-            (railPanes: TodayRailPane[], tabs: TodayRailPane[]): TodayRailPane[] =>
-                railPanes.filter((pane) => !tabs.includes(pane)),
         ],
         // The People pane links every People page and tab, so those pages hide their tabs and name while it is open.
         peoplePaneLinksTabs: [
@@ -743,17 +707,6 @@ export const todayShellLogic = kea<todayShellLogicType>([
             }
             actions.setPhonePages(values.phonePages.slice(0, -1))
             router.actions.replace(previous.url)
-        },
-        togglePhoneTab: ({ pane }) => {
-            const tabs = togglePhoneTab(values.phoneTabPanes, pane, values.railPanes)
-            if (tabs === values.phoneTabPanes) {
-                return
-            }
-            actions.setPhoneTabChoice(tabs)
-            posthog.capture('today phone tabs changed', { pane, added: tabs.includes(pane), tabs })
-        },
-        resetPhoneTabs: () => {
-            posthog.capture('today phone tabs changed', { reset: true, tabs: values.phoneTabPanes })
         },
         clickRailPane: ({ pane }) => {
             if (values.activePane === pane && values.sidebarVisible) {

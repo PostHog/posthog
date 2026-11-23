@@ -13,6 +13,7 @@ import { SidePanelTab } from '~/types'
 
 import { todayContextPanelLogic } from './todayContextPanelLogic'
 import { TodayPhoneTabsEditor } from './TodayPhoneTabsEditor'
+import { todayPhoneTabsLogic } from './todayPhoneTabsLogic'
 import { TODAY_PANES } from './todayRailItems'
 import { SEVERITY_TEXT_CLASS } from './todayRailSeverity'
 import { todayRailStatusLogic } from './todayRailStatusLogic'
@@ -32,7 +33,8 @@ export function TodayPhoneMoreSheet(): JSX.Element {
         useValues(todayRailStatusLogic)
     const { switchAvailable, switchLabel } = useValues(navSwitchLogic)
     const { switchNav } = useActions(navSwitchLogic)
-    const { activePane, effectivePhaiView, featureFlags, phoneMorePanes } = useValues(todayShellLogic)
+    const { activePane, effectivePhaiView, featureFlags } = useValues(todayShellLogic)
+    const { phoneMorePanes } = useValues(todayPhoneTabsLogic)
     const { clickRailPane } = useActions(todayShellLogic)
     const { activeTab, docked, floatingOpen } = useValues(todayContextPanelLogic)
     const { togglePanelTab } = useActions(todayContextPanelLogic)

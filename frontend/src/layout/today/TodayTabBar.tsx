@@ -5,12 +5,14 @@ import { IconSearch } from '@posthog/icons'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 
 import { TodayPhoneMoreSheet } from './TodayPhoneMoreSheet'
+import { todayPhoneTabsLogic } from './todayPhoneTabsLogic'
 import { TODAY_PANES } from './todayRailItems'
 import { TodayRailPane, todayShellLogic } from './todayShellLogic'
 import { TodayTabBarTab } from './TodayTabBarTab'
 
 export function TodayTabBar(): JSX.Element {
-    const { activePane, phoneTabPanes, sidebarVisible } = useValues(todayShellLogic)
+    const { activePane, sidebarVisible } = useValues(todayShellLogic)
+    const { phoneTabPanes } = useValues(todayPhoneTabsLogic)
     const { clickRailPane } = useActions(todayShellLogic)
     const { isCommandOpen } = useValues(commandLogic)
     const { toggleCommand, closeCommand } = useActions(commandLogic)

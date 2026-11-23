@@ -3,12 +3,14 @@ import { useActions, useValues } from 'kea'
 import { ItemCheckbox, ItemMenuItem, ItemSeparator } from '@posthog/quill'
 
 import { TODAY_PHONE_TAB_LIMIT } from './todayPhoneTabs'
+import { todayPhoneTabsLogic } from './todayPhoneTabsLogic'
 import { TODAY_PANES } from './todayRailItems'
 import { todayShellLogic } from './todayShellLogic'
 
 export function TodayPhoneTabsEditor(): JSX.Element {
-    const { railPanes, phoneTabPanes, phoneTabChoice } = useValues(todayShellLogic)
-    const { togglePhoneTab, resetPhoneTabs } = useActions(todayShellLogic)
+    const { railPanes } = useValues(todayShellLogic)
+    const { phoneTabPanes, phoneTabChoice } = useValues(todayPhoneTabsLogic)
+    const { togglePhoneTab, resetPhoneTabs } = useActions(todayPhoneTabsLogic)
     const full = phoneTabPanes.length >= TODAY_PHONE_TAB_LIMIT
 
     return (
