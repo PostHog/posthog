@@ -13973,6 +13973,10 @@ export type SignalsReportsListParams = {
      */
     plan?: string
     /**
+     * Requires task_id. When true, keeps only the reports that the task's pull requests and commits link to: its source report and its pipeline, legacy and assignment associations. A report that the task only claimed is kept only when the task has no other report.
+     */
+    pr_targets?: boolean
+    /**
      * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
      */
     priority?: string
@@ -14282,6 +14286,10 @@ export type SignalsReportsSectionCountsRetrieveParams = {
      * 'true' keeps only the reports that need the requesting user: the ones waiting on their input (pending_input and naming them as a suggested reviewer) and the ones they claimed, themselves or through their MCP agents. 'false' leaves those out. Combine with sort=personal to order them by the user's personal ranking.
      */
     needs_you?: boolean
+    /**
+     * Requires task_id. When true, keeps only the reports that the task's pull requests and commits link to: its source report and its pipeline, legacy and assignment associations. A report that the task only claimed is kept only when the task has no other report.
+     */
+    pr_targets?: boolean
     /**
      * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
      */
