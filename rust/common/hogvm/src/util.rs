@@ -92,13 +92,12 @@ impl RegexCache {
         };
         let invalid = |e: regex::Error| VmError::InvalidRegex(pattern.to_string(), e.to_string());
 
-        if self.compiled_limit.is_some() && repeats_more_than_re2_allows(pattern) {
-            return Err(VmError::InvalidRegex(
-                pattern.to_string(),
-                "bad repetition operator".to_string(),
-            ));
-        }
+        let refused =
+            || VmError::InvalidRegex(pattern.to_string(), "bad repetition operator".to_string());
         if pattern.len() > MAX_CACHEABLE_PATTERN_LEN {
+            if self.compiled_limit.is_some() && repeats_more_than_re2_allows(pattern) {
+                return Err(refused());
+            }
             return compile(None).map_err(invalid);
         }
         let key = (pattern.to_owned(), case_insensitive);
@@ -108,6 +107,13 @@ impl RegexCache {
                 .cache
                 .get_or_insert_with(&key, || compile(None).map_err(invalid));
         };
+        // The repetition check parses the pattern, so only a miss pays for it.
+        if let Some(hit) = self.cache.get(&key) {
+            return Ok(hit);
+        }
+        if repeats_more_than_re2_allows(pattern) {
+            return Err(refused());
+        }
         match self.cache.get_or_insert_with(&key, || compile(Some(limit))) {
             Ok(regex) => Ok(regex),
             Err(regex::Error::CompiledTooBig(_)) => compile(None).map_err(invalid),
@@ -220,18 +226,10 @@ pub fn get_json_nested<'h>(
                 }
                 // Hog JSON-path indices are 1-based; the reference also allows negatives counting
                 // from the end. Index 0 and out-of-range yield "not found" (None), not an error.
-                let raw = key.to_integer();
-                let len = values.len() as i64;
-                let idx = match raw {
-                    0 => return Ok(None),
-                    r if r > 0 && r <= len => (r - 1) as usize,
-                    r if r < 0 && r.unsigned_abs() <= len as u64 => (len + r) as usize,
-                    _ => return Ok(None),
-                };
-                let Some(found) = values.get(idx) else {
+                let Some(idx) = json_path_index(key.to_integer(), values.len()) else {
                     return Ok(None);
                 };
-                current = Some(found);
+                current = Some(&values[idx]);
             }
             Value::Object(map) => {
                 let key: &str = next_key.try_as()?;
@@ -248,6 +246,16 @@ pub fn get_json_nested<'h>(
     Ok(None)
 }
 
+/// A JSON-path index counts from 1, or from the end when negative. Index 0 and an index out of range find nothing.
+fn json_path_index(raw: i64, len: usize) -> Option<usize> {
+    let distance = usize::try_from(raw.unsigned_abs()).ok()?;
+    match raw {
+        r if r > 0 && distance <= len => Some(distance - 1),
+        r if r < 0 && distance <= len => Some(len - distance),
+        _ => None,
+    }
+}
+
 pub fn get_ordered_nested<'h>(
     haystack: &'h OrderedJson,
     mut chain: &[HogValue],
@@ -262,14 +270,10 @@ pub fn get_ordered_nested<'h>(
                 if key.is_float() {
                     return Err(VmError::InvalidIndex);
                 }
-                let raw = key.to_integer();
-                let len = values.len() as i64;
-                let idx = match raw {
-                    r if r > 0 && r <= len => (r - 1) as usize,
-                    r if r < 0 && r.unsigned_abs() <= len as u64 => (len + r) as usize,
-                    _ => return Ok(None),
-                };
-                &values[idx]
+                match json_path_index(key.to_integer(), values.len()) {
+                    Some(idx) => &values[idx],
+                    None => return Ok(None),
+                }
             }
             OrderedJson::Object(entries) => {
                 let key: &str = next_key.try_as()?;

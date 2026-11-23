@@ -371,6 +371,48 @@ impl HogValue {
 const MIN_VALUE_BYTES: usize = 8;
 
 impl HogLiteral {
+    pub fn is_container(&self) -> bool {
+        matches!(
+            self,
+            HogLiteral::Array(_) | HogLiteral::Tuple(_) | HogLiteral::Object(_)
+        )
+    }
+
+    /// The work of one equality test with `rhs`, in bytes. A nested container compares by its heap reference, so only the top level counts.
+    pub(crate) fn compare_work(&self, rhs: &HogLiteral) -> usize {
+        const PAIR: usize = std::mem::size_of::<HogValue>();
+        let pair = |a: &HogValue, b: &HogValue| match (a, b) {
+            (HogValue::Lit(HogLiteral::String(a)), HogValue::Lit(HogLiteral::String(b)))
+                if a.len() == b.len() =>
+            {
+                PAIR + a.len()
+            }
+            _ => PAIR,
+        };
+        match (self, rhs) {
+            (HogLiteral::String(a), HogLiteral::String(b)) if a.len() == b.len() => a.len(),
+            // Coercion parses the text or makes a lowercase copy of it.
+            (HogLiteral::String(text), HogLiteral::Number(_) | HogLiteral::Boolean(_))
+            | (HogLiteral::Number(_) | HogLiteral::Boolean(_), HogLiteral::String(text)) => {
+                text.len()
+            }
+            (HogLiteral::Array(a), HogLiteral::Array(b))
+            | (HogLiteral::Tuple(a), HogLiteral::Tuple(b))
+                if a.len() == b.len() =>
+            {
+                a.iter()
+                    .zip(b)
+                    .fold(0, |work, (a, b)| work.saturating_add(pair(a, b)))
+            }
+            (HogLiteral::Object(a), HogLiteral::Object(b)) if a.len() == b.len() => {
+                a.iter().fold(0, |work, (key, value)| {
+                    work.saturating_add(b.get(key).map_or(PAIR, |other| pair(value, other)))
+                })
+            }
+            _ => 0,
+        }
+    }
+
     pub fn type_name(&self) -> &str {
         match self {
             HogLiteral::String(_) => "String",

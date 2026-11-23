@@ -198,14 +198,14 @@ impl ExecutionContext {
         self
     }
 
-    /// Compare a boolean with a string as the boolean's text, case-sensitively, the way ClickHouse
-    /// compares a property it reads as text. Off by default because the Node shadow binding must
-    /// match the TS VM, where `false == "variant"` is true.
     pub fn with_regex_cache(mut self, cache: Arc<RegexCache>) -> Self {
         self.regex_cache = Some(cache);
         self
     }
 
+    /// Compare a boolean with a string as the boolean's text, case-sensitively, the way ClickHouse
+    /// compares a property it reads as text. Off by default because the Node shadow binding must
+    /// match the TS VM, where `false == "variant"` is true.
     pub fn with_boolean_text_equality(mut self) -> Self {
         self.boolean_text_equality = true;
         self

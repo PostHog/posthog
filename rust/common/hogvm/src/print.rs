@@ -112,9 +112,9 @@ impl<'a> RepeatMeasure<'a> {
         }
     }
 
-    fn count(&mut self, bytes: usize) -> Result<(), crate::VmError> {
+    fn count_if_repeated(&mut self, bytes: usize) -> Result<(), crate::VmError> {
         if self.inside_repeats > 0 {
-            self.count_always(bytes)?;
+            self.count(bytes)?;
         }
         Ok(())
     }
@@ -134,13 +134,13 @@ impl<'a> RepeatMeasure<'a> {
         Ok(())
     }
 
-    fn count_always(&mut self, bytes: usize) -> Result<(), crate::VmError> {
+    fn count(&mut self, bytes: usize) -> Result<(), crate::VmError> {
         self.repeated_bytes = self.repeated_bytes.saturating_add(bytes);
         self.heap.assert_can_allocate(self.repeated_bytes)
     }
 
     fn walk(&mut self, value: &HogValue, depth: usize) -> Result<(), crate::VmError> {
-        self.count(1)?;
+        self.count_if_repeated(1)?;
         if self.inside_repeats > 0 {
             self.repeat_visits += 1;
             if self.repeat_visits > MAX_REPEAT_VISITS {
@@ -152,14 +152,7 @@ impl<'a> RepeatMeasure<'a> {
         }
         let lit = value.deref(self.heap)?;
         let container = match value {
-            HogValue::Ref(ptr)
-                if matches!(
-                    lit,
-                    HogLiteral::Array(_) | HogLiteral::Tuple(_) | HogLiteral::Object(_)
-                ) =>
-            {
-                Some(*ptr)
-            }
+            HogValue::Ref(ptr) if lit.is_container() => Some(*ptr),
             _ => None,
         };
         let mut repeated = false;
@@ -175,17 +168,17 @@ impl<'a> RepeatMeasure<'a> {
         self.inside_asts += usize::from(is_ast);
         let result = match lit {
             // The heap charges a shared string as a pointer, so its limit does not bound the text.
-            HogLiteral::String(HogStr::Shared(s)) => self.count_always(s.len()),
+            HogLiteral::String(HogStr::Shared(s)) => self.count(s.len()),
             HogLiteral::String(HogStr::Owned(s)) => match value {
                 // The heap charges the second reference to a string as a pointer.
-                HogValue::Ref(ptr) if !self.seen.insert(*ptr) => self.count_always(s.len()),
-                _ => self.count(s.len()),
+                HogValue::Ref(ptr) if !self.seen.insert(*ptr) => self.count(s.len()),
+                _ => self.count_if_repeated(s.len()),
             },
             HogLiteral::Array(items) | HogLiteral::Tuple(items) => {
                 items.iter().try_for_each(|item| self.walk(item, depth + 1))
             }
             HogLiteral::Object(map) => map.iter().try_for_each(|(key, item)| {
-                self.count(key.len())?;
+                self.count_if_repeated(key.len())?;
                 self.walk(item, depth + 1)
             }),
             _ => Ok(()),
@@ -226,14 +219,7 @@ fn print_value(
 
     let lit = value.deref(heap)?;
     let container_ptr = match value {
-        HogValue::Ref(ptr)
-            if matches!(
-                lit,
-                HogLiteral::Array(_) | HogLiteral::Tuple(_) | HogLiteral::Object(_)
-            ) =>
-        {
-            Some(*ptr)
-        }
+        HogValue::Ref(ptr) if lit.is_container() => Some(*ptr),
         _ => None,
     };
 

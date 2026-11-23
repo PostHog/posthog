@@ -2091,14 +2091,7 @@ fn json_stringify(
     }
     let lit = value.deref(heap)?;
     let container_ptr = match value {
-        HogValue::Ref(ptr)
-            if matches!(
-                lit,
-                HogLiteral::Array(_) | HogLiteral::Tuple(_) | HogLiteral::Object(_)
-            ) =>
-        {
-            Some(*ptr)
-        }
+        HogValue::Ref(ptr) if lit.is_container() => Some(*ptr),
         _ => None,
     };
     if let Some(ptr) = container_ptr {
@@ -3043,6 +3036,7 @@ fn is_hog_empty(lit: &HogLiteral) -> bool {
 // Strictness applies across types, not within them: the int and float variants of a number unify,
 // which matches the reference `===` where every number is f64.
 fn strict_equals(vm: &HogVM, a: &HogValue, b: &HogValue) -> Result<bool, VmError> {
+    vm.assert_equality_fits(a, b)?;
     Ok(a.deref(&vm.heap)? == b.deref(&vm.heap)?)
 }
 

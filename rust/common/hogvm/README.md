@@ -25,8 +25,11 @@ A host can step `HogVM` itself instead of calling `sync_execute`, as the logs tr
 - `ExecutionContext::with_raw_result` keeps the finished value for `HogVM::take_result`, so the host
   reads it from the heap with its key order, and a value that JSON cannot hold does not fail the run.
 - `HogVM::push_stack` answers a `StepOutcome::NativeCall` that the host handles itself.
-- `HogVM::memory_bytes` is the heap plus the operand stack. Strings on the stack are outside the
-  heap limit, so a host that must bound memory checks this after each native call.
+- `assert_native_arguments_fit` measures the arguments of a `StepOutcome::NativeCall`.
+  The heap charges a repeated value and a global string as a pointer, and a native call reads each in full.
+  A host that runs untrusted programs calls it before it runs or answers the call.
+- `HogVM::memory_bytes` is the heap, the operand stack, and the values that closures captured.
+  Strings on the stack are outside the heap limit, so a host that must bound memory checks this after each native call.
 
 ## Node interop status (`VmSnapshot` / `VMState`)
 

@@ -25,6 +25,8 @@ fn string_indexes_count_utf16_units_and_integer_edges_do_not_panic() {
 
 // return replaceAll(inputs.s, '', inputs.t)
 const REPLACE_EMPTY: &str = r#"["_H", 1, 32, "s", 32, "inputs", 1, 2, 32, "", 32, "t", 32, "inputs", 1, 2, 2, "replaceAll", 3, 38]"#;
+// return replaceAll(inputs.s, 'a', inputs.t)
+const REPLACE_EACH_A: &str = r#"["_H", 1, 32, "s", 32, "inputs", 1, 2, 32, "a", 32, "t", 32, "inputs", 1, 2, 2, "replaceAll", 3, 38]"#;
 // return arrayStringConcat(inputs.a, inputs.t)
 const JOIN: &str = r#"["_H", 1, 32, "a", 32, "inputs", 1, 2, 32, "t", 32, "inputs", 1, 2, 2, "arrayStringConcat", 2, 38]"#;
 // return splitByString('', inputs.t)
@@ -38,6 +40,10 @@ fn string_building_calls_refuse_results_past_the_heap_limit() {
         (
             REPLACE_EMPTY,
             json!({"inputs": {"s": "y".repeat(1000), "t": big}}),
+        ),
+        (
+            REPLACE_EACH_A,
+            json!({"inputs": {"s": "a".repeat(1000), "t": big}}),
         ),
         (JOIN, json!({"inputs": {"a": vec![1; 1000], "t": big}})),
         (
@@ -149,6 +155,8 @@ fn printing_a_sql_ast_that_holds_itself_or_escapes_itself_again_ends() {
 
 // fun make() { let x := null; let f := () -> x; x := () -> x; return f }; let f := make(); return f == f
 const CLOSURE_HOLDS_ITSELF: &str = r#"["_H", 1, 52, "make", 0, 0, 32, 31, 52, "lambda", 0, 1, 3, 55, 0, 38, 53, 1, true, 0, 52, "lambda", 0, 1, 3, 55, 0, 38, 53, 1, true, 0, 37, 0, 36, 1, 38, 35, 57, 53, 0, 36, 0, 54, 0, 36, 1, 36, 1, 11, 38, 35, 35]"#;
+// fun make() { let x := 1; let f := () -> x; return f }; return make() == make()
+const CLOSURES_OF_TWO_CALLS: &str = r#"["_H", 1, 52, "make", 0, 0, 19, 33, 1, 52, "lambda", 0, 1, 3, 55, 0, 38, 53, 1, true, 0, 36, 1, 38, 35, 57, 53, 0, 36, 0, 54, 0, 36, 0, 54, 0, 11, 38, 35]"#;
 // fun make(prev) { return (x) -> prev }; fun build(n) { if (n == 0) { return null } return make(build(n - 1)) }; build(inputs.n); return 1
 const CLOSURE_CHAIN: &str = r#"["_H", 1, 52, "make", 1, 0, 13, 52, "lambda", 1, 1, 3, 55, 0, 38, 53, 1, true, 0, 38, 53, 0, 52, "build", 1, 2, 23, 33, 0, 36, 0, 11, 40, 2, 31, 38, 33, 1, 36, 0, 7, 55, 0, 54, 1, 55, 1, 54, 1, 38, 53, 2, true, 1, true, 0, 32, "n", 32, "inputs", 1, 2, 36, 1, 54, 1, 35, 33, 1, 38, 57, 57]"#;
 
@@ -159,6 +167,8 @@ const CLOSURE_IN_AN_ERROR: &str = r#"["_H", 1, 52, "make", 0, 0, 32, 31, 52, "la
 fn comparing_printing_or_dropping_closures_that_hold_closures_does_not_overflow_the_stack() {
     let itself = sync_execute(&context(CLOSURE_HOLDS_ITSELF, json!({})), false).unwrap();
     assert_eq!(itself, json!(true));
+    let two_calls = sync_execute(&context(CLOSURES_OF_TWO_CALLS, json!({})), false).unwrap();
+    assert_eq!(two_calls, json!(false));
 
     let failure = sync_execute(&context(CLOSURE_IN_AN_ERROR, json!({})), false).unwrap_err();
     assert!(
@@ -212,8 +222,10 @@ fn membership_stops_on_a_list_that_holds_one_array_many_times() {
     }
 }
 
-// let a := []; let b := []; 100 times: a := arrayPushBack(a, '<A>'); b := arrayPushBack(b, '<B>'); if (inputs.eq) { return a == b }; return '<C>' in a
-const ONE_LITERAL_MANY_TIMES: &str = r#"["_H", 1, 43, 0, 43, 0, 33, 0, 33, 100, 36, 2, 15, 40, 27, 36, 0, 32, "ZZA", 2, "arrayPushBack", 2, 37, 0, 36, 1, 32, "ZZB", 2, "arrayPushBack", 2, 37, 1, 33, 1, 36, 2, 6, 37, 2, 39, -34, 35, 32, "eq", 32, "inputs", 1, 2, 40, 6, 36, 1, 36, 0, 11, 38, 36, 0, 32, "ZZC", 21, 38, 35, 35]"#;
+// let a := []; let b := []; 100 times: a := arrayPushBack(a, '<A>'); b := arrayPushBack(b, '<B>')
+// if (inputs.mode == 'eq') { return a == b }; if (inputs.mode == 'equals') { return equals(a, b) }
+// if (inputs.mode == 'empty') { return [] == a }; return '<C>' in a
+const ONE_LITERAL_MANY_TIMES: &str = r#"["_H", 1, 43, 0, 43, 0, 33, 0, 33, 100, 36, 2, 15, 40, 27, 36, 0, 32, "ZZA", 2, "arrayPushBack", 2, 37, 0, 36, 1, 32, "ZZB", 2, "arrayPushBack", 2, 37, 1, 33, 1, 36, 2, 6, 37, 2, 39, -34, 35, 32, "eq", 32, "mode", 32, "inputs", 1, 2, 11, 40, 6, 36, 1, 36, 0, 11, 38, 32, "equals", 32, "mode", 32, "inputs", 1, 2, 11, 40, 8, 36, 0, 36, 1, 2, "equals", 2, 38, 32, "empty", 32, "mode", 32, "inputs", 1, 2, 11, 40, 6, 36, 0, 43, 0, 11, 38, 36, 0, 32, "ZZC", 21, 38, 35, 35]"#;
 
 #[test]
 fn a_test_against_one_long_literal_many_times_stops() {
@@ -222,15 +234,19 @@ fn a_test_against_one_long_literal_many_times_stops() {
         .replace("ZZA", &text)
         .replace("ZZB", &text)
         .replace("ZZC", &format!("{}y", &text[1..]));
-    for equality in [false, true] {
+    let run = |mode: &str| {
         let context =
-            context(&bytecode, json!({"inputs": {"eq": equality}})).with_max_steps(1_000_000);
-        let error = sync_execute(&context, false).unwrap_err().error;
+            context(&bytecode, json!({"inputs": {"mode": mode}})).with_max_steps(1_000_000);
+        sync_execute(&context, false).map_err(|failure| failure.error)
+    };
+    for mode in ["in", "eq", "equals"] {
+        let error = run(mode).unwrap_err();
         assert!(
             matches!(error, hogvm::VmError::OutOfResource(_)),
-            "{equality}: {error:?}"
+            "{mode}: {error:?}"
         );
     }
+    assert_eq!(run("empty").unwrap(), json!(false));
 }
 
 // let s := 'x'; 20 times: s := concat(s, s); let a := []; 64 times: a := arrayPushBack(a, s); return length(jsonStringify(a))

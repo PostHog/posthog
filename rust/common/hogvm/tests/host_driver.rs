@@ -85,11 +85,11 @@ fn a_missing_key_under_an_ordered_global_reads_null() {
 
 // return [inputs.list.1, inputs.list.-1, inputs.list.3, inputs.list.<i64::MIN>]
 #[test]
-fn an_ordered_global_array_reads_by_index_from_either_end() {
-    let context = ExecutionContext::with_defaults(program(
+fn a_global_array_reads_by_index_from_either_end() {
+    let read = program(
         r#"["_H", 1, 33, 1, 32, "list", 32, "inputs", 1, 3, 33, -1, 32, "list", 32, "inputs", 1, 3, 33, 3, 32, "list", 32, "inputs", 1, 3, 33, -9223372036854775808, 32, "list", 32, "inputs", 1, 3, 43, 4, 38]"#,
-    ))
-    .with_ordered_globals(OrderedJson::Object(vec![(
+    );
+    let ordered = OrderedJson::Object(vec![(
         "inputs".into(),
         OrderedJson::Object(vec![(
             "list".into(),
@@ -98,11 +98,17 @@ fn an_ordered_global_array_reads_by_index_from_either_end() {
                 OrderedJson::String(Arc::from("last")),
             ]),
         )]),
-    )]));
-    assert_eq!(
-        hogvm::sync_execute(&context, false).unwrap(),
-        json!(["first", "last", null, null])
-    );
+    )]);
+    for context in [
+        ExecutionContext::with_defaults(read.clone()).with_ordered_globals(ordered),
+        ExecutionContext::with_defaults(read)
+            .with_globals(json!({"inputs": {"list": ["first", "last"]}})),
+    ] {
+        assert_eq!(
+            hogvm::sync_execute(&context, false).unwrap(),
+            json!(["first", "last", null, null])
+        );
+    }
 }
 
 #[test]
@@ -212,4 +218,68 @@ fn the_public_printer_refuses_a_value_that_repeats_past_the_heap_limit() {
         "{:?}",
         printed.map(|text| text.len())
     );
+}
+
+// fun make(big) { let f := () -> big; return f }; let f := make(concat(inputs.t, 'x')); asyncFetch(1); return 1
+const STRING_HELD_ONLY_BY_A_CLOSURE: &str = r#"["_H", 1, 52, "make", 1, 0, 16, 52, "lambda", 0, 1, 3, 55, 0, 38, 53, 1, true, 0, 36, 1, 38, 35, 53, 0, 32, "t", 32, "inputs", 1, 2, 32, "x", 2, "concat", 2, 36, 0, 54, 1, 33, 1, 2, "asyncFetch", 1, 35, 33, 1, 38, 35, 35]"#;
+
+#[test]
+fn memory_bytes_counts_a_string_that_only_a_closure_holds() {
+    let context = ExecutionContext::with_defaults(program(STRING_HELD_ONLY_BY_A_CLOSURE))
+        .with_ordered_globals(OrderedJson::Object(vec![(
+            "inputs".into(),
+            OrderedJson::Object(vec![(
+                "t".into(),
+                OrderedJson::String(Arc::from("t".repeat(1024 * 1024))),
+            )]),
+        )]))
+        .with_max_heap_size(8 * 1024 * 1024);
+    let mut vm = context.to_vm().unwrap();
+    loop {
+        match vm.step().unwrap() {
+            StepOutcome::NativeCall(name, args) if name == "concat" => {
+                context
+                    .execute_native_function_call(&mut vm, &name, args)
+                    .unwrap();
+            }
+            StepOutcome::NativeCall(name, _) => {
+                assert_eq!(name, "asyncFetch");
+                break;
+            }
+            StepOutcome::Continue => {}
+            StepOutcome::Finished(_) => panic!("the program ended before its last call"),
+        }
+    }
+    assert!(vm.memory_bytes() >= 1024 * 1024, "{}", vm.memory_bytes());
+}
+
+#[test]
+fn a_host_checks_native_arguments_before_it_answers_a_call() {
+    // return length(inputs.list)
+    let call = program(r#"["_H", 1, 32, "list", 32, "inputs", 1, 2, 2, "length", 1, 38]"#);
+    let arguments_fit = |copies: usize| {
+        let text: Arc<str> = Arc::from("t".repeat(64 * 1024));
+        let list = OrderedJson::Array(vec![OrderedJson::String(text); copies]);
+        let context = ExecutionContext::with_defaults(call.clone()).with_ordered_globals(
+            OrderedJson::Object(vec![(
+                "inputs".into(),
+                OrderedJson::Object(vec![("list".into(), list)]),
+            )]),
+        );
+        let mut vm = context.to_vm().unwrap();
+        loop {
+            match vm.step().unwrap() {
+                StepOutcome::NativeCall(_, args) => {
+                    return hogvm::assert_native_arguments_fit(&vm.heap, &args);
+                }
+                StepOutcome::Continue => {}
+                StepOutcome::Finished(_) => panic!("the program made no native call"),
+            }
+        }
+    };
+    assert!(arguments_fit(4).is_ok());
+    assert!(matches!(
+        arguments_fit(64),
+        Err(hogvm::VmError::OutOfResource(_))
+    ));
 }
