@@ -1,6 +1,7 @@
 from collections.abc import Callable, Mapping
 from enum import StrEnum
 from typing import Any
+from uuid import UUID
 
 from django.http import HttpRequest
 
@@ -70,6 +71,8 @@ def _team_from_token(request: Request, token_team: Callable[[], Team | None]) ->
 @frozen
 class TokenOnProjectPath:
     token_matches_path: bool
+    team_id: int
+    organization_id: UUID
 
 
 def record_token_on_project_path(
@@ -77,21 +80,29 @@ def record_token_on_project_path(
 ) -> None:
     """Store on the HttpRequest whether a token decided the project of a route whose path names one."""
     try:
-        path_ids = {
-            name: int(value)
-            for name, value in path_kwargs.items()
-            if name in _PATH_PROJECT_KWARGS and str(value).isdigit()
-        }
-        if not path_ids:
+        path_values = {name: value for name, value in path_kwargs.items() if name in _PATH_PROJECT_KWARGS}
+        if not path_values:
             return
         team = _team_from_token(request, token_team)
         if team is None:
             return
         token_ids = {"team_id": team.id, "project_id": team.project_id}
-        matches = all(token_ids[name] == path_id for name, path_id in path_ids.items())
-        setattr(request._request, _TOKEN_ON_PROJECT_PATH_ATTR, TokenOnProjectPath(token_matches_path=matches))
+        matches = all(_names_id(value, token_ids[name]) for name, value in path_values.items())
+        setattr(
+            request._request,
+            _TOKEN_ON_PROJECT_PATH_ATTR,
+            TokenOnProjectPath(token_matches_path=matches, team_id=team.id, organization_id=team.organization_id),
+        )
     except Exception:
         logger.warning("token_on_project_path_record_failed", exc_info=True)
+
+
+def _names_id(path_value: Any, expected_id: int) -> bool:
+    # Parse like parents_query_dict does, so a spelling the router accepts, such as "+123", still compares.
+    try:
+        return int(path_value) == expected_id
+    except (TypeError, ValueError):
+        return False
 
 
 def token_on_project_path(request: HttpRequest) -> TokenOnProjectPath | None:

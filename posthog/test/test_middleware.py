@@ -3891,34 +3891,51 @@ class TestCurrentAliasUsage(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("token_for_the_path_project", "feature_flags", "path_team", [True]),
-            ("token_for_another_project", "feature_flags", "other_project", [False]),
-            ("sibling_environment_on_a_project_route", "feature_flags", "sibling_environment", [True]),
-            ("sibling_environment_on_a_team_route", "insights", "sibling_environment", [False]),
-            ("no_token", "feature_flags", None, []),
+            ("token_for_the_path_project", "{id}/feature_flags", "path_team", "key", [(True, "path_team")]),
+            ("token_for_another_project", "{id}/feature_flags", "other_project", "key", [(False, "other_project")]),
+            (
+                "sibling_environment_on_a_project_route",
+                "{id}/feature_flags",
+                "sibling_environment",
+                "key",
+                [(True, "sibling_environment")],
+            ),
+            (
+                "sibling_environment_on_a_team_route",
+                "{id}/insights",
+                "sibling_environment",
+                "key",
+                [(False, "sibling_environment")],
+            ),
+            ("signed_path_id", "+{id}/feature_flags", "other_project", "key", [(False, "other_project")]),
+            ("session_caller", "{id}/feature_flags", "other_project", "session", [(False, "other_project")]),
+            ("no_token", "{id}/feature_flags", None, "key", []),
         ]
     )
     def test_reports_tokens_on_routes_that_name_a_project(
-        self, _name: str, collection: str, token_team: str | None, expected: list[bool]
+        self, _name: str, path: str, token_team: str | None, caller: str, expected: list[tuple[bool, str]]
     ) -> None:
         teams = {
             "path_team": self.team,
             "other_project": Team.objects.create(organization=self.organization, name="Other project"),
             "sibling_environment": Team.objects.create(organization=self.organization, project=self.team.project),
         }
-        key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(user=self.user, secure_value=hash_key_value(key), scopes=["*"])
-        self.client.logout()
+        headers = {}
+        if caller == "key":
+            key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(user=self.user, secure_value=hash_key_value(key), scopes=["*"])
+            self.client.logout()
+            headers["HTTP_AUTHORIZATION"] = f"Bearer {key}"
         query = {"token": teams[token_team].api_token} if token_team else {}
 
         with patch("posthog.event_usage.posthoganalytics.capture") as capture:
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/{collection}/", query, HTTP_AUTHORIZATION=f"Bearer {key}"
-            )
+            response = self.client.get(f"/api/projects/{path.format(id=self.team.id)}/", query, **headers)
 
         assert response.status_code == status.HTTP_200_OK
         events = self._alias_events(capture, TOKEN_ON_PROJECT_PATH_USED_EVENT)
-        assert [event["properties"]["token_matches_path"] for event in events] == expected
+        assert [(event["properties"]["token_matches_path"], event["properties"]["team_id"]) for event in events] == [
+            (matches, teams[team].id) for matches, team in expected
+        ]
 
     def test_recording_failure_does_not_fail_the_request(self) -> None:
         token = generate_random_token_personal()

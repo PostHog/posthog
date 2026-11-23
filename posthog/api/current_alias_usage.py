@@ -1,5 +1,4 @@
 import hashlib
-from collections.abc import Mapping
 from enum import StrEnum
 
 from django.conf import settings
@@ -9,7 +8,13 @@ from django.http import HttpRequest
 import structlog
 import posthoganalytics
 
-from posthog.api.scope_resolution import CURRENT_ALIAS, is_flat_route, scope_resolution, token_on_project_path
+from posthog.api.scope_resolution import (
+    CURRENT_ALIAS,
+    TokenOnProjectPath,
+    is_flat_route,
+    scope_resolution,
+    token_on_project_path,
+)
 from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.dataclasses import frozen
@@ -78,14 +83,13 @@ def current_alias_scope(path: str) -> CurrentAliasScope | None:
 def record_scope_usage(request: HttpRequest, *, route: str, status_class: str) -> None:
     """Report a request that names its scope as `@current`, reaches a route that takes the project from the user,
     or names its project in the path and also carries a token that decides it."""
-    extra_attributes: dict[str, bool] = {}
+    token_on_path: TokenOnProjectPath | None = None
     if scope := current_alias_scope(request.path):
         report = _CURRENT_ALIAS_REPORT
     elif is_flat_route(request):
         report, scope = _FLAT_ROUTE_REPORT, CurrentAliasScope.PROJECT
     elif token_on_path := token_on_project_path(request):
         report, scope = _TOKEN_ON_PROJECT_PATH_REPORT, CurrentAliasScope.PROJECT
-        extra_attributes["token_matches_path"] = token_on_path.token_matches_path
     else:
         return
     # Analytics must never fail the request it observes.
@@ -96,7 +100,7 @@ def record_scope_usage(request: HttpRequest, *, route: str, status_class: str) -
             scope=scope,
             route=route,
             status_class=status_class,
-            extra_attributes=extra_attributes,
+            token_on_path=token_on_path,
         )
     except Exception:
         logger.warning("scope_usage_record_failed", exc_info=True)
@@ -118,7 +122,7 @@ def _record(
     scope: CurrentAliasScope,
     route: str,
     status_class: str,
-    extra_attributes: Mapping[str, bool],
+    token_on_path: TokenOnProjectPath | None,
 ) -> None:
     user = request.user
     # The authenticator's tag can be missing when the middleware reads it, so an Authorization header alone marks a
@@ -131,6 +135,7 @@ def _record(
     source = str(get_query_tag_value("source") or "")
     token_in_query = any(param in request.GET for param in TOKEN_QUERY_PARAMS)
     method = request.method or ""
+    token_attributes = {"token_matches_path": token_on_path.token_matches_path} if token_on_path else {}
     resolution = scope_resolution(request)
     project_from = resolution.source.value if resolution else ""
     credential_pins_scope = resolution.credential_pins_scope if resolution else False
@@ -150,11 +155,14 @@ def _record(
                 "project_from": project_from,
                 "credential_pins_scope": credential_pins_scope,
                 "status_class": status_class,
-                **extra_attributes,
+                **token_attributes,
             },
         )
 
-    if access_method in UNATTRIBUTED_ACCESS_METHODS or scope == CurrentAliasScope.PERSONAL_API_KEY:
+    # A token on a project path comes from a caller choosing it, not from the web app, so sessions get an event too.
+    if (
+        access_method in UNATTRIBUTED_ACCESS_METHODS and token_on_path is None
+    ) or scope == CurrentAliasScope.PERSONAL_API_KEY:
         return
 
     # Synthetic principals such as team secret tokens share one pk, so their distinct_id is what tells callers apart.
@@ -174,7 +182,7 @@ def _record(
         oauth_application_id,
         project_from,
         credential_pins_scope,
-        tuple(sorted(extra_attributes.items())),
+        tuple(sorted(token_attributes.items())),
     )
     dedupe_key = f"{report.dedupe_prefix}:" + hashlib.sha256(repr(dedupe_parts).encode()).hexdigest()
     if not dedupe_cache.add(dedupe_key, True, timeout=ATTRIBUTION_DEDUPE_SECONDS):
@@ -182,7 +190,9 @@ def _record(
 
     # Foreign key columns give the ids without a query. `object` admits SyntheticUser, which request.user omits.
     principal: object = request.user
-    if isinstance(principal, SyntheticUser):
+    if token_on_path is not None:
+        team_id, organization_id = token_on_path.team_id, token_on_path.organization_id
+    elif isinstance(principal, SyntheticUser):
         team_id, organization_id = principal.team.pk, principal.team.organization_id
     else:
         team_id, organization_id = (
@@ -211,7 +221,7 @@ def _record(
             "oauth_application_id": oauth_application_id,
             "origin": sanitize_header_value(request.headers.get("Origin")),
             "team_id": team_id,
-            **extra_attributes,
+            **token_attributes,
         },
         groups=groups,
     )
