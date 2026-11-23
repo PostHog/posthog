@@ -3357,14 +3357,23 @@ class EmailSendingRecentRatesSerializer(serializers.Serializer):
     complaint_rate = serializers.FloatField(
         read_only=True, help_text="Spam complaints divided by emails sent, from 0 to 1."
     )
+    complaints = serializers.IntegerField(
+        read_only=True,
+        help_text="Spam complaints received in the window, including complaints about emails sent before it.",
+    )
     max_bounce_rate = serializers.FloatField(read_only=True, help_text="Bounce rate above which the allowance drops.")
     max_complaint_rate = serializers.FloatField(
         read_only=True, help_text="Spam complaint rate above which the allowance drops."
     )
-    within_limits = serializers.BooleanField(
+    bounces_within_limits = serializers.BooleanField(
         read_only=True,
-        help_text="False when the daily check would lower the allowance on these rates. A window with too few emails "
-        "to judge counts as within limits.",
+        help_text="False when the daily check would lower the allowance because of bounces. A window with too few "
+        "emails to judge counts as within limits.",
+    )
+    complaints_within_limits = serializers.BooleanField(
+        read_only=True,
+        help_text="False when the daily check would lower the allowance because of spam complaints. A window with too "
+        "few emails and complaints to judge counts as within limits.",
     )
 
 
@@ -3382,9 +3391,11 @@ EMAIL_SENDING_ALLOWANCE_CHANGE_REASONS = [
 
 
 class EmailSendingAllowanceChangeSerializer(serializers.Serializer):
-    changed_at = serializers.DateTimeField(read_only=True)
-    previous_emails_per_day = serializers.IntegerField(read_only=True)
-    emails_per_day = serializers.IntegerField(read_only=True)
+    changed_at = serializers.DateTimeField(read_only=True, help_text="When the allowance changed.")
+    previous_emails_per_day = serializers.IntegerField(
+        read_only=True, help_text="Emails allowed per day before the change."
+    )
+    emails_per_day = serializers.IntegerField(read_only=True, help_text="Emails allowed per day after the change.")
     reason = serializers.CharField(
         read_only=True,
         help_text="Why the allowance changed. One of: " + ", ".join(EMAIL_SENDING_ALLOWANCE_CHANGE_REASONS) + ".",

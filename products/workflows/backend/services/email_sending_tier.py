@@ -61,7 +61,7 @@ class TeamSendingHistory:
         return min(1.0, self.hard_bounced / self.sent) if self.sent else 0.0
 
     @property
-    def rates_are_clean(self) -> bool:
+    def complaints_are_clean(self) -> bool:
         if self.sent == 0:
             # Nothing sent means no rate to measure, and callers pair this with the volume bar,
             # which a team that sent nothing cannot clear. Complaints still count through the
@@ -72,15 +72,24 @@ class TeamSendingHistory:
         # complaint per 1,000 sends is exactly the line, so on a smaller window a single complaint
         # would read as dirty. Below the floor, complaints only count through the absolute
         # backstop, and the bounce rate does not count at all.
-        complaints_are_dirty = self.complaint_rate > settings.WORKFLOWS_EMAIL_TIER_MAX_COMPLAINT_RATE and (
-            self.sent >= settings.WORKFLOWS_EMAIL_TIER_COMPLAINT_RATE_MIN_SENDS
-            or self.complained >= settings.WORKFLOWS_EMAIL_TIER_COMPLAINT_COUNT_BACKSTOP
+        return not (
+            self.complaint_rate > settings.WORKFLOWS_EMAIL_TIER_MAX_COMPLAINT_RATE
+            and (
+                self.sent >= settings.WORKFLOWS_EMAIL_TIER_COMPLAINT_RATE_MIN_SENDS
+                or self.complained >= settings.WORKFLOWS_EMAIL_TIER_COMPLAINT_COUNT_BACKSTOP
+            )
         )
-        bounces_are_dirty = (
+
+    @property
+    def bounces_are_clean(self) -> bool:
+        return not (
             self.hard_bounce_rate > settings.WORKFLOWS_EMAIL_TIER_MAX_BOUNCE_RATE
             and self.sent >= settings.WORKFLOWS_EMAIL_TIER_BOUNCE_RATE_MIN_SENDS
         )
-        return not (complaints_are_dirty or bounces_are_dirty)
+
+    @property
+    def rates_are_clean(self) -> bool:
+        return self.complaints_are_clean and self.bounces_are_clean
 
     @property
     def observed_rates_are_clean(self) -> bool:
@@ -386,13 +395,16 @@ def build_sending_history_windows(
     before: Optional[datetime] = None,
     team_ids: Optional[list[int]] = None,
     feature: Feature = Feature.ENRICHMENT,
+    workload: Workload = Workload.DEFAULT,
 ) -> SendingHistoryWindows:
     """The full promotion window and the shorter demotion window, from one query.
 
     The recent window is cut on calendar days (UTC), matching the day granularity the metrics are
     fetched at, so its edge can be up to a day coarser than `recent_after`.
     """
-    daily_by_team = _fetch_daily_metrics(after=after, before=before, team_ids=team_ids, feature=feature)
+    daily_by_team = _fetch_daily_metrics(
+        after=after, before=before, team_ids=team_ids, workload=workload, feature=feature
+    )
     recent_key = recent_after.strftime("%Y-%m-%d")
     return SendingHistoryWindows(
         window={team_id: _history_from_daily(team_id, days) for team_id, days in daily_by_team.items()},

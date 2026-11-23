@@ -5,6 +5,7 @@ import { LemonBanner, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tool
 import { dayjs } from 'lib/dayjs'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import type {
@@ -465,9 +466,10 @@ function RecentRateRow({
 }
 
 function RecentRates({ rates, tier }: { rates: EmailSendingRecentRatesApi; tier: number }): JSX.Element {
+    const withinLimits = rates.bounces_within_limits && rates.complaints_within_limits
+    const lateComplaints = rates.emails_sent === 0 && !rates.complaints_within_limits
     const overButTooFew =
-        rates.within_limits &&
-        (rates.bounce_rate > rates.max_bounce_rate || rates.complaint_rate > rates.max_complaint_rate)
+        withinLimits && (rates.bounce_rate > rates.max_bounce_rate || rates.complaint_rate > rates.max_complaint_rate)
     return (
         <div className="space-y-1" data-attr="workflows-sending-allowance-recent-rates">
             <MetricLabel
@@ -478,20 +480,22 @@ function RecentRates({ rates, tier }: { rates: EmailSendingRecentRatesApi; tier:
                 label="Bounces"
                 rate={rates.bounce_rate}
                 limit={rates.max_bounce_rate}
-                judged={!rates.within_limits}
+                judged={!rates.bounces_within_limits}
             />
             <RecentRateRow
                 label="Spam complaints"
                 rate={rates.complaint_rate}
                 limit={rates.max_complaint_rate}
-                judged={!rates.within_limits}
+                judged={!rates.complaints_within_limits}
             />
             <div className="text-xs text-secondary">
                 {humanFriendlyNumber(rates.emails_sent)} emails in the last {rates.window_days} days.{' '}
-                {!rates.within_limits
-                    ? tier > 0
-                        ? 'Rates over the limit can lower your allowance.'
-                        : 'Rates over the limit keep your allowance from going up.'
+                {!withinLimits
+                    ? `${
+                          lateComplaints
+                              ? pluralize(rates.complaints, 'spam complaint') + ' about earlier emails'
+                              : 'Rates over the limit'
+                      } ${tier > 0 ? 'can lower your allowance.' : 'can keep your allowance from going up.'}`
                     : overButTooFew
                       ? 'Too few emails to judge yet, so this does not lower your allowance.'
                       : null}

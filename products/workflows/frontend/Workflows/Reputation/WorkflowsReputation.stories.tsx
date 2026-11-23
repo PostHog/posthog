@@ -115,7 +115,9 @@ const baseResponse: TeamEmailReputationResponseApi = {
             complaint_rate: 0.0002,
             max_bounce_rate: 0.02,
             max_complaint_rate: 0.001,
-            within_limits: true,
+            complaints: 1,
+            bounces_within_limits: true,
+            complaints_within_limits: true,
         },
         recent_changes: [
             {
@@ -271,7 +273,7 @@ export const AllowanceRatesOverLimit: StoryFn = () => {
                     ...baseResponse.sending_allowance!.recent_rates!,
                     emails_sent: 6400,
                     bounce_rate: 0.031,
-                    within_limits: false,
+                    bounces_within_limits: false,
                 },
                 recent_changes: [
                     {

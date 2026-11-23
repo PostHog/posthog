@@ -16,6 +16,7 @@ import structlog
 import posthoganalytics
 
 from posthog.api.app_metrics2 import fetch_app_metric_totals_by_source, fetch_app_metric_totals_by_team_and_source
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature
 from posthog.integrations import CrossTeamFilter, IntegrationManager
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -83,7 +84,7 @@ def team_email_sending_allowance(team_id: int) -> EmailSendingAllowance:
     """
     Usage comes from the send metrics rather than the worker's token buckets, so the numbers match
     what the rest of this page reports. Cached briefly because the endpoint reloads on every search
-    keystroke while these two aggregations do not depend on the search.
+    keystroke while these reads do not depend on the search.
     """
     # Entries are pickles: bump the version when EmailSendingAllowance changes module or shape.
     cache_key = f"workflows_email_sending_allowance_v6_{team_id}"
@@ -123,6 +124,7 @@ def _next_tier_and_recent_rates(
         recent_after=now - timedelta(days=settings.WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS),
         team_ids=[team_id],
         feature=Feature.QUERY,
+        workload=Workload.ONLINE,
     )
     empty = TeamSendingHistory(team_id=team_id, sent=0, hard_bounced=0, complained=0, auto_paused=False, daily_sends={})
     recent = windows.recent.get(team_id, empty)
@@ -133,7 +135,9 @@ def _next_tier_and_recent_rates(
         complaint_rate=recent.complaint_rate,
         max_bounce_rate=settings.WORKFLOWS_EMAIL_TIER_MAX_BOUNCE_RATE,
         max_complaint_rate=settings.WORKFLOWS_EMAIL_TIER_MAX_COMPLAINT_RATE,
-        within_limits=recent.rates_are_clean,
+        complaints=recent.complained,
+        bounces_within_limits=recent.bounces_are_clean,
+        complaints_within_limits=recent.complaints_are_clean,
     )
     if tier >= max_email_sending_tier():
         return None, recent_rates

@@ -278,10 +278,13 @@ class TestEmailReputationAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("clean", 1000, 5, 0, True),
-            ("bounces_over_the_limit", 1000, 30, 0, False),
+            ("clean", 1000, 5, 0, True, True),
+            ("bounces_over_the_limit", 1000, 30, 0, False, True),
+            # One complaint in 500 is over the rate, but under both the minimum sends and the complaint backstop.
+            ("only_bounces_are_judged", 500, 15, 1, False, True),
+            ("late_complaints_with_no_sends", 0, 0, 3, True, False),
             # Over the rate, but under the minimum sends the daily check needs to judge bounces.
-            ("too_few_sends_to_judge", 100, 10, 0, True),
+            ("too_few_sends_to_judge", 100, 10, 0, True, True),
         ]
     )
     @override_settings(
@@ -289,10 +292,19 @@ class TestEmailReputationAPI(APIBaseTest):
         WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS=7,
         WORKFLOWS_EMAIL_TIER_MAX_BOUNCE_RATE=0.02,
         WORKFLOWS_EMAIL_TIER_BOUNCE_RATE_MIN_SENDS=200,
+        WORKFLOWS_EMAIL_TIER_MAX_COMPLAINT_RATE=0.001,
+        WORKFLOWS_EMAIL_TIER_COMPLAINT_RATE_MIN_SENDS=1000,
+        WORKFLOWS_EMAIL_TIER_COMPLAINT_COUNT_BACKSTOP=3,
         HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set(),
     )
     def test_reputation_endpoint_reports_the_rates_the_daily_check_demotes_on(
-        self, _name: str, sent: int, bounced: int, complained: int, within_limits: bool
+        self,
+        _name: str,
+        sent: int,
+        bounced: int,
+        complained: int,
+        bounces_within_limits: bool,
+        complaints_within_limits: bool,
     ):
         daily = {
             self.team.id: {
@@ -308,8 +320,10 @@ class TestEmailReputationAPI(APIBaseTest):
             recent = self._get_reputation({})["sending_allowance"]["recent_rates"]
         assert recent["window_days"] == 7
         assert recent["emails_sent"] == sent
-        assert recent["bounce_rate"] == bounced / sent
-        assert recent["within_limits"] is within_limits
+        assert recent["bounce_rate"] == (bounced / sent if sent else 0)
+        assert recent["complaints"] == complained
+        assert recent["bounces_within_limits"] is bounces_within_limits
+        assert recent["complaints_within_limits"] is complaints_within_limits
 
     @override_settings(
         WORKFLOWS_EMAIL_TIER_DAILY_CAPS=[100, 1000, 3000, 10000],

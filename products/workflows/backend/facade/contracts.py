@@ -459,10 +459,12 @@ class EmailSendingRecentRates:
     emails_sent: int
     bounce_rate: float
     complaint_rate: float
+    complaints: int
     max_bounce_rate: float
     max_complaint_rate: float
-    # The daily check's verdict on these numbers, which also applies its minimum-volume rules.
-    within_limits: bool
+    # The daily check's verdicts on these numbers, which also apply its minimum-volume rules.
+    bounces_within_limits: bool
+    complaints_within_limits: bool
 
 
 @frozen

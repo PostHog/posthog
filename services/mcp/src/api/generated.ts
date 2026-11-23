@@ -42644,17 +42644,24 @@ export namespace Schemas {
       readonly bounce_rate: number;
       /** Spam complaints divided by emails sent, from 0 to 1. */
       readonly complaint_rate: number;
+      /** Spam complaints received in the window, including complaints about emails sent before it. */
+      readonly complaints: number;
       /** Bounce rate above which the allowance drops. */
       readonly max_bounce_rate: number;
       /** Spam complaint rate above which the allowance drops. */
       readonly max_complaint_rate: number;
-      /** False when the daily check would lower the allowance on these rates. A window with too few emails to judge counts as within limits. */
-      readonly within_limits: boolean;
+      /** False when the daily check would lower the allowance because of bounces. A window with too few emails to judge counts as within limits. */
+      readonly bounces_within_limits: boolean;
+      /** False when the daily check would lower the allowance because of spam complaints. A window with too few emails and complaints to judge counts as within limits. */
+      readonly complaints_within_limits: boolean;
     }
 
     export interface EmailSendingAllowanceChange {
+      /** When the allowance changed. */
       readonly changed_at: string;
+      /** Emails allowed per day before the change. */
       readonly previous_emails_per_day: number;
+      /** Emails allowed per day after the change. */
       readonly emails_per_day: number;
       /** Why the allowance changed. One of: clean_and_used, trusted_account, inactive, rates_above_threshold, workflow_auto_paused, ses_reputation_high, ses_tenant_paused, staff_suspension, staff_set. */
       readonly reason: string;
