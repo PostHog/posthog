@@ -197,6 +197,33 @@ GAINSIGHT_PX_ENDPOINTS: dict[str, GainsightPxEndpointConfig] = {
         partition_key=EVENT_DATE_FIELD,
         incremental_fields=EVENT_INCREMENTAL_FIELDS,
     ),
+    "form_submit_events": GainsightPxEndpointConfig(
+        name="form_submit_events",
+        path="/events/formSubmit",
+        data_key="results",
+        pagination="scroll",
+        primary_keys=["eventId"],
+        partition_key=EVENT_DATE_FIELD,
+        incremental_fields=EVENT_INCREMENTAL_FIELDS,
+    ),
+    "email_events": GainsightPxEndpointConfig(
+        name="email_events",
+        path="/events/email",
+        data_key="results",
+        pagination="scroll",
+        primary_keys=["eventId"],
+        partition_key=EVENT_DATE_FIELD,
+        incremental_fields=EVENT_INCREMENTAL_FIELDS,
+    ),
+    "lead_events": GainsightPxEndpointConfig(
+        name="lead_events",
+        path="/events/lead",
+        data_key="results",
+        pagination="scroll",
+        primary_keys=["eventId"],
+        partition_key=EVENT_DATE_FIELD,
+        incremental_fields=EVENT_INCREMENTAL_FIELDS,
+    ),
     # Survey responses are engagement view events filtered to survey content, so they take the same
     # date window filter and scroll pagination as the `/events/*` streams.
     "survey_responses": GainsightPxEndpointConfig(
