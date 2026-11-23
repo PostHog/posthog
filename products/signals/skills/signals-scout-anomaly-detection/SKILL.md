@@ -157,7 +157,6 @@ Anomaly scoring turns on before a project has that history, so `scoring_enabled:
 - A run with no block (a manual run, or a project that does not use the default pre-check) calls `anomaly-search` for the last 3 days with `group_by: insight` and `interval: day`, and reads `scoring_enabled` and `scored_history_ready` from the response.
   - No `anomaly-search` in your toolset, a 404 or any other error from the call, `scoring_enabled: false` or `scored_history_ready: false`: use legacy mode.
   - Both are true: use scored mode. The flagged rows are your candidates (`source: search`). The pre-check judges daily buckets only, so do the same. Apply the same bar as the pre-check yourself, and judge at most 20.
-  - Keep the default noise filter of `anomaly-search`. It hides series with an `anomaly_rate` above 10%, because a series flagged that often is noisy, not unusual. `hidden_series` counts the series it hid. Do not raise `max_anomaly_rate` to find more candidates.
   - Both are true and nothing is flagged: run the source-liveness probe ([`references/source-liveness.md`](references/source-liveness.md)), then close out.
 
 - Write the mode and the candidate source in the close-out summary.
@@ -229,7 +228,7 @@ When in doubt, refresh the baseline memory instead of reporting.
 
 Direct (read-only):
 
-- `anomaly-search` — scored mode: which series of the project's saved trends insights were flagged in a date range, and `scoring_enabled` with `scored_history_ready`, which together pick the mode on a run with no `<precheck_result>` block. A noise filter hides series with an anomaly rate above 10% by default.
+- `anomaly-search` — scored mode: which series of the project's saved trends insights were flagged in a date range, and `scoring_enabled` with `scored_history_ready`, which together pick the mode on a run with no `<precheck_result>` block.
 - `anomaly-insight-get` — scored mode: the full scored history of one insight, every series with each bucket's value, score, flag and detector `details`.
 - `alert-simulate` — legacy mode only, the primary scorer: run PostHog's statistical anomaly detectors on a saved insight's series (no alert required); returns per-point scores + triggered dates. Never with the AI detector (`llm`).
 - `insights-trending-retrieve` — legacy mode: most-viewed insights (discovery / explore).

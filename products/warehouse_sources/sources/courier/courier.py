@@ -1,3 +1,4 @@
+import functools
 import dataclasses
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -26,6 +27,7 @@ from products.warehouse_sources.sources.sdk import (
     SinglePagePaginator,
     SourceResponse,
     build_dependent_resource,
+    format_datetime,
     frozen,
     make_tracked_session,
     rest_api_resource,
@@ -124,7 +126,9 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             "type": "incremental",
             "cursor_path": config.incremental_fields[0]["field"],
             "initial_value": DEFAULT_INCREMENTAL_START,
-            "convert": _to_iso8601,
+            "convert": _to_iso8601
+            if config.incremental_param_style is None
+            else functools.partial(format_datetime, style=config.incremental_param_style),
         }
 
     def data_map(item: dict[str, Any]) -> dict[str, Any]:

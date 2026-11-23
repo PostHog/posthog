@@ -1,6 +1,8 @@
 version: 1
 owners: []
 rules:
+    - match: '/CheatCodes/'
+      owners: team-billing
     - match: '/HogQLEditor/'
       owners: team-data-tools
     - match: '/LiveUserCount/'

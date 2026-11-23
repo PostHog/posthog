@@ -16515,10 +16515,23 @@ export namespace Schemas {
       top_series: AnomalyTopSeries[];
     }
 
+    export interface AnomalyIntervalRange {
+      /** The bucket interval.
+       *
+       * * `hour` - Hour
+       * * `day` - Day
+       * * `week` - Week
+       * * `month` - Month */
+      interval: AnomalyIntervalEnum;
+      /** The applied start of the range for series of this interval, in the project timezone. For `week` it is never later than the start of the last 2 completed weeks, and for `month` the start of the last completed month, so a short range still checks them. For `hour` and `day` it is the requested start. */
+      date_from: string;
+      /** The applied end of the range, in the project timezone. */
+      date_to: string;
+    }
+
     /**
      * * `unusual` - Unusual
      * * `recent` - Recent
-     * * `rate` - Rate
      */
     export type AnomalyOrderEnum = typeof AnomalyOrderEnum[keyof typeof AnomalyOrderEnum];
 
@@ -16526,7 +16539,6 @@ export namespace Schemas {
     export const AnomalyOrderEnum = {
       Unusual: 'unusual',
       Recent: 'recent',
-      Rate: 'rate',
     } as const;
 
     export interface AnomalySeriesRef {
@@ -16671,10 +16683,12 @@ export namespace Schemas {
       scored_days: number;
       /** True when `scored_days` is 14 or more. Until then the project has too little scored history to rely on its scores, even when `scoring_enabled` is true. */
       scored_history_ready: boolean;
-      /** The applied start of the range, in the project timezone. */
+      /** The requested start of the range, in the project timezone. Weekly and monthly series can use an earlier start: see `interval_ranges`. */
       date_from: string;
       /** The applied end of the range, in the project timezone. */
       date_to: string;
+      /** The range applied to the series of each interval the search covers, from `hour` to `month`. Only the requested `interval` when one was passed. Every count of a series row covers the range of its interval. */
+      interval_ranges: AnomalyIntervalRange[];
       /** The applied grouping.
        *
        * * `series` - Series
@@ -16683,17 +16697,12 @@ export namespace Schemas {
       /** The applied order.
        *
        * * `unusual` - Unusual
-       * * `recent` - Recent
-       * * `rate` - Rate */
+       * * `recent` - Recent */
       order: AnomalyOrderEnum;
       /** One row per series, in the requested `order`. Empty unless `group_by` is `series`. */
       series: AnomalySeries[];
       /** One row per insight, in the requested `order`. Empty unless `group_by` is `insight`. */
       insights: AnomalyInsightRow[];
-      /** The applied noise filter limit. 1 means the filter is off. */
-      max_anomaly_rate: number;
-      /** Series that match every other filter but that the noise filter hid, because their anomaly rate over the chart window is above `max_anomaly_rate`. They are left out of the rows, the insight counts and `has_more`. Pass a higher `max_anomaly_rate`, or 1, to see them. */
-      hidden_series: number;
       /** True when rows exist after this page. Read them with `offset` set to `offset + limit`. */
       has_more: boolean;
       /** True when `limit` or a read cap left rows out. */
@@ -16705,6 +16714,11 @@ export namespace Schemas {
          * @nullable
          */
       message: string | null;
+      /**
+         * The newest scored bucket of any series that matches the filters, in the project timezone. It does not depend on `order`, `only_flagged` or the page. Null when no bucket in the range was scored.
+         * @nullable
+         */
+      scored_through: string | null;
     }
 
     export interface AppSandboxContract {
@@ -34620,6 +34634,8 @@ export namespace Schemas {
       readonly can_edit: boolean;
       /** Whether the current user can restore this task. */
       readonly can_restore: boolean;
+      /** Tag names on the task, sorted alphabetically. */
+      readonly tags: readonly string[];
     }
 
     /**
@@ -34641,12 +34657,12 @@ export namespace Schemas {
     /**
      * Value before the change.
      */
-    export type CustomerTaskChangeBefore = string | number | boolean | { [key: string]: unknown } | null;
+    export type CustomerTaskChangeBefore = string | number | boolean | { [key: string]: unknown } | string[] | null;
 
     /**
      * Value after the change.
      */
-    export type CustomerTaskChangeAfter = string | number | boolean | { [key: string]: unknown } | null;
+    export type CustomerTaskChangeAfter = string | number | boolean | { [key: string]: unknown } | string[] | null;
 
     export interface CustomerTaskChange {
       /** Semantic task field that changed. */
@@ -34715,8 +34731,20 @@ export namespace Schemas {
        * * `completed` - Completed
        * * `canceled` - Canceled */
       status?: CustomerTaskStatusEnum;
+      /**
+         * Replacement tag names, up to 100. An empty list removes every tag.
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      tags?: string[];
       /** Archive tasks when true, or restore them when false. */
       archived?: boolean;
+      /** How to apply tags to each task: add merges them (the default), remove deletes them, set replaces all tags.
+       *
+       * * `add` - add
+       * * `remove` - remove
+       * * `set` - set */
+      tags_mode?: BulkUpdateTagsActionEnum;
     }
 
     export interface CustomerTaskBulkUpdate {
@@ -34773,6 +34801,12 @@ export namespace Schemas {
        * * `completed` - Completed
        * * `canceled` - Canceled */
       status?: CustomerTaskStatusEnum;
+      /**
+         * Tag names for the task, up to 100.
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      tags?: string[];
     }
 
     export interface CustomerTaskPage {
@@ -34815,6 +34849,12 @@ export namespace Schemas {
        * * `completed` - Completed
        * * `canceled` - Canceled */
       status?: CustomerTaskStatusEnum;
+      /**
+         * Replacement tag names, up to 100. An empty list removes every tag.
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      tags?: string[];
       /**
          * Replacement task name.
          * @maxLength 400
@@ -37842,6 +37882,8 @@ export namespace Schemas {
       label: string;
       /** Node that set this bound. Null when nothing identifiable set it, and also when it sits outside the caller's access grants: the bound still applies, it just goes unnamed. */
       blocker: SyncFrequencyBlocker | null;
+      /** True when an upstream view held at its pinned cadence sets this bound, so unpinning or speeding up that view lifts it. False when a source sync sets it, and also when the pinned view sits outside the caller's access grants, like `blocker`. Always false for `plan_floor` and `ceiling`. */
+      pinned: boolean;
     }
 
     export interface SyncFrequencyBounds {
@@ -37853,7 +37895,7 @@ export namespace Schemas {
       frequency_mode: FrequencyModeEnum;
       /** Every cadence a picker may show, coarsest-last, each marked allowed or blocked with its cause. Empty outside 'tiered' mode. */
       options: SyncFrequencyOption[];
-      /** The fastest bound: no cadence finer than this is allowed, because the source named here does not sync more often. Null when no source withholds a cadence. */
+      /** The fastest bound: no cadence finer than this is allowed, because no upstream source syncs more often, or because the upstream view named here is pinned to this cadence (see `pinned`). Null when nothing upstream withholds a cadence. */
       floor: SyncFrequencyBound | null;
       /** The fastest cadence the organization's plan allows: no cadence finer than this can be saved. `blocker` is always null. Null when the plan withholds no cadence. */
       plan_floor: SyncFrequencyBound | null;
@@ -42514,6 +42556,20 @@ export namespace Schemas {
          * @maxLength 200
          */
       source_id: string;
+    }
+
+    /**
+     * How email from every project in this PostHog region fared, from AWS SES's own delivery data.
+     */
+    export interface EmailInfrastructureHealth {
+      /** A lower bound on the emails sent during the window, rounded down to one significant figure (1,234,567 sent reads as 1,000,000). The exact count is not exposed. */
+      readonly emails_sent_at_least: number;
+      /** Emails the recipients' mailbox providers accepted, divided by emails sent (0-1), rounded down to 0.001. Acceptance is not inbox placement. */
+      readonly delivery_rate: number;
+      /** Hard (permanent) bounces divided by emails sent (0-1), rounded up to 0.0001. */
+      readonly bounce_rate: number;
+      /** Spam complaints divided by deliveries to mailbox providers that report complaints (0-1), rounded up to 0.0001. */
+      readonly complaint_rate: number;
     }
 
     /**
@@ -56543,6 +56599,18 @@ export namespace Schemas {
       Observe: 'observe',
     } as const;
 
+    /**
+     * * `ci_job` - ci_job
+     * * `commit_status` - commit_status
+     */
+    export type RunGateEnum = typeof RunGateEnum[keyof typeof RunGateEnum];
+
+
+    export const RunGateEnum = {
+      CiJob: 'ci_job',
+      CommitStatus: 'commit_status',
+    } as const;
+
     export interface RunSummary {
       total: number;
       changed: number;
@@ -56567,6 +56635,13 @@ export namespace Schemas {
        * * `exact` - exact
        * * `similar` - similar */
       readonly search_match_type: SearchMatchTypeEnum | null;
+      /** What gates the merge for this run, fixed when the run is created. `ci_job`: the CI job that completes the run fails while snapshots are unresolved. `commit_status`: the commit status Visual Review posts is the required check, and the CI job passes on unresolved snapshots.
+       *
+       * * `ci_job` - ci_job
+       * * `commit_status` - commit_status */
+      readonly gate: RunGateEnum;
+      /** How many open approvals this run rests on have a baseline that changed after the approval, because another pull request merged a different picture for the same snapshot. A run that would pass gets a failing commit status while this is above 0. Update the branch and review the new run. Only for current `commit_status` pull request runs, and only on the single-run read: 0 elsewhere and in lists. */
+      readonly stale_approval_count: number;
       id: string;
       repo_id: string;
       status: string;
@@ -62200,7 +62275,7 @@ export namespace Schemas {
       bounceRate?: number | null;
       conversions?: WebPageDirectoryValue | null;
       googleSearch?: WebPageDirectoryValue | null;
-      serverLogs: number;
+      serverLogs?: number | null;
       timeOnPageP90?: number | null;
       visitors?: WebPageDirectoryValue | null;
     }
@@ -62215,6 +62290,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      preComputeStale?: boolean | null;
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -65284,6 +65361,10 @@ export namespace Schemas {
       label: string;
       /** What the step imports and where it lands in PostHog. */
       description: string;
+      /** Keys of the steps that must be selected too for this one to run, such as `contacts`. Often empty. */
+      needs: string[];
+      /** Whether the step creates or updates people. Each of those counts as one event on the bill. */
+      counts_as_events: boolean;
     }
 
     export interface ImportSettingChoice {
@@ -76712,6 +76793,50 @@ export namespace Schemas {
       specificity_rejection?: SpecificityMetadata | null;
     }
 
+    export interface NoRunNeededInput {
+      /** ID of the Visual Review repo the commit belongs to. */
+      repo_id: string;
+      /** Run type that needs no run at this commit, for example `storybook`. */
+      run_type: string;
+      /**
+         * Full SHA of the commit that gets the passing status.
+         * @pattern ^[0-9a-f]{40}$
+         */
+      commit_sha: string;
+      /** Branch CI ran on. Only logged. */
+      branch: string;
+      /**
+         * Pull request the commit belongs to, if any. Only logged.
+         * @nullable
+         */
+      pr_number?: number | null;
+    }
+
+    /**
+     * * `posted` - posted
+     * * `run_exists` - run_exists
+     * * `status_gate_off` - status_gate_off
+     */
+    export type NoRunNeededOutcomeEnum = typeof NoRunNeededOutcomeEnum[keyof typeof NoRunNeededOutcomeEnum];
+
+
+    export const NoRunNeededOutcomeEnum = {
+      Posted: 'posted',
+      RunExists: 'run_exists',
+      StatusGateOff: 'status_gate_off',
+    } as const;
+
+    export interface NoRunNeededResult {
+      /** `posted`: the passing status was posted. `run_exists`: a run of this commit and run type owns the status, so nothing was posted. `status_gate_off`: the repo does not use the Visual Review commit status as its gate, so the CI job is the check and nothing was posted.
+       *
+       * * `posted` - posted
+       * * `run_exists` - run_exists
+       * * `status_gate_off` - status_gate_off */
+      outcome: NoRunNeededOutcomeEnum;
+      /** What the report did, in one sentence for the CI log. */
+      detail: string;
+    }
+
     export interface NodeAttentionCount {
       /** Models whose last serving run failed or whose scheduled runs are suspended, each counted once. */
       count: number;
@@ -79367,6 +79492,11 @@ export namespace Schemas {
       readonly member_count: number;
       /** @nullable */
       is_ai_data_processing_approved?: boolean | null;
+      /**
+         * When True, AI data processing cannot be turned on through the UI or API, and members cannot ask admins to turn it on. Set at the organization's request.
+         * @nullable
+         */
+      readonly is_ai_data_processing_locked: boolean | null;
       /**
          * When True, this organization allows its data to be used to train PostHog AI models.
          * @nullable
@@ -82730,6 +82860,58 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `experiment` - Experiment
+     */
+    export type ScannerScopeKindEnum = typeof ScannerScopeKindEnum[keyof typeof ScannerScopeKindEnum];
+
+
+    export const ScannerScopeKindEnum = {
+      Experiment: 'experiment',
+    } as const;
+
+    /**
+     * * `all_at_creation` - Every variant the experiment had when the scanner was made
+     * * `user` - A subset someone picked
+     */
+    export type VariantsSourceEnum = typeof VariantsSourceEnum[keyof typeof VariantsSourceEnum];
+
+
+    export const VariantsSourceEnum = {
+      AllAtCreation: 'all_at_creation',
+      User: 'user',
+    } as const;
+
+    /**
+     * An experiment scope: the sessions of people exposed to an experiment, labeled by variant.
+     */
+    export interface ScannerExperimentScope {
+      /** The kind of scope. Only `experiment` exists today.
+       *
+       * * `experiment` - Experiment */
+      kind: ScannerScopeKindEnum;
+      /**
+         * The experiment whose exposed sessions the scanner watches.
+         * @minimum 1
+         */
+      experiment_id: number;
+      /**
+         * Every variant the scanner watches, named explicitly, with no repeats. Read them from the experiment first, because a variant added to the experiment later is not watched until it is added here. Absent only on a scope carried over from the older targeting shapes, which watches every variant.
+         * @maxItems 128
+         * @items.maxLength 400
+         */
+      variants?: string[];
+      /** Whether `variants` was the experiment's full variant set when the scanner was made, or a subset someone picked. The launch receiver adds new variants only to the first.
+       *
+       * * `all_at_creation` - Every variant the experiment had when the scanner was made
+       * * `user` - A subset someone picked */
+      variants_source?: VariantsSourceEnum;
+      /** Whether the budget is spent about evenly across the watched variants. False samples them proportionally to the experiment's rollout. Defaults to true. */
+      balance?: boolean;
+      /** Whether a scanner saved off against a draft experiment turns itself on when that experiment launches. Cleared once it starts. Defaults to false. */
+      start_on_launch?: boolean;
+    }
+
+    /**
      * * `manual` - Turned off by a person
      * * `free_credits_used` - Free credits used
      * * `no_ai_consent` - No AI consent
@@ -82833,6 +83015,13 @@ export namespace Schemas {
       emits_signals?: boolean;
       /** The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed. */
       experiment_targeting?: ScannerExperimentTargeting | null;
+      /** Which sessions the scanner watches beyond its filters, and the label it gives each one. Null watches every session the filters match. Set null to remove the scope. */
+      scope?: ScannerExperimentScope | null;
+      /**
+         * What this scanner's scope watches, for a reader that cannot see the experiment.
+         * @nullable
+         */
+      readonly scope_summary: string | null;
       /** Increments on every config-changing save. Observations snapshot this value. */
       readonly scanner_version: number;
       /**
@@ -91061,6 +91250,12 @@ export namespace Schemas {
        * * `canceled` - Canceled */
       status?: CustomerTaskStatusEnum;
       /**
+         * Replacement tag names, up to 100. An empty list removes every tag.
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      tags?: string[];
+      /**
          * Replacement task name.
          * @maxLength 400
          */
@@ -95305,6 +95500,11 @@ export namespace Schemas {
       /** @nullable */
       is_ai_data_processing_approved?: boolean | null;
       /**
+         * When True, AI data processing cannot be turned on through the UI or API, and members cannot ask admins to turn it on. Set at the organization's request.
+         * @nullable
+         */
+      readonly is_ai_data_processing_locked?: boolean | null;
+      /**
          * When True, this organization allows its data to be used to train PostHog AI models.
          * @nullable
          */
@@ -97224,6 +97424,13 @@ export namespace Schemas {
       emits_signals?: boolean;
       /** The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed. */
       experiment_targeting?: ScannerExperimentTargeting | null;
+      /** Which sessions the scanner watches beyond its filters, and the label it gives each one. Null watches every session the filters match. Set null to remove the scope. */
+      scope?: ScannerExperimentScope | null;
+      /**
+         * What this scanner's scope watches, for a reader that cannot see the experiment.
+         * @nullable
+         */
+      readonly scope_summary?: string | null;
       /** Increments on every config-changing save. Observations snapshot this value. */
       readonly scanner_version?: number;
       /**
@@ -101908,6 +102115,7 @@ export namespace Schemas {
      * * `unsnooze` - Unsnooze
      * * `reset` - Reset
      * * `config_change` - Config change
+     * * `handback` - Handback
      */
     export type PlatformAlertEventKindEnum = typeof PlatformAlertEventKindEnum[keyof typeof PlatformAlertEventKindEnum];
 
@@ -101920,12 +102128,13 @@ export namespace Schemas {
       Unsnooze: 'unsnooze',
       Reset: 'reset',
       ConfigChange: 'config_change',
+      Handback: 'handback',
     } as const;
 
     export interface PlatformAlertEvent {
       /** When it happened. */
       occurred_at: string;
-      /** check for a check that moved the alert's state or failed, else the change a person made.
+      /** check for a check that moved the alert's state or failed, handback for a logs alert an operator handed back to the logs stack, else the change a person made.
        *
        * * `check` - Check
        * * `enable` - Enable
@@ -101933,7 +102142,8 @@ export namespace Schemas {
        * * `snooze` - Snooze
        * * `unsnooze` - Unsnooze
        * * `reset` - Reset
-       * * `config_change` - Config change */
+       * * `config_change` - Config change
+       * * `handback` - Handback */
       kind: PlatformAlertEventKindEnum;
       /** The alert's state before it.
        *
@@ -102162,6 +102372,8 @@ export namespace Schemas {
       region: string;
       /** Base URL requests through this connection are sent to. */
       base_url: string;
+      /** API scopes the user granted to this connection, e.g. `insight:read`. Empty when they are not known. */
+      granted_scopes: string[];
     }
 
     export interface PostHogConnectionTargetError {
@@ -105263,6 +105475,8 @@ export namespace Schemas {
       agents: AgentSource | null;
       /** How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse. */
       complexity: number;
+      /** Rank score from complexity, the people who built or viewed the measures, and how many measures the proposal merges. A higher score ranks first. 0 on scans before the score existed. */
+      priority: number;
     }
 
     /**
@@ -107234,6 +107448,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      preComputeStale?: boolean | null;
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -117728,6 +117944,11 @@ export namespace Schemas {
       is_old: boolean;
       /** True when this SDK must be replaced by a supported successor rather than upgraded in place. */
       migration_required: boolean;
+      /**
+         * URL of the migration guide for the latest major. Null unless the in-use major is behind latest and a guide exists.
+         * @nullable
+         */
+      migration_guide_url: string | null;
       /** UI severity badge — 'none' when healthy, 'warning' when outdated, 'danger' when the majority of team SDKs are outdated.
        *
        * * `none` - none
@@ -125860,6 +126081,8 @@ export namespace Schemas {
       readonly email_sending_suspension_reason: string;
       /** The project's sending tier, what it allows, and how much of it has been used; null when the caller lacks project-wide workflow access. Tiers grow on their own as the project builds a clean sending record. */
       readonly sending_allowance: EmailSendingAllowance | null;
+      /** Sending health across every project in this PostHog region over the last 30 whole days, which all send through the same infrastructure. Null when AWS is unreachable or has no data, or while the feature is not yet released to this project. */
+      readonly infrastructure: EmailInfrastructureHealth | null;
     }
 
     export interface TeamLogsConfig {
@@ -127989,6 +128212,8 @@ export namespace Schemas {
       draft_definition: string | null;
       /** How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse. */
       complexity: number;
+      /** Rank score from complexity and the people who built or viewed the measure. A higher score ranks first. 0 on scans before the score existed. */
+      priority: number;
     }
 
     export interface UnquarantineQuery {
@@ -134334,6 +134559,49 @@ export namespace Schemas {
       results: _TracingLatencyHeatmapCell[];
     }
 
+    export interface _TracingTimeseriesQueryBody {
+      /** Date range for the query. Defaults to last hour. */
+      dateRange?: _TracingDateRange;
+      /** Filter by service names. */
+      serviceNames?: string[];
+      /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
+      statusCodes?: number[];
+      /** Property filters for the query. */
+      filterGroup?: _SpanPropertyFilter[];
+    }
+
+    export interface _TracingLatencyPercentilesRequest {
+      /** The latency percentiles query to execute. */
+      query: _TracingTimeseriesQueryBody;
+    }
+
+    export interface _TracingLatencyPercentilesRow {
+      /** ISO 8601 UTC start of the time bucket. */
+      time: string;
+      /** Spans the percentiles cover in this bucket: server and consumer spans, or root spans when the matching spans in the window hold neither. 0 for a bucket with no such spans. */
+      count: number;
+      /**
+         * Median duration in nanoseconds. Null when count is 0.
+         * @nullable
+         */
+      p50_ns: number | null;
+      /**
+         * 95th percentile duration in nanoseconds. Null when count is 0.
+         * @nullable
+         */
+      p95_ns: number | null;
+      /**
+         * 99th percentile duration in nanoseconds. Null when count is 0.
+         * @nullable
+         */
+      p99_ns: number | null;
+    }
+
+    export interface _TracingLatencyPercentilesResponse {
+      /** One row per time bucket in the window, ordered by time, on the sparkline's time axis. */
+      results: _TracingLatencyPercentilesRow[];
+    }
+
     /**
      * * `timestamp` - timestamp
      * * `duration` - duration
@@ -139843,6 +140111,12 @@ export namespace Schemas {
      * @minLength 1
      */
     statuses?: string;
+    /**
+     * JSON-encoded list of tag names, such as ["renewal", "urgent"]. Returns tasks with any of the tags.
+     * @minLength 1
+     * @maxLength 306402
+     */
+    tags?: string;
     };
 
     export type CustomerTasksListArchiveState = typeof CustomerTasksListArchiveState[keyof typeof CustomerTasksListArchiveState];
@@ -147577,6 +147851,18 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type MessagingEmailsStatusRetrieveParams = {
+    /**
+     * The `idempotency_key` the send was made with, when you don't have its `message_id`, for example after a lost response.
+     * @minLength 1
+     */
+    idempotency_key?: string;
+    /**
+     * The `message_id` that the send returned.
+     */
+    message_id?: string;
+    };
+
     export type MessagingCategoriesListParams = {
     /**
      * Number of results to return per page.
@@ -149354,12 +149640,6 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * The noise filter: hide flagged series whose anomaly rate over the chart window of their interval is above this share, from 0 to 1. The chart window is the one `include_points` describes, not the requested range. A series flagged in many of its buckets is noisy, not unusual. Defaults to 0.1. Pass 1 to turn the filter off. A series with fewer than 10 scored buckets in its chart window is always shown, because its rate means little. `hidden_series` in the response counts the series it hid.
-     * @minimum 0
-     * @maximum 1
-     */
-    max_anomaly_rate?: number;
-    /**
      * Rows to skip in the sorted result. Pass the previous `offset` plus `limit` when `has_more` is true.
      * @minimum 0
      * @maximum 10000
@@ -149370,11 +149650,10 @@ export namespace Schemas {
      */
     only_flagged?: boolean;
     /**
-     * `unusual` puts flagged series first, and among them the series that flagged the smallest share of the scored buckets in the chart window of its interval, because a flag on a series that rarely flags is the surprising one. A series with fewer than 10 scored buckets in its chart window sorts after the series with a share. The chart window ends at `date_to` and does not follow `date_from`. `recent` puts the series whose newest flagged bucket ended last first, whatever its interval, so an hour flagged this morning sorts above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
+     * `unusual` puts flagged series first, and among them the series that flagged the smallest share of the scored buckets in the chart window of its interval, because a flag on a series that rarely flags is the surprising one. A series with fewer than 10 scored buckets in its chart window sorts after the series with a share. The chart window ends at `date_to` and does not follow `date_from`. `recent` puts the series whose newest flagged bucket ended last first, whatever its interval, so an hour flagged this morning sorts above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as `unusual`. With `group_by: insight`, each insight sorts by its first series.
      *
      * * `unusual` - Unusual
      * * `recent` - Recent
-     * * `rate` - Rate
      * @minLength 1
      */
     order?: SignalsAnomaliesSearchRetrieveOrder;
@@ -149409,7 +149688,6 @@ export namespace Schemas {
     export const SignalsAnomaliesSearchRetrieveOrder = {
       Unusual: 'unusual',
       Recent: 'recent',
-      Rate: 'rate',
     } as const;
 
     export type SignalsProcessingListParams = {
@@ -149564,7 +149842,7 @@ export namespace Schemas {
      */
     teammate_uuid?: string;
     /**
-     * Filter by whether the report has no owner and no draft, open, or unknown PR. Resolved reports are never unclaimed.
+     * Filter by whether the report has no active claim and no draft, open, or unknown PR. True returns the reports with no work in progress. Suggested reviewers do not count as a claim. Resolved reports are never unclaimed. A suppressed report can be unclaimed, but it cannot be claimed until it is restored.
      */
     unclaimed?: boolean;
     /**
@@ -149861,7 +150139,7 @@ export namespace Schemas {
      */
     teammate_uuid?: string;
     /**
-     * Filter by whether the report has no owner and no draft, open, or unknown PR. Resolved reports are never unclaimed.
+     * Filter by whether the report has no active claim and no draft, open, or unknown PR. True returns the reports with no work in progress. Suggested reviewers do not count as a claim. Resolved reports are never unclaimed. A suppressed report can be unclaimed, but it cannot be claimed until it is restored.
      */
     unclaimed?: boolean;
     /**
@@ -152032,7 +152310,7 @@ export namespace Schemas {
      */
     enabled?: string;
     /**
-     * Filter to scanners whose targeting watches the given experiment.
+     * Filter to scanners whose scope watches the given experiment.
      */
     experiment_id?: string;
     /**
@@ -152052,6 +152330,12 @@ export namespace Schemas {
      */
     scanner_type?: string;
     /**
+     * Filter to scanners whose scope is of this kind.
+     *
+     * * `experiment` - Experiment
+     */
+    scope_kind?: VisionScannersListScopeKind;
+    /**
      * Case-insensitive substring match across name, description, and the prompt in scanner_config.
      */
     search?: string;
@@ -152060,6 +152344,13 @@ export namespace Schemas {
      */
     tags?: string;
     };
+
+    export type VisionScannersListScopeKind = typeof VisionScannersListScopeKind[keyof typeof VisionScannersListScopeKind];
+
+
+    export const VisionScannersListScopeKind = {
+      Experiment: 'experiment',
+    } as const;
 
     export type VisionScannersImpactRetrieveParams = {
     /**
