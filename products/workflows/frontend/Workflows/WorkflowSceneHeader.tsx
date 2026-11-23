@@ -18,6 +18,7 @@ import {
     SceneMenuBarSeparator,
 } from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { TodayScenePinButton } from '~/layout/today/TodayScenePinButton'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { workflowSuggestionsAvailabilityLogic } from './suggestions/workflowSuggestionsAvailabilityLogic'
@@ -168,6 +169,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
             )}
             <SceneTitleSection
                 name={workflow?.name}
+                nameAction={<TodayScenePinButton />}
                 description={workflow?.description}
                 resourceType={{ type: 'workflows' }}
                 canEdit={canEdit}

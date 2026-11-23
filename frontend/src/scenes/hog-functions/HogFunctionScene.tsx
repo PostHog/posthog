@@ -42,6 +42,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { TodayAutomateRecent } from '~/layout/today/todayAutomateRecents'
 import { TODAY_RECENT_KEY } from '~/layout/today/todayRecents'
+import { TodayScenePinButton } from '~/layout/today/TodayScenePinButton'
 import {
     ActivityScope,
     Breadcrumb,
@@ -457,6 +458,7 @@ function HogFunctionHeader(): JSX.Element {
         <>
             <SceneTitleSection
                 name={configuration.name}
+                nameAction={<TodayScenePinButton />}
                 description={configuration.description || ''}
                 markdown
                 descriptionAlwaysVisible

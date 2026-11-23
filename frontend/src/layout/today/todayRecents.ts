@@ -31,38 +31,29 @@ export const TODAY_RECENT_KEY = 'todayRecent'
 
 export const TODAY_RECENTS_LIMIT = 10
 
-export function isPeopleRecent(recent: TodayRecent): recent is TodayPeopleRecent {
-    return (TODAY_PEOPLE_RECENT_TYPES as readonly string[]).includes(recent.type)
+interface TodayRecentByPane {
+    people: TodayPeopleRecent
+    monitor: TodayMonitorRecent
+    release: TodayReleaseRecent
+    automate: TodayAutomateRecent
+    data: TodayDataRecent
 }
 
-export function isAutomateRecent(recent: TodayRecent): recent is TodayAutomateRecent {
-    return (TODAY_AUTOMATE_RECENT_TYPES as readonly string[]).includes(recent.type)
-}
-
-export function isDataRecent(recent: TodayRecent): recent is TodayDataRecent {
-    return (TODAY_DATA_RECENT_TYPES as readonly string[]).includes(recent.type)
-}
-
-export function isReleaseRecent(recent: TodayRecent): recent is TodayReleaseRecent {
-    return recent.type === 'release'
-}
-
-/** Monitor takes every record that no other pane claims. */
-export function isMonitorRecent(recent: TodayRecent): recent is TodayMonitorRecent {
-    return !isPeopleRecent(recent) && !isAutomateRecent(recent) && !isDataRecent(recent) && !isReleaseRecent(recent)
+/** The record types each pane claims. Monitor has no entry because it takes every record no other pane claims. */
+const RECENT_TYPES_BY_PANE: Record<Exclude<TodayRecentPane, 'monitor'>, readonly string[]> = {
+    people: TODAY_PEOPLE_RECENT_TYPES,
+    release: ['release'],
+    automate: TODAY_AUTOMATE_RECENT_TYPES,
+    data: TODAY_DATA_RECENT_TYPES,
 }
 
 export function recentPane(recent: TodayRecent): TodayRecentPane {
-    if (isPeopleRecent(recent)) {
-        return 'people'
-    }
-    if (isAutomateRecent(recent)) {
-        return 'automate'
-    }
-    if (isDataRecent(recent)) {
-        return 'data'
-    }
-    return isReleaseRecent(recent) ? 'release' : 'monitor'
+    const claimed = Object.entries(RECENT_TYPES_BY_PANE).find(([, types]) => types.includes(recent.type))
+    return (claimed?.[0] as TodayRecentPane | undefined) ?? 'monitor'
+}
+
+export function isPaneRecent<P extends TodayRecentPane>(recent: TodayRecent, pane: P): recent is TodayRecentByPane[P] {
+    return recentPane(recent) === pane
 }
 
 /** Puts a visit first. Reloading the same page changes nothing, so the list stays stable while a page loads. */

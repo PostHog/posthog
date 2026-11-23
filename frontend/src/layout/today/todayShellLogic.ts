@@ -19,11 +19,12 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { getNavProductPages, navProductHrefForPath } from '~/layout/panel-layout/navbar/tabs/navProductItems'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
-import { automateProductForPath } from './todayAutomate'
-import { dataProductForPath, isDefinitionDetailPath } from './todayData'
-import { isErrorTrackingIssuePath, monitorProductForPath } from './todayMonitor'
+import { isDefinitionDetailPath } from './todayData'
+import { isErrorTrackingIssuePath } from './todayMonitor'
 import { isTodayPaneEnabled } from './todayPaneFlags'
+import { paneConfigProductForPath } from './todayPaneProducts'
 import { isPeopleDetailPath, isPeopleListPath } from './todayPeople'
+import { TODAY_PRODUCT_PANES, isProductPane } from './todayProductPanes'
 
 export type TodayRailPane =
     | 'home'
@@ -162,14 +163,11 @@ export function railPaneForPath(pathname: string, featureFlags: FeatureFlagsSet)
     ) {
         return 'analytics'
     }
-    if (isTodayPaneEnabled('monitor', featureFlags) && monitorProductForPath(path)) {
-        return 'monitor'
-    }
-    if (isTodayPaneEnabled('automate', featureFlags) && automateProductForPath(path)) {
-        return 'automate'
-    }
-    if (isTodayPaneEnabled('data', featureFlags) && dataProductForPath(path)) {
-        return 'data'
+    const productPane = TODAY_PRODUCT_PANES.find(
+        (config) => isTodayPaneEnabled(config.pane, featureFlags) && paneConfigProductForPath(config, path)
+    )
+    if (productPane) {
+        return productPane.pane
     }
     if (isUnderPath(path, '/settings') || settingsSectionSceneForPath(path)) {
         return 'settings'
@@ -212,8 +210,7 @@ function productsPaneListsPath(path: string): boolean {
  */
 function productsPaneKeepsPath(path: string, routePane: TodayRailPane | null): boolean {
     return (
-        ((routePane === 'analytics' || routePane === 'monitor' || routePane === 'automate' || routePane === 'data') &&
-            productsPaneListsPath(path)) ||
+        ((routePane === 'analytics' || isProductPane(routePane)) && productsPaneListsPath(path)) ||
         (routePane === 'people' && isPeopleListPath(path))
     )
 }

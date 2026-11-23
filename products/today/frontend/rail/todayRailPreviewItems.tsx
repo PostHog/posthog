@@ -5,10 +5,9 @@ import { libraryObjectHref, libraryObjectName } from 'scenes/library/libraryUtil
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { escapePath } from '~/layout/panel-layout/ProjectTree/utils'
-import { TODAY_AUTOMATE_RECENT_TYPES } from '~/layout/today/todayAutomateRecents'
-import { TODAY_MONITOR_RECENT_TYPES } from '~/layout/today/todayMonitor'
 import { newestByName } from '~/layout/today/todayNewestByName'
 import { TODAY_PEOPLE_RECENT_TYPES } from '~/layout/today/todayPeople'
+import { TODAY_PRODUCT_PANES } from '~/layout/today/todayProductPanes'
 import type { StoredReleaseRecent } from '~/layout/today/todayRecents'
 import { TodayRailPane } from '~/layout/today/todayShellLogic'
 import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
@@ -27,9 +26,8 @@ const PEOPLE_ICONS: Record<string, JSX.Element> = {
 
 const PANE_TYPES: Partial<Record<TodayRailPane, readonly string[]>> = {
     people: TODAY_PEOPLE_RECENT_TYPES,
-    monitor: TODAY_MONITOR_RECENT_TYPES,
-    automate: TODAY_AUTOMATE_RECENT_TYPES,
     release: ['feature_flag', 'experiment', 'early_access_feature', 'release'],
+    ...Object.fromEntries(TODAY_PRODUCT_PANES.map((config) => [config.pane, config.recentTypes])),
 }
 
 export function railEntryMatchesPane(entry: FileSystemEntry, pane: TodayRailPane): boolean {

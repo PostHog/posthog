@@ -6280,7 +6280,6 @@ export type FileSystemIconType =
     | 'mcp_server'
     | 'streamlit_app'
     | 'sql_variable'
-    | 'subscriptions'
     | 'business_knowledge'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {

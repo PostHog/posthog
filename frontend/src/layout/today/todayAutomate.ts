@@ -1,55 +1,76 @@
-import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { getNavProductPages } from '~/layout/panel-layout/navbar/tabs/navProductItems'
-import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
+import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
 
-import {
-    TodayPaneProduct,
-    TodayPaneProductSpec,
-    paneProductForPath,
-    paneProductsFor,
-    shownPaneProducts,
-} from './todayPaneProducts'
+import { TODAY_AUTOMATE_RECENT_TYPES, TodayAutomateRecent } from './todayAutomateRecents'
+import type { TodayPaneProductSpec, TodayProductPaneConfig } from './todayPaneProducts'
+import { TODAY_RECENTS_LIMIT } from './todayRecents'
 
 function automateSpecs(): TodayPaneProductSpec[] {
     return [
         { href: urls.workflows() },
         { href: urls.transactional() },
         // Batch export pages live under /pipeline and open from the Batch exports tab of Destinations.
-        { href: urls.destinations(), section: '/pipeline/batch-exports' },
-        { href: urls.subscriptions() },
-        { href: urls.inbox('scouts') },
-    ]
-}
-
-/**
- * Subscriptions and Scouts have no page of their own in the product list, so Automate adds one for each. Scouts copies
- * the Self-driving page, so it keeps that page's flag.
- */
-function automatePages(): FileSystemImport[] {
-    const pages = getNavProductPages()
-    const inbox = pages.find((page) => page.href === urls.inbox())
-    return [
-        ...pages,
+        { href: urls.destinations(), section: '/pipeline/batch-exports', iconType: 'data_pipeline' },
         {
-            path: 'Subscriptions',
-            iconType: 'subscriptions' as FileSystemIconType,
             href: urls.subscriptions(),
+            item: { path: 'Subscriptions', iconType: 'inbox' as FileSystemIconType, href: urls.subscriptions() },
+            // Subscriptions shares the Self-driving icon with Scouts.
+            key: 'subscriptions',
         },
-        ...(inbox ? [{ ...inbox, path: 'Scouts', displayLabel: 'Scouts', href: urls.inbox('scouts') }] : []),
+        {
+            href: urls.inbox('scouts'),
+            // A tab of Self-driving, so it carries that product's flag and scene.
+            item: {
+                path: 'Scouts',
+                iconType: 'inbox' as FileSystemIconType,
+                href: urls.inbox('scouts'),
+                flag: FEATURE_FLAGS.PRODUCT_AUTONOMY,
+                sceneKey: 'Inbox',
+            },
+        },
     ]
 }
 
-export function automateProducts(): TodayPaneProduct[] {
-    return paneProductsFor(automatePages(), automateSpecs())
+/** Destinations viewed before, from the server's view history. Workflows and subscriptions record no server views. */
+export function destinationRecentsFromViews(entries: FileSystemEntry[]): TodayAutomateRecent[] {
+    return entries.flatMap((entry): TodayAutomateRecent[] =>
+        entry.ref && entry.last_viewed_at
+            ? [
+                  {
+                      type: 'destination',
+                      name: splitPath(entry.path).at(-1) ?? entry.path,
+                      href: urls.hogFunction(entry.ref),
+                  },
+              ]
+            : []
+    )
 }
 
-export function automateItems(featureFlags: FeatureFlagsSet): TodayPaneProduct[] {
-    return shownPaneProducts(automateProducts(), featureFlags)
+async function loadViewedDestinations(): Promise<TodayAutomateRecent[]> {
+    const response = await api.fileSystem.list({
+        type: 'hog_function/destination',
+        orderBy: '-last_viewed_at',
+        limit: TODAY_RECENTS_LIMIT,
+    })
+    return destinationRecentsFromViews(response.results)
 }
 
-/** Matches against every Automate product, shown or not, so a page keeps its pane while a flag hides its row. */
-export function automateProductForPath(path: string): TodayPaneProduct | undefined {
-    return paneProductForPath(automateProducts(), path)
+export const AUTOMATE_PANE: TodayProductPaneConfig = {
+    pane: 'automate',
+    label: 'Automate',
+    lead: { id: 'products', rowDataAttr: 'automate-sidebar-product', specs: automateSpecs },
+    sections: [],
+    recentTypes: TODAY_AUTOMATE_RECENT_TYPES,
+    recentIcons: { workflow: 'workflows', destination: 'data_pipeline', subscription: 'inbox', scout: 'inbox' },
+    recentDescriptions: {
+        workflow: 'A workflow. Open it to see its steps, runs, and metrics.',
+        destination: 'A destination. Open it to see its configuration and the events it sent.',
+        subscription: 'A subscription. Open it to see its schedule and delivery history.',
+        scout: 'A scout. Open it to see its runs, reports, and what it has learned.',
+    },
+    loadRecentHistory: loadViewedDestinations,
 }
