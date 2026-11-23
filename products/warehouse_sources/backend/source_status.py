@@ -35,16 +35,22 @@ class SchemaErrorState(SchemaSyncState, Protocol):
     def updated_at(self) -> datetime | None: ...
 
 
-def effective_source_status(schemas: Iterable[SchemaSyncState], *, fallback: str) -> str:
+def effective_source_status(
+    schemas: Iterable[SchemaSyncState], *, fallback: str, has_schemas: bool | None = None
+) -> str:
     """Roll the states of a source's non-deleted schemas up into one source status.
 
     Only an enabled schema counts: a disabled one keeps whatever state it stopped in. A source
     whose schemas are all disabled is paused. `fallback` is the stored source status, used only
     when the source has no schemas or none of its enabled schemas has a known state.
+
+    A caller that passes only the enabled schemas says in `has_schemas` whether any exist.
     """
     schemas = list(schemas)
     syncing = [schema for schema in schemas if schema.should_sync]
-    if schemas and not syncing:
+    if has_schemas is None:
+        has_schemas = bool(schemas)
+    if has_schemas and not syncing:
         return SOURCE_STATUS_WITH_NO_ENABLED_SCHEMA
     for schema_status, source_status in SOURCE_STATUS_BY_SCHEMA_STATUS:
         if any(schema.status == schema_status for schema in syncing):

@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
+from django.db.models import Exists, F, OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.utils import timezone
 
 from posthog.uuidt import UUIDT
@@ -310,30 +310,45 @@ def list_sources(
 def list_source_health(team_id: int) -> list[contracts.ExternalDataSourceHealth]:
     """Live sources with their effective status, newest completed run and newest schema error.
 
-    The status and error roll up the source's schemas the same way the source list does.
+    The status and error roll up the source's enabled schemas the same way the source list does.
+    Only enabled schemas are read, so a source that discovered many tables and enabled a few costs
+    no more than its enabled ones.
 
-    One correlated probe per source for the newest run, so the cost tracks the number of sources
-    rather than the length of the team's job history.
+    One correlated probe per source for each of the lookups, so the cost tracks the number of
+    sources rather than the length of the team's job history.
     """
+    live_schemas = _ExternalDataSchema.objects.filter(source_id=OuterRef("pk"), deleted=False)
+    latest_error = Subquery(
+        live_schemas.filter(should_sync=True, latest_error__isnull=False)
+        .exclude(latest_error="")
+        .order_by(F("updated_at").desc(nulls_last=True))
+        .values("latest_error")[:1]
+    )
     rows = (
         _ExternalDataSource.objects.filter(team_id=team_id, deleted=False)
-        .annotate(last_run_at=latest_completed_job_subquery(team_id, "created_at"))
+        .annotate(
+            last_run_at=latest_completed_job_subquery(team_id, "created_at"),
+            has_schemas=Exists(live_schemas),
+            latest_error=latest_error,
+        )
         .order_by("source_type", "id")
-        .values("id", "source_type", "status", "prefix", "created_at", "last_run_at")
+        .values("id", "source_type", "status", "prefix", "created_at", "last_run_at", "has_schemas", "latest_error")
     )
-    schemas_by_source: defaultdict[UUID, list[_ExternalDataSchema]] = defaultdict(list)
-    for schema in _ExternalDataSchema.objects.filter(team_id=team_id, deleted=False, source__deleted=False).only(
-        "source_id", "status", "should_sync", "latest_error", "updated_at"
-    ):
-        schemas_by_source[schema.source_id].append(schema)
+    syncing_by_source: defaultdict[UUID, list[_ExternalDataSchema]] = defaultdict(list)
+    for schema in _ExternalDataSchema.objects.filter(
+        team_id=team_id, deleted=False, should_sync=True, source__deleted=False
+    ).only("source_id", "status", "should_sync"):
+        syncing_by_source[schema.source_id].append(schema)
     return [
         contracts.ExternalDataSourceHealth(
             source_type=row["source_type"],
-            status=effective_source_status(schemas_by_source[row["id"]], fallback=row["status"]),
+            status=effective_source_status(
+                syncing_by_source[row["id"]], fallback=row["status"], has_schemas=row["has_schemas"]
+            ),
             prefix=row["prefix"],
             created_at=row["created_at"],
             last_run_at=row["last_run_at"],
-            latest_error=latest_source_error(schemas_by_source[row["id"]]),
+            latest_error=row["latest_error"],
         )
         for row in rows
     ]
