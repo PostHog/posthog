@@ -35,6 +35,8 @@
                 "backend/services/sandbox_email/provisioning.py",
                 "backend/services/template_input_usage.py",
                 "backend/services/transactional_email_workflows.py",
+                "backend/services/transactional_push_workflows.py",
+                "backend/services/provider_cohorts.py",
                 "backend/utils/email_sending_tiers.py",
                 "backend/utils/rrule_utils.py"
             ],
