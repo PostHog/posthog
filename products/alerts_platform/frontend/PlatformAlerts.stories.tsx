@@ -27,7 +27,7 @@ const CONFIGURATION: PlatformAlertConfigurationApi = {
     last_checked_at: null,
     last_error_message: null,
     state_timeline: [],
-    destination_types: [],
+    destination_types: ['slack', 'pagerduty'],
     source_kind: 'logs',
     source_config: {
         filters: { serviceNames: ['checkout'], severityLevels: ['error'] },
@@ -69,6 +69,7 @@ const DISABLED_CONFIGURATION: PlatformAlertConfigurationApi = {
     id: '0192a5b0-0000-7000-8000-000000000002',
     name: 'Daily signup volume below 10',
     enabled: false,
+    destination_types: [],
     source_kind: 'insight',
     source_config: {
         insight_id: 42,
@@ -91,6 +92,7 @@ const GROUPED_CONFIGURATION: PlatformAlertConfigurationApi = {
     name: 'Errors per service above 100',
     legacy_configuration_id: null,
     owner: 'platform',
+    destination_types: ['slack', 'teams', 'discord', 'pagerduty', 'webhook', 'email'],
     labels: { team: 'checkout', severity: 'page' },
     annotations: {
         runbook_url: 'https://example.com/runbooks/checkout-errors',

@@ -17,6 +17,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { OptionalTimeLabel } from './OptionalTimeLabel'
+import { PlatformAlertDestinationIcons } from './PlatformAlertDestinationIcons'
 import {
     PlatformAlertListRow,
     SOURCE_KINDS,
@@ -113,6 +114,13 @@ function listColumns(
                     </div>
                 ) : (
                     <PlatformAlertStateSummary configuration={row.configuration} />
+                ),
+        },
+        {
+            title: 'Destinations',
+            render: (_, row) =>
+                row.kind === 'group' ? null : (
+                    <PlatformAlertDestinationIcons types={row.configuration.destination_types} />
                 ),
         },
         {
