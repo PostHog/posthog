@@ -3,7 +3,6 @@ import type { EmailTemplateFrom } from 'scenes/hog-functions/email-templater/typ
 
 import type { IntegrationType } from '~/types'
 
-import { sandboxTakesStepId } from './hogflows/steps/email/emailStepVariants'
 import type { HogFlow, HogFlowAction } from './hogflows/types'
 
 export interface StoppedSenderSteps {
@@ -15,7 +14,7 @@ export interface StoppedSenderSteps {
 // Older email steps are saved as a plain function step on the email template.
 function emailStepFrom(action: HogFlowAction): EmailTemplateFrom {
     const config = action.config as { template_id?: unknown; inputs?: Record<string, { value?: { from?: unknown } }> }
-    if (action.type !== 'function_email' && config?.template_id !== 'template-email') {
+    if (action.type !== 'function_email' && !(action.type === 'function' && config?.template_id === 'template-email')) {
         return {}
     }
     const from = config.inputs?.email?.value?.from
@@ -54,49 +53,22 @@ export function stoppedSenderSteps(
     return { domains: [...new Set(stopped.map(senderDomain))], senderId: stopped[0].id, stepIds }
 }
 
-export interface RepairTarget {
-    stepId: string | null
-    testSenderTakesSteps: boolean
-}
-
-// Unsaved edits can delete or fix a broken step, so the target follows the draft until it fixes them all.
-export function repairTarget(
+// Unsaved edits can delete or fix a broken step, so the button opens one the draft still has broken.
+export function stepToChange(
     broken: StoppedSenderSteps,
-    live: Pick<HogFlow, 'actions'>,
     draft: Pick<HogFlow, 'actions'>,
     integrations: IntegrationType[] | null
-): RepairTarget {
+): string | null {
     const brokenInDraft = stoppedSenderSteps(draft, integrations)?.stepIds ?? []
-    const stepIds = broken.stepIds.filter((id) => brokenInDraft.includes(id))
-    return stepIds.length > 0
-        ? { stepId: stepIds[0], testSenderTakesSteps: testSenderTakesSteps(draft, stepIds) }
-        : { stepId: null, testSenderTakesSteps: testSenderTakesSteps(live, broken.stepIds) }
-}
-
-// Only an email step's From picker offers the test sender, and only for step IDs it can take.
-function testSenderTakesSteps(workflow: Pick<HogFlow, 'actions'>, stepIds: string[]): boolean {
-    return workflow.actions.every(
-        (action) => !stepIds.includes(action.id) || (action.type === 'function_email' && sandboxTakesStepId(action))
-    )
+    return broken.stepIds.find((id) => brokenInDraft.includes(id)) ?? null
 }
 
 // A rotating step still delivers from its other senders, so only the emails from a stopped domain fail.
-export function stoppedSenderMessage(broken: StoppedSenderSteps, nextStep: string): string {
+export function stoppedSenderMessage(broken: StoppedSenderSteps): string {
     const oneStep = broken.stepIds.length === 1
     const oneDomain = broken.domains.length === 1
     const steps = oneStep ? 'An email step' : `${broken.stepIds.length} email steps`
     const sendFrom = `${oneStep ? 'sends' : 'send'} from ${oneDomain ? 'it' : 'them'}`
     const domains = oneDomain ? "the domain's" : "the domains'"
-    return `Sending stopped for ${broken.domains.join(', ')}. ${steps} in this workflow ${sendFrom}, and those emails fail until ${domains} DNS records are fixed. Fix your sending domain, or ${nextStep}.`
-}
-
-// Names only the senders the step's From picker offers: it shows the test sender only when no own sender can send.
-export function changeSenderAdvice(stepCount: number, otherSenderSends: boolean, canUseTestSender: boolean): string {
-    const those = stepCount === 1 ? 'that step' : 'those steps'
-    if (otherSenderSends) {
-        return `change the sender on ${those} to another sender`
-    }
-    return canUseTestSender
-        ? `switch ${those} to the PostHog test sender, which reaches only verified members of your organization`
-        : `add another sender and switch ${those} to it`
+    return `Sending stopped for ${broken.domains.join(', ')}. ${steps} in this workflow ${sendFrom}, and those emails fail until ${domains} DNS records are fixed. Fix your sending domain, or change the sender on ${oneStep ? 'that step' : 'those steps'}.`
 }

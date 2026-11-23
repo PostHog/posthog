@@ -1,13 +1,7 @@
 import type { IntegrationType } from '~/types'
 
 import type { HogFlow, HogFlowAction } from './hogflows/types'
-import {
-    StoppedSenderSteps,
-    changeSenderAdvice,
-    repairTarget,
-    stoppedSenderMessage,
-    stoppedSenderSteps,
-} from './stoppedSenderSteps'
+import { StoppedSenderSteps, stepToChange, stoppedSenderMessage, stoppedSenderSteps } from './stoppedSenderSteps'
 
 const sender = (id: number, domain: string, stopped: boolean): IntegrationType =>
     ({
@@ -58,6 +52,19 @@ describe('stoppedSenderSteps', () => {
                 { domains: ['a.example.com'], senderId: 2, stepIds: ['s1'] },
             ],
             [
+                'a delay step that kept an email config',
+                workflow({
+                    id: 's1',
+                    type: 'delay',
+                    config: {
+                        template_id: 'template-email',
+                        inputs: { email: { value: { from: { integrationId: 2 } } } },
+                    },
+                } as unknown as HogFlowAction),
+                SENDERS,
+                null,
+            ],
+            [
                 'a step whose rotation list is not a list',
                 workflow(ownStep('s1', { integrationIds: '2' }), ownStep('s2', { integrationId: 3 })),
                 SENDERS,
@@ -89,63 +96,31 @@ describe('stoppedSenderSteps', () => {
         expect(stoppedSenderSteps(flow, integrations)).toEqual(expected)
     })
 
-    const LIVE = workflow(
-        olderEmailStep('older', { integrationId: 2 }),
-        ownStep('a', { integrationId: 2 }),
-        ownStep('welcome.email', { integrationId: 3 })
-    )
-    const BROKEN = stoppedSenderSteps(LIVE, SENDERS)!
-
-    it.each<[string, Pick<HogFlow, 'actions'>, ReturnType<typeof repairTarget>]>([
+    it.each<[string, Pick<HogFlow, 'actions'>, string | null]>([
+        ['the first broken step the draft still has', workflow(ownStep('b', { integrationId: 2 })), 'b'],
         [
-            'the first broken step, without the test sender for an older step',
-            LIVE,
-            { stepId: 'older', testSenderTakesSteps: false },
+            'a later broken step when the draft moved an earlier one to a sender that sends',
+            workflow(ownStep('a', { integrationId: 1 }), ownStep('b', { integrationId: 3 })),
+            'b',
         ],
-        [
-            'a step the draft still has broken, with the test sender once the draft drops the others',
-            workflow(ownStep('a', { integrationId: 2 }), ownStep('welcome.email', { integrationId: 1 })),
-            { stepId: 'a', testSenderTakesSteps: true },
-        ],
-        [
-            'a later step when the draft fixed the earlier ones, without the test sender for its ID',
-            workflow(ownStep('a', { integrationId: 1 }), ownStep('welcome.email', { integrationId: 3 })),
-            { stepId: 'welcome.email', testSenderTakesSteps: false },
-        ],
-        [
-            'no step when the draft fixed every broken step, with advice for the saved steps',
-            workflow(ownStep('a', { integrationId: 1 })),
-            { stepId: null, testSenderTakesSteps: false },
-        ],
-    ])('targets %s', (_, draft, expected) => {
-        expect(repairTarget(BROKEN, LIVE, draft, SENDERS)).toEqual(expected)
+        ['no step when the draft fixed every broken step', workflow(ownStep('a', { integrationId: 1 })), null],
+    ])('opens %s', (_, draft, expected) => {
+        const broken = { domains: ['a.example.com'], senderId: 2, stepIds: ['a', 'b'] }
+        expect(stepToChange(broken, draft, SENDERS)).toEqual(expected)
     })
 
     it.each<[string, StoppedSenderSteps, string]>([
         [
             'one step on one domain',
             { domains: ['a.example.com'], senderId: 2, stepIds: ['a'] },
-            "Sending stopped for a.example.com. An email step in this workflow sends from it, and those emails fail until the domain's DNS records are fixed. Fix your sending domain, or do this.",
+            "Sending stopped for a.example.com. An email step in this workflow sends from it, and those emails fail until the domain's DNS records are fixed. Fix your sending domain, or change the sender on that step.",
         ],
         [
             'several steps on several domains',
             { domains: ['a.example.com', 'b.example.com'], senderId: 2, stepIds: ['a', 'b'] },
-            "Sending stopped for a.example.com, b.example.com. 2 email steps in this workflow send from them, and those emails fail until the domains' DNS records are fixed. Fix your sending domain, or do this.",
+            "Sending stopped for a.example.com, b.example.com. 2 email steps in this workflow send from them, and those emails fail until the domains' DNS records are fixed. Fix your sending domain, or change the sender on those steps.",
         ],
     ])('says what stopped for %s', (_, broken, expected) => {
-        expect(stoppedSenderMessage(broken, 'do this')).toEqual(expected)
-    })
-
-    it.each<[number, boolean, boolean, string]>([
-        [1, true, true, 'change the sender on that step to another sender'],
-        [
-            2,
-            false,
-            true,
-            'switch those steps to the PostHog test sender, which reaches only verified members of your organization',
-        ],
-        [1, false, false, 'add another sender and switch that step to it'],
-    ])('advises %i step(s) with another sender %s and the test sender %s', (count, other, testSender, expected) => {
-        expect(changeSenderAdvice(count, other, testSender)).toEqual(expected)
+        expect(stoppedSenderMessage(broken)).toEqual(expected)
     })
 })

@@ -211,7 +211,7 @@ describe('email domain setup entry points', () => {
         expect(
             await screen.findByText(
                 new RegExp(
-                    `^Sending stopped for ${DOMAIN}\\. An email step in this workflow sends from it, and those emails fail until the domain's DNS records are fixed\\. .* or add another sender and switch that step to it\\.$`
+                    `^Sending stopped for ${DOMAIN}\\. An email step in this workflow sends from it, and those emails fail until the domain's DNS records are fixed\\. Fix your sending domain, or change the sender on that step\\.$`
                 )
             )
         ).toBeInTheDocument()

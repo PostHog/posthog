@@ -8,16 +8,7 @@ import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 
 import { captureEmailDomainSetupStarted, emailDomainSetupPath } from '../Channels/EmailDomain/emailDomainSetupLinks'
-import { sandboxSenderLogic } from '../Channels/sandboxSenderLogic'
-import { hasDeliverableSender, sandboxSenderAllowed } from './hogflows/steps/email/emailStepVariants'
-import type { HogFlow } from './hogflows/types'
-import {
-    StoppedSenderSteps,
-    changeSenderAdvice,
-    repairTarget,
-    stoppedSenderMessage,
-    stoppedSenderSteps,
-} from './stoppedSenderSteps'
+import { StoppedSenderSteps, stepToChange, stoppedSenderMessage, stoppedSenderSteps } from './stoppedSenderSteps'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 
 export function WorkflowStoppedSenderBanner(props: WorkflowLogicProps): JSX.Element | null {
@@ -37,20 +28,9 @@ export function WorkflowStoppedSenderBanner(props: WorkflowLogicProps): JSX.Elem
     ) : null
 }
 
-function StoppedSenderBanner({
-    broken,
-    live,
-    ...props
-}: WorkflowLogicProps & { broken: StoppedSenderSteps; live: HogFlow }): JSX.Element {
+function StoppedSenderBanner({ broken, ...props }: WorkflowLogicProps & { broken: StoppedSenderSteps }): JSX.Element {
     const { workflow, integrations, isViewOnly } = useValues(workflowLogic(props))
-    const { canAdoptSandbox } = useValues(sandboxSenderLogic)
-    const target = repairTarget(broken, live, workflow, integrations)
-    const stepId = isViewOnly ? null : target.stepId
-    const nextStep = changeSenderAdvice(
-        broken.stepIds.length,
-        !!hasDeliverableSender(integrations),
-        canAdoptSandbox && sandboxSenderAllowed(live, !!props.editTemplateId) && target.testSenderTakesSteps
-    )
+    const stepId = isViewOnly ? null : stepToChange(broken, workflow, integrations)
 
     return (
         <div className="shrink-0" data-attr="workflow-stopped-sender-banner">
@@ -63,7 +43,7 @@ function StoppedSenderBanner({
                     onClick: () => captureEmailDomainSetupStarted('stopped_sender_banner'),
                 }}
             >
-                <p className={stepId ? 'mb-2' : undefined}>{stoppedSenderMessage(broken, nextStep)}</p>
+                <p className={stepId ? 'mb-2' : undefined}>{stoppedSenderMessage(broken)}</p>
                 {stepId && (
                     <LemonButton
                         type="secondary"
