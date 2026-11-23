@@ -67,7 +67,14 @@ class MySQLCDCAdapter:
         return BinlogPosition.deserialize(position_serialized).seq
 
     def create_reader(self, source: ExternalDataSource) -> CDCStreamReader:
-        raise NotImplementedError("The MySQL binlog reader is not available yet")
+        from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.stream_reader import (
+            MySQLCDCStreamReader,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
+
+        source_impl = MySQLSource()
+        config = source_impl.parse_config(SourceInputsStore.load(source))
+        return MySQLCDCStreamReader(source, config, self.parse_cdc_config(source), source_impl.get_implementation)
 
     def current_position(self, conn: MySQLManagementConnection) -> str:
         base = conn.stream.base if conn.stream is not None else None
