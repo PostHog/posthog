@@ -1426,10 +1426,9 @@ class UserViewSet(
                 refuse_pending_email_promotion()
             try:
                 with transaction.atomic():
-                    change.apply(
-                        keep_session_key=request.session.session_key,
-                        revoke_sessions=not is_impersonated_session(request),
-                    )
+                    # ImpersonationBlockedPathsMiddleware refuses this request during impersonation, so this
+                    # session belongs to the user and is the one that confirmed the code.
+                    change.apply(keep_session_key=request.session.session_key)
             except IntegrityError:
                 # A row that appeared since the check above reaches this write.
                 user.refresh_from_db()

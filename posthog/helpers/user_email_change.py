@@ -28,12 +28,11 @@ class UserEmailChange:
             or EmailValidationHelper.user_exists_with_gmail_canonical(self.new_email, exclude_user_id=self.user.pk)
         )
 
-    def apply(self, *, keep_session_key: str | None, revoke_sessions: bool = True) -> None:
+    def apply(self, *, keep_session_key: str | None) -> None:
         """Writes the new email and removes the old sign-in identities and sessions. Call it in a transaction.
 
         Pass `keep_session_key` only when the person in that session proved that they control the new
-        email. `revoke_sessions=False` is for a change made while staff impersonates the user, so that
-        support does not sign the customer out.
+        email.
         """
         old_domain = OrganizationDomain.objects.get_verified_for_email_address(self.user.email)
         self.user.email = EmailNormalizer.normalize(self.new_email)
@@ -47,6 +46,4 @@ class UserEmailChange:
             IdJagIdentity.objects.filter(
                 user=self.user, identity_provider_config__organization_id=old_domain.organization_id
             ).delete()
-
-        if revoke_sessions:
-            revoke_other_sessions(self.user, keep_session_key)
+        revoke_other_sessions(self.user, keep_session_key)
