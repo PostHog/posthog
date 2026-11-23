@@ -639,6 +639,15 @@ class TestStringVariantKeyHeldByStoredFlag(BaseTest):
         flag.refresh_from_db()
         assert (flag.active, flag.filters["multivariate"]["variants"][1]) == (False, KEYLESS_VARIANT)
 
+    def test_restoring_a_soft_deleted_flag_that_holds_the_variant_succeeds(self) -> None:
+        flag = self._stored_flag()
+        FeatureFlag.objects_including_soft_deleted.filter(pk=flag.pk).update(deleted=True)
+        flag.refresh_from_db()
+        flag.deleted = False
+        flag.save()
+        flag.refresh_from_db()
+        assert (flag.deleted, flag.filters["multivariate"]["variants"][1]) == (False, KEYLESS_VARIANT)
+
     def test_a_save_that_adds_a_variant_without_a_string_key_is_refused(self) -> None:
         flag = self._stored_flag()
         flag.filters["multivariate"]["variants"].append({"key": 5, "rollout_percentage": 0})

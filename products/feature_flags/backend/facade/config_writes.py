@@ -47,7 +47,11 @@ from products.feature_flags.backend.facade.config_validation import (
 )
 from products.feature_flags.backend.facade.rule_warnings import review_config
 from products.feature_flags.backend.facade.warnings import ManagementWarning
-from products.feature_flags.backend.reserved_variant_keys import RESERVED_NEW_VARIANT_KEYS, is_reserved_variant_key
+from products.feature_flags.backend.reserved_variant_keys import (
+    RESERVED_NEW_VARIANT_KEYS,
+    is_reserved_variant_key,
+    reserved_variant_key_message,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -326,7 +330,7 @@ def _reserved_variant_keys(document: Mapping[str, Any], stored: Mapping[str, Any
             if is_reserved_variant_key(variant["key"], held=held):
                 yield ConfigError(
                     code="invalid",
-                    detail=f'The variant key "{variant["key"]}" is reserved. Choose another key.',
+                    detail=reserved_variant_key_message(variant["key"]),
                     attr=f"filters.rules[{index}].variants[{variant_index}].key",
                 )
 

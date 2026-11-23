@@ -50,7 +50,7 @@ def variant_keys(filters: object) -> Iterator[str]:
 def reserved_variant_key_message(key: str) -> str:
     if key == "":
         return "Variant keys can't be empty. Enter a key for each variant."
-    return f"The variant key {key} is reserved. Choose another key."
+    return f'The variant key "{key}" is reserved. Choose another key.'
 
 
 def non_string_variants(filters: object) -> list[tuple[str, Any]]:

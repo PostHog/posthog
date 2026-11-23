@@ -305,9 +305,24 @@ class TestResourceTransferTransfer(APIBaseTest):
         assert data["count"] >= 1
         assert any(r["kind"] == "Insight" for r in data["created_resources"])
 
-    def test_transfer_refuses_a_flag_with_a_reserved_variant_key(self) -> None:
-        variants = [{"key": "control", "rollout_percentage": 50}, {"key": "false", "rollout_percentage": 50}]
-        flag = FeatureFlag.objects.create(team=self.team, key="split", filters={"multivariate": {"variants": variants}})
+    @parameterized.expand(
+        [
+            (
+                "reserved_key",
+                {"key": "false", "rollout_percentage": 50},
+                'The variant key "false" is reserved. Choose another key.',
+            ),
+            ("keyless", {"rollout_percentage": 50}, "multivariate.variants[1].key must be a string."),
+        ]
+    )
+    def test_transfer_refuses_a_flag_with_a_variant_a_new_flag_may_not_store(
+        self, _name: str, variant: dict[str, Any], detail: str
+    ) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, key="split")
+        # FeatureFlag.save() refuses a keyless variant, so the stored row is written with QuerySet.update.
+        FeatureFlag.objects.filter(pk=flag.pk).update(
+            filters={"multivariate": {"variants": [{"key": "control", "rollout_percentage": 50}, variant]}}
+        )
 
         response = self.client.post(
             self._transfer_url(),
@@ -320,7 +335,7 @@ class TestResourceTransferTransfer(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["detail"] == "The variant key false is reserved. Choose another key."
+        assert response.json()["detail"] == detail
         assert not FeatureFlag.objects.filter(team=self.dest_team).exists()
 
     def test_transfer_with_substitution_uses_existing_resource(self) -> None:
