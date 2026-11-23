@@ -81,6 +81,7 @@ from products.batch_exports.backend.temporal.sql.events import (
     EXPORT_TO_S3_FROM_EVENTS_BACKFILL,
     EXPORT_TO_S3_FROM_EVENTS_RECENT,
     EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS,
+    RECENT_EVENTS_FIELD_EXPRESSIONS,
     native_events_export_query,
 )
 from products.batch_exports.backend.temporal.sql.persons import (
@@ -700,7 +701,11 @@ async def _get_query(
         if native_source:
             query = native_events_export_query(fields, filters_str, s3_function=s3_function)
         else:
-            query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields)
+            field_expressions = RECENT_EVENTS_FIELD_EXPRESSIONS if reads_recent_events else {}
+            query_fields = ",".join(
+                f"{field_expressions.get(field['expression'], field['expression'])} AS {field['alias']}"
+                for field in fields
+            )
             if filters_str:
                 filters_str = f"AND {filters_str}"
             query = query_template.safe_substitute(
