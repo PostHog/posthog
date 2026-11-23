@@ -286,6 +286,8 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
                 result = await node.run({ args, options, ctx })
             } catch (error) {
                 throw await withScopeHint(error, node.scopes, ctx)
+            } finally {
+                await ctx.close()
             }
 
             const render = mode.format === 'json' ? node.agent : node.human

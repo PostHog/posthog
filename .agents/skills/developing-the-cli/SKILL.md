@@ -33,6 +33,11 @@ The only exceptions are commands that exist on one side:
 - hog-only commands, such as `hog setup`, `hog api`, `hog ci` and `hog auth migrate`, have no Rust counterpart.
 - `hog/MIGRATING.md` lists the posthog-cli commands that don't come to hog. A change to those touches only `cli/`.
 
+Symbol code is copied, not shared.
+A file in `hog/worker/src/` that copies posthog-cli code names its `cli/` source files in its first comment.
+A change to one of those `cli/` files must land in the matching `hog/worker/src/` file in the same PR, the reverse too, and `hog/test/parity/` must pass.
+A crate that decides a written byte, such as `sourcemap` or `posthog-symbol-data`, is pinned in `hog/worker/Cargo.toml` to its version in `cli/Cargo.lock`, and `hog/test/parity/worker-pins.test.ts` fails until both sides match. Raise both together.
+
 When a change does not apply to the other CLI, say why in the PR description, for example "hog prints only the error message, which never contains the URL".
 Reviewers: a PR that touches `cli/src/` or `hog/src/` without the other side, and without that sentence, is incomplete.
 
