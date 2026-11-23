@@ -1,13 +1,16 @@
-import { fireEvent, render, within } from '@testing-library/react-native'
+import { act, fireEvent, render, renderHook, within } from '@testing-library/react-native'
 import type { ReactElement, ReactNode } from 'react'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 
 import { useTabHeaderStore } from '@/features/tabs/tabHeaderStore'
 import { EMPTY_LIVE_SNAPSHOT } from '@/model/live'
+import { DEFAULT_LIVE_TRAFFIC_FILTERS } from '@/model/liveTrafficFilters'
 
 import type { LiveFeed } from './hooks'
 import { LiveAudienceControl } from './LiveAudienceControl'
 import { LiveScreen } from './LiveScreen'
+import { useLivePreference } from './livePreference'
+import { clearLiveWorldShare, useLiveWorldShare } from './liveWorldStore'
 
 jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'))
 jest.mock('react-native-keyboard-controller', () => require('react-native-keyboard-controller/jest'))
@@ -118,6 +121,34 @@ describe('LiveScreen', () => {
         const view = render(screen())
         expect(view.getByTestId('live-map-loading')).toBeTruthy()
         view.unmount()
+    })
+
+    test('opening a paused Live map shares the country data with its traffic filters', () => {
+        const selection = renderHook(() => useLivePreference())
+        const trafficFilters = { ...DEFAULT_LIVE_TRAFFIC_FILTERS, countryCode: 'US' }
+        act(() => selection.result.current.setLiveFilters('all', trafficFilters))
+        const world = {
+            total: 1,
+            countries: [{ key: 'US', label: 'United States', flag: null, count: 1, percent: 100 }],
+            counts: { US: 1 },
+        }
+        mockFeed = {
+            ...feed(),
+            state: 'web',
+            status: 'paused',
+            paused: true,
+            snapshot: { ...EMPTY_LIVE_SNAPSHOT, profile: { kind: 'mixed' }, world },
+        }
+        try {
+            const view = render(screen())
+            fireEvent.press(view.getByTestId('live-map'))
+            expect(useLiveWorldShare.getState()).toMatchObject({ world, paused: true, trafficFilters })
+        } finally {
+            act(() => {
+                selection.result.current.setLiveFilters('all', DEFAULT_LIVE_TRAFFIC_FILTERS)
+                clearLiveWorldShare()
+            })
+        }
     })
 
     test.each([false, true])('shows loading rather than failed cards for a pending audience, paused=%s', (paused) => {
