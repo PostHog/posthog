@@ -40,7 +40,7 @@ import type { FeatureFlagsSet } from '../../../frontend/src/lib/logic/featureFla
 import type { ProductIntentProperties } from '../../../frontend/src/lib/utils/product-intents'
 import type { UserType } from '../../../frontend/src/types'
 import { AI_OBSERVABILITY_CLUSTER_URL_PATTERN } from './clusters/constants'
-import { buildAiObservabilityStorageConfig } from './preferenceStorage'
+import { buildAiObservabilityStorageConfig } from './redesign/shared/preferenceStorage'
 import { scorerFiltersFromSearchParams } from './scoreDefinitions/scoreDefinitionNavigation'
 import { parserRecipesLogic } from './settings/parserRecipesLogic'
 import { hasRecentAIEvents } from './utils/aiEvents'
