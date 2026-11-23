@@ -171,12 +171,12 @@ def _flag_payload(team: Team) -> dict[str, Any]:
 
 
 def _thresholds(payload: dict[str, Any], team_id: int) -> Thresholds:
-    if not payload:
+    if "alert_threshold" not in payload and "block_threshold" not in payload:
         return Thresholds()
     try:
         control = {"control": float(payload["control_threshold"])} if "control_threshold" in payload else {}
         return Thresholds(alert=float(payload["alert_threshold"]), block=float(payload["block_threshold"]), **control)
-    except (KeyError, TypeError, ValueError):
+    except (KeyError, TypeError, ValueError, OverflowError):
         logger.warning("cdp_abuse_classifier_thresholds_unreadable", team_id=team_id, exc_info=True)
         return Thresholds()
 
@@ -184,22 +184,35 @@ def _thresholds(payload: dict[str, Any], team_id: int) -> Thresholds:
 def _account_cutoffs(payload: dict[str, Any], team_id: int) -> AccountCutoffs:
     keys = ("established_min_age_days", "new_max_age_days", "new_max_members")
     try:
-        return AccountCutoffs(**{key: int(payload[key]) for key in keys if key in payload})
+        return AccountCutoffs(**{key: _whole_number(payload[key]) for key in keys if key in payload})
     except (TypeError, ValueError):
         logger.warning("cdp_abuse_classifier_account_cutoffs_unreadable", team_id=team_id, exc_info=True)
         return AccountCutoffs()
 
 
+def _whole_number(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int | float | str):
+        raise TypeError(f"not a number: {value!r}")
+    number = float(value)
+    if not number.is_integer():
+        raise ValueError(f"not a whole number: {value!r}")
+    return int(number)
+
+
 def _account_of(team: Team) -> Account:
     organization = team.organization
-    trust_scores = organization.customer_trust_scores
     return Account(
         age=timezone.now() - organization.created_at,
         has_active_subscription=organization.has_active_subscription,
         member_count=OrganizationMembership.objects.filter(organization_id=organization.id).count(),
-        # Billing keys trust scores by usage key, and CDP usage is counted as trigger events.
-        cdp_trust_score=trust_scores.get("cdp_trigger_events") if isinstance(trust_scores, dict) else None,
+        cdp_trust_score=_cdp_trust_score(organization.customer_trust_scores),
     )
+
+
+def _cdp_trust_score(trust_scores: object) -> int | None:
+    # Billing keys trust scores by usage key, and CDP usage is counted as trigger events.
+    score = trust_scores.get("cdp_trigger_events") if isinstance(trust_scores, dict) else None
+    return score if isinstance(score, int) and not isinstance(score, bool) else None
 
 
 @frozen
@@ -220,7 +233,9 @@ def _scoring_for(team: Team) -> _Scoring:
 
 
 def _hash_key(hog_function_id: str) -> str:
-    return f"cdp:abuse_classifier:content_hash:{hog_function_id}"
+    # Versioned with the format of `_cache_entry`, so workers on the previous format do not overwrite these entries
+    # during a deploy, and each function scores once more after it.
+    return f"cdp:abuse_classifier:content_hash:v2:{hog_function_id}"
 
 
 def _backfill_scored_key(run_id: str, hog_function_id: str) -> str:
@@ -397,9 +412,10 @@ def _cache_entry(
 ) -> str:
     """The model sees only the public content, and secret inputs change only the rule hits and the outbound call.
     Keeping all three means a secret change that matches a rule or adds a call scores the function again, while the
-    cache holds nothing more about a secret value than the event does. The tier decides whether a moderate score
-    alerts, so an account that stops paying scores again on its next save."""
-    return f"{public_content_hash}:{','.join(rule_hits)}:{int(outbound_call)}:{account_tier}"
+    cache holds nothing more about a secret value than the event does. Only the established tier changes whether a
+    moderate score alerts, so an account that enters or leaves it scores again on its next save."""
+    established = account_tier is AccountTier.ESTABLISHED
+    return f"{public_content_hash}:{','.join(rule_hits)}:{int(outbound_call)}:{int(established)}"
 
 
 def report(

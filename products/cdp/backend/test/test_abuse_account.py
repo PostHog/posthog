@@ -37,11 +37,23 @@ class TestAccountTier(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("shorter_established_age", account(8 * DAY, True), AccountCutoffs(established_min_age_days=7)),
-            ("longer_new_age", account(20 * DAY, False), AccountCutoffs(new_max_age_days=21)),
-            ("higher_member_limit", account(DAY, False, member_count=5), AccountCutoffs(new_max_members=5)),
+            (
+                "shorter_established_age",
+                account(8 * DAY, True),
+                AccountCutoffs(established_min_age_days=7),
+                AccountTier.ESTABLISHED,
+            ),
+            ("longer_new_age", account(20 * DAY, False), AccountCutoffs(new_max_age_days=21), AccountTier.NEW),
+            (
+                "higher_member_limit",
+                account(DAY, False, member_count=5),
+                AccountCutoffs(new_max_members=5),
+                AccountTier.NEW,
+            ),
         ]
     )
-    def test_cutoffs_move_the_boundaries(self, _name: str, subject: Account, cutoffs: AccountCutoffs) -> None:
+    def test_cutoffs_move_the_boundaries(
+        self, _name: str, subject: Account, cutoffs: AccountCutoffs, expected: AccountTier
+    ) -> None:
         assert subject.tier(AccountCutoffs()) == AccountTier.STANDARD
-        assert subject.tier(cutoffs) != AccountTier.STANDARD
+        assert subject.tier(cutoffs) == expected

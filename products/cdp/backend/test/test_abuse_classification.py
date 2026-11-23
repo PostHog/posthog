@@ -2,6 +2,8 @@ import json
 from datetime import timedelta
 from typing import Any
 
+from django.utils import timezone
+
 import httpx
 from parameterized import parameterized
 
@@ -337,6 +339,39 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 [],
             ),
             (
+                "infinite_cutoff_uses_defaults",
+                PAYING_FOR_TEN_DAYS,
+                {**DEFAULT_THRESHOLDS, "established_min_age_days": float("inf")},
+                LOW_CONTROL_SCORES,
+                RULE_FREE_HOG,
+                "standard",
+                True,
+                False,
+                [],
+            ),
+            (
+                "fractional_cutoff_uses_defaults",
+                PAYING_FOR_TEN_DAYS,
+                {**DEFAULT_THRESHOLDS, "established_min_age_days": 0.5},
+                LOW_CONTROL_SCORES,
+                RULE_FREE_HOG,
+                "standard",
+                True,
+                False,
+                [],
+            ),
+            (
+                "huge_threshold_uses_defaults",
+                ESTABLISHED,
+                {"alert_threshold": 10**400, "block_threshold": 0.9},
+                LOW_CONTROL_SCORES,
+                RULE_FREE_HOG,
+                "established",
+                False,
+                False,
+                ["established_account"],
+            ),
+            (
                 "new_cutoffs_from_payload",
                 {"has_active_subscription": False, "age": timedelta(days=20), "extra_members": 2},
                 {**DEFAULT_THRESHOLDS, "new_max_age_days": 21, "new_max_members": 3},
@@ -356,6 +391,17 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 "established",
                 True,
                 True,
+                [],
+            ),
+            (
+                "non_numeric_trust_score_is_left_out",
+                {**NEW, "customer_trust_scores": {"cdp_trigger_events": "high"}},
+                None,
+                LOW_CONTROL_SCORES,
+                RULE_FREE_HOG,
+                "new",
+                True,
+                False,
                 [],
             ),
             (
@@ -385,7 +431,7 @@ class TestAbuseClassification(AbuseClassificationTestCase):
     ) -> None:
         Organization.objects.filter(pk=self.organization.pk).update(
             has_active_subscription=account["has_active_subscription"],
-            created_at=self.organization.created_at - account["age"],
+            created_at=timezone.now() - account["age"],
             customer_trust_scores=account.get("customer_trust_scores", {}),
         )
         for member in range(account.get("extra_members", 0)):
@@ -592,18 +638,39 @@ class TestAbuseClassification(AbuseClassificationTestCase):
 
         assert len(self.gateway.requests) == expected_requests
 
-    def test_an_unchanged_resave_is_scored_again_when_the_account_tier_changes(self) -> None:
-        Organization.objects.filter(pk=self.organization.pk).update(
-            has_active_subscription=True, created_at=self.organization.created_at - timedelta(days=90)
-        )
+    @parameterized.expand(
+        [
+            (
+                "established_account_stops_paying",
+                True,
+                timedelta(days=90),
+                {"has_active_subscription": False},
+                [False, True],
+            ),
+            ("new_account_grows_into_standard", False, timedelta(days=2), {"created_at_days_ago": 20}, [True]),
+        ]
+    )
+    def test_an_unchanged_resave_is_scored_again_only_when_its_alert_gate_changes(
+        self,
+        _name: str,
+        has_active_subscription: bool,
+        age: timedelta,
+        change: dict[str, Any],
+        would_alert_per_event: list[bool],
+    ) -> None:
+        organization = Organization.objects.filter(pk=self.organization.pk)
+        organization.update(has_active_subscription=has_active_subscription, created_at=timezone.now() - age)
         self.gateway.response = httpx.Response(200, json=decision_payload(LOW_CONTROL_SCORES))
         hog_function = self.create_destination(hog=RULE_FREE_HOG)
 
-        Organization.objects.filter(pk=self.organization.pk).update(has_active_subscription=False)
+        if "created_at_days_ago" in change:
+            organization.update(created_at=timezone.now() - timedelta(days=change["created_at_days_ago"]))
+        else:
+            organization.update(**change)
         with self.committed():
             hog_function.save()
 
-        assert [event["properties"]["would_alert"] for event in self.captured_events()] == [False, True]
+        assert [event["properties"]["would_alert"] for event in self.captured_events()] == would_alert_per_event
 
     @parameterized.expand([("gateway_down", True), ("capture_down", False)])
     def test_a_failed_classification_is_retried_on_the_next_save(self, _name: str, gateway_down: bool) -> None:

@@ -12,7 +12,7 @@ _MAX_AGE_DAYS = 100 * 365
 
 
 class AccountTier(StrEnum):
-    # A long-standing paying customer, unlikely to abuse us.
+    # A long-standing account that billing reports as subscribed. Billing counts an active trial as subscribed.
     ESTABLISHED = "established"
     # Fresh, free and small: the shape abuse takes.
     NEW = "new"
@@ -37,7 +37,7 @@ class AccountCutoffs:
 @frozen
 class Account:
     age: timedelta
-    # Synced by billing. None means billing never synced the organization, so nothing is known.
+    # Synced by billing, and true during an active trial too. None means billing never synced the organization.
     has_active_subscription: bool | None
     member_count: int
     # Billing's trust level for CDP usage (0 none, 3 low, 7 medium, 10 high). Reported only, never decides the tier.
