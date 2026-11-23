@@ -41,7 +41,7 @@ MAX_CONTEXT_CHARS = 8_000
 MAX_SOURCE_TEXT = 2_800
 CONFIG_VERSION = "context-selection-v15"
 SELECTION_FLAG = "phai-context-selection"
-DEFAULT_DECISION_MODEL = "openai/gpt-6-luna"
+DEFAULT_DECISION_MODEL = settings.HOGQL_PROMPT_JEV_MODEL
 # The Slack app renders the thread in a tagged block before the request and puts the closing tag on a line of its
 # own. Participants' text inside the block is indented or ends in ":", and the request comes after the block, so the
 # first line that is exactly a closing tag is the real one.

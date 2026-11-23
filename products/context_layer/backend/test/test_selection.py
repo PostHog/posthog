@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from unittest.mock import Mock, patch
 
+from django.conf import settings
 from django.test import SimpleTestCase, override_settings
 
 import httpx
@@ -360,13 +361,13 @@ class TestSelection(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("object", {"model": "posthog/hogference/jeeves-0.1"}, "shadow", "posthog/hogference/jeeves-0.1"),
-            ("json_text", '{"model": "posthog/hogference/jeeves-0.1"}', "shadow", "posthog/hogference/jeeves-0.1"),
-            ("no_payload", None, "shadow", "openai/gpt-6-luna"),
-            ("no_model_key", {"other": 1}, "shadow", "openai/gpt-6-luna"),
-            ("model_not_text", {"model": 5}, "shadow", "openai/gpt-6-luna"),
-            ("not_json", "{", "shadow", "openai/gpt-6-luna"),
-            ("flag_service_down", RuntimeError("down"), "disabled", "openai/gpt-6-luna"),
+            ("object", {"model": "openai/gpt-6-luna"}, "shadow", "openai/gpt-6-luna"),
+            ("json_text", '{"model": "openai/gpt-6-luna"}', "shadow", "openai/gpt-6-luna"),
+            ("no_payload", None, "shadow", settings.HOGQL_PROMPT_JEV_MODEL),
+            ("no_model_key", {"other": 1}, "shadow", settings.HOGQL_PROMPT_JEV_MODEL),
+            ("model_not_text", {"model": 5}, "shadow", settings.HOGQL_PROMPT_JEV_MODEL),
+            ("not_json", "{", "shadow", settings.HOGQL_PROMPT_JEV_MODEL),
+            ("flag_service_down", RuntimeError("down"), "disabled", settings.HOGQL_PROMPT_JEV_MODEL),
         ]
     )
     def test_one_flag_evaluation_gives_the_mode_and_the_decision_model(
