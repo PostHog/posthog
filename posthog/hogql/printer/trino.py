@@ -204,6 +204,7 @@ _TRINO_REGEX_PATTERN_ARGUMENTS = {
     "extractallgroupsvertical": 1,
     "extractgroups": 1,
     "match": 1,
+    "multimatchanyindex": 1,
     "regexpextract": 1,
     "replaceregexpall": 1,
     "replaceregexpone": 1,
@@ -213,6 +214,7 @@ _TRINO_REGEX_PATTERN_ARGUMENTS = {
 
 # Printed as a Trino date, though the function registry declares no return type for them.
 _DATE_FUNCTIONS = frozenset({"tomonday", "tolastdayofmonth", "tolastdayofweek"})
+_ANY_HEAVY_CAPACITY = 10
 _SCALAR_ARRAY_ITEM_TYPES = (
     ast.BooleanType,
     ast.DateTimeType,
@@ -234,6 +236,18 @@ def _is_null_constant(expr: ast.Expr) -> bool:
 
 def _splits_into_characters(function_name: str, separator: ast.Expr) -> bool:
     return function_name.lower() == "splitbystring" and isinstance(separator, ast.Constant) and separator.value == ""
+
+
+def _escape_regex_pattern_argument(pattern: ast.Expr) -> ast.Expr:
+    if isinstance(pattern, ast.Constant) and isinstance(pattern.value, str):
+        escaped = _escape_regex_class_brackets(pattern.value)
+        return pattern if escaped == pattern.value else ast.Constant(value=escaped, type=pattern.type)
+    if isinstance(pattern, ast.Array):
+        escaped_items = [_escape_regex_pattern_argument(item) for item in pattern.exprs]
+        if all(escaped is item for escaped, item in zip(escaped_items, pattern.exprs)):
+            return pattern
+        return ast.Array(exprs=escaped_items, type=pattern.type)
+    return pattern
 
 
 def _escape_regex_class_brackets(pattern: str) -> str:
@@ -676,11 +690,10 @@ class TrinoPrinter(PostgresPrinter):
         pattern_index = _TRINO_REGEX_PATTERN_ARGUMENTS.get(name)
         if pattern_index is not None and pattern_index < len(node.args):
             pattern = node.args[pattern_index]
-            if isinstance(pattern, ast.Constant) and isinstance(pattern.value, str):
-                escaped = _escape_regex_class_brackets(pattern.value)
-                if escaped != pattern.value:
-                    node = clone_expr(node, clear_types=False)
-                    node.args[pattern_index] = ast.Constant(value=escaped, type=pattern.type)
+            escaped_pattern = _escape_regex_pattern_argument(pattern)
+            if escaped_pattern is not pattern:
+                node = clone_expr(node, clear_types=False)
+                node.args[pattern_index] = escaped_pattern
         if name in TRINO_WINDOW_ONLY_FUNCTIONS:
             self._invalid_function_arguments(node, f"{node.name} requires an OVER clause in Trino mode.")
         if name in TRINO_AGGREGATE_COMBINATORS:
@@ -953,6 +966,10 @@ class TrinoPrinter(PostgresPrinter):
             return f"approx_percentile({self.visit(node.args[0])}, 0.5) FILTER (WHERE {self._visit_predicate(node.args[1])})"
         if name == "topk":
             return self._visit_top_k(node)
+        if name in {"anyheavy", "anyheavyif"}:
+            return self._visit_any_heavy(node)
+        if name == "multimatchanyindex":
+            return self._visit_multi_match_any_index(node)
         if name in {"avgweighted", "avgweightedif"}:
             return self._visit_weighted_average(node)
         if name == "tonullablestring":
@@ -1160,12 +1177,7 @@ class TrinoPrinter(PostgresPrinter):
                 and value_expr.args
                 and self._is_numeric(value_expr.args[0])
             ):
-                timestamp = f"from_unixtime(CAST({self.visit(value_expr)} AS DOUBLE))"
-                return (
-                    f"at_timezone({timestamp}, {self.visit(node.args[1])})"
-                    if len(node.args) == 2
-                    else f"CAST({timestamp} AS TIMESTAMP)"
-                )
+                return self._print_unix_timestamp(value_expr, node.args[1] if len(node.args) == 2 else None)
             if isinstance(self._resolve_type(value_expr), ast.StringType) and not isinstance(value_expr, ast.Constant):
                 value = self.visit(value_expr)
                 timestamp = f"coalesce(TRY_CAST({value} AS TIMESTAMP), CAST(TRY(from_iso8601_timestamp({value})) AS TIMESTAMP), CAST(from_unixtime(TRY_CAST({value} AS DOUBLE)) AS TIMESTAMP))"
@@ -2472,19 +2484,18 @@ class TrinoPrinter(PostgresPrinter):
                 node,
             )
         target = self._trino_json_type(type_arg.value, node)
-        path_members: list[str | int] = []
-        for key in node.args[1:-1]:
-            if not isinstance(key, ast.Constant) or not isinstance(key.value, (str, int)):
+        keys = node.args[1:-1]
+        for key in keys:
+            if isinstance(key, ast.Constant) and not isinstance(key.value, (str, int)):
                 self._unsupported(
                     "TRINO_JSON_DYNAMIC_PATH_UNSUPPORTED",
-                    "JSONExtract requires a constant key path in Trino mode.",
+                    "JSONExtract requires string or integer keys in Trino mode.",
                     node,
                 )
-            path_members.append(key.value)
         source = self.visit(node.args[0])
-        has_array_index = any(self._is_json_array_index(key) for key in node.args[1:-1])
-        path = None if has_array_index else self._json_path(path_members)
-        extracted = self._visit_json_path(source, node.args[1:-1]) if has_array_index else None
+        walks_path = any(self._is_json_array_index(key) or not isinstance(key, ast.Constant) for key in keys)
+        extracted = self._visit_json_path(source, keys) if walks_path else None
+        path = None if walks_path else self._json_path([key.value for key in keys if isinstance(key, ast.Constant)])
         if target.startswith("MAP(VARCHAR, "):
             value_type = target[len("MAP(VARCHAR, ") : -1]
             if value_type in {
@@ -2509,12 +2520,17 @@ class TrinoPrinter(PostgresPrinter):
                     converted = f"coalesce({converted}, CAST({default} AS {value_type}))"
                 result = f"transform_values({raw}, (__hogql_json_key, __hogql_json_value) -> {converted})"
                 return self._json_default(node, result, self._json_type_default(target))
+        default = (
+            f"CAST(NULL AS {target})"
+            if type_arg.value.strip().lower().startswith("nullable(")
+            else self._json_type_default(target)
+        )
         if extracted:
             value = extracted if target.startswith(("ARRAY", "MAP")) else f"json_extract_scalar({extracted}, '$')"
-            return self._json_default(node, f"CAST({value} AS {target})", self._json_type_default(target))
+            return self._json_default(node, f"CAST({value} AS {target})", default)
         extractor = "json_extract" if target.startswith(("ARRAY", "MAP")) else "json_extract_scalar"
         converted = f"CAST({extractor}({source}, {path}) AS {target})"
-        return self._json_default(node, converted, self._json_type_default(target))
+        return self._json_default(node, converted, default)
 
     def _trino_json_type(self, type_name: str, node: ast.Call) -> str:
         normalized = " ".join(type_name.strip().lower().split())
@@ -2702,8 +2718,73 @@ class TrinoPrinter(PostgresPrinter):
                     node,
                 )
             precision = precision_arg.value
+        timezone = node.args[2] if len(node.args) == 3 else None
+        if self._is_numeric(node.args[0]):
+            return self._print_unix_timestamp(node.args[0], timezone, precision)
         timestamp = f"CAST({self.visit(node.args[0])} AS TIMESTAMP({precision}))"
-        return f"with_timezone({timestamp}, {self.visit(node.args[2])})" if len(node.args) == 3 else timestamp
+        return f"with_timezone({timestamp}, {self.visit(timezone)})" if timezone is not None else timestamp
+
+    def _print_unix_timestamp(self, seconds: ast.Expr, timezone: ast.Expr | None, precision: int | None = None) -> str:
+        if precision is None:
+            timestamp = f"from_unixtime(CAST({self.visit(seconds)} AS DOUBLE))"
+            if timezone is not None:
+                return f"at_timezone({timestamp}, {self.visit(timezone)})"
+            return f"CAST({timestamp} AS TIMESTAMP)"
+        nanoseconds = f"CAST(CAST({self.visit(seconds)} AS DECIMAL(38, 9)) * 1000000000 AS BIGINT)"
+        timestamp = f"from_unixtime_nanos({nanoseconds})"
+        if timezone is not None:
+            return f"CAST(at_timezone({timestamp}, {self.visit(timezone)}) AS TIMESTAMP({precision}) WITH TIME ZONE)"
+        return f"CAST({timestamp} AS TIMESTAMP({precision}))"
+
+    def _visit_any_heavy(self, node: ast.Call) -> str:
+        conditional = node.name.lower() == "anyheavyif"
+        if len(node.args) != (2 if conditional else 1):
+            self._invalid_function_arguments(node, f"{node.name} expects a value and, for anyHeavyIf, a condition.")
+        if node.params or node.distinct or node.order_by or node.within_group:
+            self._invalid_function_arguments(
+                node, f"{node.name} does not support these aggregate modifiers in Trino mode."
+            )
+        value_type = self._resolve_type(node.args[0])
+        if isinstance(value_type, ast.IntegerType):
+            value = f"CAST({self.visit(node.args[0])} AS BIGINT)"
+        elif isinstance(value_type, ast.StringType):
+            value = self.visit(node.args[0])
+        else:
+            self._invalid_function_arguments(node, f"{node.name} requires a string or integer value in Trino mode.")
+        conditions = [node.args[1]] if conditional else []
+        if node.filter_expr is not None:
+            conditions.append(node.filter_expr)
+        frequent = f"approx_most_frequent(1, {value}, {_ANY_HEAVY_CAPACITY})"
+        if conditions:
+            predicate = " AND ".join(f"({self._visit_predicate(condition)})" for condition in conditions)
+            frequent = f"{frequent} FILTER (WHERE {predicate})"
+        most_frequent = f"element_at(map_keys({frequent}), 1)"
+        if value_type.nullable:
+            return most_frequent
+        default = "''" if isinstance(value_type, ast.StringType) else "BIGINT '0'"
+        return f"coalesce({most_frequent}, {default})"
+
+    def _visit_multi_match_any_index(self, node: ast.Call) -> str:
+        if len(node.args) != 2:
+            self._invalid_function_arguments(node, "multiMatchAnyIndex expects a haystack and an array of patterns.")
+        haystack_expr, patterns = node.args
+        if isinstance(patterns, ast.Array) and all(
+            isinstance(pattern, ast.Constant) and isinstance(pattern.value, str) for pattern in patterns.exprs
+        ):
+            matches = "".join(
+                f" WHEN regexp_like(__hogql_haystack, {self.visit(pattern)}) THEN {index}"
+                for index, pattern in enumerate(patterns.exprs, start=1)
+            )
+            return (
+                f"element_at(transform(ARRAY[{self.visit(haystack_expr)}], __hogql_haystack -> "
+                f"CASE WHEN __hogql_haystack IS NULL THEN NULL{matches} ELSE 0 END), 1)"
+            )
+        search = f"ARRAY[ROW({self.visit(haystack_expr)}, {self.visit(patterns)})]"
+        position = (
+            "array_position(transform(__hogql_match[2], "
+            "__hogql_pattern -> regexp_like(__hogql_match[1], __hogql_pattern)), TRUE)"
+        )
+        return f"element_at(transform({search}, __hogql_match -> IF(__hogql_match[1] IS NULL, NULL, {position})), 1)"
 
     def _visit_parse_datetime_best_effort(self, node: ast.Call) -> str:
         if len(node.args) not in {1, 2}:
