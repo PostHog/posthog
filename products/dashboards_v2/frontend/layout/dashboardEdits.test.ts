@@ -1,13 +1,7 @@
-import {
-    type DashboardEdit,
-    applyEdit,
-    dropIntoGrid,
-    findTile,
-    settleDashboard,
-    stackTiles,
-    withFolds,
-} from './dashboardEdits'
-import { type Dashboard, type Tile, gapPxOf } from './dashboardTypes'
+import { gapPxOf } from '../customization/tileSpacing'
+import { type DashboardEdit, applyEdit, dropIntoGrid, settleDashboard, stackTiles, withFolds } from './dashboardEdits'
+import { type Dashboard, type Tile } from './dashboardTypes'
+import { findTile } from './tileTree'
 
 const text = (id: string, x: number, y: number, w: number, h: number): Tile => ({
     id,

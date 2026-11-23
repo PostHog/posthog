@@ -1,4 +1,5 @@
-import { type ContentWidget, type ContentWidgetParts, showsPart } from './dashboardTypes'
+import type { ContentWidget } from '../layout/dashboardTypes'
+import { type ContentWidgetParts, showsPart } from './tileParts'
 
 describe('showsPart', () => {
     test.each<{ name: string; parts: ContentWidget['parts']; part: keyof ContentWidgetParts; expected: boolean }>([

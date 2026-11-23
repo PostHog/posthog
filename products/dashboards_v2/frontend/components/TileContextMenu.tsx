@@ -11,8 +11,9 @@ import {
     ContextMenuTrigger,
 } from '@posthog/quill'
 
+import { tilePartsAction } from '../customization/tilePartsAction'
 import { useDashboardV2 } from '../dashboardV2Context'
-import { type ContentWidget, type ContentWidgetParts, hasPart, showsPart } from '../layout/dashboardTypes'
+import type { ContentWidget } from '../layout/dashboardTypes'
 
 /** One thing a person can do to a tile, shared by the right-click menu and the hover toolbar so the two agree. */
 export interface TileAction {
@@ -34,12 +35,6 @@ function isUsable(action: TileAction): boolean {
     return action.submenu ? action.submenu.some(isUsable) : true
 }
 
-const TILE_PARTS: { key: keyof ContentWidgetParts; label: string }[] = [
-    { key: 'header', label: 'Header' },
-    { key: 'description', label: 'Description' },
-    { key: 'footer', label: 'Footer' },
-]
-
 export function useContentTileActions(id: string, widget: ContentWidget): TileAction[] {
     const { dashboard, activeTab, disabledReasonFor, onEdit } = useDashboardV2()
     const otherTabs = dashboard.tabs.filter((tab) => tab.id !== activeTab.id)
@@ -60,28 +55,9 @@ export function useContentTileActions(id: string, widget: ContentWidget): TileAc
             })),
         })
     }
-    const partsDisabledReason = disabledReasonFor('setTileParts')
-    const parts = TILE_PARTS.filter(({ key }) => hasPart(widget, key))
-    if (parts.length > 0) {
-        actions.push({
-            key: 'parts',
-            label: 'Show',
-            dataAttr: 'dashboard-v2-tile-parts',
-            disabledReason: partsDisabledReason,
-            submenu: parts.map(({ key, label }) => {
-                const shown = showsPart(widget, key)
-                const needsHeader = key === 'description' && !showsPart(widget, 'header')
-                return {
-                    key,
-                    label,
-                    dataAttr: `dashboard-v2-tile-parts-${key}`,
-                    // The description lives in the header, so it cannot be turned on while the header is off.
-                    disabledReason: partsDisabledReason ?? (needsHeader ? 'Show the header first' : null),
-                    checked: shown,
-                    onSelect: () => onEdit({ edit: 'setTileParts', id, parts: { ...widget.parts, [key]: !shown } }),
-                }
-            }),
-        })
+    const parts = tilePartsAction(id, widget, disabledReasonFor('setTileParts'), onEdit)
+    if (parts) {
+        actions.push(parts)
     }
     actions.push({
         key: 'remove',

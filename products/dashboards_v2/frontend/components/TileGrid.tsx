@@ -8,10 +8,11 @@ import type { Compactor, Layout, LayoutItem } from 'react-grid-layout'
 import { useDragAutoScroll } from 'scenes/dashboard/useDragAutoScroll'
 
 import { useDashboardV2, useDashboardV2Drag } from '../dashboardV2Context'
-import { dropIntoGrid, findTile, toPlacedItems, withSectionRows } from '../layout/dashboardEdits'
+import { dropIntoGrid, toPlacedItems, withSectionRows } from '../layout/dashboardEdits'
 import { GRID, type Tile, type TilePlace, columnWidthPx, isSection, spanPx } from '../layout/dashboardTypes'
 import { type DropTarget, type DropZones, gridUnderPointer, readDropZones } from '../layout/dropTargets'
 import { type Gesture, type PlacedItem, bottomOf, placeTiles } from '../layout/placeTiles'
+import { findTile } from '../layout/tileTree'
 import { minRows } from '../layout/widgetSizes'
 import { TileFrame } from './TileFrame'
 

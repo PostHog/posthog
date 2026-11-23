@@ -4,6 +4,7 @@ import { type CSSProperties, type ReactNode, type RefObject, useEffect, useMemo,
 import { useContainerWidth } from 'react-grid-layout'
 
 import type { DashboardV2Action } from '../access/dashboardV2Access'
+import { gapPxOf } from '../customization/tileSpacing'
 import {
     type DashboardV2Controller,
     DashboardV2DragContext,
@@ -12,7 +13,7 @@ import {
     DashboardV2StateContext,
 } from '../dashboardV2Context'
 import { stackTiles } from '../layout/dashboardEdits'
-import { GRID, gapPxOf } from '../layout/dashboardTypes'
+import { GRID } from '../layout/dashboardTypes'
 import type { DropTarget } from '../layout/dropTargets'
 import { DashboardV2Tabs } from './DashboardV2Tabs'
 import { TileGrid } from './TileGrid'

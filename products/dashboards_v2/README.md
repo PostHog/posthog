@@ -92,6 +92,8 @@ The components hold no business logic and never import a kea logic, so any page 
 
 - `tileSpacing` is the gap between tiles: Tight (8px), Compact (12px, the default) or Standard (16px). Editors set it from the Customize menu.
 - A tile always keeps room for its parts. Each content tile has a minimum height made of its header, its footer and the least its body needs, so on a tight dashboard a tile with a footer can get one more row.
+- Spacing, tile parts, their edits and their menus live in `frontend/customization/`. Layout code lives in `frontend/layout/`.
+- A customization edit still goes through `applyEdit`, because spacing and parts change tile heights, and the layout has to settle after them.
 
 ## Narrow screens
 

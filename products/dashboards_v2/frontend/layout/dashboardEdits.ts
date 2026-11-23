@@ -1,32 +1,32 @@
+import { type CustomizationEdit, applyCustomizationEdit } from '../customization/customizationEdits'
+import { gapPxOf } from '../customization/tileSpacing'
 import {
-    type ContentWidgetParts,
     type Dashboard,
-    type DashboardAppearance,
     GRID,
     type SectionTile,
     type SectionWidget,
     type Tile,
     type TilePlace,
     type Widget,
-    gapPxOf,
     isSection,
 } from './dashboardTypes'
 import { type PlacedItem, bottomOf, placeTiles } from './placeTiles'
+import { allTiles, changeTileEverywhere, findTile } from './tileTree'
 import { minRows, widgetSize } from './widgetSizes'
 
-export type DashboardEdit =
+export type LayoutEdit =
     | { edit: 'placeTiles'; grid: string; places: Record<string, TilePlace>; resized?: string }
     | { edit: 'moveTile'; id: string; grid: string; x?: number; y?: number }
     | { edit: 'addTile'; grid: string; widget: Widget }
     | { edit: 'removeTile'; id: string }
     | { edit: 'updateSection'; id: string; patch: Partial<Pick<SectionWidget, 'title'>> }
-    | { edit: 'setTileParts'; id: string; parts: ContentWidgetParts }
     | { edit: 'addTab'; title: string }
     | { edit: 'renameTab'; id: string; title: string }
     | { edit: 'removeTab'; id: string }
     /** `before` is the tab it lands in front of; null puts it last. */
     | { edit: 'moveTab'; id: string; before: string | null }
-    | { edit: 'setAppearance'; patch: DashboardAppearance }
+
+export type DashboardEdit = LayoutEdit | CustomizationEdit
 
 function minWidthOf(tile: Tile): number {
     if (!isSection(tile)) {
@@ -127,18 +127,6 @@ export function settleDashboard(dashboard: Dashboard, fitParts = false): Dashboa
     }
 }
 
-function everyTile(tiles: Tile[]): Tile[] {
-    return tiles.flatMap((tile) => (isSection(tile) ? [tile, ...everyTile(tile.widget.tiles)] : [tile]))
-}
-
-export function allTiles(dashboard: Dashboard): Tile[] {
-    return everyTile(dashboard.tabs.flatMap((tab) => tab.tiles))
-}
-
-export function findTile(dashboard: Dashboard, id: string): Tile | null {
-    return allTiles(dashboard).find((tile) => tile.id === id) ?? null
-}
-
 function findGrid(dashboard: Dashboard, gridId: string): { tiles: Tile[]; cols: number } | null {
     const tab = dashboard.tabs.find((candidate) => candidate.id === gridId)
     if (tab) {
@@ -158,22 +146,6 @@ function changeGrid(dashboard: Dashboard, gridId: string, change: (tiles: Tile[]
     return changeTileEverywhere(dashboard, gridId, (tile) =>
         isSection(tile) ? { ...tile, widget: { ...tile.widget, tiles: change(tile.widget.tiles) } } : tile
     )
-}
-
-function changeTile(tiles: Tile[], id: string, change: (tile: Tile) => Tile | null): Tile[] {
-    return tiles.flatMap((tile) => {
-        if (tile.id === id) {
-            const next = change(tile)
-            return next ? [next] : []
-        }
-        return isSection(tile)
-            ? [{ ...tile, widget: { ...tile.widget, tiles: changeTile(tile.widget.tiles, id, change) } }]
-            : [tile]
-    })
-}
-
-function changeTileEverywhere(dashboard: Dashboard, id: string, change: (tile: Tile) => Tile | null): Dashboard {
-    return { ...dashboard, tabs: dashboard.tabs.map((tab) => ({ ...tab, tiles: changeTile(tab.tiles, id, change) })) }
 }
 
 function newId(dashboard: Dashboard, prefix: string): string {
@@ -275,10 +247,6 @@ function applyOnce(dashboard: Dashboard, edit: DashboardEdit, view: View): Dashb
             return changeTileEverywhere(dashboard, edit.id, (tile) =>
                 isSection(tile) ? { ...tile, widget: { ...tile.widget, ...edit.patch } } : tile
             )
-        case 'setTileParts':
-            return changeTileEverywhere(dashboard, edit.id, (tile) =>
-                isSection(tile) ? tile : { ...tile, widget: { ...tile.widget, parts: edit.parts } }
-            )
         case 'addTab':
             return {
                 ...dashboard,
@@ -306,8 +274,8 @@ function applyOnce(dashboard: Dashboard, edit: DashboardEdit, view: View): Dashb
             }
             return { ...dashboard, tabs: [...rest.slice(0, index), tab, ...rest.slice(index)] }
         }
-        case 'setAppearance':
-            return { ...dashboard, appearance: { ...dashboard.appearance, ...edit.patch } }
+        default:
+            return applyCustomizationEdit(dashboard, edit)
     }
 }
 
