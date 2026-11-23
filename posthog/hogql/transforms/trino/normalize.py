@@ -172,7 +172,10 @@ class TrinoPhysicalFieldLowerer(CloningVisitor):
             return ast.PropertyAccess(
                 start=node.start,
                 end=node.end,
-                expr=ast.Field(chain=[*node.chain[:-1], "properties"]),
+                expr=ast.Field(
+                    chain=[*node.chain[:-1], "properties"],
+                    type=ast.FieldType(name="properties", table_type=field_type.table_type),
+                ),
                 keys=[field_type.name],
                 type=ast.StringType(nullable=True),
             )
@@ -196,8 +199,8 @@ class TrinoPhysicalFieldLowerer(CloningVisitor):
             database_field = field_type.resolve_database_field(self.context)
             if isinstance(database_field, DatabaseField) and database_field.name != field_type.name:
                 lowered = super().visit_field(node)
-                if self.physical_names:
-                    lowered.chain[-1] = database_field.name
+                lowered.type = field_type
+                lowered.chain[-1] = database_field.name if self.physical_names else field_type.name
                 if len(lowered.chain) == 1 and source_type is not None:
                     # The second resolver pass cannot recover the source of a renamed bare field.
                     source_alias = self._source_alias(source_type)

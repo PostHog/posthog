@@ -2898,6 +2898,11 @@ class Resolver(CloningVisitor):
 
         return node
 
+    def visit_property_access(self, node: ast.PropertyAccess):
+        node = super().visit_property_access(node)
+        node.type = ast.StringType(nullable=True)
+        return node
+
     def visit_array_access(self, node: ast.ArrayAccess):
         node = super().visit_array_access(node)
 
