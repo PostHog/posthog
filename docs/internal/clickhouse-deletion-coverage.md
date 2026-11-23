@@ -324,7 +324,7 @@ The job finds typed columns through their comments in `system.columns`, not thro
 
 Event removal treats `flag_evaluations` as it treats the two events tables.
 It compiles the request's predicate once for each table, and each table deletes the rows that its own compile matches.
-`DeletionTarget.own_hogql_table` names the HogQL table that the predicate compiles against, `posthog.flag_evaluations` here.
+`DeletionTarget.hogql_table` names the HogQL table that the predicate compiles against, `posthog.flag_evaluations` here.
 The compile adds that table even when the org's mode hides it from queries.
 
 An immediate request runs a lightweight delete on each shard of the cluster that stores the table.

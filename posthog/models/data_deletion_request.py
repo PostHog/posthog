@@ -241,37 +241,29 @@ def _and_fragment(criteria: tuple[str, dict], fragment: tuple[str, dict]) -> tup
     return f"{predicate} AND ({sql})", {**params, **values}
 
 
-def event_removal_where(obj, use_new_events_schema: bool = False) -> tuple[str, dict]:
-    """Full WHERE predicate + params for event-removal queries.
+def event_removal_where(obj, target: "DeletionTarget") -> tuple[str, dict]:
+    """Full WHERE predicate + params for an event-removal query on ``target``.
 
     Combines the mandatory team/timestamp bounds, the events filter (skipped
-    when ``delete_all_events`` is set), and any compiled HogQL predicate. The
-    compiled HogQL fragment uses unqualified column references, so the result
-    is safe to splice into queries against either the Distributed ``events``
-    proxy or the local ``sharded_events`` MergeTree. Pass ``use_new_events_schema``
-    when the query targets the native-JSON events tables.
+    when ``delete_all_events`` is set), and the request's HogQL predicate compiled
+    for ``target``. The compiled HogQL fragment uses unqualified column references,
+    so the result is safe to splice into queries against either the Distributed
+    proxy or the local storage table.
+
+    Each table compiles the predicate for its own columns. Two tables can read one
+    property differently on edge values, such as an empty string in a materialized
+    column, so they can match different rows of the same event. Raises
+    ValidationError when the predicate does not compile for ``target``.
     """
-    return _and_fragment(
-        portable_event_removal_where(obj), compile_hogql_predicate(obj, use_new_events_schema=use_new_events_schema)
-    )
-
-
-def target_event_removal_where(obj, target: "DeletionTarget") -> tuple[str, dict]:
-    """``event_removal_where`` with the HogQL predicate compiled for ``target``.
-
-    Each table deletes the rows that its own compile of the predicate matches. Two tables can read
-    one property differently on edge values, such as an empty string in a materialized column, so
-    they can match different rows of the same event. Raises ValidationError when the predicate does
-    not compile for ``target``.
-    """
-    if target.accepts_hogql_predicate:
-        return event_removal_where(obj, use_new_events_schema=target.uses_new_events_schema)
     criteria = portable_event_removal_where(obj)
     if not _hogql_predicate_text(obj):
         return criteria
-    if target.own_hogql_table is None:
-        raise ValidationError({"hogql_predicate": f"{target.read_table} has no HogQL table to compile it against."})
-    return _and_fragment(criteria, compile_hogql_predicate(obj, hogql_table=target.own_hogql_table))
+    if target.hogql_table is None:
+        raise ValidationError({"hogql_predicate": f"No HogQL table reads {target.read_table}."})
+    fragment = compile_hogql_predicate(
+        obj, use_new_events_schema=target.uses_new_events_schema, hogql_table=target.hogql_table
+    )
+    return _and_fragment(criteria, fragment)
 
 
 class RequestType(models.TextChoices):
@@ -1088,7 +1080,7 @@ def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
             if not target.may_hold_any_of(events):
                 continue
             try:
-                predicate, params = target_event_removal_where(request, target)
+                predicate, params = event_removal_where(request, target)
             except ValidationError:
                 predicate, params = portable_event_removal_where(request)
             total += count_rows(target.read_table, predicate, params)

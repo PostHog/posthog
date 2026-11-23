@@ -21,8 +21,8 @@ from posthog.models.data_deletion_request import (
     auto_approve_blocker,
     cached_compile_hogql_predicate,
     compile_hogql_predicate,
+    event_removal_where,
     invalidate_compiled_predicate_cache,
-    target_event_removal_where,
 )
 from posthog.models.deletion_targets import FLAG_EVALUATIONS, FLAG_EVALUATIONS_HOGQL_TABLE
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_SOURCE_EVENT
@@ -405,9 +405,9 @@ def test_compile_hogql_predicate_against_flag_evaluations_reads_its_own_columns(
     ["person_id = '5f1c9e2a-0b7d-4e63-9a48-2c3d1e7f6b90'", "person.id = '5f1c9e2a-0b7d-4e63-9a48-2c3d1e7f6b90'"],
     ids=["person_id", "person_id_through_person"],
 )
-def test_target_event_removal_where_refuses_a_predicate_that_needs_a_join_on_flag_evaluations(team, predicate):
+def test_event_removal_where_refuses_a_predicate_that_needs_a_join_on_flag_evaluations(team, predicate):
     with pytest.raises(ValidationError, match="join"):
-        target_event_removal_where(_flag_call_request(team, predicate), FLAG_EVALUATIONS)
+        event_removal_where(_flag_call_request(team, predicate), FLAG_EVALUATIONS)
 
 
 # A missing key, a JSON null and an escaped quote are the rows where two ways of reading a property can

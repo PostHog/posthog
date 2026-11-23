@@ -52,15 +52,16 @@ from posthog.models.data_deletion_request import (
     auto_approve_pending_requests,
     compile_hogql_predicate,
     event_match_sql_fragment,
+    event_removal_where,
     jsonhas_expr,
     portable_event_removal_where,
     queued_requests_to_verify,
-    target_event_removal_where,
     unfinished_property_removals,
     verify_queued_request,
 )
 from posthog.models.deletion_targets import (
     COVERAGE_DOC,
+    EVENTS_TARGETS,
     PERSONAL_DATA_TARGETS,
     DeletionTarget,
     NotCounted,
@@ -657,7 +658,7 @@ def _event_removal_placements(
     for placement in placements:
         target = placement.target
         try:
-            criteria = target_event_removal_where(deletion_request, target)
+            criteria = event_removal_where(deletion_request, target)
         except DjangoValidationError as error:
             _refuse_unsweepable(
                 cluster,
@@ -670,7 +671,7 @@ def _event_removal_placements(
         # A fragment compiled for a table that is not an events table has not run on ClickHouse before
         # this point. The count runs it there, so a fragment that ClickHouse rejects fails the request
         # first. A table with no matching rows needs no mutation.
-        if target.own_hogql_table is not None and not count_surviving_rows(cluster, target, *criteria):
+        if target not in EVENTS_TARGETS and not count_surviving_rows(cluster, target, *criteria):
             continue
         swept.append(placement)
     return swept
@@ -706,7 +707,7 @@ def _verify_immediate_event_deletion(
         cluster,
         targets,
         deletion_request,
-        lambda target: target_event_removal_where(deletion_request, target),
+        lambda target: event_removal_where(deletion_request, target),
     )
 
     context.add_output_metadata(
@@ -728,9 +729,12 @@ def _queue_events_for_deferred_deletion(
     # subset of events, so a uuid there may not be in sharded_events once routing moves those
     # events off it.
     placements = [p for p in _event_removal_placements(cluster, deletion_request) if p.target.queue_uuid_candidates]
+    # Compiled once here and not per shard, because a compile builds the HogQL schema graph.
+    reads = [(p, event_removal_where(deletion_request, p.target)) for p in placements]
     db = django_settings.CLICKHOUSE_DATABASE
 
-    def queue_uuids(client: Client, source_table: str, predicate: str, params: dict) -> None:
+    def queue_uuids(client: Client, source_table: str, where: tuple[str, dict]) -> None:
+        predicate, params = where
         # nosemgrep: clickhouse-fstring-param-audit (all interpolated values are internal constants/settings)
         client.execute(
             f"INSERT INTO {db}.{ADHOC_EVENTS_DELETION_TABLE} (team_id, uuid, data_deletion_request_id) "
@@ -743,24 +747,19 @@ def _queue_events_for_deferred_deletion(
     # A table on another cluster has no host that also holds the queue, so no host can read it
     # shard-locally. One host here reads its uuids through the Distributed proxy. The queue table
     # replicates to every host of this cluster, so that one insert reaches all of them.
-    for placement in [p for p in placements if p.cluster is not cluster]:
-        target = placement.target
-        context.log.info(f"Queueing {target.read_table} into {ADHOC_EVENTS_DELETION_TABLE}")
-        where = target_event_removal_where(deletion_request, target)
-        cluster.any_host_by_role(
-            partial(queue_uuids, source_table=target.read_table, predicate=where[0], params=where[1]), NodeRole.DATA
-        ).result()
+    for placement, where in reads:
+        if placement.cluster is not cluster:
+            read_table = placement.target.read_table
+            context.log.info(f"Queueing {read_table} into {ADHOC_EVENTS_DELETION_TABLE}")
+            cluster.any_host_by_role(partial(queue_uuids, source_table=read_table, where=where), NodeRole.DATA).result()
 
-    reads = [
-        (p.target.data_table, *target_event_removal_where(deletion_request, p.target))
-        for p in placements
-        if p.cluster is cluster
-    ]
+    # A table on this cluster is read on each shard, so its uuids do not cross the network.
+    local_reads = [(p.target.data_table, where) for p, where in reads if p.cluster is cluster]
     shards = sorted(cluster.shards)
 
     def run_on_shard(client: Client) -> int:
-        for data_table, predicate, params in reads:
-            queue_uuids(client, data_table, predicate, params)
+        for data_table, where in local_reads:
+            queue_uuids(client, data_table, where)
         row = client.execute(
             f"SELECT count() FROM {db}.{ADHOC_EVENTS_DELETION_TABLE} WHERE team_id = %(team_id)s AND is_deleted = 0",
             {"team_id": deletion_request.team_id},
@@ -828,7 +827,7 @@ def delete_event_removal_shard(
     placement = _placement_for_table(cluster, shard.data_table)
     # The HogQL fragment compiles differently per schema: materialized-column/JSONExtract
     # reads on the legacy table, JSON subcolumn reads on the native-JSON table.
-    predicate, parameters = target_event_removal_where(deletion_request, placement.target)
+    predicate, parameters = event_removal_where(deletion_request, placement.target)
     runner = LightweightDeleteMutationRunner(
         table=shard.data_table,
         predicate=predicate,

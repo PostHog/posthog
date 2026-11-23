@@ -98,11 +98,13 @@ class DeletionTarget:
     node_role: NodeRole = NodeRole.DATA
     # Guarded on system.tables: the table sits behind a migration that may not have run everywhere.
     optional: bool = False
-    # Which events-schema variant compile_hogql_predicate emits for this table, None where no
-    # variant is known to run against its physical columns. A predicate that applies to every row
-    # here resolves against the events HogQL table, and the only choice is legacy versus native-JSON.
-    # A fragment names physical columns (mat_*, the property-group maps, or JSON subcolumns), so it
-    # only runs against the schema it was compiled for.
+    # The HogQL table that an event removal compiles a request's predicate against for this table.
+    # None where no HogQL table reads this table's columns, so a predicate cannot run here.
+    hogql_table: str | None = None
+    # Which events-schema variant compile_hogql_predicate emits for an events table, None for any
+    # other table. A fragment names physical columns (mat_*, the property-group maps, or JSON
+    # subcolumns), so it only runs against the schema it was compiled for. Property removal compiles
+    # a predicate against the events schema only, so it applies one only where this is set.
     hogql_schema: HogQLSchema | None = None
     # True where the property-removal job sweeps the table. Its verification fails while any copy of
     # a named property that the table keeps survives the rewrite. A property removal refuses while a
@@ -118,9 +120,6 @@ class DeletionTarget:
     # Read uuids from this table when queueing a deferred deletion. False where the rows duplicate
     # another target's uuids, which would queue each one twice.
     queue_uuid_candidates: bool = True
-    # The HogQL table that an event removal compiles its predicate against for this table. Set it on a
-    # table that is not an events table, which hogql_schema describes. Property removal does not use it.
-    own_hogql_table: str | None = None
     # The event names this table can hold, None meaning unconstrained. Lets a request naming other
     # events skip this table without querying it.
     stored_events: frozenset[str] | None = None
@@ -193,6 +192,7 @@ def shards_by_partition(placement: TargetPlacement) -> dict[str, set[int]]:
 EVENTS = DeletionTarget(
     data_table=EVENTS_DATA_TABLE(),
     read_table="events",
+    hogql_table="events",
     hogql_schema=HogQLSchema.LEGACY,
     accepts_property_rewrite=True,
     accepts_person_id_rewrite=True,
@@ -204,6 +204,7 @@ EVENTS_JSON = DeletionTarget(
     optional=True,
     cluster_setting="CLICKHOUSE_EVENTS_CLUSTER",
     node_role=NodeRole.EVENTS,
+    hogql_table="events",
     hogql_schema=HogQLSchema.NATIVE_JSON,
     accepts_property_rewrite=True,
     accepts_person_id_rewrite=True,
@@ -227,7 +228,7 @@ FLAG_EVALUATIONS = DeletionTarget(
     node_role=NodeRole.FLAGS,
     accepts_property_rewrite=True,
     accepts_person_id_rewrite=True,
-    own_hogql_table=FLAG_EVALUATIONS_HOGQL_TABLE,
+    hogql_table=FLAG_EVALUATIONS_HOGQL_TABLE,
     stored_events=frozenset({FLAG_EVALUATIONS_SOURCE_EVENT}),
     ttl_days=FLAG_EVALUATIONS_TTL_DAYS,
 )
