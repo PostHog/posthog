@@ -2317,17 +2317,36 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 }
             })
 
-            it('starts no second goals read while one is still running', async () => {
-                const gated = new MatcherUnderTest({ CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PINNED_GOALS: 'on' })
-                let release = (): void => {}
-                gated.goalsReadGate = new Promise((resolve) => (release = resolve))
+            it('starts no second goals read while one runs, and replaces one that never settles', async () => {
+                jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] })
+                try {
+                    const gated = new MatcherUnderTest({ CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PINNED_GOALS: 'on' })
+                    const reads = (): number =>
+                        gated.calls.filter((c) => c.sql.includes('workflows_hogflowconversiongoal')).length
+                    const tick = async (): Promise<void> => {
+                        const refreshed = (gated as any).refreshWatcherState()
+                        await jest.advanceTimersByTimeAsync(20_000)
+                        await refreshed
+                    }
+                    let settleHungRead = (): void => {}
+                    gated.goalsReadGate = new Promise((resolve) => (settleHungRead = resolve))
+                    await tick()
+                    await tick()
+                    expect(reads()).toBe(1)
 
-                const first = (gated as any).refreshWatcherState()
-                await (gated as any).refreshWatcherState()
-                release()
-                await first
+                    await jest.advanceTimersByTimeAsync(minutes(5))
+                    gated.goalsReadGate = null
+                    gated.goalRows = [pinnedGoal('paused-flow', 'wuc_upgraded')]
+                    await tick()
+                    expect(reads()).toBe(2)
 
-                expect(gated.calls.filter((c) => c.sql.includes('workflows_hogflowconversiongoal'))).toHaveLength(1)
+                    gated.goalRows = []
+                    settleHungRead()
+                    await jest.advanceTimersByTimeAsync(0)
+                    expect(await wake(gated, 'wuc_upgraded')).toEqual(lookedUpPairs)
+                } finally {
+                    jest.useRealTimers()
+                }
             })
 
             it('counts a conversion and a would-be miss in shadow mode when the goals lack it', async () => {

@@ -87,7 +87,8 @@ const PINNED_GOALS_WINDOW_MARGIN_MS = 24 * 60 * 60 * 1000
 // After a flow change, its team looks up every event until a goals read that started this long after the change,
 // so the replica the goals are read from has caught up with the save.
 const PINNED_GOALS_CHANGE_WINDOW_MS = 2 * 60 * 1000
-// A read that takes longer stops holding up the rest of the tick, and no second read starts until it settles.
+// A read that takes longer stops holding up the rest of the tick, and no second read starts until it settles or
+// is older than PINNED_GOALS_MAX_READ_AGE_MS.
 const PINNED_GOALS_READ_TIMEOUT_MS = 20_000
 // Past this many goals, a team looks up every event rather than running each goal against it.
 const PINNED_GOALS_MAX_PER_TEAM = 500
@@ -341,13 +342,13 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     // Every goal a workflow has had live, read from workflows_hogflowconversiongoal, by team.
     private pinnedGoalsByTeam: Map<number, Map<string, PinnedGoalEntry>> = new Map()
     private pinnedGoalsRead: Promise<void> | null = null
+    private pinnedGoalsReadStartedAt = 0
     private teamsOverGoalCap: Set<number> = new Set()
     private pinnedGoalsReadAt = 0
-    // Team -> when one of its flows changed, until a goals read has covered the change.
+    // Team -> when one of its flows changed, until a goals read that started PINNED_GOALS_CHANGE_WINDOW_MS later.
     private pinnedGoalChanges: Map<number, number> = new Map()
     // "on" and the goals have been read once. From then on the full watcher scan no longer runs.
     private usingPinnedGoals = false
-    private watcherRefreshInFlight = false
     // An events batch carries few events a flow can act on, so most lookups cost a query for little.
     private eventWakes: BatchCoalescer<HogFunctionInvocationGlobals>
     private eventArrivals = new WeakMap<HogFunctionInvocationGlobals, Date>()
@@ -1153,8 +1154,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     }
 
     // Every goal a watcher of the team can hold: each goal its workflows have had live, plus the current goals of
-    // its cached flows. 'any' while the goals may be missing one: after a flow change this pod has not read the
-    // goals since, or when the last read is too old.
+    // its cached flows. 'any' while the goals may be missing one: shortly after a flow change, or when the last
+    // read is too old.
     private pinnedGoalsForTeam(teamId: number, flows: HogFlow[]): PinnedGoalEntry[] | 'any' {
         if (!this.pinnedGoalsFresh() || this.pinnedGoalChanges.has(teamId)) {
             return 'any'
@@ -1188,18 +1189,21 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             event_names: string[] | null
         }>(
             PostgresUse.COMMON_READ,
-            // One row past the cap is enough to know a team is over it, so no team can grow this read without bound.
+            // One row past the cap is enough to know a team is over it, so one team cannot add more rows than that.
             `SELECT team_id, hog_flow_id, goal, event_names FROM (
-                 SELECT f.team_id, g.hog_flow_id, g.goal, g.event_names,
-                        row_number() OVER (PARTITION BY f.team_id ORDER BY g.last_live_at DESC) AS team_row
-                 FROM workflows_hogflowconversiongoal g
-                 JOIN posthog_hogflow f ON f.id = g.hog_flow_id
-                 WHERE g.last_live_at > $1
+                 SELECT team_id, hog_flow_id, goal, event_names,
+                        row_number() OVER (PARTITION BY team_id ORDER BY last_live_at DESC) AS team_row
+                 FROM workflows_hogflowconversiongoal
+                 WHERE last_live_at > $1
              ) goals
              WHERE team_row <= $2`,
             [new Date(windowStart), PINNED_GOALS_MAX_PER_TEAM + 1],
             'hogflowMatcherPinnedGoals'
         )
+        // A replaced read that settles late must not put older goals back.
+        if (startedAt < this.pinnedGoalsReadAt) {
+            return
+        }
         const pinnedGoalsByTeam = new Map<number, Map<string, PinnedGoalEntry>>()
         const rowsPerTeam = new Map<number, number>()
         for (const row of result.rows) {
@@ -1245,29 +1249,21 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     // One tick of the watcher state. The goals are read every tick while they are on or in shadow. The full watcher
     // scan stops once "on" has read the goals, and otherwise runs at most every WATCHER_TEAMS_REFRESH_INTERVAL_MS.
     private async refreshWatcherState(): Promise<void> {
-        // A slow read must not stack another one on the next tick.
-        if (this.watcherRefreshInFlight) {
-            return
-        }
-        this.watcherRefreshInFlight = true
-        try {
-            await this.refreshWatcherStateOnce()
-        } finally {
-            this.watcherRefreshInFlight = false
-        }
-    }
-
-    private async refreshWatcherStateOnce(): Promise<void> {
         if (this.pinnedGoalsMode !== 'off') {
-            if (!this.pinnedGoalsRead) {
-                this.pinnedGoalsRead = this.refreshPinnedGoals()
+            // The pool sets no query timeout, so a read that never settles is replaced once it is this old.
+            if (!this.pinnedGoalsRead || Date.now() - this.pinnedGoalsReadStartedAt > PINNED_GOALS_MAX_READ_AGE_MS) {
+                this.pinnedGoalsReadStartedAt = Date.now()
+                const read = this.refreshPinnedGoals()
                     .catch((err) => {
                         logger.error('⚠️', 'Failed to read conversion goals', { err })
                         captureException(err)
                     })
                     .finally(() => {
-                        this.pinnedGoalsRead = null
+                        if (this.pinnedGoalsRead === read) {
+                            this.pinnedGoalsRead = null
+                        }
                     })
+                this.pinnedGoalsRead = read
             }
             let timer: NodeJS.Timeout | undefined
             await Promise.race([
