@@ -7,7 +7,9 @@ import pytest
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_JSON_TYPE
 from posthog.models.event.sql import EVENTS_JSON_CLEANER, EVENTS_PROPERTIES_JSON_TYPE
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import ClickHouseClient
+from posthog.temporal.tests.utils.events import generate_test_events, insert_event_values_in_clickhouse
 
 from products.batch_exports.backend.temporal.destinations.http_batch_export import http_default_fields
 from products.batch_exports.backend.temporal.filters import compose_filters_clause
@@ -136,18 +138,16 @@ def _export_recent_events(
 
 
 @pytest.mark.parametrize(
-    "filters,includes_feature_flag_called,expected_events",
+    "includes_feature_flag_called,expected_events",
     [
-        ([], False, {"with-flag", "without-flag"}),
-        ([], True, {"with-flag", "without-flag", "$feature_flag_called"}),
-        ([{"key": "$feature/checkout", "type": "event", "operator": "exact", "value": ["true"]}], False, {"with-flag"}),
-        ([{"key": "$os", "type": "event", "operator": "is_not_set"}], False, {"with-flag"}),
+        (False, {"with-flag", "without-flag"}),
+        (True, {"with-flag", "without-flag", "$feature_flag_called"}),
     ],
-    ids=["no-filters", "feature-flag-called-allowed", "flag-filter", "declared-property-not-set"],
+    ids=["feature-flag-called-left-out", "feature-flag-called-allowed"],
 )
 @pytest.mark.django_db
-def test_native_recent_events_export_sends_stored_documents_and_filters_them_like_events_json(
-    team, filters: list[dict], includes_feature_flag_called: bool, expected_events: set[str]
+def test_native_recent_events_export_sends_stored_documents(
+    team, includes_feature_flag_called: bool, expected_events: set[str]
 ) -> None:
     rows = _export_recent_events(
         team.pk,
@@ -158,7 +158,7 @@ def test_native_recent_events_export_sends_stored_documents_and_filters_them_lik
             {"expression": "set", "alias": "set"},
             {"expression": "set_once", "alias": "set_once"},
         ],
-        filters,
+        [],
         includes_feature_flag_called=includes_feature_flag_called,
     )
 
@@ -179,3 +179,74 @@ def test_native_recent_events_export_rebuilds_whole_documents_without_repeating_
     properties_by_event = {row[aliases.index("event")]: row[aliases.index("properties")] for row in rows}
     members = json.loads(properties_by_event["with-flag"], object_pairs_hook=lambda pairs: pairs)
     assert [key for key, _ in members].count("$set") == 1
+
+
+_SENT_EVENTS = {
+    "nested": (
+        {"cart": {"plan": "pro"}, "tags": ["a"], "$feature/checkout": True, "$set": {"email": "a@example.com"}},
+        {"org": {"tier": "gold"}},
+    ),
+    "flat": ({"cart": "pro", "$os": "Mac OS X"}, {"org": "gold"}),
+}
+
+
+@pytest.mark.parametrize(
+    "filters,expected_events",
+    [
+        ([{"key": "properties.cart.plan = 'pro'", "type": "hogql"}], {"nested"}),
+        ([{"key": "person.properties.org.tier = 'gold'", "type": "hogql"}], {"nested"}),
+        ([{"key": "properties.cart = 'pro'", "type": "hogql"}], {"flat"}),
+        ([{"key": "$feature/checkout", "type": "event", "operator": "exact", "value": ["true"]}], {"nested"}),
+        ([{"key": "$os", "type": "event", "operator": "is_not_set"}], {"nested"}),
+    ],
+    ids=["nested-property", "nested-person-property", "top-level-property", "flag", "declared-property-not-set"],
+)
+@pytest.mark.django_db
+async def test_native_recent_events_export_filters_like_the_native_events_export(
+    clickhouse_client, ateam, settings, filters: list[dict], expected_events: set[str]
+) -> None:
+    settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA = True
+    now = dt.datetime.now(tz=dt.UTC)
+    await insert_event_values_in_clickhouse(
+        clickhouse_client,
+        [
+            sent_event
+            for event, (properties, person_properties) in _SENT_EVENTS.items()
+            for sent_event in generate_test_events(
+                count=1,
+                team_id=ateam.pk,
+                possible_datetimes=[now],
+                event_name=event,
+                inserted_at=now,
+                properties=properties,
+                person_properties=person_properties,
+            )
+        ],
+    )
+    filters_str, filter_values = await database_sync_to_async(compose_filters_clause)(
+        filters, team_id=ateam.pk, use_new_events_schema=True
+    )
+    fields = [{"expression": "event", "alias": "event"}]
+    parameters = {
+        **filter_values,
+        "team_id": ateam.pk,
+        "interval_start": (now - dt.timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S"),
+        "interval_end": (now + dt.timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S"),
+        "include_events": [],
+        "exclude_events": [],
+    }
+
+    exported_events = {}
+    for table, query in (
+        ("events_json", native_events_export_query(fields, filters_str)),
+        (
+            "events_json_recent",
+            native_recent_events_export_query(fields, filters_str, includes_feature_flag_called=False),
+        ),
+    ):
+        rows = await clickhouse_client.read_query_as_jsonl(
+            query.replace("FORMAT ArrowStream", "FORMAT JSONEachRow"), parameters
+        )
+        exported_events[table] = {row["event"] for row in rows}
+
+    assert exported_events == {"events_json": expected_events, "events_json_recent": expected_events}
