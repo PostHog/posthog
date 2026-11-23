@@ -912,6 +912,55 @@ class TestAbuseRules(SimpleTestCase):
                 False,
             ),
             (
+                "recursive_lambda_used_as_a_value",
+                content(
+                    hog="let send := n -> if(n > 0, concat(fetch(inputs.url).status, send(n - 1)), '')\n"
+                    "let run := send\nreturn run(2)"
+                ),
+                False,
+            ),
+            (
+                "function_with_upvalues_swapped_through_an_alias",
+                content(
+                    hog="let good := x -> x\nlet send := x -> good(x)\nlet alias := send\n"
+                    "let capture := () -> inputs.sender\nalias.upvalues[1] := capture.upvalues[1]\n"
+                    "for (let x in [1, 2]) {\n  send(x)\n}"
+                ),
+                False,
+            ),
+            (
+                "sparse_array_index",
+                content(hog="let a := []\na[1000000000] := 1\nfetch(inputs.url, {'body': a})"),
+                False,
+            ),
+            (
+                "computed_index",
+                content(hog="let a := []\na[toInt(inputs.n)] := 1\nfetch(inputs.url, {'body': a})"),
+                False,
+            ),
+            (
+                "dict_key",
+                content(hog="let body := {}\nbody['name'] := event.event\nfetch(inputs.url, {'body': body})"),
+                True,
+            ),
+            (
+                "computed_key_of_a_dict",
+                content(hog="let body := {}\nbody[event.event] := 1\nfetch(inputs.url, {'body': body})"),
+                True,
+            ),
+            (
+                "computed_key_of_a_replaced_dict",
+                content(
+                    hog="let body := {}\nbody := []\nbody[toInt(inputs.n)] := 1\nfetch(inputs.url, {'body': body})"
+                ),
+                False,
+            ),
+            (
+                "constant_field_index",
+                content(hog="let a := []\na.1000000000 := 1\nfetch(inputs.url, {'body': a})"),
+                False,
+            ),
+            (
                 "request_in_a_for_initializer",
                 content(hog="for (let res := fetch(inputs.url); false; res := null) {\n  print(res)\n}"),
                 True,

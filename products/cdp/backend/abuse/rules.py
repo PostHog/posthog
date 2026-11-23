@@ -409,7 +409,13 @@ class _Binding:
     name: str
     # Declared with `fun`, or with `let` as a lambda literal, so a call runs a body this walk checks.
     declares_function: bool
+    # Assigned, or used other than by a direct call. A value can be aliased and have its upvalues swapped, as in
+    # `let alias := send` and `alias.upvalues[1] := ...`, so a call to it can run anything.
     rebound: bool = False
+    # Declared with a dict literal and never replaced as a whole, so a write through a computed key cannot grow an
+    # array.
+    holds_dict: bool = False
+    replaced: bool = False
 
     @property
     def is_static_function(self) -> bool:
@@ -443,33 +449,38 @@ class _CallGraph:
 
     sends: set[_Binding] = field(default_factory=set)
     calls: list[_LocalCall] = field(default_factory=list)
-    used_as_values: set[_Binding] = field(default_factory=set)
+    keyed_writes: list[_Binding | None] = field(default_factory=list)
 
     def requests(self, literal_urls: list[str], other_call: bool, fans_out: bool, uncapped_step: bool) -> _Requests:
         """A call to a static function runs its body, which this walk checked. A call to any other local can run
         anything, because the local can hold a closure from an input or have its upvalues swapped."""
         sends = set(self.sends)
+        # Every call to a declared function is an edge, so recursion shows as a cycle even when the call can also run
+        # something else.
         edges: dict[_Binding, set[_Binding]] = {}
-        repeated = {binding for binding in self.used_as_values if binding.is_static_function}
+        repeated: set[_Binding] = set()
         for call in self.calls:
+            if call.caller is not None and call.callee.declares_function:
+                edges.setdefault(call.caller, set()).add(call.callee)
             if not call.callee.is_static_function:
                 other_call = True
                 fans_out |= call.repeats
                 if call.caller is not None:
                     sends.add(call.caller)
-                continue
-            if call.repeats:
+            elif call.repeats:
                 repeated.add(call.callee)
-            if call.caller is not None:
-                edges.setdefault(call.caller, set()).add(call.callee)
         sends = _callers_of(sends, edges)
         return _Requests(
             calls_out=other_call or bool(literal_urls),
             only_literal_fetches=not other_call,
             literal_urls=tuple(literal_urls),
             fans_out=fans_out or bool(repeated & sends) or _has_cycle(sends, edges),
-            uncapped_step=uncapped_step,
+            uncapped_step=uncapped_step or not all(_is_dict(target) for target in self.keyed_writes),
         )
+
+
+def _is_dict(target: _Binding | None) -> bool:
+    return target is not None and target.holds_dict and not target.replaced
 
 
 def _callers_of(functions: set[_Binding], edges: dict[_Binding, set[_Binding]]) -> set[_Binding]:
@@ -628,12 +639,24 @@ class _HogCodeVisitor(TraversingVisitor):
             self._visit_lambda(node.expr, function=self._declare(node.name, declares_function=True))
         else:
             super().visit_variable_declaration(node)
-            self._declare(node.name)
+            self._declare(node.name).holds_dict = isinstance(node.expr, ast.Dict)
 
     def visit_variable_assignment(self, node: ast.VariableAssignment) -> None:
         super().visit_variable_assignment(node)
         if (name := _base_name(node.left)) is not None and (binding := self._local(name)) is not None:
             binding.rebound = True
+            binding.replaced |= isinstance(node.left, ast.Field) and len(node.left.chain) == 1
+        # `a[1000000000] := 1` makes a sparse array whose holes the memory cap does not count, and a builtin that walks
+        # it, such as `jsonStringify`, runs past both caps in one step.
+        match node.left:
+            case ast.ArrayAccess(array=ast.Field(chain=[str(name)]), property=index) if not _small_constant_index(
+                index
+            ):
+                self._graph.keyed_writes.append(self._local(name))
+            case ast.ArrayAccess(property=index) if not _small_constant_index(index):
+                self._graph.keyed_writes.append(None)
+            case ast.TupleAccess(index=position) if not 0 < position <= MAX_RANGE_SIZE:
+                self._graph.keyed_writes.append(None)
 
     # An input can hold a closure that calls an async function, and code can swap a local function's upvalues, so any
     # call that does not name a builtin could reach one. A lambda literal callback is safe because its body is visited.
@@ -686,12 +709,12 @@ class _HogCodeVisitor(TraversingVisitor):
     def visit_field(self, node: ast.Field) -> None:
         # `let run := postHogCreateTask` followed by `run()` reaches the same handler as a direct call.
         super().visit_field(node)
+        if (binding := self._local(str(node.chain[0]))) is not None:
+            binding.rebound = True
+            return
         if len(node.chain) != 1:
             return
         name = str(node.chain[0])
-        if (binding := self._local(name)) is not None:
-            self._graph.used_as_values.add(binding)
-            return
         if name in OUTBOUND_FUNCTIONS:
             # Passed on as a value, so it can be called any number of times.
             self._sends()
@@ -732,6 +755,15 @@ def _replaces_empty_string(args: list[ast.Expr]) -> bool:
     if len(args) != 3:
         return False
     return _is_empty_string(args[1]) and not _is_empty_string(args[2])
+
+
+def _small_constant_index(index: ast.Expr) -> bool:
+    match index:
+        case ast.Constant(value=str()):
+            return True
+        case ast.Constant(value=int(position)) if not isinstance(position, bool):
+            return 0 < position <= MAX_RANGE_SIZE
+    return False
 
 
 def _bounded_growth(name: str, args: list[ast.Expr]) -> bool:
