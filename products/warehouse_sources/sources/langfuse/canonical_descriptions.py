@@ -255,4 +255,17 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "authorUserId": "The user ID of the comment author.",
         },
     },
+    "skills": {
+        "description": "Versioned agent skills managed in Langfuse, one row per skill name with metadata from its latest version.",
+        "docs_url": "https://api.reference.langfuse.com/#tag/skills/get/api/public/skills",
+        "columns": {
+            "name": "The name of the skill.",
+            "description": "The description of the skill's latest version.",
+            "tags": "The tags shared by all versions of the skill.",
+            "latestVersion": "The version number of the skill's latest version.",
+            "latestVersionCreatedAt": "The timestamp when the latest version was created.",
+            "latestVersionLastUpdatedAt": "The timestamp when the latest version was last updated.",
+            "productionVersion": "The version assigned the production label, or empty when no version has it.",
+        },
+    },
 }

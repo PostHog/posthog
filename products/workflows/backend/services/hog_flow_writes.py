@@ -31,6 +31,7 @@ from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES
 from products.workflows.backend.services.action_redirects import compute_action_redirects
 from products.workflows.backend.services.batch_jobs import rate_limit_change_unpaces_batch
+from products.workflows.backend.services.conversion_goals import record_conversion_goals
 from products.workflows.backend.services.email_utm_defaults import (
     flow_has_active_schedule,
     is_apply_eligible,
@@ -77,6 +78,8 @@ def create_workflow(
         if "actions" in data:
             data["encrypted_inputs"] = strip_secrets_from_content(data, template_cache={})
         instance = HogFlow.objects.create(team_id=team_id, created_by_id=user_id, **data)
+        if instance.status == HogFlow.State.ACTIVE:
+            record_conversion_goals(instance.team_id, instance.pk, [instance.conversion])
         if tags:
             set_tags_on_object(tags, instance)
         HogFlowRevision.objects.create(
@@ -172,27 +175,40 @@ def _save_live(
         data["encrypted_inputs"] = strip_secrets_from_content(
             data, template_cache=template_cache if template_cache is not None else {}
         )
+    previous_conversion = instance.conversion
+    was_active = instance.status == HogFlow.State.ACTIVE
     for attr, value in data.items():
         setattr(instance, attr, value)
     if instance.status == HogFlow.State.ACTIVE:
         require_sandbox_runtime(instance.actions)
     instance.save()
+    # Runs start only while a workflow is active. The outgoing goal is stamped too: runs that started under it
+    # keep it after this save replaces it or pauses the workflow.
+    if was_active or instance.status == HogFlow.State.ACTIVE:
+        record_conversion_goals(instance.team_id, instance.pk, [previous_conversion, instance.conversion])
+
+
+TRANSACTIONAL_STEP_TYPES: dict[str, str] = {
+    HogFlow.OriginProduct.TRANSACTIONAL_EMAILS: "function_email",
+    HogFlow.OriginProduct.TRANSACTIONAL_PUSH: "function_push",
+}
 
 
 def _keep_live_sensitivity(before: HogFlow, validated_data: dict) -> dict:
-    # A transactional email's protection follows its template, and only the template sync writes it.
+    # A transactional message's protection follows its template, and only the template sync writes it.
     # Every other write, such as publishing a restored version, keeps the live setting.
-    if before.origin_product != HogFlow.OriginProduct.TRANSACTIONAL_EMAILS or "actions" not in validated_data:
+    step_type = TRANSACTIONAL_STEP_TYPES.get(before.origin_product or "")
+    if step_type is None or "actions" not in validated_data:
         return validated_data
     sensitive = any(
         isinstance(action, dict)
-        and action.get("type") == "function_email"
+        and action.get("type") == step_type
         and (action.get("config") or {}).get("sensitive") is True
         for action in before.actions or []
     )
     actions = [
         {**action, "config": {**(action.get("config") or {}), "sensitive": sensitive}}
-        if isinstance(action, dict) and action.get("type") == "function_email"
+        if isinstance(action, dict) and action.get("type") == step_type
         else action
         for action in validated_data["actions"] or []
     ]

@@ -241,6 +241,7 @@ rules:
           - '/frontend/src/layout/panel-layout/ProjectTree/*.test.*'
           - '/frontend/src/layout/panel-layout/ProjectTree/menus/*.test.*'
           - '/frontend/src/layout/panel-layout/navbar/*.test.*'
+          - '/frontend/src/layout/scenes/components/QuillSceneName.test.tsx'
           - '/frontend/src/layout/today/TodayPhoneHeader.test.tsx'
           - '/frontend/src/layout/today/TodayPreviewCardProvider.test.tsx'
           - '/frontend/src/layout/today/todayPaneIntroLogic.test.ts'
@@ -286,6 +287,7 @@ rules:
           - '/frontend/src/layout/navigation-3000/sidepanel/panels/access_control/ResourceAccessControlsV2/*.test.*'
           - '/frontend/src/layout/navigation-3000/sidepanel/panels/activity/*.test.*'
           - '/frontend/src/layout/navigation/ImpersonationNotice/*.test.*'
+          - '/frontend/src/layout/today/TodayProjectMenu.test.tsx'
       owners: team-platform-features
     - match:
           - '/frontend/src/exporter/ExportedInsight/*.test.*'

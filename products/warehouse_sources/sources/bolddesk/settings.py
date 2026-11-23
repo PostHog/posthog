@@ -33,6 +33,8 @@ class BoldDeskEndpointConfig:
     # during a sync across page boundaries and skips or repeats them.
     order_by: Optional[str] = None
     incremental_filter: Optional[IncrementalFilter] = None
+    # The field name inside `Q`. Most modules use `lastmodifiedon`; the knowledge base documents `lastModifiedOn`.
+    q_field: str = "lastmodifiedon"
     # The response field the server-side filter matches. Empty for full refresh endpoints.
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     partition_key: Optional[str] = None
@@ -124,6 +126,61 @@ BOLDDESK_ENDPOINTS: dict[str, BoldDeskEndpointConfig] = {
             path="/brands",
             primary_keys=["brandId"],
             paginated=False,
+        ),
+        # Lookups for the status, priority and source IDs on tickets. They accept no `OrderBy`.
+        BoldDeskEndpointConfig(
+            name="ticket_statuses",
+            path="/ticket_collections/statuses",
+            primary_keys=["id"],
+        ),
+        BoldDeskEndpointConfig(
+            name="ticket_priorities",
+            path="/ticket_collections/priorities",
+            primary_keys=["id"],
+        ),
+        BoldDeskEndpointConfig(
+            name="ticket_sources",
+            path="/ticket_collections/sources",
+            primary_keys=["id"],
+        ),
+        # `Q` filters the ticket module, as on `ticket_updates`. `createdOn` and `lastmodifiedOn` are
+        # the only sorts this endpoint accepts, and `createdOn` does not change.
+        BoldDeskEndpointConfig(
+            name="ticket_metrics",
+            path="/tickets/ticket_metrics",
+            primary_keys=["ticketMetricId"],
+            order_by="createdOn",
+            incremental_filter="q",
+            incremental_fields=[_datetime_field("lastModifiedOn")],
+            partition_key="createdOn",
+        ),
+        BoldDeskEndpointConfig(
+            name="slas",
+            path="/slas",
+            primary_keys=["id"],
+            order_by="id",
+        ),
+        BoldDeskEndpointConfig(
+            name="kb_articles",
+            path="/kb/articles",
+            primary_keys=["id"],
+            order_by="articleId",
+            incremental_filter="q",
+            q_field="lastModifiedOn",
+            incremental_fields=[_datetime_field("lastModifiedOn")],
+            partition_key="createdOn",
+        ),
+        BoldDeskEndpointConfig(
+            name="kb_categories",
+            path="/kb/categories",
+            primary_keys=["id"],
+            order_by="id",
+        ),
+        BoldDeskEndpointConfig(
+            name="kb_sections",
+            path="/kb/sections",
+            primary_keys=["id"],
+            order_by="id",
         ),
     ]
 }

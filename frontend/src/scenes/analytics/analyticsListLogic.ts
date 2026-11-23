@@ -12,6 +12,7 @@ import { AnalyticsListUrlParams, urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import type { MovedItem } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { isPathUnder, joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -21,6 +22,7 @@ import {
     UserUIConfiguration,
 } from '~/queries/schema/schema-general'
 import type { UserBasicType, UserType } from '~/types'
+import type { DashboardType } from '~/types'
 
 import { todayAnalyticsLogic } from 'products/today/frontend/analytics/todayAnalyticsLogic'
 
@@ -33,6 +35,7 @@ import {
     isAnalyticsOrderBy,
     analyticsSourceKey,
 } from './analyticsFeed'
+import type { AnalyticsSourcePage } from './analyticsFeed'
 import { analyticsFeedLogic, selectAnalyticsFeed } from './analyticsFeedLogic'
 import { analyticsItemActionsLogic } from './analyticsItemActionsLogic'
 import { analyticsShareLogic } from './analyticsShareLogic'
@@ -218,11 +221,11 @@ export interface analyticsListLogicActions {
     sourceRefreshed: (
         key: string,
         generation: number,
-        page: null | import('./analyticsFeed').AnalyticsSourcePage
+        page: AnalyticsSourcePage | null
     ) => {
         generation: number
         key: string
-        page: null | import('./analyticsFeed').AnalyticsSourcePage
+        page: AnalyticsSourcePage | null
     } // analyticsFeedLogic
     itemChanged: () => {
         value: true
@@ -234,24 +237,24 @@ export interface analyticsListLogicActions {
         value: true
     } // analyticsTagsLogic
     deleteDashboardSuccess: (
-        dashboard: import('~/types').DashboardType,
+        dashboard: DashboardType,
         payload?: any
     ) => {
-        dashboard: import('~/types').DashboardType
+        dashboard: DashboardType
         payload?: any
     } // dashboardsModel
     restoreDashboardSuccess: (
-        dashboard: import('~/types').DashboardType,
+        dashboard: DashboardType,
         payload?: any
     ) => {
-        dashboard: import('~/types').DashboardType
+        dashboard: DashboardType
         payload?: any
     } // dashboardsModel
     deleteSavedItem: (savedItem: FileSystemEntry) => {
         savedItem: FileSystemEntry
     } // projectTreeDataLogic
-    movesSettled: (moved: import('~/layout/panel-layout/ProjectTree/projectTreeDataLogic').MovedItem[]) => {
-        moved: import('~/layout/panel-layout/ProjectTree/projectTreeDataLogic').MovedItem[]
+    movesSettled: (moved: MovedItem[]) => {
+        moved: MovedItem[]
     } // projectTreeDataLogic
     restoredItems: () => {
         value: true
