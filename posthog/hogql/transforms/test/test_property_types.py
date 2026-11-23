@@ -456,6 +456,16 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
                 ("events.properties.`$feature_flags`",),
             ),
             (
+                "restricted_flag_filter",
+                "SELECT count() FROM events WHERE properties.$feature_flags.secret = 'on' "
+                "OR properties.`$feature/secret` NOT IN ('off')",
+                True,
+                {RestrictedProperty(name="$feature/secret", property_type=PropertyDefinition.Type.EVENT)},
+                None,
+                ("ifNull(equals(NULL, %(hogql_val_0)s), 0)", "ifNull(notIn(NULL, %(hogql_val_1)s), 1)"),
+                ("events.properties.`$feature_flags`",),
+            ),
+            (
                 "restricted_map_document",
                 "SELECT properties FROM events",
                 True,
