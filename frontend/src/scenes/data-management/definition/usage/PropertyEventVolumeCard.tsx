@@ -46,7 +46,7 @@ export function PropertyEventVolumeCard({ propertyName }: { propertyName: string
             showChange={previous != null}
             change={changePercent != null ? { value: changePercent } : null}
             changeTooltip="Compared with the 30 days before"
-            changeBesideSubtitle
+            changeBesideValue
             hoverChangeFromPreviousPoint
             goodDirection="up"
             data={sparkline?.data}

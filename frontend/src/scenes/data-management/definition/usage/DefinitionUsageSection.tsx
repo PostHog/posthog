@@ -58,7 +58,7 @@ export function DefinitionUsageSection({
                     formatValue={formatCount}
                     showChange={false}
                     // Keeps the number under the title, level with the cards beside it that have sparklines.
-                    changeBesideSubtitle
+                    changeBesideValue
                     subtitle={summary ? dashboardsSubtitle(summary, noun) : undefined}
                     loading={summaryLoading}
                     error={summaryFailed ? "Couldn't load saved insights. Refresh the page to try again." : undefined}

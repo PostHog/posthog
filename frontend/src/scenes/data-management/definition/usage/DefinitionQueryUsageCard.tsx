@@ -48,7 +48,7 @@ export function DefinitionQueryUsageCard({ usage, loading, failed }: DefinitionQ
             showChange={previous != null}
             change={changePercent != null ? { value: changePercent } : null}
             changeTooltip="Compared with the 30 days before"
-            changeBesideSubtitle
+            changeBesideValue
             hoverChangeFromPreviousPoint
             goodDirection="up"
             data={daily.map((day) => day.count)}
