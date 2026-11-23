@@ -545,9 +545,12 @@ fn secret_inputs(count: usize) -> String {
 
 #[test]
 fn a_log_line_that_too_many_secrets_would_scan_is_redacted_whole() {
-    let secrets: Vec<String> = (0..150_000).map(|i| format!("secret-{i}")).collect();
-    let redacted = redact_sensitive_values("no secret here", &secrets, 10_000);
-    assert_eq!(redacted, "***REDACTED***");
+    let many: Vec<String> = (0..150_000).map(|i| format!("secret-{i}")).collect();
+    let long = vec!["s".repeat(4 * 1024 * 1024)];
+    for secrets in [many, long] {
+        let redacted = redact_sensitive_values("no secret here", &secrets, 10_000);
+        assert_eq!(redacted, "***REDACTED***");
+    }
 }
 
 #[tokio::test]

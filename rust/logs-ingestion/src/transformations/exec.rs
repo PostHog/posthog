@@ -189,7 +189,7 @@ pub fn redact_string(value: &str, sensitive: &[String], scanned: &mut usize) -> 
 
 /// A customer program builds patterns from record text, so its compiled patterns stay out of the cache that the process shares.
 static TRANSFORMATION_REGEXES: LazyLock<Arc<RegexCache>> =
-    LazyLock::new(|| Arc::new(RegexCache::bounded(256, 128 * 1024)));
+    LazyLock::new(|| Arc::new(RegexCache::bounded(64, 128 * 1024)));
 
 pub fn transformation_regexes() -> &'static RegexCache {
     &TRANSFORMATION_REGEXES
@@ -204,7 +204,9 @@ pub fn redact_sensitive_values(message: &str, sensitive: &[String], max_units: u
         return message.to_string();
     }
     // The variants cost work to build, and the loop below counts what it compares.
-    let mut checks = sensitive.len().saturating_mul(6 * 64);
+    let mut checks = sensitive.iter().fold(0usize, |checks, value| {
+        checks.saturating_add(6 * (value.len() + 64))
+    });
     if checks > MAX_LOG_REDACTION_CHECKS {
         return REDACTED.to_string();
     }
