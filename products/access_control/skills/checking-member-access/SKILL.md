@@ -106,11 +106,7 @@ All access control tools take an optional project id and default to the active p
       `default-objects-list`, and pick out the rows for this object. Tell the user how many roles you
       would walk and ask before doing it for a member in many roles.
    4. No rule on the object: the tool-level answer from step 2 applies.
-5. **Step 4 found more than one rule on the object.** For example, the member has `viewer` on a dashboard, one of their roles has `editor`, and the default is `none`.
-   The object tools list these stored rules. They do not say which one the member ends up with, so work it out with the precedence above.
-   The member's own rule decides. Without one, the highest rule among their roles decides. Without one, the default rule decides.
-   When only the default rule applies and the member's `effective_access_level` for the tool is `none`, the member has no access to the object.
-   Tell the user which rule decides and whose it is, then list the other rules you found.
+5. **More than one rule on the object.** The object tools return the stored rules, not the level the member ends up with. Apply the precedence above to get it.
    Property questions work like step 4 with the properties tools, minus the creator check, since properties have no creator.
 6. **"Who can ..." questions** are `members-list` without `member_id`, filtered on
    `resources.<tool>.effective_access_level`. The response is every member times every tool and has no
