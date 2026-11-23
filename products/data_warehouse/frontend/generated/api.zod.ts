@@ -1589,7 +1589,7 @@ export const WarehouseTablesPartialUpdateBody = /* @__PURE__ */ zod
  * @summary Replace the file of a table made from an uploaded file
  */
 export const warehouseTablesReplaceFileCreateBodyNotebookCellRegExp = new RegExp(
-    '^[A-Za-z0-9_-]{1,12}\/[^\\r\\n]{1,128}$'
+    '^[A-Za-z0-9_-]{1,12}\/[^\\u0000-\\u001f\\u007f]{1,128}$'
 )
 
 export const WarehouseTablesReplaceFileCreateBody = /* @__PURE__ */ zod.object({
@@ -1729,7 +1729,7 @@ export const WarehouseTablesUpdateSchemaCreateBody = /* @__PURE__ */ zod
  * @summary Create a warehouse table and FileUpload source from an uploaded file
  */
 export const warehouseTablesCreateFromUploadCreateBodyNotebookCellRegExp = new RegExp(
-    '^[A-Za-z0-9_-]{1,12}\/[^\\r\\n]{1,128}$'
+    '^[A-Za-z0-9_-]{1,12}\/[^\\u0000-\\u001f\\u007f]{1,128}$'
 )
 
 export const WarehouseTablesCreateFromUploadCreateBody = /* @__PURE__ */ zod.object({

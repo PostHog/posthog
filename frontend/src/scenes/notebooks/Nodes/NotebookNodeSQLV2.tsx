@@ -153,6 +153,23 @@ export const toCachedResults = (result: NotebookNodeSQLV2Result): HogQLQueryResp
         : inferTypes(result),
 })
 
+function sqlOutputActions(
+    chartToggle: JSX.Element | null,
+    items: ReturnType<typeof sqlResultMenu>
+): JSX.Element | null {
+    if (!items.length) {
+        return chartToggle
+    }
+    return (
+        <>
+            {chartToggle}
+            <LemonMenu items={items} placement="bottom-end">
+                <LemonButton size="xsmall" icon={<IconEllipsis />} aria-label="SQL result actions" />
+            </LemonMenu>
+        </>
+    )
+}
+
 const Component = ({
     attributes,
     updateAttributes,
@@ -384,34 +401,22 @@ const Component = ({
                 onReturnVariableChange={(returnVariable) => updateAttributes({ returnVariable })}
                 isEditable={isEditable}
                 valueOverride={showsChart ? <div className="h-80 flex flex-col">{visualization}</div> : undefined}
-                footerExtra={
-                    cachedResults || resultMenu.length ? (
-                        <>
-                            {cachedResults ? (
-                                <LemonButton
-                                    size="xsmall"
-                                    onClick={() =>
-                                        updateAttributes({
-                                            outputTab: showsChart ? OutputTab.Results : OutputTab.Visualization,
-                                        })
-                                    }
-                                    data-attr="notebook-jupyter-sql-toggle-chart"
-                                >
-                                    {showsChart ? 'Show table' : 'Show chart'}
-                                </LemonButton>
-                            ) : null}
-                            {resultMenu.length > 0 && (
-                                <LemonMenu items={resultMenu} placement="bottom-end">
-                                    <LemonButton
-                                        size="xsmall"
-                                        icon={<IconEllipsis />}
-                                        aria-label="SQL result actions"
-                                    />
-                                </LemonMenu>
-                            )}
-                        </>
-                    ) : null
-                }
+                footerExtra={sqlOutputActions(
+                    cachedResults ? (
+                        <LemonButton
+                            size="xsmall"
+                            onClick={() =>
+                                updateAttributes({
+                                    outputTab: showsChart ? OutputTab.Results : OutputTab.Visualization,
+                                })
+                            }
+                            data-attr="notebook-jupyter-sql-toggle-chart"
+                        >
+                            {showsChart ? 'Show table' : 'Show chart'}
+                        </LemonButton>
+                    ) : null,
+                    resultMenu
+                )}
             />
         )
     }

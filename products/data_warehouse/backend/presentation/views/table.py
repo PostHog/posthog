@@ -590,7 +590,7 @@ class UploadedFileSerializer(serializers.Serializer):
     upload_id = serializers.UUIDField(help_text="Id returned by upload_file for the stored file.")
     filename = serializers.CharField(help_text="Sanitized filename returned by upload_file.")
     notebook_cell = serializers.RegexField(
-        r"^[A-Za-z0-9_-]{1,12}/[^\r\n]{1,128}$",
+        r"^[A-Za-z0-9_-]{1,12}/[^\x00-\x1f\x7f]{1,128}$",
         required=False,
         help_text="Notebook short ID and cell ID separated by a slash. On create, associates the new table with "
         "that cell. On replace, requires the table to have been created for that cell.",
@@ -619,15 +619,16 @@ class CreateTableFromUploadSerializer(UploadedFileSerializer):
         return table_name
 
 
+INCLUDE_TABLE_COLUMNS = OpenApiParameter(
+    "include_columns", bool, description="Include table columns. Disable for lightweight table lookups.", default=True
+)
+
+
 @extend_schema_view(
+    retrieve=extend_schema(parameters=[INCLUDE_TABLE_COLUMNS]),
     list=extend_schema(
         parameters=[
-            OpenApiParameter(
-                "include_columns",
-                bool,
-                description="Include table columns. Disable for lightweight table existence or name lookups.",
-                default=True,
-            ),
+            INCLUDE_TABLE_COLUMNS,
             OpenApiParameter(
                 "pending_source",
                 bool,
@@ -635,7 +636,7 @@ class CreateTableFromUploadSerializer(UploadedFileSerializer):
                 default=False,
             ),
         ]
-    )
+    ),
 )
 class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """

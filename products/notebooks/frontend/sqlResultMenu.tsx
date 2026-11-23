@@ -5,6 +5,7 @@ import { LemonDialog, LemonInput, type LemonMenuItems, lemonToast } from '@posth
 
 import { ApiError } from 'lib/api-error'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { isUUIDLike } from 'lib/utils/guards'
 import { urls } from 'scenes/urls'
@@ -13,7 +14,14 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { getCohortIdentifier } from 'products/data_warehouse/frontend/sql_editor/saveAsTargets'
 
-import { saveResultCohort, saveResultTable, type SavedSqlResultTable, type SqlResultSource } from './sqlResultSnapshot'
+import {
+    getTableForUpdate,
+    saveResultCohort,
+    saveResultTable,
+    type PendingTableUpload,
+    type SavedSqlResultTable,
+    type SqlResultSource,
+} from './sqlResultSnapshot'
 
 function tableUrl(table: SavedSqlResultTable): string {
     return table.sourceId
@@ -35,18 +43,34 @@ export function savedSqlResultTables(value: unknown): SavedSqlResultTable[] {
     )
 }
 
-function reportSaveError(error: unknown): never {
+function reportSaveError(error: unknown): void {
     const detail = error instanceof ApiError ? (error.data?.message ?? error.detail) : undefined
     lemonToast.error(detail ?? (error instanceof Error ? error.message : 'Could not save the result.'))
-    throw error
 }
 
-function confirmUpdate(run: SqlResultSource, table: SavedSqlResultTable): void {
+async function confirmUpdate(
+    run: SqlResultSource,
+    link: SavedSqlResultTable,
+    pending: PendingTableUpload
+): Promise<void> {
+    let table
+    try {
+        table = await getTableForUpdate(run.projectId, link)
+    } catch (error) {
+        reportSaveError(error)
+        return
+    }
+    const createdBy = table.created_by?.email
     posthog.capture('notebook sql result save opened', { target: 'table', operation: 'replace' })
     LemonDialog.open({
         title: `Update ${table.name} from this run?`,
-        description:
-            'The next warehouse sync will replace all rows with this run’s results. Direct SQL queries return up to 300 rows. This sync counts toward warehouse usage.',
+        description: (
+            <>
+                {createdBy && <p>Table created by {createdBy}.</p>}
+                <p>The next sync will replace all rows. People with access to this table can read the saved results.</p>
+                <p>Direct SQL queries return up to 300 rows. This sync counts toward warehouse usage.</p>
+            </>
+        ),
         shouldAwaitSubmit: true,
         secondaryButton: { children: 'Cancel' },
         primaryButton: {
@@ -54,13 +78,14 @@ function confirmUpdate(run: SqlResultSource, table: SavedSqlResultTable): void {
             status: 'danger',
             onClick: async () => {
                 try {
-                    const updated = await saveResultTable(run, { tableId: table.id })
+                    const updated = await saveResultTable(run, { tableId: table.id }, pending)
                     lemonToast.success(`Started updating ${updated.name}`, {
                         button: { label: 'Manage table', action: () => router.actions.push(tableUrl(updated)) },
                     })
                     posthog.capture('notebook sql result saved', { target: 'table', operation: 'replace' })
                 } catch (error) {
                     reportSaveError(error)
+                    throw error
                 }
             },
         },
@@ -82,8 +107,13 @@ export function sqlResultMenu({
     onTableSaved: (table: SavedSqlResultTable) => void
     onRemoveLink: (id: string) => void
 }): LemonMenuItems {
+    const warehouseWriteDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.WarehouseObjects,
+        AccessControlLevel.Editor
+    )
     function openDialog(target: 'table' | 'cohort', run: SqlResultSource): void {
         const isTable = target === 'table'
+        const pending: PendingTableUpload = {}
         posthog.capture('notebook sql result save opened', { target, operation: 'create' })
         LemonDialog.openForm({
             title: isTable ? 'Save as warehouse table' : 'Save as cohort',
@@ -98,7 +128,7 @@ export function sqlResultMenu({
                 <>
                     <p>
                         {isTable
-                            ? 'Create a table from the rows returned by this run. Running the cell again leaves the table as saved.'
+                            ? 'Create a table from this run. People with access to the table can read its rows. Run the cell and choose Update from this run to replace them.'
                             : 'Create a static cohort from the people in the rows returned by this run.'}{' '}
                         Direct SQL queries return up to 300 rows.
                     </p>
@@ -122,16 +152,21 @@ export function sqlResultMenu({
                     if (isTable) {
                         const existing = savedTables.find((table) => table.name === name.trim())
                         if (existing) {
-                            confirmUpdate(run, existing)
+                            await confirmUpdate(run, existing, pending)
                             return
                         }
-                        const table = await saveResultTable(run, { name: name.trim() })
+                        const table = await saveResultTable(run, { name: name.trim() }, pending)
                         onTableSaved(table)
                         lemonToast.success(`Saved table ${table.name}`, {
                             button: { label: 'Manage table', action: () => router.actions.push(tableUrl(table)) },
                         })
                     } else {
-                        const cohort = await saveResultCohort(run, name.trim())
+                        const { cohortCsvMaxBytes } = await import('scenes/cohorts/cohortUtils')
+                        const cohort = await saveResultCohort(
+                            run,
+                            name.trim(),
+                            cohortCsvMaxBytes(preflightLogic.values.preflight)
+                        )
                         lemonToast.success(`Saved cohort ${cohort.name}`, {
                             button: { label: 'View cohort', action: () => router.actions.push(urls.cohort(cohort.id)) },
                         })
@@ -139,6 +174,7 @@ export function sqlResultMenu({
                     posthog.capture('notebook sql result saved', { target, operation: 'create' })
                 } catch (error) {
                     reportSaveError(error)
+                    throw error
                 }
             },
         })
@@ -149,10 +185,7 @@ export function sqlResultMenu({
             ? [
                   {
                       label: 'Save as warehouse table',
-                      disabledReason: getAccessControlDisabledReason(
-                          AccessControlResourceType.WarehouseObjects,
-                          AccessControlLevel.Editor
-                      ),
+                      disabledReason: warehouseWriteDisabledReason,
                       onClick: () => openDialog('table', source),
                   },
                   {
@@ -168,7 +201,11 @@ export function sqlResultMenu({
             title: table.name,
             items: [
                 { label: 'Manage table', to: tableUrl(table) },
-                source && { label: 'Update from this run', onClick: () => confirmUpdate(source, table) },
+                source && {
+                    label: 'Update from this run',
+                    disabledReason: warehouseWriteDisabledReason,
+                    onClick: () => confirmUpdate(source, table, {}),
+                },
                 { label: 'Remove link from cell', onClick: () => onRemoveLink(table.id) },
             ],
         })),

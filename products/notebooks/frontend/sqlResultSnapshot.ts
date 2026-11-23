@@ -1,4 +1,3 @@
-import api from 'lib/api'
 import { apiMutator } from 'lib/api-orval-mutator'
 
 import { getCohortsCreateUrl } from 'products/cohorts/frontend/generated/api'
@@ -6,23 +5,37 @@ import type { CohortApi } from 'products/cohorts/frontend/generated/api.schemas'
 import {
     warehouseTablesCreateFromUploadCreate,
     warehouseTablesReplaceFileCreate,
+    warehouseTablesRetrieve,
     warehouseTablesUploadFileCreate,
 } from 'products/data_warehouse/frontend/generated/api'
+import type { FileUploadResponseApi, TableApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 import { getCohortIdentifier } from 'products/data_warehouse/frontend/sql_editor/saveAsTargets'
 
-import { notebooksSqlV2RunsRetrieve } from './generated/api'
+import { notebooksSqlV2RunsPageRetrieve, notebooksSqlV2RunsRetrieve } from './generated/api'
+import type { NotebookSQLV2EnvelopeApi } from './generated/api.schemas'
 
 export type SqlResultSource = { projectId: string; shortId: string; nodeId: string; runId: string }
 export type SavedSqlResultTable = { id: string; name: string; sourceId: string | null }
 
 const MAX_FILE_BYTES = 50 * 1024 * 1024
 const PAGE_SIZE = 500
+const MAX_FRAME_ROWS = 10_000
 
-async function* resultPages({ projectId, shortId, runId }: SqlResultSource): AsyncGenerator<{
-    columns: string[]
-    rows: unknown[][]
-}> {
-    const { status, result, rows } = await notebooksSqlV2RunsRetrieve(projectId, shortId, runId)
+type ResultPage = { columns: string[]; rows: unknown[][] }
+
+export async function getTableForUpdate(projectId: string, link: SavedSqlResultTable): Promise<TableApi> {
+    const table = await warehouseTablesRetrieve(projectId, link.id, { include_columns: false })
+    const sourceId = table.pending_source_id ?? table.external_data_source?.id
+    if (table.name !== link.name || (link.sourceId && link.sourceId !== sourceId)) {
+        throw new Error('The warehouse table no longer matches this link. Remove the link and save under a new name.')
+    }
+    return table
+}
+
+async function* resultPages(source: SqlResultSource): AsyncGenerator<ResultPage> {
+    const { status, result, rows } = await notebooksSqlV2RunsRetrieve(source.projectId, source.shortId, source.runId, {
+        node_id: source.nodeId,
+    })
     if (status !== 'done' || !result?.columns?.length || result.error) {
         throw new Error('Run the SQL cell successfully before saving its results.')
     }
@@ -31,19 +44,35 @@ async function* resultPages({ projectId, shortId, runId }: SqlResultSource): Asy
         yield { columns, rows }
         return
     }
-    const firstPage = result.first_page ?? []
-    if (!result.has_more && (result.row_count ?? firstPage.length) <= firstPage.length) {
-        yield { columns, rows: firstPage }
+    if (result.delivery === 'direct') {
+        yield { columns, rows: completeDirectRows(result) }
         return
     }
-    const rowCount = result.row_count ?? 0
-    if (!result.result_id || rowCount <= firstPage.length) {
+    if (!result.result_id || result.row_count == null) {
         throw new Error('The full result has expired. Run the cell again before saving it.')
+    }
+    yield* storedFramePages(source, columns, result.row_count)
+}
+
+function completeDirectRows(result: NotebookSQLV2EnvelopeApi): unknown[][] {
+    if (!result.first_page || result.has_more || result.first_page.length !== result.row_count) {
+        throw new Error('The full result has expired. Run the cell again before saving it.')
+    }
+    return result.first_page
+}
+
+async function* storedFramePages(
+    { projectId, shortId, runId }: SqlResultSource,
+    columns: string[],
+    rowCount: number
+): AsyncGenerator<ResultPage> {
+    if (rowCount > MAX_FRAME_ROWS) {
+        throw new Error('Save up to 10,000 rows at a time. Narrow the query and run it again.')
     }
 
     let offset = 0
     while (offset < rowCount) {
-        const page = await api.notebooks.sqlV2RunPage(shortId, runId, { offset, limit: PAGE_SIZE })
+        const page = await notebooksSqlV2RunsPageRetrieve(projectId, shortId, runId, { offset, limit: PAGE_SIZE })
         if (page.columns.length !== columns.length || page.columns.some((name, index) => name !== columns[index])) {
             throw new Error('The result columns changed. Run the cell again before saving it.')
         }
@@ -55,10 +84,7 @@ async function* resultPages({ projectId, shortId, runId }: SqlResultSource): Asy
     }
 }
 
-export async function saveResultTable(
-    source: SqlResultSource,
-    destination: { name: string } | { tableId: string }
-): Promise<SavedSqlResultTable> {
+async function uploadResultTable(source: SqlResultSource): Promise<FileUploadResponseApi> {
     const chunks: Blob[] = []
     let size = 0
     for await (const { columns, rows } of resultPages(source)) {
@@ -82,10 +108,20 @@ export async function saveResultTable(
     if (!size) {
         throw new Error('The query returned no rows to save.')
     }
-    const upload = await warehouseTablesUploadFileCreate(source.projectId, {
+    return warehouseTablesUploadFileCreate(source.projectId, {
         file: new File(chunks, 'notebook-result.json', { type: 'application/x-ndjson' }),
         file_format: 'json',
     })
+}
+
+export type PendingTableUpload = { upload?: FileUploadResponseApi }
+
+export async function saveResultTable(
+    source: SqlResultSource,
+    destination: { name: string } | { tableId: string },
+    pending: PendingTableUpload
+): Promise<SavedSqlResultTable> {
+    const upload = (pending.upload ??= await uploadResultTable(source))
     const file = {
         upload_id: upload.upload_id,
         filename: upload.filename,
@@ -103,7 +139,29 @@ export async function saveResultTable(
     }
 }
 
-export async function saveResultCohort(source: SqlResultSource, name: string): Promise<CohortApi> {
+function cohortCsvPage(rows: unknown[][], column: number, identifiers: Set<string>): Blob {
+    const lines: string[] = []
+    for (const row of rows) {
+        const id = row[column]
+        if (typeof id !== 'string' && typeof id !== 'number') {
+            continue
+        }
+        const value = String(id)
+        if (!value || identifiers.has(value)) {
+            continue
+        }
+        if (value.trim() !== value) {
+            throw new Error(
+                'The cohort importer trims surrounding whitespace. Return identifiers without surrounding whitespace.'
+            )
+        }
+        identifiers.add(value)
+        lines.push(`\r\n"${value.replaceAll('"', '""')}",${identifiers.size}`)
+    }
+    return new Blob(lines)
+}
+
+export async function saveResultCohort(source: SqlResultSource, name: string, maxBytes: number): Promise<CohortApi> {
     const identifiers = new Set<string>()
     const chunks: Blob[] = []
     let size = 0
@@ -113,30 +171,11 @@ export async function saveResultCohort(source: SqlResultSource, name: string): P
         if (!identifier) {
             throw new Error('Return a person_id, actor_id, or distinct_id column to save a cohort.')
         }
-        header = identifier === 'distinct_id' ? 'distinct_id' : 'person_id'
-        const column = columns.indexOf(identifier)
-        const lines: string[] = []
-        for (const row of rows) {
-            const id = row[column]
-            if (typeof id !== 'string' && typeof id !== 'number') {
-                continue
-            }
-            const value = String(id)
-            if (!value || identifiers.has(value)) {
-                continue
-            }
-            if (value.trim() !== value) {
-                throw new Error(
-                    'The cohort importer trims surrounding whitespace. Return identifiers without surrounding whitespace.'
-                )
-            }
-            identifiers.add(value)
-            lines.push(`\r\n"${value.replaceAll('"', '""')}",${identifiers.size}`)
-        }
-        const chunk = new Blob(lines)
+        header = identifier === 'distinct_id' ? 'distinct_id,row' : 'person_id,row'
+        const chunk = cohortCsvPage(rows, columns.indexOf(identifier), identifiers)
         size += chunk.size
-        if (size > MAX_FILE_BYTES) {
-            throw new Error('The list of people exceeds 50 MiB. Narrow the query and run it again.')
+        if (header.length + size > maxBytes) {
+            throw new Error('The list of people exceeds the cohort upload limit. Narrow the query and run it again.')
         }
         chunks.push(chunk)
     }
@@ -147,6 +186,6 @@ export async function saveResultCohort(source: SqlResultSource, name: string): P
     body.set('name', name)
     body.set('is_static', 'true')
     // A one-column CSV treats "distinct_id" as a member. A second named column selects header-based import.
-    body.set('csv', new File([header + ',row', ...chunks], 'notebook-cohort.csv', { type: 'text/csv' }))
+    body.set('csv', new File([header, ...chunks], 'notebook-cohort.csv', { type: 'text/csv' }))
     return apiMutator<CohortApi>(getCohortsCreateUrl(source.projectId), { method: 'POST', body })
 }

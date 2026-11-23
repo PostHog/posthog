@@ -33703,7 +33703,7 @@ export namespace Schemas {
       filename: string;
       /**
          * Notebook short ID and cell ID separated by a slash. On create, associates the new table with that cell. On replace, requires the table to have been created for that cell.
-         * @pattern ^[A-Za-z0-9_-]{1,12}/[^\r\n]{1,128}$
+         * @pattern ^[A-Za-z0-9_-]{1,12}/[^\u0000-\u001f\u007f]{1,128}$
          */
       notebook_cell?: string;
       /** How the uploaded file is read: 'csv', 'json', or 'parquet'.
@@ -77739,6 +77739,8 @@ export namespace Schemas {
          * @nullable
          */
       result_id?: string | null;
+      /** How the run returned its rows. */
+      delivery?: string;
       /**
          * Error message when status is 'error'.
          * @nullable
@@ -77766,6 +77768,17 @@ export namespace Schemas {
       Hogql: 'hogql',
       Python: 'python',
     } as const;
+
+    export interface NotebookSQLV2PageResponse {
+      /** Column names in result order. */
+      columns: string[];
+      /** Column name and type pairs in result order. */
+      types: string[][];
+      /** Rows of cell values in column order. */
+      rows: unknown[][];
+      /** Whether another page follows these rows. */
+      has_more: boolean;
+    }
 
     /**
      * * `hogql` - hogql
@@ -128293,7 +128306,7 @@ export namespace Schemas {
       filename: string;
       /**
          * Notebook short ID and cell ID separated by a slash. On create, associates the new table with that cell. On replace, requires the table to have been created for that cell.
-         * @pattern ^[A-Za-z0-9_-]{1,12}/[^\r\n]{1,128}$
+         * @pattern ^[A-Za-z0-9_-]{1,12}/[^\u0000-\u001f\u007f]{1,128}$
          */
       notebook_cell?: string;
       /** How the uploaded file is read: 'csv', 'json', or 'parquet'.
@@ -148132,6 +148145,27 @@ export namespace Schemas {
     user?: string;
     };
 
+    export type NotebooksSqlV2RunsRetrieveParams = {
+    /**
+     * Only return the run if it belongs to this cell.
+     */
+    node_id?: string;
+    };
+
+    export type NotebooksSqlV2RunsPageRetrieveParams = {
+    /**
+     * Rows per page.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of rows to skip in the stored result frame.
+     * @minimum 0
+     */
+    offset?: number;
+    };
+
     export type NotebooksWidgetSnapshotFrameParams = {
     /**
      * Maximum rows in this page.
@@ -153337,7 +153371,7 @@ export namespace Schemas {
 
     export type WarehouseTablesListParams = {
     /**
-     * Include table columns. Disable for lightweight table existence or name lookups.
+     * Include table columns. Disable for lightweight table lookups.
      */
     include_columns?: boolean;
     /**
@@ -153356,6 +153390,13 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type WarehouseTablesRetrieveParams = {
+    /**
+     * Include table columns. Disable for lightweight table lookups.
+     */
+    include_columns?: boolean;
     };
 
     /**

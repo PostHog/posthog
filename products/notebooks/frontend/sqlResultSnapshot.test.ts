@@ -1,35 +1,49 @@
-import api from 'lib/api'
 import { apiMutator } from 'lib/api-orval-mutator'
 
 import {
     warehouseTablesCreateFromUploadCreate,
+    warehouseTablesRetrieve,
     warehouseTablesUploadFileCreate,
 } from 'products/data_warehouse/frontend/generated/api'
 
-import { notebooksSqlV2RunsRetrieve } from './generated/api'
-import { saveResultCohort, saveResultTable } from './sqlResultSnapshot'
+import { notebooksSqlV2RunsPageRetrieve, notebooksSqlV2RunsRetrieve } from './generated/api'
+import { getTableForUpdate, saveResultCohort, saveResultTable } from './sqlResultSnapshot'
 
-jest.mock('./generated/api', () => ({ notebooksSqlV2RunsRetrieve: jest.fn() }))
+jest.mock('./generated/api', () => ({
+    notebooksSqlV2RunsRetrieve: jest.fn(),
+    notebooksSqlV2RunsPageRetrieve: jest.fn(),
+}))
 jest.mock('products/data_warehouse/frontend/generated/api', () => ({
     warehouseTablesCreateFromUploadCreate: jest.fn(),
+    warehouseTablesRetrieve: jest.fn(),
     warehouseTablesUploadFileCreate: jest.fn(),
 }))
 jest.mock('lib/api-orval-mutator', () => ({ apiMutator: jest.fn() }))
 
 const source = { projectId: '2', shortId: 'notebook', nodeId: 'cell', runId: 'run' }
 const run = jest.mocked(notebooksSqlV2RunsRetrieve)
+const page = jest.mocked(notebooksSqlV2RunsPageRetrieve)
 const upload = jest.mocked(warehouseTablesUploadFileCreate)
 const create = jest.mocked(warehouseTablesCreateFromUploadCreate)
 
 describe('saving a notebook SQL run', () => {
     beforeEach(() => {
-        jest.clearAllMocks()
-    })
-    afterEach(() => {
-        jest.restoreAllMocks()
+        jest.resetAllMocks()
     })
 
-    it('uploads captured rows beyond the preview and links the returned table and source', async () => {
+    it('refuses an update when the warehouse destination does not match the saved link', async () => {
+        const retrieve = jest.mocked(warehouseTablesRetrieve)
+        const table = { id: 'table', name: 'original', pending_source_id: 'source' } as Awaited<
+            ReturnType<typeof retrieve>
+        >
+        retrieve.mockResolvedValue(table)
+        const link = { id: 'table', name: 'original', sourceId: 'source' }
+        await expect(getTableForUpdate('2', { ...link, name: 'different' })).rejects.toThrow('matches this link')
+        await expect(getTableForUpdate('2', { ...link, sourceId: 'different' })).rejects.toThrow('matches this link')
+        await expect(getTableForUpdate('2', link)).resolves.toBe(table)
+    })
+
+    it('reuses the captured rows after a name conflict and links the returned table and source', async () => {
         run.mockResolvedValue({
             status: 'done',
             result: { status: 'ok', columns: ['n'], first_page: [[1]], has_more: true },
@@ -39,11 +53,15 @@ describe('saving a notebook SQL run', () => {
         create.mockResolvedValue({ id: 'table', name: 'counts', pending_source_id: 'source' } as Awaited<
             ReturnType<typeof create>
         >)
-        await expect(saveResultTable(source, { name: 'counts' })).resolves.toEqual({
+        const pending = {}
+        create.mockRejectedValueOnce(new Error('Name already exists'))
+        await expect(saveResultTable(source, { name: 'taken' }, pending)).rejects.toThrow('Name already exists')
+        await expect(saveResultTable(source, { name: 'counts' }, pending)).resolves.toEqual({
             id: 'table',
             name: 'counts',
             sourceId: 'source',
         })
+        expect(upload).toHaveBeenCalledTimes(1)
         const file = upload.mock.calls[0][1]!.file!
         expect(await file.text()).toBe('{"n":1}\n{"n":null}\n{"n":3}\n')
         expect(create).toHaveBeenCalledWith('2', {
@@ -58,6 +76,7 @@ describe('saving a notebook SQL run', () => {
     it('refuses an expired direct result or an interrupted run before uploading any rows', async () => {
         const result = {
             status: 'ok',
+            delivery: 'direct',
             columns: ['n'],
             first_page: [[1]],
             has_more: true,
@@ -65,8 +84,8 @@ describe('saving a notebook SQL run', () => {
             result_id: 'display-id',
         }
         run.mockResolvedValueOnce({ status: 'done', result }).mockResolvedValueOnce({ status: 'interrupted', result })
-        await expect(saveResultTable(source, { name: 'counts' })).rejects.toThrow('expired')
-        await expect(saveResultTable(source, { name: 'counts' })).rejects.toThrow('successfully')
+        await expect(saveResultTable(source, { name: 'counts' }, {})).rejects.toThrow('expired')
+        await expect(saveResultTable(source, { name: 'counts' }, {})).rejects.toThrow('successfully')
         expect(upload).not.toHaveBeenCalled()
     })
 
@@ -76,13 +95,13 @@ describe('saving a notebook SQL run', () => {
             status: 'done',
             result: { status: 'ok', columns, first_page: [[1]], has_more: true, row_count: 3, result_id: 'frame' },
         })
-        jest.spyOn(api.notebooks, 'sqlV2RunPage').mockResolvedValue({
+        page.mockResolvedValue({
             columns,
             types: [],
             rows: [[1], [2]],
             has_more: false,
         })
-        await expect(saveResultTable(source, { tableId: 'table' })).rejects.toThrow('unavailable')
+        await expect(saveResultTable(source, { tableId: 'table' }, {})).rejects.toThrow('unavailable')
         expect(upload).not.toHaveBeenCalled()
     })
 
@@ -92,13 +111,35 @@ describe('saving a notebook SQL run', () => {
             status: 'done',
             result: { status: 'ok', columns, first_page: [['one']], has_more: true, row_count: 3, result_id: 'frame' },
         })
-        const page = jest.spyOn(api.notebooks, 'sqlV2RunPage')
         page.mockResolvedValueOnce({ columns, types: [], rows: [['one'], ['one']], has_more: true })
         page.mockResolvedValueOnce({ columns, types: [], rows: [['a,"b"']], has_more: false })
-        await saveResultCohort(source, 'Readers')
-        expect(page).toHaveBeenLastCalledWith('notebook', 'run', { limit: 500, offset: 2 })
+        await saveResultCohort(source, 'Readers', 1024)
+        expect(page).toHaveBeenLastCalledWith('2', 'notebook', 'run', { limit: 500, offset: 2 })
         const body = jest.mocked(apiMutator).mock.calls[0][1].body as FormData
         expect(body.get('is_static')).toBe('true')
         expect(await (body.get('csv') as File).text()).toBe('distinct_id,row\r\n"one",1\r\n"a,""b""",2')
+    })
+
+    it('uses the unabridged identifier even when the frame fits in its preview', async () => {
+        const columns = ['distinct_id']
+        const full = 'x'.repeat(12_000)
+        run.mockResolvedValue({
+            status: 'done',
+            result: { status: 'ok', columns, first_page: [['x…']], row_count: 1, result_id: 'frame' },
+        })
+        page.mockResolvedValue({ columns, types: [], rows: [[full]], has_more: false })
+        await saveResultCohort(source, 'Readers', 20_000)
+        const body = jest.mocked(apiMutator).mock.calls[0][1].body as FormData
+        expect(await (body.get('csv') as File).text()).toBe(`distinct_id,row\r\n"${full}",1`)
+    })
+
+    it('checks the scan bound before fetching a frame and counts the CSV header in the upload limit', async () => {
+        const result = { status: 'ok', columns: ['person_id'], result_id: 'frame' }
+        run.mockResolvedValueOnce({ status: 'done', result: { ...result, row_count: 1_000_000 } })
+        await expect(saveResultCohort(source, 'Readers', 1024)).rejects.toThrow('10,000')
+        expect(page).not.toHaveBeenCalled()
+        run.mockResolvedValueOnce({ status: 'done', result, rows: [['1']] })
+        await expect(saveResultCohort(source, 'Readers', 12)).rejects.toThrow('cohort upload limit')
+        expect(apiMutator).not.toHaveBeenCalled()
     })
 })
