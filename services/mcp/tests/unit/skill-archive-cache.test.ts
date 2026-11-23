@@ -7,6 +7,7 @@ import { hashBytes } from '@/hono/cache/SharedBlobCache'
 import { SkillArchiveCache, type SkillArchiveFetchResult } from '@/hono/cache/SkillArchiveCache'
 import { skillArchiveLastValidatedTimestampSeconds } from '@/hono/metrics'
 import { SkillCatalogService } from '@/hono/skill-catalog-service'
+import servedSkillsJson from '@/skills/served-skills.json'
 
 import { makeSharedBlobRedisStubs } from '../hono/helpers/shared-blob-redis-stubs'
 
@@ -343,9 +344,30 @@ describe('SkillCatalogService', () => {
         return vi.spyOn(console, 'error').mockImplementation(() => undefined)
     }
 
+    it('keeps only the listed skills of the release, and still knows every name in it', async () => {
+        const [listedSkill] = Object.keys(servedSkillsJson.skills)
+        const bytes = zipSync({
+            [`${listedSkill}/SKILL.md`]: strToU8(`---\nname: ${listedSkill}\ndescription: Listed.\n---\n# Listed`),
+            'internal-runbook/SKILL.md': strToU8(
+                '---\nname: internal-runbook\ndescription: Internal.\n---\n# Internal'
+            ),
+        })
+        const service = new SkillCatalogService(makeRedis(), { fetchArchive: async () => downloaded(bytes) })
+
+        await service.warmup()
+
+        expect(service.getCatalog()?.listNames()).toEqual([listedSkill])
+        expect(['internal-runbook', listedSkill!, 'no-such-skill'].map((name) => service.isInRelease(name))).toEqual([
+            true,
+            true,
+            false,
+        ])
+    })
+
     it.each([true, false])('checks the pinned archive before startup (matching=%s)', async (matching) => {
         const bytes = makeArchive()
         const service = new SkillCatalogService(makeRedis(), {
+            isListed: () => true,
             fetchArchive: async () => downloaded(bytes),
             expectedArchiveSha: matching ? hashBytes(bytes) : '0'.repeat(64),
         })
@@ -363,6 +385,7 @@ describe('SkillCatalogService', () => {
         const omnibus = new OmnibusSkillsCache(redis)
         await omnibus.publish(makeArchive('instrument-logs'))
         const service = new SkillCatalogService(redis, {
+            isListed: () => true,
             fetchArchive: async () => downloaded(makeArchive('product')),
             omnibusSkills: omnibus,
         })
@@ -381,6 +404,7 @@ describe('SkillCatalogService', () => {
         expect(service.getCatalog()?.listNames()).toEqual(['instrument-tracing', 'product'])
 
         const pinned = new SkillCatalogService(redis, {
+            isListed: () => true,
             fetchArchive: async () => downloaded(makeArchive('product')),
             expectedArchiveSha: hashBytes(makeArchive('product')),
             omnibusSkills: omnibus,
@@ -394,10 +418,18 @@ describe('SkillCatalogService', () => {
         const firstBytes = makeArchive('first')
         const secondBytes = makeArchive('second')
         const fetchArchive = vi.fn(async () => downloaded(firstBytes))
-        const first = new SkillCatalogService(redis, { fetchArchive, expectedArchiveSha: hashBytes(firstBytes) })
+        const first = new SkillCatalogService(redis, {
+            isListed: () => true,
+            fetchArchive,
+            expectedArchiveSha: hashBytes(firstBytes),
+        })
         await first.warmup()
         fetchArchive.mockResolvedValue(downloaded(secondBytes))
-        const second = new SkillCatalogService(redis, { fetchArchive, expectedArchiveSha: hashBytes(secondBytes) })
+        const second = new SkillCatalogService(redis, {
+            isListed: () => true,
+            fetchArchive,
+            expectedArchiveSha: hashBytes(secondBytes),
+        })
 
         await second.warmup()
 
@@ -415,11 +447,11 @@ describe('SkillCatalogService', () => {
                 async (_url: string, etag?: string): Promise<SkillArchiveFetchResult> =>
                     etag ? { status: 'not_modified' } : downloaded(makeArchive(), 'etag-v1')
             )
-            const first = new SkillCatalogService(redis, { fetchArchive })
+            const first = new SkillCatalogService(redis, { isListed: () => true, fetchArchive })
             await first.warmup()
             const validatedAt = Date.now()
             vi.setSystemTime(validatedAt + 20 * 60_000)
-            const second = new SkillCatalogService(redis, { fetchArchive })
+            const second = new SkillCatalogService(redis, { isListed: () => true, fetchArchive })
             await second.warmup()
             expect(timestamp).toHaveBeenLastCalledWith(validatedAt / 1000)
             const catalog = second.getCatalog()
@@ -445,7 +477,12 @@ describe('SkillCatalogService', () => {
         const fetchArchive = vi.fn(async () => {
             throw new Error('offline')
         })
-        const service = new SkillCatalogService(makeRedis(), { fetchArchive, warmupTimeoutMs: 50, warmupRetryMs: 10 })
+        const service = new SkillCatalogService(makeRedis(), {
+            isListed: () => true,
+            fetchArchive,
+            warmupTimeoutMs: 50,
+            warmupRetryMs: 10,
+        })
         const consoleError = quietConsole()
 
         await expect(service.warmup()).resolves.toBeUndefined()
@@ -475,6 +512,7 @@ describe('SkillCatalogService', () => {
                     return downloaded(bytes)
                 })
                 const service = new SkillCatalogService(makeRedis(), {
+                    isListed: () => true,
                     fetchArchive,
                     expectedArchiveSha: hashBytes(bytes),
                     warmupTimeoutMs: 50,
@@ -495,12 +533,14 @@ describe('SkillCatalogService', () => {
     it('loads the catalog at warmup and adopts a newer archive another pod published', async () => {
         const redis = makeRedis()
         const first = new SkillCatalogService(redis, {
+            isListed: () => true,
             fetchArchive: vi.fn(async () => downloaded(makeArchive('first'), 'etag-v1')),
         })
         await first.warmup()
         expect(first.getCatalog()?.listNames()).toEqual(['first'])
 
         const second = new SkillCatalogService(redis, {
+            isListed: () => true,
             fetchArchive: vi.fn(async () => downloaded(makeArchive('second'), 'etag-v2')),
         })
         await second.warmup()
@@ -518,7 +558,10 @@ describe('SkillCatalogService', () => {
 
     it('keeps the last catalog when the shared copy turns corrupt', async () => {
         const redis = makeRedis()
-        const service = new SkillCatalogService(redis, { fetchArchive: vi.fn(async () => downloaded()) })
+        const service = new SkillCatalogService(redis, {
+            isListed: () => true,
+            fetchArchive: vi.fn(async () => downloaded()),
+        })
         await service.warmup()
         const original = service.getCatalog()
         const sha = 'a'.repeat(64)
@@ -542,7 +585,7 @@ describe('SkillCatalogService', () => {
     it('repairs a shared copy that Redis lost', async () => {
         const redis = makeRedis()
         const fetchArchive = vi.fn(async () => downloaded())
-        const service = new SkillCatalogService(redis, { fetchArchive })
+        const service = new SkillCatalogService(redis, { isListed: () => true, fetchArchive })
         await service.warmup()
         redis.store.clear()
 

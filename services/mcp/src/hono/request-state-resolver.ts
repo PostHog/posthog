@@ -43,7 +43,6 @@ import {
     MCP_CURSOR_EXEC_MODE_FLAG,
     MCP_EXEC_SKILLS_FEATURE_FLAG,
     MCP_INBOX_FIRST_FLAG,
-    MCP_SERVED_SKILLS_LIST_FLAG,
     MCP_TIME_SERIES_CHARTS_FLAG,
 } from './constants'
 import { GUIDANCE_RULE_FLAGS } from './guidance/rules'
@@ -243,14 +242,13 @@ export class RequestStateResolver {
         // resolves — so the tool-definition scan can't discover it; join it in explicitly.
         // MCP_EXEC_SKILLS_FEATURE_FLAG gates the `learn` skill commands, MCP_INBOX_FIRST_FLAG a prompt section,
         // and MCP_TIME_SERIES_CHARTS_FLAG the chart data block on tool results.
-        // MCP_SERVED_SKILLS_LIST_FLAG limits `learn` to the served skills, and each served skill can name a flag of its own.
+        // A served skill can name a flag of its own, which no tool may declare.
         const allFlagKeys = [
             ...new Set([
                 ...getRequiredFeatureFlags(),
                 ...getServedSkillFeatureFlags(),
                 MCP_GATEWAY_FLAG,
                 MCP_EXEC_SKILLS_FEATURE_FLAG,
-                MCP_SERVED_SKILLS_LIST_FLAG,
                 MCP_CURSOR_EXEC_MODE_FLAG,
                 MCP_INTERVIEW_RECRUITMENT_FLAG,
                 MCP_INTENT_PROMPT_FLAG,

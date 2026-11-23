@@ -37,6 +37,10 @@ export function getServedSkillFeatureFlags(served: ServedSkills = SERVED_SKILLS)
     return [...new Set([...served.values()].flatMap(({ feature_flag }) => (feature_flag ? [feature_flag] : [])))]
 }
 
+export function isSkillListed(name: string, served: ServedSkills = SERVED_SKILLS): boolean {
+    return served.has(name)
+}
+
 export function isSkillServed(name: string, caller: SkillCaller = {}, served: ServedSkills = SERVED_SKILLS): boolean {
     const entry = served.get(name)
     if (!entry) {

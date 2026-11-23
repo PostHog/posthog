@@ -1,3 +1,4 @@
+import { isSkillListed } from '@/skills/served-skills'
 import { SkillCatalog } from '@/skills/skill-catalog'
 
 import type { OmnibusSkillsCache } from './cache/OmnibusSkillsCache'
@@ -26,6 +27,8 @@ export interface SkillCatalogServiceOptions extends SkillArchiveCacheOptions {
     warmupTimeoutMs?: number
     warmupRetryMs?: number
     omnibusSkills?: OmnibusSkillsCache
+    /** Which skills of the release `learn` may serve. Defaults to the served-skills list. */
+    isListed?: (name: string) => boolean
 }
 
 type LoadPhase = 'warmup' | 'poll'
@@ -34,6 +37,9 @@ class SkillArchiveIntegrityError extends Error {}
 
 /**
  * Holds the parsed product skill catalog for this pod.
+ *
+ * The catalog keeps only the listed skills of the release. The rest are written for
+ * PostHog's own jobs, and no caller of `learn` may load them.
  *
  * Requests only ever read `getCatalog()` from memory. Startup blocks on the first
  * load, then `start()` runs a background poller that adopts a newer shared
@@ -48,8 +54,10 @@ export class SkillCatalogService {
     private readonly pollJitterMs: number
     private readonly warmupTimeoutMs: number
     private readonly warmupRetryMs: number
+    private readonly isListed: (name: string) => boolean
 
     private catalog: SkillCatalog | undefined
+    private releaseSkillNames: ReadonlySet<string> = new Set()
     private archiveBytes: Uint8Array | undefined
     private archiveSha: string | undefined
     private omnibusBytes: Uint8Array | undefined
@@ -66,10 +74,12 @@ export class SkillCatalogService {
             warmupTimeoutMs,
             warmupRetryMs,
             omnibusSkills,
+            isListed,
             ...cacheOptions
         } = opts
         this.expectedArchiveSha = expectedArchiveSha
         this.omnibusSkills = omnibusSkills
+        this.isListed = isListed ?? isSkillListed
         const validateArchive =
             cacheOptions.validateArchive ?? ((bytes: Uint8Array) => void SkillCatalog.fromZip(bytes))
         this.archiveCache = new SkillArchiveCache(redis, {
@@ -90,6 +100,11 @@ export class SkillCatalogService {
 
     getCatalog(): SkillCatalog | undefined {
         return this.catalog
+    }
+
+    /** True for every skill in the release, listed or not. A caller with an installed copy holds them all. */
+    isInRelease(name: string): boolean {
+        return this.releaseSkillNames.has(name)
     }
 
     /**
@@ -223,14 +238,16 @@ export class SkillCatalogService {
 
     private installCatalog(bytes: Uint8Array, phase: LoadPhase): void {
         const start = Date.now()
-        const catalog = this.buildCatalog(bytes)
+        const release = this.buildCatalog(bytes)
+        const catalog = release.filter(this.isListed)
+        this.releaseSkillNames = new Set(release.listNames())
         this.catalog = catalog
         this.loadedAt = Date.now()
         skillCatalogLoadDurationSeconds.observe({ phase }, (this.loadedAt - start) / 1000)
         skillCatalogSkills.set(catalog.size)
         skillCatalogAgeSeconds.set(0)
         console.info(
-            `[SkillCatalogService] installed ${catalog.size} skills (${phase}, sha ${this.archiveSha?.slice(0, 12)})`
+            `[SkillCatalogService] installed ${catalog.size} of ${release.size} skills (${phase}, sha ${this.archiveSha?.slice(0, 12)})`
         )
     }
 

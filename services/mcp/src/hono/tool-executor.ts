@@ -75,7 +75,7 @@ import {
     trackToolsList,
     type ToolCallAnalyticsMeta,
 } from './analytics'
-import { MCP_SERVED_SKILLS_LIST_FLAG, MCP_TIME_SERIES_CHARTS_FLAG } from './constants'
+import { MCP_TIME_SERIES_CHARTS_FLAG } from './constants'
 import {
     type GuidanceEngine,
     type GuidanceNotice,
@@ -964,21 +964,19 @@ export class ToolExecutor {
     }
 
     private servedSkillCatalog(state: ResolvedState): SkillCatalog | undefined {
-        const catalog = this.skillCatalogService?.getCatalog()
-        if (!catalog || state.toolFeatureFlags?.[MCP_SERVED_SKILLS_LIST_FLAG] !== true) {
-            return catalog
-        }
         const consumer = getEffectiveMCPClientContext(state.requestContext, state.sessionContext).mcpConsumer
-        return catalog.filter((name) => isSkillServed(name, { featureFlags: state.toolFeatureFlags, consumer }))
+        return this.skillCatalogService
+            ?.getCatalog()
+            ?.filter((name) => isSkillServed(name, { featureFlags: state.toolFeatureFlags, consumer }))
     }
 
     /**
      * What this connection knows about the built-in PostHog skill catalog.
      *
-     * Read from the catalog the server loads at startup, not from the `learn`
+     * Read from the skills the server loads at startup, not from the `learn`
      * catalog: that one is undefined exactly when the `learn` command is off, which
      * is the case where an agent told to load a built-in skill has nowhere else to
-     * go. A catalog that never loaded reports every name as absent, so the message
+     * go. A release that never loaded reports every name as absent, so the message
      * falls back to the store's own.
      *
      * A connection with `learn` is told to run it, so only a skill `learn` serves
@@ -987,9 +985,10 @@ export class ToolExecutor {
      */
     private builtInSkillHint(state: ResolvedState): BuiltInSkillHint {
         const learnAvailable = this.instructionsBuilder.execSkillsEnabled(state)
-        const catalog = learnAvailable ? this.servedSkillCatalog(state) : this.skillCatalogService?.getCatalog()
+        const served = learnAvailable ? this.servedSkillCatalog(state) : undefined
         return {
-            isBuiltIn: (name) => catalog?.has(name) === true,
+            isBuiltIn: (name) =>
+                learnAvailable ? served?.has(name) === true : this.skillCatalogService?.isInRelease(name) === true,
             learnAvailable,
         }
     }

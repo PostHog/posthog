@@ -317,8 +317,7 @@ The context-mill omnibus skills are overlaid on that bundle from the shared copy
 A pinned bundle (`POSTHOG_MCP_SKILLS_SHA256`) serves no overlay, and a product skill keeps its name when an overlay skill collides with it.
 Custom archive URLs use separate Redis cache namespaces so a local bundle cannot read or overwrite the published bundle's cache entry.
 The bundle holds every skill in the release, including the skills written for PostHog's own jobs.
-With the `mcp-served-skills-list` flag on, `learn` serves only the skills named in `src/skills/served-skills.json`.
-A skill left out of that file does not appear in search and does not load by name.
+The server keeps only the skills named in `src/skills/served-skills.json`, so `learn` cannot search or load any other skill.
 An entry with a `feature_flag` is served only to a caller who has that flag on, the same rule as a tool's `feature_flag`.
 An entry with `consumers` is served only to those PostHog-run agents, matched on the `x-posthog-mcp-consumer` header.
 Project skills are read directly from the request-authenticated project and are not cached by the MCP server.
