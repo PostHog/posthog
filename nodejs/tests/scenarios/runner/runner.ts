@@ -33,6 +33,7 @@ import { DriveSummary, DrivenStep, SeedState, StepWindow, drive, seed } from '..
 import { watchSesFeedback } from '../generator/ses-feedback'
 import { OfferContext, kafkaEmit } from '../generator/traffic'
 import { BarResult, WriterCpu, judgeBars } from '../judge/bars'
+import { atLeastOnce } from '../judge/invariants'
 import { Convergence, InvariantResult, JournalEntry, JudgeOptions, createJudge } from '../judge/judge'
 import {
     DriveWindow,
@@ -644,9 +645,13 @@ export function createRunner(
                 await live.stop()
                 const down = await stopHealth()
                 const janitorResets = janitorResetsOf({ ...sampled, sampledFrom: sampler.sampledFrom })
-                const invariants = await judge.check(card.invariants, card.gates, { janitorResets })
+                const checked = await judge.check(card.invariants, card.gates, { janitorResets })
                 const { unread } = judge.evidence()
                 const convergence: Convergence = unread === undefined ? converged : { ...converged, unread }
+                const invariants =
+                    convergence.unfinishedJobs === null
+                        ? checked.filter(({ name }) => name !== atLeastOnce.name)
+                        : checked
                 const evidence = {
                     ...judge.evidence(),
                     ...sampled,

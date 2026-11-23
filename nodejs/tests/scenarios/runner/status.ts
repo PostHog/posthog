@@ -217,13 +217,7 @@ function withRamp(
           }
 }
 
-const withoutUnreadLosses = (verdict: Verdict): Verdict =>
-    verdict.convergence.unfinishedJobs !== null
-        ? verdict
-        : { ...verdict, invariants: verdict.invariants.filter(({ name }) => name !== 'at_least_once') }
-
-function judgedOf(judged: Verdict): { status: Status; statusReason: string } {
-    const verdict = withoutUnreadLosses(judged)
+function judgedOf(verdict: Verdict): { status: Status; statusReason: string } {
     if (!verdict.ramp) {
         return unrampedStatusOf(verdict)
     }
@@ -236,8 +230,7 @@ function judgedOf(judged: Verdict): { status: Status; statusReason: string } {
     })
     const { unread, ...read } = convergence
     const rampJudgesConvergence =
-        convergence.unfinishedJobs === null ||
-        (convergence.unfinishedJobs ?? 0) > 0 ||
+        convergence.unfinishedJobs !== 0 ||
         invariants.some(({ name, crossedBy }) => name === 'at_least_once' && crossedBy !== undefined)
     const unramped = withRamp(
         unrampedStatusOf({

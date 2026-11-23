@@ -2242,6 +2242,7 @@ describe('runner through seed, drive and judge', () => {
                     ramp_broke_scale: 10,
                     ramp_broke_by: 'refused_at_intake',
                     converged: false,
+                    invariants_failed: ['refused_at_intake'],
                 }),
                 refusedAtTheBreak: true,
             })
