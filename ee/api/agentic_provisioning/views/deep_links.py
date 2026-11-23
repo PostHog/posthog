@@ -197,20 +197,11 @@ def agentic_login(request: Any) -> HttpResponseBase:
         capture_deep_link_event("access_blocked", user_id=user_id)
         return HttpResponseRedirect(ACCOUNT_BLOCKED_LOGIN_URL)
 
-    # Deep-link login has no password challenge and no SSO step, so partner-asserted
-    # email ownership is the only thing standing between an attacker and a session.
-    # Require explicit is_email_verified=True - don't trust the legacy None passthrough
-    # or the org-level email-verification-disabled flag.
-    if user.is_email_verified is not True:
-        return _block_unverified_email(user)
-
     redirect_path = _deep_link_redirect_path(purpose, team_id, path)
 
-    normal_login_reason = normal_login_required_reason(user)
-    if normal_login_reason is not None:
-        capture_deep_link_event(normal_login_reason.value, user_id=user_id, team_id=team_id, purpose=purpose)
-        logger.warning("agentic_login.normal_login_required", user_id=user_id, reason=normal_login_reason.value)
-        return HttpResponseRedirect(f"{settings.LOGIN_URL}?{urlencode({'next': redirect_path})}")
+    refusal = _session_refusal(user, redirect_path, team_id=team_id, purpose=purpose)
+    if refusal is not None:
+        return refusal
 
     auth_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
@@ -218,6 +209,24 @@ def agentic_login(request: Any) -> HttpResponseBase:
     logger.info("agentic_login.success", user_id=user_id, team_id=team_id, purpose=purpose)
 
     return HttpResponseRedirect(redirect_path)
+
+
+def _session_refusal(user: User, redirect_path: str, *, team_id: int | None, purpose: str) -> HttpResponseBase | None:
+    """Return the redirect for a user who must not get a session from a deep link, or None to log them in."""
+    # Deep-link login has no password challenge and no SSO step, so partner-asserted
+    # email ownership is the only thing standing between an attacker and a session.
+    # Require explicit is_email_verified=True - don't trust the legacy None passthrough
+    # or the org-level email-verification-disabled flag.
+    if user.is_email_verified is not True:
+        return _block_unverified_email(user)
+
+    normal_login_reason = normal_login_required_reason(user)
+    if normal_login_reason is not None:
+        capture_deep_link_event(normal_login_reason.value, user_id=user.id, team_id=team_id, purpose=purpose)
+        logger.warning("agentic_login.normal_login_required", user_id=user.id, reason=normal_login_reason.value)
+        return HttpResponseRedirect(f"{settings.LOGIN_URL}?{urlencode({'next': redirect_path})}")
+
+    return None
 
 
 def _block_unverified_email(user: User) -> HttpResponseBase:
