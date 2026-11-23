@@ -193,6 +193,10 @@ class TestOneClickEmailDomainSetup(EmailDomainConnectTestCase):
             ("dmarc_lookup_fails", lambda world: world.faults.inject(DMARC_LOOKUP, DnsFault.SERVFAIL)),
             ("dmarc_record_is_not_utf8", lambda world: world.dns.publish(f"_dmarc.{DOMAIN}", "TXT", '"\\255"')),
             (
+                "dmarc_record_has_a_line_break",
+                lambda world: world.dns.publish_txt(f"_dmarc.{DOMAIN}", "v=DMARC1\\010;p=reject"),
+            ),
+            (
                 "organizational_dmarc_lookup_times_out",
                 lambda world: world.faults.inject(ORGANIZATIONAL_DMARC_LOOKUP, DnsFault.TIMEOUT),
             ),

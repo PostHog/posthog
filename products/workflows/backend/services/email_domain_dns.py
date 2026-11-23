@@ -31,7 +31,7 @@ LOOKUP_TIMEOUT_SECONDS = 3
 MAX_AUTHORITATIVE_NAMESERVERS = 2
 MAX_PARALLEL_LOOKUPS = 8
 ABSENT_ERRORS = (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer)
-_DMARC_VERSION = re.compile(r"[vV][ \t]*=[ \t]*DMARC1[ \t]*(;|\Z)")
+_DMARC_VERSION = re.compile(r"[vV]\s*=\s*DMARC1\s*(;|\Z)")
 _DMARC_REQUEST = r"none|quarantine|reject"
 _DMARC_TEXT = re.compile(r"[\t\x20-\x7e]*")
 _DMARC_TAG_NAME = re.compile(r"[a-z][a-z0-9_]*", re.IGNORECASE)
