@@ -1,4 +1,4 @@
-import { applyEdit, dropIntoGrid, findTile, settleDashboard } from './dashboardEdits'
+import { applyEdit, dropIntoGrid, findTile, settleDashboard, stackTiles, withFolds } from './dashboardEdits'
 import type { Dashboard, Tile } from './dashboardTypes'
 
 const text = (id: string, x: number, y: number, w: number, h: number): Tile => ({
@@ -83,5 +83,60 @@ describe('dashboardEdits', () => {
         const saved = findTile(applyEdit(board, { edit: 'moveTile', id: 'wide', grid: 'half', x: 0, y: 0 }), 'wide')
 
         expect(preview.find((tile) => tile.id === 'wide')).toEqual(saved)
+    })
+
+    it('stacks tiles full width in reading order, with chart heights capped and sections restacked', () => {
+        const chart = (id: string, x: number, y: number, w: number, h: number): Tile => ({
+            id,
+            place: { x, y, w, h },
+            widget: { type: 'line' },
+        })
+        const tiles = [
+            chart('tall', 12, 0, 12, 12),
+            text('note', 0, 0, 12, 3),
+            chart('short', 0, 3, 12, 2),
+            section('group', 0, 12, 24, [text('right', 12, 0, 12, 2), text('left', 0, 0, 12, 4)]),
+        ]
+
+        expect(places(stackTiles(tiles, 24), 'tab')).toEqual([
+            'note@tab: 0,0,24,3',
+            'tall@tab: 0,3,24,8',
+            'short@tab: 0,11,24,5',
+            'group@tab: 0,16,24,7',
+            'left@group: 0,0,24,4',
+            'right@group: 0,4,24,2',
+        ])
+    })
+
+    it('closes a section for one viewer, moving the tiles below up, without changing the saved dashboard', () => {
+        const board = dashboard([section('group', 0, 0, 24, [text('inside', 0, 0, 24, 4)]), text('below', 0, 6, 24, 2)])
+        const saved = JSON.stringify(board)
+
+        expect(allPlaces(withFolds(board, { group: true }))).toEqual([
+            'group@first: 0,0,24,1',
+            'inside@group: 0,0,24,4',
+            'below@first: 0,1,24,2',
+        ])
+        expect(JSON.stringify(board)).toEqual(saved)
+    })
+
+    it('keeps a drag made in a folded view clear of the section in the saved layout', () => {
+        const board = dashboard([
+            section('group', 0, 0, 24, [text('inside', 0, 0, 24, 4)]),
+            text('below', 0, 6, 12, 2),
+            text('side', 12, 6, 12, 2),
+        ])
+        const viewed = withFolds(board, { group: true })
+        const grid = viewed.tabs[0].tiles
+        const dragged = Object.fromEntries(grid.map((tile) => [tile.id, tile.place]))
+        dragged.side = { ...dragged.side, x: 0, y: 1 }
+        dragged.below = { ...dragged.below, y: 3 }
+
+        expect(allPlaces(applyEdit(board, { edit: 'placeTiles', grid: 'first', places: dragged }))).toEqual([
+            'group@first: 0,0,24,5',
+            'inside@group: 0,0,24,4',
+            'below@first: 0,7,12,2',
+            'side@first: 0,5,12,2',
+        ])
     })
 })
