@@ -68,12 +68,12 @@ Every run does both jobs, in this order:
 
 Keep two cursors, and overwrite both each run:
 
-- `dream:feedback-cursor`: the `created_at` of the newest note you read, and the date of the pass.
+- `dream:feedback-cursor`: the `created_at` of the newest note you read, and the date of the pass. If you stopped before you reached the old cursor, keep the old cursor and say so in your summary.
 - `dream:cursor`: which scout's entries you worked on and when, so the next run can pick another.
 
 ## Read the feedback
 
-1. Read `dream:feedback-cursor`. List notes across scouts: `scout-notes-list` without `skill_name`, `date_from` set to the cursor, and `content_max_chars` set. If a page is full, walk back with `date_to`. With no cursor, read the last 7 days.
+1. Read `dream:feedback-cursor`. List notes across scouts: `scout-notes-list` without `skill_name`, `date_from` set to the cursor, a high `limit`, and `content_max_chars` set. The note at the cursor comes back again: it is not new. If a page is full, walk back with `date_to` until you reach the cursor. With no cursor, read the last 7 days.
 2. Group the notes by the report they name, then by the kind of finding and the product area.
 3. Count a report once. A reviewer correction reaches many scouts as separate notes, so the same correction on the same report is one piece of evidence.
 4. Read the outcome of the reports a group names with `inbox-reports-retrieve`. Use `inbox-reports-list` for outcomes that left no note, such as a resolved report.
