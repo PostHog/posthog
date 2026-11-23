@@ -18,12 +18,12 @@ export function PushChannelsSetupWarning({ channels }: { channels: number[] }): 
     if (!warning) {
         return null
     }
-    if (warning.kind === 'no_integration') {
+    if (warning.kind === 'app_disconnected') {
         return (
-            <div data-attr="transactional-push-no-integration-warning">
+            <div data-attr="transactional-push-app-disconnected-warning">
                 <LemonBanner type="warning">
-                    No push app is connected, so this notification won't reach anyone. Connect Firebase for Android or
-                    APNs for iOS to send it.
+                    The selected app is no longer connected, so this notification won't reach anyone. Pick another app
+                    to send it through.
                 </LemonBanner>
             </div>
         )
