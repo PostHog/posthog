@@ -41,7 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.row_tracking impor
     setup_row_tracking,
     will_hit_billing_limit,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import OutputLane, SourceResponse
 
 _READ_ONLY_REPLICA_ERROR = redis_exceptions.ReadOnlyError("You can't write against a read only replica.")
 _MISCONF_ERROR = redis_exceptions.ResponseError(
@@ -297,11 +297,19 @@ class TestRowTracking(BaseTest):
     def _create_schema(self, source: ExternalDataSource) -> ExternalDataSchema:
         return ExternalDataSchema.objects.create(team=self.team, source=source, name=str(uuid.uuid4()))
 
-    async def _start_sync(self, schema: ExternalDataSchema, rows_to_sync: int, billable: bool = True) -> None:
+    async def _start_sync(
+        self,
+        schema: ExternalDataSchema,
+        rows_to_sync: int,
+        billable: bool = True,
+        lanes: list[OutputLane] | None = None,
+    ) -> None:
         await setup_row_tracking_with_billing_check(
             self.team.pk,
             schema,
-            SourceResponse(name=schema.name, items=lambda: [], primary_keys=None, rows_to_sync=rows_to_sync),
+            SourceResponse(
+                name=schema.name, items=lambda: [], primary_keys=None, rows_to_sync=rows_to_sync, lanes=lanes
+            ),
             schema.source,
             self._logger(),
             billable=billable,
@@ -416,6 +424,22 @@ class TestRowTracking(BaseTest):
             finally:
                 await finish_row_tracking(self.team.pk, in_flight_schema.id)
                 await finish_row_tracking(self.team.pk, next_schema.id)
+
+    @parameterized.expand([("history_free", False, False), ("history_billed", True, True)])
+    @pytest.mark.asyncio
+    async def test_a_billed_history_table_counts_the_run_rows_again(self, _name, history_billable, hits_the_limit):
+        schema = await self._create_schema(await self._create_source())
+        lanes = [OutputLane(name="orders"), OutputLane(name="orders_history", billable=history_billable)]
+
+        async with self._billing_check_environment(limit=25):
+            try:
+                if hits_the_limit:
+                    with pytest.raises(BillingLimitsWillBeReachedException):
+                        await self._start_sync(schema, rows_to_sync=20, lanes=lanes)
+                else:
+                    await self._start_sync(schema, rows_to_sync=20, lanes=lanes)
+            finally:
+                await finish_row_tracking(self.team.pk, schema.id)
 
     @pytest.mark.asyncio
     async def test_row_tracking_with_previous_rows_from_other_team_in_org(self):

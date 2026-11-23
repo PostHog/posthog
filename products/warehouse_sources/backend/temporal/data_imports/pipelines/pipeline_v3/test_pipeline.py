@@ -1107,17 +1107,14 @@ class TestLaneFanOut:
         assert {"name", "_file_name"} <= set(written.column_names)
         assert "id" not in written.column_names
 
-    @pytest.mark.parametrize("history_billable,expected", [(False, 3), (True, 5)])
-    async def test_only_the_billable_lanes_count_towards_usage(self, history_billable: bool, expected: int) -> None:
-        writers = [
-            _lane_writer("users"),
-            _lane_writer("users_cdc", billable=history_billable, transform=lambda t: t.slice(0, 2)),
-        ]
+    async def test_the_schema_job_counts_only_its_own_lane(self) -> None:
+        # A billed companion counts on its own job, which has no destinations to multiply it by.
+        writers = [_lane_writer("users"), _lane_writer("users_cdc", transform=lambda t: t.slice(0, 2))]
         pipeline = self._pipeline(writers)
 
         tracked = await self._process(pipeline, pa.table({"id": pa.array([1, 2, 3], pa.int64())}))
 
-        assert tracked.call_args[0][3] == expected
+        assert tracked.call_args[0][3] == 3
 
     async def test_a_lane_that_already_holds_the_rows_stages_nothing_for_that_index(self) -> None:
         writers = [_lane_writer("users"), _lane_writer("users_cdc", transform=lambda t: t.slice(0, 0))]
@@ -1231,8 +1228,17 @@ class TestCompanionJob:
         assert len(pipeline._lane_writers) == 1
         assert pipeline._lane_writers[0].job is None
 
-    def test_the_companion_table_gets_its_own_job(self) -> None:
-        pipeline = self._laned(self._both())
+    @pytest.mark.parametrize(
+        "lane_billable,parent_billable,expected",
+        [(False, True, False), (True, True, True), (True, False, False)],
+    )
+    def test_the_companion_table_gets_its_own_job(
+        self, lane_billable: bool, parent_billable: bool, expected: bool
+    ) -> None:
+        lanes = self._both()
+        lanes[1] = OutputLane(name="users_cdc", cdc_write_mode="scd2_append", billable=lane_billable)
+        pipeline = self._laned(lanes)
+        pipeline._job.billable = parent_billable
         created = MagicMock()
 
         self._open(pipeline, pipeline._output_lanes[1], created)
@@ -1241,8 +1247,8 @@ class TestCompanionJob:
         # No workflow run id: the schema's own job owns the pipeline lock, and a second holder
         # releasing it would free it while this run is still writing.
         assert fields["workflow_run_id"] is None
-        # One read of a change stream is one sync however many tables it keeps.
-        assert fields["billable"] is False
+        assert fields["billable"] is expected
+        assert fields["destination_ids"] == []
         assert fields["schema_snapshot"]["cdc_write_mode"] == "scd2_append"
         assert fields["schema_snapshot"]["companion_of"] == "job-1"
 

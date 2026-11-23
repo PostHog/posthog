@@ -249,7 +249,9 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
                 workflow_id=self._job.workflow_id,
                 workflow_run_id=None,
                 pipeline_version=ExternalDataJob.PipelineVersion.V3,
-                billable=False,
+                # Its rows bill on this job, so they reach only the warehouse's count (no destinations)
+                # and only once its table loads. A free run keeps its companion free.
+                billable=lane.billable and self._job.billable is not False,
                 schema_snapshot={
                     **_build_schema_snapshot(self._schema),
                     # Distinguishes the two rows a `both` run produces, and names the run they
@@ -318,7 +320,8 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
             batch_result = await asyncio.to_thread(writer.s3_batch_writer.write_batch, lane_table, batch_index)
             writer.batch_results.append(batch_result)
             writer.pg_producer.hold_batch(batch_result, cumulative_row_count=writer.row_count)
-            if lane.billable:
+            # A companion's rows bill on its own job, recorded when its final batch is sent.
+            if lane.billable and index == 0:
                 billable_rows += lane_table.num_rows
         return billable_rows
 
@@ -338,6 +341,9 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
                 continue
             lane_schema_path = await asyncio.to_thread(writer.s3_batch_writer.write_schema)
             schema_path = schema_path or lane_schema_path
+            if writer.job is not None:
+                # Before the final batch, so the job already holds its count when the loader completes it.
+                await self._record_companion_rows(writer)
             writer.pg_producer.send_final_batch(
                 writer.batch_results[-1],
                 total_batches=len(writer.batch_results),
@@ -347,7 +353,6 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
             )
             if writer.job is not None:
                 self._final_sent_job_ids.add(str(writer.job.id))
-                await self._record_companion_rows(writer)
         return schema_path
 
     def _release_held_batches(self) -> None:
@@ -365,7 +370,7 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
                 lambda: ExternalDataJob.objects.filter(id=job_id).update(rows_synced=rows)
             )()
         except Exception:
-            # Bookkeeping for rows already written; never worth failing the run over.
+            # Never worth failing the run over: a missed count only leaves these rows unbilled.
             await self._logger.awarning("companion_job_rows_not_recorded", companion_job_id=str(job_id), exc_info=True)
 
     def _mark_first_ever_sync(self) -> None:

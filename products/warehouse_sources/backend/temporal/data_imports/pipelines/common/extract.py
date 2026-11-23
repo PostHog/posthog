@@ -481,11 +481,12 @@ async def setup_row_tracking_with_billing_check(
     if not resource.rows_to_sync or not billable or is_in_free_historical_window(source.created_at):
         return
 
-    await increment_rows(team_id, schema.id, resource.rows_to_sync)
+    # Every billed table takes each row the run reads, so a billed history table counts them again.
+    rows = resource.rows_to_sync * max(1, sum(lane.billable for lane in resource.lanes or ()))
+    await increment_rows(team_id, schema.id, rows)
     if await will_hit_billing_limit(team_id=team_id, source=source, logger=logger):
         raise BillingLimitsWillBeReachedException(
-            f"Your account will hit your Sources billing limits syncing {resource.name} "
-            f"with {resource.rows_to_sync} rows"
+            f"Your account will hit your Sources billing limits syncing {resource.name} with {rows} rows"
         )
 
 

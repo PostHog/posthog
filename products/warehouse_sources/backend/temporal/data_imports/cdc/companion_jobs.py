@@ -12,6 +12,7 @@ from django.db import transaction
 from django.utils import timezone
 
 if TYPE_CHECKING:
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 # On the schema's own job row: the companion job ids this run opened, so the listing proof can
@@ -110,3 +111,35 @@ def record_companion_job(parent_job_id: str, team_id: int, companion_job_id: str
         earlier = [] if first_of_attempt else snapshot.get(COMPANION_JOB_IDS_KEY, [])
         snapshot[COMPANION_JOB_IDS_KEY] = [*earlier, companion_job_id]
         ExternalDataJob.objects.filter(id=parent.id).update(schema_snapshot=snapshot)
+
+
+def record_history_seed_job(parent: ExternalDataJob, schema: ExternalDataSchema, rows: int) -> None:
+    """Bill the rows a snapshot seeded into the history table, on a completed job of their own.
+
+    Not on the snapshot job: that job's rows bill once per destination, and the history table reaches
+    only the warehouse.
+    """
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+    from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import SCD2_APPEND_MODE
+    from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
+        _build_schema_snapshot,
+    )
+
+    ExternalDataJob.objects.create(
+        team_id=parent.team_id,
+        pipeline_id=parent.pipeline_id,
+        schema_id=parent.schema_id,
+        status=ExternalDataJob.Status.COMPLETED,
+        rows_synced=rows,
+        finished_at=timezone.now(),
+        workflow_id=parent.workflow_id,
+        workflow_run_id=None,
+        pipeline_version=parent.pipeline_version,
+        billable=parent.billable is not False,
+        schema_snapshot={
+            **_build_schema_snapshot(schema),
+            "cdc_write_mode": SCD2_APPEND_MODE,
+            COMPANION_OF_KEY: str(parent.id),
+        },
+        destination_ids=[],
+    )
