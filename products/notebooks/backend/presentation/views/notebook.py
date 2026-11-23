@@ -2648,33 +2648,33 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     f"Can't save: you don't have access to {denied_names}, and this notebook is publicly shared."
                 )
 
-        _authorize_notebook_table_edit(request, notebook.team_id, notebook.content, data["content"])
-        result = submit_steps(
-            team_id=notebook.team_id,
-            notebook_id=str(notebook.short_id),
-            client_id=data["client_id"],
-            steps_json=data["steps"],
-            last_seen_version=data["version"],
-            last_saved_version=notebook.version,
-            user_id=user.pk,
-            user_name=user_name,
-            cursor_head=data.get("cursor_head"),
-        )
-
         content = data["content"]
+        with transaction.atomic():
+            notebook_before = Notebook.objects.select_for_update().get(team_id=notebook.team_id, pk=notebook.pk)
+            _authorize_notebook_table_edit(request, notebook.team_id, notebook_before.content, content)
+            result = submit_steps(
+                team_id=notebook.team_id,
+                notebook_id=str(notebook.short_id),
+                client_id=data["client_id"],
+                steps_json=data["steps"],
+                last_seen_version=data["version"],
+                last_saved_version=notebook_before.version,
+                user_id=user.pk,
+                user_name=user_name,
+                cursor_head=data.get("cursor_head"),
+            )
+            if result.status == "accepted":
+                Notebook.objects.filter(pk=notebook.pk).update(
+                    content=content,
+                    text_content=data.get("text_content", ""),
+                    title=data.get("title", notebook_before.title),
+                    version=result.version,
+                    last_modified_at=now(),
+                    last_modified_by=request.user,
+                )
+                notebook.refresh_from_db()
 
         if result.status == "accepted":
-            notebook_before = Notebook.objects.get(pk=notebook.pk)
-            Notebook.objects.filter(pk=notebook.pk).update(
-                content=content,
-                text_content=data.get("text_content", ""),
-                title=data.get("title", notebook.title),
-                version=result.version,
-                last_modified_at=now(),
-                last_modified_by=request.user,
-            )
-            notebook.refresh_from_db()
-
             # Snapshot diffs into the activity logs for history
             changes = changes_between("Notebook", previous=notebook_before, current=notebook)
             log_notebook_activity(
@@ -2702,7 +2702,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     type="Notebook",
                     field="content",
                     action="changed",
-                    before=notebook.content,
+                    before=notebook_before.content,
                     after=content,
                 ),
             ],

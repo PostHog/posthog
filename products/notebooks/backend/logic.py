@@ -45,6 +45,10 @@ def authorize_notebook_table_edit(
     can_write_warehouse_tables: bool = False,
     variables_changed: bool = False,
 ) -> None:
+    if isinstance(submitted, list):
+        submitted = {"type": "doc", "content": submitted}
+    if isinstance(previous, list):
+        previous = {"type": "doc", "content": previous}
     if markdown_collab.get_markdown_notebook_markdown(submitted) is not None:
         cells = extract_cells(submitted, for_edit_authorization=True)
         targets = {cell.warehouse_table_name for cell in cells if cell.warehouse_table_name}
@@ -128,7 +132,9 @@ async def acan_user_edit_notebook(team_id: int, short_id: str, user_access_contr
     return await sync_to_async(check)()
 
 
-async def aupdate_notebook_content(
+@sync_to_async
+@transaction.atomic
+def aupdate_notebook_content(
     team_id: int,
     short_id: str,
     *,
@@ -137,16 +143,13 @@ async def aupdate_notebook_content(
     text_content: str | None,
     user: "User",
 ) -> Notebook | None:
-    notebook = await aget_notebook(team_id, short_id, include_deleted=True)
+    notebook = Notebook.objects.select_for_update().filter(team_id=team_id, short_id=short_id).first()
     if notebook is None:
         return None
-    # Enforced here rather than only at the HTTP layer: this writer bypasses the serializer
-    # entirely (it is a queryset update, so no save() hook or signal fires either), and it is
-    # how Max saves a notebook. A ceiling only the API respects is not a ceiling.
     validate_cell_count(notebook.content, content)
-    await sync_to_async(authorize_notebook_table_edit)(team_id, user.id, notebook.content, content)
-    await sync_to_async(_validate_shared_notebook_edit)(user, notebook, content)
-    await Notebook.objects.filter(pk=notebook.pk).aupdate(
+    authorize_notebook_table_edit(team_id, user.id, notebook.content, content)
+    _validate_shared_notebook_edit(user, notebook, content)
+    Notebook.objects.filter(pk=notebook.pk).update(
         content=content,
         title=title,
         text_content=text_content,
@@ -154,11 +157,13 @@ async def aupdate_notebook_content(
         last_modified_by_id=user.id,
         last_modified_at=timezone.now(),
     )
-    await notebook.arefresh_from_db()
+    notebook.refresh_from_db()
     return notebook
 
 
-async def aupsert_notebook(
+@sync_to_async
+@transaction.atomic
+def aupsert_notebook(
     team_id: int,
     short_id: str,
     *,
@@ -168,26 +173,26 @@ async def aupsert_notebook(
     content: dict[str, Any],
     text_content: str | None = None,
 ) -> tuple[Notebook, bool]:
-    # Checked before the upsert, not after: aget_or_create would otherwise have already
-    # written the over-limit row by the time the ceiling rejected it. Like the rest of this
-    # writer, the read and the write are not atomic — the path has no version CAS at all.
-    existing = await aget_notebook(team_id, short_id, include_deleted=True)
-    previous = existing.content if existing is not None else None
-    validate_cell_count(previous, content)
-    await sync_to_async(authorize_notebook_table_edit)(team_id, user.id, previous, content)
-    notebook, created = await Notebook.objects.aget_or_create(
+    def initial_content() -> dict[str, Any]:
+        validate_cell_count(None, content)
+        authorize_notebook_table_edit(team_id, user.id, None, content)
+        return content
+
+    notebook, created = Notebook.objects.select_for_update().get_or_create(
         team_id=team_id,
         short_id=short_id,
         defaults={
             "created_by_id": created_by_id,
             "last_modified_by_id": user.id,
             "title": title,
-            "content": content,
+            "content": initial_content,
             "text_content": text_content,
         },
     )
     if not created:
-        await sync_to_async(_validate_shared_notebook_edit)(user, notebook, content)
+        validate_cell_count(notebook.content, content)
+        authorize_notebook_table_edit(team_id, user.id, notebook.content, content)
+        _validate_shared_notebook_edit(user, notebook, content)
         notebook.content = content
         notebook.title = title
         notebook.version += 1
@@ -196,7 +201,7 @@ async def aupsert_notebook(
         if text_content is not None:
             notebook.text_content = text_content
             update_fields.append("text_content")
-        await notebook.asave(update_fields=update_fields)
+        notebook.save(update_fields=update_fields)
     return notebook, created
 
 
@@ -223,6 +228,7 @@ def create_notebook(
     last_modified_by_id: int | None = None,
     visibility: str = Notebook.Visibility.DEFAULT,
 ) -> Notebook:
+    authorize_notebook_table_edit(team_id, created_by_id, None, content)
     return Notebook.objects.create(
         team_id=team_id,
         title=title,
@@ -245,7 +251,7 @@ def group_has_notebook(group_id: int) -> bool:
 
 def create_group_notebook(team_id: int, group_id: int, *, title: str | None, content: Any) -> Notebook:
     with transaction.atomic():
-        notebook = Notebook.objects.create(
+        notebook = create_notebook(
             team_id=team_id,
             title=title,
             content=content,

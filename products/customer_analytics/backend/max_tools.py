@@ -22,7 +22,9 @@ from products.customer_analytics.backend.facade.api import (
 from products.customer_analytics.backend.facade.enums import AccountRelationshipSource
 from products.customer_analytics.backend.logic import relationships as relationships_logic
 from products.customer_analytics.backend.models import Account, AccountRelationshipDefinition
+from products.notebooks.backend.facade import api as notebooks
 from products.notebooks.backend.facade.content import build_markdown_notebook_content, is_markdown_notebook_content
+from products.notebooks.backend.facade.contracts import NotebookContentEditNotAllowed, NotebookData
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 
 from ee.hogai.tool import MaxTool
@@ -440,6 +442,8 @@ class UpsertAccountNotebookTool(MaxTool):
 
         try:
             notebook = await self._create_notebook(account, action)
+        except NotebookContentEditNotAllowed as error:
+            return str(error), {"error": "permission_denied"}
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
             return f"Failed to create the note: {str(e)}", {"error": "creation_failed", "details": str(e)}
@@ -459,6 +463,8 @@ class UpsertAccountNotebookTool(MaxTool):
 
         try:
             notebook = await self._update_notebook(notebook, action)
+        except NotebookContentEditNotAllowed as error:
+            return str(error), {"error": "permission_denied"}
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
             return f"Failed to update the note: {str(e)}", {"error": "update_failed", "details": str(e)}
@@ -466,7 +472,7 @@ class UpsertAccountNotebookTool(MaxTool):
         return f"Updated the note '{notebook.title}' on {account.name}.", self._artifact(notebook, account)
 
     @staticmethod
-    def _artifact(notebook: Notebook, account: Account) -> dict[str, Any]:
+    def _artifact(notebook: Notebook | NotebookData, account: Account) -> dict[str, Any]:
         return {
             "account_id": str(account.id),
             "account_name": account.name,
@@ -498,19 +504,15 @@ class UpsertAccountNotebookTool(MaxTool):
         return link.notebook, link.account
 
     @sync_to_async
-    def _create_notebook(self, account: Account, action: CreateAccountNotebookAction) -> Notebook:
-        with transaction.atomic():
-            notebook = Notebook.objects.create(
-                team=self._team,
-                created_by=self._user,
-                last_modified_by=self._user,
-                visibility=Notebook.Visibility.INTERNAL,
-                title=action.title[:256],
-                text_content=action.content,
-                content=build_markdown_notebook_content(action.content),
-            )
-            ResourceNotebook.objects.create(notebook=notebook, account=account)
-        return notebook
+    def _create_notebook(self, account: Account, action: CreateAccountNotebookAction) -> NotebookData:
+        return notebooks.create_account_notebook(
+            self._team.id,
+            account.id,
+            created_by_id=self._user.id,
+            last_modified_by_id=self._user.id,
+            title=action.title[:256],
+            content=build_markdown_notebook_content(action.content),
+        )
 
     @sync_to_async
     def _update_notebook(self, notebook: Notebook, action: UpdateAccountNotebookAction) -> Notebook:
@@ -523,7 +525,9 @@ class UpsertAccountNotebookTool(MaxTool):
                 locked.title = action.title[:256]
                 update_fields.append("title")
             if action.content is not None:
-                locked.content = _updated_note_content(locked.content, action.content)
+                content = _updated_note_content(locked.content, action.content)
+                notebooks.authorize_notebook_table_edit(self._team.id, self._user.id, locked.content, content)
+                locked.content = content
                 locked.text_content = action.content
                 locked.version = locked.version + 1
                 update_fields += ["content", "text_content", "version"]

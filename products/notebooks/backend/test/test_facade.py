@@ -51,6 +51,12 @@ class TestNotebooksFacade(BaseTest):
         self.assertEqual(stored.team_id, self.team.id)
         self.assertFalse(stored.deleted)
 
+    def test_background_create_checks_legacy_document_content(self):
+        nodes = [{"type": "ph-python-v2", "attrs": {"saveToWarehouse": True, "warehouseTableName": "daily"}}]
+        with self.assertRaises(NotebookContentEditNotAllowed):
+            api.create_notebook(self.team.id, title="Daily", content=nodes, created_by_id=self.user.id)
+        self.assertFalse(Notebook.objects.filter(team=self.team, title="Daily").exists())
+
     def test_get_notebook_round_trips_fields(self):
         notebook = Notebook.objects.create(team=self.team, title="T", content=self._doc("body"), text_content="body")
         data = api.get_notebook(self.team.id, notebook.short_id)

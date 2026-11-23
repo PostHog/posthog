@@ -73,6 +73,24 @@ class TestUpsertAccountNotebookTool(BaseTest):
         notebook = await sync_to_async(Notebook.objects.get)(short_id=artifact["notebook_short_id"])
         assert notebook.content == build_markdown_notebook_content("")
 
+    @pytest.mark.asyncio
+    async def test_tool_requires_publication_authority_for_account_note_content(self):
+        account = await Account.objects.unscoped().acreate(team=self.team, name="Example")
+        body = '<PythonV2 nodeId="daily" saveToWarehouse={true} warehouseTableName="daily" />'
+        tool = self._tool()
+        _, creation = await tool._arun_impl(
+            action=CreateAccountNotebookAction(account_id=str(account.id), title="Daily", content=body)
+        )
+        assert creation["error"] == "permission_denied"
+        assert not await ResourceNotebook.objects.filter(account=account).aexists()
+
+        short_id = await self._create_note(account, content="Original")
+        _, edit = await tool._arun_impl(action=UpdateAccountNotebookAction(notebook_short_id=short_id, content=body))
+        assert edit["error"] == "permission_denied"
+        saved = await Notebook.objects.aget(team=self.team, short_id=short_id)
+        assert saved.text_content == "Original"
+        assert saved.version == 0
+
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_create_account_not_found_returns_error(self):
