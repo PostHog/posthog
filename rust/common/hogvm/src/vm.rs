@@ -9,7 +9,7 @@ use crate::{
     error::VmError,
     memory::{HeapReference, VmHeap},
     ops::Operation,
-    print::assert_repeats_fit,
+    print::{assert_all_fit, assert_repeats_fit, Cycles},
     program::Token,
     state::{
         chunk_str, chunk_to_symbol, close_over_cells, closure_from_json, closure_to_json,
@@ -908,6 +908,8 @@ impl<'a> HogVM<'a> {
         // The list is pruned only when it is full, so the cost of the prune is spread over the pushes.
         if self.closed_upvalues.len() == self.closed_upvalues.capacity() {
             self.closed_upvalues.retain(|c| c.strong_count() > 0);
+            self.closed_upvalues
+                .reserve(self.closed_upvalues.len().max(8));
         }
         self.closed_upvalues.push(Rc::downgrade(cell));
     }
@@ -1368,7 +1370,7 @@ impl<'a> HogVM<'a> {
     }
 
     pub fn hog_to_json(&self, value: &HogValue) -> Result<JsonValue, VmError> {
-        assert_repeats_fit(&self.heap, value, MAX_JSON_SERDE_DEPTH)?;
+        assert_repeats_fit(&self.heap, value, MAX_JSON_SERDE_DEPTH, Cycles::Allowed)?;
         self.hog_to_json_impl(value, 0)
     }
 
@@ -1438,6 +1440,12 @@ impl<'a> HogVM<'a> {
                 (b.location, b.closed, b.value.clone())
             })
             .collect();
+
+        // The snapshot writes a value again for each reference to it, and follows it with no cycle or depth check.
+        let closed: Vec<HogValue> = cell_data.iter().filter_map(|c| c.2.clone()).collect();
+        for values in [self.stack.as_slice(), closed.as_slice()] {
+            assert_all_fit(&self.heap, values, MAX_JSON_SERDE_DEPTH, Cycles::Never)?;
+        }
 
         let header_len = self.context.program_header_len();
         let mut stack = Vec::with_capacity(self.stack.len());

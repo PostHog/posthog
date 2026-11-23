@@ -72,14 +72,8 @@ impl RegexCache {
                 .cache
                 .get_or_insert_with(&key, || compile(None).map_err(invalid));
         };
-        if let Some(hit) = self.cache.get(&key) {
-            return Ok(hit);
-        }
-        match compile(Some(limit)) {
-            Ok(regex) => {
-                self.cache.insert(key, regex.clone());
-                Ok(regex)
-            }
+        match self.cache.get_or_insert_with(&key, || compile(Some(limit))) {
+            Ok(regex) => Ok(regex),
             Err(regex::Error::CompiledTooBig(_)) => compile(None).map_err(invalid),
             Err(error) => Err(invalid(error)),
         }

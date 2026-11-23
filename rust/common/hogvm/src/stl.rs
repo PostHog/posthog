@@ -23,7 +23,7 @@ use crate::{
     construct_free_standing,
     error::VmError,
     memory::{HeapReference, VmHeap},
-    print::assert_repeats_fit,
+    print::{assert_repeats_fit, Cycles},
     print_hog_string_output,
     program::Module,
     util::get_json_nested,
@@ -560,7 +560,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                     !args.is_empty(),
                     "jsonStringify requires at least one argument",
                 )?;
-                assert_repeats_fit(&vm.heap, &args[0], MAX_JSON_SERDE_DEPTH)?;
+                assert_repeats_fit(&vm.heap, &args[0], MAX_JSON_SERDE_DEPTH, Cycles::Allowed)?;
                 let s = json_stringify(&vm.heap, &args[0], &mut Vec::new(), 0)?;
                 Ok(HogLiteral::from(s).into())
             }),
@@ -798,8 +798,11 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 let s: &str = subject.try_as()?;
                 let from: &str = args[1].deref(&vm.heap)?.try_as()?;
                 let to: &str = args[2].deref(&vm.heap)?.try_as()?;
-                vm.heap
-                    .assert_can_allocate(s.len().saturating_add(to.len()))?;
+                let bytes = match s.find(from) {
+                    Some(_) => (s.len() - from.len()).saturating_add(to.len()),
+                    None => s.len(),
+                };
+                vm.heap.assert_can_allocate(bytes)?;
                 Ok(HogLiteral::from(s.replacen(from, to, 1)).into())
             }),
         ),

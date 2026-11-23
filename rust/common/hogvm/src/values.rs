@@ -466,6 +466,16 @@ impl HogLiteral {
             return Ok((self.clone(), rhs.clone()));
         }
 
+        let scalar = |v: &HogLiteral| {
+            matches!(
+                v,
+                HogLiteral::Number(_) | HogLiteral::Boolean(_) | HogLiteral::String(_)
+            )
+        };
+        if !scalar(self) || !scalar(rhs) {
+            return fail();
+        }
+
         #[allow(clippy::enum_glob_use)] // It's just handy here
         use HogLiteral::*;
 
@@ -492,6 +502,9 @@ impl HogLiteral {
     fn equals(&self, rhs: &HogLiteral) -> Result<HogLiteral, VmError> {
         // Coercion runs first, so a numeric string equals a number. Membership (`in`, `has`,
         // `indexOf`) compares elements through here and inherits that, unlike the reference VMs.
+        if self.type_name() == rhs.type_name() {
+            return Ok((self == rhs).into());
+        }
         let Ok((lhs, rhs)) = self.coerce_types(rhs) else {
             return Ok(false.into()); // If we can't coerce types, they are not equal
         };

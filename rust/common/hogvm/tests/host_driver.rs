@@ -195,3 +195,21 @@ fn a_bounded_regex_cache_keeps_small_patterns_and_compiles_large_ones_per_call()
     assert!(cache.contains("a+", false));
     assert!(!cache.contains("\\w{200}", false));
 }
+
+#[test]
+fn the_public_printer_refuses_a_value_that_repeats_past_the_heap_limit() {
+    // let a := [1]; 21 times: a := [a, a]; return a
+    let context = ExecutionContext::with_defaults(program(
+        r#"["_H", 1, 33, 1, 43, 1, 33, 0, 33, 21, 36, 1, 15, 40, 17, 36, 0, 36, 0, 43, 2, 37, 0, 33, 1, 36, 1, 6, 37, 1, 39, -24, 35, 36, 0, 38, 35]"#,
+    ))
+    .with_raw_result();
+    let mut vm = context.to_vm().unwrap();
+    while !matches!(vm.step().unwrap(), StepOutcome::Finished(_)) {}
+    let result = vm.take_result().unwrap();
+    let printed = hogvm::print_hog_value(&vm.heap, &result, &mut Vec::new(), 0);
+    assert!(
+        matches!(printed, Err(hogvm::VmError::OutOfResource(_))),
+        "{:?}",
+        printed.map(|text| text.len())
+    );
+}

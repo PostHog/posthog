@@ -170,3 +170,22 @@ fn comparing_printing_or_dropping_closures_that_hold_closures_does_not_overflow_
     let chain = context(CLOSURE_CHAIN, json!({"inputs": {"n": 60000}})).with_max_steps(usize::MAX);
     assert_eq!(sync_execute(&chain, false).unwrap(), json!(1));
 }
+
+// let n := {'__hx_ast': 'Not', 'expr': null}; n.expr := n; return jsonStringify(n)
+const CYCLIC_AST_AS_JSON: &str = r#"["_H", 1, 32, "__hx_ast", 32, "Not", 32, "expr", 31, 42, 2, 36, 0, 32, "expr", 36, 0, 46, 36, 0, 2, "jsonStringify", 1, 38, 35]"#;
+// let s := inputs.s; return replaceOne(s, s, '')
+const REPLACE_ALL_OF_IT: &str =
+    r#"["_H", 1, 32, "s", 32, "inputs", 1, 2, 36, 0, 36, 0, 32, "", 2, "replaceOne", 3, 38, 35]"#;
+
+#[test]
+fn limits_do_not_refuse_what_fits() {
+    let json = sync_execute(&context(CYCLIC_AST_AS_JSON, json!({})), false).unwrap();
+    assert!(json.as_str().unwrap().contains("__hx_ast"), "{json}");
+
+    let large = "x".repeat(5 * 1024 * 1024);
+    let replaced = sync_execute(
+        &context(REPLACE_ALL_OF_IT, json!({"inputs": {"s": large}})),
+        false,
+    );
+    assert_eq!(replaced.unwrap(), json!(""));
+}

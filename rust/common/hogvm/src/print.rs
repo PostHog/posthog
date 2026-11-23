@@ -46,10 +46,7 @@ pub fn escape_string(value: &str) -> String {
 pub fn print_hog_string_output(heap: &VmHeap, value: &HogValue) -> Result<String, crate::VmError> {
     match value.deref(heap)? {
         HogLiteral::String(s) => Ok(s.to_string()),
-        _ => {
-            assert_repeats_fit(heap, value, PRINT_RECURSION_LIMIT)?;
-            print_hog_value(heap, value, &mut Vec::new(), 0)
-        }
+        _ => print_hog_value(heap, value, &mut Vec::new(), 0),
     }
 }
 
@@ -58,17 +55,31 @@ pub(crate) fn assert_repeats_fit(
     heap: &VmHeap,
     value: &HogValue,
     max_depth: usize,
+    cycles: Cycles,
 ) -> Result<(), crate::VmError> {
-    if matches!(value, HogValue::Lit(_)) {
-        return Ok(());
-    }
-    RepeatMeasure::new(heap, max_depth).walk(value, 0)
+    assert_all_fit(heap, std::slice::from_ref(value), max_depth, cycles)
+}
+
+pub(crate) fn assert_all_fit(
+    heap: &VmHeap,
+    values: &[HogValue],
+    max_depth: usize,
+    cycles: Cycles,
+) -> Result<(), crate::VmError> {
+    let mut measure = RepeatMeasure::new(heap, max_depth, cycles);
+    values.iter().try_for_each(|value| measure.walk(value, 0))
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum Cycles {
+    Allowed,
+    NotInSql,
+    Never,
 }
 
 /// For a host that runs untrusted programs: a native reads every reference to a shared string, which costs the heap a pointer.
 pub fn assert_native_arguments_fit(heap: &VmHeap, args: &[HogValue]) -> Result<(), crate::VmError> {
-    let mut measure = RepeatMeasure::new(heap, MAX_JSON_SERDE_DEPTH);
-    args.iter().try_for_each(|arg| measure.walk(arg, 0))
+    assert_all_fit(heap, args, MAX_JSON_SERDE_DEPTH, Cycles::NotInSql)
 }
 
 struct RepeatMeasure<'a> {
@@ -80,13 +91,14 @@ struct RepeatMeasure<'a> {
     repeated_bytes: usize,
     repeat_visits: usize,
     max_depth: usize,
+    cycles: Cycles,
 }
 
 /// The walk itself runs with no clock, and values that hold each other twice make it long.
 const MAX_REPEAT_VISITS: usize = 1 << 20;
 
 impl<'a> RepeatMeasure<'a> {
-    fn new(heap: &'a VmHeap, max_depth: usize) -> Self {
+    fn new(heap: &'a VmHeap, max_depth: usize, cycles: Cycles) -> Self {
         RepeatMeasure {
             heap,
             seen: HashSet::new(),
@@ -96,6 +108,7 @@ impl<'a> RepeatMeasure<'a> {
             repeated_bytes: 0,
             repeat_visits: 0,
             max_depth,
+            cycles,
         }
     }
 
@@ -108,9 +121,14 @@ impl<'a> RepeatMeasure<'a> {
 
     /// The HogQL printer follows an AST node's fields with no cycle or depth check, so an AST value must need none.
     fn end_of_walk(&self) -> Result<(), crate::VmError> {
-        if self.inside_asts > 0 {
+        let refused = match self.cycles {
+            Cycles::Allowed => false,
+            Cycles::NotInSql => self.inside_asts > 0,
+            Cycles::Never => true,
+        };
+        if refused {
             return Err(crate::VmError::OutOfResource(
-                "cyclic or deep sql value".to_string(),
+                "cyclic or deep value".to_string(),
             ));
         }
         Ok(())
@@ -186,6 +204,7 @@ pub fn print_hog_value(
     marked: &mut Vec<HeapReference>,
     depth: usize,
 ) -> Result<String, crate::VmError> {
+    assert_repeats_fit(heap, value, PRINT_RECURSION_LIMIT, Cycles::NotInSql)?;
     print_value(heap, value, marked, depth, &Cell::new(heap.room()))
 }
 
@@ -618,16 +637,15 @@ impl<'a> HogQLPrinter<'a> {
         }
 
         let mut current = obj.get("next_join").cloned();
-        let mut joined: Vec<HeapReference> = Vec::new();
+        let mut joined: HashSet<HeapReference> = HashSet::new();
         while let Some(join) = current {
             let HogLiteral::Object(jo) = join.deref(self.heap)? else {
                 break;
             };
             if let HogValue::Ref(ptr) = join {
-                if joined.contains(&ptr) {
+                if !joined.insert(ptr) {
                     return Err(crate::VmError::OutOfResource("cyclic sql join".to_string()));
                 }
-                joined.push(ptr);
             }
             let jo = jo.clone();
             let join_type = self
