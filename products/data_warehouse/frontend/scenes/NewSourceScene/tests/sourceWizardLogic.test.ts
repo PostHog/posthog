@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { NetworkError, ResponseBodyReadError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { captureMarketingCrossSellClick, getMarketingCrossSellAttribution } from 'lib/marketingCrossSell'
@@ -24,6 +24,7 @@ import type {
     SourceConfigResponseApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
+import { sourceManagementLogic } from '../../../shared/logics/sourceManagementLogic'
 import {
     buildCreateSourcePayload,
     defaultPollingSyncSettings,
@@ -2215,6 +2216,114 @@ describe('sourceWizardLogic', () => {
             try {
                 expect(logic.values.databaseSchema[0].sync_type).toBe('incremental')
                 expect(logic.values.databaseSchema[0].incremental_field).toBe('date_of_birth')
+            } finally {
+                unmount()
+            }
+        })
+    })
+
+    describe('createSource after the response is lost', () => {
+        const googleAdsSource = buildSourceConfig({ name: 'GoogleAds' })
+        const source = (id: string, source_type: string, prefix: string | null): ExternalDataSource =>
+            ({ id, source_type, prefix }) as ExternalDataSource
+        const page = (results: ExternalDataSource[]): Awaited<ReturnType<typeof api.externalDataSources.list>> => ({
+            results,
+            count: results.length,
+            next: null,
+            previous: null,
+        })
+        const existingSource = source('existing', 'GoogleAds', null)
+
+        afterEach(() => {
+            jest.useRealTimers()
+            jest.restoreAllMocks()
+        })
+
+        it.each<{
+            name: string
+            error: unknown
+            known: ExternalDataSource[]
+            firstLookup?: ExternalDataSource[]
+            after: ExternalDataSource[]
+            expected: Record<string, unknown>
+        }>([
+            {
+                name: 'adopts the source a dropped connection created',
+                error: new NetworkError('network'),
+                known: [],
+                after: [source('created', 'GoogleAds', null)],
+                expected: { sourceId: 'created', currentStep: 5, connectError: null },
+            },
+            {
+                name: 'adopts the source when it appears only on a later lookup',
+                error: new NetworkError('network'),
+                known: [],
+                firstLookup: [],
+                after: [source('created', 'GoogleAds', null)],
+                expected: { sourceId: 'created', currentStep: 5, connectError: null },
+            },
+            {
+                name: 'adopts the source when the success body is cut off',
+                error: new ResponseBodyReadError('Response body could not be read'),
+                known: [],
+                after: [source('created', 'GoogleAds', null)],
+                expected: { sourceId: 'created', currentStep: 5, connectError: null },
+            },
+            {
+                name: 'does not adopt a source that was there before the request',
+                error: new NetworkError('network'),
+                known: [existingSource],
+                after: [existingSource],
+                expected: { sourceId: null, currentStep: 1, connectError: expect.stringContaining('ad blocker') },
+            },
+            {
+                name: 'does not adopt a new source with another prefix',
+                error: new NetworkError('network'),
+                known: [],
+                after: [source('other', 'GoogleAds', 'eu')],
+                expected: { sourceId: null, currentStep: 1, connectError: expect.stringContaining('ad blocker') },
+            },
+            {
+                name: 'does not adopt a new source of another type',
+                error: new NetworkError('network'),
+                known: [],
+                after: [source('other', 'MetaAds', null)],
+                expected: { sourceId: null, currentStep: 1, connectError: expect.stringContaining('ad blocker') },
+            },
+            {
+                name: 'does not look up sources when the API rejected the request',
+                error: { status: 400, data: { message: 'You already have a source of this type.' } },
+                known: [],
+                after: [source('created', 'GoogleAds', null)],
+                expected: {
+                    sourceId: null,
+                    currentStep: 1,
+                    connectError: 'You already have a source of this type.',
+                },
+            },
+        ])('$name', async ({ error, known, firstLookup, after, expected }) => {
+            const list = jest.spyOn(api.externalDataSources, 'list').mockResolvedValue(page(known))
+            const create = jest.spyOn(api.externalDataSources, 'create').mockRejectedValue(error)
+            const logic = sourceWizardLogic({ availableSources: { GoogleAds: googleAdsSource } })
+            const unmount = logic.mount()
+
+            try {
+                await expectLogic(logic, () => logic.actions.selectConnector(googleAdsSource)).toFinishAllListeners()
+                await expectLogic(sourceManagementLogic).toDispatchActions(['loadSourcesSuccess'])
+
+                list.mockResolvedValue(page(after))
+                if (firstLookup) {
+                    list.mockResolvedValueOnce(page(firstLookup))
+                }
+                jest.useFakeTimers()
+                logic.actions.createSource()
+                // Covers every lookup retry, so a source that never appears ends in the error.
+                await jest.advanceTimersByTimeAsync(10000)
+                jest.useRealTimers()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(create).toHaveBeenCalledTimes(1)
+                expect(logic.values).toMatchObject({ ...expected, isLoading: false })
             } finally {
                 unmount()
             }

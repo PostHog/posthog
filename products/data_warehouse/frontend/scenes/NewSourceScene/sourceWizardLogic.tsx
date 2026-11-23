@@ -7,13 +7,14 @@ import posthog from 'posthog-js'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { NetworkError, ResponseBodyReadError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { captureMarketingCrossSellSourceCreated, getMarketingCrossSellAttribution } from 'lib/marketingCrossSell'
+import { delay } from 'lib/utils/async'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -330,6 +331,67 @@ export function isPrefixRequired(sources: ExternalDataSource[] | undefined, sour
         return false
     }
     return sources.some((source) => source.source_type === sourceType && !source.prefix)
+}
+
+// The create request can commit the source and then lose its response to a dropped connection or a
+// proxy that stopped waiting. A retry then fails with "You already have a source of this type", and
+// that message's advice to add a prefix makes a second copy. The API allows one source per type and
+// prefix, so a match that was not in the list before the request is the source that request created.
+function findSourceCreatedBeforeResponseLost(
+    sources: ExternalDataSource[],
+    sourceType: string,
+    prefix: string | null | undefined,
+    knownSourceIds: ReadonlySet<string>
+): ExternalDataSource | undefined {
+    const wantedPrefix = prefix?.trim() ?? ''
+    return sources.find(
+        (source) =>
+            source.source_type === sourceType &&
+            (source.prefix?.trim() ?? '') === wantedPrefix &&
+            !knownSourceIds.has(source.id)
+    )
+}
+
+// The server can still be inside the create request when the connection drops, so look again for a
+// few seconds before giving up.
+const LOST_CREATE_RESPONSE_LOOKUP_DELAYS_MS = [0, 2000, 4000]
+
+async function listAllSources(): Promise<ExternalDataSource[]> {
+    const firstPage = await api.externalDataSources.list()
+    const results = [...firstPage.results]
+    let next = firstPage.next
+    while (next) {
+        // nosemgrep: prefer-codegen-api -- Follows the pagination URL the server returns.
+        const page = await api.get<PaginatedResponse<ExternalDataSource>>(next)
+        results.push(...page.results)
+        next = page.next
+    }
+    return results
+}
+
+async function recoverSourceCreatedBeforeResponseLost(
+    error: unknown,
+    sourceType: string,
+    prefix: string | null | undefined,
+    knownSourceIds: ReadonlySet<string>
+): Promise<string | null> {
+    if (!(error instanceof NetworkError || error instanceof ResponseBodyReadError)) {
+        return null
+    }
+    for (const delayMs of LOST_CREATE_RESPONSE_LOOKUP_DELAYS_MS) {
+        await delay(delayMs)
+        let sources: ExternalDataSource[]
+        try {
+            sources = await listAllSources()
+        } catch {
+            return null
+        }
+        const created = findSourceCreatedBeforeResponseLost(sources, sourceType, prefix, knownSourceIds)
+        if (created) {
+            return created.id
+        }
+    }
+    return null
 }
 
 export function resolveConnectErrorMessage(e: any): string {
@@ -2490,17 +2552,38 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     ? getMarketingCrossSellAttribution(values.currentTeamId)
                     : null
 
+            const sourceType = values.selectedConnector.name
+            const knownSourceIds = new Set(values.dataWarehouseSources?.results.map((source) => source.id) ?? [])
+
             try {
-                const { id } = await api.externalDataSources.create({
-                    ...values.source,
-                    source_type: values.selectedConnector.name,
-                    created_via: 'web',
-                    // Sent with creation, not after it. Creation schedules the first sync before
-                    // it returns, and extraction snapshots the destinations onto that run, so a
-                    // follow-up request lands too late and the opening run goes to the warehouse
-                    // alone.
-                    ...(values.wizardDestinationIds.length > 0 ? { destination_ids: values.wizardDestinationIds } : {}),
-                })
+                let id: string
+                let recoveredFromLostResponse = false
+                try {
+                    ;({ id } = await api.externalDataSources.create({
+                        ...values.source,
+                        source_type: sourceType,
+                        created_via: 'web',
+                        // Sent with creation, not after it. Creation schedules the first sync before
+                        // it returns, and extraction snapshots the destinations onto that run, so a
+                        // follow-up request lands too late and the opening run goes to the warehouse
+                        // alone.
+                        ...(values.wizardDestinationIds.length > 0
+                            ? { destination_ids: values.wizardDestinationIds }
+                            : {}),
+                    }))
+                } catch (createError) {
+                    const recoveredId = await recoverSourceCreatedBeforeResponseLost(
+                        createError,
+                        sourceType,
+                        values.source.prefix,
+                        knownSourceIds
+                    )
+                    if (!recoveredId) {
+                        throw createError
+                    }
+                    id = recoveredId
+                    recoveredFromLostResponse = true
+                }
 
                 actions.setSourceId(id)
 
@@ -2517,6 +2600,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     entry_point: values.returnConfig?.entryPoint,
                     accessMethod: values.source.access_method,
                     hasWebhookSchemas: values.hasWebhookSchemas,
+                    recoveredFromLostResponse,
                 })
 
                 if (crossSellAttribution) {
