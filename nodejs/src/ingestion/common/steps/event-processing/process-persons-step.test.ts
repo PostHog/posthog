@@ -141,7 +141,6 @@ describe('createProcessPersonsStep with the personhog store', () => {
                     {
                         type: 'person_properties_depth_violation',
                         details: {
-                            personId: person.uuid,
                             distinctId: DISTINCT_ID,
                             eventUuid: 'event-uuid',
                             message: expect.stringContaining('Delete this person'),

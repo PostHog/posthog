@@ -93,9 +93,6 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
                 distinct_id: normalizedEvent.distinct_id,
                 event_uuid: normalizedEvent.uuid,
             })
-            const stored = await personsStoreForBatch
-                .fetchForChecking(team.id, String(normalizedEvent.distinct_id))
-                .catch(() => null)
             return drop(
                 'unprocessable_person',
                 [],
@@ -103,7 +100,6 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
                     {
                         type: 'person_properties_depth_violation',
                         details: {
-                            ...(stored ? { personId: stored.uuid } : {}),
                             distinctId: normalizedEvent.distinct_id,
                             eventUuid: normalizedEvent.uuid,
                             message: UNPROCESSABLE_PERSON_MESSAGE,
