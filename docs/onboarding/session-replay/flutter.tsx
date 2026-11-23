@@ -24,12 +24,12 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                             },
                         ]}
                     />
-                    <Markdown>posthog_flutter 6.0 requires Flutter 3.41 or later on every platform.</Markdown>
+                    <Markdown>`posthog_flutter 6.0` requires Flutter 3.41 or later on every platform.</Markdown>
                     <Markdown>
                         If you embed Flutter in an iOS app as a module (`flutter create -t module`), use Flutter 3.50 or
                         later and build it with `flutter build swift-package`. Earlier Flutter versions install module
-                        plugins with CocoaPods, and posthog_flutter 6.0 has no podspec, so stay on posthog_flutter 5.x
-                        there.
+                        plugins with CocoaPods, and `posthog_flutter` 6.0 has no podspec, so stay on `posthog_flutter`
+                        5.x there.
                     </Markdown>
                     <CalloutBox type="fyi" title="SDK version">
                         <Markdown>
