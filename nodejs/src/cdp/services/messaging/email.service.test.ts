@@ -4101,6 +4101,7 @@ describe('EmailService', () => {
                 sensitive: boolean
                 send?: { sensitive: boolean }
                 teamOptedOut?: boolean
+                emailOptedOut?: boolean
                 href: string
             }>([
                 {
@@ -4126,6 +4127,15 @@ describe('EmailService', () => {
                     isTest: false,
                     sensitive: false,
                     teamOptedOut: true,
+                    href: STRIPPED_HREF,
+                },
+                {
+                    case: 'drops the run ids of earlier sends from the links of an email that turned link tagging off',
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: false,
+                    sensitive: false,
+                    emailOptedOut: true,
                     href: STRIPPED_HREF,
                 },
                 {
@@ -4172,7 +4182,16 @@ describe('EmailService', () => {
                 },
             ])(
                 '$case with the workflow run id',
-                async ({ trackingEnabled, allowlisted, isTest, sensitive, send, teamOptedOut, href }) => {
+                async ({
+                    trackingEnabled,
+                    allowlisted,
+                    isTest,
+                    sensitive,
+                    send,
+                    teamOptedOut,
+                    emailOptedOut,
+                    href,
+                }) => {
                     if (teamOptedOut) {
                         await hub.postgres.query(
                             PostgresUse.COMMON_WRITE,
@@ -4187,7 +4206,11 @@ describe('EmailService', () => {
                     const taggingService = createService({
                         workflowRunLinkTagTeams: allowlisted ? String(team.id) : '',
                     })
-                    invocation.hogFunction.metadata = { tracking_enabled: trackingEnabled, sensitive }
+                    invocation.hogFunction.metadata = {
+                        tracking_enabled: trackingEnabled,
+                        sensitive,
+                        ...(emailOptedOut ? { run_link_tag_enabled: false } : {}),
+                    }
                     invocation.state.send = send && { ...send, tracking: { captureEngagement: true } }
                     invocation.queueParameters = createEmailParams({
                         from: { integrationId: 1 },

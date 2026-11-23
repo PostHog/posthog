@@ -719,6 +719,9 @@ export class EmailService {
             return null
         }
         const untagged = { runId: null, senderEmail, siteUrl: this.siteUrl }
+        if (invocation.hogFunction.metadata?.run_link_tag_enabled === false) {
+            return untagged
+        }
         try {
             const enabled = await this.teamWorkflowsConfigService.tagsEmailLinksWithWorkflowRun(invocation.teamId)
             return enabled ? { ...untagged, runId: invocation.id } : untagged
