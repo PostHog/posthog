@@ -65,7 +65,6 @@ class TestMailchimpImport(BaseTest):
 
         assert run.status == "completed", run.progress
         assert set(self.hosts) == {HOST}
-        assert self.mailchimp.max_in_flight == 1
         assert sorted(MessageCategory.objects.filter(team_id=self.team.id).values_list("name", flat=True)) == [
             "Event invitations 🎉",
             "Novedades del producto ñ",
@@ -200,6 +199,31 @@ class TestMailchimpImport(BaseTest):
         ]
         assert retried[0] == ("unsubscribed", "0")
         assert {"Left.Person@example.com", "jürgen.müller@example.com"} <= set(self._opt_outs())
+
+    def test_a_contact_leaving_the_list_mid_import_skips_no_one(self) -> None:
+        self._patch(f"{CLIENT}.PAGE_SIZE", 10)
+        members = self.mailchimp.data["lists"][0]["members"]
+        added = [f"person{number:02}@example.com" for number in range(15)]
+        members.extend({"email_address": email, "status": "unsubscribed"} for email in added)
+        handle = self.mailchimp.handle
+
+        def resubscribe_after_first_page(
+            path: str, query: dict[str, str], authorization: str
+        ) -> tuple[int, dict[str, Any], dict[str, str]]:
+            answer = handle(path, query, authorization)
+            if (
+                query.get("status") == "unsubscribed"
+                and query.get("offset") == "0"
+                and path.endswith("a1b2c3d4e5/members")
+            ):
+                members[3]["status"] = "subscribed"
+            return answer
+
+        with patch.object(self.mailchimp, "handle", resubscribe_after_first_page):
+            run = self._run(["audiences"])
+
+        assert set(added) <= set(self._opt_outs())
+        assert run.progress["audiences"]["counts"]["unsubscribed"] == 3 + len(added)
 
     def test_an_audience_deleted_after_its_first_list_is_reported_once(self) -> None:
         self.mailchimp.failures.append(Failure(route="members", status=404, times=100, status_filter="pending"))

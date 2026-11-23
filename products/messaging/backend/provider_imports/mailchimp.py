@@ -8,6 +8,7 @@ by offset. The checkpoint names the target and the offset, so a retried step con
 """
 
 import html
+import json
 import hashlib
 from collections import Counter
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
@@ -394,9 +395,14 @@ def _read_targets(
         after_target: StepCheckpoint | None = {"target": following.position, "offset": 0} if following else None
         offset = first_offset if index == 0 else 0
         is_first_page = index > 0 or saved_offset == 0
+        previous_page: set[str] = set()
         while True:
+            # A contact who leaves the list or changes moves every unread contact back, so each page starts a little
+            # before the last one ended and skips the contacts that page already returned.
+            overlap = mailchimp_client.PAGE_SIZE // 10 if previous_page else 0
+            request_offset = max(offset - overlap, 0)
             try:
-                page = client.page(target.path, target.items_key, offset, dict(target.params))
+                page = client.page(target.path, target.items_key, request_offset, dict(target.params))
             except MailchimpNotFound:
                 audience_id = str(target.details["audience"]["id"])
                 report = audience_id not in missing_audiences
@@ -404,16 +410,24 @@ def _read_targets(
                 save_missing = partial(_missing_audience, target) if report else lambda: SavedPage(imported=0)
                 yield ImportPage(processed=0, save=save_missing, checkpoint=after_target)
                 break
-            offset += len(page.items)
-            more = bool(page.items) and offset < page.total
+            end = request_offset + len(page.items)
+            moved_on = end > offset
+            offset = max(offset, end)
+            more = moved_on and offset < page.total
+            items = [item for item in page.items if _item_key(item) not in previous_page]
+            previous_page = {_item_key(item) for item in page.items}
             yield ImportPage(
-                processed=len(page.items),
-                save=partial(save, target, page.items, is_first_page),
+                processed=len(items),
+                save=partial(save, target, items, is_first_page),
                 checkpoint={"target": target.position, "offset": offset} if more else after_target,
             )
             is_first_page = False
             if not more:
                 break
+
+
+def _item_key(item: Mapping[str, Any]) -> str:
+    return json.dumps(item, sort_keys=True, default=str)
 
 
 def _missing_audience(target: _Target) -> SavedPage:
