@@ -5,7 +5,12 @@ from unittest import mock
 from posthog.models import Team
 from posthog.test.temporal_schedules import RecordingTemporal
 
-from products.warehouse_sources.backend.facade.staff import stop_schema_syncing_for_staff, syncing_schema_ids_for_staff
+from products.warehouse_sources.backend.facade.staff import (
+    running_source_ids_for_staff,
+    stop_schema_syncing_for_staff,
+    stop_source_for_staff,
+    syncing_schema_ids_for_staff,
+)
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -51,3 +56,25 @@ class TestStopSchemaSyncing(BaseTest):
             stop_schema_syncing_for_staff(schema_id, team_id=self.team.pk)
 
         assert syncing_schema_ids_for_staff([self.team.pk]) == [schema_id]
+
+    def test_stopping_a_source_pauses_its_cdc_extraction_and_its_syncing_of_new_tables(self) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.POSTGRES, auto_sync_new_schemas=True
+        )
+        cdc_table = ExternalDataSchema.objects.create(
+            team=self.team, source=source, name="orders", should_sync=True, sync_type=ExternalDataSchema.SyncType.CDC
+        )
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        other = ExternalDataSource.objects.create(
+            team=other_team, source_type=ExternalDataSourceType.POSTGRES, auto_sync_new_schemas=True
+        )
+        temporal = RecordingTemporal()
+
+        with mock.patch(TEMPORAL_CLIENT, return_value=temporal):
+            assert stop_source_for_staff(str(other.id), team_id=self.team.pk) is False
+            assert stop_source_for_staff(str(source.id), team_id=self.team.pk) is True
+            stop_schema_syncing_for_staff(str(cdc_table.id), team_id=self.team.pk)
+            assert stop_source_for_staff(str(source.id), team_id=self.team.pk) is False
+
+        assert (f"cdc-extraction-{source.id}", None) in temporal.paused
+        assert running_source_ids_for_staff([self.team.pk, other_team.pk]) == [str(other.id)]

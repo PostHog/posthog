@@ -48,6 +48,8 @@ __all__ = [
     "recreate_schema_schedule_for_staff",
     "reenable_schemas_for_staff",
     "repartition_schema_for_staff",
+    "running_source_ids_for_staff",
+    "stop_source_for_staff",
     "select_auto_disabled_schemas_for_staff",
     "stop_schema_syncing_for_staff",
     "summarize_auto_disabled_schemas_for_staff",
@@ -104,6 +106,17 @@ def stop_schema_syncing_for_staff(schema_id: str, *, team_id: int) -> bool:
     Raises when Temporal rejects the pause, and the schema keeps syncing.
     """
     return schema_shutdown.stop_schema_syncing(schema_id, team_id=team_id)
+
+
+def running_source_ids_for_staff(team_ids: Collection[int]) -> list[str]:
+    """The ids of the sources of these teams that extract CDC changes or start syncing new tables by themselves."""
+    return schema_shutdown.running_source_ids(team_ids)
+
+
+def stop_source_for_staff(source_id: str, *, team_id: int) -> bool:
+    """Pauses a source's CDC extraction schedule and turns off syncing its new tables. Returns False when neither
+    runs any more."""
+    return schema_shutdown.stop_source(source_id, team_id=team_id)
 
 
 def summarize_auto_disabled_schemas_for_staff(selection: AutoDisabledSchemaFilter) -> AutoDisabledSchemasSummary:

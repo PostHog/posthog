@@ -85,7 +85,8 @@ class OrganizationShutdownForm(forms.Form):
         initial=True,
         help_text=(
             "Disables destinations, transformations, site apps, webhook sources, legacy plugins, subscriptions and "
-            "insight alerts, moves active workflows to draft, and pauses batch exports and warehouse syncs. "
+            "insight alerts, moves active workflows to draft, pauses batch exports, warehouse syncs and CDC "
+            "extraction, and stops warehouse sources from syncing new tables by themselves. "
             "This also runs for an organization that is already inactive, which keeps its reason."
         ),
     )
@@ -155,6 +156,8 @@ def _finders(team_ids: Collection[int]) -> list[tuple[str, Callable[[], list[Bac
             batch_exports.unpaused_batch_export_ids,
             partial(batch_exports.pause_running_batch_export, note=PAUSE_NOTE),
         ),
+        # Sources go before their tables: a source counts as running CDC only while one of its CDC tables syncs.
+        ("Warehouse sources", warehouse.running_source_ids_for_staff, warehouse.stop_source_for_staff),
         ("Warehouse syncs", warehouse.syncing_schema_ids_for_staff, warehouse.stop_schema_syncing_for_staff),
         ("Legacy plugins", cdp.enabled_plugin_config_ids, cdp.disable_plugin_config),
         ("Subscriptions", subscriptions.enabled_subscription_ids, subscriptions.disable_subscription),
