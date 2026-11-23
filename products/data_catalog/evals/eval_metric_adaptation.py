@@ -106,11 +106,11 @@ _CHURNED_ACCOUNTS = {
 }
 
 # The governed definition reads the paid_bills warehouse table, not paid_bill events, so an adapted query must too.
-_PAYING_CUSTOMERS = {
+_PAYING_CUSTOMERS_LOOKUP = {
     "metric_found": {"metric_name": PAYING_CUSTOMERS_METRIC.name},
-    "metric_describe_before_adapted_sql": {},
     "query_terms_used": {"terms": ["paid_bills"]},
 }
+_PAYING_CUSTOMERS = {**_PAYING_CUSTOMERS_LOOKUP, "metric_describe_before_adapted_sql": {}}
 
 # The canvas suggestion template from products/today/frontend/spaces/newSessionSuggestionDefaults.ts.
 _CANVAS_TEMPLATE = (
@@ -431,15 +431,21 @@ async def eval_metric_adaptation(ctx: EvalContext) -> None:
                 "The count falls off in the last month. I think something changed in the data. Can you fix it and "
                 "then show the same chart for paying customers only?"
             ),
+            # The agent runs the user's query to check the drop before it reads the catalog, so this case
+            # leaves out the scorer that wants metric-describe before any analytical SQL.
             expected={
-                **_PAYING_CUSTOMERS,
+                **_PAYING_CUSTOMERS_LOOKUP,
                 "semantic_layer_answer": {
                     "expected_behavior": (
-                        "Find that the last month is low because it is the current, incomplete month, not because "
-                        "the data changed, and exclude it or mark it as partial. Then find "
-                        f"{PAYING_CUSTOMERS_METRIC.name} in the catalog, read its definition with metric-describe, "
-                        "and keep only accounts that paid a bill in paid_bills by that definition. State the "
-                        "definition used, and label the filter as an adaptation of the governed metric."
+                        "Check the drop against the data before accepting that something changed: compare the "
+                        "latest event date with the end of the last month in the result. The event history ends "
+                        "when the demo data was generated, so the last month is incomplete. If it covers only part "
+                        "of the month, say that the drop comes from the partial month, and exclude or mark that "
+                        "month. If it is almost complete and shows no real drop, say so. Do not claim a data change "
+                        f"that the queries do not show. Then find {PAYING_CUSTOMERS_METRIC.name} in the catalog, "
+                        "read its definition with metric-describe, and keep only accounts that paid a bill in "
+                        "paid_bills by that definition. State the definition used, and label the filter as an "
+                        "adaptation of the governed metric."
                     )
                 },
             },
