@@ -1256,6 +1256,7 @@ class TestTrinoShadowRun:
             patch(f"{module}.get_dag_finished_metric") as finished,
             patch(f"{module}.get_dag_duration_metric") as duration,
             patch(f"{module}.get_dag_node_count_metric") as node_count,
+            patch(f"{module}.record_request_to_finish") as request_to_finish,
         ):
             await self._run(
                 ExecuteDAGInputs(team_id=7, dag_id="dag", managed_warehouse_only=managed_warehouse_only, shadow=True)
@@ -1264,6 +1265,55 @@ class TestTrinoShadowRun:
         assert finished.call_args.args[1] == expected_engine
         assert duration.call_args.args[0] == expected_engine
         assert {call.args[1] for call in node_count.call_args_list} == {expected_engine}
+        assert request_to_finish.call_args.kwargs == {"engine": expected_engine, "status": "completed"}
+
+    async def test_a_run_that_raises_records_its_time_since_the_request_as_failed(self) -> None:
+        module = "products.data_modeling.backend.temporal.workflows.execute_dag"
+        requested_at = "2026-01-01T00:00:00+00:00"
+        with (
+            patch.object(
+                temporal_workflow, "execute_activity", new=AsyncMock(side_effect=RuntimeError("no worker took it"))
+            ),
+            patch.object(temporal_workflow, "info", return_value=MagicMock(workflow_id="execute-dag-ad-hoc")),
+            patch.object(temporal_workflow, "logger"),
+            patch(f"{module}.record_request_to_finish") as request_to_finish,
+            pytest.raises(RuntimeError),
+        ):
+            await ExecuteDAGWorkflow().run(
+                ExecuteDAGInputs(team_id=7, dag_id="dag", trigger="manual", requested_at=requested_at)
+            )
+
+        assert request_to_finish.call_args.args == ("manual", requested_at)
+        assert request_to_finish.call_args.kwargs == {"engine": "clickhouse", "status": "failed"}
+
+    @pytest.mark.parametrize(
+        "workflow_id,inputs,expected",
+        [
+            pytest.param(
+                "execute-dag-0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b:3600-2026-10-21T10:00:00Z",
+                ExecuteDAGInputs(team_id=7, dag_id="dag"),
+                ("scheduled", None),
+                id="tier_schedule",
+            ),
+            pytest.param(
+                "execute-dag-0b0e2b8e-5c4f-4d47-9a51-3f4f0c1d2e3a",
+                ExecuteDAGInputs(team_id=7, dag_id="dag", trigger="manual", requested_at="2026-01-01T00:00:00+00:00"),
+                ("manual", "2026-01-01T00:00:00+00:00"),
+                id="started_by_a_person",
+            ),
+        ],
+    )
+    async def test_every_node_of_a_run_carries_what_started_the_run_and_when(
+        self, workflow_id: str, inputs: ExecuteDAGInputs, expected: tuple[str, str | None]
+    ) -> None:
+        outcome = await self._run(inputs, workflow_id=workflow_id, eligible=False)
+
+        node_inputs = [
+            call.args[1]
+            for call in outcome.start_child.await_args_list
+            if isinstance(call.args[1], MaterializeViewWorkflowInputs)
+        ]
+        assert {(node.trigger, node.requested_at) for node in node_inputs} == {expected}
 
     @pytest.mark.parametrize(
         "error,expected_outcome",

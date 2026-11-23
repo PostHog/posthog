@@ -119,6 +119,7 @@ class TestQualityGateBranching:
                 "get_node_rows_materialized_metric",
                 "get_node_storage_delta_mib_metric",
                 "get_node_total_storage_mib_metric",
+                "record_request_to_finish",
             ):
                 self.metrics[metric] = stack.enter_context(patch(f"{WORKFLOW_MODULE}.{metric}"))
             result = await MaterializeViewWorkflow().run(inputs or _inputs())
@@ -163,6 +164,7 @@ class TestQualityGateBranching:
 
         finished = self.metrics["get_node_finished_metric"]
         assert finished.call_args.args == (expected_status, "managed_warehouse")
+        assert self.metrics["record_request_to_finish"].call_args.kwargs["engine"] == "managed_warehouse"
         assert finished.call_args.kwargs.get("error_class", "none") == expected_error_class
         assert finished.call_args.kwargs["run_mode"] == "incremental"
         assert self.metrics["get_node_duration_metric"].called is (shadow_error is None)
@@ -203,12 +205,21 @@ class TestQualityGateBranching:
                 return recorded_run_mode
             return {"create_data_modeling_job_activity": "job-1"}.get(activity.__name__)
 
+        requested_at = "2026-08-01T00:00:00+00:00"
         with pytest.raises(RuntimeError):
-            await self._run([], {}, execute_activity=AsyncMock(side_effect=execute_activity))
+            await self._run(
+                [],
+                {},
+                execute_activity=AsyncMock(side_effect=execute_activity),
+                inputs=dataclasses.replace(_inputs(), trigger="manual", requested_at=requested_at),
+            )
 
         finished = self.metrics["get_node_finished_metric"]
         assert finished.call_args.args == ("failed", "clickhouse")
         assert finished.call_args.kwargs["run_mode"] == expected
+        recorded = self.metrics["record_request_to_finish"].call_args
+        assert recorded.args == ("manual", requested_at)
+        assert recorded.kwargs == {"engine": "clickhouse", "status": "failed"}
 
     async def test_blocking_failures_stop_the_publish(self):
         activity_results = [
@@ -224,6 +235,7 @@ class TestQualityGateBranching:
 
         assert result.quality_blocking_failures == 2
         assert result.quality_audited is True
+        assert self.metrics["record_request_to_finish"].call_args.kwargs["status"] == "quality_blocked"
         started = [call.args[0].__name__ for call in execute_activity.await_args_list]
         assert started[-2:] == ["stage_queryable_files_activity", "quality_block_materialization_activity"]
         assert "publish_queryable_table_activity" not in started
@@ -268,6 +280,7 @@ class TestQualityGateBranching:
         result, execute_activity = await self._run(activity_results, {"checks_failed_blocking": 0})
 
         assert result.quality_blocking_failures == 0
+        assert self.metrics["record_request_to_finish"].call_args.kwargs["status"] == "completed"
         started = [call.args[0].__name__ for call in execute_activity.await_args_list]
         assert "publish_queryable_table_activity" in started
         assert "succeed_materialization_activity" in started

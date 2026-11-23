@@ -159,7 +159,9 @@ def trigger_saved_query_materialization(*, team_id: int, saved_query_id: str) ->
 
     log = logger.bind(team_id=team_id, saved_query_id=str(saved_query_id))
     try:
-        data_modeling.run_saved_query_materialization(team_id, saved_query_id)
+        data_modeling.run_saved_query_materialization(
+            team_id, saved_query_id, trigger=data_modeling.MaterializationRunTrigger.PROPERTY_SYNC
+        )
     except data_modeling.SavedQueryNotFoundError as e:
         log.warning("person-property sync-now rejected: view no longer exists")
         raise SavedQueryNotFoundError(VIEW_MISSING_MESSAGE) from e

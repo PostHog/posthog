@@ -22,6 +22,14 @@ class DataModelingJobRunMode(LabeledStrEnum):
     INCREMENTAL = "incremental", "Incremental"
 
 
+class MaterializationRunTrigger(LabeledStrEnum):
+    MANUAL = "manual"
+    SCHEDULED = "scheduled"
+    ENDPOINT = "endpoint"
+    PROPERTY_SYNC = "property_sync"
+    UNKNOWN = "unknown"
+
+
 class NodeType(LabeledStrEnum):
     TABLE = "table"
     VIEW = "view"
