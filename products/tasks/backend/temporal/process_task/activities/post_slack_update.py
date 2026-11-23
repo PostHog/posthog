@@ -176,7 +176,7 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
                 # so the thread reads as in-progress until it genuinely completes.
                 handler.update_reaction("eyes")
                 return
-            stage = _get_stage_from_status(task_run.status, task_run.stage, str(task_run.id))
+            stage = _get_stage_from_status(task_run.status, str(task_run.id))
             handler.post_or_update_progress(stage, task_url)
     except Exception:
         logger.exception("post_slack_update_failed", run_id=input.run_id)
@@ -211,13 +211,10 @@ def _post_failure_or_timeout(task_run: Any, handler: Any, task_url: str | None) 
     _post_error_once(task_run, handler, error, task_url)
 
 
-def _get_stage_from_status(status: str, stage: str | None = None, run_id: str | None = None) -> str:
-    """Use a generic message for active runs and the task stage for other statuses."""
+def _get_stage_from_status(status: str, run_id: str | None = None) -> str:
+    """Map task run status to a generic, human-readable progress message."""
     from products.slack_app.backend.slack_thread import pick_variant
     from products.tasks.backend.models import TaskRun
-
-    if status != TaskRun.Status.IN_PROGRESS and stage:
-        return stage
 
     status_map: dict[str, tuple[str, ...]] = {
         TaskRun.Status.NOT_STARTED: _NOT_STARTED_STAGES,
