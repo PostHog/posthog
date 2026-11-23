@@ -324,6 +324,37 @@ def send_accepted_transactional_email(
     )
 
 
+def send_transactional_email_batch(
+    team_id: int, hog_flow_id: str, payload: dict, *, timeout: float = 30
+) -> requests.Response:
+    return _post_transactional_email_batch(
+        f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/transactional_email/batch",
+        _mint_transactional_email_jwt(team_id, hog_flow_id=hog_flow_id, kind="template_batch"),
+        payload,
+        timeout,
+    )
+
+
+def send_accepted_transactional_email_batch(
+    team_id: int, hog_flow_id: str, payload: dict, *, timeout: float = 30
+) -> requests.Response:
+    return _post_transactional_email_batch(
+        f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/transactional_email/send/batch",
+        _mint_transactional_email_jwt(team_id, hog_flow_id=hog_flow_id, kind="code_send_batch"),
+        payload,
+        timeout,
+    )
+
+
+def _post_transactional_email_batch(path: str, token: str, payload: dict, timeout: float) -> requests.Response:
+    return internal_requests.post(
+        CDP_API_URL + path,
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
+        timeout=timeout,
+    )
+
+
 def prepare_transactional_email_attachment_uploads(
     team_id: int, payload: dict, *, timeout: float = 10
 ) -> requests.Response:
@@ -434,10 +465,16 @@ def create_batch_hog_flow_job_invocation(
     max_audience_size: int | None = None,
     filters: dict | None = None,
     realtime_cohort: dict | None = None,
+    audience_snapshot: dict | None = None,
 ) -> requests.Response:
     return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/batch_invocations/{batch_job_id}",
-        json={"max_audience_size": max_audience_size, "filters": filters, "realtime_cohort": realtime_cohort},
+        json={
+            "max_audience_size": max_audience_size,
+            "filters": filters,
+            "realtime_cohort": realtime_cohort,
+            "audience_snapshot": audience_snapshot,
+        },
         headers=get_internal_api_headers(),
         # A run waits on this call while it is created, so a stalled CDP API must not hold it open.
         timeout=30,

@@ -9,7 +9,7 @@ data.
 """
 
 from collections.abc import Collection
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import structlog
 
@@ -24,6 +24,7 @@ from products.knowledge_writer.backend.facade import (
     contracts as knowledge_writer_contracts,
 )
 from products.review_hog.backend.facade import (
+    fork_recreation as review_hog_fork_recreation,
     github as review_hog_github,
     reviews as review_hog_facade,
 )
@@ -41,7 +42,7 @@ from products.tasks.backend.facade.profiles import get_task_profile
 
 from . import follow_ups
 from .commands import Answer, CommandContext, CommandOutcome, CommandTarget, PullRequestRef, SubjectRef
-from .schema import AssignArgs, DocsArgs, LoopArgs, QaArgs, ResolveArgs, ReviewArgs, StampArgs
+from .schema import AssignArgs, DocsArgs, LoopArgs, QaArgs, RecreateArgs, ResolveArgs, ReviewArgs, StampArgs
 from .subjects import candidate_team_ids
 
 logger = structlog.get_logger(__name__)
@@ -101,46 +102,33 @@ def docs_target(subject: SubjectRef, team_ids: tuple[int, ...]) -> CommandTarget
     )
 
 
-DOCS_REPLIES: dict[knowledge_writer_contracts.IntakeStatus, CommandOutcome] = {
-    "started": CommandOutcome(
-        accepted=True, message="Queued. The knowledge writer will open a docs pull request for this change."
-    ),
-    "joined": CommandOutcome(
-        accepted=True, message="Queued. The knowledge writer will add this change to its open docs pull request."
-    ),
-    "duplicate": CommandOutcome(accepted=True, message="The knowledge writer already has this pull request."),
-    "shadow": CommandOutcome(accepted=False, message="The knowledge writer isn't starting runs yet."),
-    "capped": CommandOutcome(accepted=False, message="The knowledge writer hit its run limit. Try again tomorrow."),
-    "section_busy": CommandOutcome(
-        accepted=False,
-        message="The knowledge writer is already updating that docs section. Try again once its pull request is up.",
-    ),
-    "docs_in_source_repo": CommandOutcome(
-        accepted=False,
-        message="Those docs pages live in this repository, so update them in this pull request.",
-    ),
-    "unconfigured": CommandOutcome(accepted=False, message="The knowledge writer isn't set up."),
-    "no_docs": CommandOutcome(accepted=False, message="The knowledge writer found no docs to change."),
-}
-
-
 def handle_docs(context: CommandContext, args: DocsArgs) -> CommandOutcome:
     pull_request = context.pull_request
     if pull_request.is_private:
         return CommandOutcome(accepted=False, message="The knowledge writer only runs on public repositories.")
-    outcome = knowledge_writer_facade.request_docs_for_pull_request(
-        knowledge_writer_contracts.DocsCommandRequest(
-            repository=pull_request.repository,
-            pull_request_number=pull_request.number,
-            pull_request_url=pull_request.url,
-            head_sha=pull_request.head_sha,
-            note=args.note,
-            requested_by=context.request.requester,
-            requested_by_user_id=context.members[0].user_id,
-        ),
-        team_id=context.members[0].team_id,
-    )
-    return DOCS_REPLIES[outcome.status]
+    waiter_id = None
+    follow_up = _follow_up(context)
+    if follow_up is not None:
+        waiter_id = uuid4().hex
+        follow_ups.remember(follow_ups.docs_check_key(waiter_id), follow_up)
+    try:
+        knowledge_writer_facade.request_docs_for_pull_request(
+            knowledge_writer_contracts.DocsCommandRequest(
+                repository=pull_request.repository,
+                pull_request_number=pull_request.number,
+                note=args.note,
+                requested_by=context.request.requester,
+                requested_by_user_id=context.members[0].user_id,
+            ),
+            team_id=context.members[0].team_id,
+            waiter_id=waiter_id,
+        )
+    except Exception:
+        # The dispatcher answers that the command failed, so a check that started anyway stays quiet.
+        if waiter_id is not None:
+            follow_ups.take(follow_ups.docs_check_key(waiter_id))
+        raise
+    return CommandOutcome(accepted=True, message="Checking whether this pull request changes the docs.")
 
 
 def _follow_up(context: CommandContext) -> follow_ups.FollowUp | None:
@@ -211,6 +199,27 @@ def handle_review(context: CommandContext, args: ReviewArgs) -> CommandOutcome:
         return CommandOutcome(accepted=True, message="PostHog Review is reviewing this pull request.")
     # PostHog Review writes its refusals from the repository name, the PR number and fixed text.
     return CommandOutcome(accepted=False, message=outcome.error)
+
+
+def handle_recreate(context: CommandContext, args: RecreateArgs) -> CommandOutcome:
+    pull_request = context.pull_request
+    ref = _pull_request_ref(context.request.subject)
+    outcome = review_hog_fork_recreation.recreate_fork_pull_request(
+        team_id=context.members[0].team_id,
+        installation_id=ref.installation_id,
+        repository=pull_request.repository,
+        pr_number=pull_request.number,
+        enqueue=args.enqueue,
+    )
+    if not outcome.created:
+        return CommandOutcome(accepted=False, message=outcome.message)
+    if not outcome.handed_over:
+        return CommandOutcome(
+            accepted=True,
+            message=f"Re-created as #{outcome.pull_request_number}, but I couldn't finish handing it over. "
+            "Comment `@posthog recreate` again to finish.",
+        )
+    return CommandOutcome(accepted=True, message=f"Re-created as #{outcome.pull_request_number}.")
 
 
 def handle_qa(context: CommandContext, args: QaArgs) -> CommandOutcome:

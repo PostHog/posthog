@@ -93,6 +93,8 @@ class _Recorder:
         self.thread_messages: dict[str, list[SlackThreadMessage]] = {}
         # ts -> cascade mode; missing means "auto" with a fixed repository.
         self.cascade_modes: dict[str, Literal["auto", "no_repo", "agent_needed"]] = {}
+        # ts whose `agent_needed` cascade outcome already judged the ask to need code.
+        self.cascade_classified: set[str] = set()
         # ts per personal-GitHub gate call, in execution order.
         self.github_gate_calls: list[str] = []
         # event text per needs-repo classifier call, in execution order.
@@ -209,7 +211,12 @@ def _fake_activities(rec: _Recorder) -> list:
         rec.cascade_integration_ids[inputs.event["ts"]] = inputs.integration_id
         mode = rec.cascade_modes.get(inputs.event["ts"], "auto")
         repository = "org/auto-repo" if mode == "auto" else None
-        return PostHogCodeRepoCascadeOutcome(mode=mode, repository=repository, reason="test")
+        return PostHogCodeRepoCascadeOutcome(
+            mode=mode,
+            repository=repository,
+            reason="test",
+            needs_repo_classified=inputs.event["ts"] in rec.cascade_classified,
+        )
 
     @activity.defn(name="classify_posthog_code_task_needs_repo_activity")
     async def needs_repo(
@@ -696,9 +703,12 @@ async def test_a_connect_offer_holds_the_task_until_the_tool_is_connected_or_the
 
 
 @pytest.mark.asyncio
-async def test_usage_limited_discovery_ends_without_a_picker_or_a_task():
+@pytest.mark.parametrize("cascade_classified", [True, False])
+async def test_usage_limited_discovery_ends_without_a_picker_or_a_task(cascade_classified: bool):
     rec = _Recorder()
     rec.cascade_modes["1.1"] = "agent_needed"
+    if cascade_classified:
+        rec.cascade_classified.add("1.1")
     rec.discover_usage_limited = True
 
     async with _Harness(rec) as h:
@@ -708,6 +718,8 @@ async def test_usage_limited_discovery_ends_without_a_picker_or_a_task():
     assert not rec.picker_posted.is_set()
     assert rec.created == []
     assert rec.internal_errors == []
+    # A cascade that already asked whether the ask needs code is not asked again.
+    assert rec.needs_repo_calls == ([] if cascade_classified else ["fix the bug"])
 
 
 @pytest.mark.asyncio

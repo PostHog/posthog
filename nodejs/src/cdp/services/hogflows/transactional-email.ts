@@ -161,7 +161,18 @@ export const AcceptedSendSchema = z
         replyTo: z.array(z.string()).readonly().optional(),
         cc: CopyRecipientsSchema,
         bcc: CopyRecipientsSchema,
-        tracking: z.object({ captureEngagement: z.boolean() }).strict().readonly(),
+        sensitive: z.boolean().optional(),
+        tracking: z
+            .object({
+                captureEngagement: z.boolean(),
+                opens: z.literal(false).optional(),
+                clicks: z.boolean().optional(),
+            })
+            .strict()
+            .readonly()
+            .refine((tracking) => !(tracking.opens === false && tracking.clicks === true), {
+                message: 'click tracking needs open tracking',
+            }),
         attachments: z
             .array(
                 z
@@ -213,6 +224,10 @@ export const acceptedSendEmailFields = (
     ...(send?.attachments && { attachments: send.attachments.map((file) => ({ ...file })) }),
 })
 
+const ScheduledAtSchema = z.string().datetime({ offset: true })
+
+export const RescheduleRequestSchema = z.object({ scheduled_at: ScheduledAtSchema })
+
 // What Django sends to run a transactional email's workflow once.
 export const TransactionalEmailRequestSchema = z.object({
     to: z.string().email({ pattern: RECIPIENT_ADDRESS_PATTERN }),
@@ -222,6 +237,7 @@ export const TransactionalEmailRequestSchema = z.object({
     variables: z.record(z.string(), z.any()).default({}),
     // The caller's `Idempotency-Key`. A repeat with the same key and request returns the first send.
     idempotency_key: z.string().min(1).max(255).optional(),
+    scheduled_at: ScheduledAtSchema.optional(),
 })
 
 export const TEMPLATE_SEND_TOKEN_CLAIMS = { kind: undefined }
@@ -242,25 +258,33 @@ export const isRecipientFormatIssue = (issue: z.core.$ZodIssue): boolean =>
     issue.code === 'invalid_format' &&
     (issue.path[0] === 'to' || (issue.path[0] === 'send' && (issue.path[1] === 'cc' || issue.path[1] === 'bcc')))
 
-export type TransactionalEmailOutcome =
-    | 'queued'
-    | 'replayed'
-    | 'idempotency_key_in_flight'
+export type TransactionalSendRefusal =
     | 'idempotency_key_reused'
     | 'idempotency_unavailable'
-    | 'not_configured'
-    | 'unauthorized'
+    | 'intake_unavailable'
     | 'invalid_request'
-    | 'not_found'
     | 'not_sendable'
-    | 'workflow_can_wait'
-    | 'workflow_shape_not_supported'
     | 'quota_limited'
     | 'sending_suspended'
     | 'sending_paused'
     | 'recipient_suppressed'
     | 'recipient_unreachable'
+    | 'invalid_scheduled_at'
+    | 'sandbox_recipient_not_member'
+    | 'sandbox_fields_unsupported'
+    | 'sandbox_sender_unavailable'
+
+export type TransactionalEmailOutcome =
+    | 'queued'
+    | 'replayed'
+    | TransactionalSendRefusal
+    | 'not_configured'
+    | 'unauthorized'
+    | 'invalid_request'
+    | 'not_found'
     | 'field_not_accepted'
+    | 'workflow_can_wait'
+    | 'workflow_shape_not_supported'
     | 'attachment_not_uploaded'
     | 'message_too_large'
     | 'email_render_limit_exceeded'
@@ -284,13 +308,14 @@ export const TRANSACTIONAL_EMAIL_STAGES = [
     'checks',
     'attachments',
     'queue_insert',
+    'intake_produce',
     'metrics_flush',
 ] as const
 export type TransactionalEmailStage = (typeof TRANSACTIONAL_EMAIL_STAGES)[number]
 
 export const transactionalEmailStageDurationMs = new Histogram({
     name: 'cdp_transactional_email_stage_duration_ms',
-    help: 'Milliseconds one transactional email request spends in each stage: auth (the JWT), validate (the body), load (the team and the workflow), build (the run and its idempotency fingerprint), idempotency (every Idempotency-Key call to Valkey), checks (suspension, pause, suppression, quota and MX), attachments (verifying the files and estimating the message, only for a send with files), queue_insert (the email queue insert), metrics_flush (the hand-off of the result and status rows to the Kafka producer, without the wait for the broker), and total. A request records only the stages it reached, so a refusal shows in the stage that refused it.',
+    help: 'Milliseconds one transactional email request spends in each stage: auth (the JWT), validate (the body), load (the team and the workflow), build (the run and its idempotency fingerprint), idempotency (every Idempotency-Key call to Valkey), checks (suspension, pause, suppression, quota and MX), attachments (verifying the files and estimating the message, only for a send with files), queue_insert (the email queue insert), intake_produce (the produce to the intake topic and the wait for its ack, in intake async mode), metrics_flush (the hand-off of the result and status rows to the Kafka producer, without the wait for the broker), and total. A request records only the stages it reached, so a refusal shows in the stage that refused it.',
     labelNames: ['stage'],
     buckets: [1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000],
 })

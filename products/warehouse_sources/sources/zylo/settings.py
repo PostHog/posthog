@@ -54,6 +54,15 @@ AUTOMATION_FANOUT = DependentEndpointConfig(
     parent_params={"sort": "+zylo_created_at"},
 )
 
+# Functionalities are only listable per application. Rows already carry `application_id`.
+APPLICATION_FANOUT = DependentEndpointConfig(
+    parent_name="Applications",
+    resolve_param="applicationId",
+    resolve_field="id",
+    include_from_parent=[],
+    parent_params={"sort": "+zylo_created_at"},
+)
+
 
 # Every resource except AutomationExecutions is a top-level list endpoint.
 ZYLO_ENDPOINTS: dict[str, ZyloEndpointConfig] = {
@@ -134,6 +143,52 @@ ZYLO_ENDPOINTS: dict[str, ZyloEndpointConfig] = {
         path="/v2/automations/{automationId}/executions",
         table_name="automation_executions",
         fanout=AUTOMATION_FANOUT,
+    ),
+    "PendingContracts": ZyloEndpointConfig(
+        name="PendingContracts",
+        path="/v2/pendingContracts",
+        table_name="pending_contracts",
+    ),
+    # One row per application, keyed by the application id. The spend and usage aggregates change
+    # every day, but the only timestamp filters are the application's own `zylo_*` dates, so an
+    # incremental sync would keep stale stats. Full refresh only.
+    "ApplicationStats": ZyloEndpointConfig(
+        name="ApplicationStats",
+        path="/v2/applicationStats",
+        table_name="application_stats",
+        incremental_fields=[],
+        default_incremental_field=None,
+    ),
+    "Users": ZyloEndpointConfig(
+        name="Users",
+        path="/v2/users",
+        table_name="users",
+    ),
+    # Requires the `admin` scope.
+    "Views": ZyloEndpointConfig(
+        name="Views",
+        path="/v2/views",
+        table_name="views",
+    ),
+    "PendingContractLineItems": ZyloEndpointConfig(
+        name="PendingContractLineItems",
+        path="/v2/pendingContractLineItems",
+        table_name="pending_contract_line_items",
+    ),
+    # The docs do not say that a functionality id is unique across applications, so the key
+    # includes the parent application.
+    "ApplicationFunctionalities": ZyloEndpointConfig(
+        name="ApplicationFunctionalities",
+        path="/v2/applications/{applicationId}/functionalities",
+        table_name="application_functionalities",
+        primary_keys=["application_id", "id"],
+        fanout=APPLICATION_FANOUT,
+    ),
+    # Requires the `admin` scope.
+    "CustomFields": ZyloEndpointConfig(
+        name="CustomFields",
+        path="/v2/customFields",
+        table_name="custom_fields",
     ),
 }
 

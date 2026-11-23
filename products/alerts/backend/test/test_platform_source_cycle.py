@@ -44,15 +44,18 @@ from products.alerts.backend.evaluation.contract import (
 )
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, SeriesEvaluation
 from products.alerts.backend.judge.contract import (
+    FORECAST_DETECTOR_PAUSED_ERROR_CODE,
+    FORECAST_DETECTOR_UNAVAILABLE_MESSAGE,
     LLM_DETECTOR_PAUSED_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
+    ForecastDetectorPausedError,
     LLMDetectorMisconfiguredError,
     LLMDetectorPausedError,
     LLMDetectorUnavailableError,
 )
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
-from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus, Threshold
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
 from products.alerts.backend.platform_alert_wording import insight_alert_url
 from products.alerts.backend.platform_chart_detail import CHART_PENDING_KEY, RenderedChart
@@ -73,8 +76,8 @@ from products.alerts.backend.platform_source_cycle import (
     ChartRenderTimedOut,
     evaluate_insight_check,
     fail_insight_check,
-    legacy_alerts_of,
     plan_insight_batch,
+    platform_upsert_of,
     readmit_retried_check,
     render_firing_chart,
     stop_insight_queries,
@@ -91,12 +94,7 @@ from products.alerts_platform.backend.facade import (
     api as platform_facade,
     testing as platform_testing,
 )
-from products.alerts_platform.backend.facade.api import (
-    create_alert_destinations,
-    list_configurations,
-    record_outcomes,
-    slot_of,
-)
+from products.alerts_platform.backend.facade.api import create_alert_destinations, record_outcomes, slot_of
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
     AlertBatchKey,
@@ -144,6 +142,12 @@ _AGENT_ON: Final = {
 }
 
 
+# Rows draw first, then alerts with no insight row, each oldest first.
+_ROW_FIRST: Final = [("alert upper threshold", 100.0), ("sibling lower threshold", 5.0)]
+_SIBLING_FIRST: Final = [("sibling lower threshold", 5.0), ("alert upper threshold", 100.0)]
+_MOVED_FIRST: Final = [("sibling lower threshold", 5.0), ("alert upper threshold", 200.0)]
+
+
 class TestPlatformInsightEvaluation(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -162,22 +166,31 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         )
 
     def _copy(self, alert: AlertConfiguration | None, **overrides: Any) -> PlatformConfigurationSnapshot:
+        """The copy of `alert` as the backfill and every edit write it, so a check reads only the copy."""
+        upsert = platform_upsert_of(alert) if alert else None
+        copied: dict[str, Any] = (
+            {
+                "name": upsert.name,
+                "enabled": upsert.enabled,
+                "source_config": upsert.source_config,
+                "check_interval_minutes": upsert.check_interval_minutes,
+                "recurrence_unit": upsert.recurrence_unit,
+                "schedule_restriction": upsert.schedule_restriction,
+                "snooze_until": upsert.snooze_until,
+                "created_by_id": upsert.created_by_id,
+                "legacy_configuration_id": upsert.legacy_configuration_id,
+            }
+            if upsert
+            else {"name": "alert", "source_config": {}, "check_interval_minutes": 60 * 24, "recurrence_unit": "day"}
+        )
         with team_scope(self.team.id):
             return platform_testing.create_configuration(
                 **{
                     "team_id": self.team.id,
-                    "name": "alert",
                     "source_kind": SourceKind.INSIGHT,
-                    "source_config": {
-                        "insight_id": alert.insight_id,
-                        SOURCE_CONDITION_KEY: {"detector": alert.detector_config},
-                    }
-                    if alert
-                    else {},
-                    "check_interval_minutes": 60 * 24,
-                    "recurrence_unit": "day",
                     "next_check_at": CUTOFF - timedelta(minutes=1),
-                    "legacy_configuration_id": alert.id if alert else None,
+                    "owner": PlatformAlertOwner.PLATFORM,
+                    **copied,
                     **overrides,
                 }
             )
@@ -188,8 +201,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             alert,
             legacy_configuration_id=None,
             owner=PlatformAlertOwner.PLATFORM,
-            destinations_owner=PlatformAlertOwner.PLATFORM,
-            created_by=self.user,
+            created_by_id=self.user.id,
             source_config={
                 "insight_id": alert.insight_id,
                 SOURCE_CONDITION_KEY: {
@@ -284,9 +296,11 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     def test_a_muted_breakdown_value_tracks_its_firing_without_announcing_it(self) -> None:
         grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("breakdown",))
-        configuration = self._copy(
-            self._alert(), grouping=grouping.to_stored(), snooze_until=CUTOFF + timedelta(hours=1)
-        )
+        configuration = self._copy(self._alert(), grouping=grouping.to_stored())
+        with team_scope(self.team.id):
+            platform_testing.mute_group(
+                configuration.id, team_id=self.team.id, grouping_key="Chrome", until=CUTOFF + timedelta(hours=1)
+            )
 
         outcome = self._evaluate_per_series(configuration, {"Chrome": 150.0})
 
@@ -315,30 +329,55 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         self.deliveries = evaluation.deliveries if evaluation is not None else ()
         return (evaluation.outcomes[0] if evaluation is not None else None), query
 
-    @parameterized.expand([("owner_taken_over_since_the_copy", True), ("not_yet_backfilled", False)])
-    def test_the_check_runs_as_the_alerts_current_owner_and_the_copy_follows(
-        self, _name: str, stale_creator: bool
-    ) -> None:
-        previous_owner = User.objects.create_and_join(self.organization, "previous-owner@example.com", None)
-        configuration = self._copy(self._alert(), created_by_id=previous_owner.id if stale_creator else None)
-
-        _, query = self._evaluate(configuration, result=AlertEvaluationResult(value=1.0, breaches=[]))
-
-        with team_scope(self.team.id):
-            (copy,) = list_configurations(
-                team_id=self.team.id, source_kinds=[SourceKind.INSIGHT.value], limit=10, offset=0
-            ).configurations
-        assert (query.call_args.args[0].created_by, copy.created_by_id) == (self.user, self.user.id)
-
-    @parameterized.expand(
-        [
-            ("source_owned", "source", False),
-            ("platform_owned", "platform", True),
-        ]
-    )
-    def test_a_firing_records_what_production_sends_beside_it(self, _name: str, owner: str, wants_chart: bool) -> None:
+    # The insight stack's own check can switch its row off first, on the same tick.
+    @parameterized.expand([("switched_off",), ("deleted",), ("edited",)])
+    def test_a_direct_edit_of_the_insight_row_changes_nothing_on_the_check(self, row_change: str) -> None:
         alert = self._alert()
-        configuration = self._copy(alert, owner=owner)
+        handed_over_at = CUTOFF - timedelta(days=1)
+        configuration = self._copy(alert, owner=PlatformAlertOwner.PLATFORM, owner_changed_at=handed_over_at)
+        assert alert.threshold is not None
+        threshold = alert.threshold.configuration
+        # `update()` and a queryset delete, as a shell edit makes them, so no hook mirrors the change to the copy.
+        rows = AlertConfiguration.objects.filter(team_id=self.team.id, id=alert.id)
+        if row_change == "switched_off":
+            rows.update(enabled=False)
+        elif row_change == "deleted":
+            rows.delete()
+        else:
+            other = User.objects.create_and_join(self.organization, "other-owner@example.com", None)
+            rows.update(
+                name="renamed on the row",
+                created_by=other,
+                calculation_interval=AlertCalculationInterval.WEEKLY.value,
+                detector_config={"type": "llm"},
+                snoozed_until=CUTOFF + timedelta(hours=1),
+            )
+            Threshold.objects.filter(id=alert.threshold.id).update(
+                configuration={"type": "absolute", "bounds": {"upper": 1.0}}
+            )
+
+        outcome, query = self._evaluate(configuration, result=AlertEvaluationResult(value=50.0, breaches=[]))
+
+        (evaluated,) = query.call_args.args
+        assert (
+            evaluated.id,
+            evaluated.name,
+            evaluated.created_by,
+            evaluated.calculation_interval,
+            evaluated.detector_config,
+            evaluated.threshold.configuration,
+            evaluated.platform_owned_since,
+        ) == (alert.id, alert.name, self.user, AlertCalculationInterval.DAILY, None, threshold, handed_over_at)
+        assert outcome is not None
+        assert (outcome.groups[0].kind, outcome.groups[0].new_state, outcome.disable) == (
+            AlertEventKind.CHECK,
+            "not_firing",
+            False,
+        )
+
+    def test_a_firing_records_what_production_sends_beside_it(self) -> None:
+        alert = self._alert()
+        configuration = self._copy(alert)
         expected = {
             "breaches": ["above 100"],
             "insight_name": alert.insight.name,
@@ -351,7 +390,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             "insight_interval": "day",
             "tags": [],
             "team_name": self.team.name,
-            **({CHART_PENDING_KEY: str(alert.id)} if wants_chart else {}),
+            CHART_PENDING_KEY: str(alert.id),
         }
 
         with patch(f"{_MODULE}.render_alert_insight_chart_or_raise") as render:
@@ -426,17 +465,53 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("a_row_with_a_slack_function", True, "hog_function", True),
-            ("a_native_alert_with_a_slack_function", False, "hog_function", True),
-            ("a_native_alert_with_a_platform_slack_destination", False, "platform", True),
-            ("a_native_alert_without_slack", False, None, False),
+            ("a_row_with_a_slack_function", "row", "hog_function", [_ROW_FIRST]),
+            # Its row's threshold and creator were edited in a shell, and the copy's, which the platform owns, win.
+            ("a_moved_alert_with_a_slack_function", "copy", "hog_function", [_MOVED_FIRST]),
+            ("a_moved_alert_with_a_platform_slack_destination", "copy", "platform", [_MOVED_FIRST]),
+            ("a_native_alert_with_a_slack_function", "native", "hog_function", [_SIBLING_FIRST]),
+            ("a_native_alert_with_a_platform_slack_destination", "native", "platform", [_SIBLING_FIRST]),
+            ("a_native_alert_without_slack", "native", None, []),
         ]
     )
-    def test_a_firing_chart_draws_the_threshold_of_the_alert_it_fires_for(
-        self, _name: str, has_row: bool, slack: str | None, renders: bool
+    def test_a_firing_chart_draws_the_threshold_of_every_enabled_alert_on_the_insight(
+        self, _name: str, kind: str, slack: str | None, rendered_lines: list[list[tuple[str, float]]]
     ) -> None:
         alert = self._alert()
-        chart_alert_id = alert.id if has_row else self._native(alert).id
+        for name, enabled in (("sibling", True), ("disabled", False)):
+            self._copy(
+                alert,
+                name=name,
+                enabled=enabled,
+                legacy_configuration_id=None,
+                owner=PlatformAlertOwner.PLATFORM,
+                source_config={
+                    "insight_id": alert.insight_id,
+                    SOURCE_CONDITION_KEY: {
+                        "comparison": {"type": "absolute_value"},
+                        "threshold": {"type": "absolute", "bounds": {"lower": 5.0}},
+                    },
+                },
+            )
+        destination_owner_id = None
+        if kind == "copy":
+            destination_owner_id = self._copy(
+                alert,
+                owner=PlatformAlertOwner.PLATFORM,
+                created_by_id=self.user.id,
+                source_config={
+                    "insight_id": alert.insight_id,
+                    SOURCE_CONDITION_KEY: {
+                        "comparison": {"type": "absolute_value"},
+                        "threshold": {"type": "absolute", "bounds": {"upper": 200.0}},
+                    },
+                },
+            ).id
+            AlertConfiguration.objects.filter(id=alert.id).update(
+                owner=PlatformAlertOwner.PLATFORM,
+                created_by=User.objects.create_and_join(self.organization, "shell-edit@example.com", None),
+            )
+        chart_alert_id = self._native(alert).id if kind == "native" else alert.id
         if slack == "hog_function":
             HogFunction.objects.create(
                 team=self.team,
@@ -456,7 +531,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         elif slack == "platform":
             create_alert_destinations(
                 team_id=self.team.id,
-                configuration_id=chart_alert_id,
+                configuration_id=destination_owner_id or chart_alert_id,
                 destinations=(
                     NewAlertDestination(
                         data=cast(
@@ -473,11 +548,11 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         ) as render:
             chart = render_firing_chart(self.team.id, str(chart_alert_id), held_until=time.time() + 60)
 
-        assert chart == (RenderedChart(asset_id=7, render_user_id=self.user.id) if renders else None)
+        assert chart == (RenderedChart(asset_id=7, render_user_id=self.user.id) if rendered_lines else None)
         assert [
             [(line["label"], line["value"]) for line in call.kwargs["reference_lines"]]
             for call in render.call_args_list
-        ] == ([[("alert upper threshold", 100.0)]] if renders else [])
+        ] == rendered_lines
 
     @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS=1)
     def test_a_check_holds_a_clickhouse_slot_only_while_its_query_runs(self) -> None:
@@ -567,39 +642,6 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         assert outcome is not None
         assert {key: outcome.groups[0].source_detail.get(key) for key in expected} == expected
 
-    @parameterized.expand(
-        [
-            ("renamed", {"name": "Signups dropped"}, ("Signups dropped", 60 * 24, "day", None)),
-            # A skipped check advances by the copy's schedule, so it must refresh the copy first.
-            (
-                "renamed_while_off",
-                {"name": "Signups dropped", "enabled": False},
-                ("Signups dropped", 60 * 24, "day", None),
-            ),
-            (
-                "weekly",
-                {"calculation_interval": AlertCalculationInterval.WEEKLY.value},
-                ("alert", 60 * 24 * 7, "week", None),
-            ),
-            ("started_later", {"schedule_start_time": "09:30"}, ("alert", 60 * 24, "day", "09:30")),
-            # A stored anchor that cannot advance would fail every outcome recorded beside it.
-            ("unreadable_start_time", {"schedule_start_time": "25:99"}, ("alert", 60 * 24, "day", None)),
-        ]
-    )
-    def test_a_check_brings_its_copy_up_to_date_with_the_alert(
-        self, _name: str, edits: dict[str, Any], expected: tuple[str, int, str, str | None]
-    ) -> None:
-        alert = self._alert(**edits)
-        configuration = self._copy(alert)
-
-        self._evaluate(configuration, result=AlertEvaluationResult(value=50.0, breaches=[]))
-
-        with team_scope(self.team.id):
-            (copy,) = list_configurations(
-                team_id=self.team.id, source_kinds=[SourceKind.INSIGHT.value], limit=10, offset=0
-            ).configurations
-        assert (copy.name, copy.check_interval_minutes, copy.recurrence_unit, copy.anchor_time) == expected
-
     @parameterized.expand([("threshold", {}), ("detector", {"detector_config": {"type": "zscore"}})])
     def test_a_breach_fires_on_the_platform_and_leaves_the_production_alert_alone(
         self, _name: str, alert_overrides: dict[str, Any]
@@ -687,23 +729,20 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            # name, was_firing, owned, paged through, breaks, (incident_actions, sends_messages) or no delivery
-            ("source_owned", False, False, None, False, None),
-            ("platform_owned", False, True, None, False, ({}, True)),
-            ("platform_owned_resolve", True, True, None, False, None),
-            ("paged_firing", False, True, "hog_function", False, ({"": IncidentAction.TRIGGER}, True)),
-            ("paged_resolve", True, True, "hog_function", False, ({"": IncidentAction.RESOLVE}, False)),
-            ("paged_firing_that_breaks", True, True, "hog_function", True, ({}, True)),
-            ("paged_but_source_owned", False, False, "hog_function", False, None),
-            ("paged_firing_with_no_row", False, True, "platform", False, ({"": IncidentAction.TRIGGER}, True)),
-            ("paged_resolve_with_no_row", True, True, "platform", False, ({"": IncidentAction.RESOLVE}, False)),
+            # name, was_firing, paged through, breaks, (incident_actions, sends_messages) or no delivery
+            ("platform_owned", False, None, False, ({}, True)),
+            ("platform_owned_resolve", True, None, False, None),
+            ("paged_firing", False, "hog_function", False, ({"": IncidentAction.TRIGGER}, True)),
+            ("paged_resolve", True, "hog_function", False, ({"": IncidentAction.RESOLVE}, False)),
+            ("paged_firing_that_breaks", True, "hog_function", True, ({}, True)),
+            ("paged_firing_with_no_row", False, "platform", False, ({"": IncidentAction.TRIGGER}, True)),
+            ("paged_resolve_with_no_row", True, "platform", False, ({"": IncidentAction.RESOLVE}, False)),
         ]
     )
     def test_only_a_platform_owned_firing_failure_or_incident_edge_asks_for_a_delivery(
         self,
         _name: str,
         was_firing: bool,
-        owned: bool,
         paged: str | None,
         breaks: bool,
         delivered: tuple[dict[str, IncidentAction], bool] | None,
@@ -727,7 +766,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 ),
             )
         else:
-            configuration = self._copy(alert, **({"owner": PlatformAlertOwner.PLATFORM} if owned else {}))
+            configuration = self._copy(alert)
         if paged == "hog_function":
             HogFunction.objects.create(
                 team=self.team,
@@ -762,7 +801,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                     str(configuration.id),
                     str(configuration.id if paged == "platform" else alert.id),
                     {"firing": "$insight_alert_firing", "errored": INSIGHT_ALERT_ERRORED_EVENT_ID},
-                    owned,
+                    True,
                     *delivered,
                 )
             ]
@@ -783,30 +822,35 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         # A native message links to the alert on its insight, where the insight stack's messages link.
         assert all(delivery.source_alert_url == alert_url for delivery in self.deliveries)
 
-    @parameterized.expand(
-        [
-            ("disabled", {"enabled": False}, None, "not_firing"),
-            ("snoozed", {"snoozed_until": CUTOFF + timedelta(hours=1)}, None, "snoozed"),
-            ("switched_to_ai_after_its_copy", {}, {"type": "llm"}, "not_firing"),
-        ]
-    )
-    def test_a_check_production_would_not_run_is_recorded_without_a_query(
-        self, _name: str, overrides: dict[str, Any], detector_after_copy: dict[str, str] | None, state: str
-    ) -> None:
-        alert = self._alert(**overrides)
-        configuration = self._copy(alert)
-        if detector_after_copy is not None:
-            alert.detector_config = detector_after_copy
-            alert.save()
+    def test_a_copy_insight_owns_is_skipped_without_a_query_and_switched_off(self) -> None:
+        configuration = self._copy(self._alert(), owner=PlatformAlertOwner.SOURCE)
 
-        outcome, query = self._evaluate(configuration, uses_llm_detector=detector_after_copy is not None)
+        outcome, query = self._evaluate(
+            configuration, result=AlertEvaluationResult(value=150.0, breaches=["above 100"])
+        )
+
+        query.assert_not_called()
+        assert outcome is not None
+        assert (outcome.groups[0].kind, list(self.deliveries)) == (AlertEventKind.CHECK, [])
+        record_outcomes(self.team.id, (outcome,), CUTOFF)
+        with team_scope(self.team.id):
+            copy = platform_facade.get_configuration(
+                team_id=self.team.id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=configuration.id
+            )
+        assert copy is not None
+        assert copy.enabled is False
+
+    def test_a_snoozed_alert_is_recorded_without_a_query(self) -> None:
+        configuration = self._copy(self._alert(snoozed_until=CUTOFF + timedelta(hours=1)))
+
+        outcome, query = self._evaluate(configuration)
 
         query.assert_not_called()
         assert outcome is not None
         assert (outcome.groups[0].kind, outcome.groups[0].new_state, outcome.disable) == (
             AlertEventKind.CHECK,
-            state,
-            detector_after_copy is not None,
+            "snoozed",
+            False,
         )
 
     @parameterized.expand(
@@ -825,7 +869,6 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("copy_whose_production_alert_is_gone", {"legacy_configuration_id": UUID(int=404)}),
             ("alert_whose_insight_is_gone", {"source_config": {"insight_id": 0}}),
             ("alert_whose_insight_was_deleted", None),
         ]
@@ -861,9 +904,6 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             },
         )
         alert.delete()
-        slot = slot_of(configuration.next_check_at, CUTOFF)
-        planned = legacy_alerts_of(self.team.id, slot, CUTOFF, [str(configuration.id)])[str(configuration.id)]
-        assert (planned.calculation_interval, planned.platform_owned) == (AlertCalculationInterval.DAILY, True)
 
         outcome, query = self._evaluate(
             configuration, result=AlertEvaluationResult(value=150.0, breaches=["above 100"])
@@ -953,15 +993,22 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("bad_query_shape", AlertExtractionError("bad query shape")),
-            ("ai_detector_without_a_creator", LLMDetectorMisconfiguredError("no creator")),
-            ("owner_left_or_lost_access", AlertOwnerAccessError(CREATOR_LEFT_DISABLE_REASON)),
+            ("bad_query_shape", AlertExtractionError("bad query shape"), False),
+            ("ai_detector_without_a_creator", LLMDetectorMisconfiguredError("no creator"), False),
+            ("owner_left_or_lost_access", AlertOwnerAccessError(CREATOR_LEFT_DISABLE_REASON), False),
+            # The insight stack's check of the same tick found the same fault and switched its row off first.
+            ("owner_left_and_the_row_is_already_off", AlertOwnerAccessError(CREATOR_LEFT_DISABLE_REASON), True),
         ]
     )
     def test_an_alert_production_cannot_evaluate_as_configured_errors_and_is_disabled(
-        self, _name: str, error: Exception
+        self, _name: str, error: Exception, row_switched_off_first: bool
     ) -> None:
-        outcome, _ = self._evaluate(self._copy(self._alert()), result=error)
+        alert = self._alert()
+        configuration = self._copy(alert, owner=PlatformAlertOwner.PLATFORM)
+        if row_switched_off_first:
+            AlertConfiguration.objects.filter(team_id=self.team.id, id=alert.id).update(enabled=False)
+
+        outcome, _ = self._evaluate(configuration, result=error)
 
         assert outcome is not None
         assert outcome.failure is not None and outcome.groups == ()
@@ -970,13 +1017,22 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             "errored",
             True,
         )
+        assert [delivery.sends_messages for delivery in self.deliveries] == [True]
         # The error message names and links the insight, as a firing's does.
         assert set(outcome.failure.source_detail) == {"insight_name", "insight_short_id"}
 
-    def test_a_paused_ai_detector_errors_and_stays_enabled(self) -> None:
+    @parameterized.expand(
+        [
+            ("ai", {"type": "llm"}, LLMDetectorPausedError, LLM_DETECTOR_PAUSED_ERROR_CODE),
+            ("forecast", {"type": "forecast"}, ForecastDetectorPausedError, FORECAST_DETECTOR_PAUSED_ERROR_CODE),
+        ]
+    )
+    def test_a_paused_gateway_detector_errors_and_stays_enabled(
+        self, _name: str, detector_config: dict, paused_error: type[LLMDetectorPausedError], code: str
+    ) -> None:
         outcome, _ = self._evaluate(
-            self._copy(self._alert(detector_config={"type": "llm"})),
-            result=LLMDetectorPausedError("consent withdrawn"),
+            self._copy(self._alert(detector_config=detector_config)),
+            result=paused_error("consent withdrawn"),
             uses_llm_detector=True,
         )
 
@@ -986,7 +1042,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             "consent withdrawn",
             False,
         )
-        assert outcome.failure.source_detail["error_code"] == LLM_DETECTOR_PAUSED_ERROR_CODE
+        assert outcome.failure.source_detail["error_code"] == code
 
     @parameterized.expand([("single", False), ("breakdown", True)])
     def test_a_check_without_enough_data_errors_and_stays_enabled(self, _name: str, breakdown: bool) -> None:
@@ -1063,7 +1119,13 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 "LLMDetectorUnavailableError",
                 (AlertEventKind.ERRORED, "errored", LLM_DETECTOR_UNAVAILABLE_MESSAGE, False, 1),
             ),
-            # As production: switching an alert off mid-check is not a failure of the alert.
+            (
+                "forecast_unreachable",
+                True,
+                "ForecastDetectorUnavailableError",
+                (AlertEventKind.ERRORED, "errored", FORECAST_DETECTOR_UNAVAILABLE_MESSAGE, False, 1),
+            ),
+            # Switching an alert off mid-check is not a failure of the alert, and the copy is no longer due.
             ("switched_off", False, None, None),
         ]
     )
@@ -1161,7 +1223,9 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 exclude=(admitted,),
             )
         )
-        assert replanned == [AdmittedInsightCheck(configuration_id=str(second.id), real_time=True)]
+        assert replanned == [
+            AdmittedInsightCheck(configuration_id=str(second.id), real_time=True, owned_by_platform=True)
+        ]
 
     def _investigated_alert(self, **overrides: Any) -> tuple[AlertConfiguration, PlatformConfigurationSnapshot]:
         alert = self._alert(

@@ -1,6 +1,8 @@
 use crate::authorizer::Signal;
 use crate::log_record::{apply_timestamp_override, datetime_from_millis, KafkaLogRow};
-use crate::service::{decode_body_if_gzip_magic, Service};
+use crate::service::{
+    decode_body_if_gzip_magic, expansion_rejection, log_row_expanded_bytes, Service,
+};
 use axum::{
     extract::State,
     extract::{Path, Query},
@@ -329,14 +331,20 @@ pub async fn export_datadog_logs_http(
         },
     };
 
-    let results: Vec<(KafkaLogRow, bool)> = logs
-        .into_iter()
-        .map(|log| datadog_log_to_kafka_row(log, &query_params))
-        .collect();
+    let mut rows: Vec<KafkaLogRow> = Vec::with_capacity(logs.len());
+    let mut timestamps_overridden: u64 = 0;
+    let mut expanded_bytes: usize = 0;
+    for log in logs {
+        let (row, overridden) = datadog_log_to_kafka_row(log, &query_params);
+        expanded_bytes += log_row_expanded_bytes(&row);
+        if expanded_bytes > service.max_expanded_request_bytes {
+            return Err(expansion_rejection(service.max_expanded_request_bytes));
+        }
+        timestamps_overridden += u64::from(overridden);
+        rows.push(row);
+    }
 
-    let row_count = results.len();
-    let timestamps_overridden = results.iter().filter(|(_, overridden)| *overridden).count() as u64;
-    let rows: Vec<KafkaLogRow> = results.into_iter().map(|(row, _)| row).collect();
+    let row_count = rows.len();
     if let Err(e) = service
         .sink
         .write(

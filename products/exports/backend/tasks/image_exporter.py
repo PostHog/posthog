@@ -13,6 +13,9 @@ import structlog
 import posthoganalytics
 from playwright.sync_api import (
     Error as PlaywrightError,
+    Page,
+    Request,
+    Response,
     TimeoutError as PlaywrightTimeoutError,
     sync_playwright,
 )
@@ -23,6 +26,7 @@ from posthog.schema import ChartDisplayType, FunnelLayout, NodeKind
 from posthog.hogql.errors import TableAccessDeniedError
 
 from posthog.api.services.query import process_query_dict
+from posthog.api.shared import ImageSizeSerializer
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.caching.insight_result import InsightResult
 from posthog.event_usage import AnalyticsProps, EventSource
@@ -37,6 +41,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.dashboards.backend.facade import api as dashboards_api
 from products.exports.backend.facade.api import export_execution_mode, export_limit_context
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token, save_content
+from products.exports.backend.tasks.dashboard_pdf import PDF_PAGE_WIDTH, render_dashboard_pdf, validate_dashboard_pdf
 from products.exports.backend.tasks.exporter_utils import log_error_if_site_url_not_reachable
 from products.exports.backend.tasks.failure_handler import (
     BrowserlessUnavailable,
@@ -44,6 +49,7 @@ from products.exports.backend.tasks.failure_handler import (
     classify_failure_type,
     is_reportable_export_failure,
 )
+from products.exports.backend.tasks.image_size import fit_image_to_size
 from products.exports.backend.url_security import is_heatmap_url_allowed
 from products.product_analytics.backend.facade.api import insight_variables_for_team, map_stale_to_latest
 
@@ -54,6 +60,12 @@ IMAGE_EXPORT_RENDER_DURATION = Histogram(
     "Image export render time (browser navigate + wait + screenshot), by backend and outcome",
     labelnames=["backend", "outcome"],
     buckets=(0.5, 1, 2, 5, 10, 20, 30, 45, 60, 90, 120, float("inf")),
+)
+IMAGE_EXPORT_RENDER_STAGE_DURATION = Histogram(
+    "image_export_render_stage_duration_seconds",
+    "Image export render time per completed stage, by the content the render waits for",
+    labelnames=["content", "stage"],
+    buckets=(0.25, 0.5, 1, 2, 5, 10, 20, 30, 60, float("inf")),
 )
 IMAGE_EXPORT_RENDER_FAILURE_COUNTER = Counter(
     "image_export_render_failure_total",
@@ -80,6 +92,7 @@ MAX_HEIGHT_PIXELS = 5000  # Prevents Chrome from consuming excessive memory on v
 CONTENT_PADDING = 80  # Padding for card borders
 
 REPLAY_WRAPPER_SELECTOR = ".replayer-wrapper"
+MAX_BUTTON_HEIGHT_PIXELS = 80
 
 # The replay player mounts rrweb either in the app document or inside its own same-origin frame
 # document, and a document query never crosses into a frame, so look in both.
@@ -87,6 +100,111 @@ FIND_REPLAY_WRAPPER_JS = f"""(
     document.querySelector('{REPLAY_WRAPPER_SELECTOR}') ||
     document.querySelector('iframe.PlayerFrame__document')?.contentDocument?.querySelector('{REPLAY_WRAPPER_SELECTOR}')
 )"""
+
+# Colors go through a canvas because computed colors can be oklch, not sRGB.
+READ_SITE_STYLE_JS = f"""
+    const doc = {FIND_REPLAY_WRAPPER_JS}?.querySelector('iframe')?.contentDocument;
+    const view = doc?.defaultView;
+    if (!doc?.body || !view) {{
+        return null;
+    }}
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 1;
+    const context = canvas.getContext('2d', {{ willReadFrequently: true }});
+    const rgbaByColor = new Map();
+    const rgba = (color) => {{
+        if (!rgbaByColor.has(color)) {{
+            context.clearRect(0, 0, 1, 1);
+            context.fillStyle = 'transparent';
+            context.fillStyle = color;
+            context.fillRect(0, 0, 1, 1);
+            rgbaByColor.set(color, context.getImageData(0, 0, 1, 1).data);
+        }}
+        return rgbaByColor.get(color);
+    }};
+    const hex = (color) => '#' + [...rgba(color).slice(0, 3)].map((c) => c.toString(16).padStart(2, '0')).join('');
+    const isOpaque = (color) => rgba(color)[3] >= 250;
+    const luminance = (color) => {{
+        const [r, g, b] = [...rgba(color).slice(0, 3)].map((c) => {{
+            c /= 255;
+            return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+        }});
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    }};
+    const contrast = (a, b) => {{
+        const [lighter, darker] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+        return (lighter + 0.05) / (darker + 0.05);
+    }};
+    // Where nothing paints a background, the canvas color shows, and it follows the page's color scheme.
+    const probe = doc.createElement('div');
+    probe.style.backgroundColor = 'Canvas';
+    doc.documentElement.appendChild(probe);
+    const canvasColor = view.getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    const surfaceByElement = new Map();
+    const surfaceBehind = (element) => {{
+        const unresolved = [];
+        let surface = canvasColor;
+        for (; element; element = element.parentElement) {{
+            if (surfaceByElement.has(element)) {{
+                surface = surfaceByElement.get(element);
+                break;
+            }}
+            unresolved.push(element);
+            const background = view.getComputedStyle(element).backgroundColor;
+            if (isOpaque(background)) {{
+                surface = background;
+                break;
+            }}
+        }}
+        unresolved.forEach((resolved) => surfaceByElement.set(resolved, surface));
+        return surface;
+    }};
+
+    // Below short content the hit is <html>, which paints nothing itself. The body's background fills the canvas.
+    const hit = doc.elementFromPoint(view.innerWidth / 2, view.innerHeight / 2);
+    const center = !hit || hit === doc.documentElement ? doc.body : hit;
+    const background = surfaceBehind(center);
+    const text = view.getComputedStyle(center).color;
+    let button = null;
+    let buttonWeight = 0;
+    for (const element of doc.querySelectorAll('button, a, input[type="submit"], input[type="button"], [role="button"]')) {{
+        const rect = element.getBoundingClientRect();
+        const area = rect.width * rect.height;
+        const onScreen = rect.bottom > 0 && rect.top < view.innerHeight && rect.right > 0 && rect.left < view.innerWidth;
+        if (!area || rect.height > {MAX_BUTTON_HEIGHT_PIXELS} || !onScreen) {{
+            continue;
+        }}
+        // Skip buttons a visitor cannot see: hidden by an ancestor's opacity, clipped, or covered by something else.
+        const onTop = doc.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+        if (
+            !element.checkVisibility({{ opacityProperty: true, visibilityProperty: true }}) ||
+            !onTop ||
+            !(element === onTop || element.contains(onTop))
+        ) {{
+            continue;
+        }}
+        // Some design systems paint a button on an inner element that fills it.
+        const children = [...element.children];
+        const painted = [element, ...children, ...children.flatMap((child) => [...child.children])].find((candidate) => {{
+            const box = candidate.getBoundingClientRect();
+            return box.width * box.height >= area * 0.8 && isOpaque(view.getComputedStyle(candidate).backgroundColor);
+        }});
+        const style = painted && view.getComputedStyle(painted);
+        const weight = style ? area * (contrast(style.backgroundColor, surfaceBehind(element.parentElement)) - 1) : 0;
+        if (weight > buttonWeight) {{
+            button = style;
+            buttonWeight = weight;
+        }}
+    }}
+    return {{
+        background_color: hex(background),
+        text_color: hex(text),
+        button_color: button && hex(button.backgroundColor),
+        button_text_color: button && hex(button.color),
+        button_border_radius: button && Math.round(parseFloat(button.borderTopLeftRadius) || 0),
+    }};
+"""
 
 MEASURE_CONTENT_HEIGHT_JS = f"""
     // The player scales the replay down to fit the viewport, so its scaled box would shrink the viewport
@@ -159,8 +277,8 @@ MEASURE_CONTENT_WIDTH_JS = f"""
             return null;
         """
 
-ScreenWidth = Literal[600, 800, 1920, 1400, 4000]
-CSSSelector = Literal[".InsightCard", ".ExportedInsight", ".replayer-wrapper", ".heatmap-exporter"]
+ScreenWidth = Literal[600, 800, 1122, 1920, 1400, 4000]
+CSSSelector = Literal[".InsightCard", ".ExportedInsight", ".replayer-wrapper", ".heatmap-exporter", ".react-grid-item"]
 
 
 def _insight_query_wants_legend(query: dict) -> bool:
@@ -206,16 +324,16 @@ def _insight_query_screenshot_width(query: dict) -> ScreenWidth:
     return 600 if is_metric else 800
 
 
-def _export_to_png(
+def _export_rendered_asset(
     exported_asset: ExportedAsset,
     max_height_pixels: Optional[int] = None,
     insight_cache_keys: Optional[dict[int, str]] = None,
 ) -> None:
     """
-    Exporting an Insight means:
-    1. Loading the Insight from the web app in a dedicated rendering mode
-    2. Waiting for the page to have fully loaded before taking a screenshot to disk
-    3. Loading that screenshot into memory and saving the data representation to the relevant Insight
+    Exporting a rendered asset means:
+    1. Loading the asset from the web app in a dedicated rendering mode
+    2. Waiting for the page to have fully loaded before writing the PNG or PDF to disk
+    3. Loading the file into memory and saving it to the exported asset
     4. Cleanup: Remove the old file and close the browser session
 
     Args:
@@ -239,14 +357,15 @@ def _export_to_png(
             )
 
         image_id = str(uuid.uuid4())
-        image_path = os.path.join(TMP_DIR, f"{image_id}.png")
+        extension = "pdf" if exported_asset.export_format == ExportedAsset.ExportFormat.PDF else "png"
+        image_path = os.path.join(TMP_DIR, f"{image_id}.{extension}")
 
         if not os.path.exists(TMP_DIR):
             os.makedirs(TMP_DIR)
 
         access_token = get_render_access_token(exported_asset, timedelta(minutes=15))
 
-        screenshot_width: ScreenWidth
+        screenshot_width: int
         wait_for_css_selector: CSSSelector
         screenshot_height: int = 600
         page_load_timeout: int = 40
@@ -260,8 +379,12 @@ def _export_to_png(
         elif exported_asset.dashboard is not None:
             cache_keys_param = _build_cache_keys_param(insight_cache_keys)
             url_to_render = _exporter_url(f"token={access_token}{cache_keys_param}")
-            wait_for_css_selector = ".InsightCard"
-            screenshot_width = 1920
+            wait_for_css_selector = (
+                ".react-grid-item" if exported_asset.export_format == ExportedAsset.ExportFormat.PDF else ".InsightCard"
+            )
+            screenshot_width = (
+                PDF_PAGE_WIDTH if exported_asset.export_format == ExportedAsset.ExportFormat.PDF else 1920
+            )
         elif exported_asset.export_context and exported_asset.export_context.get("session_recording_id"):
             # Handle replay export using /exporter route (same as insights/dashboards)
             url_to_render = _exporter_url(
@@ -325,11 +448,18 @@ def _export_to_png(
                 reportable=True,
             )
 
+        size = ImageSizeSerializer(data=(exported_asset.export_context or {}).get("image_size", {}))
+        size.is_valid(raise_exception=True)
+        image_size = size.validated_data
+        screenshot_width = image_size.get("width") or screenshot_width
+        screenshot_height = image_size.get("height") or screenshot_height
+
         logger.info("exporting_asset", asset_id=exported_asset.id, render_url=url_to_render)
 
         render_start = time.perf_counter()
+        read_site_style = bool((exported_asset.export_context or {}).get("read_site_style"))
         try:
-            _screenshot_asset_browserless(
+            site_style = _screenshot_asset_browserless(
                 image_path,
                 url_to_render,
                 screenshot_width,
@@ -337,7 +467,13 @@ def _export_to_png(
                 screenshot_height,
                 max_height_pixels,
                 page_load_timeout,
+                read_site_style,
+                fixed_width=image_size.get("width"),
+                device_scale_factor=1 if any(image_size.values()) else 2,
+                export_pdf=exported_asset.export_format == ExportedAsset.ExportFormat.PDF,
             )
+            if exported_asset.export_format != ExportedAsset.ExportFormat.PDF:
+                fit_image_to_size(image_path, image_size.get("width"), image_size.get("height"))
         except Exception as e:
             IMAGE_EXPORT_RENDER_DURATION.labels(backend="browserless", outcome="failure").observe(
                 time.perf_counter() - render_start
@@ -353,6 +489,9 @@ def _export_to_png(
         with open(image_path, "rb") as image_file:
             image_data = image_file.read()
 
+        if read_site_style:
+            exported_asset.export_context = {**(exported_asset.export_context or {}), "site_style": site_style}
+            exported_asset.save(update_fields=["export_context"])
         save_content(exported_asset, image_data)
 
         os.remove(image_path)
@@ -446,19 +585,46 @@ def _save_debug_screenshot(take_screenshot: Callable[[str], object], image_path:
         pass
 
 
+# Exports can set their own selector, so the metric label maps the known ones and buckets the rest.
+_RENDER_STAGE_CONTENT = {
+    ".InsightCard": "dashboard",
+    ".ExportedInsight": "insight",
+    REPLAY_WRAPPER_SELECTOR: "replay",
+    ".heatmap-exporter": "heatmap",
+    ".heatmaps-ready": "heatmap",
+}
+
+
+class _RenderStages:
+    def __init__(self, content: str) -> None:
+        self._content = content
+        self._started_at = time.perf_counter()
+
+    def done(self, stage: str) -> None:
+        now = time.perf_counter()
+        IMAGE_EXPORT_RENDER_STAGE_DURATION.labels(content=self._content, stage=stage).observe(now - self._started_at)
+        self._started_at = now
+
+
 def _screenshot_asset_browserless(
     image_path: str,
     url_to_render: str,
-    screenshot_width: ScreenWidth,
+    screenshot_width: int,
     wait_for_css_selector: CSSSelector,
     screenshot_height: int = 600,
     max_height_pixels: Optional[int] = None,
     page_load_timeout: int = 40,
-) -> None:
+    read_site_style: bool = False,
+    fixed_width: int | None = None,
+    device_scale_factor: int = 2,
+    *,
+    export_pdf: bool = False,
+) -> Optional[dict]:
     endpoint = _build_cdp_endpoint(
         settings.BROWSERLESS_CDP_URL, settings.BROWSERLESS_TOKEN, settings.BROWSERLESS_SESSION_TIMEOUT_MS
     )
 
+    stages = _RenderStages(content=_RENDER_STAGE_CONTENT.get(str(wait_for_css_selector), "other"))
     with sync_playwright() as p:
         try:
             browser = p.chromium.connect_over_cdp(endpoint, timeout=settings.BROWSERLESS_CONNECT_TIMEOUT_MS)
@@ -469,15 +635,17 @@ def _screenshot_asset_browserless(
 
         disconnected = [False]
         browser.on("disconnected", lambda *_: disconnected.__setitem__(0, True))
+        stages.done("connect")
 
         context = None
         page = None
         try:
             context = browser.new_context(
-                device_scale_factor=2,
+                device_scale_factor=device_scale_factor,
                 viewport={"width": screenshot_width, "height": screenshot_height},
             )
             page = context.new_page()
+            failed_stylesheets = _watch_failed_stylesheets(page) if read_site_style else []
             posthoganalytics.tag("url_to_render", url_to_render)
 
             try:
@@ -495,6 +663,7 @@ def _screenshot_asset_browserless(
                     capture_exception(e)
 
                 raise PlaywrightTimeoutError("Timeout while waiting for the page to load") from e
+            stages.done("page_load")
 
             try:
                 page.wait_for_selector(".Spinner", state="detached", timeout=20000)
@@ -503,13 +672,22 @@ def _screenshot_asset_browserless(
                     posthoganalytics.tag("stage", "image_exporter.wait_for_spinner_timeout")
                     _save_debug_screenshot(lambda p: page.screenshot(path=p), image_path)
                     capture_exception(e)
+            stages.done("content")
+
+            if export_pdf:
+                render_dashboard_pdf(page, image_path)
+                stages.done("screenshot")
+                return None
 
             effective_max = _effective_max_height(max_height_pixels)
             height = _cap_height(
                 int(page.evaluate(f"() => {{ {MEASURE_CONTENT_HEIGHT_JS} }}")), effective_max, url_to_render
             )
-            width = _resolve_width(
-                page.evaluate(f"() => {{ {MEASURE_CONTENT_WIDTH_JS} }}"), screenshot_width, url_to_render
+            width = max(
+                fixed_width or 0,
+                _resolve_width(
+                    page.evaluate(f"() => {{ {MEASURE_CONTENT_WIDTH_JS} }}"), screenshot_width, url_to_render
+                ),
             )
 
             page.set_viewport_size({"width": width, "height": height})
@@ -525,6 +703,12 @@ def _screenshot_asset_browserless(
                 # Charts redraw their canvas after a resize, so a screenshot taken at once can catch them blank.
                 page.wait_for_timeout(500)
             page.screenshot(path=image_path)
+            stages.done("screenshot")
+            if not read_site_style:
+                return None
+            site_style = _read_site_style(page, failed_stylesheets)
+            stages.done("site_style")
+            return site_style
         except BrowserlessUnavailable:
             raise
         except PlaywrightTimeoutError:
@@ -550,6 +734,35 @@ def _screenshot_asset_browserless(
                 browser.close()
             except Exception:
                 pass
+
+
+def _watch_failed_stylesheets(page: Page) -> list[str]:
+    failed: list[str] = []
+
+    def on_request_failed(request: Request) -> None:
+        if request.resource_type == "stylesheet":
+            failed.append(request.url)
+
+    def on_response(response: Response) -> None:
+        if response.request.resource_type == "stylesheet" and not response.ok:
+            failed.append(response.url)
+
+    page.on("requestfailed", on_request_failed)
+    page.on("response", on_response)
+    return failed
+
+
+def _read_site_style(page: Page, failed_stylesheets: list[str]) -> Optional[dict]:
+    if failed_stylesheets:
+        # Without its stylesheets the replayed page shows browser defaults, not the site's colors.
+        return None
+    try:
+        return page.evaluate(f"() => {{ {READ_SITE_STYLE_JS} }}")
+    except PlaywrightError as e:
+        if page.is_closed() or _is_browserless_connection_error(e):
+            raise
+        capture_exception(e)
+        return None
 
 
 def export_image(
@@ -633,6 +846,8 @@ def export_image(
                 if result is not None and result.cache_key:
                     insight_cache_keys[exported_asset.insight.id] = result.cache_key
             elif exported_asset.dashboard:
+                if exported_asset.export_format == ExportedAsset.ExportFormat.PDF:
+                    validate_dashboard_pdf(exported_asset.dashboard)
                 logger.info(
                     "export_image.calculate_dashboard_insights",
                     dashboard_id=exported_asset.dashboard.id,
@@ -641,6 +856,7 @@ def export_image(
                 # falling back to saved dashboard variables
                 export_context = exported_asset.export_context or {}
                 dashboard_variables = export_context.get("variables_override")
+                dashboard_filters = exported_asset.get_dashboard_filters()
                 if not dashboard_variables and exported_asset.dashboard.variables:
                     variables = insight_variables_for_team(exported_asset.team_id)
                     dashboard_variables = map_stale_to_latest(exported_asset.dashboard.variables, variables)
@@ -665,6 +881,7 @@ def export_image(
                             user=exported_asset.created_by,
                             variables_override=dashboard_variables,
                             tile_filters_override=tile.filters_overrides,
+                            filters_override=dashboard_filters,
                             analytics_props=export_analytics_props,
                         )
                         if result.cache_key:
@@ -691,9 +908,11 @@ def export_image(
                 if warm_error:
                     raise InvalidExportContext(f"Invalid query: {warm_error}")
 
-            if exported_asset.export_format == "image/png":
+            if exported_asset.export_format == ExportedAsset.ExportFormat.PNG or (
+                exported_asset.export_format == ExportedAsset.ExportFormat.PDF and exported_asset.dashboard_id
+            ):
                 with EXPORT_TIMER.labels(type=exported_asset.export_format).time():
-                    _export_to_png(
+                    _export_rendered_asset(
                         exported_asset,
                         max_height_pixels=max_height_pixels,
                         insight_cache_keys=insight_cache_keys or None,

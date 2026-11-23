@@ -345,6 +345,29 @@ class TestOpenWithoutExistenceCheck:
         mock_delta_table.assert_not_called()
         mock_delta_table.is_deltatable.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_reset_purge_transient_error_is_not_captured_but_still_reraised(self) -> None:
+        """A reset's purge can exhaust `_purge_s3_prefix`'s own retry budget on a recognized-transient
+        S3 blip (e.g. an exhausted HeadObject 500, which s3fs surfaces as a bare OSError with errno
+        EREMOTEIO). Before this fix, `reset_table` only caught `FileNotFoundError` around the purge,
+        so that raw OSError skipped `_capture_unless_transient` entirely and reached the activity
+        interceptor as a fresh defect instead of the self-healing blip it is."""
+        ref = DeltaTableRef("t", MagicMock(), make_logger())
+        s3_cm = MagicMock(__aenter__=AsyncMock(return_value=MagicMock()), __aexit__=AsyncMock(return_value=False))
+        original_error = OSError(121, "Internal Server Error")
+
+        with (
+            patch.object(ref, "_get_delta_table_uri", AsyncMock(return_value="s3://bucket/team/job/t")),
+            patch(f"{self._MODULE}.aget_s3_client", MagicMock(return_value=s3_cm)),
+            patch(f"{self._MODULE}._purge_s3_prefix", AsyncMock(side_effect=original_error)),
+            patch(f"{self._MODULE}.capture_exception") as mock_capture,
+        ):
+            with pytest.raises(TransientObjectStoreError) as exc_info:
+                await ref.reset_table()
+
+        assert exc_info.value.__cause__ is original_error
+        mock_capture.assert_not_called()
+
 
 class TestCorruptionCheckSharesItsOpen:
     @parameterized.expand(

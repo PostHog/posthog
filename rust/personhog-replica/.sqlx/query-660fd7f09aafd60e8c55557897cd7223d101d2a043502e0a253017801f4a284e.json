@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-replica', operation='lock_persons_by_uuids' */\n        SELECT id::bigint as \"id!\", uuid as \"uuid!\",\n               COALESCE(version, 0)::bigint as \"version!\", is_deleted as \"is_deleted!\"\n        FROM posthog_person\n        WHERE team_id = $1 AND uuid = ANY($2)\n        ORDER BY id FOR UPDATE\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "uuid!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "version!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "is_deleted!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      false
+    ]
+  },
+  "hash": "660fd7f09aafd60e8c55557897cd7223d101d2a043502e0a253017801f4a284e"
+}

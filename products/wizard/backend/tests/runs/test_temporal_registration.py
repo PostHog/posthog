@@ -1,3 +1,5 @@
+from posthog.temporal.common.registration import ActivityDefinition
+
 from products.wizard.backend.facade.temporal import ACTIVITIES, WORKFLOWS
 from products.wizard.backend.temporal.activities.execution import execute_wizard
 from products.wizard.backend.temporal.activities.handoff import create_run_artifacts
@@ -8,8 +10,7 @@ from products.wizard.backend.temporal.workflows.execute_run import ExecuteWizard
 
 
 def test_wizard_temporal_registry_exposes_cloud_run_components() -> None:
-    assert WORKFLOWS == [ExecuteWizardRunWorkflow]
-    assert ACTIVITIES == [
+    expected_activities: list[ActivityDefinition] = [
         provision_worker,
         prepare_local_wizard,
         clone_repository,
@@ -18,3 +19,5 @@ def test_wizard_temporal_registry_exposes_cloud_run_components() -> None:
         destroy_worker,
         finalize_run,
     ]
+    assert WORKFLOWS == [ExecuteWizardRunWorkflow]
+    assert ACTIVITIES == expected_activities

@@ -82,6 +82,25 @@ class TestTimingRescheduleDiff(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("expression_changed", {"delay_until": {"expression": "person.properties.renewal_at"}}, True),
+            (
+                "offset_changed",
+                {"delay_until": {"expression": "person.properties.trial_ends_at", "offset": "-2d"}},
+                True,
+            ),
+            ("max_delay_changed", {"max_delay_duration": "7d"}, True),
+            ("switched_to_fixed", {"delay_until": None, "delay_duration": "1d"}, True),
+            ("unchanged", {}, False),
+        ]
+    )
+    def test_delay_until_edits(self, _name, config_change, expect_sweep):
+        config: dict = {"delay_until": {"expression": "person.properties.trial_ends_at"}, "max_delay_duration": "30d"}
+        before = {"id": "delay_1", "type": "delay", "config": config}
+        after = {**before, "config": {**config, **config_change}}
+        assert get_timing_reschedule_action_ids([before], [after]) == (["delay_1"] if expect_sweep else [])
+
+    @parameterized.expand(
+        [
             ("max_wait_shortened", _condition(max_wait="7d"), _condition(max_wait="1d"), True),
             ("max_wait_lengthened", _condition(max_wait="1d"), _condition(max_wait="7d"), False),
             ("max_wait_unchanged", _condition(), _condition(), False),

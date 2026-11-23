@@ -16,7 +16,7 @@ import { PluginEvent, Properties } from '~/plugin-scaffold'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
 import { createOrganization, createTeam, getTeam } from '~/tests/helpers/sql'
-import { EventHeaders, InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
+import { EventHeaders, InternalPerson, Team } from '~/types'
 
 import { createNormalizeEventStep } from './normalize-event-step'
 import { createNormalizeProcessPersonFlagStep } from './normalize-process-person-flag-step'
@@ -38,8 +38,6 @@ async function createPerson(
     infra: IngestionTestInfra,
     createdAt: DateTime,
     properties: Properties,
-    propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
-    propertiesLastOperation: PropertiesLastOperation,
     teamId: number,
     isUserId: number | null,
     isIdentified: boolean,
@@ -51,8 +49,6 @@ async function createPerson(
     const result = await personRepository.createPerson(
         createdAt,
         properties,
-        propertiesLastUpdatedAt,
-        propertiesLastOperation,
         teamId,
         isUserId,
         isIdentified,
@@ -161,7 +157,7 @@ describe('createProcessPersonlessStep', () => {
         it('keeps the event personful when a person already exists', async () => {
             const personUuid = new UUIDT().toString()
 
-            await createPerson(infra, timestamp, { name: 'John' }, {}, {}, teamId, null, false, personUuid, {
+            await createPerson(infra, timestamp, { name: 'John' }, teamId, null, false, personUuid, {
                 distinctId: pluginEvent.distinct_id,
             })
 
@@ -387,7 +383,7 @@ describe('createProcessPersonlessStep', () => {
         it('returns existing person with empty properties when person exists', async () => {
             const personUuid = new UUIDT().toString()
 
-            await createPerson(infra, timestamp, { name: 'John' }, {}, {}, teamId, null, false, personUuid, {
+            await createPerson(infra, timestamp, { name: 'John' }, teamId, null, false, personUuid, {
                 distinctId: pluginEvent.distinct_id,
             })
 
@@ -409,7 +405,7 @@ describe('createProcessPersonlessStep', () => {
             const personUuid = new UUIDT().toString()
             const personCreatedAt = DateTime.fromISO('2020-02-23T02:00:00Z')
 
-            await createPerson(infra, personCreatedAt, {}, {}, {}, teamId, null, false, personUuid, {
+            await createPerson(infra, personCreatedAt, {}, teamId, null, false, personUuid, {
                 distinctId: pluginEvent.distinct_id,
             })
 
@@ -428,7 +424,7 @@ describe('createProcessPersonlessStep', () => {
             const personUuid = new UUIDT().toString()
             const personCreatedAt = DateTime.fromISO('2020-02-23T02:14:30Z')
 
-            await createPerson(infra, personCreatedAt, {}, {}, {}, teamId, null, false, personUuid, {
+            await createPerson(infra, personCreatedAt, {}, teamId, null, false, personUuid, {
                 distinctId: pluginEvent.distinct_id,
             })
 
@@ -449,7 +445,7 @@ describe('createProcessPersonlessStep', () => {
             const personUuid = new UUIDT().toString()
             const personCreatedAt = DateTime.fromISO('2020-02-23T02:00:00Z')
 
-            await createPerson(infra, personCreatedAt, {}, {}, {}, teamId, null, false, personUuid, {
+            await createPerson(infra, personCreatedAt, {}, teamId, null, false, personUuid, {
                 distinctId: pluginEvent.distinct_id,
             })
 

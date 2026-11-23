@@ -35,6 +35,8 @@ class DeepsourceEndpointConfig:
     connection_field: str | None = None
     # GraphQL connection field on the root query, walked once for the whole account.
     root_connection_field: str | None = None
+    # GraphQL connection field on the configured Account, walked once per sync.
+    account_connection_field: str | None = None
     # metrics/reports: fetched as one non-paginated query per repository.
     per_repository_object: bool = False
     # Extra GraphQL variables this endpoint's query declares beyond the shared ones.
@@ -45,14 +47,22 @@ class DeepsourceEndpointConfig:
     should_sync_default: bool = True
 
     def __post_init__(self) -> None:
-        shapes = [bool(self.connection_field), bool(self.root_connection_field), self.per_repository_object]
+        shapes = [
+            bool(self.connection_field),
+            bool(self.root_connection_field),
+            bool(self.account_connection_field),
+            self.per_repository_object,
+        ]
         if sum(shapes) > 1:
-            raise ValueError("An endpoint has at most one of: repository connection, root connection, object query")
+            raise ValueError(
+                "An endpoint has at most one of: repository connection, root connection, account connection, object query"
+            )
 
 
 DEEPSOURCE_ENDPOINTS: dict[str, DeepsourceEndpointConfig] = {
     "repositories": DeepsourceEndpointConfig(
         primary_keys=["id"],
+        account_connection_field="repositories",
     ),
     "analysis_runs": DeepsourceEndpointConfig(
         primary_keys=["id"],
@@ -101,6 +111,31 @@ DEEPSOURCE_ENDPOINTS: dict[str, DeepsourceEndpointConfig] = {
     "reports": DeepsourceEndpointConfig(
         primary_keys=["repositoryId", "key"],
         per_repository_object=True,
+    ),
+    "repository_targets": DeepsourceEndpointConfig(
+        primary_keys=["id"],
+        connection_field="targets",
+    ),
+    "ignore_rules": DeepsourceEndpointConfig(
+        primary_keys=["id"],
+        connection_field="ignoreRules",
+        partition_mode="datetime",
+        partition_format="month",
+        partition_keys=[CREATED_AT],
+    ),
+    "suppressed_issues": DeepsourceEndpointConfig(
+        primary_keys=["id"],
+        account_connection_field="suppressedIssues",
+        partition_mode="datetime",
+        partition_format="month",
+        partition_keys=[CREATED_AT],
+    ),
+    "team_members": DeepsourceEndpointConfig(
+        primary_keys=["id"],
+        account_connection_field="members",
+        partition_mode="datetime",
+        partition_format="month",
+        partition_keys=["joinedAt"],
     ),
 }
 

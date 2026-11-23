@@ -758,6 +758,8 @@ def str_to_bool(s: str | bool) -> bool:
     """A converter to return a bool from a str."""
     if isinstance(s, bool):
         return s
+    if not isinstance(s, str):
+        raise TypeError(f"expected a string or bool, got {type(s).__name__}")
 
     return s.lower() in {"true", "yes", "1"}
 
@@ -778,6 +780,8 @@ def str_to_optional_int(s: str | int | float | None) -> int | None:
     elif isinstance(s, int | float):
         # Covers ints, bools, and floats (e.g. numeric JSON values from the frontend).
         return int(s)
+    elif not isinstance(s, str):
+        raise TypeError(f"expected a string, number, or None, got {type(s).__name__}")
     elif s.strip() == "":
         return None
     else:

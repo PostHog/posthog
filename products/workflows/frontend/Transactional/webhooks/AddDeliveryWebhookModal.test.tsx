@@ -34,7 +34,12 @@ describe('AddDeliveryWebhookModal', () => {
                                     count: 1,
                                     next: null,
                                     results: [
-                                        { id: 'template-1', name: 'Receipt', transactional_hog_flow_id: 'flow-1' },
+                                        {
+                                            id: 'template-1',
+                                            name: 'Receipt',
+                                            transactional_hog_flow_id: 'flow-1',
+                                            has_draft: false,
+                                        },
                                     ],
                                 },
                             ],

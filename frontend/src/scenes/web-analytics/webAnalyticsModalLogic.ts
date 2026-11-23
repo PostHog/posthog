@@ -27,7 +27,7 @@ export interface webAnalyticsModalLogicValues {
     pageReportsTiles: SectionTile[] // pageReportsLogic
     webAnalyticsTiles: WebAnalyticsTile[] // webAnalyticsLogic
     combinedTiles: WebAnalyticsTile[]
-    getNewInsightUrl: (tileId: TileId, tabId?: string | undefined) => string | undefined
+    getNewInsightUrl: (tileId: TileId, tabId?: string) => string | undefined
     modal: WebAnalyticsModalQuery | null
     modalTileAndTab: {
         tabId?: string
@@ -62,9 +62,7 @@ export interface webAnalyticsModalLogicMeta {
                 tileId: TileId
             } | null
         ) => WebAnalyticsModalQuery | null
-        getNewInsightUrl: (
-            combinedTiles: WebAnalyticsTile[]
-        ) => (tileId: TileId, tabId?: string | undefined) => string | undefined
+        getNewInsightUrl: (combinedTiles: WebAnalyticsTile[]) => (tileId: TileId, tabId?: string) => string | undefined
     }
 }
 

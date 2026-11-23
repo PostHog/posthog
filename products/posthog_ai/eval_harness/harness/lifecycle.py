@@ -516,6 +516,7 @@ class SandboxedEvalHarness:
                     # the same per-process queue lets the single eval worker serve both, and keeps
                     # those workflows off a dev worker the same way.
                     GENERAL_PURPOSE_TASK_QUEUE=temporal_task_queue(),
+                    CANVAS_BUILD_TASK_QUEUE=temporal_task_queue(),
                     # The harness never starts run_task_workflow_dispatcher, so an outbox dispatch would
                     # leave every case parked in QUEUED until the case's poll budget runs out.
                     TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED=False,
@@ -610,6 +611,7 @@ class SandboxedEvalHarness:
             posthog_trace_project_id=settings.LLM_ANALYTICS_INTERNAL_TEAM_ID,
             infrastructure_retries=self.options.infrastructure_retries,
             service_tier=self.options.service_tier,
+            surface=self.options.surface,
         )
 
     async def _run_suite(self, suite: EvalSuite, ctx: EvalContext) -> SuiteRunResult:

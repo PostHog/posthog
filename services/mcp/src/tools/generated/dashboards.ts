@@ -229,7 +229,7 @@ const DashboardGetSchema = () => {
     const DashboardsRetrieveParams = orvalSchemas.DashboardsRetrieveParams()
     const DashboardsRetrieveQueryParams = orvalSchemas.DashboardsRetrieveQueryParams()
     return DashboardsRetrieveParams.omit({ project_id: true })
-        .extend(DashboardsRetrieveQueryParams.omit({ format: true }).shape)
+        .extend(DashboardsRetrieveQueryParams.omit({ format: true, omit_tile_results: true }).shape)
         .extend({ id: z.preprocess(castStringToInt, DashboardsRetrieveParams.shape['id']) })
         .extend({
             filters_override: z

@@ -64,6 +64,7 @@ from products.mcp_analytics.backend.hogql_queries.base import (
     HarnessLabelQueryRunner,
     display_person_properties,
     effective_tool_expr,
+    isoformat_timestamp,
     mcp_query_date_range,
     mcp_source_expr,
     shared_filter_exprs,
@@ -388,10 +389,13 @@ class MCPToolFailureOccurrencesQueryRunner(HarnessLabelQueryRunner[MCPToolFailur
         return _tool_call_where(self.query, self.query_date_range, self.team, extra=extra)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        # The sort key is sort_ts, not timestamp. On the JSON events table, ClickHouse renames a
+        # subquery column that shares an events column's name to a suffixed name such as
+        # timestamp_0, while the sort still asks for timestamp, so the query fails.
         return parse_select(
             """
             SELECT
-                toString(timestamp) AS ts,
+                sort_ts,
                 distinct_id,
                 session_id,
                 {harness_label} AS harness,
@@ -400,7 +404,7 @@ class MCPToolFailureOccurrencesQueryRunner(HarnessLabelQueryRunner[MCPToolFailur
                 error_status
             FROM (
                 SELECT
-                    timestamp,
+                    timestamp AS sort_ts,
                     distinct_id,
                     substring({_CONVERSATION_ID}, 1, 200) AS session_id,
                     if(toString(properties.$mcp_intent) = '{}', '', substring(toString(properties.$mcp_intent), 1, 1000)) AS intent,
@@ -410,7 +414,7 @@ class MCPToolFailureOccurrencesQueryRunner(HarnessLabelQueryRunner[MCPToolFailur
                 FROM events
                 WHERE {where}
             )
-            ORDER BY ts DESC
+            ORDER BY sort_ts DESC
             LIMIT 50
             """,
             placeholders={
@@ -442,7 +446,7 @@ class MCPToolFailureOccurrencesQueryRunner(HarnessLabelQueryRunner[MCPToolFailur
 
         results = [
             MCPToolFailureOccurrenceItem(
-                timestamp=str(row[0] or ""),
+                timestamp=isoformat_timestamp(row[0]),
                 distinct_id=str(row[1] or ""),
                 session_id=str(row[2] or ""),
                 harness=str(row[3] or ""),
@@ -663,7 +667,7 @@ class MCPToolDescriptionsQueryRunner(AnalyticsQueryRunner[MCPToolDescriptionsQue
             """
             SELECT
                 {_EFFECTIVE_DESCRIPTION} AS description,
-                toString(max(timestamp)) AS last_seen
+                max(timestamp) AS last_seen
             FROM events
             WHERE {where}
             GROUP BY description
@@ -691,7 +695,7 @@ class MCPToolDescriptionsQueryRunner(AnalyticsQueryRunner[MCPToolDescriptionsQue
             )
 
         results = [
-            MCPToolDescriptionItem(description=str(row[0] or ""), last_seen=str(row[1] or ""))
+            MCPToolDescriptionItem(description=str(row[0] or ""), last_seen=isoformat_timestamp(row[1]))
             for row in (response.results or [])
         ]
         return MCPToolDescriptionsQueryResponse(
@@ -723,23 +727,24 @@ class MCPToolSampleIntentsQueryRunner(HarnessLabelQueryRunner[MCPToolSampleInten
                 parse_expr("toString(properties.$mcp_intent) != '{}'"),
             ],
         )
+        # sort_ts carries its own name for the reason given in MCPToolFailureOccurrencesQueryRunner.to_query.
         return parse_select(
             """
             SELECT
-                toString(timestamp) AS timestamp,
+                sort_ts,
                 intent,
                 intent_source,
                 {harness_label} AS harness
             FROM (
                 SELECT
-                    timestamp,
+                    timestamp AS sort_ts,
                     toString(properties.$mcp_intent) AS intent,
                     toString(properties.$mcp_intent_source) AS intent_source,
                     {token} AS h
                 FROM events
                 WHERE {where}
             )
-            ORDER BY timestamp DESC
+            ORDER BY sort_ts DESC
             LIMIT 5
             """,
             placeholders={
@@ -768,7 +773,7 @@ class MCPToolSampleIntentsQueryRunner(HarnessLabelQueryRunner[MCPToolSampleInten
 
         results = [
             MCPToolSampleIntentItem(
-                timestamp=str(row[0] or ""),
+                timestamp=isoformat_timestamp(row[0]),
                 intent=str(row[1] or ""),
                 intent_source=str(row[2] or ""),
                 harness=str(row[3] or ""),

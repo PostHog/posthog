@@ -25,7 +25,7 @@ export interface upgradeModalLogicValues {
     billing: BillingType | null // billingLogic
     preflight: PreflightStatus | null // preflightLogic
     availableFeature: (feature: AvailableFeature) => BillingFeatureType | null | undefined // userLogic
-    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     guardAvailableFeature: GuardAvailableFeatureFn
     projectLimit: number
     shouldShowPlatformAddonMessage: boolean
@@ -60,7 +60,7 @@ export interface upgradeModalLogicMeta {
         ) => boolean
         guardAvailableFeature: (
             preflight: PreflightStatus | null,
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean
         ) => GuardAvailableFeatureFn
     }
 }

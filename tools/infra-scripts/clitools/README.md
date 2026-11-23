@@ -4,7 +4,7 @@ The primary function is to help manage and connect to PostHog toolbox pods in a 
 
 ## Installation
 
-1. Ensure you have Python 3.x installed on your system
+1. Ensure you have Python 3.10 or later installed on your system (the PostHog SDK needs it)
 2. Clone this repository or download `toolbox.py`
 3. Install dependencies (the PostHog SDK, used for anonymous usage telemetry):
 

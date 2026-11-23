@@ -3,12 +3,15 @@ import os
 import time
 import errno
 import threading
+from typing import TYPE_CHECKING
 
 from django.conf import settings
-from django.dispatch import receiver
 
 import structlog
-from celery import Celery
+from celery import Celery, bootsteps
+from celery.bootsteps import RUN
+from celery.exceptions import WorkerShutdown
+from celery.platforms import EX_FAILURE
 from celery.signals import (
     celeryd_init,
     import_modules,
@@ -23,12 +26,14 @@ from celery.signals import (
     worker_process_shutdown,
     worker_ready,
 )
-from django_structlog.celery import signals
-from django_structlog.celery.steps import DjangoStructLogInitStep
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram, start_http_server
 
 from posthog.celery_task_names import LIVENESS_ALERTED_TASK_NAMES
+
+if TYPE_CHECKING:
+    from celery.worker import WorkController
+    from kombu.asynchronous import Hub
 
 # When PROMETHEUS_MULTIPROC_DIR is set (by bin/docker-worker-celery),
 # prometheus_client uses file-backed storage so all prefork children's
@@ -93,13 +98,6 @@ app.config_from_object("django.conf:settings", namespace="CELERY")
 
 # Load task modules from all registered Django app configs.
 app.autodiscover_tasks()
-
-# Make sure Redis doesn't add too many connections
-# https://stackoverflow.com/questions/47106592/redis-connections-not-being-released-after-celery-task-is-complete
-app.conf.broker_pool_limit = 0
-
-if app.steps:
-    app.steps["worker"].add(DjangoStructLogInitStep)
 
 task_timings: dict[str, float] = {}
 
@@ -166,14 +164,6 @@ def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs) -> Non
 
     # following instructions from here https://django-structlog.readthedocs.io/en/latest/celery.html
     logging_config.dictConfig(logs.LOGGING)
-
-
-@receiver(signals.bind_extra_task_metadata)
-def receiver_bind_extra_request_metadata(sender, signal, task=None, logger=None):
-    import structlog
-
-    if task:
-        structlog.contextvars.bind_contextvars(task_name=task.name)
 
 
 @celeryd_init.connect
@@ -277,6 +267,39 @@ def write_heartbeat_when_worker_is_ready(**kwargs) -> None:
         redis_heartbeat()
 
 
+_EMBEDDED_SCHEDULER_CHECK_INTERVAL_SECONDS = 30.0
+
+
+class StopWorkerWhenEmbeddedSchedulerExits(bootsteps.StartStopStep):
+    # Celery never restarts an embedded scheduler that exits, so the worker would keep running with
+    # nothing scheduling tasks. Exit instead, the same way the container exits when a separate
+    # scheduler process exits, so that the restart policy starts both again.
+
+    def register_with_event_loop(self, worker: "WorkController", hub: "Hub") -> None:
+        scheduler = worker.beat
+        if scheduler is None:
+            return
+
+        def stop_worker_if_scheduler_exited() -> None:
+            # A worker that stops ends its scheduler first, and then Celery fires this timer from a
+            # helper thread while the pool finishes its tasks. An exception raised there ends that
+            # thread, and the task time limits stop with it.
+            worker_is_stopping = worker.blueprint.state != RUN
+            if worker_is_stopping or scheduler.is_alive():
+                return
+            logger.error("embedded_scheduler_exited", exitcode=scheduler.exitcode)
+            raise WorkerShutdown(EX_FAILURE)
+
+        # The check asks the process object and not the process list, because a scheduler that waits
+        # for the RedBeat lock does not have the "[celery beat]" title yet. Celery clears the timers
+        # of the event loop when it loses the broker connection, and calls this method again when
+        # the loop restarts, so the check is registered here and not in a worker_ready receiver.
+        hub.call_repeatedly(_EMBEDDED_SCHEDULER_CHECK_INTERVAL_SECONDS, stop_worker_if_scheduler_exited)
+
+
+app.steps["worker"].add(StopWorkerWhenEmbeddedSchedulerExits)
+
+
 _ANALYTICS_METRICS_FLUSH_TIMEOUT_SECONDS = 5.0
 
 
@@ -314,6 +337,15 @@ def on_worker_process_shutdown(**kwargs) -> None:
                 logger.warning("posthoganalytics_metrics_flush_timed_out")
     except Exception:
         logger.warning("posthoganalytics_metrics_flush_failed", exc_info=True)
+
+    # Billiard ends a recycled child with os._exit, which skips the atexit flush of the process-lifetime capture clients.
+    from posthog.ph_client import flush_background_capture  # noqa: PLC0415 — keep the SDK off the celery import path
+
+    capture_flush = threading.Thread(
+        target=flush_background_capture, name="posthoganalytics-capture-flush", daemon=True
+    )
+    capture_flush.start()
+    capture_flush.join(timeout=_ANALYTICS_METRICS_FLUSH_TIMEOUT_SECONDS)
 
 
 # Set up clickhouse query instrumentation

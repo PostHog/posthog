@@ -3,9 +3,6 @@ import { useActions, useValues } from 'kea'
 import { IconPlay, IconStopFilled } from '@posthog/icons'
 import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
-import { isKernelUiEnabled } from '../utils'
 import { isMarkdownNotebookContent } from './markdownNotebookV2'
 import { notebookLogic } from './notebookLogic'
 import { notebookRunLogic } from './notebookRunLogic'
@@ -17,7 +14,6 @@ import { notebookRunLogic } from './notebookRunLogic'
 export const NotebookRunAllButton = (
     props: Pick<LemonButtonProps, 'children' | 'size' | 'type'>
 ): JSX.Element | null => {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { content, shortId, isShared, runnableCellNodeIds } = useValues(notebookLogic)
     const { isRunning, isStarting, isInterrupting, progressLabel } = useValues(notebookRunLogic({ shortId }))
     const { startRun, interruptRun } = useActions(notebookRunLogic({ shortId }))
@@ -25,7 +21,7 @@ export const NotebookRunAllButton = (
     // Only a markdown notebook with something to run gets the button at all. Runnable means
     // SQL or Python, the same pair the backend plan walks — a notebook of Python cells alone
     // runs perfectly well, and reading the SQL summaries hid the button from it.
-    if (!isKernelUiEnabled(featureFlags) || !isMarkdownNotebookContent(content) || !runnableCellNodeIds.length) {
+    if (!isMarkdownNotebookContent(content) || !runnableCellNodeIds.length) {
         return null
     }
 

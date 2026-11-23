@@ -32,6 +32,9 @@ BASE_URL = "https://api.reverb.com/api"
 _PAYOUT_ID_RE = re.compile(r"/my/payouts/(\d+)/line_items")
 # Payments have the same gap: the id only appears in `_links.self.href` (".../my/payments/selling/2").
 _PAYMENT_ID_RE = re.compile(r"/my/payments/selling/(\d+)")
+_CONVERSATION_ID_RE = re.compile(r"/my/conversations/(\d+)")
+_FEEDBACK_ID_RE = re.compile(r"/feedback/(\d+)")
+_LISTING_ID_RE = re.compile(r"/listings/(\d+)")
 
 
 @frozen
@@ -59,12 +62,14 @@ def _incremental_window(start_param: str, end_param: str, cursor_path: str) -> I
     }
 
 
-def _inject_id_from_link(link_name: str, pattern: re.Pattern[str]) -> Callable[[dict[str, Any]], dict[str, Any]]:
+def _inject_id_from_link(
+    link_name: str, pattern: re.Pattern[str], field: str = "id"
+) -> Callable[[dict[str, Any]], dict[str, Any]]:
     def _inject(row: dict[str, Any]) -> dict[str, Any]:
         href = ((row.get("_links") or {}).get(link_name) or {}).get("href") or ""
         match = pattern.search(href)
         if match:
-            row["id"] = int(match.group(1))
+            row[field] = int(match.group(1))
         return row
 
     return _inject
@@ -72,10 +77,18 @@ def _inject_id_from_link(link_name: str, pattern: re.Pattern[str]) -> Callable[[
 
 _inject_payout_id = _inject_id_from_link("line_items", _PAYOUT_ID_RE)
 _inject_payment_id = _inject_id_from_link("self", _PAYMENT_ID_RE)
+# Conversations and feedback also carry their id only in the self link.
+_inject_conversation_id = _inject_id_from_link("self", _CONVERSATION_ID_RE)
+_inject_feedback_id = _inject_id_from_link("self", _FEEDBACK_ID_RE)
+# Offers are selected out of their listing wrapper, so keep the listing they belong to.
+_inject_negotiation_listing_id = _inject_id_from_link("listing", _LISTING_ID_RE, field="listing_id")
 
 _ROW_MAPS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "Payouts": _inject_payout_id,
     "Payments": _inject_payment_id,
+    "Conversations": _inject_conversation_id,
+    "ReceivedFeedback": _inject_feedback_id,
+    "Negotiations": _inject_negotiation_listing_id,
 }
 
 

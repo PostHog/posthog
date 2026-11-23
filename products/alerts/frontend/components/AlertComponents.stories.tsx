@@ -290,38 +290,27 @@ const STORY_SLACK_CHANNELS: Record<string, { id: string; name: string }[]> = {
     ],
 }
 
-const STORY_EXISTING_HOG_FUNCTIONS = [
+const STORY_EXISTING_DESTINATIONS = [
     {
-        id: 'hf1',
-        type: 'internal_destination',
-        name: 'Alert: Slack #alerts',
-        description: '',
-        created_by: null,
-        created_at: '2026-01-01T00:00:00Z',
-        updated_at: '2026-01-01T00:00:00Z',
+        id: null,
+        hog_function_ids: ['hf1'],
+        type: 'slack',
         enabled: true,
-        hog: '',
-        template_id: 'template-slack',
-        inputs: {
-            slack_workspace: { value: 1 },
-            channel: { value: 'C100' },
-        },
+        hears_firing: true,
+        message_customized: false,
+        slack_workspace_id: 1,
+        slack_channel_id: 'C100',
     },
     {
-        id: 'hf2',
-        type: 'internal_destination',
-        name: 'Alert: Slack #acme-alerts',
-        description: '',
-        created_by: null,
-        created_at: '2026-01-01T00:00:00Z',
-        updated_at: '2026-01-01T00:00:00Z',
+        id: 'row-2',
+        hog_function_ids: ['hf2'],
+        type: 'slack',
         enabled: true,
-        hog: '',
-        template_id: 'template-slack',
-        inputs: {
-            slack_workspace: { value: 2 },
-            channel: { value: 'C200' },
-        },
+        hears_firing: true,
+        message_customized: false,
+        slack_workspace_id: 2,
+        slack_channel_id: 'C200',
+        slack_channel_name: 'acme-alerts',
     },
 ]
 
@@ -340,10 +329,7 @@ function MultipleSlackWorkspacesStory(): JSX.Element {
                 const channels = channelId ? allChannels.filter((channel) => channel.id === channelId) : allChannels
                 return [200, { channels, lastRefreshedAt: '2026-01-01T00:00:00Z' }]
             },
-            '/api/environments/:team_id/hog_functions': {
-                results: STORY_EXISTING_HOG_FUNCTIONS,
-                count: STORY_EXISTING_HOG_FUNCTIONS.length,
-            },
+            '/api/projects/:team_id/alerts/:id/destinations/': STORY_EXISTING_DESTINATIONS,
         },
     })
 

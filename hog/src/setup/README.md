@@ -4,6 +4,8 @@
 A step is either done, does its work, or stops with the next action: what you or the agent do before the next `hog setup next`.
 `hog setup` only describes the current step, and `hog setup next` keeps going until a step stops.
 
+Before any step, `commands/setup.ts` checks that this is the latest hog with `requireLatestForSetup` in `src/updates/check.ts`. A newer release, even one patch newer, stops setup with `hog_outdated`, and the hint names the update command for how hog was installed. For an install that a package manager updates, setup stops only once the release is a day old, because Homebrew and npm get a release after the manifest names it. The check reads the release manifest fresh, accepting an answer up to 10 minutes old. It lets setup go on when the manifest can't be read, and skips runs from source and local builds. The result carries `hog: { version, latest, updateAvailable, command }`.
+
 The rule for every step: an option counts as an answer as soon as it is given, and a prompt at a terminal asks only for the answers the options left out.
 The install step has no option, so it ends only on a `hog setup next` that started on it, which means the agent always reads its instructions first.
 
@@ -87,7 +89,12 @@ sequenceDiagram
     Note over You,PH: 2. login
     hog->>PH: Start a device login
     hog-->>Agent: wait, with a link and a code
-    Agent->>You: Open the link, check the code, approve
+    Agent->>You: Open the link, check the code, approve. This is US Cloud, tell me instead if you want the EU
+    opt You want the other region
+        You->>Agent: Use the EU
+        Agent->>hog: hog setup next --region eu
+        hog-->>Agent: wait, with a new link and code
+    end
     Agent->>hog: hog setup next (waits for the approval)
     You->>PH: Log in or sign up, then approve
     PH-->>hog: Token for one project
@@ -115,5 +122,5 @@ sequenceDiagram
     hog->>hog: Check whether the agent has PostHog's MCP server
     hog->>hog: Write the final PostHog section in AGENTS.md
     hog-->>Agent: done, with the event count, the products, the skills and the MCP check
-    Agent->>You: At the end of its turn: what else PostHog can do, hog skills add, and hog mcp add when the server is missing
+    Agent->>You: At the end of its turn: what else PostHog can do, hog skills add, a reverse proxy for a posthog-js app, and hog mcp add when the server is missing
 ```

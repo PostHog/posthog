@@ -36,6 +36,7 @@ class PrecomputeSkipReason(StrEnum):
     COHORT_NOT_CALCULATED = "cohort_not_calculated"
     DATA_WAREHOUSE = "data_warehouse"
     GROUP_AGGREGATION = "group_aggregation"
+    FLAG_RULE = "flag_rule"
 
 
 class ExperimentResultConfigurationStatus(LabeledStrEnum):

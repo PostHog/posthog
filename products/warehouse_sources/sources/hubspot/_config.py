@@ -27,6 +27,7 @@ class HubspotCustomPropertiesConfig(config.Config):
     subscriptions_properties: str | None = None
     commerce_payments_properties: str | None = None
     forecasts_properties: str | None = None
+    users_properties: str | None = None
 
 
 @config.config
