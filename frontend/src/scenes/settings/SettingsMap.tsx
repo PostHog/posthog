@@ -983,7 +983,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'error-tracking-tag-rules',
                 title: 'Tag rules',
-                description: 'Tag new issues based on rules you define.',
+                description: 'Tag issues based on rules you define.',
                 component: <TagRules />,
                 flag: 'ERROR_TRACKING_ISSUE_TAGS',
                 keywords: ['tag', 'label', 'rule', 'triage', 'categorize'],

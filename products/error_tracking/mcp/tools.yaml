@@ -549,8 +549,10 @@ tools:
         title: Create error tracking tag rule
         description: >
             Create a tag rule for the current project. Provide a `label` and at least one event property filter in
-            `filters`. When the first event of a new issue matches the filters, the issue gets the tag. Every matching
-            rule applies its own tag. Filters can use event properties only. Rules do not change existing issues. The
+            `filters`. When the first event of a new issue matches the filters, the issue gets the tag. Once a day, the
+            rule also tags other issues that had a matching event in the past day, unless its filters use
+            `$exception_list`. The daily check never removes a tag, and never applies a tag that a person removed. Every
+            matching rule applies its own tag. Filters can use event properties only. The
             call fails with "Issue tags are off for this project." when the project does not have issue tags. A project
             can have at most 100 tag rules.
         feature_flag: error-tracking-issue-tags
@@ -596,7 +598,8 @@ tools:
         description: >
             Update a tag rule by ID. Include `label`, `description`, `filters`, or a combination. Omitted fields keep
             their existing values. A new `label` shows at once on every issue that has the rule's tag. New filters apply
-            only to issues created after the update. When the new filters read the same event properties, issues that
+            to new issues, and once a day to other issues that had a matching event in the past day. When the new
+            filters read the same event properties, issues that
             already have the tag keep it. When they read different properties, the rule gets a new `key` and loses its
             existing tags, so list the rules again to get the new key.
         feature_flag: error-tracking-issue-tags
