@@ -29,6 +29,10 @@ notification_channel_per_team = {
     JobOwners.TEAM_SELF_DRIVING.value: "#alerts-self-driving",
     JobOwners.TEAM_WAREHOUSE_SOURCES.value: "#alerts-warehouse-sources",
     JobOwners.TEAM_ANALYTICS.value: "#alerts-web-analytics",
+    # Dagster stores the owner tag on each run when the run starts. Runs that started before the
+    # web analytics team became team-analytics still carry the old value, and their failures must
+    # reach the same channel.
+    "team-web-analytics": "#alerts-web-analytics",
 }
 
 JOB_ALERT_RUNBOOK_URLS = {

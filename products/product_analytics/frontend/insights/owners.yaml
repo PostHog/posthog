@@ -2,5 +2,12 @@ version: 1
 owners: []
 rules:
     # The chart components move to the dashboards and charts team. The insight logic and editors stay with analytics.
-    - match: ['*Chart/', '/chartAlternatives/', '/explainChart/']
+    - match:
+          - '*Chart/'
+          - '/anomalies/AnomalyChartLegend.tsx'
+          - '/anomalies/AnomalyRowChart.tsx'
+          - '/chartAlternatives/'
+          - '/explainChart/'
+          - '/paths/PathsChart.tsx'
+          - '/trends/BoxPlot/'
       owners: team-dashboards-and-charts
