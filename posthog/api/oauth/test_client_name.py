@@ -10,6 +10,7 @@ from posthog.api.oauth.client_name import (
     validate_cimd_client_name,
     validate_client_name,
 )
+from posthog.api.oauth.dcr import DCRRequestSerializer
 
 
 class TestSanitizeClientName(TestCase):
@@ -78,6 +79,13 @@ class TestValidateClientName(TestCase):
             ("circled_p", "\u24c5ostHog Wizard"),
             ("p_with_middle_tilde", "\u1d71ostHog Wizard"),
             ("emoji_circle_for_o", "P\U0001f534stHog Wizard"),
+            ("bullet_between_words", "Post\u2022Hog Wizard"),
+            ("negative_circled_p_prefix", "\U0001f15fostHog Wizard"),
+            ("myanmar_wa", "P\u101dstH\u101dg MCP"),
+            ("arabic_indic_five_for_o", "P\u0665stHog MCP"),
+            ("egyptian_full_blank_prefix", "\U00013441PostHog MCP"),
+            ("cyrillic_e_in_blocked_word", "My V\u0435rified App"),
+            ("unassigned_invisible_in_blocked_word", "Acme Veri\u2065fied"),
         ]
     )
     def test_rejects_impersonating_names(self, _name, value):
@@ -98,6 +106,12 @@ class TestValidateClientName(TestCase):
     )
     def test_accepts_valid_names(self, _name, value):
         validate_client_name(value)
+
+    def test_overlong_name_gets_only_the_length_error(self):
+        serializer = DCRRequestSerializer(data={"client_name": "PostHog " + "x" * CLIENT_NAME_MAX_LENGTH})
+
+        self.assertFalse(serializer.is_valid())
+        self.assertEqual([error.code for error in serializer.errors["client_name"]], ["max_length"])
 
 
 class TestValidateCimdClientName(TestCase):
@@ -124,6 +138,8 @@ class TestValidateCimdClientName(TestCase):
             ("black_circle_for_o", "Acme P\u2b24stHog"),
             ("bullet_for_o", "Acme P\u2022stHog"),
             ("ideographic_full_stop_for_o", "Acme P\u3002stHog"),
+            ("bullet_between_words", "Acme Post\u2022Hog"),
+            ("non_latin_letter_between_words", "Acme Post\u05d0Hog"),
             ("blocked_word", "Acme Trusted Client"),
             ("blocked_word_with_cyrillic_o", "Acme \u041efficial Client"),
         ]

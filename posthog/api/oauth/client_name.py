@@ -39,18 +39,18 @@ CUSTOMER_CONTENT_PATH_PREFIXES = ("/public/",)
 
 RESERVED_CLIENT_NAME = "posthog"
 
-# Modifier letters (Lm) count as letters, but most of them render as punctuation, such as "ʼ".
-_SKIPPED_CATEGORIES = frozenset({"Cc", "Cf", "Mn", "Me", "Lm"})
+# Lm letters such as "ʼ" render as punctuation, and unassigned (Cn) code points can render as nothing.
+_SKIPPED_CATEGORIES = frozenset({"Cc", "Cf", "Mn", "Me", "Lm", "Cn"})
 _FORMAT_CATEGORY = "Cf"
 
-# Hangul fillers are letters by Unicode category, but they render as blank space.
-_BLANK_LETTERS = frozenset({"\u115f", "\u1160", "\u3164", "\uffa0"})
+# Hangul fillers and Egyptian blanks are letters by Unicode category, but they render as blank space.
+_BLANK_LETTERS = frozenset({"ᅟ", "ᅠ", "ㅤ", "ﾠ", "\U00013441", "\U00013442"})
 
-_ZERO_WIDTH_JOINER = "\u200d"
+_ZERO_WIDTH_JOINER = "‍"
 
-# Characters that render like a letter of "posthog" and that NFKD and casefold leave alone. Casefold
-# maps Cherokee small letters to capitals, so the Cherokee keys are capitals.
-_POSTHOG_LOOKALIKES = str.maketrans(
+# Characters that render like a letter of "posthog" or of a blocked word, and that NFKD and casefold leave
+# alone. Casefold maps Cherokee small letters to capitals, so the Cherokee keys are capitals.
+_LETTER_LOOKALIKES = str.maketrans(
     {
         "0": "o",
         "о": "o",  # Cyrillic
@@ -63,29 +63,18 @@ _POSTHOG_LOOKALIKES = str.maketrans(
         "ꓳ": "o",  # Lisu
         "ⵔ": "o",  # Tifinagh
         "〇": "o",
-        "○": "o",
-        "◯": "o",
-        "●": "o",
-        "⬤": "o",
-        "⭘": "o",
-        "•": "o",
-        "◦": "o",
-        "∘": "o",
-        "°": "o",
-        "。": "o",
-        "⚪": "o",
-        "⚫": "o",
-        "🔴": "o",
-        "🔵": "o",
-        "🟠": "o",
-        "🟡": "o",
-        "🟢": "o",
-        "🟣": "o",
-        "🟤": "o",
+        "ဝ": "o",  # Myanmar
+        "٥": "o",  # Arabic-Indic five
+        "۵": "o",  # Extended Arabic-Indic five
+        "ഠ": "o",  # Malayalam
+        "ଠ": "o",  # Oriya
+        "ჿ": "o",  # Georgian
+        "𐐬": "o",  # Deseret
         "р": "p",  # Cyrillic
         "ρ": "p",  # Greek
         "ⲣ": "p",  # Coptic
         "ᴘ": "p",
+        "ᴩ": "p",
         "ƥ": "p",
         "ᵽ": "p",
         "ᵱ": "p",
@@ -123,8 +112,57 @@ _POSTHOG_LOOKALIKES = str.maketrans(
         "ɢ": "g",
         "ǥ": "g",
         "ɠ": "g",
+        "ƍ": "g",
         "Ꮐ": "g",  # Cherokee
+        "Ᏻ": "g",  # Cherokee
         "ꓖ": "g",  # Lisu
+        "а": "a",  # Cyrillic
+        "с": "c",  # Cyrillic
+        "ԁ": "d",  # Cyrillic
+        "е": "e",  # Cyrillic
+        "і": "i",  # Cyrillic
+    }
+)
+
+_NEGATIVE_CIRCLED_A = 0x1F150
+_NEGATIVE_SQUARED_A = 0x1F170
+_REGIONAL_INDICATOR_A = 0x1F1E6
+
+# Symbols that render like a letter of "posthog". They are punctuation too, so the checks read a name both ways.
+_SYMBOL_LOOKALIKES = str.maketrans(
+    {
+        **{
+            chr(block + ord(letter) - ord("a")): letter
+            for block in (_NEGATIVE_CIRCLED_A, _NEGATIVE_SQUARED_A, _REGIONAL_INDICATOR_A)
+            for letter in RESERVED_CLIENT_NAME
+        },
+        "○": "o",
+        "◯": "o",
+        "●": "o",
+        "⬤": "o",
+        "⭘": "o",
+        "◉": "o",
+        "◎": "o",
+        "⊙": "o",
+        "⏺": "o",
+        "⭕": "o",
+        "•": "o",
+        "◦": "o",
+        "∘": "o",
+        "°": "o",
+        "。": "o",
+        "⚪": "o",
+        "⚫": "o",
+        "🔴": "o",
+        "🔵": "o",
+        "🟠": "o",
+        "🟡": "o",
+        "🟢": "o",
+        "🟣": "o",
+        "🟤": "o",
+        "℗": "p",
+        "⍴": "p",
+        "⊤": "t",
     }
 )
 
@@ -143,6 +181,9 @@ def _skeleton(value: str) -> str:
     NFKD, not NFKC, because accents must stay decomposed so that the combining marks can be dropped.
     Marks are dropped before casefold too, because casefold turns some of them into letters (U+0345
     becomes "ι"). The second pass drops the marks that casefold produces.
+
+    Look-alikes fold before digits do, because some digits render as a letter ("٥" reads as "o").
+    The last pass folds the digits that read as letters, such as "0".
     """
     folded = _decomposed_without_marks(_decomposed_without_marks(value).casefold())
 
@@ -150,41 +191,53 @@ def _skeleton(value: str) -> str:
     for char in folded:
         if char.isspace():
             kept.append(" ")
+        elif ord(char) in _LETTER_LOOKALIKES:
+            kept.append(char.translate(_LETTER_LOOKALIKES))
         elif unicodedata.decimal(char, None) is not None:
             kept.append(str(unicodedata.decimal(char)))
         else:
             kept.append(char)
 
-    return " ".join("".join(kept).translate(_POSTHOG_LOOKALIKES).split())
+    return " ".join("".join(kept).translate(_LETTER_LOOKALIKES).split())
 
 
-def _letters_and_digits(value: str) -> str:
-    """The skeleton without spaces or punctuation, so "Post Hog" and "Post-Hog" compare as "posthog".
+def _readings(value: str) -> tuple[str, str]:
+    """The skeleton with symbols dropped like punctuation, and with symbols read as the letters they resemble.
+
+    "Post•Hog" spells "posthog" only in the first reading, and "P•stHog" only in the second.
+    """
+    skeleton = _skeleton(value)
+
+    return skeleton, skeleton.translate(_SYMBOL_LOOKALIKES)
+
+
+def _letters_and_digits(reading: str) -> str:
+    """A reading without spaces or punctuation, so "Post Hog" and "Post-Hog" compare as "posthog".
 
     Letters from every script stay in place. Dropping non-Latin letters would make a name such as
     "Аналитика для PostHog" start with "posthog" and fail the DCR prefix rule.
     """
-    return "".join(char for char in _skeleton(value) if char.isalnum())
+    return "".join(char for char in reading if char.isalnum())
 
 
 def _without_leading_symbols(value: str) -> str:
     """Drop the symbols at the start of a name, so that "™PostHog" starts with "posthog" like "[PostHog]" does.
 
     NFKD expands some symbols into letters ("™" becomes "tm"), so this runs on the name before the fold.
-    A symbol that folds to one letter, such as "Ⓟ" or "●", reads as that letter and stays.
+    A symbol that reads as one letter, such as "Ⓟ" or "●", stays.
     """
     for index, char in enumerate(value):
-        if char.isalnum() or len(_letters_and_digits(char)) == 1:
+        if char.isalnum() or len(_letters_and_digits(_readings(char)[1])) == 1:
             return value[index:]
 
     return ""
 
 
 def _reject_blocked_words(value: str) -> None:
-    skeleton = _skeleton(value)
-    for word in BLOCKED_CLIENT_NAME_WORDS:
-        if word in skeleton:
-            raise serializers.ValidationError(f"Client name cannot contain '{word}'")
+    for reading in _readings(value):
+        for word in BLOCKED_CLIENT_NAME_WORDS:
+            if word in reading:
+                raise serializers.ValidationError(f"Client name cannot contain '{word}'")
 
 
 def validate_client_name(value: str) -> None:
@@ -192,11 +245,17 @@ def validate_client_name(value: str) -> None:
 
     Only the start of the name is reserved, because MCP clients name themselves after the server
     (for example "Claude Code (posthog)").
+
+    DRF runs this validator before the field's `max_length` check, and the request is unauthenticated.
+    A longer name returns at once and `max_length` rejects it, so the fold never runs on a large input.
     """
-    letters_and_digits = _letters_and_digits(_without_leading_symbols(value))
-    for prefix in BLOCKED_CLIENT_NAME_PREFIXES:
-        if letters_and_digits.startswith(prefix):
-            raise serializers.ValidationError(f"Client name cannot start with '{prefix}'")
+    if len(value) > CLIENT_NAME_MAX_LENGTH:
+        return
+
+    for reading in _readings(_without_leading_symbols(value)):
+        for prefix in BLOCKED_CLIENT_NAME_PREFIXES:
+            if _letters_and_digits(reading).startswith(prefix):
+                raise serializers.ValidationError(f"Client name cannot start with '{prefix}'")
 
     _reject_blocked_words(value)
 
@@ -219,7 +278,14 @@ def is_posthog_controlled_url(url: str) -> bool:
 
 
 def _mentions_posthog(value: str) -> bool:
-    return RESERVED_CLIENT_NAME in _letters_and_digits(value)
+    """Whether "posthog" appears with any other letters removed, as in "Post<letter>Hog".
+
+    Only Latin letters and digits stay, because a substring check has no prefix rule to protect.
+    """
+    return any(
+        RESERVED_CLIENT_NAME in "".join(char for char in _letters_and_digits(reading) if char.isascii())
+        for reading in _readings(value)
+    )
 
 
 def validate_cimd_client_name(value: str, client_id: str) -> None:
