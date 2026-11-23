@@ -367,7 +367,7 @@ export const organizationsProjectsCreateBodyMarketingAnalyticsConfigConversionGo
 export const organizationsProjectsCreateBodyMarketingAnalyticsConfigAttributionWindowDaysMax = 90
 
 export const organizationsProjectsCreateBodyMarketingAnalyticsConfigRecommendationConversionActionsItemRegExp =
-    new RegExp('^customers\/\\d+\/conversionActions\/\\d+$')
+    new RegExp('^customers\/[0-9]+\/conversionActions\/[0-9]+$')
 export const organizationsProjectsCreateBodyMarketingAnalyticsConfigRecommendationConversionActionsMax = 200
 
 export const organizationsProjectsCreateBodyCustomerAnalyticsConfigDefaultPinnedPropertiesItemIdMax = 64
@@ -3276,7 +3276,7 @@ export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConve
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigAttributionWindowDaysMax = 90
 
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigRecommendationConversionActionsItemRegExp =
-    new RegExp('^customers\/\\d+\/conversionActions\/\\d+$')
+    new RegExp('^customers\/[0-9]+\/conversionActions\/[0-9]+$')
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigRecommendationConversionActionsMax = 200
 
 export const organizationsProjectsPartialUpdateBodyCustomerAnalyticsConfigDefaultPinnedPropertiesItemIdMax = 64
