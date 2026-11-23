@@ -1,4 +1,3 @@
-import time
 import asyncio
 import hashlib
 from urllib.parse import urlparse
@@ -6,6 +5,7 @@ from urllib.parse import urlparse
 from django.conf import settings
 from django.core.cache import cache
 from django.db import DatabaseError, transaction
+from django.utils import timezone
 
 import requests
 import posthoganalytics
@@ -17,6 +17,7 @@ from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 from temporalio.common import WorkflowIDConflictPolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.proxy_record_diagnostics import diagnose as diagnose_proxy_record
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -42,6 +43,7 @@ from posthog.temporal.proxy_service.cloudflare import (
     update_cloudflare_proxy_root_redirect,
 )
 from posthog.temporal.proxy_service.common import is_cloudflare_proxy_by_cname
+from posthog.temporal.proxy_service.create import start_proxy_provisioning
 
 
 def generate_target_cname(organization_id, domain) -> str:
@@ -410,15 +412,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                 domain=record.domain,
                 target_cname=record.target_cname,
             )
-            workflow_id = f"proxy-create-{inputs.proxy_record_id}"
-            asyncio.run(
-                temporal.start_workflow(
-                    "create-proxy",
-                    inputs,
-                    id=workflow_id,
-                    task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
-                )
-            )
+            asyncio.run(start_proxy_provisioning(temporal, inputs))
         except Exception as e:
             capture_exception(e, {"domain": record.domain, "proxy_record_id": str(record.id)})
             record.delete()
@@ -510,9 +504,9 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        record.status = ProxyRecord.Status.WAITING
-        record.message = None
-        record.save()
+        unchanged_record = self.organization.proxy_records.filter(
+            id=record.id, status=record.status, updated_at=record.updated_at
+        )
 
         try:
             temporal = sync_connect()
@@ -522,23 +516,28 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                 domain=record.domain,
                 target_cname=record.target_cname,
             )
-            workflow_id = f"proxy-create-{inputs.proxy_record_id}-retry-{int(time.time())}"
-            asyncio.run(
-                temporal.start_workflow(
-                    "create-proxy",
-                    inputs,
-                    id=workflow_id,
-                    task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+            started = asyncio.run(
+                start_proxy_provisioning(
+                    temporal, inputs, resume=True, id_conflict_policy=WorkflowIDConflictPolicy.FAIL
                 )
             )
+        except WorkflowAlreadyStartedError:
+            started = False
         except Exception as e:
             capture_exception(e, {"domain": record.domain, "proxy_record_id": str(record.id)})
-            record.status = ProxyRecord.Status.ERRORING
-            record.save()
+            unchanged_record.update(status=ProxyRecord.Status.ERRORING, message=None, updated_at=timezone.now())
             return Response(
                 {"detail": "Failed to start retry workflow."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+        # A joined run owns the status. A new run may already have advanced it by the time Temporal replies.
+        if started:
+            unchanged_record.update(status=ProxyRecord.Status.WAITING, message=None, updated_at=timezone.now())
+        try:
+            record.refresh_from_db()
+        except ProxyRecord.DoesNotExist:
+            raise NotFound()
 
         serializer = self.get_serializer(record)
         _capture_proxy_event(request, record, "retried")

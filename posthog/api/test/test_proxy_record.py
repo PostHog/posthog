@@ -8,12 +8,15 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework import status
+from temporalio.client import Client
 from temporalio.common import WorkflowIDConflictPolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.proxy_record import ProxyRecordUpdateSerializer
 from posthog.managed_proxy import cloudflare_proxy_lock
 from posthog.models import ProxyRecord
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.tasks.proxy import reconcile_proxy
 from posthog.temporal.proxy_service.cloudflare import (
     CustomHostname,
     CustomHostnameSSL,
@@ -552,7 +555,7 @@ class TestProxyRecordAPI(APIBaseTest):
     @patch("posthog.api.proxy_record.sync_connect")
     @patch("posthoganalytics.capture")
     def test_retry_proxy_record(self, _name, initial_status, initial_message, mock_capture, mock_sync_connect):
-        mock_temporal = AsyncMock()
+        mock_temporal = AsyncMock(spec=Client)
         mock_sync_connect.return_value = mock_temporal
 
         record = ProxyRecord.objects.create(
@@ -575,7 +578,48 @@ class TestProxyRecordAPI(APIBaseTest):
         record.refresh_from_db()
         assert record.status == ProxyRecord.Status.WAITING
         assert record.message is None
-        mock_temporal.start_workflow.assert_called_once()
+        assert mock_temporal.start_workflow.call_args.kwargs["id"] == f"proxy-create-{record.id}"
+
+    @parameterized.expand([("retry_first", False), ("sweep_first", True)])
+    @override_settings(CLOUDFLARE_PROXY_BASE_CNAME="proxy.example.com")
+    def test_retry_and_reconciliation_share_a_workflow(self, _name: str, sweep_first: bool) -> None:
+        record = ProxyRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            domain="retry.example.com",
+            target_cname="abc123.proxy.example.com",
+            status=ProxyRecord.Status.ERRORING,
+        )
+        running = set()
+
+        async def start_workflow(
+            workflow: str, inputs: object, *, id: str, task_queue: str, id_conflict_policy: WorkflowIDConflictPolicy
+        ) -> None:
+            if id in running and id_conflict_policy != WorkflowIDConflictPolicy.USE_EXISTING:
+                raise WorkflowAlreadyStartedError(id, workflow)
+            running.add(id)
+
+        temporal = AsyncMock(spec=Client)
+        temporal.start_workflow.side_effect = start_workflow
+        with (
+            patch("posthog.api.proxy_record.sync_connect", return_value=temporal),
+            patch("posthog.tasks.proxy.sync_connect", return_value=temporal),
+        ):
+            if sweep_first:
+                reconcile_proxy.run(str(self.organization.id), str(record.id))
+
+            response = self.client.post(f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/retry/")
+            assert response.status_code == status.HTTP_200_OK
+
+            record.refresh_from_db()
+            if sweep_first:
+                assert record.status == ProxyRecord.Status.ERRORING
+            else:
+                assert record.status == ProxyRecord.Status.WAITING
+                ProxyRecord.objects.filter(id=record.id).update(status=ProxyRecord.Status.ISSUING)
+                reconcile_proxy.run(str(self.organization.id), str(record.id))
+
+        assert running == {f"proxy-create-{record.id}"}
 
     @parameterized.expand(
         [

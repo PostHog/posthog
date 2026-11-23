@@ -13,7 +13,7 @@ import temporalio.worker
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from temporalio import activity
-from temporalio.client import WorkflowFailureError
+from temporalio.client import Client, WorkflowFailureError
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
@@ -218,7 +218,7 @@ class TestCloudflareProxyActivation(CloudflareProxyTestMixin, TestCase):
         else:
             self.record.status = scenario
             self.record.save(update_fields=["status"])
-        temporal = AsyncMock()
+        temporal = AsyncMock(spec=Client)
         with responses.RequestsMock() as http, patch("posthog.tasks.proxy.sync_connect", return_value=temporal):
             reconcile_proxy.run(str(self.organization.pk), record_id)
             self.assertEqual(len(http.calls), 0)
@@ -253,6 +253,20 @@ class TestCloudflareProxyActivation(CloudflareProxyTestMixin, TestCase):
         self.assertEqual(inputs.proxy_record_id, self.record.id)
         self.assertEqual(inputs.domain, self.record.domain)
         self.assertEqual(temporal.start_workflow.call_args.kwargs["id"], f"proxy-create-{self.record.id}")
+
+    def test_reconciliation_leaves_a_running_timestamped_retry_in_place(self) -> None:
+        ProxyRecord.objects.filter(pk=self.record.pk).update(status=ProxyRecord.Status.ISSUING)
+        workflow_id = f"proxy-create-{self.record.id}-retry-1234"
+        temporal = AsyncMock(spec=Client)
+        temporal.list_workflows.return_value.__aiter__.return_value = [workflow_id]
+
+        with patch("posthog.tasks.proxy.sync_connect", return_value=temporal):
+            reconcile_proxy.run(str(self.organization.pk), str(self.record.pk))
+
+        query = temporal.list_workflows.call_args.kwargs["query"]
+        self.assertIn(f'WorkflowId STARTS_WITH "proxy-create-{self.record.id}-retry-"', query)
+        self.assertIn('ExecutionStatus = "Running"', query)
+        temporal.start_workflow.assert_not_awaited()
 
     @parameterized.expand([(ProxyRecord.Status.ERRORING,), (ProxyRecord.Status.VALID,)])
     def test_background_status_updates_preserve_deletion_intent(self, status: str) -> None:

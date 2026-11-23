@@ -3,7 +3,10 @@ import uuid
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 from posthog.models import ProxyRecord
+from posthog.models.messaging import MessagingRecord
 from posthog.models.organization import Organization
 from posthog.models.user import User
 from posthog.temporal.proxy_service.common import SendProxyCreatedEmailInputs, activity_send_proxy_created_email
@@ -29,6 +32,14 @@ def _make_inputs(**overrides):
     }
     defaults.update(overrides)
     return SendProxyCreatedEmailInputs(**defaults)  # type: ignore
+
+
+@pytest.fixture(autouse=True)
+def monitor_schedule(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    schedule_exists = MagicMock(return_value=False)
+    monkeypatch.setattr("posthog.temporal.proxy_service.common.schedule_exists", schedule_exists)
+    monkeypatch.setattr("posthog.temporal.proxy_service.common.sync_connect", MagicMock())
+    return schedule_exists
 
 
 @pytest.mark.django_db
@@ -63,6 +74,34 @@ class TestSendProxyCreatedEmail:
             assert call_kwargs["template_context"]["user_name"] == "Alice"
             mock_instance.add_user_recipient.assert_called_once_with(user)
             mock_instance.send.assert_called_once_with(send_async=True)
+
+    @pytest.mark.parametrize("previous_provisioning", ["monitor_schedule", "prior_delivery", "unsent_delivery"])
+    def test_creation_email_after_recovery(self, previous_provisioning: str, monitor_schedule: MagicMock) -> None:
+        org = Organization.objects.create(name="Test Org")
+        user = User.objects.create_and_join(org, "new-address@example.com", "password")
+        proxy = ProxyRecord.objects.create(
+            organization=org,
+            domain="proxy.example.com",
+            target_cname="target.example.com",
+            created_by=user,
+            status=ProxyRecord.Status.VALID,
+        )
+        if previous_provisioning == "monitor_schedule":
+            monitor_schedule.side_effect = lambda _, schedule_id: schedule_id == f"monitor-proxy-{proxy.id}"
+        else:
+            MessagingRecord.objects.create(
+                email_hash="previous-email-hash",
+                campaign_key=f"proxy_provisioned_{proxy.id}",
+                sent_at=timezone.now() if previous_provisioning == "prior_delivery" else None,
+            )
+
+        with (
+            patch("posthog.email.is_email_available", return_value=True),
+            patch("posthog.email._send_email.apply_async") as enqueue_email,
+        ):
+            activity_send_proxy_created_email(_make_inputs(organization_id=org.id, proxy_record_id=proxy.id))
+
+        assert enqueue_email.called == (previous_provisioning == "unsent_delivery")
 
     def test_does_not_send_when_record_missing(self):
         inputs = _make_inputs(proxy_record_id=uuid.uuid4())

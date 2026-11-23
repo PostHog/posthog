@@ -17,41 +17,38 @@ from posthog.tasks.utils import CeleryQueue
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.proxy_service.cloudflare import CloudflareAPIError, update_cloudflare_proxy_root_redirect
 from posthog.temporal.proxy_service.common import is_cloudflare_proxy, is_cloudflare_proxy_by_cname
-from posthog.temporal.proxy_service.create import CreateManagedProxyInputs
+from posthog.temporal.proxy_service.create import CreateManagedProxyInputs, start_proxy_provisioning
 from posthog.temporal.proxy_service.delete import DeleteManagedProxyInputs
 
 
-def _resume_proxy_workflow(record: ProxyRecord) -> None:
-    if record.status == ProxyRecord.Status.DELETING:
-        workflow = "delete-proxy"
-        workflow_id = f"proxy-delete-{record.id}"
-        inputs: CreateManagedProxyInputs | DeleteManagedProxyInputs = DeleteManagedProxyInputs(
-            organization_id=record.organization_id,
-            proxy_record_id=record.id,
-            domain=record.domain,
-            target_cname=record.target_cname,
-            root_redirect_url=record.root_redirect_url,
-        )
-    else:
-        workflow = "create-proxy"
-        workflow_id = f"proxy-create-{record.id}"
-        inputs = CreateManagedProxyInputs(
-            organization_id=record.organization_id,
-            proxy_record_id=record.id,
-            domain=record.domain,
-            target_cname=record.target_cname,
-        )
+def _resume_proxy_deletion(record: ProxyRecord) -> None:
+    inputs = DeleteManagedProxyInputs(
+        organization_id=record.organization_id,
+        proxy_record_id=record.id,
+        domain=record.domain,
+        target_cname=record.target_cname,
+        root_redirect_url=record.root_redirect_url,
+    )
     temporal = sync_connect()
-    # Stable IDs join running workflows while allowing a closed failed run to resume.
     asyncio.run(
         temporal.start_workflow(
-            workflow,
+            "delete-proxy",
             inputs,
-            id=workflow_id,
+            id=f"proxy-delete-{record.id}",
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
             id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
         )
     )
+
+
+def _resume_proxy_provisioning(record: ProxyRecord) -> None:
+    inputs = CreateManagedProxyInputs(
+        organization_id=record.organization_id,
+        proxy_record_id=record.id,
+        domain=record.domain,
+        target_cname=record.target_cname,
+    )
+    asyncio.run(start_proxy_provisioning(sync_connect(), inputs, resume=True))
 
 
 def enqueue_proxy_reconciliation(organization_id: str, proxy_record_id: str) -> None:
@@ -103,7 +100,7 @@ def reconcile_proxy(organization_id: str, proxy_record_id: str) -> None:
             status__in=(ProxyRecord.Status.ISSUING, ProxyRecord.Status.ERRORING, ProxyRecord.Status.DELETING),
         ).first()
         if record is not None and record.status == ProxyRecord.Status.DELETING:
-            _resume_proxy_workflow(record)
+            _resume_proxy_deletion(record)
             return
         if record is not None and is_cloudflare_proxy(record):
             active = (
@@ -113,7 +110,7 @@ def reconcile_proxy(organization_id: str, proxy_record_id: str) -> None:
             )
             if active:
                 if proxy_domain_can_be_provisioned(record):
-                    _resume_proxy_workflow(record)
+                    _resume_proxy_provisioning(record)
                 return
     reconcile_cloudflare_proxy(organization_id, proxy_record_id)
 

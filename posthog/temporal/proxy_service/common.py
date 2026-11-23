@@ -14,8 +14,11 @@ from temporalio import activity
 
 from posthog.event_usage import groups
 from posthog.models import ProxyRecord
+from posthog.models.messaging import MessagingRecord
 from posthog.models.organization import Organization
+from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.common.schedule import schedule_exists
 from posthog.temporal.proxy_service.proto import ProxyProvisionerServiceStub
 
 LOGGER = get_logger(__name__)
@@ -221,9 +224,17 @@ def activity_send_proxy_created_email(inputs: SendProxyCreatedEmailInputs):
         if record is None or record.created_by is None or not record.created_by.email:
             return
 
+        campaign_key = f"proxy_provisioned_{inputs.proxy_record_id}"
+        if MessagingRecord.objects.filter(campaign_key=campaign_key, sent_at__isnull=False).exists():
+            return
+
+        # A monitor schedule is created after the first successful provisioning, even if email was unavailable.
+        if schedule_exists(sync_connect(), f"monitor-proxy-{inputs.proxy_record_id}"):
+            return
+
         user = record.created_by
         message = EmailMessage(
-            campaign_key=f"proxy_provisioned_{inputs.proxy_record_id}",
+            campaign_key=campaign_key,
             subject="Your PostHog reverse proxy is ready",
             template_name="proxy_provisioned",
             template_context={
