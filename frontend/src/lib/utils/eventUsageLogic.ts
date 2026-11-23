@@ -681,6 +681,7 @@ function funnelProperties(querySource: InsightQueryNode): SanitizedQuery {
     return {
         funnel_viz_type: querySource.funnelsFilter?.funnelVizType,
         funnel_order_type: querySource.funnelsFilter?.funnelOrderType,
+        funnel_summary_on_dashboards: querySource.funnelsFilter?.showSummaryOnDashboards === true,
     }
 }
 
@@ -1256,8 +1257,8 @@ export interface eventUsageLogicActions {
     }
     reportPersonsModalSearched: (params: { actorType?: string; teamId?: number | null }) => {
         params: {
-            actorType?: string | undefined
-            teamId?: number | null | undefined
+            actorType?: string
+            teamId?: number | null
         }
     }
     reportPersonsModalViewed: (params: any) => {
@@ -1395,7 +1396,7 @@ export interface eventUsageLogicActions {
     }) => {
         props: {
             filter_type: string
-            property_filter_category?: PropertyFilterType | undefined
+            property_filter_category?: PropertyFilterType
             total_filter_count: number
         }
     }
@@ -1406,7 +1407,7 @@ export interface eventUsageLogicActions {
     }) => {
         props: {
             filter_type: string
-            property_filter_category?: PropertyFilterType | undefined
+            property_filter_category?: PropertyFilterType
             total_filter_count: number
         }
     }

@@ -9,6 +9,8 @@ from django.test import override_settings
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import ClickhouseCluster, HostInfo
 from posthog.models.deletion_targets import (
+    EVENTS_JSON,
+    FLAG_EVALUATIONS,
     DeletionTarget,
     UnreachableTargetError,
     dispatchable_here,
@@ -27,15 +29,11 @@ _HOSTS_BY_CLUSTER: dict[str, list[tuple]] = {
         ("events1", 9000, 1, 1, "offline", "events"),
         ("events2", 9000, 2, 1, "offline", "events"),
     ],
+    "flags": [
+        ("flags1", 9000, 1, 1, "offline", "flags"),
+        ("flags2", 9000, 1, 2, "offline", "flags"),
+    ],
 }
-
-_OFF_CLUSTER_TARGET = DeletionTarget(
-    data_table="sharded_events_json",
-    read_table="events_json",
-    optional=True,
-    cluster_setting="CLICKHOUSE_EVENTS_CLUSTER",
-    node_role=NodeRole.EVENTS,
-)
 
 
 class _FakeClient:
@@ -62,16 +60,31 @@ def _cluster_with(tables_by_host: dict[str, set[str]]) -> Iterator[ClickhouseClu
         yield ClickhouseCluster(bootstrap, cluster="posthog")
 
 
-@override_settings(CLICKHOUSE_EVENTS_CLUSTER="events")
-def test_placement_routes_a_target_to_the_cluster_that_carries_it() -> None:
-    with _cluster_with(
-        {"data1": set(), "events1": {"sharded_events_json"}, "events2": {"sharded_events_json"}}
-    ) as cluster:
-        placement = placement_for(cluster, _OFF_CLUSTER_TARGET)
+# The registry's own entries, so a target that names the wrong cluster setting or node role fails here
+# rather than in a production deletion run.
+_REGISTERED_OFF_CLUSTER_TARGETS = [
+    pytest.param(EVENTS_JSON, "events", [1, 2], NodeRole.EVENTS, id="events_json"),
+    pytest.param(FLAG_EVALUATIONS, "flags", [1], NodeRole.FLAGS, id="flag_evaluations"),
+]
+
+
+@override_settings(CLICKHOUSE_EVENTS_CLUSTER="events", CLICKHOUSE_FLAGS_CLUSTER="flags")
+@pytest.mark.parametrize("target,cluster_name,shards,shard_role", _REGISTERED_OFF_CLUSTER_TARGETS)
+def test_placement_routes_a_registered_target_to_the_cluster_that_carries_it(
+    target: DeletionTarget, cluster_name: str, shards: list[int], shard_role: NodeRole
+) -> None:
+    # The mutation dispatches over placement.cluster.shards. A handle that only reads shard numbers
+    # off `data` nodes leaves that empty for a cluster that shards across another role, so the sweep
+    # reaches nothing and the target looks absent rather than unreachable.
+    tables = {"data1": set(), **{host[0]: {target.data_table} for host in _HOSTS_BY_CLUSTER[cluster_name]}}
+    with _cluster_with(tables) as cluster:
+        placement = placement_for(cluster, target)
 
         assert placement is not None
-        assert placement.cluster.data_cluster_name == "events"
         assert placement.cluster is not cluster
+        assert placement.cluster.data_cluster_name == cluster_name
+        assert placement.cluster.shard_role == shard_role
+        assert sorted(placement.cluster.shards) == shards
 
 
 @override_settings(CLICKHOUSE_EVENTS_CLUSTER="events")
@@ -81,7 +94,7 @@ def test_placement_prefers_the_handle_in_hand_over_a_sibling() -> None:
     with _cluster_with(
         {"data1": {"sharded_events_json"}, "events1": {"sharded_events_json"}, "events2": {"sharded_events_json"}}
     ) as cluster:
-        placement = placement_for(cluster, _OFF_CLUSTER_TARGET)
+        placement = placement_for(cluster, EVENTS_JSON)
 
         assert placement is not None
         assert placement.cluster is cluster
@@ -96,7 +109,7 @@ def test_dispatchable_here_refuses_a_target_another_cluster_carries() -> None:
         {"data1": set(), "events1": {"sharded_events_json"}, "events2": {"sharded_events_json"}}
     ) as cluster:
         with pytest.raises(UnreachableTargetError):
-            dispatchable_here(cluster, _OFF_CLUSTER_TARGET)
+            dispatchable_here(cluster, EVENTS_JSON)
 
 
 @override_settings(CLICKHOUSE_EVENTS_CLUSTER="events")
@@ -106,7 +119,7 @@ def test_sweep_clusters_lists_every_cluster_a_mutation_runs_on() -> None:
     with _cluster_with(
         {"data1": set(), "events1": {"sharded_events_json"}, "events2": {"sharded_events_json"}}
     ) as cluster:
-        clusters = sweep_clusters(cluster, [_OFF_CLUSTER_TARGET])
+        clusters = sweep_clusters(cluster, [EVENTS_JSON])
 
         assert [handle.data_cluster_name for handle in clusters] == ["posthog", "events"]
         assert clusters[0] is cluster
@@ -119,18 +132,4 @@ def test_sweep_clusters_does_not_repeat_the_handle_in_hand() -> None:
     with _cluster_with(
         {"data1": {"sharded_events_json"}, "events1": {"sharded_events_json"}, "events2": {"sharded_events_json"}}
     ) as cluster:
-        assert sweep_clusters(cluster, [_OFF_CLUSTER_TARGET]) == [cluster]
-
-
-@override_settings(CLICKHOUSE_EVENTS_CLUSTER="events")
-def test_a_sibling_shards_over_the_role_its_target_declares() -> None:
-    # The mutation dispatches over placement.cluster.shards. A handle that only reads shard numbers
-    # off `data` nodes leaves that empty for the events cluster, so the sweep reaches nothing and
-    # the target looks absent rather than unreachable, which is how it went silent in production.
-    tables = {"data1": set(), "events1": {"sharded_events_json"}, "events2": {"sharded_events_json"}}
-    with _cluster_with(tables) as cluster:
-        placement = placement_for(cluster, _OFF_CLUSTER_TARGET)
-
-        assert placement is not None
-        assert sorted(placement.cluster.shards) == [1, 2]
-        assert placement.cluster.shard_role == NodeRole.EVENTS
+        assert sweep_clusters(cluster, [EVENTS_JSON]) == [cluster]

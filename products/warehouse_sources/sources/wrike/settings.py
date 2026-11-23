@@ -13,10 +13,10 @@ class WrikeEndpointConfig:
     # exposes an immutable creation timestamp — never an `updatedDate`-style field, which would
     # rewrite partitions on every sync.
     partition_key: Optional[str] = None
-    # Wrike paginates a small number of large list endpoints (`/tasks`, `/comments`,
-    # `/audit_log`) via `pageSize` + `nextPageToken`. Most endpoints (folders, contacts,
-    # workflows, custom fields, spaces) return the full result set in a single response with no
-    # pagination token, so we fetch them in one request.
+    # Wrike paginates a small number of large list endpoints (`/tasks`, `/timelogs`,
+    # `/comments`, `/audit_log`) via `pageSize` + `nextPageToken`. Most endpoints (folders,
+    # contacts, workflows, custom fields, spaces, groups) return the full result set in a single
+    # response with no pagination token, so we fetch them in one request.
     paginated: bool = False
     # Set when the path takes a parameter resolved from another endpoint's rows.
     fanout: Optional[DependentEndpointConfig] = None
@@ -57,6 +57,20 @@ WRIKE_ENDPOINTS: dict[str, WrikeEndpointConfig] = {
     "spaces": WrikeEndpointConfig(
         name="spaces",
         path="/spaces",
+    ),
+    "timelogs": WrikeEndpointConfig(
+        name="timelogs",
+        path="/timelogs",
+        partition_key="createdDate",
+        paginated=True,
+    ),
+    "timelog_categories": WrikeEndpointConfig(
+        name="timelog_categories",
+        path="/timelog_categories",
+    ),
+    "groups": WrikeEndpointConfig(
+        name="groups",
+        path="/groups",
     ),
     "project_dependencies": WrikeEndpointConfig(
         name="project_dependencies",

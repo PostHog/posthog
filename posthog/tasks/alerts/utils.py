@@ -25,8 +25,8 @@ from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_sche
 from posthog.utils import absolute_uri
 
 from products.alerts.backend.facade.api import (
-    LLM_DETECTOR_PAUSED_ERROR_CODE,
-    LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+    DETECTOR_PAUSED_ERROR_CODES,
+    DETECTOR_UNAVAILABLE_ERROR_CODES,
     first_subscriber_id,
 )
 from products.alerts.backend.facade.destinations import (
@@ -117,6 +117,8 @@ NON_TIME_SERIES_DISPLAY_TYPES = {
     ChartDisplayType.ACTIONS_BAR_VALUE,
     ChartDisplayType.ACTIONS_TABLE,
     ChartDisplayType.WORLD_MAP,
+    # The Trends runner returns a calendar heatmap as one aggregated value with an empty `data` list.
+    ChartDisplayType.CALENDAR_HEATMAP,
 }
 
 
@@ -191,7 +193,7 @@ def next_check_time(alert: AlertConfiguration) -> datetime:
     (alert_check_offset), so alerts that share an interval do not all run at its start.
 
     every 15 minutes alerts -> 1 to 3 minutes after each quarter hour
-    hourly alerts -> 2 to 13 minutes after each hour
+    hourly alerts -> 2 to 57 minutes after each hour
     daily alerts -> in the 1am hour of the team's timezone
     weekly alerts -> in the 3am hour on Monday, in the team's timezone
     monthly alerts -> in the 4am hour on the first day of the month, in the team's timezone
@@ -450,9 +452,9 @@ def send_notifications_for_errors(alert: AlertConfiguration, error: dict, idempo
             "insight_name": alert.insight.name,
             "next_check_at": alert.next_check_at,
             # The template drops its "review the alert settings" advice for this code, because
-            # a check the AI detector could not complete is not something the owner can fix.
-            "detector_unavailable": error.get("code") == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
-            "detector_paused": error.get("code") == LLM_DETECTOR_PAUSED_ERROR_CODE,
+            # a check the AI or forecast detector could not complete is not something the owner can fix.
+            "detector_unavailable": error.get("code") in DETECTOR_UNAVAILABLE_ERROR_CODES,
+            "detector_paused": error.get("code") in DETECTOR_PAUSED_ERROR_CODES,
         },
     )
     if not email_sent:

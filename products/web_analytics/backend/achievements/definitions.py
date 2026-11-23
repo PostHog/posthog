@@ -2,18 +2,11 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 
-class AchievementScope(StrEnum):
-    USER = "user"
-    TEAM = "team"
-
-
 class TrackKey(StrEnum):
     STREAK = "streak"
     LOYALTY = "loyalty"
     EXPLORER = "explorer"
     DETECTIVE = "detective"
-    CONVERSIONS = "conversions"
-    TRAFFIC = "traffic"
 
 
 STAGE_COUNT = 5
@@ -37,7 +30,6 @@ class TrackDefinition:
     key: TrackKey
     display_name: str
     description: str
-    scope: AchievementScope
     evaluator_key: str
     stages: tuple[Stage, Stage, Stage, Stage, Stage]
     is_experiment_track: bool = False
@@ -47,6 +39,10 @@ class TrackDefinition:
         if arm is not None and arm in self.arm_thresholds:
             return self.arm_thresholds[arm]
         return tuple(stage.threshold for stage in self.stages)
+
+    @property
+    def is_cumulative(self) -> bool:
+        return self.evaluator_key != "streak"
 
     def stage_for_value(self, value: int, arm: str | None = None) -> int:
         """Map a raw progress value to a stage 0..5 using the arm's thresholds."""
@@ -79,7 +75,6 @@ TRACKS: dict[TrackKey, TrackDefinition] = {
         key=TrackKey.STREAK,
         display_name="Streak",
         description="Check your analytics regularly to keep a streak going.",
-        scope=AchievementScope.USER,
         evaluator_key="streak",
         stages=_streak_stages(_DAILY_STREAK_THRESHOLDS),
         is_experiment_track=True,
@@ -93,7 +88,6 @@ TRACKS: dict[TrackKey, TrackDefinition] = {
         key=TrackKey.LOYALTY,
         display_name="Loyalty",
         description="Keep coming back — every visit counts.",
-        scope=AchievementScope.USER,
         evaluator_key="loyal_days",
         stages=(
             Stage("Regular", 5),
@@ -107,7 +101,6 @@ TRACKS: dict[TrackKey, TrackDefinition] = {
         key=TrackKey.EXPLORER,
         display_name="Explorer",
         description="Dig into your data.",
-        scope=AchievementScope.USER,
         evaluator_key="data_events",
         stages=(
             Stage("Curious", 1),
@@ -121,7 +114,6 @@ TRACKS: dict[TrackKey, TrackDefinition] = {
         key=TrackKey.DETECTIVE,
         display_name="Detective",
         description="Watch recordings to see what really happened.",
-        scope=AchievementScope.USER,
         evaluator_key="recordings_opened",
         stages=(
             Stage("First watch", 1),
@@ -129,34 +121,6 @@ TRACKS: dict[TrackKey, TrackDefinition] = {
             Stage("Sleuth", 50),
             Stage("Profiler", 150),
             Stage("Expert", 500),
-        ),
-    ),
-    TrackKey.CONVERSIONS: TrackDefinition(
-        key=TrackKey.CONVERSIONS,
-        display_name="Conversions",
-        description="Turn traffic into conversions.",
-        scope=AchievementScope.TEAM,
-        evaluator_key="conversions",
-        stages=(
-            Stage("First conversion", 1),
-            Stage("On target", 3),
-            Stage("Optimizing", 5),
-            Stage("Converting", 100),
-            Stage("Conversion pro", 1000),
-        ),
-    ),
-    TrackKey.TRAFFIC: TrackDefinition(
-        key=TrackKey.TRAFFIC,
-        display_name="Traffic",
-        description="Watch your pageviews climb.",
-        scope=AchievementScope.TEAM,
-        evaluator_key="cumulative_pageviews",
-        stages=(
-            Stage("On the board", 10_000),
-            Stage("Picking up", 100_000),
-            Stage("Major traffic", 1_000_000),
-            Stage("High volume", 10_000_000),
-            Stage("Viral", 100_000_000),
         ),
     ),
 }
@@ -173,7 +137,6 @@ def serialize_definitions(arm: str | None = None) -> list[dict]:
                 "key": str(track.key),
                 "display_name": track.display_name,
                 "description": track.description,
-                "scope": str(track.scope),
                 "is_experiment_track": track.is_experiment_track,
                 "stages": [
                     {"stage": index + 1, "name": stage.name, "threshold": thresholds[index]}

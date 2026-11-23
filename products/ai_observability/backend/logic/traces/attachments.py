@@ -11,13 +11,14 @@ _MEDIA_TYPE_BY_ITEM_TYPE: dict[str, contracts.TraceAttachmentMediaType] = {
     "audio": "audio",
     "input_audio": "audio",
     "video": "video",
+    "video_url": "video",
     "file": "file",
     "document": "file",
     "input_file": "file",
 }
 
 # Providers nest the payload under one of these keys, each with its own field names.
-_NESTED_PAYLOAD_KEYS = ("source", "file", "input_audio", "image_url", "inline_data", "inlineData")
+_NESTED_PAYLOAD_KEYS = ("source", "file", "input_audio", "image_url", "video_url", "inline_data", "inlineData")
 _SOURCE_KEYS = ("url", "file_url", "image_url", "file_data", "image", "data", "file", "uri")
 _MIME_KEYS = ("mediaType", "mimeType", "mime_type", "media_type")
 _NAME_KEYS = ("filename", "name")

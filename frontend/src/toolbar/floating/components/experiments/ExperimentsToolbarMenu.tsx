@@ -15,16 +15,14 @@ import { ExperimentsEditingToolbarMenu } from '~/toolbar/floating/components/exp
 import { ExperimentsListView } from '~/toolbar/floating/components/experiments/ExperimentsListView'
 import { experimentsLogic } from '~/toolbar/shared/experiments/experimentsLogic'
 import { experimentsTabLogic } from '~/toolbar/shared/experiments/experimentsTabLogic'
-import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
+import { toolbarAppUrl } from '~/toolbar/shared/toolbarConfigLogic'
 import { urls } from '~/toolbar/shared/urls'
-import { joinWithUiHost } from '~/toolbar/shared/utils'
 
 const ExperimentsListToolbarMenu = (): JSX.Element => {
     const { searchTerm } = useValues(experimentsLogic)
     const { newExperiment } = useActions(experimentsTabLogic)
     const { setSearchTerm, getExperiments } = useActions(experimentsLogic)
     const { allExperiments, sortedExperiments, allExperimentsLoading } = useValues(experimentsLogic)
-    const { uiHost } = useValues(toolbarConfigLogic)
 
     useOnMountEffect(getExperiments)
 
@@ -72,7 +70,7 @@ const ExperimentsListToolbarMenu = (): JSX.Element => {
             </ToolbarMenu.Body>
             <ToolbarMenu.Footer>
                 <div className="flex items-center justify-between flex-1">
-                    <Link to={joinWithUiHost(uiHost, urls.experiments())} target="_blank">
+                    <Link to={toolbarAppUrl(urls.experiments())} target="_blank">
                         View &amp; edit all experiments <IconOpenInNew />
                     </Link>
                     <LemonButton type="primary" size="small" onClick={() => newExperiment()} icon={<IconPlus />}>

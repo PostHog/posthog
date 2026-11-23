@@ -32,8 +32,15 @@ from products.warehouse_sources.sources.sdk import (
 )
 
 # Endpoints JFrog restricts to admin users (or access tokens scoped to the relevant domain).
-_ADMIN_ENDPOINTS = {"builds", "build_artifacts", "build_dependencies", "build_promotions", "storage_summary"}
-_XRAY_ENDPOINTS = {"xray_violations"}
+_ADMIN_ENDPOINTS = {
+    "builds",
+    "build_artifacts",
+    "build_dependencies",
+    "build_promotions",
+    "release_bundles",
+    "storage_summary",
+}
+_XRAY_ENDPOINTS = {"xray_violations", "xray_licenses"}
 _XRAY_UNAVAILABLE = "Requires JFrog Xray and a token with Xray Read permission"
 
 
@@ -86,7 +93,7 @@ class JfrogArtifactorySource(
 
 Enter your platform URL (e.g. `https://mycompany.jfrog.io`, or your own domain for self-hosted installs) and an access token. Generate a token from your JFrog user profile (**Edit Profile → Generate an Identity Token**) or, as an admin, under **Administration → User Management → Access Tokens**.
 
-The `artifacts`, `artifact_statistics`, and `repositories` tables work with any authenticated token that can read your repositories. The `builds`, `build_artifacts`, `build_dependencies`, `build_promotions`, and `storage_summary` tables require an admin user (or a token scoped to those APIs). The `xray_violations` table requires JFrog Xray. Deselect any table your token can't access.""",
+The `artifacts`, `artifact_statistics`, `artifact_properties`, and `repositories` tables work with any authenticated token that can read your repositories. The `builds`, `build_artifacts`, `build_dependencies`, `build_promotions`, `release_bundles`, and `storage_summary` tables require an admin user (or a token scoped to those APIs). The `release_bundles` table also requires Artifactory Enterprise+. The `xray_violations` and `xray_licenses` tables require JFrog Xray. Deselect any table your token can't access.""",
             iconPath="/static/services/jfrog_artifactory.png",
             docsUrl="https://posthog.com/docs/cdp/sources/jfrog-artifactory",
             fields=cast(
@@ -123,7 +130,7 @@ The `artifacts`, `artifact_statistics`, and `repositories` tables work with any 
             # Retrying can never fix a credential/permission problem, so fail the sync. The host is
             # per-tenant, so match on the stable status text only.
             "401 Client Error: Unauthorized for url": "Your JFrog access token is invalid, expired, or has been revoked. Generate a new access token, then reconnect.",
-            "403 Client Error: Forbidden for url": "Your JFrog access token is missing the permissions needed to sync this data. The build and storage_summary tables require an admin token, and xray_violations requires JFrog Xray. Deselect them or use a token with the required access.",
+            "403 Client Error: Forbidden for url": "Your JFrog access token is missing the permissions needed to sync this data. The build, release_bundles, and storage_summary tables require an admin token, and the xray_violations and xray_licenses tables require JFrog Xray. Deselect them or use a token with the required access.",
         }
 
     def get_schemas(
@@ -140,6 +147,10 @@ The `artifacts`, `artifact_statistics`, and `repositories` tables work with any 
                 return "Requires an admin user or a token scoped to the builds domain"
             if endpoint == "artifact_statistics":
                 return "Download counts for artifacts that have been downloaded at least once"
+            if endpoint == "artifact_properties":
+                return "Key/value properties on artifacts. Reads every artifact, so large instances sync slowly"
+            if endpoint == "release_bundles":
+                return "Release Bundle v1 versions. Requires Artifactory Enterprise+ and an admin token"
             if endpoint in _XRAY_ENDPOINTS:
                 return _XRAY_UNAVAILABLE
             if endpoint == "storage_summary":

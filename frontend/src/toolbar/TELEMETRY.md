@@ -59,6 +59,22 @@ Fired after an OAuth authorization code exchange attempt.
 | `duration_ms` | `number`                                  | Time taken for the exchange               |
 | `error`       | `string`                                  | Only on `error` status: error description |
 
+`error` is `missing_project` when the OAuth callback named no project, and the code is not exchanged.
+
+**File:** `shared/toolbarConfigLogic.ts`
+
+### `toolbar oauth tokens discarded`
+
+Fired when the toolbar drops stored OAuth tokens instead of restoring them, which signs the user out.
+
+| Property          | Type     | Description                                                              |
+| ----------------- | -------- | ------------------------------------------------------------------------ |
+| `reason`          | `string` | `uihost_mismatch`, `legacy_untrusted_host` or `missing_project`          |
+| `stored_ui_host`  | `string` | Only on `uihost_mismatch`: the uiHost the tokens were issued for         |
+| `current_ui_host` | `string` | On `uihost_mismatch` and `legacy_untrusted_host`: the uiHost of the page |
+
+`missing_project` means the tokens were stored without the project they are scoped to.
+
 **File:** `shared/toolbarConfigLogic.ts`
 
 ### `toolbar token refresh`
@@ -104,13 +120,13 @@ Fired when the UI host configuration modal is shown (auth error state).
 Fired after every `toolbarFetch` call, and after the entitlements request, which carries the session cookie instead of a bearer token.
 Covers all toolbar API endpoints.
 
-| Property          | Type      | Description                                        |
-| ----------------- | --------- | -------------------------------------------------- |
-| `method`          | `string`  | HTTP method (`GET`, `POST`, `PATCH`, `DELETE`)     |
-| `pathname`        | `string`  | API path (e.g., `/api/projects/@current/actions/`) |
-| `status`          | `number`  | HTTP status, or 0 if the request never landed      |
-| `duration_ms`     | `number`  | Total time including any token retry               |
-| `did_token_retry` | `boolean` | Whether a 401 triggered a token refresh + retry    |
+| Property          | Type      | Description                                     |
+| ----------------- | --------- | ----------------------------------------------- |
+| `method`          | `string`  | HTTP method (`GET`, `POST`, `PATCH`, `DELETE`)  |
+| `pathname`        | `string`  | API path (e.g., `/api/projects/1/actions/`)     |
+| `status`          | `number`  | HTTP status, or 0 if the request never landed   |
+| `duration_ms`     | `number`  | Total time including any token retry            |
+| `did_token_retry` | `boolean` | Whether a 401 triggered a token refresh + retry |
 
 **File:** `shared/toolbarFetch.ts`
 

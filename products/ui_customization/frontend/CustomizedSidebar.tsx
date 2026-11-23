@@ -37,6 +37,7 @@ export interface SidebarNavigationItem {
     active: boolean
     action?: JSX.Element
     dataAttr?: string
+    onClick?: () => void
     wrap?: (row: JSX.Element) => JSX.Element
 }
 

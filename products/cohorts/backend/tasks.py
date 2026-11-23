@@ -9,8 +9,8 @@ REQUEST_TIME_LIMIT = timedelta(hours=1)
 
 
 # acks_late, so a worker that stops before it claims the request leaves the message to another worker. The
-# claim makes a second delivery a no-op. No retry, because the request records the failure, and staff
-# retry with a new request. The time limit can kill an `enable` before its resave queues the flags cache
+# claim makes a second delivery a no-op. No retry, because the request records the failure, and a new
+# request retries it. The time limit can kill an `enable` before its resave queues the flags cache
 # rebuilds it coalesced. The team is below `serving` then, so flags read no realtime membership for it,
 # and the stamps that later make its cohorts usable come with their own rebuild.
 @shared_task(

@@ -125,6 +125,25 @@ def evaluation_alert(check: PlatformAlertCheckInput) -> AlertConfiguration | Non
     return legacy_alert(team_id=check.team_id, alert_id=check.legacy_configuration_id)
 
 
+def checked_alert(check: PlatformAlertCheckInput) -> AlertConfiguration | None:
+    """The alert a scheduled check evaluates, built from the platform alert alone, whether or not insight
+    keeps a row for it. None when its insight is gone.
+
+    A copy's alert takes its row's id, because the copy's HogFunctions, its chart and its earlier AI
+    checks are keyed by that id. Its owner and handover time come from the copy, because the AI
+    detector reads the checks from before the handover from the row's history and the later ones
+    from the platform's.
+    """
+    alert = alert_from_platform(check, team_id=check.team_id, enabled=True)
+    if alert is None:
+        return None
+    if check.legacy_configuration_id is not None:
+        alert.id = check.legacy_configuration_id
+    alert.owner = PlatformAlertOwner.PLATFORM if check.owned_by_platform else PlatformAlertOwner.SOURCE
+    alert.owner_changed_at = check.owner_changed_at
+    return alert
+
+
 def investigated_alert(team_id: int, alert_id: UUID) -> AlertConfiguration | None:
     """The alert an investigation names: its insight row, or, for an alert insight keeps no row for,
     one built from the platform alert, whose id it carries. None when both are gone."""
@@ -136,6 +155,28 @@ def investigated_alert(team_id: int, alert_id: UUID) -> AlertConfiguration | Non
     if configuration is None or configuration.legacy_configuration_id is not None:
         return None
     return alert_from_platform(configuration, team_id=team_id, enabled=configuration.enabled)
+
+
+def charted_alert(team_id: int, alert_id: UUID) -> tuple[AlertConfiguration, UUID | None] | None:
+    """The alert a firing's chart is drawn for, and the id the platform keeps its destinations under.
+
+    An alert the platform owns is built from the platform alert, so its creator, threshold and
+    insight come from there and not from its insight row. A copy keeps its row's id, which its
+    HogFunctions and its line on the chart are keyed by. The row is read only for an alert the
+    insight stack still owns, which has no platform destinations. None when the alert is gone."""
+    copy = owned_copies_by_legacy_id(
+        team_id=team_id, source_kind=SourceKind.INSIGHT, legacy_configuration_ids=[alert_id]
+    ).get(alert_id)
+    if copy is None:
+        alert = investigated_alert(team_id, alert_id)
+        if alert is None:
+            return None
+        return alert, alert.id if alert._state.adding else None
+    alert = alert_from_platform(copy, team_id=team_id, enabled=copy.enabled)
+    if alert is None:
+        return None
+    alert.id = alert_id
+    return alert, copy.id
 
 
 def native_insight_alert_view(
@@ -170,9 +211,25 @@ def delete_native_insight_alert(*, team_id: int, alert_id: UUID) -> None:
     delete_owned_configuration(team_id=team_id, configuration_id=alert_id)
 
 
-def native_insight_alert_matches(team_id: int, *, search: str | None) -> tuple[NativeConfigurationMatch, ...]:
-    """Every insight alert with no insight row, or with `search` the ones whose name matches it."""
-    return native_configuration_matches(team_id=team_id, source_kind=SourceKind.INSIGHT, search=search)
+def native_insight_alert_matches(
+    team_id: int,
+    *,
+    search: str | None,
+    owned_copies: bool = False,
+    insight_id: int | None = None,
+    created_by_id: int | None = None,
+) -> tuple[NativeConfigurationMatch, ...]:
+    """Every insight alert with no insight row, and with `owned_copies` the copies the platform owns,
+    or with `search` the ones whose name matches it. With `insight_id` or `created_by_id`, only the
+    ones on that insight or by that creator."""
+    return native_configuration_matches(
+        team_id=team_id,
+        source_kind=SourceKind.INSIGHT,
+        search=search,
+        owned_copies=owned_copies,
+        source_config_contains={"insight_id": insight_id} if insight_id is not None else None,
+        created_by_id=created_by_id,
+    )
 
 
 def native_insight_alert_views(team_id: int, alert_ids: Collection[UUID]) -> tuple[PlatformAlertConfigurationView, ...]:

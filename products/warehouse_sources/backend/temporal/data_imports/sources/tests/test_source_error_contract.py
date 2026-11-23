@@ -181,7 +181,6 @@ ONE_AUTH_STATUS_CLASSIFIED: dict[str, str] = {
     "Discourse": "403",
     "Expo": "401",
     "Faire": "401",
-    "FusionAuth": "401",
     "GooglePageSpeedInsights": "403",
     "GoogleWebfonts": "403",
     "Healthchecks": "401",
@@ -492,6 +491,12 @@ def test_allowlists_name_only_extracting_sources(allowlist: dict[str, Any]) -> N
         # `requests.raise_for_status()` renders a blank one instead of "Unauthorized"/"Forbidden".
         ("ZohoCRM", "401 Client Error:  for url: https://www.zohoapis.com/crm/v8/Leads?page=1"),
         ("ZohoCRM", "403 Client Error:  for url: https://www.zohoapis.com/crm/v8/Notes?page=1"),
+        # Amazon's SP-API sends no reason phrase either, and rejects createReport with a 400 when
+        # the report type, options or marketplace don't fit this account (observed in production).
+        (
+            "AmazonSellingPartner",
+            "400 Client Error:  for url: https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports",
+        ),
         (
             "Squarespace",
             "402 Client Error: Payment Required for url: https://api.squarespace.com/v2/commerce/products",

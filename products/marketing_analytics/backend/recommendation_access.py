@@ -3,9 +3,7 @@ from typing import TYPE_CHECKING
 from posthog.models import Team
 from posthog.models.scoping.manager import resolve_effective_team_id
 
-from products.marketing_analytics.backend.hogql_queries.marketing_recommendations_query_runner import (
-    RECOMMENDATION_SOURCE_TYPES,
-)
+from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import RECOMMENDATION_SOURCE_TYPES
 from products.warehouse_sources.backend.facade.api import denied_table_ids, list_schemas_for_source, list_sources
 
 if TYPE_CHECKING:

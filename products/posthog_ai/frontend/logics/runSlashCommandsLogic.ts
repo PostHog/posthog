@@ -14,6 +14,7 @@ import {
 import posthog from 'posthog-js'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import type { SupportFormFields } from 'lib/components/Support/supportLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { projectLogic } from 'scenes/projectLogic'
@@ -110,11 +111,11 @@ export interface runSlashCommandsLogicActions {
         value: boolean
     } // runInteractionLogic
     openSupportForm: (
-        values: Partial<import('lib/components/Support/supportLogic').SupportFormFields> & {
+        values: Partial<SupportFormFields> & {
             target?: 'modal' | 'sidePanel'
         }
-    ) => Partial<import('lib/components/Support/supportLogic').SupportFormFields> & {
-        target?: 'modal' | 'sidePanel' | undefined
+    ) => Partial<SupportFormFields> & {
+        target?: 'modal' | 'sidePanel'
     } // supportLogic
     askSideQuestion: (question: string) => {
         question: string

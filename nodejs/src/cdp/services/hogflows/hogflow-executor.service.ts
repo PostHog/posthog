@@ -86,9 +86,12 @@ const TRIGGER_MISMATCH_EXITS: ReadonlySet<string> = new Set([
 
 const PER_SEND_METADATA_KEYS = [
     'teamCapped',
+    'teamCappedAt',
     'suppressionLookupAttempts',
     'attachmentLoadRetries',
+    'ownershipCheckRetries',
     'teamBudgetClaimed',
+    'workflowRateClaimed',
 ] as const
 
 const SEND_WITH_FILES_METADATA_KEYS = ['attachmentDueAt', 'attachmentDeferrals'] as const

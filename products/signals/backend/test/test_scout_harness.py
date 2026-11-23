@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
 import pytest
@@ -42,6 +42,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.utils import uuid7
 from posthog.ph_client import filter_scout_experiment_capture
 from posthog.sync import database_sync_to_async
+from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.daily_limit import DailyReportLimitGate
@@ -78,6 +79,7 @@ from products.signals.backend.scout_harness.prompt import (
     _EXTERNAL_MCP_LISTING_CAP,
     _REPORT_CHARTS,
     HARNESS_PROMPT_VERSION,
+    MEMORY_UPKEEP_SCOUT,
     _checkout_section,
     build_run_prompt,
 )
@@ -91,6 +93,7 @@ from products.signals.backend.scout_harness.runner import (
     _create_run_row,
     _failure_streak_runs_in_window,
     _inbox_reports_search_available,
+    _memory_upkeep_has_written,
     arun_signals_scout,
 )
 from products.signals.backend.scout_harness.skill_loader import (
@@ -138,7 +141,7 @@ async def aorganization():
         is_ai_data_processing_approved=True,
     )
     yield organization
-    await sync_to_async(organization.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(organization)
 
 
 @pytest_asyncio.fixture
@@ -153,7 +156,7 @@ async def ateam(aorganization, request: pytest.FixtureRequest):
     # `canonical=True` skips the sync DB resolution lookup (illegal from async).
     with team_scope(team.id, canonical=True):
         yield team
-    await sync_to_async(team.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(team)
 
 
 @pytest_asyncio.fixture
@@ -497,6 +500,7 @@ class TestPromptCacheablePrefix(SimpleTestCase):
             github_read_access=github_read_access,
             business_knowledge_maintained=business_knowledge_maintained,
             project_has_governed_metrics=True,
+            memory_upkeep_has_written=True,
             write_scopes=["dashboard:write"],
             structured_output_schema={"type": "object", "properties": {"verdict": {"type": "string"}}},
             mcp_server_names=["Datadog (EU)"],
@@ -507,6 +511,7 @@ class TestPromptCacheablePrefix(SimpleTestCase):
             prompt.index(heading)
             for heading in (
                 "# Governed metrics",
+                "# Memory upkeep",
                 "# External MCP servers",
                 "# Write access",
                 "# Your checkout",
@@ -563,6 +568,19 @@ class TestPromptCacheablePrefix(SimpleTestCase):
         assert ("activity-summary-search" in prompt) is rendered
         if rendered:
             assert prompt.index("# Find people who read the work") > prompt.index("# Output format")
+
+
+class TestMemoryUpkeepCheck(SimpleTestCase):
+    def test_a_failed_check_resolves_false(self) -> None:
+        with (
+            patch(
+                "products.signals.backend.scout_harness.runner.has_live_entry_created_by",
+                side_effect=RuntimeError("database unavailable"),
+            ),
+            patch("products.signals.backend.scout_harness.runner.capture_exception") as capture,
+        ):
+            assert _memory_upkeep_has_written(MagicMock()) is False
+        capture.assert_called_once()
 
 
 class TestActivitySummarySearchAvailability(SimpleTestCase):
@@ -1357,6 +1375,7 @@ class TestPromptBuilder(BaseTest):
         # and the decision to spend a run validating it belongs to the scout, not the harness.
         assert "Follow up on your own past work" in prompt
         assert "followup:<your-skill-name>:<entity>" in prompt
+        assert "`key_prefix=followup:<your-skill-name>:`" in prompt
         assert "You decide when a run becomes a validation run" in prompt
         # Recency lens references the started_at anchor.
         assert "Recency lens" in prompt
@@ -1464,18 +1483,47 @@ class TestPromptBuilder(BaseTest):
 
     @parameterized.expand(
         [
-            ("signal_channel", []),
-            ("report_channel", ["emit_report", "edit_report"]),
+            (
+                f"{section}_{channel}",
+                allowed_tools,
+                check,
+                heading,
+                present,
+                absent,
+            )
+            for channel, allowed_tools in (("signal_channel", []), ("report_channel", ["emit_report", "edit_report"]))
+            for section, check, heading, present, absent in (
+                (
+                    "catalog",
+                    "project_has_governed_metrics",
+                    "# Governed metrics",
+                    "data-catalog-metric-run",
+                    ["data-catalog-metric-run", "metric-list", "information_schema.metrics"],
+                ),
+                (
+                    "memory_upkeep",
+                    "memory_upkeep_has_written",
+                    "# Memory upkeep",
+                    "dream:digest:<skill-name>",
+                    ["signals-scout-dreaming", "dream:digest:", "learned:"],
+                ),
+            )
         ]
     )
-    def test_catalog_text_renders_only_for_a_project_with_governed_metrics(
-        self, name: str, allowed_tools: list[str]
+    def test_usage_gated_section_renders_only_where_its_check_passed(
+        self,
+        name: str,
+        allowed_tools: list[str],
+        check: str,
+        heading: str,
+        present: str,
+        absent: list[str],
     ) -> None:
-        skill_name = f"signals-scout-catalog-{name}"
+        skill_name = f"signals-scout-gated-{name.replace('_', '-')}"
         LLMSkill.objects.create(
             team=self.team,
             name=skill_name,
-            description="Catalog scout",
+            description="Gated scout",
             body="watch",
             allowed_tools=allowed_tools,
         )
@@ -1486,18 +1534,32 @@ class TestPromptBuilder(BaseTest):
             "started_at": datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
         }
 
-        nudged = build_run_prompt(loaded, **kwargs, project_has_governed_metrics=True)
-        assert "# Governed metrics" in nudged
-        assert "data-catalog-metric-run" in nudged
+        nudged = build_run_prompt(loaded, **{**kwargs, check: True})
+        assert heading in nudged
+        assert present in nudged
 
         for unused in (
             build_run_prompt(loaded, **kwargs),
-            build_run_prompt(loaded, **kwargs, project_has_governed_metrics=False),
+            build_run_prompt(loaded, **{**kwargs, check: False}),
         ):
-            assert "# Governed metrics" not in unused
-            assert "data-catalog-metric-run" not in unused
-            assert "metric-list" not in unused
-            assert "information_schema.metrics" not in unused
+            assert heading not in unused
+            for marker in absent:
+                assert marker not in unused
+
+    def test_memory_upkeep_section_is_not_shown_to_the_upkeep_scout_itself(self) -> None:
+        LLMSkill.objects.create(
+            team=self.team, name=MEMORY_UPKEEP_SCOUT, description="Upkeep scout", body="tidy", allowed_tools=[]
+        )
+
+        prompt = build_run_prompt(
+            load_skill_for_run(self.team, MEMORY_UPKEEP_SCOUT),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=self.team.id,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+            memory_upkeep_has_written=True,
+        )
+
+        assert "# Memory upkeep" not in prompt
 
     @parameterized.expand(
         [
@@ -2155,7 +2217,7 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
         skill_body="scout",
         skill_origin="custom",
         allowed_tools=["emit_report"],
-        capabilities=trial_capabilities(config),
+        capabilities=await database_sync_to_async(trial_capabilities)(config),
         runtime_adapter="codex",
         model="gpt-5.6-sol",
         reasoning_effort="medium",
@@ -2527,18 +2589,19 @@ async def test_run_clones_the_scouts_pinned_repositories_when_a_token_can_be_min
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "emit,acting_user_resolves,expected_grant,expected_mcp_scopes",
+    "emit,acting_user_resolves,expected_grant,expected_mcp_scopes,expected_report_actions",
     [
         pytest.param(
             True,
             True,
             ["dashboard:write", "notebook:write"],
             {"preset": "signals_scout", "extra_write_scopes": ["dashboard:write", "notebook:write"]},
+            ["make_it_green"],
             id="live_run_holds_the_grant",
         ),
         # Dry run is how a person previews a scout before trusting it, so a dry run that could
         # edit dashboards would do the thing they wanted to look at first.
-        pytest.param(False, True, [], "signals_scout", id="dry_run_holds_no_grant"),
+        pytest.param(False, True, [], "signals_scout", [], id="dry_run_holds_no_grant"),
         # The grant was approved for the person the runs act as. When that identity no longer
         # resolves, the team fallback is a member who never approved it and cannot revoke it. The
         # default notebook scope was granted by the fleet rather than a person, so it stays.
@@ -2547,12 +2610,13 @@ async def test_run_clones_the_scouts_pinned_repositories_when_a_token_can_be_min
             False,
             ["notebook:write"],
             {"preset": "signals_scout", "extra_write_scopes": ["notebook:write"]},
+            [],
             id="team_fallback_holds_only_the_default_grant",
         ),
     ],
 )
 async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_run(
-    ateam, aerrors_skill, emit, acting_user_resolves, expected_grant, expected_mcp_scopes
+    ateam, aerrors_skill, emit, acting_user_resolves, expected_grant, expected_mcp_scopes, expected_report_actions
 ):
     # The grant is what the run's token carries, so a composition that loses it leaves a scout
     # unable to do the job it was granted for, and one that passes the column through unfiltered
@@ -2566,6 +2630,8 @@ async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_
             skill_name="signals-scout-errors",
             emit=emit,
             write_scopes=["dashboard:write", "feature_flag:write", "notebook:write"],
+            # A hand-edited stored kind outside the allowlist must not reach the stamp the endpoint reads.
+            report_actions=["make_it_green", "get_it_merged"],
         )
 
     await database_sync_to_async(_seed_config, thread_sensitive=False)()
@@ -2605,6 +2671,7 @@ async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_
         thread_sensitive=False,
     )()
     assert metadata.get("write_scopes", []) == expected_grant
+    assert metadata.get("report_actions", []) == expected_report_actions
 
 
 @pytest.mark.asyncio
@@ -2981,10 +3048,10 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
                 model="claude-opus-5", runtime_adapter="claude", reasoning_effort="high", service_tier="priority"
             ),
             AgentRuntime(runtime_adapter="claude", model="claude-opus-5", reasoning_effort="high"),
-            "gpt-6-luna",
+            "gpt-5.6-luna",
             "codex",
             None,
-            None,
+            "flex",
             "active",
         ),
         (
@@ -3691,6 +3758,58 @@ async def test_failure_streak_pauses_scout_once_and_a_success_resumes_it(ateam, 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "case",
+    ["cancelled_with_message", "cancelled_without_message", "cancel_requested_with_message"],
+)
+async def test_stopped_run_finishes_cancelled_and_leaves_the_failure_streak(ateam, aerrors_skill, case):
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    config = await database_sync_to_async(SignalScoutConfig.objects.create)(
+        team=ateam, skill_name="signals-scout-errors", consecutive_failure_count=2
+    )
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(
+        ateam, "partial close-out"
+    )
+
+    async def start(*args, before_task_dispatch=None, **kwargs):
+        await database_sync_to_async(before_task_dispatch)(session.task_run.id)
+        update: dict[str, Any]
+        if case == "cancel_requested_with_message":
+            update = {"state": {"cancel_requested_at": "2026-11-17T12:00:00+00:00"}}
+        else:
+            update = {"status": TaskRun.Status.CANCELLED}
+        await TaskRun.objects.filter(pk=session.task_run.pk).aupdate(**update)
+        if case == "cancelled_without_message":
+            raise RuntimeError("TaskRun reached terminal status=cancelled — no agent message")
+        return session, result
+
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=start),
+        patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
+        _stubbed_spawn_dependencies(),
+    ):
+        run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    assert run_result.status == TaskRun.Status.CANCELLED.value
+    assert run_result.task_run_id == str(session.task_run.id)
+    assert run_result.run_id is not None
+    bridge = await SignalScoutRun.objects.aget(id=run_result.run_id)
+    assert bridge.summary == ""
+    await database_sync_to_async(config.refresh_from_db)()
+    assert config.consecutive_failure_count == 2
+    assert config.status == SignalScoutConfig.Status.ACTIVE
+    finished = [c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_run_finished"]
+    assert len(finished) == 1
+    assert finished[0].kwargs["properties"]["status"] == TaskRun.Status.CANCELLED.value
+    assert finished[0].kwargs["properties"]["task_run_id"] == str(session.task_run.id)
+    if case != "cancelled_without_message":
+        session.end.assert_awaited_once()
+        assert session.end.await_args.kwargs["status"] == "cancelled"
+        session.send_followup_raw.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_run_skipped_when_no_acting_user(ateam, aerrors_skill):
     # When no user can be resolved to act as (no active org member — `resolve_acting_user_id_for_team`
     # returns None), the run must skip rather than crash deep in _spawn_and_run and book a bogus
@@ -4051,7 +4170,7 @@ async def test_activity_returns_completed_outcome(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.parametrize("outcome", ["runner_skipped", "skill_missing", "started"])
+@pytest.mark.parametrize("outcome", ["runner_skipped", "skill_missing", "started", "stopped"])
 async def test_activity_puts_back_claimed_workflow_triggers_when_no_run_starts(ateam, outcome):
     def queue_fires() -> tuple[str, ...]:
         for note in ("Issue #1", "Issue #2"):
@@ -4078,15 +4197,16 @@ async def test_activity_puts_back_claimed_workflow_triggers_when_no_run_starts(a
     async def fake_arun(**_kwargs):
         if outcome == "skill_missing":
             raise SkillNotFoundError("signals-scout-errors")
+        ran = outcome in {"started", "stopped"}
         return RunResult(
-            run_id="abc" if outcome == "started" else None,
-            task_run_id="def" if outcome == "started" else None,
-            status="completed" if outcome == "started" else None,
+            run_id="abc" if ran else None,
+            task_run_id="def" if ran else None,
+            status=("cancelled" if outcome == "stopped" else "completed") if ran else None,
             last_message=None,
             runtime_s=0.0,
             skill_name="signals-scout-errors",
             skill_version=1,
-            skip_reason=None if outcome == "started" else "prior run still in progress",
+            skip_reason=None if ran else "prior run still in progress",
         )
 
     with patch("products.signals.backend.scout_harness.runner.arun_signals_scout", side_effect=fake_arun):
@@ -4095,7 +4215,7 @@ async def test_activity_puts_back_claimed_workflow_triggers_when_no_run_starts(a
             RunSignalsScoutInput(team_id=ateam.id, skill_name="signals-scout-errors", pending_trigger_ids=trigger_ids),
         )
 
-    assert await database_sync_to_async(pending)() == ([] if outcome == "started" else queued_before)
+    assert await database_sync_to_async(pending)() == ([] if outcome in {"started", "stopped"} else queued_before)
 
 
 @pytest.mark.asyncio

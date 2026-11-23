@@ -69,6 +69,7 @@ GITHUB_SECRET_ALERT_RELAY_URL: str | None = get_from_env("GITHUB_SECRET_ALERT_RE
 # PostHog's internal US project is also used by callers running in the EU region.
 POSTHOG_PROJECT_ID: int = get_from_env("POSTHOG_PROJECT_ID", 2, type_cast=int)
 POSTHOG_HOST: str = get_from_env("POSTHOG_HOST", "https://us.posthog.com")
+POSTHOG_USER_DELETION_API_KEY: str = get_from_env("POSTHOG_USER_DELETION_API_KEY", "")
 
 # Internal team on PostHog Cloud US that receives `$ai_generation` /
 # `$ai_embedding` events emitted by PostHog products (PostHog Desktop,
@@ -93,6 +94,15 @@ HOGTOWER_INTERNAL_SECRET: str | None = get_from_env("HOGTOWER_INTERNAL_SECRET", 
 # exchanged at. HOGLAKE_OAUTH_TOKEN_URL unset turns hoglake credentials off (501).
 HOGLAKE_PUBLIC_URL: str | None = get_from_env("HOGLAKE_PUBLIC_URL", optional=True)
 HOGLAKE_OAUTH_TOKEN_URL: str | None = get_from_env("HOGLAKE_OAUTH_TOKEN_URL", optional=True)
+# Gigahog holds each team's data imports in namespace `team_<id>` of the imports catalog, under the data path. The
+# writer exchanges its hogtower `hlw_` credential at the token URL for a token and an S3 session that cover one team.
+# Only organizations with the `managed-warehouse-gigahog-imports` flag write there.
+GIGAHOG_URL: str | None = get_from_env("GIGAHOG_URL", optional=True)
+GIGAHOG_IMPORTS_CATALOG: str | None = get_from_env("GIGAHOG_IMPORTS_CATALOG", optional=True)
+GIGAHOG_IMPORTS_DATA_PATH: str | None = get_from_env("GIGAHOG_IMPORTS_DATA_PATH", optional=True)
+GIGAHOG_IMPORTS_TOKEN_URL: str | None = get_from_env("GIGAHOG_IMPORTS_TOKEN_URL", optional=True)
+GIGAHOG_IMPORTS_CLIENT_ID: str | None = get_from_env("GIGAHOG_IMPORTS_CLIENT_ID", optional=True)
+GIGAHOG_IMPORTS_CLIENT_SECRET: str | None = get_from_env("GIGAHOG_IMPORTS_CLIENT_SECRET", optional=True)
 # Push each member's visible projects, with their warehouse access level, to hogtower, which
 # mints team-scoped hoglake tokens from its copy. Needs HOGTOWER_API_URL.
 HOGTOWER_MEMBER_TEAMS_PUSH_ENABLED: bool = get_from_env(

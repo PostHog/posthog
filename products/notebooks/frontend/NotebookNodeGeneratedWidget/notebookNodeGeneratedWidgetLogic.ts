@@ -27,8 +27,13 @@ import {
     collectDependencyNodeIds,
     collectNotebookFrameNodes,
 } from 'scenes/notebooks/Nodes/notebookNodeContent'
-import { notebookNodeStalenessLogic } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
+import {
+    notebookNodeStalenessLogic,
+    notebookNodeStalenessLogicActions,
+    NotebookStaleReason,
+} from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
 import { notebookOperationsLogic } from 'scenes/notebooks/Notebook/notebookOperationsLogic'
+import { notebookRunLogic, notebookRunLogicActions } from 'scenes/notebooks/Notebook/notebookRunLogic'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { urls } from 'scenes/urls'
 
@@ -111,6 +116,8 @@ export interface notebookNodeGeneratedWidgetLogicValues {
     isDataChainRunning: boolean
     isWorking: boolean
     notebookIsBusy: boolean
+    notebookRunInProgress: boolean
+    staleNodeIds: Record<string, NotebookStaleReason>
     pinError: string | null
     pinInFlight: boolean
     publishDescription: string
@@ -142,7 +149,11 @@ export interface notebookNodeGeneratedWidgetLogicValues {
     workingStatus: WidgetWorkingStatus | null
 }
 
-export interface notebookNodeGeneratedWidgetLogicActions {
+export interface notebookNodeGeneratedWidgetLogicActions
+    extends
+        Pick<notebookNodeStalenessLogicActions, 'dataNodesUpdated' | 'registerWidgetInputs' | 'unregisterWidgetInputs'>,
+        Pick<notebookRunLogicActions, 'runFinished'> {
+    syncWidgetInputs: () => { value: true }
     artifactAvailable: () => { value: true }
     artifactRefreshReady: () => { value: true }
     artifactUnavailable: () => { value: true }
@@ -439,18 +450,30 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
         connect((props: NotebookNodeGeneratedWidgetLogicProps) => ({
             values: [
                 notebookNodeStalenessLogic({ shortId: props.notebookShortId }),
-                ['isChainRunning as isDataChainRunning'],
+                ['isChainRunning as isDataChainRunning', 'staleNodeIds'],
                 notebookOperationsLogic({ shortId: props.notebookShortId }),
                 ['isBusy as notebookIsBusy'],
+                notebookRunLogic({ shortId: props.notebookShortId }),
+                ['isRunning as notebookRunInProgress'],
             ],
             actions: [
                 notebookNodeStalenessLogic({ shortId: props.notebookShortId }),
-                ['abortChain', 'runWidgetDataChain', 'widgetDataChainFinished'],
+                [
+                    'abortChain',
+                    'runWidgetDataChain',
+                    'widgetDataChainFinished',
+                    'dataNodesUpdated',
+                    'registerWidgetInputs',
+                    'unregisterWidgetInputs',
+                ],
+                notebookRunLogic({ shortId: props.notebookShortId }),
+                ['runFinished'],
             ],
         })),
         actions({
             artifactAvailable: true,
             artifactRefreshReady: true,
+            syncWidgetInputs: true,
             artifactUnavailable: true,
             cancelGeneration: true,
             cancellationFailed: (error: string) => ({ error }),
@@ -944,7 +967,50 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                 }, 'elapsedClock')
             }
 
+            const widgetDataDependencies = (
+                content: JSONContent | null
+            ): ReturnType<typeof getWidgetDataDependencies> =>
+                getWidgetDataDependencies(
+                    content,
+                    getWidgetSourceFrameNames(values.activeFrameNames, values.status?.input_bindings ?? {})
+                )
+
             return {
+                syncWidgetInputs: () => {
+                    const { nodeIds } = widgetDataDependencies(props.getContent())
+                    actions.registerWidgetInputs(props.nodeId, nodeIds)
+                },
+                runFinished: ({ run }) => {
+                    if (!values.activeFrameNames.length || !values.selectedVersionId) {
+                        return
+                    }
+                    if (run.status !== 'done') {
+                        const { nodeIds, missingFrameNames } = widgetDataDependencies(props.getContent())
+                        const inputs = run.cells.filter((cell) => nodeIds.includes(cell.node_id))
+                        if (
+                            missingFrameNames.length ||
+                            nodeIds.some((id) => values.staleNodeIds[id]) ||
+                            !inputs.some((cell) => cell.status === 'done') ||
+                            inputs.some((cell) => cell.status && cell.status !== 'done')
+                        ) {
+                            return
+                        }
+                    }
+                    actions.refreshData()
+                },
+                dataNodesUpdated: ({ nodeIds: updatedNodeIds, content }) => {
+                    if (!updatedNodeIds.length || values.notebookRunInProgress || values.dataRefreshInFlight) {
+                        return
+                    }
+                    const { nodeIds, missingFrameNames } = widgetDataDependencies(content ?? props.getContent())
+                    if (
+                        !missingFrameNames.length &&
+                        updatedNodeIds.some((id) => nodeIds.includes(id)) &&
+                        !nodeIds.some((id) => values.staleNodeIds[id])
+                    ) {
+                        actions.refreshData()
+                    }
+                },
                 forkReusableWidget: async () => {
                     if (
                         !props.isEditable ||
@@ -1506,11 +1572,13 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     }
                 },
                 selectVersion: () => {
+                    actions.syncWidgetInputs()
                     if (values.sourceModalOpen) {
                         actions.loadSource()
                     }
                 },
                 statusReceived: ({ status }) => {
+                    actions.syncWidgetInputs()
                     cache.disposables.dispose('statusPoll')
                     const inputBindings = JSON.stringify(status.input_bindings)
                     if (cache.inputBindings !== undefined && cache.inputBindings !== inputBindings) {
@@ -1557,6 +1625,7 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     }
                 },
                 versionsReceived: () => {
+                    actions.syncWidgetInputs()
                     if (
                         values.generationModalOperation !== 'regenerate' ||
                         !values.selectedVersion ||
@@ -1630,7 +1699,8 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
             )
             actions.loadStatus()
         }),
-        beforeUnmount(({ cache }) => {
+        beforeUnmount(({ cache, actions, props }) => {
+            actions.unregisterWidgetInputs(props.nodeId)
             const controllers = cache.requestControllers as Set<AbortController> | undefined
             controllers?.forEach((controller) => controller.abort())
             controllers?.clear()

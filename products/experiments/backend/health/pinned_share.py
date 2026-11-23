@@ -75,10 +75,15 @@ class PinnedShareMeasurement:
     remotely_evaluated_share: float | None
     since: datetime
     team_timezone: str
+    filters_test_accounts: bool
 
     @property
     def share(self) -> float:
         return self.pinned_people / self.variant_people if self.variant_people else 0.0
+
+    def counts(self) -> str:
+        counts = f"{self.pinned_people:,} of about {round(self.variant_people):,}"
+        return f"{counts}, not counting internal and test users" if self.filters_test_accounts else counts
 
 
 @frozen
@@ -119,7 +124,7 @@ class PinnedShareGrade:
             return (
                 f" Since {format_change_time(measurement.since, measurement.team_timezone)}, about "
                 f'{percent(self.share)} of the users who got "{measurement.most_pinned_variant}" matched {them} '
-                f"({measurement.pinned_people:,} of about {round(measurement.variant_people):,})."
+                f"({measurement.counts()})."
             )
         if self.unknown_reason == PinnedShareUnknownReason.EVALUATED_OUTSIDE_FLAG_SERVICE:
             return (
@@ -242,4 +247,5 @@ def _measure(pins: PinnedConditions, traffic: ConditionSetTraffic) -> PinnedShar
         remotely_evaluated_share=traffic.remotely_evaluated_calls / traffic.calls if traffic.calls else None,
         since=traffic.since,
         team_timezone=traffic.team_timezone,
+        filters_test_accounts=traffic.filters_test_accounts,
     )

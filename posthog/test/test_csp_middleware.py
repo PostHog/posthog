@@ -117,18 +117,37 @@ class TestCSPMiddleware(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("opted_in", True, True),
-            ("not_opted_in", False, False),
+            # The inspector server answers any origin, so the policy must not reach it unless the engineer asked for it.
+            ("code_inspector_opted_in", {"DEBUG": True, "DEV_CODE_INSPECTOR": True}, ["http://localhost:5678"], True),
+            (
+                "code_inspector_not_opted_in",
+                {"DEBUG": True, "DEV_CODE_INSPECTOR": False},
+                ["http://localhost:5678"],
+                False,
+            ),
+            # Without these, "Sign in with PostHog cloud" fails at the token request with only "Failed to fetch".
+            (
+                "cloud_oauth_hosts_in_dev",
+                {"DEBUG": True, "DEV_CODE_INSPECTOR": False},
+                ["https://us.posthog.com", "https://eu.posthog.com"],
+                True,
+            ),
+            # Outside DEBUG the sign-in mode does not exist, so naming another region's host only widens the policy.
+            (
+                "cloud_oauth_hosts_outside_dev",
+                {"DEBUG": False, "TEST": False},
+                ["https://us.posthog.com", "https://eu.posthog.com"],
+                False,
+            ),
         ]
     )
-    def test_dev_policy_admits_the_code_inspector_only_when_opted_in(self, _name, opted_in, expected):
-        # The inspector server answers any origin, so the policy must not reach it unless the engineer asked for it.
-        with override_settings(DEBUG=True, DEV_CODE_INSPECTOR=opted_in):
+    def test_dev_connect_src_admits_a_source_only_when_its_gate_is_on(self, _name, overrides, sources, expected):
+        with override_settings(**overrides):
             response = self.client.get("/")
         connect_src = next(
             part for part in response["Content-Security-Policy"].split("; ") if part.startswith("connect-src ")
         ).split()
-        assert ("http://localhost:5678" in connect_src) is expected
+        assert [source in connect_src for source in sources] == [expected] * len(sources)
 
     def test_replay_player_frame_serves_the_mount_node_without_a_session(self):
         # Shared recordings render the player for logged-out viewers.
@@ -594,6 +613,30 @@ class TestAppCspHeaderName(SimpleTestCase):
         assert "'report-sample'" not in other
         # Cloud rebuilds script-src when it narrows the wildcards, so the keyword must be the only difference.
         assert [source for source in exporter if source != "'report-sample'"] == other
+
+    @override_settings(
+        TEST=False,
+        DEBUG=False,
+        E2E_TESTING=False,
+        CLOUD_DEPLOYMENT="US",
+        SITE_URL="https://us.posthog.com",
+        JS_URL=_US_BUNDLE,
+    )
+    def test_only_the_auth_documents_trust_the_workos_signals_script(self) -> None:
+        def view(_request: HttpRequest) -> HttpResponse:
+            return HttpResponse("<html><body>page</body></html>", content_type="text/html; charset=utf-8")
+
+        def app_policy(request_path: str) -> dict[str, list[str]]:
+            response = CSPMiddleware(view)(RequestFactory().get(request_path))
+            (policy,) = [p for p in _parse_policies(response.get("Content-Security-Policy", "")) if "default-src" in p]
+            return policy
+
+        for auth_path in ("/login", "/signup"):
+            policy = app_policy(auth_path)
+            assert "https://js.workos.com/radar/" in policy["script-src"]
+            assert "https://api.workos.com" in policy["connect-src"]
+        home = app_policy("/project/1")
+        assert not [s for s in home["script-src"] + home["connect-src"] if "workos" in s]
 
 
 class TestNarrowedAppPolicy(SimpleTestCase):

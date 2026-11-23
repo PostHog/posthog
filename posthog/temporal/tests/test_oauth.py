@@ -12,7 +12,7 @@ from parameterized import parameterized
 from temporalio.converter import JSONPlainPayloadConverter
 
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
-from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE, SLACK_RUN_SCOPE
+from posthog.scopes.catalog import MCP_BUILT_IN_AGENT_SCOPE, SLACK_RUN_SCOPE
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     CONTEXT_LAYER_INTERNAL_SCOPE,
@@ -336,7 +336,7 @@ class TestResolveScopes(SimpleTestCase):
         assert result.index("feature_flag:read") < result.index("task:write")
 
     def test_internal_scope_objects_disjoint_from_mcp_scope_lists(self) -> None:
-        from posthog.scopes import INTERNAL_API_SCOPE_OBJECTS
+        from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
 
         mcp_scope_objects: set[str] = {scope.split(":", 1)[0] for scope in [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES]}
         internal: set[str] = set(INTERNAL_API_SCOPE_OBJECTS)

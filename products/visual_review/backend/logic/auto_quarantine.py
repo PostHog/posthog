@@ -46,6 +46,7 @@ from posthog.utils import safe_cache_add
 
 from ..db import WRITER_DB
 from ..facade.contracts import (
+    AUTO_EXTEND_REASON_PREFIX,
     AUTO_QUARANTINE_BUDGET_SECONDS,
     AUTO_QUARANTINE_DAILY_LIMIT,
     AUTO_QUARANTINE_DAYS,
@@ -480,6 +481,7 @@ def _recent_automatic_quarantines(repo: Repo, now: datetime) -> int:
     return (
         QuarantinedIdentifier.objects.using(WRITER_DB)
         .filter(repo_id=repo.id, team_id=repo.team_id, source=ActorType.AUTO, created_at__gte=now - timedelta(days=1))
+        .exclude(reason__startswith=AUTO_EXTEND_REASON_PREFIX)
         .count()
     )
 

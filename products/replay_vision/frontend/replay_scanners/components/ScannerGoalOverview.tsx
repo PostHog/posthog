@@ -49,18 +49,6 @@ function modelRoleLabel(model: string, configureStepLabel: string): string {
     return `Change the model on the ${configureStepLabel} step to trade cost for capability.`
 }
 
-/** The activity-filter badge label for each quality mode: how much of the eligible pool it keeps by
- * how eventful each recording is. */
-function activityFilterLabel(mode: string): string {
-    if (mode === 'balanced') {
-        return 'Skip least active'
-    }
-    if (mode === 'focused') {
-        return 'Only most active'
-    }
-    return 'All recordings'
-}
-
 const HedgehogResearch = pngHoggie(researchPng)
 
 /** Says the overview is a draft to check, with the agent's reasoning one click away. */
@@ -511,9 +499,6 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                     <StatRow label="Sampling">
                         {/* Two decimals, because a high-traffic project on a small budget lands near the 0.0001 floor. */}
                         <LemonTag type="muted">{percentage(scanner.sampling_rate, 2)}</LemonTag>
-                    </StatRow>
-                    <StatRow label="Activity filter">
-                        <LemonTag type="muted">{activityFilterLabel(scanner.sampling_mode)}</LemonTag>
                     </StatRow>
                     <StatRow label={freeCreditsOnly ? 'Free credits' : 'Cost estimate'}>
                         {monthlyCredits != null ? (

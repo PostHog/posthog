@@ -35,6 +35,8 @@ export const INGESTION_WARNING_TYPES = {
     // The personhog leader trimmed or rejected a person property update at
     // admission to fit the Postgres size constraint.
     person_properties_size_violation: { category: 'size', severity: 'error' },
+    // The personhog leader refused person properties nested past its parse limit.
+    person_properties_depth_violation: { category: 'size', severity: 'error' },
     person_upsert_message_size_too_large: { category: 'size', severity: 'error' },
     group_upsert_message_size_too_large: { category: 'size', severity: 'error' },
     group_key_too_long: { category: 'size', severity: 'error' },

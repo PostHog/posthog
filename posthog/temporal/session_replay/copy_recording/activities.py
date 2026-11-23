@@ -89,7 +89,7 @@ WHERE team_id = %(source_team_id)s AND `$session_id` = %(session_id)s
     + ")"
 )
 
-# AI tags, highlights and surfacing scores are left out so the copy starts unscanned.
+# AI tags and highlights are left out so the copy starts unscanned.
 COPY_REPLAY_ROW_QUERY = """
 INSERT INTO writable_session_replay_events (
     session_id, team_id, distinct_id, min_first_timestamp, max_last_timestamp,

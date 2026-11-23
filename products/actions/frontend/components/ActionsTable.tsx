@@ -17,6 +17,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable/types'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -38,6 +39,7 @@ export function ActionsTable(): JSX.Element {
     const { actionsList, actionCount, actionsResponseLoading, page, filters, searchTerm } = useValues(actionsLogic)
     const { setSearchTerm, setFilters, setPage, pinAction, unpinAction, loadActions } = useActions(actionsLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
+    const { currentProjectId } = useValues(projectLogic)
 
     const sorting: Sorting | null = filters.ordering
         ? { columnKey: filters.ordering.replace(/^-/, ''), order: filters.ordering.startsWith('-') ? -1 : 1 }
@@ -189,7 +191,10 @@ export function ActionsTable(): JSX.Element {
                                     <LemonButton
                                         status="danger"
                                         onClick={() => {
-                                            void deleteActionWithWarning(action, loadActions)
+                                            if (currentProjectId === null) {
+                                                return
+                                            }
+                                            void deleteActionWithWarning(currentProjectId, action, loadActions)
                                         }}
                                         fullWidth
                                     >
@@ -229,6 +234,7 @@ export function ActionsTable(): JSX.Element {
                 data-attr="actions-table"
                 dataSource={actionsList}
                 sorting={sorting}
+                useURLForSorting={false}
                 onSort={(newSorting) =>
                     setFilters({
                         ordering: newSorting

@@ -12,6 +12,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
+    format_datetime,
     make_tracked_session,
     rest_api_resources,
     validate_via_probe,
@@ -50,13 +51,6 @@ def _headers() -> dict[str, str]:
     return {"Accept": "application/json"}
 
 
-def _format_rfc3339(dt: datetime) -> str:
-    """Format a datetime as RFC 3339 / ISO 8601 with a `Z` suffix, which Deno Deploy's time filters
-    accept. isoformat() emits `+00:00`; we normalize to `Z` to match the API's documented examples."""
-    utc_dt = dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
-    return utc_dt.strftime("%Y-%m-%dT%H:%M:%S") + "Z"
-
-
 def _as_utc_datetime(value: Any) -> datetime | None:
     if isinstance(value, datetime):
         return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
@@ -84,7 +78,7 @@ def _time_window_params(
             start = start - config.incremental_lookback
     else:
         start = now - timedelta(days=config.default_lookback_days or 7)
-    return _format_rfc3339(start), _format_rfc3339(now)
+    return format_datetime(start, "iso_z"), format_datetime(now, "iso_z")
 
 
 def _log_row_id(app_id: str, log: dict[str, Any]) -> str:

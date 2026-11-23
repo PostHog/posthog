@@ -14,6 +14,8 @@ import type {
 } from './generated/api.schemas'
 import type { NewMetricPrefill } from './proposedRows'
 
+export const DATA_CATALOG_DOCS_URL = 'https://posthog.com/docs/semantic-layer'
+
 export const METRIC_NAME_REGEX = /^[A-Za-z][A-Za-z0-9_]*$/
 
 export const HOGQL_METRIC_DEFINITION_KIND = 'HogQLQuery'

@@ -9,10 +9,10 @@ from posthog.exceptions_capture import capture_exception
 from ...facade import contracts
 from ..message_normalizer.errors import RecipeRuntimeError
 from ..message_normalizer.normalizer import RecipeNormalizer
-from ..message_normalizer.run_limits import time_limit
+from ..message_normalizer.run_limits import execution_budget, time_limit
 from ..message_normalizer.values import MISSING, CompatMessage, Value
 from .message_lists import conversation_of
-from .step_messages import to_messages
+from .step_messages import parsed_json_text, to_messages
 
 logger = structlog.get_logger(__name__)
 
@@ -66,7 +66,7 @@ def read_step(
     team_id: int,
 ) -> StepReading:
     # Building the team's normalizer reads and compiles its recipes, so one node read builds it at most once.
-    normalizer = _built_once(build_normalizer)
+    normalizer = built_once(build_normalizer)
     input_prefix, output_prefix = f"{node_id}-in", f"{node_id}-out"
     with time_limit(NODE_READ_TIME_LIMIT_SECONDS):
         # Both sides share one deadline, so a side that is already a conversation renders before any team-recipe check
@@ -102,9 +102,9 @@ class _NormalizerUnavailableError(RecipeRuntimeError):
     pass
 
 
-def _built_once(build: Callable[[], RecipeNormalizer]) -> Callable[[], RecipeNormalizer]:
-    # A build that fails would fail again for the other side, so the failure is kept. The first side raises it and
-    # reports it, and a later side raises a bounded error so the same failure reaches error tracking once.
+def built_once(build: Callable[[], RecipeNormalizer]) -> Callable[[], RecipeNormalizer]:
+    # A build that fails would fail again for the next side or step, so the failure is kept. The first call raises it
+    # and reports it, and a later call raises a bounded error so the same failure reaches error tracking once.
     built: list[RecipeNormalizer | Exception] = []
 
     def normalizer() -> RecipeNormalizer:
@@ -176,9 +176,15 @@ def _team_recipe_or_json_side(
         )
         if team_side is not None:
             return _ReadSide(side=team_side, reading=SideReading(recognized=True))
+        try:
+            with execution_budget():
+                shown = parsed_json_text(value)
+        except RecipeRuntimeError:
+            # Parsing JSON text only changes how the side looks, so running out of budget is not a recipe failure.
+            shown = value
         return _ReadSide(
-            side=contracts.TraceJsonSide(kind="json", value=value),
-            reading=SideReading(recognized=not _is_unreadable_json(value)),
+            side=contracts.TraceJsonSide(kind="json", value=shown),
+            reading=SideReading(recognized=not _is_unreadable_json(shown)),
         )
 
     return _guarded(build, kind, value, team_id=team_id)

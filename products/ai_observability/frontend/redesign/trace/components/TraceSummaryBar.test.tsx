@@ -11,7 +11,8 @@ const NO_EVALS = { passed: 0, failed: 0, unrated: 0, nodes: [] }
 const NO_FEEDBACK = { total: 0, thumbsUp: 0, thumbsDown: 0 }
 
 function renderBar(props: Partial<TraceSummaryBarProps> = {}): void {
-    render(<TraceSummaryBar trace={makeTraceResource()} {...props} />)
+    const trace = makeTraceResource()
+    render(<TraceSummaryBar overview={trace} person={trace.person} {...props} />)
 }
 
 describe('TraceSummaryBar', () => {

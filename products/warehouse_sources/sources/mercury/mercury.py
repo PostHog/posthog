@@ -159,7 +159,15 @@ def _dependent_resource(
     api_key: str, config: MercuryEndpointConfig, fanout: DependentEndpointConfig, team_id: int, job_id: str
 ) -> Resource:
     parent_config = MERCURY_ENDPOINTS[fanout.parent_name]
-    # The per-account children have no server-side time filter, so they are always full refresh.
+    # The page params are set per resource because an unpaginated child (invoice payments)
+    # documents no `limit` or `order` param, while its parent listing pages.
+    child_params: dict[str, Any] = {}
+    if config.paginated:
+        child_params["limit"] = config.page_size
+        if config.sends_order:
+            child_params["order"] = "asc"
+    fanout = dataclasses.replace(fanout, parent_params={"limit": parent_config.page_size, **fanout.parent_params})
+    # The children have no server-side time filter, so they are always full refresh.
     # They carry no resume state: one saved cursor cannot address both the parent and child pages.
     return cast(
         Resource,
@@ -172,7 +180,8 @@ def _dependent_resource(
             team_id=team_id,
             job_id=job_id,
             db_incremental_field_last_value=None,
-            child_params_extra={"order": "asc"},
+            page_size_param=None,
+            child_params_extra=child_params,
             parent_endpoint_extra={
                 "paginator": _paginator(parent_config),
                 "data_selector": parent_config.data_selector,

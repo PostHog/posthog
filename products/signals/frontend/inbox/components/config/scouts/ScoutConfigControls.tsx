@@ -14,6 +14,7 @@ import type {
     SignalScoutConfigApi as SignalScoutConfig,
 } from 'products/signals/frontend/generated/api.schemas'
 import { SignalScoutConfigNetworkAccessEnumApi } from 'products/signals/frontend/generated/api.schemas'
+import { SandboxCustomImagesListOriginProduct } from 'products/tasks/frontend/generated/api.schemas'
 import { MODELS } from 'products/tasks/frontend/modelCatalog.generated'
 
 import type { ScoutSurface } from '../../../inboxAnalytics'
@@ -34,6 +35,7 @@ import {
     timeToDailyCron,
     weeklyCronToDayTime,
 } from '../../../utils/scoutRunsWindow'
+import { CustomImagePicker } from '../CustomImagePicker'
 import { ScoutMcpServersPicker } from './ScoutMcpServersPicker'
 import { ScoutPrecheckSection } from './ScoutPrecheckSection'
 import { ScoutRepositoriesPicker } from './ScoutRepositoriesPicker'
@@ -92,7 +94,7 @@ export function ScoutEnabledSwitch({ config, onUpdate, updating = false }: Scout
                     onChange={(checked) => onUpdate(config.id, { enabled: checked })}
                     loading={updating}
                     disabledReason={updating ? 'Saving scout settings' : undefined}
-                    aria-label={`${config.skill_name} enabled`}
+                    aria-label={`${scoutDisplayName(config)} enabled`}
                 />
             </span>
         </Tooltip>
@@ -153,7 +155,7 @@ export function ScoutConfigForm({
                     // settable BEFORE the enable or the first run reaches the inbox anyway.
                     disabledReason={updating ? 'Saving scout settings' : undefined}
                     onChange={(checked) => onUpdate(config.id, { emit: checked })}
-                    aria-label={`${config.skill_name} write signals to the inbox`}
+                    aria-label={`${scoutDisplayName(config)} write signals to the inbox`}
                 />
             </div>
             <div className="flex items-center justify-between gap-4">
@@ -205,7 +207,7 @@ export function ScoutConfigForm({
                                 onUpdate(config.id, { run_cron_schedule: runCronSchedule })
                             }
                         }}
-                        aria-label={`${config.skill_name} run day`}
+                        aria-label={`${scoutDisplayName(config)} run day`}
                     />
                 </div>
             ) : null}
@@ -305,10 +307,20 @@ export function ScoutConfigForm({
                                 onUpdate(config.id, { model: value })
                             }
                         }}
-                        aria-label={`${config.skill_name} model`}
+                        aria-label={`${scoutDisplayName(config)} model`}
                     />
                 </div>
             ) : null}
+            <CustomImagePicker
+                origin={SandboxCustomImagesListOriginProduct.SignalsScout}
+                value={config.custom_image_id ?? null}
+                onChange={(imageId) => onUpdate(config.id, { custom_image_id: imageId })}
+                label="Image"
+                description="The image this scout's runs start from."
+                defaultLabel="Project default"
+                disabledReason={updating ? 'Saving scout settings' : undefined}
+                dataAttr="scout-custom-image"
+            />
             <div className="flex items-center justify-between gap-4">
                 <div className="flex flex-col min-w-0">
                     <span className="text-xs text-default">Opt out of auto-pause</span>
@@ -322,7 +334,7 @@ export function ScoutConfigForm({
                     checked={config.auto_pause_exempt}
                     disabledReason={controlsDisabledReason}
                     onChange={(checked) => onUpdate(config.id, { auto_pause_exempt: checked })}
-                    aria-label={`${config.skill_name} opt out of auto-pause`}
+                    aria-label={`${scoutDisplayName(config)} opt out of auto-pause`}
                 />
             </div>
             <div className="flex items-center justify-between gap-4">
@@ -341,7 +353,7 @@ export function ScoutConfigForm({
                     // a paused scout.
                     disabledReason={updating ? 'Saving scout settings' : undefined}
                     onChange={(checked) => onUpdate(config.id, { lifecycle_locked: checked })}
-                    aria-label={`${config.skill_name} only the owner can pause or delete`}
+                    aria-label={`${scoutDisplayName(config)} only the owner can pause or delete`}
                 />
             </div>
             <div className="flex flex-col gap-1">
@@ -367,7 +379,7 @@ export function ScoutConfigForm({
                     onChange={(checked) =>
                         onUpdate(config.id, { output_destinations: { ...config.output_destinations, inbox: checked } })
                     }
-                    aria-label={`${config.skill_name} show in inbox`}
+                    aria-label={`${scoutDisplayName(config)} show in inbox`}
                 />
             </div>
             <ScoutSlackDestination
@@ -484,7 +496,7 @@ function ScoutCustomCronField({
                     onChange={setDraft}
                     onBlur={save}
                     onPressEnter={save}
-                    aria-label={`${config.skill_name} cron expression`}
+                    aria-label={`${scoutDisplayName(config)} cron expression`}
                 />
                 {hint ? <span className={`text-[11.5px] ${error ? 'text-danger' : 'text-muted'}`}>{hint}</span> : null}
             </div>

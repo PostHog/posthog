@@ -520,7 +520,7 @@ class McpDispatcher {
                         : undefined
                 )
             case Method.ResourcesList:
-                return this.resourceCatalog.getResourcesList()
+                return this.resourceCatalog.getResourcesList(props.resources)
             case Method.ResourcesRead:
                 return await this.resourceCatalog.readResource(params)
             case Method.PromptsList:

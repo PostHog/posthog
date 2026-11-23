@@ -17,7 +17,9 @@ import type {
 } from 'products/workflows/frontend/generated/api.schemas'
 
 import { EmailMetricsIncidentBanner } from '../../EmailMetricsIncidentBanner'
+import { EmailInfrastructureCard } from './EmailInfrastructureCard'
 import { RATE_LEVEL_TAG, RATE_THRESHOLDS, classifyRate, minimumVolumeToClassify } from './emailRateLevels'
+import { MetricLabel } from './MetricLabel'
 import { workflowsReputationLogic } from './workflowsReputationLogic'
 
 function formatRate(rate: number): string {
@@ -109,33 +111,6 @@ const FINDING_TYPE_LABELS: Record<string, string> = {
 const WINDOW_TOOLTIP = 'Calculated over your workflow email from the last 30 days.'
 const WORKFLOW_LIMIT = 50
 
-function MetricLabel({
-    label,
-    tooltip,
-    description,
-}: {
-    label: string
-    tooltip: string
-    description?: string
-}): JSX.Element {
-    const labelNode = (
-        <Tooltip title={tooltip}>
-            <div className="text-secondary text-xs border-b border-dotted border-current inline-block cursor-default">
-                {label}
-            </div>
-        </Tooltip>
-    )
-    if (!description) {
-        return labelNode
-    }
-    return (
-        <div>
-            {labelNode}
-            <div className="text-secondary text-xs mt-1">{description}</div>
-        </div>
-    )
-}
-
 function AwsFindings({ aws }: { aws: AwsTenantReputationApi }): JSX.Element | null {
     if (aws.findings.length === 0) {
         return null
@@ -168,6 +143,7 @@ const ISP_DISPLAY_NAMES: Record<string, string> = {
     Aol: 'AOL',
     Gmx: 'GMX',
     Icloud: 'Apple iCloud',
+    MailRu: 'Mail.ru',
     __other__: 'Other providers',
 }
 
@@ -459,6 +435,12 @@ function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceA
                         tooltip="The biggest audience this tier allows for a single batch send."
                     />
                     <div className="text-lg font-semibold">{humanFriendlyNumber(allowance.max_batch_audience)}</div>
+                    {allowance.rate_limited_max_batch_audience ? (
+                        <div className="text-xs text-secondary" data-attr="workflows-rate-limited-batch-audience">
+                            Up to {humanFriendlyNumber(allowance.rate_limited_max_batch_audience)} with a sending rate
+                            limit
+                        </div>
+                    ) : null}
                 </div>
             </div>
         </div>
@@ -583,6 +565,7 @@ export function WorkflowsReputation(): JSX.Element {
                     },
                 ]}
             />
+            <EmailInfrastructureCard />
         </div>
     )
 }
