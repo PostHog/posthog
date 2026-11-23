@@ -745,9 +745,7 @@ def handle_tagged_item_change(
 def handle_organization_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
-    # Staff deactivate an organization they are not a member of when it abuses PostHog. The organization can
-    # read its own log, so that one row must not name the staff member or where they acted from. Every other
-    # change by staff stays attributed, and the console audit log keeps who deactivated it.
+    # The organization reads its own log, so a staff member who deactivates it for abuse stays unnamed there.
     deactivated_from_outside = (
         activity == "updated"
         and user is not None

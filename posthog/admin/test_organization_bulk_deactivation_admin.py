@@ -202,7 +202,6 @@ class TestDeactivateOrganizationOperation(BaseTest):
         updates = ActivityLog.objects.filter(
             scope="Organization", item_id=str(self.organization.id), activity="updated"
         )
-        # The organization reads its own log, so the row records what changed but not which staff member acted.
         assert [
             (
                 logged.user_id,
