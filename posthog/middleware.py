@@ -1253,7 +1253,7 @@ def session_expired_login_url(request: HttpRequest) -> str:
     # An API call or a form post is not a page to return to, and login lands on `/` without a `next`.
     if request.method == "GET" and not request.path.startswith("/api/") and next_url != "/":
         params["next"] = next_url
-    return f"{settings.LOGIN_URL}?{urlencode(params, safe='/', quote_via=quote)}"
+    return settings.LOGIN_URL + "?" + urlencode(params, safe="/", quote_via=quote)
 
 
 class SessionAgeMiddleware:
