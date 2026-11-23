@@ -552,7 +552,12 @@ class TestReservedVariantKey(SimpleTestCase):
             serializer = _new_variant_serializer(key, stored_keys)
             assert not serializer.is_valid()
         assert serializer.errors["filters"][0].code == "reserved_variant_key"
-        assert (key or "can't be empty") in str(serializer.errors["filters"][0])
+        expected = (
+            "Variant keys can't be empty. Enter a key for each variant."
+            if key == ""
+            else f'The variant key "{key}" is reserved. Choose another key.'
+        )
+        assert str(serializer.errors["filters"][0]) == expected
 
     @parameterized.expand(
         [
@@ -678,13 +683,25 @@ class TestStringVariantKeyHeldByStoredFlag(BaseTest):
                 [{"key": 1.0, "rollout_percentage": 50}],
                 1,
             ),
+            (
+                "new_number_key_filters_only_save",
+                KEYLESS_VARIANT,
+                [KEYLESS_VARIANT, {"key": 5, "rollout_percentage": 0}],
+                2,
+                {"update_fields": ["filters"]},
+            ),
         ]
     )
     def test_a_save_that_adds_a_variant_without_a_string_key_is_refused(
-        self, _name: str, held_variant: dict[str, Any], written: list[dict[str, Any]], index: int
+        self,
+        _name: str,
+        held_variant: dict[str, Any],
+        written: list[dict[str, Any]],
+        index: int,
+        save_kwargs: dict[str, Any] | None = None,
     ) -> None:
         flag = self._stored_flag(held_variant)
         flag.filters["multivariate"]["variants"] = [{"key": "control", "rollout_percentage": 50}, *written]
         with self.assertRaises(ValidationError) as caught:
-            flag.save()
+            flag.save(**(save_kwargs or {}))
         assert caught.exception.message_dict == {"filters": [f"multivariate.variants[{index}].key must be a string."]}
