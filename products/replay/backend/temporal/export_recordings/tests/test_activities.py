@@ -233,22 +233,26 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("create_denied", "create_multipart_upload", 403, True),
-            ("part_denied_by_kms", "upload_part", 403, True),
-            ("throttled", "create_multipart_upload", 503, False),
+            ("create_denied", "create_multipart_upload", None, 403, "s3:PutObject on s3://customer/exports/"),
+            ("part_denied_by_kms", "upload_part", "key-1", 403, f"kms:Decrypt on arn:aws:kms:us-east-1:{BUCKET_OWNER}"),
+            ("throttled", "create_multipart_upload", None, 503, None),
         ]
     )
-    def test_a_failed_write_check_retries_only_server_errors(
-        self, _: str, call: str, status: int, non_retryable: bool
+    def test_a_failed_write_check_names_the_missing_permission_and_retries_only_server_errors(
+        self, _: str, call: str, kms_key_id: str | None, status: int, missing: str | None
     ) -> None:
+        self.destination = dataclasses.replace(self.destination, kms_key_id=kms_key_id)
         s3 = FakeS3()
-        response: Any = {"Error": {"Code": "x"}, "ResponseMetadata": {"HTTPStatusCode": status}}
-        error = ClientError(response, "CreateMultipartUpload")
+        response: Any = {"Error": {"Code": "AccessDenied"}, "ResponseMetadata": {"HTTPStatusCode": status}}
 
-        with patch.object(s3, call, side_effect=error), pytest.raises(Exception) as raised:
+        with patch.object(s3, call, side_effect=ClientError(response, call)), pytest.raises(Exception) as raised:
             self._check_destination(s3)
 
-        assert isinstance(raised.value, ApplicationError) == non_retryable
+        if missing is None:
+            assert isinstance(raised.value, ClientError)
+        else:
+            assert isinstance(raised.value, ApplicationError) and raised.value.non_retryable
+            assert missing in str(raised.value)
         assert s3.uploads == {}
 
     def test_exports_listed_sessions_with_a_manifest(self) -> None:

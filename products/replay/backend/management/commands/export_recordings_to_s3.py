@@ -27,7 +27,7 @@ from typing import Any
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
-from temporalio.client import WorkflowExecutionStatus
+from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
@@ -288,6 +288,22 @@ async def _last_run_status(workflow_id: str) -> WorkflowExecutionStatus | None:
 
 async def _describe(workflow_id: str) -> str:
     client = await async_connect()
-    description = await client.get_workflow_handle(workflow_id).describe()
+    handle = client.get_workflow_handle(workflow_id)
+    description = await handle.describe()
     status = description.status.name if description.status else "UNKNOWN"
-    return f"{workflow_id}: {status}, started {description.start_time}, closed {description.close_time}"
+    line = f"{workflow_id}: {status}, started {description.start_time}, closed {description.close_time}"
+    if description.status != WorkflowExecutionStatus.FAILED:
+        return line
+    try:
+        await handle.result()
+    except WorkflowFailureError as e:
+        return f"{line}\n{failure_reason(e)}"
+    return line
+
+
+def failure_reason(error: WorkflowFailureError) -> str:
+    """The innermost failure message, which names the failed shards or the missing permission."""
+    cause: BaseException = error
+    while (inner := getattr(cause, "cause", None)) is not None:
+        cause = inner
+    return str(cause)

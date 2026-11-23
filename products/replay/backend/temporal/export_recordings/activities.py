@@ -7,7 +7,7 @@ import functools
 import contextlib
 import collections
 import dataclasses
-from collections.abc import AsyncGenerator, AsyncIterator, Callable, Coroutine
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Coroutine
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
@@ -639,21 +639,41 @@ async def check_destination(input: CheckDestinationInput) -> None:
         )
     except NON_RETRYABLE_ERRORS as e:
         raise ApplicationError(str(e), non_retryable=True) from e
-    # An aborted upload leaves no object. Starting it needs s3:PutObject and kms:GenerateDataKey,
-    # a part needs kms:Decrypt, and the abort needs s3:AbortMultipartUpload.
-    key = f"{run_prefix(input.destination, input.team_id)}/{input.run_id}/preflight"
-    async with customer_bucket(input.team_id, input.destination, input.run_id) as bucket:
+    # A test upload that is aborted leaves no object, and each step needs a different permission.
+    destination = input.destination
+    key = f"{run_prefix(destination, input.team_id)}/{input.run_id}/preflight"
+    put = f"s3:PutObject on s3://{destination.bucket}/{key}"
+    key_arn = (
+        kms_key_arn(destination.kms_key_id, destination.region, destination.role_arn)
+        if destination.kms_key_id
+        else None
+    )
+    async with customer_bucket(input.team_id, destination, input.run_id) as bucket:
+        upload_id = await _probe(
+            bucket.create_multipart_upload(key), f"{put} and kms:GenerateDataKey on {key_arn}" if key_arn else put
+        )
         try:
-            upload_id = await bucket.create_multipart_upload(key)
-            try:
-                await bucket.upload_part(key, upload_id, 1, bytearray(b"preflight"))
-            finally:
-                await bucket.abort_multipart_upload(key, upload_id)
-        except ClientError as e:
-            status = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode", 500)
-            if status < 500 and status != 429:
-                raise ApplicationError(f"The role cannot write to the bucket: {e}", non_retryable=True) from e
+            part = bucket.upload_part(key, upload_id, 1, bytearray(b"preflight"))
+            await _probe(part, f"kms:Decrypt on {key_arn}" if key_arn else put)
+        finally:
+            await _probe(
+                bucket.abort_multipart_upload(key, upload_id),
+                f"s3:AbortMultipartUpload on s3://{destination.bucket}/{key}",
+            )
+
+
+async def _probe[T](call: Awaitable[T], permission: str) -> T:
+    try:
+        return await call
+    except ClientError as e:
+        status = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode", 500)
+        if status >= 500 or status == 429:
             raise
+        if e.response.get("Error", {}).get("Code") == "AccessDenied":
+            message = f"The role needs {permission}. AWS said: {e}"
+        else:
+            message = f"The bucket refused a test upload: {e}"
+        raise ApplicationError(message, non_retryable=True) from e
 
 
 @activity.defn
