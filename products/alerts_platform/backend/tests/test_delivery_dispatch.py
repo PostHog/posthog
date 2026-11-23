@@ -10,6 +10,10 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
+from structlog.testing import capture_logs
+from temporalio.testing import ActivityEnvironment
+
+from posthog.kafka_client.topics import KAFKA_APP_METRICS2
 
 from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.message import AlertMessage
@@ -475,6 +479,35 @@ class TestDeliveryTelemetry(SimpleTestCase):
         assert (log["level"], log["message"]) == (level, message)
         # Two sends in the same microsecond would otherwise share a sorting key and merge into one row.
         assert log["instance_id"] != second_log["instance_id"]
+
+    @parameterized.expand(
+        [("sent", True, None, "info", "Sent"), ("refused", False, "channel_not_found", "error", "channel_not_found")]
+    )
+    def test_a_send_inside_an_activity_is_logged_through_the_temporal_logger(
+        self, _name: str, succeeded: bool, error: str | None, level: str, message: str
+    ) -> None:
+        def send_twice() -> None:
+            for _ in range(2):
+                record_delivery(
+                    team_id=2,
+                    configuration_id="cfg-1",
+                    provider="slack",
+                    destination_id="fn-1",
+                    succeeded=succeeded,
+                    error=error,
+                )
+
+        with (
+            patch("products.alerts_platform.backend.delivery.telemetry.get_producer") as producer,
+            capture_logs() as logs,
+        ):
+            ActivityEnvironment().run(send_twice)
+
+        assert [c.kwargs["topic"] for c in producer.return_value.produce.call_args_list] == [KAFKA_APP_METRICS2] * 2
+        assert [(log["log_source"], log["log_source_id"], log["log_level"], log["event"]) for log in logs] == [
+            ("alert_destination", "fn-1", level, message)
+        ] * 2
+        assert logs[0]["instance_id"] != logs[1]["instance_id"]
 
     def test_a_broken_producer_does_not_fail_a_send_that_already_happened(self) -> None:
         with patch(

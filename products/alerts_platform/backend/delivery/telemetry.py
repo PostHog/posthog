@@ -15,10 +15,12 @@ from typing import Final
 from uuid import uuid4
 
 import structlog
+import temporalio.activity
 
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2, KAFKA_LOG_ENTRIES
 from posthog.models.event.util import format_clickhouse_timestamp
+from posthog.temporal.common.logger import get_produce_only_logger
 
 ALERT_APP_SOURCE: Final = "alert"
 # `log_source_id` is the destination HogFunction id. `instance_id` is unique per send, because `log_entries`
@@ -60,19 +62,37 @@ def record_delivery(
         producer = get_producer(topic=KAFKA_APP_METRICS2)
         producer.produce(topic=KAFKA_APP_METRICS2, data=payload)
         if destination_id is not None:
-            producer = get_producer(topic=KAFKA_LOG_ENTRIES)
-            producer.produce(
-                topic=KAFKA_LOG_ENTRIES,
-                data={
-                    "team_id": team_id,
-                    "log_source": NATIVE_SEND_LOG_SOURCE,
-                    "log_source_id": destination_id,
-                    "instance_id": str(uuid4()),
-                    "timestamp": format_clickhouse_timestamp(timestamp),
-                    "level": "INFO" if succeeded else "ERROR",
-                    "message": NATIVE_SEND_SUCCEEDED_MESSAGE if succeeded else (error or "Failed")[:_MAX_ERROR_LENGTH],
-                },
-            )
+            message = NATIVE_SEND_SUCCEEDED_MESSAGE if succeeded else (error or "Failed")[:_MAX_ERROR_LENGTH]
+            instance_id = str(uuid4())
+            if temporalio.activity.in_activity():
+                # The Temporal logger writes the same `log_entries` row, and also sends it to the logs
+                # product for the teams the worker's internal logs producer covers.
+                send_log = get_produce_only_logger(__name__).bind(
+                    team_id=team_id,
+                    log_source=NATIVE_SEND_LOG_SOURCE,
+                    log_source_id=destination_id,
+                    instance_id=instance_id,
+                )
+                if succeeded:
+                    send_log.info(message)
+                else:
+                    send_log.error(message)
+            else:
+                # Outside an activity the Temporal logger has no workflow run and drops the row, so an
+                # inline send writes `log_entries` directly.
+                producer = get_producer(topic=KAFKA_LOG_ENTRIES)
+                producer.produce(
+                    topic=KAFKA_LOG_ENTRIES,
+                    data={
+                        "team_id": team_id,
+                        "log_source": NATIVE_SEND_LOG_SOURCE,
+                        "log_source_id": destination_id,
+                        "instance_id": instance_id,
+                        "timestamp": format_clickhouse_timestamp(timestamp),
+                        "level": "INFO" if succeeded else "ERROR",
+                        "message": message,
+                    },
+                )
     except Exception:
         # A counter is not worth failing a send that already reached the provider.
         logger.exception("Failed to emit alert delivery metrics", team_id=team_id, alert_id=configuration_id)
