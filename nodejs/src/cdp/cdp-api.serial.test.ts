@@ -3410,6 +3410,8 @@ describe('CDP API', () => {
                         [202, jobs[0]],
                         [202, jobs[0]],
                     ])
+                    expect(responses.map((res) => res.body.replayed)).toContain(false)
+                    expect(responses.map((res) => typeof res.body.replayed)).toEqual(['boolean', 'boolean'])
                 })
             })
         })
