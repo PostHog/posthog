@@ -48,7 +48,7 @@ class ExportRecordingsWorkflow(PostHogWorkflow):
                 check_destination,
                 CheckDestinationInput(team_id=input.team_id, destination=input.destination, run_id=input.run_id),
                 start_to_close_timeout=timedelta(minutes=2),
-                retry_policy=common.RetryPolicy(maximum_attempts=3),
+                retry_policy=common.RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=10)),
             )
         plan = shard_plan(input)
         batch = plan[input.next_shard : input.next_shard + MAX_SHARDS_PER_RUN]

@@ -70,7 +70,7 @@ A quote is valid for 7 days. After that, quote again: more data moves to Glacier
 
 Before the start, confirm with the person that the customer has:
 
-- an IAM role (note its ARN) that trusts PostHog's recording-exports role for the region and requires the external ID `posthog-<organization id>` (the README lists the ARNs),
+- an IAM role whose ARN came from an admin of that customer's PostHog organization, not from an unverified sender, that trusts PostHog's recording-exports role for the region and requires the external ID `posthog-<organization id>` (the README lists the ARNs),
 - a role that allows `s3:PutObject` and `s3:AbortMultipartUpload` on the bucket and prefix,
 - for a KMS-encrypted bucket, KMS permissions on the role and a key policy that allows the role, plus the key ID or ARN (not an alias),
 - the bucket in the same AWS account as the role,
@@ -97,7 +97,9 @@ python manage.py export_recordings_to_s3 --status <workflow id>
 ```
 
 A large export runs for hours or days.
-A run checks the role and a test upload (one small part, then aborted, so nothing is left) before its first shard. A failure there, or any credentials failure, is permanent: the customer must fix the role, then you start a new run from a fresh quote.
+A run checks the role and a test upload (one small part, then aborted, so nothing is left) before its first shard.
+A failure there names the missing permission in `--status`. Once the customer fixes the role, start the same quote again while it is valid.
+A credentials failure during a shard is permanent in the same way.
 Other shard failures retry on their own and resume from their last checkpoint.
 
 A shard that still fails after its retries does not stop the run. The run writes its summary and then ends as failed, with the failed shards in the error and in `summary.json` under `failed_shards`.

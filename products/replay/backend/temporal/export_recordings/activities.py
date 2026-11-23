@@ -350,8 +350,9 @@ def role_account_id(aws_role_arn: str) -> str:
 
 def destination_error(destination: ExportDestination) -> str | None:
     """Return why the destination is not allowed, or None."""
-    if not AWS_ROLE_ARN_RE.match(destination.role_arn):
-        return f"{destination.role_arn!r} is not a valid IAM role ARN"
+    # The session policy and KMS key ARNs are built for the aws partition only.
+    if not AWS_ROLE_ARN_RE.match(destination.role_arn) or not destination.role_arn.startswith("arn:aws:"):
+        return f"{destination.role_arn!r} is not a valid IAM role ARN in the aws partition"
     if not BUCKET_NAME_PATTERN.match(destination.bucket):
         return f"{destination.bucket!r} is not a valid S3 bucket name"
     if any(character in destination.prefix for character in "*?"):
@@ -626,6 +627,8 @@ def count(lines: list[ManifestLine]) -> ExportTotals:
 @activity.defn
 async def check_destination(input: CheckDestinationInput) -> None:
     """Fails the run before any shard starts when the customer's role is unsafe or cannot write to the bucket."""
+    if not settings.RECORDING_EXPORT_S3_EXTERNAL_ROLE_ARN:
+        raise ApplicationError("RECORDING_EXPORT_S3_EXTERNAL_ROLE_ARN is not set on this worker", non_retryable=True)
     team = await Team.objects.aget(id=input.team_id)
     try:
         # Refuses a role that another organization could make us assume, because it lacks the external ID condition.
@@ -636,7 +639,8 @@ async def check_destination(input: CheckDestinationInput) -> None:
             external_id(team.organization_id),
         )
     except IntegrationError as e:
-        raise ApplicationError(str(e), non_retryable=True) from e
+        # Retryable, because the same error covers STS outages and a trust policy that IAM has not propagated yet.
+        raise ApplicationError(str(e)) from e
     # A test upload that is aborted leaves no object, and each step needs a different permission.
     destination = input.destination
     key = f"{run_prefix(destination, input.team_id)}/{input.run_id}/preflight"
@@ -649,11 +653,14 @@ async def check_destination(input: CheckDestinationInput) -> None:
         upload_id = await _probe(bucket.create_multipart_upload(key), create_needs)
         try:
             await _probe(bucket.upload_part(key, upload_id, 1, bytearray(b"preflight")), part_needs)
-        finally:
-            await _probe(
-                bucket.abort_multipart_upload(key, upload_id),
-                f"s3:AbortMultipartUpload on s3://{destination.bucket}/{key}",
-            )
+        except BaseException:
+            # The part's error names the permission at fault, so a failed abort must not replace it.
+            with contextlib.suppress(Exception):
+                await bucket.abort_multipart_upload(key, upload_id)
+            raise
+        await _probe(
+            bucket.abort_multipart_upload(key, upload_id), f"s3:AbortMultipartUpload on s3://{destination.bucket}/{key}"
+        )
 
 
 async def _probe[T](call: Awaitable[T], permission: str) -> T:
@@ -664,7 +671,7 @@ async def _probe[T](call: Awaitable[T], permission: str) -> T:
         if status >= 500 or status == 429:
             raise
         if e.response.get("Error", {}).get("Code") == "AccessDenied":
-            message = f"The role needs {permission}. AWS said: {e}"
+            message = f"The role needs {permission}, in the AWS account that owns the bucket. AWS said: {e}"
         else:
             message = f"The bucket refused a test upload: {e}"
         raise ApplicationError(message, non_retryable=True) from e

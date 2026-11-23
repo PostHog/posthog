@@ -64,6 +64,7 @@ def _list(input: ExportShardInput) -> list[SessionRow]:
 
 ACTIVITIES = "products.replay.backend.temporal.export_recordings.activities"
 ROLE_ARN = "arn:aws:iam::123456789012:role/replay-export"
+OUR_ROLE_ARN = "arn:aws:iam::210987654321:role/posthog-external-recording-exports"
 EXPECTED_BLOCKS = b"\x00\x00\x00\x0abb:100-149" + b"\x00\x00\x00\x06aa:0-9"
 BUCKET_OWNER = "123456789012"
 
@@ -198,7 +199,9 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
 
     def _check_destination(
         self, s3: FakeS3, validation_error: Exception | None = None, assume: AsyncMock | None = None
-    ) -> None:
+    ) -> MagicMock:
+        validate = MagicMock(side_effect=validation_error)
+
         @contextlib.asynccontextmanager
         async def s3_client(*_: Any, **__: Any) -> AsyncIterator[FakeS3]:
             yield s3
@@ -208,26 +211,30 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
             await ActivityEnvironment().run(check_destination, check)
 
         with (
-            patch(f"{ACTIVITIES}.validate_aws_role_arn", side_effect=validation_error),
+            self.settings(RECORDING_EXPORT_S3_EXTERNAL_ROLE_ARN=OUR_ROLE_ARN),
+            patch(f"{ACTIVITIES}.validate_aws_role_arn", validate),
             patch(f"{ACTIVITIES}.get_credentials_using_user_aws_role", assume or AsyncMock()),
             patch(f"{ACTIVITIES}.s3_client", s3_client),
         ):
             async_to_sync(run_check)()
+        return validate
 
-    def test_a_role_that_fails_validation_is_never_assumed(self) -> None:
+    def test_a_role_that_fails_validation_is_never_assumed_and_is_retried(self) -> None:
         assume = AsyncMock()
 
         with pytest.raises(ApplicationError) as raised:
             self._check_destination(FakeS3(), IntegrationError("no external id condition"), assume)
 
-        assert raised.value.non_retryable
+        # validate_aws_role_arn raises the same error for STS outages, so Temporal retries it a few times.
+        assert not raised.value.non_retryable
         assume.assert_not_called()
 
     def test_the_write_check_leaves_nothing_in_the_bucket(self) -> None:
         s3 = FakeS3()
 
-        self._check_destination(s3)
+        validate = self._check_destination(s3)
 
+        validate.assert_called_once_with(ROLE_ARN, OUR_ROLE_ARN, f"posthog-{self.organization.id}")
         assert (s3.objects, s3.uploads) == ({}, {})
         assert list(s3.request_args) == [f"customer/exports/{self.team.pk}/run-1/preflight"]
 
@@ -254,6 +261,18 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
             assert isinstance(raised.value, ApplicationError) and raised.value.non_retryable
             assert missing in str(raised.value)
         assert s3.uploads == {}
+
+    def test_a_failed_abort_keeps_the_part_error(self) -> None:
+        self.destination = dataclasses.replace(self.destination, kms_key_id="key-1")
+        s3 = FakeS3()
+        denied: Any = {"Error": {"Code": "AccessDenied"}, "ResponseMetadata": {"HTTPStatusCode": 403}}
+
+        with (
+            patch.object(s3, "upload_part", side_effect=ClientError(denied, "UploadPart")),
+            patch.object(s3, "abort_multipart_upload", side_effect=ClientError(denied, "AbortMultipartUpload")),
+            pytest.raises(ApplicationError, match="kms:Decrypt"),
+        ):
+            self._check_destination(s3)
 
     def test_exports_listed_sessions_with_a_manifest(self) -> None:
         totals = self._run()
