@@ -44,6 +44,8 @@ from products.feature_flags.backend.flag_evaluations_mode import (
     UnknownIdsError,
     collapse_recorded_changes,
     find_unknown_organization_ids,
+    is_recorded_change,
+    parse_recorded_changes,
     restore_organizations_flag_evaluations_configs,
     select_organization_ids,
     set_organizations_flag_evaluations_mode,
@@ -78,7 +80,7 @@ def _read_ids_file(path: Path) -> list[UUID]:
                 except ValueError as error:
                     hint = (
                         ". It is a --write-changed-ids line, and --restore-from-changed-ids-file reads that file"
-                        if _is_recorded_change(text)
+                        if is_recorded_change(text)
                         else ""
                     )
                     raise CommandError(f"{path}:{line_number}: {text!r} is not an organization id{hint}") from error
@@ -87,47 +89,28 @@ def _read_ids_file(path: Path) -> list[UUID]:
     return ids
 
 
-def _is_recorded_change(text: str) -> bool:
-    try:
-        RecordedChange.from_line(text)
-    except ValueError:
-        return False
-    return True
-
-
 def _parse_changed_ids(content: str, path: Path) -> tuple[list[RecordedChange], str]:
-    """The records of a changed-ids file, and its unfinished last line, or "" when it has none.
-
-    An unfinished last line has no final newline and is neither a record nor a bare id. A run syncs a chunk's lines
-    to disk before the chunk commits, so such a line comes from a chunk that never committed. Any other line that is
-    not a record fails the run.
-    """
-    body, unfinished = content, ""
-    if content and not content.endswith("\n"):
-        start = content.rfind("\n") + 1
-        tail = content[start:].strip()
-        if not _is_recorded_change(tail) and not _is_uuid(tail):
-            body, unfinished = content[:start], content[start:]
-    changes = []
-    for line_number, line in enumerate(body.splitlines(), start=1):
-        if not (text := line.strip()):
-            continue
-        try:
-            changes.append(RecordedChange.from_line(text))
-        except ValueError as error:
-            raise CommandError(
-                f"{path}:{line_number}: {error}. Only a --write-changed-ids file records the settings from before "
-                "the run. Roll back an older file of bare ids with --mode 0 --allow-downgrade --organization-ids-file."
-            ) from error
-    return changes, unfinished
-
-
-def _is_uuid(text: str) -> bool:
     try:
-        UUID(text)
-    except ValueError:
-        return False
-    return True
+        return parse_recorded_changes(content)
+    except ValueError as error:
+        raise CommandError(
+            f"{path}:{error}. Only a --write-changed-ids file records the settings from before the run. Roll back an "
+            "older file of bare ids with --mode 0 --allow-downgrade --organization-ids-file."
+        ) from error
+
+
+def _lock_or_refuse(file: TextIO, path: Path, operation: int) -> None:
+    """Lock the file without waiting. A run takes an exclusive lock and a restore takes a shared one, so a restore
+    never reads a file that a run still appends to. A failure closes the file."""
+    try:
+        fcntl.flock(file.fileno(), operation | fcntl.LOCK_NB)
+    except BlockingIOError as error:
+        file.close()
+        raise CommandError(f"Another run is using {path}") from error
+
+
+def _experiments_suffix(count: int | None) -> str:
+    return "" if count is None else f", {count} experiment(s) reading $feature_flag_called from events"
 
 
 def _describe(config: FlagEvaluationsConfig) -> str:
@@ -315,17 +298,7 @@ class Command(BaseCommand):
                         # commit lost.
                         if changed_ids_file is not None:
                             recorded_changes = [
-                                RecordedChange(
-                                    organization_id=change.organization_id,
-                                    before=FlagEvaluationsConfig(
-                                        mode=change.current_mode, keeps_events_writes=change.current_keeps_events_writes
-                                    ),
-                                    after=FlagEvaluationsConfig(
-                                        mode=change.target_mode, keeps_events_writes=change.target_keeps_events_writes
-                                    ),
-                                )
-                                for change in changes
-                                if change.changed
+                                RecordedChange.from_mode_change(change) for change in changes if change.changed
                             ]
                             configs_before_chunk = {
                                 recorded.organization_id: recorded.before for recorded in recorded_changes
@@ -360,11 +333,13 @@ class Command(BaseCommand):
                 f"Left {left_above_count} organization(s) above mode {mode.value}. "
                 "Pass --allow-downgrade to lower them."
             )
-        if experiments_needing_flag_calls_count:
+        self._write_experiments_warning(experiments_needing_flag_calls_count)
+
+    def _write_experiments_warning(self, count: int) -> None:
+        if count:
             self.stdout.write(
-                f"{experiments_needing_flag_calls_count} running experiment(s) read $feature_flag_called from events "
-                "through an exposure action, an activation, or a metric. Those reads miss the calls that only "
-                "flag_evaluations holds."
+                f"{count} running experiment(s) read $feature_flag_called from events through an exposure action, an "
+                "activation, or a metric. Those reads miss the calls that only flag_evaluations holds."
             )
 
     def _restore(self, options: dict[str, Any]) -> None:
@@ -388,12 +363,7 @@ class Command(BaseCommand):
         except OSError as error:
             raise CommandError(f"Cannot read {path}: {error}") from error
         with file:
-            # A run that still appends to the file holds an exclusive lock on it. The shared lock refuses the restore
-            # until that run ends, and keeps a new run from starting until the restore ends.
-            try:
-                fcntl.flock(file.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
-            except BlockingIOError as error:
-                raise CommandError(f"Another run is writing to {path}") from error
+            _lock_or_refuse(file, path, fcntl.LOCK_SH)
             changes, unfinished = _parse_changed_ids(file.read(), path)
             if unfinished:
                 self.stdout.write(f"Skipping the unfinished last line of {path}, from a chunk that never committed.")
@@ -447,19 +417,13 @@ class Command(BaseCommand):
             if not per_organization_lines:
                 for restore in changed_outside:
                     self._write_restore_line(restore, count_experiments=False)
-        if experiments_needing_flag_calls_count:
-            self.stdout.write(
-                f"{experiments_needing_flag_calls_count} running experiment(s) read $feature_flag_called from events "
-                "through an exposure action, an activation, or a metric. Those reads miss the calls that only "
-                "flag_evaluations holds."
-            )
+        self._write_experiments_warning(experiments_needing_flag_calls_count)
 
     def _write_restore_line(self, restore: OrganizationRestore, *, count_experiments: bool) -> None:
-        experiments = (
-            f", {restore.running_experiments_needing_flag_calls_in_events} experiment(s) reading $feature_flag_called "
-            "from events"
+        experiments = _experiments_suffix(
+            restore.running_experiments_needing_flag_calls_in_events
             if count_experiments and restore.outcome == RestoreOutcome.RESTORED
-            else ""
+            else None
         )
         self.stdout.write(
             f"  organization {restore.organization_id}{experiments}: {_describe(restore.current)} -> "
@@ -493,11 +457,7 @@ class Command(BaseCommand):
             raise CommandError(f"Cannot open {path}: {error}") from error
         # Failure recovery truncates the file to where its chunk started, which would erase ids that another
         # run appended after that point.
-        try:
-            fcntl.flock(file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as error:
-            file.close()
-            raise CommandError(f"Another run is writing to {path}") from error
+        _lock_or_refuse(file, path, fcntl.LOCK_EX)
         file.seek(0)
         listed = file.read()
         try:
@@ -553,11 +513,8 @@ class Command(BaseCommand):
             outcome += (
                 f", events writes kept: {change.current_keeps_events_writes} -> {change.target_keeps_events_writes}"
             )
-        experiments = (
-            f", {change.running_experiments_needing_flag_calls_in_events} experiment(s) reading $feature_flag_called "
-            "from events"
-            if count_experiments
-            else ""
+        experiments = _experiments_suffix(
+            change.running_experiments_needing_flag_calls_in_events if count_experiments else None
         )
         self.stdout.write(
             f"  organization {change.organization_id} (created {change.organization_created_at:%Y-%m-%d}, "

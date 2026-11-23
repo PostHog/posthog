@@ -14,10 +14,13 @@ from posthog.models import Organization, Team
 
 from products.experiments.backend.facade import count_running_experiments_needing_flag_calls_in_events
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import FlagEvaluationsConfig, get_organization_flag_evaluations_configs
+from products.feature_flags.backend.facade.flags import FlagEvaluationsConfig
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 ID_LOOKUP_BATCH_SIZE = 10_000
+
+# Readers treat an organization without a config row as on EVENTS, with events writes not kept.
+NO_ROW_CONFIG = FlagEvaluationsConfig(mode=FlagEvaluationsMode.EVENTS, keeps_events_writes=False)
 
 FLAG_EVALUATIONS_MODES_HELP = (
     "0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects "
@@ -91,6 +94,56 @@ class RecordedChange:
             ),
         )
 
+    @classmethod
+    def from_mode_change(cls, change: OrganizationModeChange) -> "RecordedChange":
+        return cls(
+            organization_id=change.organization_id,
+            before=FlagEvaluationsConfig(
+                mode=change.current_mode, keeps_events_writes=change.current_keeps_events_writes
+            ),
+            after=FlagEvaluationsConfig(mode=change.target_mode, keeps_events_writes=change.target_keeps_events_writes),
+        )
+
+
+def is_recorded_change(text: str) -> bool:
+    try:
+        RecordedChange.from_line(text)
+    except ValueError:
+        return False
+    return True
+
+
+def _is_uuid(text: str) -> bool:
+    try:
+        UUID(text)
+    except ValueError:
+        return False
+    return True
+
+
+def parse_recorded_changes(content: str) -> tuple[list[RecordedChange], str]:
+    """The records in the text of a --write-changed-ids file, and its unfinished last line, or "" when it has none.
+
+    An unfinished last line has no final newline and is neither a record nor a bare id. A run syncs a chunk's lines
+    to disk before the chunk commits, so such a line comes from a chunk that never committed. Any other line that is
+    not a record raises ValueError, whose message starts with the line number.
+    """
+    body, unfinished = content, ""
+    if content and not content.endswith("\n"):
+        start = content.rfind("\n") + 1
+        tail = content[start:].strip()
+        if not is_recorded_change(tail) and not _is_uuid(tail):
+            body, unfinished = content[:start], content[start:]
+    changes = []
+    for line_number, line in enumerate(body.splitlines(), start=1):
+        if not (text := line.strip()):
+            continue
+        try:
+            changes.append(RecordedChange.from_line(text))
+        except ValueError as error:
+            raise ValueError(f"{line_number}: {error}") from error
+    return changes, unfinished
+
 
 @frozen
 class RecordedHistory:
@@ -117,16 +170,13 @@ def collapse_recorded_changes(changes: Iterable[RecordedChange]) -> dict[UUID, R
     reached: dict[UUID, set[FlagEvaluationsConfig]] = {}
     for change in changes:
         previous = histories.get(change.organization_id)
-        if previous is None:
-            histories[change.organization_id] = RecordedHistory(before=change.before, after=change.after, unbroken=True)
-            reached[change.organization_id] = {change.before, change.after}
-            continue
+        seen = reached.setdefault(change.organization_id, {change.before})
         histories[change.organization_id] = RecordedHistory(
-            before=previous.before,
+            before=change.before if previous is None else previous.before,
             after=change.after,
-            unbroken=previous.unbroken and change.before in reached[change.organization_id],
+            unbroken=(previous is None or previous.unbroken) and change.before in seen,
         )
-        reached[change.organization_id].add(change.after)
+        seen.add(change.after)
     return histories
 
 
@@ -134,7 +184,7 @@ class RestoreOutcome(StrEnum):
     RESTORED = "restored"
     # The organization already has its settings from before the runs, such as after a restore that ran before.
     ALREADY_RESTORED = "already restored"
-    # Something outside the recorded runs changed the organization, so the restore keeps its settings.
+    # Something outside the recorded runs changed the organization. The restore keeps its settings.
     CHANGED_OUTSIDE_THE_RUNS = "changed outside the recorded runs, kept"
 
 
@@ -144,7 +194,7 @@ class OrganizationRestore:
     current: FlagEvaluationsConfig
     target: FlagEvaluationsConfig
     outcome: RestoreOutcome
-    # As on OrganizationModeChange. Counted only for a restored organization, and 0 when counting is off.
+    # The same count as on OrganizationModeChange. The restore counts it only for an organization it restores.
     running_experiments_needing_flag_calls_in_events: int
 
 
@@ -190,46 +240,43 @@ def get_organizations_of_teams(team_ids: Collection[int]) -> list[Organization]:
     return get_organizations(set(organization_id_by_team_id.values()))
 
 
-def _lock_organization_configs(organization_ids: Collection[UUID]) -> None:
-    """Lock the organizations' config rows in id order, the order every writer of these rows locks them in."""
-    list(
-        OrganizationFeatureFlagsConfig.objects.select_for_update()
-        .filter(organization_id__in=organization_ids)
-        .order_by("organization_id")
-        .values_list("organization_id", flat=True)
+def _read_stored_configs(organization_ids: Collection[UUID], *, lock: bool) -> dict[UUID, FlagEvaluationsConfig]:
+    """The config of each listed organization that has a config row.
+
+    With `lock`, the read locks those rows in id order until the transaction ends. Every writer of these rows locks
+    them in that order, so two writers cannot deadlock, and the rows keep the configs the read returned.
+    """
+    rows = OrganizationFeatureFlagsConfig.objects.filter(organization_id__in=organization_ids).order_by(
+        "organization_id"
     )
+    if lock:
+        rows = rows.select_for_update()
+    return {
+        organization_id: FlagEvaluationsConfig(mode=mode, keeps_events_writes=keeps_events_writes)
+        for organization_id, mode, keeps_events_writes in rows.values_list(
+            "organization_id", "flag_evaluations_mode", "keep_writing_flag_calls_to_events"
+        )
+    }
 
 
-def _restore_configs(histories: Mapping[UUID, RecordedHistory]) -> set[UUID]:
-    """Set each organization's row back to its history's `before`, only where the row still holds its history's
-    `after`. Returns the ids of the rows it changed. It writes no row that is missing."""
+def _restore_configs(histories: Mapping[UUID, RecordedHistory]) -> None:
+    """Set each organization's row back to its history's `before`. The caller holds the rows' locks."""
     if not histories:
-        return set()
+        return
     table = OrganizationFeatureFlagsConfig._meta.db_table
     query = f"""
         UPDATE {table}
            SET flag_evaluations_mode = restore.mode,
                keep_writing_flag_calls_to_events = restore.kept
-          FROM unnest(%s::uuid[], %s::smallint[], %s::boolean[], %s::smallint[], %s::boolean[])
-               AS restore(organization_id, mode, kept, expected_mode, expected_kept)
+          FROM unnest(%s::uuid[], %s::smallint[], %s::boolean[]) AS restore(organization_id, mode, kept)
          WHERE {table}.organization_id = restore.organization_id
-           AND {table}.flag_evaluations_mode = restore.expected_mode
-           AND {table}.keep_writing_flag_calls_to_events = restore.expected_kept
-        RETURNING {table}.organization_id
     """
-    organization_ids = sorted(histories)
+    rows = [
+        (str(organization_id), int(history.before.mode), history.before.keeps_events_writes)
+        for organization_id, history in sorted(histories.items())
+    ]
     with connection.cursor() as cursor:
-        cursor.execute(
-            query,
-            [
-                [str(organization_id) for organization_id in organization_ids],
-                [int(histories[organization_id].before.mode) for organization_id in organization_ids],
-                [histories[organization_id].before.keeps_events_writes for organization_id in organization_ids],
-                [int(histories[organization_id].after.mode) for organization_id in organization_ids],
-                [histories[organization_id].after.keeps_events_writes for organization_id in organization_ids],
-            ],
-        )
-        return {row[0] for row in cursor.fetchall()}
+        cursor.execute(query, [list(column) for column in zip(*rows)])
 
 
 def restore_organizations_flag_evaluations_configs(
@@ -237,55 +284,50 @@ def restore_organizations_flag_evaluations_configs(
 ) -> list[OrganizationRestore]:
     """Put each organization back to the settings it had before the recorded runs, in the order given.
 
-    An organization is restored only while it still has the settings the last run left it with, and its records
-    chain. Any other organization changed outside the runs, and the restore keeps its settings. An organization that
-    already has its settings from before the runs is left alone, so a restore that runs again changes nothing more.
+    The restore writes an organization only while the organization has the settings the last run left it with and
+    its records chain. It keeps the settings of any other organization, which changed outside the runs. It leaves an
+    organization that already has its settings from before the runs alone, so a restore that runs again changes
+    nothing more.
 
     Opens no transaction. The caller wraps the call in one, because the row locks it takes last until the
     transaction ends.
     """
-    organization_ids = list(histories)
-    if not dry_run:
-        # The UPDATE locks rows in the order its plan visits them. Locking them in id order first keeps the restore
-        # from deadlocking with another writer, and holds the rows still between the read and the write.
-        _lock_organization_configs(organization_ids)
-    current_configs = get_organization_flag_evaluations_configs(organization_ids)
+    # The UPDATE locks rows in the order its plan visits them. The read locks them first, in id order.
+    stored_configs = _read_stored_configs(list(histories), lock=not dry_run)
 
-    def outcome_from_read(organization_id: UUID) -> RestoreOutcome:
-        history, current = histories[organization_id], current_configs[organization_id]
-        if current == history.before:
+    def outcome_of(organization_id: UUID) -> RestoreOutcome:
+        history, stored = histories[organization_id], stored_configs.get(organization_id)
+        if (stored or NO_ROW_CONFIG) == history.before:
             return RestoreOutcome.ALREADY_RESTORED
-        if history.unbroken and current == history.after:
+        # A run wrote a row for every organization it recorded. A missing row means something outside the runs
+        # deleted it.
+        if stored is not None and history.unbroken and stored == history.after:
             return RestoreOutcome.RESTORED
         return RestoreOutcome.CHANGED_OUTSIDE_THE_RUNS
 
-    outcomes = {organization_id: outcome_from_read(organization_id) for organization_id in organization_ids}
-    restorable = {
-        organization_id: histories[organization_id]
-        for organization_id, outcome in outcomes.items()
-        if outcome == RestoreOutcome.RESTORED
-    }
-    restored_ids = set(restorable) if dry_run else _restore_configs(restorable)
-    results = []
-    for organization_id in organization_ids:
-        outcome = outcomes[organization_id]
-        if outcome == RestoreOutcome.RESTORED and organization_id not in restored_ids:
-            # The read saw a config that the row does not hold, which happens only when the organization has no row.
-            outcome = RestoreOutcome.CHANGED_OUTSIDE_THE_RUNS
-        results.append(
-            OrganizationRestore(
-                organization_id=organization_id,
-                current=current_configs[organization_id],
-                target=histories[organization_id].before,
-                outcome=outcome,
-                running_experiments_needing_flag_calls_in_events=(
-                    count_running_experiments_needing_flag_calls_in_events(organization_id)
-                    if count_experiments and outcome == RestoreOutcome.RESTORED
-                    else 0
-                ),
-            )
+    outcomes = {organization_id: outcome_of(organization_id) for organization_id in histories}
+    if not dry_run:
+        _restore_configs(
+            {
+                organization_id: histories[organization_id]
+                for organization_id, outcome in outcomes.items()
+                if outcome == RestoreOutcome.RESTORED
+            }
         )
-    return results
+    return [
+        OrganizationRestore(
+            organization_id=organization_id,
+            current=stored_configs.get(organization_id, NO_ROW_CONFIG),
+            target=history.before,
+            outcome=outcomes[organization_id],
+            running_experiments_needing_flag_calls_in_events=(
+                count_running_experiments_needing_flag_calls_in_events(organization_id)
+                if count_experiments and outcomes[organization_id] == RestoreOutcome.RESTORED
+                else 0
+            ),
+        )
+        for organization_id, history in histories.items()
+    ]
 
 
 def _upsert_modes(
@@ -357,11 +399,12 @@ def set_organizations_flag_evaluations_mode(
     organization_ids = [organization.id for organization in organizations]
     if len(set(organization_ids)) != len(organization_ids):
         raise ValueError("Each organization must appear once")
-    if not dry_run:
-        # The lock holds each row at the config the read reports, so a --write-changed-ids record of that config is
-        # the one the write replaced. A row that does not exist yet has nothing to lock.
-        _lock_organization_configs(organization_ids)
-    current_configs = get_organization_flag_evaluations_configs(organization_ids)
+    # The lock keeps each row at the config the read returns. A --write-changed-ids record of that config then
+    # matches the config the write replaced. A row that does not exist yet has nothing to lock.
+    stored_configs = _read_stored_configs(organization_ids, lock=not dry_run)
+    current_configs = {
+        organization_id: stored_configs.get(organization_id, NO_ROW_CONFIG) for organization_id in organization_ids
+    }
     keeps_events_writes = keep_writing_flag_calls_to_events and mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
     team_counts = dict(
         Team.objects.filter(organization_id__in=organization_ids)
