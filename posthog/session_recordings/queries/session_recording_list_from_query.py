@@ -27,6 +27,7 @@ from posthog.hogql.database.schema.sessions_v3 import (
     LAZY_SESSIONS_FIELDS as SESSIONS_V3_FIELDS,
     SESSIONS_V3_COVERAGE_START_BY_REGION,
 )
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -302,6 +303,13 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 return requested
         return (requested or HogQLQueryModifiers()).model_copy(update={"sessionTableVersion": SessionTableVersion.V3})
 
+    def _resolved_sessions_table_version(self) -> SessionTableVersion:
+        # The table the query reads, after the team's stored version applies and auto falls back to v2, so the
+        # query_log tag compares v2 and v3 reads. A stored version arrives as a plain string, not the enum.
+        version = create_default_modifiers_for_team(self._team, self._execution_modifiers).sessionTableVersion
+        resolved = SessionTableVersion(version or SessionTableVersion.AUTO)
+        return SessionTableVersion.V2 if resolved == SessionTableVersion.AUTO else resolved
+
     def _sessions_v3_flag_enabled(self) -> bool:
         team = self._team
         return feature_enabled_or_false(
@@ -377,10 +385,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 listing_tags["experiment_exposures_in_session"] = True
             if self._query.event_match_scope == EventMatchScope.RECORDING:
                 listing_tags["replay_event_match_scope"] = EventMatchScope.RECORDING.value
-            listing_tags["replay_sessions_table_version"] = (
-                (self._execution_modifiers.sessionTableVersion if self._execution_modifiers else None)
-                or SessionTableVersion.AUTO
-            ).value
+            listing_tags["replay_sessions_table_version"] = self._resolved_sessions_table_version().value
             plan = self._event_match_plan
             if plan is not None and plan.filter_count:
                 listing_tags["replay_event_query_strategy"] = plan.strategy

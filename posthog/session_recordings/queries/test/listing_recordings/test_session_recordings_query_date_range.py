@@ -93,6 +93,7 @@ class TestReplaySessionsTableVersion(APIBaseTest):
             ("range_before_the_coverage_start", {"date_from": "2026-09-25"}, "US", None, None, {}, None),
             ("region_without_coverage", {"date_from": "-7d"}, "EU", None, None, {}, None),
             ("team_pins_v2", {"date_from": "-7d"}, "US", "v2", None, {}, None),
+            ("team_pins_v3", {"date_from": "-60d"}, "US", "v3", None, {}, None),
             ("request_pins_v2", {"date_from": "-7d"}, "US", None, SessionTableVersion.V2, {}, SessionTableVersion.V2),
             (
                 "pinned_recent_session_ids",
@@ -178,5 +179,7 @@ class TestReplaySessionsTableVersion(APIBaseTest):
             override_settings(CLOUD_DEPLOYMENT=region),
         ):
             modifiers = query._execution_modifiers
+            read_version = query._resolved_sessions_table_version()
 
         assert (modifiers.sessionTableVersion if modifiers else None) == expected_version
+        assert read_version == (expected_version or SessionTableVersion(team_version or SessionTableVersion.V2))
