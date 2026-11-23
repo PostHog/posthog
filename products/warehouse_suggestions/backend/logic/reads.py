@@ -8,7 +8,12 @@ from uuid import UUID
 from django.conf import settings
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.execute import KillSwitchLevel, get_team_kill_switch_level, kill_switch_overrides
+from posthog.clickhouse.client.execute import (
+    KillSwitchLevel,
+    get_team_kill_switch_level,
+    kill_switch_overrides,
+    resolve_kill_switch_level,
+)
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.clickhouse.warehouse_object_reads import WAREHOUSE_OBJECT_READS_DAILY_TABLE, ReadKind
 from posthog.dataclasses import frozen
@@ -158,6 +163,7 @@ def read_teams_reads(
         team_id=sole_team_id,
         name=READS_QUERY_NAME,
         query_type=READS_QUERY_NAME,
+        kill_switch=_kill_switch_tag(sole_team_id),
     )
     params: dict[str, Any] = {
         "team_ids": tuple(team_ids),
@@ -327,6 +333,12 @@ GROUP BY team_id, subject_id, workflow_id
 
 def _execute(sql: str, params: Mapping[str, Any], sole_team_id: int | None) -> list[tuple[Any, ...]]:
     return sync_execute(sql, params, settings=_query_settings(sole_team_id))
+
+
+def _kill_switch_tag(sole_team_id: int | None) -> str | None:
+    if sole_team_id is None or not kill_switch_overrides(sole_team_id):
+        return None
+    return resolve_kill_switch_level(sole_team_id).value
 
 
 def _query_settings(sole_team_id: int | None) -> dict[str, Any]:
