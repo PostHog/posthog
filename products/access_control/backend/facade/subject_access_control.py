@@ -123,7 +123,9 @@ class SubjectAccessControl(UserAccessControl):
         else:
             return None
         rows = [row for row in self._get_access_controls(filters) if self._row_subject(row) == access.source_subject]
-        return self._rows_decision(access.source_resource, rows)
+        if not rows:
+            return None
+        return self._highest_access_from_rows(access.source_resource, rows)
 
     def inherited_access_for_object(self, obj: Model) -> Optional[ResolvedAccess]:
         """The access the subject would have if their override on this object were removed — the
