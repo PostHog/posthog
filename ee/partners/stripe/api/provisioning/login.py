@@ -8,12 +8,15 @@ depend on the provisioning API's login feature.
 The token grants a session with no password or SSO challenge, so
 partner-asserted email ownership is the only barrier: an explicitly verified
 email (``is_email_verified is True``) is required before a session is created.
+A user with an enrolled second factor, or on a domain that enforces SSO, is
+sent to the login page instead.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from django.conf import settings
 from django.contrib.auth import login as auth_login
 from django.core.cache import cache
 from django.http import HttpResponseBase, HttpResponseRedirect
@@ -24,6 +27,7 @@ import structlog
 from posthog.api.email_verification import email_verification_code_verifier
 from posthog.auth import ACCOUNT_BLOCKED_LOGIN_URL, account_refused
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.normal_login import normal_login_required_reason
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -149,9 +153,19 @@ def stripe_provisioning_login(request: Any) -> HttpResponseBase:
     if user.is_email_verified is not True:
         return _block_unverified_email(user)
 
+    redirect_path = _redirect_path(team_id, path)
+
+    normal_login_reason = normal_login_required_reason(user)
+    if normal_login_reason is not None:
+        _capture(normal_login_reason.value, user_id=user_id, team_id=team_id, purpose=purpose)
+        logger.warning(
+            "stripe_provisioning.login.normal_login_required", user_id=user_id, reason=normal_login_reason.value
+        )
+        return HttpResponseRedirect(f"{settings.LOGIN_URL}?{urlencode({'next': redirect_path})}")
+
     auth_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
     _capture("success", user_id=user_id, team_id=team_id, purpose=purpose)
     logger.info("stripe_provisioning.login.success", user_id=user_id, team_id=team_id, purpose=purpose)
 
-    return HttpResponseRedirect(_redirect_path(team_id, path))
+    return HttpResponseRedirect(redirect_path)

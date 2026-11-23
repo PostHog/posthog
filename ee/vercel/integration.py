@@ -15,7 +15,6 @@ from django.utils.text import slugify
 
 import structlog
 from rest_framework import exceptions
-from two_factor.utils import default_device
 
 from posthog.api.signup import SIGNUP_BLOCKED_DETAIL, signup_refused
 from posthog.auth import ACCOUNT_BLOCKED_LOGIN_URL, account_refused
@@ -24,7 +23,7 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailLookupHandler
-from posthog.helpers.two_factor_session import has_passkeys
+from posthog.helpers.normal_login import normal_login_required_reason
 from posthog.integrations import CrossTeamFilter, IntegrationConflict, IntegrationManager, IntegrationRecord
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -983,10 +982,9 @@ class VercelIntegration:
             return "email_unverified"
         if not VercelIntegration._claims_prove_email(claims, user.email):
             return "email_mismatch"
-        if default_device(user) or (user.passkeys_enabled_for_2fa and has_passkeys(user)):
-            return "two_factor_required"
-        if OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email):
-            return "sso_enforced"
+        normal_login_reason = normal_login_required_reason(user)
+        if normal_login_reason is not None:
+            return normal_login_reason
         if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(user.email, installation.organization):
             return "domain_blocked"
         return None

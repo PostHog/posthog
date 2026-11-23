@@ -1,11 +1,47 @@
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.test import override_settings
+from django.utils import timezone
 
+from django_otp.plugins.otp_totp.models import TOTPDevice
 from parameterized import parameterized
+
+from posthog.models.organization import Organization
+from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.user import User
+from posthog.models.webauthn_credential import WebauthnCredential
 
 from ee.api.agentic_provisioning.constants import DEEP_LINK_CACHE_PREFIX
 from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
+
+TOTP = "totp"
+PASSKEY = "passkey"
+SSO_ENFORCED = "sso_enforced"
+
+
+def _require_normal_login(user: User, organization: Organization, requirement: str) -> None:
+    if requirement == TOTP:
+        TOTPDevice.objects.create(user=user, name="default", confirmed=True)
+    elif requirement == PASSKEY:
+        user.passkeys_enabled_for_2fa = True
+        user.save(update_fields=["passkeys_enabled_for_2fa"])
+        WebauthnCredential.objects.create(
+            user=user,
+            credential_id=b"synthetic-credential",
+            public_key=b"synthetic-public-key",
+            algorithm=-7,
+            verified=True,
+        )
+    elif requirement == SSO_ENFORCED:
+        organization.available_product_features = [{"key": "sso_enforcement"}]
+        organization.save(update_fields=["available_product_features"])
+        OrganizationDomain.objects.create(
+            organization=organization,
+            domain=user.email.split("@")[1],
+            verified_at=timezone.now(),
+            sso_enforcement="google-oauth2",
+        )
 
 
 class TestDeepLinks(ProvisioningTestBase):
@@ -262,6 +298,22 @@ class TestAgenticLogin(ProvisioningTestBase):
             res = self.client.get(f"/agentic/login?token={token}")
         assert res.status_code == 302
         assert res["Location"] == "/login?error_code=access_blocked"
+        assert self.client.get("/api/users/@me/").status_code == 401
+
+    @parameterized.expand([(TOTP,), (PASSKEY,), (SSO_ENFORCED,)])
+    @override_settings(
+        CLOUD_DEPLOYMENT="US",
+        SOCIAL_AUTH_GOOGLE_OAUTH2_KEY="synthetic-client",
+        SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET="synthetic-secret",
+    )
+    def test_user_who_needs_normal_login_lands_on_login_without_a_session(self, requirement: str):
+        _require_normal_login(self.user, self.organization, requirement)
+        token = self._create_deep_link_token()
+
+        res = self.client.get(f"/agentic/login?token={token}")
+
+        assert res.status_code == 302
+        assert res["Location"] == f"/login?next=%2Fproject%2F{self.team.id}"
         assert self.client.get("/api/users/@me/").status_code == 401
 
     def test_path_token_redirects_to_path(self):

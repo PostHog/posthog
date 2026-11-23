@@ -7,6 +7,7 @@ import secrets
 from datetime import timedelta
 from typing import Any, cast
 
+from django.conf import settings
 from django.contrib.auth import login as auth_login
 from django.core.cache import cache
 from django.http import HttpResponseRedirect
@@ -21,6 +22,7 @@ from rest_framework.response import Response
 from posthog.api.email_verification import email_verification_code_verifier
 from posthog.auth import ACCOUNT_BLOCKED_LOGIN_URL, account_refused
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.normal_login import normal_login_required_reason
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.oauth_provisioning import PartnerTier
 from posthog.models.team.team import Team
@@ -202,12 +204,19 @@ def agentic_login(request: Any) -> HttpResponseBase:
     if user.is_email_verified is not True:
         return _block_unverified_email(user)
 
+    redirect_path = _deep_link_redirect_path(purpose, team_id, path)
+
+    normal_login_reason = normal_login_required_reason(user)
+    if normal_login_reason is not None:
+        capture_deep_link_event(normal_login_reason.value, user_id=user_id, team_id=team_id, purpose=purpose)
+        logger.warning("agentic_login.normal_login_required", user_id=user_id, reason=normal_login_reason.value)
+        return HttpResponseRedirect(f"{settings.LOGIN_URL}?{urlencode({'next': redirect_path})}")
+
     auth_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
     capture_deep_link_event("success", user_id=user_id, team_id=team_id, purpose=purpose)
     logger.info("agentic_login.success", user_id=user_id, team_id=team_id, purpose=purpose)
 
-    redirect_path = _deep_link_redirect_path(purpose, team_id, path)
     return HttpResponseRedirect(redirect_path)
 
 
