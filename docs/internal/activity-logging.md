@@ -144,7 +144,8 @@ Omit unused settings; the invariant test rejects other uppercase names so a typo
 
 Installed product apps load their config automatically through `posthog.products.load_product_modules("activity_log_config")`.
 If the product narrows its `backend:contract-check` inputs, include `backend/activity_log_config.py` in its `turbo.json` so config changes run the shared backend tests.
-For a core model, add the config module to `_SCOPE_CONFIG_MODULES` in `activity_log.py`.
+For a core model, add an import and a `MODULES` entry in `posthog/models/activity_logging/activity_log_config_registry.py`.
+The registry is intentionally unowned so model teams can register their configs without a review from the activity-log owners.
 Keep config modules data only because Django loads them during setup in every process.
 
 `posthog/test/repo_invariants/test_activity_log_config_ownership.py` checks that every config in the tree loads, uses supported settings, and shares an owner with the models it tunes.

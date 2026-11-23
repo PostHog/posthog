@@ -23,7 +23,7 @@ from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.models import oauth_activity_log_config, person_activity_log_config
+from posthog.models.activity_logging import activity_log_config_registry
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_MAX_LENGTH,
     ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH,
@@ -714,8 +714,7 @@ def _merge_scope_configs(registries: Mapping[str, dict[Any, Any]], modules: Iter
 
 
 _SCOPE_CONFIG_MODULES = (
-    oauth_activity_log_config,
-    person_activity_log_config,
+    *activity_log_config_registry.MODULES,
     *load_product_modules("activity_log_config"),
 )
 _merge_scope_configs(_SCOPE_CONFIG_REGISTRIES, _SCOPE_CONFIG_MODULES)

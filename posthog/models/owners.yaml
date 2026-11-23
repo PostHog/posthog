@@ -5,6 +5,9 @@ rules:
       owners: team-product-analytics
     - match: '/activity_logging/'
       owners: team-platform-features
+    # Model teams can register their configs without review from the activity-log owners.
+    - match: '/activity_logging/activity_log_config_registry.py'
+      owners: null
     - match: '/ai/'
       owners: team-self-driving
     - match: '/ai_events/'
