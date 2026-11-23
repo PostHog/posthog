@@ -63,16 +63,24 @@ const STATUS_LABELS: Record<string, string> = {
 
 const SELECT_PAGE_LABELS: Record<MetricsListKey, string> = {
     all: 'Select all metrics on this page',
-    proposed: 'Select all proposed metrics on this page',
+    proposed: 'Select all metrics that wait for approval on this page',
     approved: 'Select all approved metrics on this page',
 }
 
-function StatusBadges({ metric }: { metric: DataCatalogMetricApi }): JSX.Element {
+interface MetricListCellProps {
+    metric: DataCatalogMetricApi
+    list: MetricsListKey
+}
+
+function StatusBadges({ metric, list }: MetricListCellProps): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-1">
-            <Badge variant={metric.status === 'approved' ? 'success' : 'warning'}>
-                {STATUS_LABELS[metric.status] ?? metric.status}
-            </Badge>
+            {/* The heading of the list of metrics that wait for approval already names their status. */}
+            {list !== 'proposed' && (
+                <Badge variant={metric.status === 'approved' ? 'success' : 'warning'}>
+                    {STATUS_LABELS[metric.status] ?? metric.status}
+                </Badge>
+            )}
             {metric.is_drifted && <Badge variant="destructive">Drifted</Badge>}
             {metric.status === 'proposed' && <MetricApproveButton metric={metric} />}
         </div>
@@ -126,7 +134,7 @@ function OwnerCell({ metric }: { metric: DataCatalogMetricApi }): JSX.Element {
     )
 }
 
-function NameCell({ metric }: { metric: DataCatalogMetricApi }): JSX.Element {
+function NameCell({ metric, list }: MetricListCellProps): JSX.Element {
     return (
         <div className="flex min-w-0 flex-col gap-1">
             <Button
@@ -144,7 +152,7 @@ function NameCell({ metric }: { metric: DataCatalogMetricApi }): JSX.Element {
                 </Text>
             )}
             <div className={cn(NARROW_ONLY, 'flex flex-col items-start gap-1')}>
-                <StatusBadges metric={metric} />
+                <StatusBadges metric={metric} list={list} />
                 <MetricChecksCell metric={metric} />
                 <OwnerCell metric={metric} />
             </div>
@@ -175,7 +183,7 @@ function MetricChecksCell({ metric }: { metric: DataCatalogMetricApi }): JSX.Ele
     )
 }
 
-function MetricRow({ metric, selected }: { metric: DataCatalogMetricApi; selected: boolean }): JSX.Element {
+function MetricRow({ metric, list, selected }: MetricListCellProps & { selected: boolean }): JSX.Element {
     const { openMetric, toggleMetricSelected } = useActions(catalogMetricsLogic)
     const openUnlessInteractive = (event: MouseEvent<HTMLTableRowElement>): void => {
         if (isPlainRowClick(event)) {
@@ -198,10 +206,10 @@ function MetricRow({ metric, selected }: { metric: DataCatalogMetricApi; selecte
                 />
             </TableCell>
             <TableCell expand valign="top">
-                <NameCell metric={metric} />
+                <NameCell metric={metric} list={list} />
             </TableCell>
             <TableCell valign="top" className={WIDE_ONLY_CELL}>
-                <StatusBadges metric={metric} />
+                <StatusBadges metric={metric} list={list} />
             </TableCell>
             <TableCell valign="top" className={WIDE_ONLY_CELL}>
                 <MetricChecksCell metric={metric} />
@@ -278,6 +286,7 @@ export function CatalogMetricsTable({ list }: { list: MetricsListKey }): JSX.Ele
                             <MetricRow
                                 key={metric.id}
                                 metric={metric}
+                                list={list}
                                 selected={selectedMetricIds.includes(metric.id)}
                             />
                         ))}

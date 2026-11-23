@@ -15,8 +15,7 @@ import { relationshipsLogic } from './relationshipsLogic'
 
 const HEADING_ID = 'data-catalog-to-review-heading'
 
-interface ReviewRowProps {
-    label: string
+interface ReviewLink {
     count: number
     noun: string
     href: string
@@ -32,8 +31,9 @@ function reviewUrl(tab: 'tables' | 'relationships' | 'metrics', filter: string =
     return combineUrl(urls.dataCatalog(tab), { [TABLES_FILTER_PARAM]: filter }).url
 }
 
-function ReviewRow({ label, count, noun, href, dataAttr }: ReviewRowProps): JSX.Element | null {
-    if (count === 0) {
+function ReviewRow({ label, links }: { label: string; links: ReviewLink[] }): JSX.Element | null {
+    const linksToShow = links.filter(({ count }) => count > 0)
+    if (linksToShow.length === 0) {
         return null
     }
     return (
@@ -44,10 +44,18 @@ function ReviewRow({ label, count, noun, href, dataAttr }: ReviewRowProps): JSX.
                 </Text>
             </ItemContent>
             <ItemActions className="flex-wrap">
-                <Button variant="outline" size="sm" render={<LinkPrimitive to={href} />} data-attr={dataAttr}>
-                    {pluralize(count, noun)}
-                    <IconChevronRight />
-                </Button>
+                {linksToShow.map(({ count, noun, href, dataAttr }) => (
+                    <Button
+                        key={dataAttr}
+                        variant="outline"
+                        size="sm"
+                        render={<LinkPrimitive to={href} />}
+                        data-attr={dataAttr}
+                    >
+                        {pluralize(count, noun)}
+                        <IconChevronRight />
+                    </Button>
+                ))}
             </ItemActions>
         </Item>
     )
@@ -76,31 +84,42 @@ export function CatalogToReviewList({
                 {suggestionsBanner}
                 <ReviewRow
                     label="Metrics to approve"
-                    count={proposedMetrics}
-                    noun="metric"
-                    href={reviewUrl('metrics')}
-                    dataAttr="data-catalog-review-metrics"
+                    links={[
+                        {
+                            count: proposedMetrics,
+                            noun: 'metric',
+                            href: reviewUrl('metrics'),
+                            dataAttr: 'data-catalog-review-metrics',
+                        },
+                    ]}
                 />
                 <ReviewRow
                     label="Suggested metrics (extracted by usage patterns)"
-                    count={suggestedMetricCount}
-                    noun="metric"
-                    href={reviewUrl('metrics', SUGGESTED_METRICS_FILTER)}
-                    dataAttr="data-catalog-review-suggested-metrics"
-                />
-                <ReviewRow
-                    label="Certifications waiting for approval"
-                    count={proposedCertifications}
-                    noun="certification"
-                    href={reviewUrl('tables')}
-                    dataAttr="data-catalog-review-certifications"
+                    links={[
+                        {
+                            count: suggestedMetricCount,
+                            noun: 'metric',
+                            href: reviewUrl('metrics', SUGGESTED_METRICS_FILTER),
+                            dataAttr: 'data-catalog-review-suggested-metrics',
+                        },
+                    ]}
                 />
                 <ReviewRow
                     label="Relationships waiting for approval"
-                    count={proposedJoins}
-                    noun="join"
-                    href={reviewUrl('relationships')}
-                    dataAttr="data-catalog-review-relationships"
+                    links={[
+                        {
+                            count: proposedCertifications,
+                            noun: 'certification',
+                            href: reviewUrl('tables'),
+                            dataAttr: 'data-catalog-review-certifications',
+                        },
+                        {
+                            count: proposedJoins,
+                            noun: 'join',
+                            href: reviewUrl('relationships'),
+                            dataAttr: 'data-catalog-review-relationships',
+                        },
+                    ]}
                 />
             </ItemGroup>
         </section>

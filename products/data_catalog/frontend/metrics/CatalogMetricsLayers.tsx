@@ -1,7 +1,5 @@
 import { useValues } from 'kea'
 
-import { Text } from '@posthog/quill'
-
 import { CatalogMetricsLayer } from './CatalogMetricsLayer'
 import { catalogMetricsLogic } from './catalogMetricsLogic'
 import { CatalogMetricsNoMatch } from './CatalogMetricsNoMatch'
@@ -18,13 +16,8 @@ export function CatalogMetricsLayers(): JSX.Element {
         <>
             {listPages.proposed.total > 0 && (
                 <CatalogMetricsLayer
-                    title="Proposed"
+                    title="Waiting for approval"
                     count={listPages.proposed.total}
-                    description={
-                        <Text size="xs" variant="muted" render={<p className="m-0" />}>
-                            Waiting for approval.
-                        </Text>
-                    }
                     dataAttr="data-catalog-metrics-layer-proposed"
                 >
                     <CatalogMetricsTable list="proposed" />
