@@ -3405,6 +3405,30 @@ describe('Cyclotron V2', () => {
             return { polled, markPolled }
         }
 
+        async function claimEmailOnce(dbUrl: string): Promise<void> {
+            const { polled, markPolled } = pollSignal()
+            await pollOnce(createWorker('email', { pool: { dbUrl } }), polled, () => Promise.resolve(markPolled()))
+        }
+
+        async function claimFilesOnce(dbUrl: string): Promise<void> {
+            const { polled, markPolled } = pollSignal()
+            // The main poll's legacy count would read the backlog, so only the files poll gets measured.
+            class FilesPollOnly extends CyclotronV2RateLimitedWorker {
+                protected override countWork(): Promise<number> {
+                    return Promise.resolve(0)
+                }
+            }
+            const worker = new FilesPollOnly(
+                {
+                    pool: { dbUrl },
+                    queueName: 'email',
+                    sendsWithFiles: { room: () => 1, stalled: () => false },
+                },
+                (requested) => Promise.resolve({ limit: requested })
+            )
+            await pollOnce(worker, polled, () => Promise.resolve(markPolled()))
+        }
+
         const PARAMETERIZED_SQL_PLANS: PlanMode[] = ['custom', 'generic']
         const PLAIN_SQL_PLANS: PlanMode[] = ['custom']
         const operations: [string, string, SeededRows, number, number, PlanMode[], (dbUrl: string) => Promise<void>][] =
@@ -3430,12 +3454,7 @@ describe('Cyclotron V2', () => {
                     1,
                     BACKLOG_BUFFER_BUDGET_WITH_CLAIM_INDEX_WRITES,
                     PARAMETERIZED_SQL_PLANS,
-                    async (dbUrl) => {
-                        const { polled, markPolled } = pollSignal()
-                        await pollOnce(createWorker('email', { pool: { dbUrl } }), polled, () =>
-                            Promise.resolve(markPolled())
-                        )
-                    },
+                    claimEmailOnce,
                 ],
                 [
                     'the rate-limited worker count',
@@ -3463,24 +3482,7 @@ describe('Cyclotron V2', () => {
                     1,
                     BACKLOG_BUFFER_BUDGET_WITH_CLAIM_INDEX_WRITES,
                     PARAMETERIZED_SQL_PLANS,
-                    async (dbUrl) => {
-                        const { polled, markPolled } = pollSignal()
-                        // The main poll's legacy count would read the backlog, so only the files poll gets measured.
-                        class FilesPollOnly extends CyclotronV2RateLimitedWorker {
-                            protected override countWork(): Promise<number> {
-                                return Promise.resolve(0)
-                            }
-                        }
-                        const worker = new FilesPollOnly(
-                            {
-                                pool: { dbUrl },
-                                queueName: 'email',
-                                sendsWithFiles: { room: () => 1, stalled: () => false },
-                            },
-                            (requested) => Promise.resolve({ limit: requested })
-                        )
-                        await pollOnce(worker, polled, () => Promise.resolve(markPolled()))
-                    },
+                    claimFilesOnce,
                 ],
                 [
                     'the manager depth check',
@@ -3541,7 +3543,7 @@ describe('Cyclotron V2', () => {
             }
         )
 
-        async function seedEmailAfterAnalyze(emailBacklogJobs: number): Promise<void> {
+        async function seedEmailAfterAnalyze(rows: SeededRows, emailBacklogJobs: number): Promise<void> {
             const applicationName = 'polling-cost-seed'
             const client = new Client({ connectionString: sessionUrl(applicationName, 'custom') })
             await client.connect()
@@ -3556,14 +3558,15 @@ describe('Cyclotron V2', () => {
                 )
                 await client.query('ANALYZE cyclotron_jobs')
                 await client.query(
-                    `INSERT INTO cyclotron_jobs (id, team_id, queue_name, status, priority, scheduled, created, last_transition, dequeue_seq)
+                    `INSERT INTO cyclotron_jobs (id, team_id, queue_name, status, priority, scheduled, created, last_transition, dequeue_seq, file_bytes)
                      SELECT gen_random_uuid(), 1, 'email', 'available', (g % 3)::smallint,
                             CASE WHEN g = 1 THEN NOW() - interval '1 minute'
                                  ELSE NOW() + interval '1 hour' + g * interval '1 minute' END,
                             NOW(), NOW(),
-                            CASE WHEN g = 1 THEN $1::int + 1 ELSE g - 1 END
+                            CASE WHEN g = 1 THEN $1::int + 1 ELSE g - 1 END,
+                            $2::bigint
                      FROM generate_series(1, $1::int + 1) g`,
-                    [emailBacklogJobs]
+                    [emailBacklogJobs, rows === 'with files' ? 1024 : null]
                 )
                 await client.query('VACUUM cyclotron_jobs')
             } finally {
@@ -3572,18 +3575,29 @@ describe('Cyclotron V2', () => {
             await untilSessionStatsFlushed(applicationName)
         }
 
-        it.each(PARAMETERIZED_SQL_PLANS)(
-            'the email fair dequeue does not read through an email backlog the statistics have not seen under a %s plan',
-            async (mode) => {
-                const claimOnce = async (dbUrl: string): Promise<void> => {
-                    const { polled, markPolled } = pollSignal()
-                    await pollOnce(createWorker('email', { pool: { dbUrl } }), polled, () =>
-                        Promise.resolve(markPolled())
-                    )
-                }
-                await seedEmailAfterAnalyze(0)
+        async function claimEmailWithFilesOnce(dbUrl: string): Promise<void> {
+            const { polled, markPolled } = pollSignal()
+            const worker = createWorker('email', {
+                pool: { dbUrl },
+                sendsWithFiles: { room: () => 1, stalled: () => false },
+            })
+            await pollOnce(worker, polled, () => Promise.resolve(markPolled()))
+        }
+
+        const staleStatisticsCases = [
+            ['the email fair dequeue', 'plain', claimEmailOnce],
+            ['the email fair dequeue for sends with files', 'with files', claimEmailWithFilesOnce],
+        ] as const
+        it.each(
+            staleStatisticsCases.flatMap(([label, rows, claimOnce]) =>
+                PARAMETERIZED_SQL_PLANS.map((mode) => [label, mode, rows, claimOnce] as const)
+            )
+        )(
+            '%s does not read through an email backlog the statistics have not seen under a %s plan',
+            async (_label, mode, rows, claimOnce) => {
+                await seedEmailAfterAnalyze(rows, 0)
                 const withoutBacklog = await buffersReadBy(claimOnce, mode)
-                await seedEmailAfterAnalyze(BACKLOG_ROWS)
+                await seedEmailAfterAnalyze(rows, BACKLOG_ROWS)
                 const withBacklog = await buffersReadBy(claimOnce, mode)
 
                 expect(withBacklog - withoutBacklog).toBeLessThan(BACKLOG_BUFFER_BUDGET_WITH_CLAIM_INDEX_WRITES)

@@ -47,12 +47,17 @@ const PRIORITY_CLASSES_CTE = priorityClassesCte('$1')
 type RowFilter = (alias: string) => string
 
 const anyRow: RowFilter = () => ''
+type FileBytes = 'IS NULL' | 'IS NOT NULL'
+const fileRows =
+    (fileBytes: FileBytes): RowFilter =>
+    (alias) =>
+        `AND ${alias}file_bytes ${fileBytes}`
 // The fair dequeue hides the queue name from the planner, so the literal is what lets each due scan read the
 // partial email index for its kind of send instead of reading every due send of the other kind and discarding it.
 const emailRows =
-    (queueName: string, fileBytes: 'IS NULL' | 'IS NOT NULL'): RowFilter =>
+    (queueName: string, fileBytes: FileBytes): RowFilter =>
     (alias) =>
-        `AND ${alias}queue_name = ${escapeLiteral(queueName)} AND ${alias}file_bytes ${fileBytes}`
+        `AND ${alias}queue_name = ${escapeLiteral(queueName)} ${fileRows(fileBytes)(alias)}`
 
 const countWorkSql = (only: RowFilter): string => `WITH RECURSIVE ${PRIORITY_CLASSES_CTE}
 SELECT COUNT(*)::int AS n FROM (
@@ -151,7 +156,13 @@ export const FAIR_DEQUEUE_CANDIDATE_CAP = 1000
 
 const OPAQUE_QUEUE_NAME = '(SELECT $1::text)'
 
-const fairDequeueJobsSql = (only: RowFilter): string => `WITH RECURSIVE ${priorityClassesCte(OPAQUE_QUEUE_NAME)},
+// from_due rechecks each due row under its lock, because a release can rewrite file_bytes after the due scan read it.
+// The recheck names no queue literal, so the planner cannot read a partial email index for the join, which walks
+// every parked send when the statistics are stale.
+const fairDequeueJobsSql = (
+    only: RowFilter,
+    recheck: RowFilter
+): string => `WITH RECURSIVE ${priorityClassesCte(OPAQUE_QUEUE_NAME)},
 due AS MATERIALIZED (
     SELECT due.id, due.priority, due.dequeue_seq
     FROM (SELECT priority FROM priority_classes ORDER BY priority ASC) c
@@ -171,7 +182,7 @@ from_due AS (
     FROM (SELECT id, priority, dequeue_seq FROM due ORDER BY priority ASC, dequeue_seq ASC NULLS FIRST) d
     JOIN cyclotron_jobs j ON j.id = d.id
     WHERE (SELECT all_due_rows FROM complete)
-      AND j.status = 'available' AND j.queue_name = ${OPAQUE_QUEUE_NAME} ${only('j.')}
+      AND j.status = 'available' AND j.queue_name = ${OPAQUE_QUEUE_NAME} ${recheck('j.')}
     ORDER BY d.priority ASC, d.dequeue_seq ASC NULLS FIRST
     LIMIT $2
     FOR UPDATE OF j SKIP LOCKED
@@ -210,15 +221,17 @@ export type PollSql = {
     legacyFairDequeueJobs: string
 }
 
-const pollSql = (only: RowFilter): PollSql => ({
+const pollSql = (only: RowFilter, recheck: RowFilter = only): PollSql => ({
     countWork: countWorkSql(only),
     dequeueJobs: dequeueJobsSql(only),
-    fairDequeueJobs: fairDequeueJobsSql(only),
+    fairDequeueJobs: fairDequeueJobsSql(only, recheck),
     legacyCountWork: legacyCountWorkSql(only),
     legacyDequeueJobs: legacyDequeueJobsSql(only),
     legacyFairDequeueJobs: legacyFairDequeueJobsSql(only),
 })
 
 export const ANY_ROW_POLL_SQL = pollSql(anyRow)
-export const plainRowPollSql = (queueName: string): PollSql => pollSql(emailRows(queueName, 'IS NULL'))
-export const filesRowPollSql = (queueName: string): PollSql => pollSql(emailRows(queueName, 'IS NOT NULL'))
+export const plainRowPollSql = (queueName: string): PollSql =>
+    pollSql(emailRows(queueName, 'IS NULL'), fileRows('IS NULL'))
+export const filesRowPollSql = (queueName: string): PollSql =>
+    pollSql(emailRows(queueName, 'IS NOT NULL'), fileRows('IS NOT NULL'))
