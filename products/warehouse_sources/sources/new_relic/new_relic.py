@@ -14,6 +14,7 @@ from products.warehouse_sources.sources.sdk import (
     SourceResponse,
     make_tracked_session,
     retry_with_deadline,
+    to_epoch,
 )
 
 # NerdGraph is region-scoped: EU-datacenter accounts only answer on the EU host.
@@ -265,11 +266,8 @@ def validate_credentials(api_key: str, account_id: int, region: str | None) -> t
 
 
 def _to_epoch_ms(value: Any) -> int:
-    if isinstance(value, datetime):
-        aware = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
-        return int(aware.timestamp() * 1000)
-    if isinstance(value, date):
-        return int(datetime.combine(value, datetime.min.time(), tzinfo=UTC).timestamp() * 1000)
+    if isinstance(value, datetime | date):
+        return to_epoch(value, "ms")
     if isinstance(value, int | float):
         return int(value)
     raise ValueError(f"Cannot convert incremental value to epoch milliseconds: {value!r}")

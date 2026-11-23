@@ -1,7 +1,7 @@
 import {readFileSync} from 'fs'
 import * as path from 'path'
 import * as yaml from 'js-yaml'
-import {Paths, POLICY_PATH, bindChannels, loadPolicy, policyDigest, serializePolicy} from '../src/shared-image'
+import {ChangeStatus, Filter, Paths, POLICY_PATH, bindChannels, loadPolicy, policyDigest, serializePolicy} from '../src/shared-image'
 
 const destination = {repository: 'posthog-temporal-workers/data-warehouse-metadata'}
 const source = 'posthog-cloud'
@@ -10,13 +10,37 @@ const literal = JSON.parse(readFileSync(path.join(__dirname, 'fixtures/shared-im
   {paths: Paths; bytes: string; sha256: string}[]
 describe('shared-image publication bindings and fingerprints', () => {
   test('binds every channel of the committed policy', () => {
-    const policy = loadPolicy(readFileSync(path.join(__dirname, '../../../..', POLICY_PATH), 'utf8'))
+    const repositoryRoot = path.join(__dirname, '../../../..')
+    const policy = loadPolicy(readFileSync(path.join(repositoryRoot, POLICY_PATH), 'utf8'))
     const channels = policy.images['posthog-cloud'].channels
     const bindings = bindChannels(policy, 'posthog-cloud')['posthog-cloud']
     expect(Object.keys(bindings).sort()).toEqual(Object.keys(channels).sort())
+    const base = policy.filters.sharedWorkerBase
+    const witnesses = [
+      '.dockerignore', 'Dockerfile', 'uv.lock',
+      'tools/hogli/pyproject.toml', 'packages/owners-yaml/pyproject.toml', 'packages/owners-yaml/README.md',
+      'packages/personhog-proto/pyproject.toml',
+      'posthog/management/commands/migrate.py', 'posthog/management/commands/migrate_clickhouse.py',
+      'posthog/migrations/0001_initial.py', 'posthog/clickhouse/migrations/0001_initial.py',
+      'products/access_control/backend/migrations/0001_initial.py'
+    ]
+    const files = witnesses.map(filename => ({filename, status: ChangeStatus.Modified}))
     for (const [name, channel] of Object.entries(channels)) {
       expect(bindings[name]).toEqual({repository: channel.repository})
+      expect({[channel.filter]: policy.filters[channel.filter].slice(0, base.length)}).toEqual({[channel.filter]: base})
+      const matched = new Filter(JSON.stringify({channel: policy.filters[channel.filter]})).match(files).channel
+      expect({[channel.filter]: matched.map(file => file.filename)}).toEqual({[channel.filter]: witnesses})
     }
+
+    const workflow = yaml.load(readFileSync(path.join(repositoryRoot, '.github/workflows/container-images-cd.yml'), 'utf8')) as
+      {jobs: {shared_image_channels: {steps: {with?: Record<string, string>}[]}}}
+    const budgetInput = 'shared-image-budgets'
+    const budget = workflow.jobs.shared_image_channels.steps
+      .map(step => step.with?.[budgetInput])
+      .find(input => input !== undefined)
+    if (budget === undefined) throw new Error(`Missing ${budgetInput} in shared_image_channels`)
+    const {maxChannels} = JSON.parse(budget) as {maxChannels: number}
+    expect(Object.keys(bindings).length).toBeLessThanOrEqual(maxChannels)
   })
 
   test.each([

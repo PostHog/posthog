@@ -14,7 +14,8 @@ import {
 import type { ScoutNoteApi, SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { captureInboxReportAction, captureScoutAction } from '../inboxAnalytics'
-import { prettifyScoutSkillName, scoutDisplayName } from '../utils/scoutRunsWindow'
+import { noteMentionCounts } from '../utils/reportNotes'
+import { scoutNameForSkill, scoutNamesBySkill as namesBySkill } from '../utils/scoutRunsWindow'
 import { withInboxWriteTimeout } from '../utils/writeTimeout'
 import { inboxReportDetailLogic } from './inboxReportDetailLogic'
 import { NOTES_FETCH_LIMIT, fetchScoutNotes } from './scoutNotesLogic'
@@ -121,9 +122,7 @@ export type reportNotesLogicType = MakeLogicType<
 
 /** Who a scout note reaches, in the words the Activity entry and the target picker use. */
 export function reportNoteAudience(skillName: string, scoutNamesBySkill: Record<string, string>): string {
-    return skillName === EVERY_SCOUT
-        ? 'For every scout'
-        : `For ${scoutNamesBySkill[skillName] ?? prettifyScoutSkillName(skillName)}`
+    return skillName === EVERY_SCOUT ? 'For every scout' : `For ${scoutNameForSkill(scoutNamesBySkill, skillName)}`
 }
 
 /**
@@ -142,7 +141,7 @@ export function reportNoteTargetOptions(
     if (!reportScoutName) {
         return [everyScout, ...others]
     }
-    const reportScoutLabel = scoutNamesBySkill[reportScoutName] ?? prettifyScoutSkillName(reportScoutName)
+    const reportScoutLabel = scoutNameForSkill(scoutNamesBySkill, reportScoutName)
     return [{ value: reportScoutName, label: `${reportScoutLabel} (filed this report)` }, everyScout, ...others]
 }
 
@@ -250,8 +249,7 @@ export const reportNotesLogic = kea<reportNotesLogicType>([
         notesCapped: [(s) => [s.notes], (notes: ScoutNoteApi[]): boolean => notes.length >= NOTES_FETCH_LIMIT],
         scoutNamesBySkill: [
             (s) => [s.scoutConfigs],
-            (scoutConfigs: SignalScoutConfigApi[] | null): Record<string, string> =>
-                Object.fromEntries((scoutConfigs ?? []).map((config) => [config.skill_name, scoutDisplayName(config)])),
+            (scoutConfigs: SignalScoutConfigApi[] | null): Record<string, string> => namesBySkill(scoutConfigs),
         ],
     }),
 
@@ -299,7 +297,11 @@ export const reportNotesLogic = kea<reportNotesLogicType>([
                     report: detailLogic?.props.report,
                     actionType: 'add_note',
                     surface: 'detail_pane',
-                    extra: { sent_to_scouts: scoutTarget !== null, note_target: noteTarget },
+                    extra: {
+                        sent_to_scouts: scoutTarget !== null,
+                        note_target: noteTarget,
+                        ...noteMentionCounts(content),
+                    },
                 })
                 if (scoutTarget !== null) {
                     // Scout surfaces count notes left from every surface through this event.

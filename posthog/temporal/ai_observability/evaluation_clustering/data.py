@@ -89,6 +89,7 @@ def fetch_evaluation_embeddings(
     max_samples: int,
     window_start: datetime | None = None,
     window_end: datetime | None = None,
+    job_scope: str = "",
 ) -> tuple[list[str], dict[str, list[float]]]:
     """Read up to max_samples eval embeddings accumulated by Stage A for this job.
 
@@ -125,6 +126,7 @@ def fetch_evaluation_embeddings(
             WHERE document_type = {document_type}
                 AND model_name = {model_name}
                 AND (JSONExtractString(metadata, 'job_id') = {job_id} OR endsWith(rendering, {job_id_suffix}))
+                AND ({job_scope} = '' OR JSONExtractString(metadata, 'job_scope') = {job_scope})
                 AND length(embedding) > 0
                 AND timestamp >= {start_dt}
                 AND timestamp < {end_dt}
@@ -140,6 +142,7 @@ def fetch_evaluation_embeddings(
             WHERE document_type = {document_type}
                 AND model_name = {model_name}
                 AND (JSONExtractString(metadata, 'job_id') = {job_id} OR endsWith(rendering, {job_id_suffix}))
+                AND ({job_scope} = '' OR JSONExtractString(metadata, 'job_scope') = {job_scope})
                 AND length(embedding) > 0
             ORDER BY rand()
             LIMIT {max_samples}
@@ -150,6 +153,7 @@ def fetch_evaluation_embeddings(
         "document_type": ast.Constant(value=AI_OBSERVABILITY_EVALUATION_DOCUMENT_TYPE),
         "model_name": ast.Constant(value=AI_OBSERVABILITY_EVALUATION_EMBEDDING_MODEL),
         "job_id": ast.Constant(value=job_id),
+        "job_scope": ast.Constant(value=job_scope),
         "job_id_suffix": ast.Constant(value=f"_{job_id}"),
         "max_samples": ast.Constant(value=max_samples),
     }

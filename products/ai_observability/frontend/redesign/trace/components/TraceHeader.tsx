@@ -4,18 +4,20 @@ import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { LabeledLink } from '../types'
+import { OpenDistributedTraceButton, OpenDistributedTraceButtonProps } from './OpenDistributedTraceButton'
 import { TraceCopyButton, TraceCopyButtonProps } from './TraceCopyButton'
 import { TraceExportButton, TraceExportButtonProps } from './TraceExportButton'
 import { TraceSearchBox, TraceSearchBoxProps } from './TraceSearchBox'
 import { TraceStatusBadge } from './TraceStatusBadge'
 
 export interface TraceHeaderProps {
-    name: string
+    name: string | null
     hasError: boolean
     backLink: LabeledLink | null
     search?: TraceSearchBoxProps | null
     copyAction?: TraceCopyButtonProps
     exportAction?: TraceExportButtonProps
+    distributedTraceAction?: OpenDistributedTraceButtonProps
     actions?: ReactNode
 }
 
@@ -26,6 +28,7 @@ export function TraceHeader({
     search = null,
     copyAction,
     exportAction,
+    distributedTraceAction,
     actions = null,
 }: TraceHeaderProps): JSX.Element {
     return (
@@ -42,7 +45,7 @@ export function TraceHeader({
                             data-attr="trace-view-back"
                         />
                     ) : null}
-                    <h1 className="m-0 min-w-0 truncate text-lg font-semibold">{name}</h1>
+                    <h1 className="m-0 min-w-0 truncate text-lg font-semibold">{name || 'Untitled trace'}</h1>
                     <TraceStatusBadge hasError={hasError} />
                 </div>
                 {/* Beside the title the search keeps its width; on a row of its own it takes whatever the buttons leave,
@@ -54,8 +57,9 @@ export function TraceHeader({
                         </div>
                     ) : null}
                     {actions}
-                    {copyAction || exportAction ? (
+                    {distributedTraceAction || copyAction || exportAction ? (
                         <div className="flex items-center gap-1">
+                            {distributedTraceAction ? <OpenDistributedTraceButton {...distributedTraceAction} /> : null}
                             {copyAction ? <TraceCopyButton {...copyAction} /> : null}
                             {exportAction ? <TraceExportButton {...exportAction} /> : null}
                         </div>

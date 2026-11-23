@@ -14,9 +14,7 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Default: Story = {
-    render: () => (
-        <Checkbox id="checkbox" />
-    ),
+    render: () => <Checkbox id="checkbox" />,
 } satisfies Story
 
 export const States: Story = {
@@ -26,6 +24,15 @@ export const States: Story = {
             <Checkbox aria-label="Checked" defaultChecked />
             <Checkbox aria-label="Some checked" indeterminate />
             <Checkbox aria-label="Small, some checked" size="sm" indeterminate />
+        </div>
+    ),
+} satisfies Story
+
+export const DisabledReason: Story = {
+    render: () => (
+        <div className="flex flex-col gap-3">
+            <Checkbox defaultChecked>Email me a weekly digest</Checkbox>
+            <Checkbox disabledReason="Add a phone number to get SMS alerts">Text me when an alert fires</Checkbox>
         </div>
     ),
 } satisfies Story

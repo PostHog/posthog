@@ -19,3 +19,15 @@ export function todayNumber(value: number): string {
     }
     return String(value)
 }
+
+export function todayChangeText(change: number, unit: '%' | 'pp', decimals = 0): string {
+    const places = unit === 'pp' ? 1 : decimals
+    const scale = 10 ** places
+    const rounded = Math.round(change * scale) / scale
+    const sign = rounded > 0 ? '+' : rounded < 0 ? '−' : ''
+    const size = Math.abs(rounded).toLocaleString('en-US', { maximumFractionDigits: places })
+    if (unit === 'pp') {
+        return `${sign}${size} pp`
+    }
+    return rounded === 0 ? '0%' : `${sign}${size}%`
+}

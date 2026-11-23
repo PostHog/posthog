@@ -14,7 +14,6 @@ import { userLogic } from 'scenes/userLogic'
 import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched.json'
 import experimentMetricResultsSuccessJson from '~/mocks/fixtures/api/experiments/_experiment_metric_results_success.json'
 import { useMocks } from '~/mocks/jest'
-import { tagsModel } from '~/models/tagsModel'
 import { Breakdown, ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
@@ -303,6 +302,62 @@ describe('experimentLogic', () => {
                 expect(refreshEvents[0][1]).toMatchObject(expected)
             }
         )
+    })
+
+    describe('loadExposures window', () => {
+        const terminalRun = (status: 'completed' | 'failed', metricErrors: Record<string, unknown>): object => ({
+            id: `latest-${status}`,
+            status,
+            total_metrics: 1,
+            completed_metrics: 0,
+            failed_metrics: status === 'failed' ? 1 : 0,
+            metric_errors: metricErrors,
+            completed_at: '2024-03-01T12:00:00Z',
+            query_to: '2024-03-01T12:00:00Z',
+            results: [],
+        })
+
+        it.each([
+            ['ends at the latest run window', terminalRun('completed', {}), '2024-03-01T12:00:00Z'],
+            [
+                'ends at the earlier window a rejected run keeps',
+                terminalRun('failed', {
+                    'metric-uuid': { error_type: 'recalculation_window_too_long', retriable: false },
+                }),
+                '2024-03-01T12:00:00Z',
+            ],
+            ['evaluates at now without a run', null, null],
+        ])('%s', async (_, latestRun, expectedAsOf) => {
+            const exposureQueries: Record<string, any>[] = []
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () =>
+                        latestRun ? [200, latestRun] : [404, {}],
+                },
+                post: {
+                    '/api/environments/:team/query/:kind': async ({ params, request }) => {
+                        if (params.kind === NodeKind.ExperimentExposureQuery) {
+                            const body = (await request.json()) as { query: Record<string, any> }
+                            exposureQueries.push(body.query)
+                        }
+                        return [200, {}]
+                    },
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [
+                        201,
+                        { id: 'cold', status: 'pending', total_metrics: 0, completed_metrics: 0, failed_metrics: 0 },
+                    ],
+                },
+            })
+            logic.actions.setExperiment(experiment)
+            const metricsLogic = experimentMetricsLogic({ experiment })
+            metricsLogic.mount()
+            await expectLogic(metricsLogic).toDispatchActions(['loadLatestRecalculation', 'setRecalculationLoading'])
+
+            await logic.asyncActions.loadExposures()
+
+            expect(exposureQueries.at(-1)?.as_of).toEqual(expectedAsOf)
+            metricsLogic.unmount()
+        })
     })
 
     describe('updateExperimentMetrics', () => {
@@ -1210,29 +1265,6 @@ describe('experimentLogic', () => {
             keyed.unmount()
         })
     })
-    describe('tags refresh', () => {
-        it('reloads tagsModel after an update that changed tags', async () => {
-            logic.actions.setExperiment(experiment)
-            api.update.mockResolvedValue({ ...experiment, tags: ['retention'] })
-            await expectLogic(logic, () => {
-                logic.actions.updateExperiment({ tags: ['retention'] })
-            })
-                .toDispatchActions(['updateExperimentSuccess', tagsModel.actionTypes.loadTags])
-                .toFinishAllListeners()
-        })
-
-        it('does not reload tagsModel when the update did not touch tags', async () => {
-            logic.actions.setExperiment(experiment)
-            api.update.mockResolvedValue({ ...experiment })
-            await expectLogic(logic, () => {
-                logic.actions.updateExperiment({ description: 'updated' })
-            })
-                .toDispatchActions(['updateExperimentSuccess'])
-                .toFinishAllListeners()
-                .toNotHaveDispatchedActions([tagsModel.actionTypes.loadTags])
-        })
-    })
-
     describe('reorderMetrics', () => {
         const testExperiment = {
             ...experiment,
@@ -2430,6 +2462,7 @@ describe('experimentLogic', () => {
             reason,
             values: {},
             rule: null,
+            rows: [],
         })
 
         const flag = (

@@ -17,6 +17,8 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
         { key: 'Go', label: 'Go' },
         { key: 'Ruby', label: 'Ruby' },
         { key: 'PHP', label: 'PHP' },
+        { key: 'Android', label: 'Android' },
+        { key: 'iOS', label: 'iOS' },
     ]
 
     return [
@@ -26,9 +28,9 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                 <>
                     <Markdown>
                         {dedent`
-                            If you use a different server-side SDK, or prefer to use the API, capture the data
-                            manually. Call the \`capture\` method, or use the [capture
-                            API](https://posthog.com/docs/api/capture).
+                            If you use a different server-side SDK or a mobile SDK, or prefer to use the API, capture the
+                            data manually. Call the \`capture\` method (\`captureAi\` on Android and iOS), or use
+                            the [capture API](https://posthog.com/docs/api/capture).
 
                             \`$ai_trace_id\` groups the events of one LLM interaction into a trace.
                             \`$ai_session_id\` is optional and groups related traces into a session, which is what the
@@ -52,7 +54,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                         {l.key === 'Node.js' && (
                                             <>
                                                 <Markdown>### 1. Install</Markdown>
-                                                <CodeBlock language="bash" code="npm install posthog-node" />
+                                                <CodeBlock language="bash" code="npm install posthog-node@6" />
 
                                                 <Markdown>### 2. Initialize PostHog</Markdown>
                                                 <CodeBlock
@@ -99,7 +101,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                         {l.key === 'Python' && (
                                             <>
                                                 <Markdown>### 1. Install</Markdown>
-                                                <CodeBlock language="bash" code="pip install posthog" />
+                                                <CodeBlock language="bash" code="pip install posthog~=8.0" />
 
                                                 <Markdown>### 2. Initialize PostHog</Markdown>
                                                 <CodeBlock
@@ -144,14 +146,14 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                 <Markdown>### 1. Install</Markdown>
                                                 <CodeBlock
                                                     language="bash"
-                                                    code="go get github.com/posthog/posthog-go"
+                                                    code="go get github.com/posthog/posthog-go/v2"
                                                 />
 
                                                 <Markdown>### 2. Initialize PostHog</Markdown>
                                                 <CodeBlock
                                                     language="go"
                                                     code={dedent`
-                                                        import "github.com/posthog/posthog-go"
+                                                        import "github.com/posthog/posthog-go/v2"
 
                                                         client, _ := posthog.NewWithConfig("<ph_project_token>", posthog.Config{
                                                             Endpoint: "<ph_client_api_host>",
@@ -190,7 +192,10 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                         {l.key === 'Ruby' && (
                                             <>
                                                 <Markdown>### 1. Install</Markdown>
-                                                <CodeBlock language="bash" code="gem install posthog-ruby" />
+                                                <CodeBlock
+                                                    language="bash"
+                                                    code="gem install posthog-ruby -v '~> 3.0'"
+                                                />
 
                                                 <Markdown>### 2. Initialize PostHog</Markdown>
                                                 <CodeBlock
@@ -236,7 +241,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                 <Markdown>### 1. Install</Markdown>
                                                 <CodeBlock
                                                     language="bash"
-                                                    code="composer require posthog/posthog-php"
+                                                    code='composer require "posthog/posthog-php:^4.0"'
                                                 />
 
                                                 <Markdown>### 2. Initialize PostHog</Markdown>
@@ -274,6 +279,129 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                                 // '$ai_time_to_first_token' => 0.25
                                                             ]
                                                         ]);
+                                                    `}
+                                                />
+                                            </>
+                                        )}
+
+                                        {l.key === 'Android' && (
+                                            <>
+                                                <Markdown>
+                                                    {dedent`
+                                                        Requires posthog-android 4.0 or later. \`captureAi\` sends events to
+                                                        PostHog's AI endpoint, which accepts much larger events than
+                                                        \`capture\`. The SDK doesn't redact prompts or outputs, so use
+                                                        \`beforeSend\` to remove anything you don't want to send.
+                                                    `}
+                                                </Markdown>
+
+                                                <Markdown>### 1. Install</Markdown>
+                                                <CodeBlock
+                                                    language="kotlin"
+                                                    code={dedent`
+                                                        dependencies {
+                                                            implementation("com.posthog:posthog-android:4.+")
+                                                        }
+                                                    `}
+                                                />
+
+                                                <Markdown>### 2. Initialize PostHog</Markdown>
+                                                <CodeBlock
+                                                    language="kotlin"
+                                                    code={dedent`
+                                                        // In your Application's onCreate()
+                                                        val config = PostHogAndroidConfig(
+                                                            projectToken = "<ph_project_token>",
+                                                            host = "<ph_client_api_host>"
+                                                        )
+                                                        PostHogAndroid.setup(this, config)
+                                                    `}
+                                                />
+
+                                                <Markdown>### 3. Capture Event</Markdown>
+                                                <CodeBlock
+                                                    language="kotlin"
+                                                    code={dedent`
+                                                        // After your LLM call. Returns the event's uuid, or null if it wasn't queued
+                                                        // (for example, the user opted out).
+                                                        val eventId = PostHog.captureAi(
+                                                            "\\$ai_generation",
+                                                            properties = mapOf(
+                                                                "\\$ai_trace_id" to "trace_id_here",
+                                                                "\\$ai_session_id" to "conversation-abc", // optional: groups traces into one session
+                                                                "\\$ai_model" to "gpt-5-mini",
+                                                                "\\$ai_provider" to "openai",
+                                                                "\\$ai_input" to listOf(mapOf("role" to "user", "content" to "Tell me a fun fact about hedgehogs")),
+                                                                "\\$ai_input_tokens" to 10,
+                                                                "\\$ai_output_choices" to listOf(mapOf("role" to "assistant", "content" to "Hedgehogs have around 5,000 to 7,000 spines on their backs!")),
+                                                                "\\$ai_output_tokens" to 20,
+                                                                "\\$ai_latency" to 1.5,
+                                                                // For streaming responses, also include:
+                                                                // "\\$ai_stream" to true,
+                                                                // "\\$ai_time_to_first_token" to 0.25,
+                                                            ),
+                                                        )
+                                                    `}
+                                                />
+                                            </>
+                                        )}
+
+                                        {l.key === 'iOS' && (
+                                            <>
+                                                <Markdown>
+                                                    {dedent`
+                                                        Requires posthog-ios 4.0 or later. \`captureAi\` sends events to
+                                                        PostHog's AI endpoint, which accepts much larger events than
+                                                        \`capture\`. The SDK doesn't redact prompts or outputs, so use
+                                                        \`beforeSend\` to remove anything you don't want to send.
+                                                    `}
+                                                </Markdown>
+
+                                                <Markdown>### 1. Install</Markdown>
+                                                <CodeBlock
+                                                    language="swift"
+                                                    code={dedent`
+                                                        dependencies: [
+                                                          .package(url: "https://github.com/PostHog/posthog-ios.git", from: "4.0.0")
+                                                        ]
+                                                    `}
+                                                />
+
+                                                <Markdown>### 2. Initialize PostHog</Markdown>
+                                                <CodeBlock
+                                                    language="swift"
+                                                    code={dedent`
+                                                        let config = PostHogConfig(
+                                                            projectToken: "<ph_project_token>",
+                                                            host: "<ph_client_api_host>"
+                                                        )
+                                                        PostHogSDK.shared.setup(config)
+                                                    `}
+                                                />
+
+                                                <Markdown>### 3. Capture Event</Markdown>
+                                                <CodeBlock
+                                                    language="swift"
+                                                    code={dedent`
+                                                        // After your LLM call. Returns the event's UUID, or nil if it wasn't queued
+                                                        // (for example, the user opted out).
+                                                        let eventId = PostHogSDK.shared.captureAi(
+                                                            "$ai_generation",
+                                                            properties: [
+                                                                "$ai_trace_id": "trace_id_here",
+                                                                "$ai_session_id": "conversation-abc", // optional: groups traces into one session
+                                                                "$ai_model": "gpt-5-mini",
+                                                                "$ai_provider": "openai",
+                                                                "$ai_input": [["role": "user", "content": "Tell me a fun fact about hedgehogs"]],
+                                                                "$ai_input_tokens": 10,
+                                                                "$ai_output_choices": [["role": "assistant", "content": "Hedgehogs have around 5,000 to 7,000 spines on their backs!"]],
+                                                                "$ai_output_tokens": 20,
+                                                                "$ai_latency": 1.5,
+                                                                // For streaming responses, also include:
+                                                                // "$ai_stream": true,
+                                                                // "$ai_time_to_first_token": 0.25,
+                                                            ]
+                                                        )
                                                     `}
                                                 />
                                             </>

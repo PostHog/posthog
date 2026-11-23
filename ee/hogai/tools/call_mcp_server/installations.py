@@ -6,7 +6,11 @@ from django.db.models import Q
 
 from posthog.models import Team, User
 
-from products.mcp_store.backend.facade.api import resolve_member_tool_states, resolve_member_unlisted_tool_state
+from products.mcp_store.backend.facade.api import (
+    is_posthog_connection,
+    resolve_member_tool_states,
+    resolve_member_unlisted_tool_state,
+)
 from products.mcp_store.backend.models import MCPServerInstallation, MCPServerInstallationTool
 from products.mcp_store.backend.oauth import refresh_installation_token
 
@@ -16,6 +20,11 @@ def _is_row_ready(row: dict) -> bool:
         return True
     sensitive = row.get("sensitive_configuration") or {}
     return bool(sensitive.get("access_token")) and not sensitive.get("needs_reauth")
+
+
+def _row_bearer_token(row: dict) -> str | None:
+    sensitive = row.get("sensitive_configuration") or {}
+    return sensitive.get("access_token") if row["auth_type"] == "oauth" else sensitive.get("api_key")
 
 
 def _get_installations(team: Team, user: User) -> list[dict]:
@@ -28,7 +37,8 @@ def _get_installations(team: Team, user: User) -> list[dict]:
     row doesn't shadow a working shared one. Unready shared rows are hidden
     entirely — a teammate can't fix someone else's credential, while an
     unready personal row still surfaces so Max can walk the user through
-    reauth."""
+    reauth. A teammate's connection that holds a PostHog credential is hidden
+    too, because that credential reaches beyond this project."""
     rows = [
         dict(row)
         for row in MCPServerInstallation.objects.filter(team=team, is_enabled=True)
@@ -45,7 +55,13 @@ def _get_installations(team: Team, user: User) -> list[dict]:
             "sensitive_configuration",
             "scope",
             "gateway_server_id",
+            "user_id",
         )
+    ]
+    rows = [
+        row
+        for row in rows
+        if row["user_id"] == user.id or not is_posthog_connection(str(row["url"]), _row_bearer_token(row))
     ]
     ready_shared_by_url = {row["url"]: row for row in rows if row["scope"] == "shared" and _is_row_ready(row)}
     results: list[dict] = []

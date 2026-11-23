@@ -31,6 +31,6 @@ export function ReleasePreviewPill({ release }: { release: ErrorTrackingRelease 
     )
 }
 
-function releasePillTitle(release: ErrorTrackingRelease): string {
+export function releasePillTitle(release: ErrorTrackingRelease): string {
     return release.metadata?.git?.commit_id?.slice(0, 7) ?? release.version ?? ''
 }

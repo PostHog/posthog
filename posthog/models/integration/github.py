@@ -16,14 +16,16 @@ import structlog
 from posthog.egress.github.transport import GitHubRateLimitError, github_request
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted
-from posthog.integrations.contracts import IntegrationNotFound, IntegrationPatch, IntegrationRecord
+from posthog.integrations.contracts import IntegrationNotFound, IntegrationPatch, IntegrationRecord, RepositoryCache
 from posthog.models.github_integration_base import (
+    GitHubInstallationUnavailableError,
     GitHubIntegrationBase,
     GitHubIntegrationError,
     _is_safe_github_repo_path,
     github_app_oauth_credentials,
 )
 from posthog.models.integration.github_audit import GitHubAudit
+from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.sync import database_sync_to_async
@@ -117,9 +119,7 @@ def invalidate_github_repository_caches_for_installation(installation_id: str | 
     from posthog.models.user_integration import UserIntegration
 
     installation_id_str = str(installation_id)
-    model.Integration.objects.filter(kind="github", integration_id=installation_id_str).update(
-        repository_cache_updated_at=None
-    )
+    row_writes.creator_accessor("github").expire_repository_cache_by_external_id(installation_id_str)
     UserIntegration.objects.filter(
         kind=UserIntegration.IntegrationKind.GITHUB,
         integration_id=installation_id_str,
@@ -178,7 +178,7 @@ class GitHubIntegration(GitHubIntegrationBase):
     @classmethod
     def integration_from_installation_id(
         cls, installation_id: str, team_id: int, created_by: User | None = None
-    ) -> model.Integration:
+    ) -> IntegrationRecord:
         installation_access = cls.fetch_installation_access(installation_id)
         now = int(time.time())
         expires_in = int(datetime.fromisoformat(installation_access.token_expires_at).timestamp() - now)
@@ -200,16 +200,12 @@ class GitHubIntegration(GitHubIntegrationBase):
 
         sensitive_config = {"access_token": installation_access.access_token}
 
-        integration, created = model.Integration.objects.update_or_create(
-            team_id=team_id,
-            kind="github",
-            integration_id=installation_id,
-            defaults={
-                "config": config,
-                "sensitive_config": sensitive_config,
-                "created_by": created_by,
-                "errors": "",
-            },
+        integration, created = row_writes.creator_accessor("github").upsert(
+            team_id,
+            installation_id,
+            config=config,
+            sensitive_config=sensitive_config,
+            created_by_id=created_by.id if created_by else None,
         )
 
         if created:
@@ -238,7 +234,7 @@ class GitHubIntegration(GitHubIntegrationBase):
                         "repo_owner_type": owner_type,
                         "account_type": github_account_type(owner_type),
                     },
-                    team=integration.team,
+                    team=Team.objects.get(id=integration.team_id),
                 )
             except Exception:
                 # The integration row is already committed. Raising here would report a connection
@@ -345,12 +341,15 @@ class GitHubIntegration(GitHubIntegrationBase):
 
         An installation whose probe fails transiently, runs out of egress budget, or hits GitHub's
         rate limit is skipped. When no other installation covers the repository, that first error
-        is raised.
+        is raised. When every failure came from a suspended or uninstalled installation, it is raised
+        as :class:`GitHubInstallationUnavailableError`, so a caller can ask for a reconnect. Any other
+        error wins over that one, because a retry can still reach the installation that raised it.
         """
         if not _is_safe_github_repo_path(repository):
             return None
-        exhausted: Exception | None = None
-        for integration in model.Integration.objects.filter(team_id=team_id, kind="github").order_by("id"):
+        retryable: Exception | None = None
+        unavailable: GitHubInstallationUnavailableError | None = None
+        for integration in row_writes.creator_accessor("github").list(team_id):
             github = cls(integration, source=source, priority=priority)
             try:
                 covers = github.installation_can_access_repository(repository, raise_on_transient=True)
@@ -358,13 +357,21 @@ class GitHubIntegration(GitHubIntegrationBase):
                 # A team's first installation being out of budget must not hide a later one that
                 # covers the repository. The first error is kept and raised only when none does,
                 # so a caller that has no reader still sees why.
-                exhausted = exhausted or e
+                if isinstance(e, GitHubIntegrationError) and github.installation_unavailable():
+                    unavailable = unavailable or GitHubInstallationUnavailableError(str(e), status_code=e.status_code)
+                else:
+                    retryable = retryable or e
                 continue
             if covers:
                 return github
-        if exhausted is not None:
-            raise exhausted
+        if retryable is not None:
+            raise retryable
+        if unavailable is not None:
+            raise unavailable
         return None
+
+    # The repository cache of the row, read through the SDK on first use.
+    _loaded_repository_cache: RepositoryCache | None = None
 
     def __init__(self, integration: IntegrationRecord, *, source: str, priority: Priority) -> None:
         if integration.kind != "github":
@@ -375,6 +382,21 @@ class GitHubIntegration(GitHubIntegrationBase):
 
     def _store_patch(self, patch: IntegrationPatch) -> None:
         self.integration = model.integration_model(row_writes.update_row(self.integration, patch))
+
+    def _repository_cache(self) -> RepositoryCache:
+        # Read once per adapter, like a deferred model column.
+        if self._loaded_repository_cache is None:
+            self._loaded_repository_cache = row_writes.row_accessor(self.integration).get_repository_cache(
+                self.integration.team_id, self.integration.id
+            )
+        return self._loaded_repository_cache
+
+    def _store_repository_cache(self, repositories: list[dict] | None, updated_at: datetime) -> None:
+        row_writes.row_accessor(self.integration).set_repository_cache(
+            self.integration.team_id, self.integration.id, repositories=repositories, updated_at=updated_at
+        )
+        stored = repositories if repositories is not None else self._repository_cache().repositories
+        self._loaded_repository_cache = RepositoryCache(repositories=stored, updated_at=updated_at)
 
     def _merge_config_keys(self, patch: dict[str, Any]) -> bool:
         try:

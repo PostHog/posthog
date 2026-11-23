@@ -1,6 +1,7 @@
 import hmac
 import json
 import hashlib
+from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import Any, cast
 
@@ -23,6 +24,7 @@ from django.test import (
 )
 from django.test.utils import CaptureQueriesContext
 from django.urls import path, resolve, reverse
+from django.utils import timezone
 
 import requests
 import structlog
@@ -32,11 +34,19 @@ from prometheus_client import REGISTRY
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from social_core.backends.base import BaseAuth
-from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParameter
+from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParameter, AuthStateForbidden, AuthStateMissing
+from structlog.testing import capture_logs
 
+from posthog.api.current_alias_usage import (
+    CURRENT_ALIAS_USED_EVENT,
+    FLAT_ROUTE_USED_EVENT,
+    CurrentAliasScope,
+    current_alias_scope,
+)
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.clickhouse.query_tagging import get_query_tags
+from posthog.client_build_middleware import ClientBuildSkewMiddleware
 from posthog.constants import AvailableFeature
 from posthog.ip_restrictions import enforce_ip_restrictions, get_ip_restriction_denial
 from posthog.middleware import (
@@ -50,6 +60,7 @@ from posthog.middleware import (
     user_logging_context_middleware,
 )
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_invite import InviteExpiredException, OrganizationInvite
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
@@ -740,6 +751,57 @@ class TestManagedProxyClientIPMiddleware(SimpleTestCase):
         )
 
 
+@patch("posthog.client_build_middleware.get_git_commit_short", return_value="abc1234567")
+class TestClientBuildSkewMiddleware(SimpleTestCase):
+    def _skew_counts(self) -> dict[tuple[str, str], float]:
+        return {
+            (builds, status_class): REGISTRY.get_sample_value(
+                "posthog_api_requests_by_client_build_total", {"builds": builds, "status_class": status_class}
+            )
+            or 0.0
+            for builds in ("same", "different")
+            for status_class in ("2xx", "5xx")
+        }
+
+    @parameterized.expand(
+        [
+            ("same_build", "abc1234567", 200, ("same", "2xx")),
+            ("different_build", "0123456789", 500, ("different", "5xx")),
+            ("no_client_build", None, 200, None),
+            ("not_hex", "abc123456z", 200, None),
+            ("too_long", "a" * 41, 200, None),
+        ]
+    )
+    def test_counts_api_requests_by_client_build(
+        self,
+        _mock_commit: MagicMock,
+        _name: str,
+        client_build: str | None,
+        status_code: int,
+        expected_labels: tuple[str, str] | None,
+    ) -> None:
+        headers = {"X-PostHog-Client-Build": client_build} if client_build else None
+        request = RequestFactory().get("/api/projects/2/insights/", headers=headers)
+        counts_before = self._skew_counts()
+
+        response = ClientBuildSkewMiddleware(lambda request: HttpResponse(status=status_code))(request)
+
+        expected_counts = dict(counts_before)
+        if expected_labels:
+            expected_counts[expected_labels] += 1
+        assert self._skew_counts() == expected_counts
+        assert response["X-PostHog-Build"] == "abc1234567"
+
+    def test_leaves_non_api_responses_alone(self, _mock_commit: MagicMock) -> None:
+        request = RequestFactory().get("/insights", HTTP_X_POSTHOG_CLIENT_BUILD="0123456789")
+        counts_before = self._skew_counts()
+
+        response = ClientBuildSkewMiddleware(lambda request: HttpResponse())(request)
+
+        assert self._skew_counts() == counts_before
+        assert "X-PostHog-Build" not in response
+
+
 class TestFix204Middleware(SimpleTestCase):
     def test_no_content_response_has_no_body_or_content_length(self) -> None:
         def get_response(request: HttpRequest) -> HttpResponse:
@@ -926,7 +988,9 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.team.id)  # NOT third_team
 
     def test_project_switched_when_accessing_insight_of_another_accessible_team(self):
-        insight = Insight.objects.create(team=self.second_team)
+        # short_id is unique per team only, and this insight has the lower id, so an unscoped lookup finds it first
+        Insight.objects.create(team=self.no_access_team, short_id="shared1")
+        insight = Insight.objects.create(team=self.second_team, short_id="shared1")
 
         response_app = self.client.get(f"/insights/{insight.short_id}")
         response_users_api = self.client.get(f"/api/users/@me/")
@@ -938,6 +1002,18 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.assertEqual(response_users_api.status_code, 200)
         self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.second_team.id)
         self.assertEqual(response_insights_api.status_code, 200)
+
+    def test_staff_get_users_to_log_in_as_when_accessing_insight_of_off_limits_team(self):
+        self.user.is_staff = True
+        self.user.save()
+        member = User.objects.create_and_join(self.no_access_team.organization, "member@example.com", None)
+        insight = Insight.objects.create(team=self.no_access_team)
+
+        response_app = self.client.get(f"/insights/{insight.short_id}")
+
+        self.assertEqual(response_app.status_code, 200)
+        suggested_users = self.app_context(response_app)["suggested_users_with_access"]
+        self.assertEqual([user["email"] for user in suggested_users], [member.email])
 
     def test_project_switched_when_accessing_insight_edit_mode_of_another_accessible_team(
         self,
@@ -1061,10 +1137,14 @@ class TestAutoProjectMiddleware(APIBaseTest):
         )
 
         response = self.client.get(f"/project/{self.second_team.pk}/home")
+        fetched = self.client.get(f"/project/{self.second_team.pk}/_app_context")
 
         assert response.status_code == 200
-        assert self.app_context(response)["current_team"] is None
-        assert self.app_context(response)["current_project"] is None
+        assert self.app_context(response)["deferred"] is True
+        assert fetched.status_code == 200
+        merged_app_context = {**self.app_context(response), **fetched.json()["app_context"]}
+        assert merged_app_context["current_team"] is None
+        assert merged_app_context["current_project"] is None
         self.user.refresh_from_db()
         assert self.user.current_team_id is None
 
@@ -1392,6 +1472,11 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
             res = self.client.post("/logout/")
             assert res.status_code == 302
             assert res.headers["Location"] == f"/admin/posthog/user/{self.other_user.id}/change/"
+
+            res = self.client.get(res.headers["Location"])
+            assert [str(message) for message in res.context["messages"]] == [
+                "You are now logged back in as user1@posthog.com."
+            ]
 
             # Verify we're back to original user
             res = self.client.get("/api/users/@me")
@@ -1832,7 +1917,7 @@ class TestAdminImpersonationMiddleware(APIBaseTest):
             data={"read_only": "true", "reason": "Test read-only impersonation"},
         )
 
-    @patch("posthog.views.get_client")
+    @patch("posthog.admin.console.redis_tool.get_client")
     def test_admin_writes_allowed_during_read_only_impersonation(self, mock_get_client: MagicMock):
         """Admin POST/PATCH/DELETE actions must not be blocked by the read-only
         impersonation middleware — admin runs as the original staff user."""
@@ -1842,12 +1927,11 @@ class TestAdminImpersonationMiddleware(APIBaseTest):
 
         self.login_as_other_user_read_only()
 
-        # POST to /admin/redis/edit-ttl — a function-based admin view registered directly
-        # in the URLconf (not lazy-loaded), so it's reachable in tests. A successful POST
-        # redirects (302) to the redis values list.
+        # POST to a console tool operation, which is registered directly in the URLconf (not
+        # lazy-loaded), so it's reachable in tests. A successful POST redirects (302) to the tool.
         response = self.client.post(
-            "/admin/redis/edit-ttl",
-            data={"key": "test:key", "ttl_seconds": "60"},
+            "/admin/console/tools/redis-values/set-ttl/",
+            data={"key": "test:key", "ttl_seconds": "60", "reason": "Test"},
         )
 
         # Endpoint must be reached (would-be 404 means the test isn't proving anything).
@@ -1887,8 +1971,8 @@ class TestAdminImpersonationMiddleware(APIBaseTest):
         assert response.status_code == 302
         assert "/admin/login" in response.headers.get("Location", "")
 
-    @patch("posthog.views.get_client")
-    @patch("posthog.views.log_activity")
+    @patch("posthog.admin.console.redis_tool.get_client")
+    @patch("posthog.admin.console.redis_tool.log_activity")
     def test_admin_action_attributes_activity_to_staff_user_during_impersonation(
         self, mock_log_activity: MagicMock, mock_get_client: MagicMock
     ):
@@ -1900,7 +1984,7 @@ class TestAdminImpersonationMiddleware(APIBaseTest):
         A future middleware reorder that breaks attribution would silently leak
         `customer-as-actor` into audit logs without breaking any existing test.
 
-        Mechanism: `redis_edit_ttl_view` calls `log_activity(user=request.user, ...)`.
+        Mechanism: the Redis tool's `set_ttl` operation calls `log_activity(user=request.user, ...)`.
         Patch `log_activity` and assert the captured `user` kwarg is the staff user.
         """
         mock_redis = MagicMock()
@@ -1910,8 +1994,8 @@ class TestAdminImpersonationMiddleware(APIBaseTest):
         self.login_as_other_user()
 
         response = self.client.post(
-            "/admin/redis/edit-ttl",
-            data={"key": "test:key", "ttl_seconds": "60"},
+            "/admin/console/tools/redis-values/set-ttl/",
+            data={"key": "test:key", "ttl_seconds": "60", "reason": "Test"},
         )
 
         assert response.status_code in (200, 302), f"unexpected status: {response.status_code}"
@@ -2844,6 +2928,18 @@ class TestSocialAuthExceptionMiddleware(SimpleTestCase):
                 "/login?error_code=access_blocked",
             ),
             (
+                "oauth_state_missing",
+                "/complete/google-oauth2/",
+                AuthStateMissing(_social_auth_backend(), "state"),
+                "/login?error_code=oauth_state_invalid",
+            ),
+            (
+                "oauth_state_mismatch",
+                "/complete/github/",
+                AuthStateForbidden(_social_auth_backend()),
+                "/login?error_code=oauth_state_invalid",
+            ),
+            (
                 "expired_invite",
                 "/complete/google-oauth2/",
                 InviteExpiredException(),
@@ -3088,8 +3184,13 @@ def _route_id_probe(request: HttpRequest, probe_id: int) -> HttpResponse:
     return HttpResponse(get_query_tags().route_id)
 
 
+def _raising_probe(request: HttpRequest) -> HttpResponse:
+    raise RuntimeError("probe")
+
+
 urlpatterns = [
     path("api/_http_request_id_probe/", _http_request_id_probe),
+    path("api/_raising_probe/", _raising_probe),
     path("api/_route_id_probe/<int:probe_id>/", _route_id_probe),
 ]
 
@@ -3109,6 +3210,11 @@ async def test_chqueries_middleware_tags_http_request_id_under_asgi(header_value
     response = await AsyncClient().get("/api/_http_request_id_probe/", headers={"X-Request-ID": header_value})
 
     assert response.content.decode() == expected_tag
+    if expected_tag == "None":
+        assert "X-Request-ID" not in response.headers
+    else:
+        # Any API response, not only query ones, so frontend failure events can join the backend logs.
+        assert response.headers["X-Request-ID"] == expected_tag
 
 
 @override_settings(ROOT_URLCONF=__name__)
@@ -3116,6 +3222,23 @@ async def test_chqueries_middleware_tags_route_id_under_asgi() -> None:
     response = await AsyncClient().get("/api/_route_id_probe/1/")
 
     assert response.content.decode() == "api/_route_id_probe/<int:probe_id>/"
+
+
+@pytest.mark.parametrize(
+    "path,expected_event",
+    [
+        pytest.param("/api/_route_id_probe/1/", "request_finished", id="finished"),
+        pytest.param("/api/_raising_probe/", "request_failed", id="failed"),
+    ],
+)
+@override_settings(ROOT_URLCONF=__name__)
+async def test_request_log_carries_duration_ms(path, expected_event) -> None:
+    with capture_logs() as logs:
+        await AsyncClient(raise_request_exception=False).get(path)
+
+    [entry] = [log for log in logs if log["event"] == expected_event]
+    assert isinstance(entry["duration_ms"], float)
+    assert entry["duration_ms"] >= 0
 
 
 @parameterized.expand(
@@ -3577,3 +3700,200 @@ class TestUserLoggingContextMiddleware(APIBaseTest):
         assert "team_id" not in ctx
         assert "posthogDistinctId" not in ctx
         span.set_attribute.assert_not_called()
+
+
+@parameterized.expand(
+    [
+        ("project", "/api/projects/@current/query/", CurrentAliasScope.PROJECT),
+        ("environment", "/api/environments/@current/web_vitals", CurrentAliasScope.PROJECT),
+        ("organization", "/api/organizations/@current/members/", CurrentAliasScope.ORGANIZATION),
+        ("organization_detail", "/api/organizations/@current", CurrentAliasScope.ORGANIZATION),
+        ("personal_api_key", "/api/personal_api_keys/@current/", CurrentAliasScope.PERSONAL_API_KEY),
+        ("numeric_project", "/api/projects/123/query/", None),
+        ("alias_deeper_in_path", "/api/projects/123/feature_flags/@current/", None),
+        ("unknown_collection", "/api/users/@current/", None),
+        ("non_api", "/project/@current/insights", None),
+    ]
+)
+def test_current_alias_scope(_name: str, path: str, expected: CurrentAliasScope | None) -> None:
+    assert current_alias_scope(path) == expected
+
+
+class TestCurrentAliasUsage(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
+    def _alias_events(self, capture: MagicMock, event: str = CURRENT_ALIAS_USED_EVENT) -> list[Mapping[str, Any]]:
+        return [call.kwargs for call in capture.call_args_list if call.kwargs.get("event") == event]
+
+    def test_reports_each_credential_caller_once_per_route(self) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user, label="Reporting script", secure_value=hash_key_value(token), scopes=["*"]
+        )
+
+        with patch("posthog.event_usage.posthoganalytics.capture") as capture:
+            self.client.get("/api/projects/@current/")
+            self.client.logout()
+            self.client.get("/api/projects/@current/", HTTP_AUTHORIZATION=f"Bearer {token}")
+            self.client.get("/api/projects/@current/", HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        events = self._alias_events(capture)
+        assert len(events) == 1
+        assert events[0]["distinct_id"] == self.user.distinct_id
+        assert events[0]["groups"]["organization"] == str(self.organization.id)
+        assert {key: events[0]["properties"][key] for key in ("access_method", "route", "scope", "api_key_label")} == {
+            "access_method": "personal_api_key",
+            "route": "api/projects/{id}/",
+            "scope": CurrentAliasScope.PROJECT,
+            "api_key_label": "Reporting script",
+        }
+
+    def test_reports_each_oauth_application_separately(self) -> None:
+        tokens = {}
+        for name in ("Reporting app", "Sync app"):
+            application = OAuthApplication.objects.create(
+                name=name,
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://example.com/callback",
+                algorithm="RS256",
+                organization=self.organization,
+                user=self.user,
+            )
+            token = OAuthAccessToken.objects.create(
+                user=self.user,
+                application=application,
+                token=f"pha_{name.split()[0].lower()}_token",
+                expires=timezone.now() + timedelta(hours=1),
+                scope="project:read",
+            )
+            tokens[token.token] = str(application.id)
+
+        with patch("posthog.event_usage.posthoganalytics.capture") as capture:
+            self.client.get("/api/projects/@current/")
+            self.client.logout()
+            for token in [*tokens, *tokens]:
+                self.client.get("/api/projects/@current/", HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        events = self._alias_events(capture)
+        assert [
+            (event["properties"]["access_method"], event["properties"]["oauth_application_id"]) for event in events
+        ] == [("oauth", application_id) for application_id in tokens.values()]
+
+    @parameterized.expand(
+        [
+            ("unscoped_key_on_project", "/api/projects/@current/", None, status.HTTP_200_OK, ("user", False)),
+            (
+                "project_scoped_key_on_project",
+                "/api/projects/@current/",
+                "own_team",
+                status.HTTP_200_OK,
+                ("user", True),
+            ),
+            (
+                "key_listing_a_project_outside_its_organization",
+                "/api/projects/@current/",
+                "own_and_foreign_team_in_own_organization",
+                status.HTTP_200_OK,
+                ("user", True),
+            ),
+            (
+                "key_scoped_to_another_project",
+                "/api/projects/@current/",
+                "other_team",
+                status.HTTP_403_FORBIDDEN,
+                ("user", True),
+            ),
+            (
+                "project_token_on_a_nested_project_route",
+                "/api/projects/@current/feature_flags/?token={project_token}",
+                None,
+                status.HTTP_200_OK,
+                ("token", False),
+            ),
+            (
+                "unscoped_key_on_organization",
+                "/api/organizations/@current/members/",
+                None,
+                status.HTTP_200_OK,
+                ("user", False),
+            ),
+            (
+                "project_scoped_key_on_organization",
+                "/api/organizations/@current/members/",
+                "own_team",
+                status.HTTP_403_FORBIDDEN,
+                ("user", True),
+            ),
+            (
+                "organization_scoped_key_on_organization",
+                "/api/organizations/@current/members/",
+                "own_organization",
+                status.HTTP_200_OK,
+                ("user", True),
+            ),
+        ]
+    )
+    def test_reports_what_decided_the_scope(
+        self, _name: str, path: str, key_scope: str | None, expected_status: int, expected: tuple[str, bool]
+    ) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        foreign_team = create_team(organization=create_organization(name="Foreign"))
+        scoping_by_kind: dict[str | None, dict[str, list[int] | list[str]]] = {
+            None: {},
+            "own_team": {"scoped_teams": [self.team.id]},
+            "other_team": {"scoped_teams": [other_team.id]},
+            "own_and_foreign_team_in_own_organization": {
+                "scoped_teams": [self.team.id, foreign_team.id],
+                "scoped_organizations": [str(self.organization.id)],
+            },
+            "own_organization": {"scoped_organizations": [str(self.organization.id)]},
+        }
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user, secure_value=hash_key_value(token), scopes=["*"], **scoping_by_kind[key_scope]
+        )
+        self.client.logout()
+
+        with patch("posthog.event_usage.posthoganalytics.capture") as capture:
+            response = self.client.get(
+                path.format(project_token=self.team.api_token), HTTP_AUTHORIZATION=f"Bearer {token}"
+            )
+
+        assert response.status_code == expected_status
+        [event] = self._alias_events(capture)
+        assert (event["properties"]["project_from"], event["properties"]["credential_pins_scope"]) == expected
+
+    @parameterized.expand(
+        [
+            ("flat_route_follows_the_user", "/api/feature_flag/", False, [("api/feature_flag/", "user")]),
+            ("flat_route_with_a_token", "/api/cohort/", True, [("api/cohort/", "token")]),
+            ("nested_route", "/api/projects/{team_id}/feature_flags/", False, []),
+        ]
+    )
+    def test_reports_flat_route_callers(
+        self, _name: str, path: str, with_token: bool, expected: list[tuple[str, str]]
+    ) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(user=self.user, secure_value=hash_key_value(token), scopes=["*"])
+        self.client.logout()
+        query = {"token": self.team.api_token} if with_token else {}
+
+        with patch("posthog.event_usage.posthoganalytics.capture") as capture:
+            response = self.client.get(path.format(team_id=self.team.id), query, HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        assert response.status_code == status.HTTP_200_OK
+        events = self._alias_events(capture, FLAT_ROUTE_USED_EVENT)
+        assert [(event["properties"]["route"], event["properties"]["project_from"]) for event in events] == expected
+
+    def test_recording_failure_does_not_fail_the_request(self) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(user=self.user, secure_value=hash_key_value(token), scopes=["*"])
+        self.client.logout()
+
+        with patch("posthog.api.current_alias_usage.dedupe_cache.add", side_effect=ConnectionError("redis is down")):
+            response = self.client.get("/api/projects/@current/", HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        assert response.status_code == status.HTTP_200_OK

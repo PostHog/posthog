@@ -1,10 +1,10 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { register, servingStaleSeconds } from '@/metrics'
-import { SecretMount } from '@/mount'
+import { SecretMount, readMount } from '@/mount'
 import type { MountedSecrets } from '@/types'
 
 const AN_HOUR_MS = 60 * 60 * 1000
@@ -135,6 +135,13 @@ describe('reading the mount', () => {
     it('ignores kubelet bookkeeping entries', async () => {
         const held = await load({ HUBSPOT_APP_CLIENT_SECRET: 'sec', '..data': 'internal' })
         expect(Object.keys(held?.secrets ?? {})).toEqual(['HUBSPOT_APP_CLIENT_SECRET'])
+    })
+
+    it('returns no snapshot when one entry cannot be read', async () => {
+        const dir = await mount({ __CALLER_KEY_POSTHOG_DJANGO: 'key' })
+        await mkdir(join(dir, '__ALLOWED_SECRETS_POSTHOG_DJANGO'))
+
+        expect(await readMount(dir)).toBeNull()
     })
 
     describe('the content hash', () => {

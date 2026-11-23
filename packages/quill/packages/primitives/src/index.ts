@@ -101,6 +101,17 @@ export {
     ThreadItemRepliesMeta,
 } from './chat/thread-item'
 export { ButtonGroup, ButtonGroupSeparator, ButtonGroupText, buttonGroupVariants } from './button-group'
+export {
+    Callout,
+    CalloutIcon,
+    CalloutContent,
+    CalloutTitle,
+    CalloutDescription,
+    CalloutActions,
+    CalloutClose,
+    type CalloutTone,
+    type CalloutProps,
+} from './callout'
 export { Card, CardHeader, CardFooter, CardTitle, CardAction, CardDescription, CardContent } from './card'
 export { CardGroup } from './card-group'
 export { Checkbox, CheckboxIndicator } from './checkbox'
@@ -167,9 +178,11 @@ export {
     DrawerContent,
     DrawerHandle,
     DrawerHeader,
+    DrawerBody,
     DrawerFooter,
     DrawerTitle,
     DrawerDescription,
+    createDrawerHandle,
 } from './drawer'
 export {
     DropdownMenu,
@@ -359,3 +372,4 @@ export { ToggleGroup, ToggleGroupItem } from './toggle-group'
 export { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, createTooltipHandle } from './tooltip'
 export { ThemeProvider, useTheme, type Theme } from './theme-provider'
 export { cn } from './lib/utils'
+export { useReducedMotion } from './lib/use-reduced-motion'

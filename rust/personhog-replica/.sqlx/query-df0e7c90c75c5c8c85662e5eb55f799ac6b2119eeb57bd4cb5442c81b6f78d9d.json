@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-replica', operation='restore_persons_insert_persons' */\n                INSERT INTO posthog_person (uuid, team_id, properties, created_at, version,\n                                            is_identified, is_deleted)\n                SELECT f.uuid, $1, f.properties::jsonb, f.created_at, f.version, f.is_identified,\n                       false\n                FROM UNNEST($2::uuid[], $3::text[], $4::timestamptz[], $5::bigint[], $6::bool[])\n                    AS f(uuid, properties, created_at, version, is_identified)\n                ON CONFLICT (team_id, uuid) DO NOTHING\n                RETURNING id::bigint as \"id!\", uuid as \"uuid!\"\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "uuid!",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "UuidArray",
+        "TextArray",
+        "TimestamptzArray",
+        "Int8Array",
+        "BoolArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "df0e7c90c75c5c8c85662e5eb55f799ac6b2119eeb57bd4cb5442c81b6f78d9d"
+}

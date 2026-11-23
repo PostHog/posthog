@@ -13,6 +13,7 @@ import {
     type SectionResults,
     sectionRows,
 } from '../mcpDashboardOverviewLogic'
+import type { LoadedSection } from '../mcpDashboardOverviewLogic'
 import {
     type BucketedFacetRow,
     buildLabShares,
@@ -30,6 +31,8 @@ import {
     toReliabilityRows,
     type WindowFacetRow,
 } from './leaderboardShares'
+
+const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 
 const MODEL_SERIES_LIMIT = 8
 const PROTOCOL_SERIES_LIMIT = 5
@@ -90,12 +93,10 @@ export interface mcpLeaderboardHomeLogicActions {
 export interface mcpLeaderboardHomeLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         facets: (
-            sections: Partial<Record<MCPDashboardSection, import('../mcpDashboardOverviewLogic').LoadedSection>>,
+            sections: Partial<Record<MCPDashboardSection, LoadedSection>>,
             failedLoads: Partial<Record<MCPDashboardSection, boolean>>
         ) => LeaderboardFacets
-        reliabilityRows: (
-            sections: Partial<Record<MCPDashboardSection, import('../mcpDashboardOverviewLogic').LoadedSection>>
-        ) => ReliabilityRow[]
+        reliabilityRows: (sections: Partial<Record<MCPDashboardSection, LoadedSection>>) => ReliabilityRow[]
         reliabilityFailed: (failedLoads: Partial<Record<MCPDashboardSection, boolean>>) => boolean
         labShares: (facets: LeaderboardFacets) => LabShare[]
         scoreboardShares: (
@@ -139,6 +140,7 @@ export const mcpLeaderboardHomeLogic = kea<mcpLeaderboardHomeLogicType>([
     reducers({
         scoreboardMetric: [
             'calls' as ScoreboardMetric,
+            { persist: true, prefix: `${teamId}__` },
             {
                 setScoreboardMetric: (_, { metric }) => metric,
             },

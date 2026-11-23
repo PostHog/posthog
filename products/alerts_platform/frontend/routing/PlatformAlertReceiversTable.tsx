@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { LemonSwitch, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
@@ -12,6 +13,7 @@ import { platformAlertRoutingLogic } from './platformAlertRoutingLogic'
 export function PlatformAlertReceiversTable(): JSX.Element {
     const { receivers, receiversLoading, togglingIds, editDisabledReason } = useValues(platformAlertRoutingLogic)
     const { openReceiverModal, deleteReceiver, setReceiverEnabled } = useActions(platformAlertRoutingLogic)
+    const { searchParams } = useValues(router)
 
     const columns: LemonTableColumns<AlertReceiverApi> = [
         { title: 'Name', dataIndex: 'name' },
@@ -65,6 +67,7 @@ export function PlatformAlertReceiversTable(): JSX.Element {
             columns={columns}
             loading={receiversLoading || receivers === null}
             rowKey="id"
+            rowStatus={(receiver) => (receiver.id === searchParams.receiver ? 'highlighted' : null)}
             emptyState="No receivers yet. Add one to start routing alerts to it."
         />
     )

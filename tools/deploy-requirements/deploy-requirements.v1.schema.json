@@ -1,0 +1,66 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://github.com/PostHog/posthog/blob/master/tools/deploy-requirements/deploy-requirements.v1.schema.json",
+    "title": "Deploy requirements manifest, version 1",
+    "description": "What must be true before an image may roll out. Built into the image and checked by a Sync hook before the pods roll. See README.md next to this file.",
+    "type": "object",
+    "required": ["schema_version", "source_commit", "digest", "requirements"],
+    "additionalProperties": false,
+    "properties": {
+        "schema_version": {
+            "const": 1
+        },
+        "source_commit": {
+            "description": "Commit the image was built from, or null when the build does not know it.",
+            "type": ["string", "null"]
+        },
+        "digest": {
+            "description": "First 12 hex characters of the SHA-256 of the requirements list as compact JSON. Identifies the list in logs. Readers do not recompute it.",
+            "type": "string",
+            "pattern": "^[0-9a-f]{12}$"
+        },
+        "requirements": {
+            "type": "array",
+            "items": {
+                "oneOf": [{ "$ref": "#/$defs/django" }, { "$ref": "#/$defs/sqlx" }]
+            }
+        }
+    },
+    "$defs": {
+        "django": {
+            "description": "A Django migration that must be applied on the main Postgres.",
+            "type": "object",
+            "required": ["kind", "database", "app", "migration"],
+            "additionalProperties": false,
+            "properties": {
+                "kind": { "const": "django" },
+                "database": { "const": "default" },
+                "app": { "type": "string", "minLength": 1 },
+                "migration": { "type": "string", "minLength": 1 },
+                "replaces": {
+                    "description": "Set when migration is a squash. Either the squash or every migration it replaces satisfies the requirement.",
+                    "type": "array",
+                    "items": { "type": "string", "minLength": 1 }
+                }
+            }
+        },
+        "sqlx": {
+            "description": "sqlx migration versions that must be applied, and not recorded as failed, in one sqlx database.",
+            "type": "object",
+            "required": ["kind", "database", "versions"],
+            "additionalProperties": false,
+            "properties": {
+                "kind": { "const": "sqlx" },
+                "database": {
+                    "description": "The migrate-entry name of the database (rust/bin/migrate-entry).",
+                    "enum": ["persons", "cyclotron-node", "behavioral-cohorts", "flags-read-store"]
+                },
+                "versions": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "type": "integer", "minimum": 1 }
+                }
+            }
+        }
+    }
+}

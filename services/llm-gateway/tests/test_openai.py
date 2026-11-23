@@ -1,6 +1,7 @@
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import litellm
 import pytest
 from fastapi.testclient import TestClient
 
@@ -296,9 +297,9 @@ class TestChatCompletionsEndpoint:
         mock_make_call.return_value = AsyncMock(return_value=mock_response)
 
         response = authenticated_client.post(
-            "/django/v1/chat/completions",
+            "/review_hog/v1/chat/completions",
             json={
-                "model": "@cf/moonshotai/kimi-k2.6",
+                "model": "@cf/zai-org/glm-5.3",
                 "messages": [{"role": "user", "content": "Hello"}],
             },
             headers={"Authorization": "Bearer phx_test_key"},
@@ -334,9 +335,9 @@ class TestChatCompletionsEndpoint:
 
         with authenticated_client.stream(
             "POST",
-            "/django/v1/chat/completions",
+            "/review_hog/v1/chat/completions",
             json={
-                "model": "@cf/moonshotai/kimi-k2.6",
+                "model": "@cf/zai-org/glm-5.3",
                 "messages": [{"role": "user", "content": "Hello"}],
                 "stream": True,
             },
@@ -416,6 +417,41 @@ class TestChatCompletionsEndpoint:
         mock_acompletion.assert_not_called()
         mock_modal.assert_not_called()
 
+    @pytest.mark.parametrize("model", ["gpt-6-luna", "gpt-5-mini"])
+    def test_reasoning_effort_accepted_by_litellm(self, authenticated_client: TestClient, model: str) -> None:
+        real_acompletion = litellm.acompletion
+
+        async def mocked_provider_acompletion(**kwargs: Any) -> Any:
+            return await real_acompletion(**kwargs, mock_response="Hi")
+
+        with patch("llm_gateway.api.openai.litellm.acompletion", side_effect=mocked_provider_acompletion):
+            response = authenticated_client.post(
+                "/django/v1/chat/completions",
+                json={"model": model, "messages": [{"role": "user", "content": "Hello"}], "reasoning_effort": "low"},
+                headers={"Authorization": "Bearer phx_test_key"},
+            )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["choices"][0]["message"]["content"] == "Hi"
+
+    @patch("llm_gateway.api.openai.litellm.acompletion")
+    def test_reasoning_effort_lookup_makes_no_provider_request(
+        self, mock_acompletion: MagicMock, authenticated_client: TestClient, mock_openai_response: dict
+    ) -> None:
+        mock_acompletion.return_value = MagicMock(model_dump=MagicMock(return_value=mock_openai_response))
+        with patch.object(litellm.module_level_client, "post") as mock_post:
+            authenticated_client.post(
+                "/django/v1/chat/completions",
+                json={
+                    "model": "ollama/anything",
+                    "messages": [{"role": "user", "content": "Hello"}],
+                    "reasoning_effort": "low",
+                },
+                headers={"Authorization": "Bearer phx_test_key"},
+            )
+
+        mock_post.assert_not_called()
+
 
 # CF-served models (@cf/...) on the Responses endpoint must route through the CF responses adapter,
 # not litellm.aresponses (which prefixes openai/ and hits the real OpenAI Responses API ->
@@ -438,9 +474,9 @@ class TestResponsesRoutedModels:
         mock_make_call.return_value = AsyncMock(return_value=mock_response)
 
         response = authenticated_client.post(
-            "/django/v1/responses",
+            "/review_hog/v1/responses",
             json={
-                "model": "@cf/zai-org/glm-5.2",
+                "model": "@cf/zai-org/glm-5.3",
                 "input": "Hello",
             },
             headers={"Authorization": "Bearer phx_test_key"},
@@ -501,9 +537,9 @@ class TestResponsesRoutedModels:
 
         with authenticated_client.stream(
             "POST",
-            "/django/v1/responses",
+            "/review_hog/v1/responses",
             json={
-                "model": "@cf/zai-org/glm-5.2",
+                "model": "@cf/zai-org/glm-5.3",
                 "input": "Hello",
                 "stream": True,
             },
@@ -555,9 +591,9 @@ class TestResponsesRoutedModels:
         # which this SDK-mode gateway doesn't have — so previous_response_id would silently drop
         # conversation context. Reject it explicitly rather than answer with lost history.
         response = authenticated_client.post(
-            "/django/v1/responses",
+            "/review_hog/v1/responses",
             json={
-                "model": "@cf/zai-org/glm-5.2",
+                "model": "@cf/zai-org/glm-5.3",
                 "input": "Hello",
                 "previous_response_id": "resp_abc123",
             },
@@ -583,9 +619,9 @@ class TestResponsesRoutedModels:
         # tools, so CF's chat/completions endpoint would reject them. Reject up front instead of
         # handing CF a request that fails the moment tools are advertised.
         response = authenticated_client.post(
-            "/django/v1/responses",
+            "/review_hog/v1/responses",
             json={
-                "model": "@cf/zai-org/glm-5.2",
+                "model": "@cf/zai-org/glm-5.3",
                 "input": "Hello",
                 "tools": [{"type": "function", "function": {"name": "get_weather", "parameters": {}}}],
             },

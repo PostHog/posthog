@@ -94,6 +94,8 @@ const searchResults: KnowledgeSearchResultApi[] = [
         ].join('\n\n'),
         is_generated: false,
         url: 'https://example.com/help/refunds',
+        matched_by: 'both',
+        similarity: 0.82,
     },
     {
         chunk_id: 'chunk-2',
@@ -107,6 +109,8 @@ const searchResults: KnowledgeSearchResultApi[] = [
         content: 'Priority support is included on the Enterprise plan.',
         is_generated: false,
         url: '',
+        matched_by: 'semantic',
+        similarity: 0.61,
     },
 ]
 

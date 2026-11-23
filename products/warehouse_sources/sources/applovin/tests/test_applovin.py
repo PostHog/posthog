@@ -9,6 +9,7 @@ import requests
 
 from products.warehouse_sources.sources.applovin._config import AppLovinSourceConfig
 from products.warehouse_sources.sources.applovin.applovin import (
+    ADVERTISER_KEY_ON_PUBLISHER_REPORT_PREFIX,
     AUTH_ERROR_PREFIX,
     BAD_REQUEST_ERROR_PREFIX,
     MANAGEMENT_AUTH_ERROR_PREFIX,
@@ -105,6 +106,28 @@ class TestRequestShape:
         assert result.raised is None
         assert result.session_options[0]["redact_values"] == ("secret-key",)
 
+    @pytest.mark.parametrize(
+        ("endpoint", "report_type", "refused_columns"),
+        [
+            ("advertiser_report", "advertiser", ["application", "app_id_external"]),
+            ("publisher_report", "publisher", ["application"]),
+        ],
+    )
+    def test_report_requests_only_columns_the_api_accepts(
+        self, endpoint: str, report_type: str, refused_columns: list[str]
+    ) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            requested = (request.param("columns") or "").split(",")
+            for column in refused_columns:
+                if column in requested:
+                    return ScriptedResponse(status=400, body=f"Invalid Column: {column}".encode())
+            return _page([])
+
+        result = _driver().run(endpoint, respond)
+
+        assert result.raised is None
+        assert {request.param("report_type") for request in result.requests} == {report_type}
+
 
 class TestWindowWalking:
     def test_checkpoint_survives_a_failed_walk(self) -> None:
@@ -186,6 +209,50 @@ class TestPagination:
         assert result.items == [[{"day": "2026-07-01"}]]
 
 
+class TestDailyReports:
+    @pytest.mark.parametrize(
+        ("endpoint", "path", "sort_param", "window_days"),
+        [
+            ("asset_report", "/assetAnalyticsReport", "sort_asset_id", 1),
+            ("playable_metrics", "/playableMetrics", "sort_day", REPORT_WINDOW_DAYS),
+        ],
+    )
+    def test_windows_and_sort_follow_the_day_column(
+        self, endpoint: str, path: str, sort_param: str, window_days: int
+    ) -> None:
+        result = _driver().run(endpoint, always(_page([])))
+
+        assert result.raised is None
+        assert {request.path for request in result.requests} == {path}
+        # Sorting on a column the report doesn't have makes AppLovin reject the request.
+        assert {request.param(sort_param) for request in result.requests} == {"ASC"}
+        first = result.requests[0]
+        assert first.param("start") == _earliest().isoformat()
+        assert first.param("end") == (_earliest() + timedelta(days=window_days - 1)).isoformat()
+        assert len(result.requests) == -(-MAX_REQUEST_WINDOW_DAYS // window_days)
+
+    def test_asset_report_rows_get_the_requested_day_and_page_within_it(self) -> None:
+        first_day, second_day = _earliest(), _earliest() + timedelta(days=1)
+        full_page = [{"asset_id": str(index), "creative_set_id": "cs1"} for index in range(REPORT_PAGE_SIZE)]
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.param("start") == first_day.isoformat():
+                return _page(full_page if request.param("offset") == "0" else [{"asset_id": "last"}])
+            if request.param("start") == second_day.isoformat():
+                # A `day` the API sends back must not move the row to another day.
+                return _page([{"asset_id": "a2", "day": "2020-01-01"}])
+            return _page([])
+
+        result = _driver().run("asset_report", respond)
+
+        assert result.raised is None
+        assert [len(batch) for batch in result.items] == [REPORT_PAGE_SIZE, 1, 1]
+        assert {row["day"] for row in result.items[0]} == {first_day.isoformat()}
+        assert result.items[1] == [{"asset_id": "last", "day": first_day.isoformat()}]
+        assert result.items[2] == [{"asset_id": "a2", "day": second_day.isoformat()}]
+        assert result.params("offset")[:3] == ["0", str(REPORT_PAGE_SIZE), "0"]
+
+
 class TestErrorClassification:
     @pytest.mark.parametrize("status_code", [401, 403])
     def test_auth_statuses_raise_the_auth_prefix(self, status_code: int) -> None:
@@ -201,6 +268,23 @@ class TestErrorClassification:
         assert isinstance(result.raised, AppLovinAPIError)
         assert str(result.raised).startswith(BAD_REQUEST_ERROR_PREFIX)
         assert "Invalid column" in str(result.raised)
+
+    @pytest.mark.parametrize(
+        ("endpoint", "body", "expected_prefix"),
+        [
+            ("publisher_report", b"Invalid Advertiser Column: package_name", ADVERTISER_KEY_ON_PUBLISHER_REPORT_PREFIX),
+            ("publisher_report", b"Invalid Column: zone", BAD_REQUEST_ERROR_PREFIX),
+            ("advertiser_report", b"Invalid Advertiser Column: campaign", BAD_REQUEST_ERROR_PREFIX),
+        ],
+    )
+    def test_advertiser_key_on_the_publisher_report_gets_its_own_prefix(
+        self, endpoint: str, body: bytes, expected_prefix: str
+    ) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(status=400, body=body)])
+
+        assert isinstance(result.raised, AppLovinAPIError)
+        assert str(result.raised).startswith(expected_prefix)
+        assert body.decode() in str(result.raised)
 
     @pytest.mark.parametrize("status_code", [429, 500, 502, 503])
     def test_throttling_and_upstream_failures_stay_retryable(self, status_code: int) -> None:
@@ -320,7 +404,8 @@ class TestEndpointCatalogInvariants:
         config = APPLOVIN_ENDPOINTS[endpoint]
         # A key column absent from `columns` would never appear in a row, so every merge
         # would multi-match and duplicate.
-        assert set(config.primary_keys) <= set(config.dimensions)
+        stamped = set() if config.has_day_column else {"day"}
+        assert set(config.primary_keys) <= set(config.dimensions) | stamped
         assert config.primary_keys
 
     @pytest.mark.parametrize("endpoint", ["max_ad_revenue", "max_ad_unit_revenue"])
@@ -437,7 +522,8 @@ class TestUserAdRevenue:
 
 class TestCampaignManagement:
     @pytest.mark.parametrize(
-        "endpoint, path", [("campaigns", "/campaign/list"), ("creative_sets", "/creative_set/list")]
+        "endpoint, path",
+        [("campaigns", "/campaign/list"), ("creative_sets", "/creative_set/list"), ("assets", "/asset/list")],
     )
     def test_list_walks_pages_until_a_short_page(self, endpoint: str, path: str) -> None:
         full_page = [{"id": str(index)} for index in range(MANAGEMENT_PAGE_SIZE)]

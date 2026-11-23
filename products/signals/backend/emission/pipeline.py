@@ -562,6 +562,7 @@ def _estimate_output_payload_bytes(output: SignalEmitterOutput) -> int:
 async def _record_processed_outputs(
     team: Team, outputs: list[SignalEmitterOutput], snapshot_at: datetime | None = None
 ) -> None:
+    unique_outputs = {(output.source_product, output.source_type, output.source_id): output for output in outputs}
     await SignalEmissionRecord.objects.abulk_create(
         [
             SignalEmissionRecord(
@@ -571,7 +572,7 @@ async def _record_processed_outputs(
                 source_id=output.source_id,
                 emitted_at=snapshot_at or timezone.now(),
             )
-            for output in outputs
+            for output in unique_outputs.values()
         ],
         update_conflicts=True,
         update_fields=["emitted_at"],
@@ -887,7 +888,11 @@ async def run_signal_pipeline(
                         billing_exempt=system_source_exempt(output.source_product),
                     )
                 capture_pipeline_stage(
-                    "signal_data_source_filtered", team, organization, output, {"steering_applied": steering.active}
+                    "signal_data_source_filtered",
+                    team,
+                    organization,
+                    output,
+                    {"filter_reason": "not_actionable", "steering_applied": steering.active},
                 )
 
     if not outputs:

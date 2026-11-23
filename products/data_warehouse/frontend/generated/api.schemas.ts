@@ -114,6 +114,8 @@ export interface PaginatedDataModelingJobListApi {
     /** @nullable */
     previous?: string | null
     results: DataModelingJobApi[]
+    /** True when `count` stopped at a cap, so it is a lower bound and `next` keeps paging past it. */
+    count_is_capped?: boolean
 }
 
 export interface CheckDatabaseNameResponseApi {
@@ -1889,8 +1891,6 @@ export interface DataWarehouseSavedQueryMinimalApi {
     readonly user_access_level: string | null
     /** The engine that runs this view, and what the product can do with it. */
     readonly engine: ViewEngineApi
-    /** Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
-    readonly is_raw_managed_trino: boolean
 }
 
 export interface PaginatedDataWarehouseSavedQueryMinimalListApi {
@@ -2044,6 +2044,7 @@ export const MaterializeSyncFrequencyEnumApi = {
 
 /**
  * * `source` - source
+ * * `plan` - plan
  * * `consumer` - consumer
  */
 export type SyncFrequencyBlockedByEnumApi =
@@ -2051,6 +2052,7 @@ export type SyncFrequencyBlockedByEnumApi =
 
 export const SyncFrequencyBlockedByEnumApi = {
     Source: 'source',
+    Plan: 'plan',
     Consumer: 'consumer',
 } as const
 
@@ -2078,12 +2080,13 @@ export interface SyncFrequencyOptionApi {
     cadence: MaterializeSyncFrequencyEnumApi
     /** False when writing this cadence would be rejected. */
     allowed: boolean
-    /** Which side withholds this cadence: 'source' when no upstream source syncs that often, 'consumer' when a downstream view or endpoint refreshes more often than this. Null when the cadence is allowed.
+    /** Which side withholds this cadence: 'source' when no upstream source syncs that often, 'plan' when the organization's plan does not allow refreshing that often, 'consumer' when a downstream view or endpoint refreshes more often than this. Null when the cadence is allowed.
      *
      * * `source` - source
+     * * `plan` - plan
      * * `consumer` - consumer */
     blocked_by: SyncFrequencyBlockedByEnumApi | null
-    /** The source or consumer named in `blocked_by`. Null when allowed, and also when the blocker sits outside the caller's access grants, where `blocked_by` still gives the direction. */
+    /** The source or consumer named in `blocked_by`. Null when allowed, when `blocked_by` is 'plan', and also when the blocker sits outside the caller's access grants, where `blocked_by` still gives the direction. */
     blocker: SyncFrequencyBlockerApi | null
     /** Upstream materialized views that would refresh more often than they do now if this cadence were chosen, because a view cannot be fresher than its inputs. Only views the caller may read are listed. Empty when the cadence is blocked. */
     speeds_up: SyncFrequencyBlockerApi[]
@@ -2096,6 +2099,8 @@ export interface SyncFrequencyBoundApi {
     label: string
     /** Node that set this bound. Null when nothing identifiable set it, and also when it sits outside the caller's access grants: the bound still applies, it just goes unnamed. */
     blocker: SyncFrequencyBlockerApi | null
+    /** True when an upstream view held at its pinned cadence sets this bound, so unpinning or speeding up that view lifts it. False when a source sync sets it, and also when the pinned view sits outside the caller's access grants, like `blocker`. Always false for `plan_floor` and `ceiling`. */
+    pinned: boolean
 }
 
 export interface SyncFrequencyBoundsApi {
@@ -2107,14 +2112,28 @@ export interface SyncFrequencyBoundsApi {
     frequency_mode: FrequencyModeEnumApi
     /** Every cadence a picker may show, coarsest-last, each marked allowed or blocked with its cause. Empty outside 'tiered' mode. */
     options: SyncFrequencyOptionApi[]
-    /** The fastest bound: no cadence finer than this is allowed, because the source named here does not sync more often. Null when no source withholds a cadence. */
+    /** The fastest bound: no cadence finer than this is allowed, because no upstream source syncs more often, or because the upstream view named here is pinned to this cadence (see `pinned`). Null when nothing upstream withholds a cadence. */
     floor: SyncFrequencyBoundApi | null
+    /** The fastest cadence the organization's plan allows: no cadence finer than this can be saved. `blocker` is always null. Null when the plan withholds no cadence. */
+    plan_floor: SyncFrequencyBoundApi | null
     /** The slowest bound: no cadence coarser than this is allowed, because the consumer named here refreshes that often. Null when no consumer withholds a cadence. */
     ceiling: SyncFrequencyBoundApi | null
     /** Upstream sources with no sync schedule, so the floor is a guess: these arrive when someone runs them, and refreshing more often than they really sync will serve stale data. Only sources the caller may read are listed. */
     best_effort_sources: SyncFrequencyBlockerApi[]
     /** True when at least one such source sits outside the caller's access grants, so the list above is incomplete and the caveat still applies. */
     best_effort_sources_withheld: boolean
+}
+
+export interface SavedQueryPlanClampApi {
+    /**
+     * The refresh interval, in seconds, this view had before the rewrite. Null when it had none.
+     * @nullable
+     */
+    previous_target_seconds: number | null
+    /** The refresh interval, in seconds, the view was set to: the fastest the organization's plan allowed. */
+    plan_floor_seconds: number
+    /** When the refresh interval was rewritten. */
+    at: string
 }
 
 /**
@@ -2160,8 +2179,10 @@ export interface DataWarehouseSavedQueryApi {
      * * `7day` - 7day
      * * `30day` - 30day */
     sync_frequency?: SavedQuerySyncFrequencyEnumApi | null
-    /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
+    /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling, and the organization's plan can set a floor too. Read-only, and present on retrieve, create and update responses only. */
     readonly sync_frequency_bounds: SyncFrequencyBoundsApi
+    /** Set when a scheduled run slowed this view's refresh interval to the fastest one the organization's plan allows. Saving a different interval clears it. Null when no such rewrite stands. */
+    readonly plan_clamp: SavedQueryPlanClampApi | null
     readonly columns: readonly DataWarehouseSavedQueryApiColumnsItem[]
     readonly status: DataWarehouseSavedQueryStatusEnumApi | null
     /** @nullable */
@@ -2221,8 +2242,6 @@ export interface DataWarehouseSavedQueryApi {
     readonly suspended: DataWarehouseSavedQueryApiSuspended
     /** The engine that runs this view, and what the product can do with it. */
     readonly engine: ViewEngineApi
-    /** Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
-    readonly is_raw_managed_trino: boolean
 }
 
 export type PatchedDataWarehouseSavedQueryApiQueryKind =
@@ -2290,8 +2309,10 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * * `7day` - 7day
      * * `30day` - 30day */
     sync_frequency?: SavedQuerySyncFrequencyEnumApi | null
-    /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
+    /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling, and the organization's plan can set a floor too. Read-only, and present on retrieve, create and update responses only. */
     readonly sync_frequency_bounds?: SyncFrequencyBoundsApi
+    /** Set when a scheduled run slowed this view's refresh interval to the fastest one the organization's plan allows. Saving a different interval clears it. Null when no such rewrite stands. */
+    readonly plan_clamp?: SavedQueryPlanClampApi | null
     readonly columns?: readonly PatchedDataWarehouseSavedQueryApiColumnsItem[]
     readonly status?: DataWarehouseSavedQueryStatusEnumApi | null
     /** @nullable */
@@ -2351,8 +2372,6 @@ export interface PatchedDataWarehouseSavedQueryApi {
     readonly suspended?: PatchedDataWarehouseSavedQueryApiSuspended
     /** The engine that runs this view, and what the product can do with it. */
     readonly engine?: ViewEngineApi
-    /** Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
-    readonly is_raw_managed_trino?: boolean
 }
 
 /**
@@ -2459,9 +2478,20 @@ export interface SavedQueryRunApi {
     engine?: MaterializationEngineEnumApi
 }
 
+export interface SavedQueryRunSkippedNodeApi {
+    /** The data model node left out of the run. */
+    node_id: string
+    /** Name of the view left out of the run. */
+    name: string
+    /** Why the view was left out: its query doesn't compile, or it depends on a view whose query doesn't compile. */
+    reason: string
+}
+
 export interface SavedQueryRunResponseApi {
     /** The data model nodes included in the run. */
     node_ids: string[]
+    /** Views an upstream or downstream run selected but left out, because their query doesn't compile or they depend on one that doesn't. Their sources can't be checked against your access, so they don't run. Always empty for a run of only this view. */
+    skipped: SavedQueryRunSkippedNodeApi[]
 }
 
 /**

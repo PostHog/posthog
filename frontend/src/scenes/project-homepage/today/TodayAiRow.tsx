@@ -11,11 +11,11 @@ import { todayPromptsLogic } from './todayPromptsLogic'
 const AI_ICON = { glyph: <IconSparkles /> }
 
 export function TodayAiRow(): JSX.Element | null {
-    const { aiEnabled, aiPromptDismissed, canEnableAi, aiAccessRequested, requestingAiAccess } =
+    const { aiEnabled, aiPromptDismissed, canEnableAi, aiAccessRequested, requestingAiAccess, dataProcessingLocked } =
         useValues(todayPromptsLogic)
     const { dismissPrompt, acceptDataProcessing, requestAiAccess } = useActions(todayPromptsLogic)
 
-    if (aiEnabled || aiPromptDismissed) {
+    if (aiEnabled || aiPromptDismissed || dataProcessingLocked) {
         return null
     }
     const notNow = (

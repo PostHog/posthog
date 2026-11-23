@@ -2,11 +2,12 @@ import re
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
+from functools import partial
 from typing import Any, Optional
 from urllib.parse import quote, urlparse
 
 import requests
-from requests import Response
+from requests import Request, Response
 
 from products.warehouse_sources.sources.sdk import (
     BasePaginator,
@@ -19,6 +20,7 @@ from products.warehouse_sources.sources.sdk import (
     SinglePagePaginator,
     SourceResponse,
     _is_host_safe,
+    make_parent_key_name,
     make_tracked_session,
     rest_api_resource,
     rest_api_resources,
@@ -39,7 +41,10 @@ class WindmillHostNotAllowedError(Exception):
 class WindmillResumeConfig:
     # 1-based page number to fetch on resume. A saved value points at the next page to fetch after
     # the last durably-committed one; on resume the scan restarts there and merge dedupes any overlap.
-    page: int
+    page: Optional[int] = None
+    # Detail endpoints fan out over a list endpoint. Their state is the shape the framework
+    # checkpoints: which parents finished and where the current one stopped.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def normalize_base_url(url: str) -> str:
@@ -122,6 +127,43 @@ class WindmillPageNumberPaginator(PageNumberPaginator):
             self._has_next_page = False
 
 
+class WindmillCursorPaginator(BasePaginator):
+    """Keyset paginator for ``listAssets``, which returns the next keyset as a ``next_cursor`` object.
+
+    The server sends ``next_cursor: null`` on the last page, so no empty-page request is needed.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._cursor: Optional[dict[str, Any]] = None
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            cursor = response.json().get("next_cursor")
+        except (ValueError, AttributeError):
+            cursor = None
+        if not isinstance(cursor, dict) or cursor.get("created_at") is None or cursor.get("id") is None:
+            self._has_next_page = False
+            return
+        if cursor == self._cursor:
+            raise ValueError("Windmill cursor pagination is not advancing (repeated cursor)")
+        self._cursor = cursor
+        self._has_next_page = True
+
+    def update_request(self, request: Request) -> None:
+        if self._cursor is not None:
+            request.params = {
+                **(request.params or {}),
+                "cursor_created_at": self._cursor["created_at"],
+                "cursor_id": self._cursor["id"],
+            }
+
+
+def _explode_rows(field: str, row: dict[str, Any]) -> list[dict[str, Any]]:
+    base = {key: value for key, value in row.items() if key != field}
+    return [{**base, **entry} for entry in row.get(field) or [] if isinstance(entry, dict)]
+
+
 def validate_credentials(
     api_token: str, base_url: str, workspace: str, team_id: int | None = None
 ) -> tuple[bool, str | None]:
@@ -171,7 +213,7 @@ def windmill_source(
     config = WINDMILL_ENDPOINTS[endpoint]
 
     params: dict[str, Any] = {}
-    if config.paginated:
+    if config.paginated or config.body_cursor:
         params["per_page"] = PER_PAGE
     if config.supports_order_desc:
         # Ascending so rows inserted mid-sync append at the end instead of shifting earlier pages,
@@ -189,13 +231,17 @@ def windmill_source(
 
     # listUsers ignores pagination params and returns every row at once, so a single request avoids
     # re-fetching the same full list forever.
-    paginator: BasePaginator = (
-        WindmillPageNumberPaginator(PER_PAGE, stop_on_short_page=config.stop_on_short_page)
-        if config.paginated
-        else SinglePagePaginator()
-    )
+    paginator: BasePaginator
+    if config.body_cursor:
+        paginator = WindmillCursorPaginator()
+    elif config.paginated:
+        paginator = WindmillPageNumberPaginator(PER_PAGE, stop_on_short_page=config.stop_on_short_page)
+    else:
+        paginator = SinglePagePaginator()
 
     list_endpoint: Endpoint = {"path": config.path, "params": params}
+    if config.data_selector:
+        list_endpoint["data_selector"] = config.data_selector
     client_config: ClientConfig = {
         "base_url": _endpoint_base_url(base_url, workspace, config),
         # Auth (Bearer) is supplied via the framework auth config so its value is redacted from
@@ -209,21 +255,23 @@ def windmill_source(
         "allow_redirects": False,
     }
 
+    list_resource: EndpointResource = {"name": endpoint, "endpoint": list_endpoint}
+    if config.explode_field:
+        list_resource["data_map"] = partial(_explode_rows, config.explode_field)
     rest_config: RESTAPIConfig = {
         "client": client_config,
         "resource_defaults": {},
-        "resources": [{"name": endpoint, "endpoint": list_endpoint}],
+        "resources": [list_resource],
     }
 
     # A saved page only indexes into a fixed result set. When an incremental watermark is active it
     # may have advanced since the page was saved (a partial run commits rows and moves the cursor),
     # reshuffling the filtered pages so page N would skip earlier unsynced rows. Restart from page 1
     # in that case; the watermark still bounds the scan and merge dedupes.
-    initial_paginator_state: Optional[dict[str, Any]] = None
-    if config.paginated and after_value is None and resumable_source_manager.can_resume():
+    resume: Optional[WindmillResumeConfig] = None
+    if config.paginated and not config.body_cursor and after_value is None and resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
-        if resume is not None:
-            initial_paginator_state = {"page": resume.page}
+    initial_paginator_state = {"page": resume.page} if resume is not None and resume.page is not None else None
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Persist only when a next page remains; the hook fires after a page is yielded, so the saved
@@ -231,11 +279,18 @@ def windmill_source(
         if state and state.get("page") is not None:
             resumable_source_manager.save_state(WindmillResumeConfig(page=int(state["page"])))
 
+    def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state:
+            resumable_source_manager.save_state(WindmillResumeConfig(fanout_state=state))
+
     if config.detail_path is not None:
-        # The framework can't resume a parent/child walk, so these endpoints restart from page 1.
-        # They are small lookups (groups), so a restart costs little.
         resources = rest_api_resources(
-            _detail_rest_config(endpoint, config.detail_path, client_config, list_endpoint), team_id, job_id, None
+            _detail_rest_config(endpoint, config, client_config, list_endpoint),
+            team_id,
+            job_id,
+            None,
+            resume_hook=save_fanout_checkpoint,
+            initial_paginator_state=resume.fanout_state if resume is not None else None,
         )
         resource = next(r for r in resources if r.name == endpoint)
     else:
@@ -275,31 +330,44 @@ def windmill_source(
 _PATH_SEGMENT_FIELD = "_path_segment"
 
 
-def _add_path_segment(row: dict[str, Any]) -> dict[str, Any]:
-    return {**row, _PATH_SEGMENT_FIELD: quote(str(row["name"]), safe="")}
+def _add_path_segment(key: str, row: dict[str, Any]) -> dict[str, Any]:
+    # Runnable paths (``u/<user>/<name>``) are matched by a wildcard route, so their slashes stay.
+    return {**row, _PATH_SEGMENT_FIELD: quote(str(row[key]), safe="/" if key == "path" else "")}
+
+
+def _rename_parent_key(parent_field: str, column: str, row: dict[str, Any]) -> dict[str, Any]:
+    renamed = {key: value for key, value in row.items() if key != parent_field}
+    renamed[column] = row.get(parent_field)
+    return renamed
 
 
 def _detail_rest_config(
-    endpoint: str, detail_path: str, client_config: ClientConfig, list_endpoint: Endpoint
+    endpoint: str, config: WindmillEndpointConfig, client_config: ClientConfig, list_endpoint: Endpoint
 ) -> RESTAPIConfig:
     """Walk the list endpoint, then fetch each row's detail, which carries fields the list omits."""
+    assert config.detail_path is not None
     parent_name = f"{endpoint}_list"
     detail_resource: EndpointResource = {
         "name": endpoint,
         "endpoint": {
-            "path": detail_path,
-            "params": {"name": {"type": "resolve", "resource": parent_name, "field": _PATH_SEGMENT_FIELD}},
+            "path": config.detail_path,
+            "params": {config.detail_key: {"type": "resolve", "resource": parent_name, "field": _PATH_SEGMENT_FIELD}},
             "paginator": SinglePagePaginator(),
             # A row deleted between the list call and its detail call is gone, not an error.
             "response_actions": [{"status_code": 404, "action": "ignore"}],
         },
     }
+    if config.parent_key_column:
+        detail_resource["include_from_parent"] = [config.detail_key]
+        detail_resource["data_map"] = partial(
+            _rename_parent_key, make_parent_key_name(parent_name, config.detail_key), config.parent_key_column
+        )
     return {
         "client": client_config,
         "resource_defaults": {},
         "resources": [
-            # The path is bound with `str.format`, so percent-encode the name here (`#`, `/`, `?` in a name).
-            {"name": parent_name, "endpoint": list_endpoint, "data_map": _add_path_segment},
+            # The path is bound with `str.format`, so percent-encode the value here (`#`, `?` in a name).
+            {"name": parent_name, "endpoint": list_endpoint, "data_map": partial(_add_path_segment, config.detail_key)},
             detail_resource,
         ],
     }

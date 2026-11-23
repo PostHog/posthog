@@ -7,6 +7,7 @@ import * as React from 'react'
 import { Button } from './button'
 import { cn } from './lib/utils'
 import { MenuLabel } from './menu-label'
+import { hasTooltipContent, withTooltip } from './with-tooltip'
 
 const Select = SelectPrimitive.Root
 
@@ -47,8 +48,13 @@ const SelectTrigger = React.forwardRef<
     React.ComponentRef<typeof SelectPrimitive.Trigger>,
     SelectPrimitive.Trigger.Props & {
         size?: 'sm' | 'default'
+        /**
+         * Disables the trigger and says why in its tooltip. The trigger stays hoverable and focusable.
+         * A `render` that replaces the default Button takes its own `disabledReason` instead.
+         */
+        disabledReason?: React.ReactNode
     }
->(function SelectTrigger({ className, size = 'default', children, ...props }, ref) {
+>(function SelectTrigger({ className, size = 'default', disabledReason, children, ...props }, ref) {
     return (
         <SelectPrimitive.Trigger
             ref={ref}
@@ -58,7 +64,9 @@ const SelectTrigger = React.forwardRef<
                 'quill-select__trigger group/select-trigger flex items-center justify-between gap-3 whitespace-nowrap outline-none',
                 className
             )}
-            render={<Button variant="outline" size={size} left />}
+            // The Button disables itself for the reason. Disabling the trigger instead would take it out
+            // of the tab order, and the reason would only open on hover.
+            render={<Button variant="outline" size={size} left disabledReason={disabledReason} />}
             {...props}
         >
             {children}
@@ -75,7 +83,11 @@ const SelectContent = React.forwardRef<
          * mask. Use position: absolute — in-flow content here resizes the box the positioner measures.
          */
         popupSibling?: React.ReactNode
-    } & Pick<SelectPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset' | 'alignItemWithTrigger'>
+    } & Pick<
+            SelectPrimitive.Positioner.Props,
+            'align' | 'alignOffset' | 'side' | 'sideOffset' | 'alignItemWithTrigger'
+        > &
+        Pick<SelectPrimitive.Portal.Props, 'container'>
 >(function SelectContent(
     {
         className,
@@ -86,12 +98,13 @@ const SelectContent = React.forwardRef<
         align = 'center',
         alignOffset = 0,
         alignItemWithTrigger = true,
+        container,
         ...props
     },
     ref
 ) {
     return (
-        <SelectPrimitive.Portal>
+        <SelectPrimitive.Portal container={container}>
             <SelectPrimitive.Positioner
                 data-quill
                 data-quill-portal="popover"
@@ -136,30 +149,39 @@ const SelectGroupLabel = React.forwardRef<
     )
 })
 
-const SelectItem = React.forwardRef<React.ComponentRef<typeof SelectPrimitive.Item>, SelectPrimitive.Item.Props>(
-    function SelectItem({ className, children, ...props }, ref) {
-        return (
-            <SelectPrimitive.Item
-                ref={ref}
-                data-slot="select-item"
-                className={cn(
-                    'quill-select__item group/select-item flex w-full cursor-default items-center gap-2 select-none',
-                    className
-                )}
-                {...props}
-            >
-                <SelectPrimitive.ItemText className="flex flex-1 shrink-0 gap-2 whitespace-nowrap">
-                    {children}
-                </SelectPrimitive.ItemText>
-                <SelectPrimitive.ItemIndicator
-                    render={<span className="pointer-events-none absolute end-2 flex items-center justify-center" />}
-                >
-                    <CheckIcon className="quill-select__indicator-icon pointer-events-none size-3.5" />
-                </SelectPrimitive.ItemIndicator>
-            </SelectPrimitive.Item>
-        )
+const SelectItem = React.forwardRef<
+    React.ComponentRef<typeof SelectPrimitive.Item>,
+    SelectPrimitive.Item.Props & {
+        /** Disables the item and says why in a tooltip beside it. */
+        disabledReason?: React.ReactNode
     }
-)
+>(function SelectItem({ className, children, disabled, disabledReason, ...props }, ref) {
+    const hasReason = hasTooltipContent(disabledReason)
+    const item = (
+        <SelectPrimitive.Item
+            ref={ref}
+            data-slot="select-item"
+            disabled={disabled || hasReason}
+            className={cn(
+                'quill-select__item group/select-item flex w-full cursor-default items-center gap-2 select-none',
+                className
+            )}
+            {...props}
+        >
+            <SelectPrimitive.ItemText className="flex flex-1 shrink-0 gap-2 whitespace-nowrap">
+                {children}
+            </SelectPrimitive.ItemText>
+            <SelectPrimitive.ItemIndicator
+                render={<span className="pointer-events-none absolute end-2 flex items-center justify-center" />}
+            >
+                <CheckIcon className="quill-select__indicator-icon pointer-events-none size-3.5" />
+            </SelectPrimitive.ItemIndicator>
+        </SelectPrimitive.Item>
+    )
+    // A disabled item ignores the pointer, so the tooltip listens on a wrapper and opens beside the row. Rows without a
+    // reason skip the wrapper, so a long list does not mount one per row.
+    return hasReason ? withTooltip(item, disabledReason, { target: 'block', side: 'inline-end' }) : item
+})
 
 const SelectSeparator = React.forwardRef<
     React.ComponentRef<typeof SelectPrimitive.Separator>,

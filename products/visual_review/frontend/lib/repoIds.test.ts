@@ -15,6 +15,7 @@ function makeRepo(id: string, repoFullName: string, createdAt: string): RepoApi 
         baseline_file_paths: {},
         enable_pr_comments: true,
         debt_digest_enabled: false,
+        auto_quarantine_mode: 'off',
         created_at: createdAt,
     }
 }

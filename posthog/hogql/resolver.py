@@ -1,4 +1,5 @@
 import string
+import dataclasses
 from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any, Optional, cast
@@ -25,6 +26,7 @@ from posthog.hogql.database.schema.duckdb_table_functions import (
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.events_with_flag_calls import EventsWithFlagCallsTable
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.database.schema.log_entries import (
     BatchExportLogEntriesTable,
     LogEntriesTable,
@@ -44,10 +46,12 @@ from posthog.hogql.errors import (
 from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
+from posthog.hogql.functions.clickhouse.conversions import NUMERIC_CONVERSION_ALIASES
 from posthog.hogql.functions.cohort import cohort_query_node
 from posthog.hogql.functions.core import validate_function_args
 from posthog.hogql.functions.explain_csp_report import explain_csp_report
 from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
+from posthog.hogql.functions.posthog import BOT_DETECTION_FUNCTIONS
 from posthog.hogql.functions.prompt_jev import PromptJevCall, is_decision_call
 from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
@@ -75,7 +79,7 @@ from posthog.hogql.resolver_utils import (
     suggested_field_fix,
     zero_argument_function_call,
 )
-from posthog.hogql.transforms.flag_calls_from_flag_evaluations import swap_flag_calls, swaps_flag_calls
+from posthog.hogql.transforms.flag_calls_from_flag_evaluations import FlagCallScope, swap_flag_calls, swaps_flag_calls
 from posthog.hogql.transforms.grouped_clauses import raise_on_whole_document_grouping
 from posthog.hogql.transforms.trino.persons import (
     lower_trino_table,
@@ -142,7 +146,7 @@ def _string_constants(node: ast.Expr) -> list[ast.Constant]:
 # re-executed per shard of a distributed outer scan: sharded tables, and tables on another
 # cluster (log_entries is a Distributed over the aux cluster, so a plain IN makes every shard
 # of the outer query issue its own remote read against aux).
-_GLOBAL_IN_TABLES: tuple[type, ...] = (EventsTable, LogEntriesTable)
+_GLOBAL_IN_TABLES: tuple[type, ...] = (EventsTable, FlagEvaluationsTable, LogEntriesTable)
 _GLOBAL_IN_LAZY_TABLES: tuple[type, ...] = (
     ReplayConsoleLogsLogEntriesTable,
     BatchExportLogEntriesTable,
@@ -277,7 +281,15 @@ def resolve_types_from_table(
     expr: ast.Expr, table_chain: list[str], context: HogQLContext, dialect: HogQLDialect
 ) -> ast.Expr:
     scope = resolve_table_scope(table_chain, context, dialect)
-    return resolve_types(expr, context, dialect, [scope])
+    return resolve_types(expr, context, dialect, [scope], resolver_factory=_signature_typing_resolver)
+
+
+def _signature_typing_resolver(
+    context: HogQLContext, dialect: HogQLDialect, scopes: Optional[list[ast.SelectQueryType]]
+) -> "Resolver":
+    resolver = Resolver(scopes=scopes, context=context, dialect=dialect)
+    resolver.type_posthog_calls_by_signature = True
+    return resolver
 
 
 ResolverFactory = Callable[
@@ -499,6 +511,7 @@ class Resolver(CloningVisitor):
         self.union_view_name_by_id: dict[int, str] = {}
         self._pending_saved_view: str | None = None
         self.swap_flag_calls_in_views = False
+        self.type_posthog_calls_by_signature = False
         # The unresolved body that the flag call swap chose for each view, by the CTEs in scope where it was read. A
         # CTE's body can change the swap's decision, so the key holds each CTE's text. The text stays the same when
         # the resolver visits the same CTE again and builds a new node for it.
@@ -1519,7 +1532,7 @@ class Resolver(CloningVisitor):
                 self.join_sources = outer_join_sources
             return resolved
 
-        chosen_body = swap_flag_calls(body, self.context, resolve, view_name=view_name).source
+        chosen_body = swap_flag_calls(body, self.context, resolve, scope=FlagCallScope.view(view_name)).source
         self._flag_call_view_bodies[key] = chosen_body
         return clone_expr(chosen_body)
 
@@ -1656,6 +1669,20 @@ class Resolver(CloningVisitor):
                 assert isinstance(database_table, ast.Table)
                 node_table_type = ast.TableType(table=database_table)
 
+            for scope_alias, scope_type in scope.tables.items():
+                # An unaliased scan of a non-lazy table prints as its bare table name. `FROM posthog.events JOIN
+                # events` would print both scans as `events`. ClickHouse then cannot tell them apart.
+                if (
+                    isinstance(scope_type, ast.TableType)
+                    and scope_type == node_table_type
+                    and scope_alias != table_alias
+                    and database_table.to_printed_clickhouse(self.context) == table_alias
+                ):
+                    raise QueryError(
+                        f'"{self._get_scope_table_names(scope)[scope_alias]}" and "{".".join(table_name_chain)}" '
+                        "read the same table. Give one of them an alias."
+                    )
+
             if isinstance(database_table, HogQLDataWarehouseTable) and database_table.table_id is not None:
                 self._record_warehouse_sync_warnings(database_table.table_id)
 
@@ -1687,7 +1714,14 @@ class Resolver(CloningVisitor):
                 node_type = ast.ColumnAliasedTableType(
                     alias=table_alias, table_type=node_table_type, alias_to_original=alias_to_original
                 )
-            elif table_alias != table_name_alias or isinstance(database_table, FunctionCallTable):
+            elif (
+                table_alias != table_name_alias
+                or isinstance(database_table, FunctionCallTable)
+                # `persons` and `posthog.persons` resolve to the same table, and their types compare equal.
+                # `get_alias_for_table_type` returns the first scope entry with an equal type. Without an alias,
+                # the second scan prints with the first scan's name.
+                or node_table_type in scope.tables.values()
+            ):
                 node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
             else:
                 node_type = node_table_type
@@ -1994,7 +2028,7 @@ class Resolver(CloningVisitor):
             index += 1
         alias = f"__using_join_{index}"
         self._synthetic_using_join_aliases.add(alias)
-        return alias
+        return scope.register_implicit_table_alias(alias)
 
     def _synthesize_join_alias(self, scope: ast.SelectQueryType, node: ast.JoinExpr) -> str:
         """Alias a joined sub-select because ClickHouse requires a name for it."""
@@ -2008,7 +2042,7 @@ class Resolver(CloningVisitor):
         index = 1
         while f"__join_{index}" in reserved_aliases:
             index += 1
-        return f"__join_{index}"
+        return scope.register_implicit_table_alias(f"__join_{index}")
 
     def _using_constraint_column_names(self, constraint: ast.JoinConstraint) -> list[str]:
         exprs = constraint.expr.exprs if isinstance(constraint.expr, ast.Tuple) else [constraint.expr]
@@ -2221,6 +2255,10 @@ class Resolver(CloningVisitor):
             node = self._copy(node)
             node.name = "toDate"
 
+        if node.name in NUMERIC_CONVERSION_ALIASES:
+            node = self._copy(node)
+            node.name = NUMERIC_CONVERSION_ALIASES[node.name]
+
         # Expand *COLUMNS(...) in function arguments
         expanded_args: list[ast.Expr] = []
         has_spread = False
@@ -2239,6 +2277,12 @@ class Resolver(CloningVisitor):
                 start=node.start,
                 end=node.end,
             )
+
+        declared_return_type = self._declared_posthog_return_type(node.name)
+        if declared_return_type is not None:
+            node = super().visit_call(node)
+            node.type = ast.CallType(name=node.name, arg_types=[], return_type=declared_return_type)
+            return node
 
         if func_meta := find_hogql_posthog_function(node.name):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
@@ -2368,6 +2412,14 @@ class Resolver(CloningVisitor):
             return_type=return_type,
         )
         return node
+
+    def _declared_posthog_return_type(self, name: str) -> ConstantType | None:
+        if not self.type_posthog_calls_by_signature or name not in BOT_DETECTION_FUNCTIONS:
+            return None
+        meta = find_hogql_posthog_function(name)
+        if meta is None or not meta.signatures:
+            return None
+        return dataclasses.replace(meta.signatures[0][1])
 
     def _is_higher_order_array_call(self, node: ast.Call) -> bool:
         return (
@@ -2766,9 +2818,15 @@ class Resolver(CloningVisitor):
                         expression = ast.Call(name="tupleElement", args=[expression, ast.Constant(value=member)])
                     return self.visit(expression)
             if next_chain == "..":  # only support one level of ".."
-                previous_types.pop()
-                previous_types.pop()
-                loop_type = previous_types[-1]
+                del previous_types[-2:]
+                if previous_types:
+                    loop_type = previous_types[-1]
+                elif isinstance(loop_type, ast.VirtualTableType):
+                    loop_type = loop_type.table_type
+                else:
+                    raise QueryError(f"Cannot use '..' after '{'.'.join(str(c) for c in resolved_chain)}'")
+                if not chain_to_parse:
+                    raise QueryError("Expected a field after '..'")
                 next_chain = chain_to_parse.pop(0)
 
             try:
@@ -3177,6 +3235,7 @@ class Resolver(CloningVisitor):
             self._record_saved_query_read(database_table.id, is_user_view=type(database_table) is SavedQuery)
         elif isinstance(database_table, S3Table) and database_table.saved_query_id is not None:
             self._record_saved_query_read(database_table.saved_query_id, is_user_view=True)
+            self.context.materialized_saved_query_ids.add(database_table.saved_query_id)
         elif isinstance(database_table, S3Table) and database_table.table_id is not None:
             self.context.referenced_warehouse_table_ids.add(database_table.table_id)
             self._record_direct_read(database_table.table_id)

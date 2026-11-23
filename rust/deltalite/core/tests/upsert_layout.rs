@@ -274,3 +274,76 @@ async fn max_row_group_bytes_closes_row_groups_between_batches() {
         assert_eq!(got[0].1, got[1].1, "{case}: the cap changed the rows");
     }
 }
+
+/// With an order guard, a source row older than its matched row is not written and the
+/// stored row stays; an equal or newer one replaces it, and a new key is inserted.
+#[tokio::test]
+async fn the_order_guard_keeps_a_stored_row_newer_than_the_source_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut handle = table(dir.path()).await;
+    let guarded = || UpsertOptions {
+        order_columns: vec!["v".to_string()],
+        ..opts()
+    };
+    upsert_with(&mut handle, &keys("old", 0..10), 5, guarded()).await;
+
+    let parquet_files = || {
+        walkdir(dir.path())
+            .into_iter()
+            .filter(|p| p.extension().is_some_and(|e| e == "parquet"))
+            .count()
+    };
+    let (version, files) = (handle.version(), parquet_files());
+    let older = upsert_with(&mut handle, &keys("old", 0..5), 4, guarded()).await;
+    assert_eq!(
+        handle.version(),
+        version,
+        "a batch of only older rows makes no commit"
+    );
+    assert_eq!(
+        parquet_files(),
+        files,
+        "and leaves no uncommitted file behind"
+    );
+    let equal = upsert_with(&mut handle, &keys("old", 5..8), 5, guarded()).await;
+    let mixed = upsert_with(
+        &mut handle,
+        &[keys("old", 8..10), keys("new", 0..2)].concat(),
+        6,
+        guarded(),
+    )
+    .await;
+
+    let counts = |s: &UpsertStats| (s.rows_older_than_main, s.rows_updated, s.rows_inserted);
+    assert_eq!(counts(&older), (5, 0, 0), "{older:?}");
+    assert_eq!(counts(&equal), (0, 3, 0), "{equal:?}");
+    assert_eq!(counts(&mixed), (0, 2, 2), "{mixed:?}");
+    let rows = read_rows(&handle).await;
+    assert_eq!(rows.len(), TABLE_ROWS + 2);
+    let v_of = |pk: &str| rows.iter().find(|r| r.0 == pk).unwrap().1;
+    assert_eq!(
+        [
+            "old000000",
+            "old000004",
+            "old000005",
+            "old000008",
+            "new000001",
+            "old000500"
+        ]
+        .map(v_of),
+        [5, 5, 5, 6, 6, 0]
+    );
+}
+
+fn walkdir(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            out.extend(walkdir(&path));
+        } else {
+            out.push(path);
+        }
+    }
+    out
+}

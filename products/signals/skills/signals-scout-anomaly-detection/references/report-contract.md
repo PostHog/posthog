@@ -122,7 +122,7 @@ the durable artifact the human opens.
   `priority_explanation`) when the move is concrete enough to justify urgency.
 - **Repository.** Most metric anomalies have no single code fix — pass the `NO_REPO` sentinel.
   Pass `owner/repo` only when the anomaly is a tracking/instrumentation regression you can point
-  at a repo. Don't leave it to free-form selection unless you genuinely don't know.
+  at a repo. Omit the field only when you genuinely don't know; nothing selects a repository for you.
 
 ### Suggested reviewers
 
@@ -194,9 +194,6 @@ call appends at the end of the document, so no `after_node_id` is needed.
   `# heading`, so do not repeat it in `markdown`.
 - **One notebook per report** — never append a new anomaly to a prior run's notebook. A
   recurrence on a later day is a new notebook, linked from the `edit_report` note.
-
-`notebooks-create` (ProseMirror `content` with `ph-query` nodes) is retired. Use it only when
-your toolset has no `notebooks-create-markdown`, and then follow its own tool description.
 
 ### What goes in it
 

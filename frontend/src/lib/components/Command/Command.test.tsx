@@ -9,7 +9,7 @@ import { commandLogic } from './commandLogic'
 jest.setTimeout(20000)
 
 const findSearchInput = (): Promise<HTMLInputElement> =>
-    screen.findByPlaceholderText('Search or ask PostHog AI… try is:dashboard', {}, { timeout: 10000 })
+    screen.findByLabelText<HTMLInputElement>('Search', {}, { timeout: 10000 })
 
 describe('Command', () => {
     // Keeps the cold load of the lazy chunk out of the test. The lazy component still suspends on the first open.

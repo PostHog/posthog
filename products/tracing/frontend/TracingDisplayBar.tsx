@@ -22,8 +22,7 @@ import { tracingSceneLogic, type TracingDisplayMode } from './tracingSceneLogic'
  *  - right: column configuration (span list only) and Compare, both hidden on the aggregate views.
  */
 export function TracingDisplayBar(): JSX.Element {
-    const { totalMatchingFilters, compareActive, displayMode, operationsViewEnabled, endpointsViewEnabled } =
-        useValues(tracingSceneLogic())
+    const { totalMatchingFilters, compareActive, displayMode, endpointsViewEnabled } = useValues(tracingSceneLogic())
     const { setDisplayMode } = useActions(tracingSceneLogic())
     const { featureFlags } = useValues(featureFlagLogic)
     const { facetRailCollapsed } = useValues(tracingConfigLogic)
@@ -54,17 +53,13 @@ export function TracingDisplayBar(): JSX.Element {
             tooltip: 'Group matching spans by trace, one row per trace (its root span)',
             'data-attr': 'tracing-view-mode-traces',
         },
-        ...(operationsViewEnabled
-            ? [
-                  {
-                      value: 'operations' as const,
-                      label: 'Operations',
-                      icon: <IconStack />,
-                      tooltip: 'Aggregate matching spans by operation (service and span name)',
-                      'data-attr': 'tracing-display-tab-operations',
-                  },
-              ]
-            : []),
+        {
+            value: 'operations' as const,
+            label: 'Operations',
+            icon: <IconStack />,
+            tooltip: 'Aggregate matching spans by operation (service and span name)',
+            'data-attr': 'tracing-display-tab-operations',
+        },
         ...(endpointsViewEnabled
             ? [
                   {

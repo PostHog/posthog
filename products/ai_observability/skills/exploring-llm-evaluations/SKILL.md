@@ -435,7 +435,8 @@ Always surface the relevant link so the user can verify in the UI.
 - Evaluation reports are configured per evaluation with `llma-evaluation-report-create`:
   `frequency: "scheduled"` with an `rrule` for a daily or weekly cadence, or
   `frequency: "every_n"` with a `trigger_threshold` to fire once that many new results
-  have accumulated. Delivery goes to email or Slack via `delivery_targets`
+  have accumulated, at most once per `cooldown_minutes` (default 1440, so a busy evaluation
+  gets one report a day). Delivery goes to email or Slack via `delivery_targets`
 - `llma-evaluation-report-generate` runs a configured report immediately instead of
   waiting for the next trigger; `llma-evaluation-report-run-list` returns past runs with
   the report content they delivered

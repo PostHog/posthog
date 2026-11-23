@@ -19,9 +19,12 @@ from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIRequestFactory
 
+from posthog.admin.admins.organization_admin import OrganizationAdminForm
+from posthog.admin.admins.organization_ai_terms_admin import OrganizationAITermsForm
 from posthog.api.organization import (
     OrganizationMemberNoticeSerializer,
     OrganizationSerializer,
+    OrganizationViewSet,
     _fetch_member_count,
     _org_serializer_cache_version,
 )
@@ -29,7 +32,9 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.organization import OrganizationAITerms
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_external_project_link import OrganizationExternalProjectLink
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.uploaded_media import UploadedMedia
@@ -81,6 +86,59 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertEqual(organization.status_code, status.HTTP_200_OK, organization.json())
         teams = {team["id"]: team for team in organization.json()["teams"]}
         self.assertEqual(teams[self.team.id]["project_group"], "production-apps")
+
+    def test_external_project_links_are_read_only_and_listed_for_their_organization_only(self) -> None:
+        link = OrganizationExternalProjectLink.objects.create(
+            organization=self.organization, name="Hedgebox (EU)", url="https://eu.posthog.com/project/2"
+        )
+        other_organization = Organization.objects.create(name="Other")
+        OrganizationExternalProjectLink.objects.create(
+            organization=other_organization, name="Other (EU)", url="https://eu.posthog.com/project/3"
+        )
+
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        patched = self.client.patch(
+            "/api/organizations/@current",
+            {"external_project_links": [{"name": "Phishing", "url": "https://example.com"}]},
+            format="json",
+        )
+        self.assertEqual(patched.status_code, status.HTTP_200_OK, patched.json())
+
+        response = self.client.get("/api/organizations/@current")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["external_project_links"],
+            [{"id": str(link.id), "name": "Hedgebox (EU)", "url": "https://eu.posthog.com/project/2"}],
+        )
+        self.assertEqual(OrganizationExternalProjectLink.objects.count(), 2)
+
+    def test_project_logo_changes_show_in_organization_projects(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        media = UploadedMedia.objects.create(
+            team=self.team,
+            created_by=self.user,
+            media_location="http://example.com/logo.png",
+            content_type="image/png",
+            file_name="logo.png",
+        )
+        # Fills the per-user cache of the org's project list before the logo exists.
+        self.client.get("/api/organizations/@current")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            updated = self.client.patch(
+                f"/api/projects/{self.project.id}/",
+                {"logo_media_id": str(media.id)},
+                format="json",
+            )
+        self.assertEqual(updated.status_code, status.HTTP_200_OK, updated.json())
+
+        organization = self.client.get("/api/organizations/@current")
+        self.assertEqual(organization.status_code, status.HTTP_200_OK, organization.json())
+        projects = {project["id"]: project for project in organization.json()["projects"]}
+        self.assertEqual(projects[self.project.id]["logo_media_id"], str(media.id))
 
     def test_get_current_team_fields(self):
         self.organization.setup_section_2_completed = False
@@ -154,6 +212,54 @@ class TestOrganizationAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(Organization.objects.count(), 1)
+
+    @parameterized.expand(
+        [
+            ("unscoped_oauth_token", "oauth", False, status.HTTP_201_CREATED),
+            ("org_scoped_oauth_token", "oauth", True, status.HTTP_403_FORBIDDEN),
+            ("org_scoped_personal_api_key", "personal_api_key", True, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_create_organization_with_token(
+        self, _name: str, credential: str, org_scoped: bool, expected_status: int
+    ) -> None:
+        scoped_organizations = [str(self.organization.id)] if org_scoped else []
+        if credential == "oauth":
+            oauth_app = OAuthApplication.objects.create(
+                name="Test OAuth App",
+                client_id="test_client_id",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://example.com/callback",
+                algorithm="RS256",
+                user=self.user,
+            )
+            token = "pha_test_org_create_token"
+            OAuthAccessToken.objects.create(
+                application=oauth_app,
+                user=self.user,
+                token=token,
+                scope="organization:write",
+                expires=timezone.now() + timedelta(hours=1),
+                scoped_organizations=scoped_organizations,
+            )
+        else:
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="X",
+                user=self.user,
+                secure_value=hash_key_value(token),
+                scoped_organizations=scoped_organizations,
+                scopes=["organization:write"],
+            )
+
+        with self.is_cloud(True):
+            response = self.client.post(
+                "/api/organizations/", {"name": "New org"}, headers={"authorization": f"Bearer {token}"}
+            )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        self.assertEqual(Organization.objects.count(), 2 if expected_status == status.HTTP_201_CREATED else 1)
 
     # Updating organizations
 
@@ -267,6 +373,75 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertEqual(response.json()["code"], "locked")
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.is_ai_training_opted_in, False)
+
+    @parameterized.expand(
+        [
+            ("locked_and_off_cannot_turn_on", True, False, True, status.HTTP_400_BAD_REQUEST, False),
+            ("locked_and_on_can_turn_off", True, True, False, status.HTTP_200_OK, False),
+            ("unlocked_can_turn_on", False, False, True, status.HTTP_200_OK, True),
+        ]
+    )
+    def test_ai_data_processing_lock(self, _name, locked, approved, requested, expected_status, expected_approved):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.is_ai_data_processing_locked = locked
+        self.organization.is_ai_data_processing_approved = approved
+        self.organization.save()
+
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/", {"is_ai_data_processing_approved": requested}
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            self.assertEqual(response.json()["code"], "locked")
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.is_ai_data_processing_approved, expected_approved)
+
+    def test_update_from_a_stale_instance_keeps_a_new_ai_data_processing_lock(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        stale = Organization.objects.get(id=self.organization.id)
+        Organization.objects.filter(id=self.organization.id).update(
+            is_ai_data_processing_locked=True, is_ai_data_processing_approved=False
+        )
+
+        with patch.object(OrganizationViewSet, "get_object", return_value=stale):
+            response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"name": "Renamed"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.name, "Renamed")
+        self.assertTrue(self.organization.is_ai_data_processing_locked)
+        self.assertFalse(self.organization.is_ai_data_processing_approved)
+
+    def test_locking_in_the_organization_admin_turns_ai_data_processing_off(self):
+        form = OrganizationAdminForm(instance=self.organization)
+        form.cleaned_data = {"is_ai_data_processing_locked": True, "is_ai_data_processing_approved": True}
+
+        self.assertFalse(form.clean()["is_ai_data_processing_approved"])
+
+    def test_ai_terms_admin_cannot_turn_on_ai_data_processing_for_a_locked_organization(self):
+        self.organization.is_ai_data_processing_locked = True
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        form = OrganizationAITermsForm(
+            instance=OrganizationAITerms.objects.get(pk=self.organization.pk),
+            data={"is_ai_data_processing_approved": True},
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("is_ai_data_processing_approved", form.errors)
+
+    def test_ai_data_processing_lock_is_read_only(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        self.client.patch(f"/api/organizations/{self.organization.id}/", {"is_ai_data_processing_locked": True})
+
+        self.organization.refresh_from_db()
+        self.assertFalse(self.organization.is_ai_data_processing_locked)
 
     def test_listing_organizations_reads_the_baa_once_regardless_of_count(self):
         Organization.objects.bootstrap(self.user)
@@ -1103,11 +1278,23 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.refresh_from_db()
         self.assertTrue(self.organization.is_pending_deletion)
 
+    @parameterized.expand(
+        [
+            ("posthog_billing", {}, "billing page"),
+            (
+                "vercel_billing",
+                {"billing_provider": "vercel"},
+                "uninstall the PostHog integration from your Vercel team",
+            ),
+        ]
+    )
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
     @patch("posthog.api.organization.get_cached_instance_license")
-    def test_cannot_delete_organization_with_active_subscription(self, mock_get_license, mock_get_billing):
+    def test_cannot_delete_organization_with_active_subscription(
+        self, _name, billing_extra, expected_detail, mock_get_license, mock_get_billing
+    ):
         mock_get_license.return_value = True
-        mock_get_billing.return_value = {"has_active_subscription": True}
+        mock_get_billing.return_value = {"has_active_subscription": True, **billing_extra}
 
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
@@ -1116,7 +1303,7 @@ class TestOrganizationAPI(APIBaseTest):
             response = self.client.delete(f"/api/organizations/{self.organization.id}")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("active subscription", response.json()["detail"])
+        self.assertIn(expected_detail, response.json()["detail"])
         self.assertTrue(Organization.objects.filter(id=self.organization.id).exists())
 
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
@@ -1926,6 +2113,17 @@ class TestOrganizationRequestAIAccessAPI(APIBaseTest):
         response = self.client.post(self._url())
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        mock_task.delay.assert_not_called()
+
+    @patch("posthog.api.organization.send_posthog_ai_access_request")
+    def test_cannot_request_ai_access_when_locked(self, mock_task):
+        self.organization.is_ai_data_processing_locked = True
+        self.organization.save()
+
+        response = self.client.post(self._url())
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["code"] == "locked"
         mock_task.delay.assert_not_called()
 
     @patch("posthog.api.organization.send_posthog_ai_access_request")

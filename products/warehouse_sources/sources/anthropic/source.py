@@ -8,18 +8,23 @@ from products.warehouse_sources.sources.anthropic.anthropic import (
     AnthropicResumeConfig,
     anthropic_source,
     check_analytics_access,
+    check_analytics_usage_cost_access,
     check_rbac_group_access,
     check_rbac_role_access,
+    check_spend_limit_access,
     validate_credentials as validate_anthropic_credentials,
 )
 from products.warehouse_sources.sources.anthropic.settings import (
+    ANALYTICS_COST_PATH,
     ANALYTICS_PATH_PREFIX,
+    ANALYTICS_USAGE_PATH,
     ANTHROPIC_ENDPOINTS,
     ENDPOINT_RETIRED_ERROR,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     RBAC_GROUPS_PATH,
     RBAC_ROLES_PATH,
+    SPEND_LIMITS_PATH,
     AccessFamily,
 )
 from products.warehouse_sources.sources.sdk import (
@@ -128,9 +133,13 @@ Create an Admin API key (prefixed `sk-ant-admin...`) in your [Anthropic Console]
 
 Some tables need a Claude Enterprise key instead, created by your primary owner in [claude.ai organization settings](https://claude.ai/admin-settings/api-access). A key works with one API only, so pick the one that matches the tables you want.
 
-The per-seat activity, cost and token usage tables, and the connector, plugin, skill and summary tables, come from the Claude Enterprise Analytics API. They need a Claude Enterprise key carrying the `read:analytics` scope.
+The per-seat activity, cost and token usage tables, and the connector, plugin, skill, chat project, artifact and summary tables, come from the Claude Enterprise Analytics API. They need a Claude Enterprise key carrying the `read:analytics` scope.
 
-The group, group membership and custom role tables come from the Claude Enterprise user management API. They need an Admin API key carrying the `read:rbac_groups` scope for the group tables, or `read:members` for the custom role tables.""",
+The group, group membership and custom role tables come from the Claude Enterprise user management API. They need an Admin API key carrying the `read:rbac_groups` scope for the group tables, or `read:members` for the custom role tables.
+
+The spend limit tables come from the Claude Enterprise spend limits API. They need an Admin API key carrying the `read:spend_limits` scope.
+
+The cost and token usage by dimension tables need an Admin API key, or a key carrying the `read:analytics` scope.""",
             iconPath="/static/services/anthropic.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/anthropic",
             keywords=["llm", "claude", "ai usage", "cost"],
@@ -168,7 +177,16 @@ The group, group membership and custom role tables come from the Claude Enterpri
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         rbac_group_denied = "This table comes from the Claude Enterprise user management API, which your key can't reach. Reconnect the source with an Admin API key created in claude.ai for all your linked organizations, carrying the read:rbac_groups scope, or turn this table's sync off."
         rbac_role_denied = "This table comes from the Claude Enterprise user management API, which your key can't reach. Reconnect the source with an Admin API key created in claude.ai carrying the read:members scope, or turn this table's sync off."
+        spend_limit_denied = "This table comes from the Claude Enterprise spend limits API, which your key can't reach. Reconnect the source with an Admin API key created in claude.ai carrying the read:spend_limits scope, or turn this table's sync off."
+        usage_cost_denied = "This table comes from the Claude cost and usage analytics API, which your key can't reach. Reconnect the source with an Admin API key or a key carrying the read:analytics scope, or turn this table's sync off."
         return {
+            # Matched before the analytics prefix below, which would name the per-seat key instead.
+            f"403 Client Error: Forbidden for url: https://api.anthropic.com{ANALYTICS_COST_PATH}?": usage_cost_denied,
+            f"403 Client Error: Forbidden for url: https://api.anthropic.com{ANALYTICS_USAGE_PATH}?": usage_cost_denied,
+            # A Claude Console organization answers 400 `organization_type_not_supported` here.
+            f"400 Client Error: Bad Request for url: https://api.anthropic.com{SPEND_LIMITS_PATH}": spend_limit_denied,
+            f"403 Client Error: Forbidden for url: https://api.anthropic.com{SPEND_LIMITS_PATH}": spend_limit_denied,
+            f"404 Client Error: Not Found for url: https://api.anthropic.com{SPEND_LIMITS_PATH}": spend_limit_denied,
             # Matched before the generic 403 below, because the first matching pattern supplies the
             # message and a denial from this path is about a missing scope, not admin access.
             f"403 Client Error: Forbidden for url: https://api.anthropic.com{ANALYTICS_PATH_PREFIX}": "This table comes from the Claude Enterprise Analytics API, which your key can't reach. Reconnect the source with a Claude Enterprise key carrying the read:analytics scope, or turn this table's sync off.",
@@ -220,6 +238,8 @@ The group, group membership and custom role tables come from the Claude Enterpri
             AccessFamily.ANALYTICS: check_analytics_access,
             AccessFamily.RBAC_GROUPS: check_rbac_group_access,
             AccessFamily.RBAC_ROLES: check_rbac_role_access,
+            AccessFamily.SPEND_LIMITS: check_spend_limit_access,
+            AccessFamily.ANALYTICS_USAGE_COST: check_analytics_usage_cost_access,
         }
         resolved_version = self.resolve_api_version(api_version)
         permissions: dict[str, str | None] = dict.fromkeys(endpoints)

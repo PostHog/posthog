@@ -4,10 +4,6 @@ import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { isDecisiveFailure, isPassingConclusion } from './lifecycle'
 
-/**
- * A workflow run's conclusion as a labeled tag. `null` = still in progress. Decisive failures
- * are danger; success green; other passing outcomes muted; else warning.
- */
 export function verdictTag(conclusion: string | null): { label: string; type: LemonTagType } {
     if (conclusion === null) {
         return { label: 'Running', type: 'warning' }
@@ -19,15 +15,15 @@ export function verdictTag(conclusion: string | null): { label: string; type: Le
     if (isPassingConclusion(conclusion)) {
         return { label, type: conclusion === 'success' ? 'success' : 'muted' }
     }
-    // Cancelled is neither a pass nor a decisive failure — neutral, not amber.
+    // Cancelled is neither a pass nor a decisive failure, so it is neutral, not amber.
     if (conclusion === 'cancelled') {
         return { label, type: 'muted' }
     }
     return { label, type: 'warning' }
 }
 
-// CSS color per verdict type, keyed by the `verdictTag` type above so every run-activity chart (scatter,
-// mini bars) and the run tables' StatusDot color the same conclusion identically.
+// Keyed by the `verdictTag` type, so every run-activity chart and the run tables' StatusDot give one
+// conclusion one color.
 export const VERDICT_COLOR: Record<string, string> = {
     success: 'var(--success)',
     danger: 'var(--danger)',

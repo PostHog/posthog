@@ -12,8 +12,11 @@ from django.db.models import QuerySet
 
 import posthoganalytics
 
+from posthog.hogql.property_access_types import RestrictedProperty
+
 from posthog.event_usage import AnalyticsProps, groups
 from posthog.integrations import IntegrationManager, IntegrationRecord
+from posthog.models.user import User
 from posthog.paging import Page, PageRequest
 from posthog.queryset_paging import select_page
 
@@ -21,7 +24,14 @@ from products.access_control.backend.facade.api import valid_role_member_user_id
 
 from .. import logic, weekly_digest, weekly_digest_delivery
 from ..indexed_embedding import DOCUMENT_EMBEDDINGS_BUFFER_SHARDED_TABLE, EMBEDDING_TABLES
-from ..logic import built_in_filters, external_references, github_external_references, rules
+from ..logic import built_in_filters, external_references, github_external_references, rules, team_flags
+from ..logic.issue_summary_config import ISSUE_SUMMARY_FLAG
+from ..logic.issue_tags import (
+    enabled as issue_tag_enabled,
+    gate as issue_tag_gate,
+    reader as issue_tag_reader,
+    rules as issue_tag_rules,
+)
 from ..models import (
     ErrorTrackingIssue,
     override_error_tracking_issue_fingerprint as override_error_tracking_issue_fingerprint,
@@ -41,6 +51,9 @@ ExternalReferenceValidationError = external_references.ErrorTrackingExternalRefe
 ReleaseHashInUseError = logic.ErrorTrackingReleaseHashInUseError
 InvalidBytecodeError = rules.ErrorTrackingInvalidBytecodeError
 SeverityRuleLimitError = rules.ErrorTrackingSeverityRuleLimitError
+IssueTagRuleFiltersError = issue_tag_rules.IssueTagRuleFiltersError
+IssueTagRuleLimitError = issue_tag_rules.IssueTagRuleLimitError
+IssueTagsDisabledError = issue_tag_gate.IssueTagsDisabledError
 UnknownBuiltInFilterError = built_in_filters.UnknownBuiltInFilterError
 
 SOURCE_MAPS_DOCS_URL = contracts.SOURCE_MAPS_DOCS_URL
@@ -111,7 +124,11 @@ def _to_issue_preview(issue) -> contracts.ErrorTrackingIssuePreview:
     )
 
 
-def _to_issue(issue, integrations: dict[int, IntegrationRecord] | None = None) -> contracts.ErrorTrackingIssue:
+def _to_issue(
+    issue,
+    integrations: dict[int, IntegrationRecord] | None = None,
+    tags: list[contracts.ErrorTrackingIssueTag] | None = None,
+) -> contracts.ErrorTrackingIssue:
     references = list(issue.external_issues.all())
     if integrations is None:
         integrations = external_references.get_reference_integrations(issue.team_id, references) if references else {}
@@ -129,6 +146,7 @@ def _to_issue(issue, integrations: dict[int, IntegrationRecord] | None = None) -
             if reference.integration_id in integrations
         ],
         cohort=_to_issue_cohort(issue),
+        tags=tags,
     )
 
 
@@ -193,9 +211,30 @@ def query_new_error_issues(period_start: datetime, period_end: datetime) -> Quer
     )
 
 
-def get_issue(issue_id: UUID, team_id: int) -> contracts.ErrorTrackingIssue:
+def get_issue(issue_id: UUID, team_id: int, *, with_tags_for: User | None = None) -> contracts.ErrorTrackingIssue:
+    """The issue, with the tags that `with_tags_for` can see when it is given."""
     issue = logic.get_issue(issue_id=issue_id, team_id=team_id)
-    return _to_issue(issue)
+    definitions = (
+        issue_tag_enabled.enabled_issue_tag_definitions(team_id, with_tags_for) if with_tags_for is not None else ()
+    )
+    if not definitions:
+        return _to_issue(issue)
+    tags = issue_tag_reader.tags_by_issue(team_id, [issue.id], definitions).get(str(issue.id), [])
+    return _to_issue(issue, tags=tags)
+
+
+def list_issue_tag_definitions(team_id: int, user: User) -> list[contracts.ErrorTrackingIssueTagDefinition]:
+    return [
+        contracts.ErrorTrackingIssueTagDefinition(
+            key=definition.key, label=definition.label, description=definition.description
+        )
+        for definition in issue_tag_enabled.enabled_issue_tag_definitions(team_id, user)
+    ]
+
+
+def readable_issue_tag_keys(team_id: int, restrictions: set[RestrictedProperty]) -> frozenset[str] | None:
+    """The issue tag keys whose rows a member with these property restrictions may read, or None for every key."""
+    return issue_tag_enabled.readable_issue_tag_keys(team_id, restrictions)
 
 
 def list_issues_detailed(team_id: int, *, page: PageRequest) -> Page[contracts.ErrorTrackingIssue]:
@@ -239,12 +278,29 @@ def _to_settings(settings, ingestion_enabled: bool) -> contracts.ErrorTrackingSe
         project_rate_limit_bucket_size_minutes=settings.project_rate_limit_bucket_size_minutes,
         per_issue_rate_limit_value=settings.per_issue_rate_limit_value,
         per_issue_rate_limit_bucket_size_minutes=settings.per_issue_rate_limit_bucket_size_minutes,
+        ai_issue_summaries_enabled=settings.ai_issue_summaries_enabled,
         ingestion_enabled=ingestion_enabled,
     )
 
 
 def get_settings(team_id: int) -> contracts.ErrorTrackingSettings:
     return _to_settings(logic.get_or_create_settings(team_id), logic.is_exception_ingestion_enabled(team_id))
+
+
+_AI_FEATURE_FLAGS = {contracts.ErrorTrackingAIFeature.ISSUE_SUMMARIES: ISSUE_SUMMARY_FLAG}
+
+
+def available_ai_features(team_id: int) -> list[contracts.ErrorTrackingAIFeature]:
+    """The AI features whose flag is on for the project. The project's settings show only these.
+
+    This is the flag check of the backend gate, but it never falls back to a remote call, because the team serializer
+    runs it on every page load. A feature that local evaluation cannot decide is left out.
+    """
+    return [
+        feature
+        for feature, flag in _AI_FEATURE_FLAGS.items()
+        if team_flags.team_flag_enabled(flag, team_id, only_evaluate_locally=True)
+    ]
 
 
 def update_settings(team_id: int, fields: dict[str, int | bool | None]) -> contracts.ErrorTrackingSettings:
@@ -510,6 +566,62 @@ def reorder_severity_rules(team_id: int, orders: dict[str, int]) -> None:
     rules.reorder_severity_rules(team_id, orders)
 
 
+def _to_issue_tag_rule(rule) -> contracts.ErrorTrackingIssueTagRule:
+    return contracts.ErrorTrackingIssueTagRule(
+        id=rule.id,
+        key=rule.key,
+        label=rule.label,
+        description=rule.description,
+        filters=rule.filters,
+        version=rule.version,
+        order_key=rule.order_key,
+        disabled_data=rule.disabled_data,
+        created_at=rule.created_at,
+        updated_at=rule.updated_at,
+    )
+
+
+def list_issue_tag_rules(team_id: int, user: User) -> list[contracts.ErrorTrackingIssueTagRule]:
+    return [_to_issue_tag_rule(rule) for rule in issue_tag_rules.list_issue_tag_rules(team_id, user)]
+
+
+def get_issue_tag_rule(team_id: int, rule_id: str, user: User) -> contracts.ErrorTrackingIssueTagRule | None:
+    rule = issue_tag_rules.get_issue_tag_rule(team_id, rule_id, user)
+    return _to_issue_tag_rule(rule) if rule is not None else None
+
+
+def create_issue_tag_rule(
+    team_id: int, user: User, *, label: str, description: str, filters: dict, order_key: int = 0
+) -> contracts.ErrorTrackingIssueTagRule:
+    rule = issue_tag_rules.create_issue_tag_rule(
+        team_id, user, label=label, description=description, filters=filters, order_key=order_key
+    )
+    return _to_issue_tag_rule(rule)
+
+
+def update_issue_tag_rule(
+    team_id: int,
+    rule_id: str,
+    user: User,
+    *,
+    label: str | None = None,
+    description: str | None = None,
+    filters: dict | None = None,
+) -> contracts.ErrorTrackingIssueTagRule | None:
+    rule = issue_tag_rules.update_issue_tag_rule(
+        team_id, rule_id, user, label=label, description=description, filters=filters
+    )
+    return _to_issue_tag_rule(rule) if rule is not None else None
+
+
+def delete_issue_tag_rule(team_id: int, rule_id: str, user: User) -> bool:
+    return issue_tag_rules.delete_issue_tag_rule(team_id, rule_id, user)
+
+
+def reorder_issue_tag_rules(team_id: int, orders: dict[str, int], user: User) -> None:
+    issue_tag_rules.reorder_issue_tag_rules(team_id, orders, user)
+
+
 def _to_grouping_rule(rule, issue: tuple[UUID, str | None] | None = None) -> contracts.ErrorTrackingGroupingRule:
     return contracts.ErrorTrackingGroupingRule(
         id=rule.id,
@@ -700,6 +812,13 @@ def get_issue_permalink(team_id: int, issue_id: UUID) -> str:
 
 def list_external_references(team_id: int) -> list[contracts.ErrorTrackingExternalReference]:
     return _to_external_references(team_id, external_references.list_external_references(team_id=team_id))
+
+
+def list_issue_external_references(team_id: int, issue_id: UUID) -> list[contracts.ErrorTrackingExternalReference]:
+    return _to_external_references(
+        team_id,
+        external_references.list_external_references(team_id=team_id).filter(issue_id=issue_id).order_by("created_at"),
+    )
 
 
 def get_external_reference(reference_id: UUID, team_id: int) -> contracts.ErrorTrackingExternalReference | None:

@@ -7,10 +7,8 @@ from unittest.mock import MagicMock, patch
 
 from products.warehouse_sources.sources.klaus._config import KlausSourceConfig
 from products.warehouse_sources.sources.klaus.klaus import (
-    DEFAULT_FROM_DATE,
     KlausResumeConfig,
     _build_params,
-    _format_datetime,
     get_base_url,
     get_rows,
     klaus_source,
@@ -226,7 +224,7 @@ class TestFanOut:
         result = _driver().run("calibration_sessions", responses)
 
         assert result.raised is None
-        assert result.params("fromDate") == [None, _format_datetime(DEFAULT_FROM_DATE)]
+        assert result.params("fromDate") == [None, "2015-01-01T00:00:00Z"]
 
 
 class TestRetry:

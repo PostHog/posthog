@@ -5,8 +5,6 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
-
 from parameterized import parameterized
 from requests import Response
 from requests.exceptions import ChunkedEncodingError, ProxyError, ReadTimeout, TooManyRedirects
@@ -25,7 +23,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTClient,
     RESTClientNonRetryableError,
     RESTClientRetryableError,
-    _parse_retry_after,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import activate_safe_point
 
@@ -644,6 +641,38 @@ class TestRESTClient:
         assert pages == [[{"id": 1}]]
         assert mock_session.send.call_count == 2
 
+    @pytest.mark.parametrize(
+        "make_error",
+        [
+            pytest.param(lambda: ReadTimeout("Read timed out."), id="read_timeout"),
+            pytest.param(lambda: ProxyError("Cannot connect to proxy."), id="connection_error"),
+        ],
+    )
+    @patch("tenacity.nap.time.sleep")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+    )
+    def test_send_request_retries_transient_error_from_prepare_request_then_succeeds(
+        self, MockSession, mock_sleep, make_error
+    ) -> None:
+        # A lazily-minted auth token (e.g. OAuth2Auth._obtain_token) makes its own HTTP call from
+        # inside `prepare_request`, before `send` is ever reached. A timeout or dropped connection
+        # there must retry through the same loop as one from `send`, not escape uncaught and fail
+        # the whole sync on one transient mint failure.
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.side_effect = [make_error(), MagicMock(url="https://api.example.com/items")]
+
+        ok = _make_response({"results": [{"id": 1}]})
+        mock_session.send.return_value = ok
+
+        client = RESTClient(base_url="https://api.example.com")
+        pages = list(client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator()))
+
+        assert pages == [[{"id": 1}]]
+        assert mock_session.prepare_request.call_count == 2
+        assert mock_session.send.call_count == 1
+
     @patch("tenacity.nap.time.sleep")
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -731,7 +760,7 @@ class TestRESTClient:
         assert mock_session.send.call_count == 2
         mock_sleep.assert_called_once_with(90.0)
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.datetime")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.http.retry_policy.datetime")
     @patch("tenacity.nap.time.sleep")
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -761,7 +790,7 @@ class TestRESTClient:
         assert mock_session.send.call_count == 2
         mock_sleep.assert_called_once_with(45.0)
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.datetime")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.http.retry_policy.datetime")
     @patch("tenacity.nap.time.sleep")
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -814,73 +843,3 @@ class TestRESTClient:
 
         assert pages == [[{"id": 1}]]
         mock_sleep.assert_called_once_with(12.0)
-
-    @parameterized.expand(
-        [
-            ("rfc3339_utc", "2026-03-06T12:00:45Z", 45.0),
-            ("rfc3339_offset", "2026-03-06T12:01:00+00:00", 60.0),
-            # The header says when the bucket is full again, which can be an hour away while the
-            # next request is already allowed, so a far reset waits the longest honored delay.
-            ("far_future", "2026-03-06T13:00:00Z", 300.0),
-            # A window that has already cleared, or a value we can't read, tells us nothing — the
-            # caller falls back to exponential backoff rather than retrying with no delay at all.
-            ("already_elapsed", "2026-03-06T11:59:55Z", None),
-            ("unparseable", "in a bit", None),
-        ]
-    )
-    @override_settings(DATA_WAREHOUSE_SOURCE_MAX_RETRY_AFTER_SECONDS=300.0)
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.datetime")
-    def test_parse_retry_after_honors_anthropic_rate_limit_reset(
-        self, _name: str, header_value: str, expected: float | None, mock_datetime
-    ) -> None:
-        # Anthropic rate limits its Admin API per organization but answers 429 without a
-        # ``Retry-After``; this RFC 3339 reset instant is the only delay it advertises, and without
-        # it a rate-limited report sync spends its whole attempt budget inside a few seconds.
-        mock_datetime.now.return_value = datetime(2026, 3, 6, 12, 0, 0, tzinfo=UTC)
-        mock_datetime.fromisoformat = datetime.fromisoformat
-
-        response = _make_response({"error": "rate limited"}, status_code=429)
-        response.headers["anthropic-ratelimit-requests-reset"] = header_value
-
-        assert _parse_retry_after(response) == expected
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.datetime")
-    def test_parse_retry_after_honors_x_rate_limit_reset(self, mock_datetime) -> None:
-        # X answers 429 with a UNIX epoch reset and no ``Retry-After``. Its windows run 15 minutes,
-        # so without this the exponential fallback burns the attempt budget inside one window.
-        now = datetime(2026, 3, 6, 12, 0, 0, tzinfo=UTC)
-        mock_datetime.now.return_value = now
-
-        response = _make_response({"title": "Too Many Requests"}, status_code=429)
-        response.headers["x-rate-limit-reset"] = str(int(now.timestamp()) + 120)
-
-        assert _parse_retry_after(response) == 120
-
-    @parameterized.expand(
-        [
-            ("epoch_milliseconds", 1_772_798_430_000, 30.0),
-            ("epoch_seconds", 1_772_798_430, 30.0),
-            ("elapsed_epoch_milliseconds", 1_772_798_390_000, None),
-            ("plain_delay", 45, 45.0),
-        ]
-    )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.datetime")
-    def test_parse_retry_after_reads_a_reset_instant_in_retry_after(
-        self, _name: str, header_value: int, expected: float | None, mock_datetime
-    ) -> None:
-        mock_datetime.now.return_value = datetime(2026, 3, 6, 12, 0, 0, tzinfo=UTC)
-
-        response = _make_response({"error": "rate limited"}, status_code=429)
-        response.headers["Retry-After"] = str(header_value)
-
-        assert _parse_retry_after(response) == expected
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.datetime")
-    def test_parse_retry_after_ignores_already_elapsed_sentry_reset(self, mock_datetime) -> None:
-        now = datetime(2026, 3, 6, 12, 0, 0, tzinfo=UTC)
-        mock_datetime.now.return_value = now
-
-        response = _make_response({"error": "rate limited"}, status_code=429)
-        response.headers["X-Sentry-Rate-Limit-Reset"] = str(int(now.timestamp()) - 5)
-
-        assert _parse_retry_after(response) is None

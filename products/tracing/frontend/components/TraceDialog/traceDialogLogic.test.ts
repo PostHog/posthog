@@ -4,8 +4,6 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { traceDialogOpenLogic } from 'lib/components/ViewTraceButton/traceDialogOpenLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -58,12 +56,6 @@ describe('traceDialogLogic', () => {
             },
         } as AppContext
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES]: true,
-            [FEATURE_FLAGS.TRACING_SESSION_PERSON_LINKS]: true,
-            [FEATURE_FLAGS.TRACING_TRACE_FOLDED_RUNS]: true,
-        })
         getTraceSpy = jest.spyOn(api.tracing, 'getTrace').mockResolvedValue(page(['a'], null))
         router.actions.push('/logs')
         logic = traceDialogLogic()

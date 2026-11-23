@@ -79,7 +79,7 @@ const CLUSTERS: PreviewCluster[] = [
  * the cluster list, so picking a cluster lights up its dots and shows what those
  * conversations were about. Three hidden radios drive `:checked ~` styles - no
  * timers or state, per the preview rules in the `building-product-empty-states`
- * skill. In `waiting-for-data` a pinned row reads as listening for the first run.
+ * skill. The waiting state explains that analysis runs on a schedule.
  */
 export function ClustersPreview({ mode }: { mode: ProductEmptyStateMode }): JSX.Element {
     const isStatic = inStorybook()
@@ -133,10 +133,7 @@ export function ClustersPreview({ mode }: { mode: ProductEmptyStateMode }): JSX.
                     </label>
                 ))}
                 {mode === 'waiting-for-data' ? (
-                    <div className="ClustersPreview__listening">
-                        <span className="ClustersPreview__listening-dot" aria-hidden="true" />
-                        Listening for the first clustering run
-                    </div>
+                    <div className="ClustersPreview__listening">New results appear after scheduled analysis</div>
                 ) : (
                     <div className="ClustersPreview__hint">Select a cluster to see what it groups.</div>
                 )}

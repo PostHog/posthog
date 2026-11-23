@@ -41,6 +41,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.fan
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_events import (
+    WebhookEvent,
+    WebhookEvents,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import (
     WebhookFallback,
     WebhookSourceManager,
@@ -1485,6 +1489,29 @@ def _refetching_webhook_table_transformer(refetcher: WebhookObjectRefetcher) -> 
     return transform
 
 
+def _webhook_event(staged: dict[str, Any]) -> WebhookEvent | None:
+    data = staged.get("data")
+    if not isinstance(data, str):
+        return None
+    obj = orjson.loads(data).get("object")
+    if not isinstance(obj, dict) or obj.get("id") is None:
+        return None
+    created = staged.get("created")
+    return WebhookEvent(
+        row=_scrub_client_secrets(obj),
+        event_id=staged.get("id"),
+        time=datetime.fromtimestamp(created, UTC) if isinstance(created, int) else None,
+        rank=_webhook_tie_break(obj),
+    )
+
+
+def webhook_events(endpoint: str) -> WebhookEvents | None:
+    # The payment method history table already keeps one row per event.
+    if endpoint == CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME:
+        return None
+    return WebhookEvents(read=_webhook_event)
+
+
 def _lines_truncated(obj: dict[str, Any]) -> bool:
     lines = obj.get("lines")
     return isinstance(lines, Mapping) and bool(lines.get("has_more"))
@@ -1494,44 +1521,80 @@ def _tiers_missing(obj: dict[str, Any]) -> bool:
     return obj.get("billing_scheme") == "tiered" and not obj.get("tiers")
 
 
-def _discounts_unexpanded(obj: dict[str, Any]) -> bool:
+def _subscription_discounts(obj: Mapping[str, Any]) -> list[Any]:
     items = (obj.get("items") or {}).get("data") or []
-    discounts = [*(obj.get("discounts") or []), *(d for item in items for d in (item.get("discounts") or []))]
-    return any(isinstance(discount, str) for discount in discounts)
+    return [*(obj.get("discounts") or []), *(d for item in items for d in (item.get("discounts") or []))]
 
 
-def _with_all_lines(obj: dict[str, Any], lines: ListObject[Any]) -> dict[str, Any]:
-    return {**obj, "lines": {**obj["lines"], "data": list(lines.auto_paging_iter()), "has_more": False, "url": None}}
+def _discounts_unexpanded(obj: dict[str, Any]) -> bool:
+    return any(isinstance(discount, str) for discount in _subscription_discounts(obj))
 
 
-# Each entry adds back what the event payload leaves out. Invoices and credit notes keep the event's
-# fields and only fetch their lines, which is one request per object instead of two.
+def _with_all_lines(obj: dict[str, Any], lines: list[Any]) -> dict[str, Any]:
+    return {**obj, "lines": {**obj["lines"], "data": lines, "has_more": False, "url": None}}
+
+
+def _with_tiers(obj: dict[str, Any], fetched: Mapping[str, Any]) -> dict[str, Any]:
+    return {**obj, "tiers": fetched.get("tiers")}
+
+
+def _with_expanded_discounts(subscription: dict[str, Any], fetched: Mapping[str, Any]) -> dict[str, Any]:
+    expanded = {
+        discount["id"]: discount for discount in _subscription_discounts(fetched) if isinstance(discount, Mapping)
+    }
+
+    # An id the subscription no longer lists stays an id, so a later removal does not reach the event's state.
+    def expand(discounts: list[Any]) -> list[Any]:
+        return [expanded.get(d, d) if isinstance(d, str) else d for d in discounts]
+
+    merged = {**subscription}
+    if subscription.get("discounts"):
+        merged["discounts"] = expand(subscription["discounts"])
+    items = subscription.get("items")
+    if isinstance(items, Mapping) and items.get("data"):
+        merged["items"] = {
+            **items,
+            "data": [
+                {**item, "discounts": expand(item["discounts"])} if item.get("discounts") else item
+                for item in items["data"]
+            ],
+        }
+    return merged
+
+
+# Each entry adds back only the field the event payload leaves out. The API returns the object as it
+# is now, so taking any other field from it would put today's state under the event's time.
 WEBHOOK_REFETCH: dict[str, WebhookRefetch] = {
     INVOICE_RESOURCE_NAME: WebhookRefetch(
         is_incomplete=_lines_truncated,
-        complete=lambda client, invoice: _with_all_lines(
-            invoice, client.invoices.line_items.list(invoice["id"], params={"limit": DEFAULT_LIMIT})
+        fetch=lambda client, invoice: list(
+            client.invoices.line_items.list(invoice["id"], params={"limit": DEFAULT_LIMIT}).auto_paging_iter()
         ),
+        merge=_with_all_lines,
     ),
     CREDIT_NOTE_RESOURCE_NAME: WebhookRefetch(
         is_incomplete=_lines_truncated,
-        complete=lambda client, credit_note: _with_all_lines(
-            credit_note, client.credit_notes.line_items.list(credit_note["id"], params={"limit": DEFAULT_LIMIT})
+        fetch=lambda client, credit_note: list(
+            client.credit_notes.line_items.list(credit_note["id"], params={"limit": DEFAULT_LIMIT}).auto_paging_iter()
         ),
+        merge=_with_all_lines,
     ),
     PRICE_RESOURCE_NAME: WebhookRefetch(
         is_incomplete=_tiers_missing,
-        complete=lambda client, price: client.prices.retrieve(price["id"], params={"expand": ["tiers"]}),
+        fetch=lambda client, price: client.prices.retrieve(price["id"], params={"expand": ["tiers"]}),
+        merge=_with_tiers,
     ),
     PLAN_RESOURCE_NAME: WebhookRefetch(
         is_incomplete=_tiers_missing,
-        complete=lambda client, plan: client.plans.retrieve(plan["id"], params={"expand": ["tiers"]}),
+        fetch=lambda client, plan: client.plans.retrieve(plan["id"], params={"expand": ["tiers"]}),
+        merge=_with_tiers,
     ),
     SUBSCRIPTION_RESOURCE_NAME: WebhookRefetch(
         is_incomplete=_discounts_unexpanded,
-        complete=lambda client, subscription: client.subscriptions.retrieve(
+        fetch=lambda client, subscription: client.subscriptions.retrieve(
             subscription["id"], params={"expand": ["discounts", "items.data.discounts"]}
         ),
+        merge=_with_expanded_discounts,
     ),
 }
 
@@ -1546,7 +1609,7 @@ def _webhook_history_table_transformer(table: pa.Table) -> pa.Table:
 
     Reading columns through `_column` (None-filled when absent) keeps a malformed payload — only
     reachable with the signature check bypassed — from raising and wedging the batch forever:
-    the S3 files are only deleted after a successful yield, so a raising transformer would replay
+    the S3 files are only deleted after the job completes, so a raising transformer would replay
     the same poison batch on every sync.
     """
 
@@ -1699,6 +1762,7 @@ def stripe_source(
     use_warehouse_parent: bool = False,
     api_key_provider: Optional[Callable[[], str]] = None,
     include_zero_balance_customers: bool = False,
+    events: Optional[WebhookEvents] = None,
 ):
     # Only the endpoints with a PostHog-managed canonical schema have column hints; the rest let the
     # pipeline infer their columns from the rows Stripe returns.
@@ -1738,26 +1802,31 @@ def stripe_source(
             # History tables keep every event as its own row; everything else collapses each
             # batch to the latest state per object id and upserts it.
             refetch = WEBHOOK_REFETCH.get(endpoint)
+            history_events = events
             table_transformer: Callable[[pa.Table], pa.Table]
             if endpoint == CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME:
                 table_transformer = _webhook_history_table_transformer
             elif refetch is not None:
-                table_transformer = _refetching_webhook_table_transformer(
-                    WebhookObjectRefetcher(
-                        refetch,
-                        logger,
-                        client_factory_provider=lambda: _refetch_client_factory(
-                            api_key_provider() if api_key_provider is not None else api_key, account_id, api_version
-                        ),
-                    )
+                refetcher = WebhookObjectRefetcher(
+                    refetch,
+                    logger,
+                    client_factory_provider=lambda: _refetch_client_factory(
+                        api_key_provider() if api_key_provider is not None else api_key, account_id, api_version
+                    ),
                 )
+                table_transformer = _refetching_webhook_table_transformer(refetcher)
+                if history_events is not None:
+                    history_events = dataclasses.replace(
+                        history_events,
+                        complete=lambda rows: [_scrub_client_secrets(obj) for obj in refetcher.complete(rows)],
+                    )
             else:
                 table_transformer = _webhook_table_transformer
             # Objects grow once their lines or tiers are filled in, after the batch limits were
             # checked, so a batch that completes objects holds no more rows than a list sync chunk.
             batch_row_limit = STRIPE_CHUNK_SIZE if refetch is not None else DEFAULT_BATCH_ROW_LIMIT
             return webhook_source_manager.get_items(
-                table_transformer=table_transformer, batch_row_limit=batch_row_limit
+                table_transformer=table_transformer, batch_row_limit=batch_row_limit, events=history_events
             )
 
         return get_rows(

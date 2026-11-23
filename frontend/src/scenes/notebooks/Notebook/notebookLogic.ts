@@ -334,7 +334,7 @@ export interface notebookLogicValues {
     findNodeLogicById: (id: string) => BuiltLogic<notebookNodeLogicType> | null
     frameNodeSummaries: NotebookFrameNodeSummary[]
     getSharedCachedInlineQueryResults: (nodeId: string | null | undefined) => AnyResponseType | null
-    getSharedCachedInsight: (shortId: string | null | undefined) => InsightModel<Node<Record<string, any>>> | null
+    getSharedCachedInsight: (shortId: string | null | undefined) => InsightModel | null
     hasUnsavedVariables: boolean
     isEditable: boolean
     isLocalOnly: boolean
@@ -739,7 +739,7 @@ export interface notebookLogicMeta {
         getSharedCachedInsight: (
             isShared: boolean,
             cachedInsightsByShortId: Record<string, InsightModel<Node<Record<string, any>>>>
-        ) => (shortId: string | null | undefined) => InsightModel<Node<Record<string, any>>> | null
+        ) => (shortId: string | null | undefined) => InsightModel | null
         getSharedCachedInlineQueryResults: (
             isShared: boolean,
             cachedInlineQueryResultsByNodeId: Record<string, AnyResponseType>
@@ -759,7 +759,8 @@ export type notebookLogicType = MakeLogicType<
 export const notebookLogic = kea<notebookLogicType>([
     props({} as NotebookLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
-    key(({ shortId, mode }) => `${shortId}-${mode}`),
+    // Keep the legacy suffix because scratchpad content is persisted under this key.
+    key(({ shortId, mode }) => `${shortId}-${mode === 'canvas' ? mode : undefined}`),
 
     connect((props: NotebookLogicProps) => ({
         values: [

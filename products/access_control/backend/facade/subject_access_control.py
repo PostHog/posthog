@@ -1,4 +1,5 @@
 from collections import defaultdict
+from collections.abc import Iterator, Sequence
 from contextvars import ContextVar
 from functools import cached_property
 from typing import Any, Optional, cast
@@ -7,8 +8,9 @@ from django.db.models import Model, Q
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import (
     EE_AVAILABLE,
     NO_ACCESS_LEVEL,
@@ -18,8 +20,8 @@ from products.access_control.backend.facade.user_access_control import (
     ResolvedAccess,
     UserAccessControl,
     _AccessControl,
+    _ObjectAccessTarget,
     default_access_level,
-    model_to_resource,
 )
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import RoleMembership
@@ -103,6 +105,28 @@ class SubjectAccessControl(UserAccessControl):
         )
         return next((ac.access_level for ac in self._get_access_controls(filters) if self._is_subject_row(ac)), None)
 
+    def deciding_row(self, access: ResolvedAccess) -> Optional[_AccessControl]:
+        """The member or role row that decided `access`, or None when no such row did.
+
+        The walks report which kind of subject decided (`source_subject`) but not which row. The
+        deciding row is re-picked from the same cached pool: the highest row of that kind in the
+        scope the walk reported.
+        """
+        if access.source_subject not in ("role", "member"):
+            return None
+        if access.source in ("object", "parent_object"):
+            if access.source_resource_id is None:
+                return None
+            filters = self._access_controls_filters_for_object(access.source_resource, access.source_resource_id)
+        elif access.source in ("resource", "parent_resource"):
+            filters = self._access_controls_filters_for_resource(access.source_resource)
+        else:
+            return None
+        rows = [row for row in self._get_access_controls(filters) if self._row_subject(row) == access.source_subject]
+        if not rows:
+            return None
+        return self._highest_access_from_rows(access.source_resource, rows)
+
     def inherited_access_for_object(self, obj: Model) -> Optional[ResolvedAccess]:
         """The access the subject would have if their override on this object were removed — the
         inherited level the UI shows next to "No override".
@@ -118,25 +142,35 @@ class SubjectAccessControl(UserAccessControl):
         member or role always has something to fall back to (the object's default, then the
         system default), so their answer is never None on that account.
         """
-        resource = model_to_resource(obj)
-        if not resource:
+        target = self._target_for_object(obj)
+        if target is None:
             return None
+        return self._inherited_access_for_target(target)
+
+    def inherited_access_for_ref(self, ref: ObjectAccessRef) -> Optional[ResolvedAccess]:
+        """`inherited_access_for_object` for an object held only as a reference."""
+        return self._inherited_access_for_target(self._target_for_ref(ref))
+
+    def _inherited_access_for_target(self, target: _ObjectAccessTarget) -> Optional[ResolvedAccess]:
+        resource = target.resource
         if self._subject_member is None and self._subject_role_id is None:
             if resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS:
                 return None
 
-        resolved, access = self._object_access_level_precheck(resource, self._is_creator(obj))
+        resolved, access = self._object_access_level_precheck(resource, self._is_creator_id(target.created_by_id))
         if resolved:
             return access
 
         rows = [
             ac
-            for ac in self._get_access_controls(self._access_controls_filters_for_object(resource, str(obj.id)))  # type: ignore
+            for ac in self._get_access_controls(self._access_controls_filters_for_object(resource, target.object_id))
             if not self._is_subject_row(ac)
         ]
-        return self._object_access_level_from_rows(
-            resource, rows, fallback_parent_id=self._fallback_parent_id(obj, resource)
-        )
+        if self._is_most_specific_access_control_enabled:
+            return self._most_specific_object_access_from_rows(
+                resource, rows, fallback_parent_id=target.fallback_parent_id
+            )
+        return self._object_access_level_from_rows(resource, rows, fallback_parent_id=target.fallback_parent_id)
 
     def inherited_access_for_resource(self, resource: APIScopeObject) -> Optional[ResolvedAccess]:
         """The access the subject would have to `resource` if their resource-wide override were
@@ -225,6 +259,24 @@ class SubjectAccessControl(UserAccessControl):
         self.__dict__["_cached_access_controls"] = [ac for ac in pool if self._applies_to_subject(ac, role_ids)]
         self.__dict__.pop("_cached_access_controls_by_object", None)
 
+    def seed_narrowed_access_controls(
+        self,
+        rows: list[_AccessControl],
+        *,
+        subject_role_ids: list[str],
+        rows_by_object: Optional[dict[tuple[str, str | None], list[_AccessControl]]] = None,
+    ) -> None:
+        """Seed the pool from `rows` the caller already narrowed to this subject, as
+        `_applies_to_subject` would, so the scan `preload_access_controls` runs is skipped.
+        `rows_by_object` is the matching index when the caller shares one between subjects
+        that resolve from the same rows; otherwise the index is built on first use."""
+        self.__dict__["_user_role_ids"] = list(subject_role_ids) if self.rbac_supported else []
+        self.__dict__["_cached_access_controls"] = rows
+        if rows_by_object is None:
+            self.__dict__.pop("_cached_access_controls_by_object", None)
+        else:
+            self.__dict__["_cached_access_controls_by_object"] = rows_by_object
+
     def _is_creator_id(self, created_by_id: Optional[int]) -> bool:
         """The subject created the object, not the requesting user. A role and the default subject
         are not people, so they never created anything."""
@@ -267,7 +319,60 @@ class SubjectAccessControl(UserAccessControl):
     def is_organization_admin(self) -> bool:
         if _suspend_org_admin.get():
             return False
-        return bool(self._subject_member and self._subject_member.level >= OrganizationMembership.Level.ADMIN)
+        return bool(self._subject_member and self._subject_member.effective_level >= OrganizationMembership.Level.ADMIN)
+
+
+def seeded_member_subjects(team: Team, memberships: Sequence[OrganizationMembership]) -> Iterator[SubjectAccessControl]:
+    """One subject per membership, resolving as that member, in the order given.
+
+    The team's rules and the members' roles are fetched once and grouped by who they name, so
+    resolving N members costs a fixed number of queries and each subject is seeded from its own
+    slice rather than scanning every rule. Members without a rule of their own share one pool and
+    one index. Subjects are yielded so a caller that resolves them one at a time releases each
+    subject's caches before the next is built. Each membership must have its `user` loaded.
+    """
+    organization = team.organization
+    default_rows: list[_AccessControl] = []
+    rows_by_member: dict[str, list[_AccessControl]] = defaultdict(list)
+    rows_by_role: dict[str, list[_AccessControl]] = defaultdict(list)
+    if organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+        for ac in AccessControl.objects.filter(team_id=team.id):
+            if ac.organization_member_id is not None:
+                # A row naming both a member and a role applies to nobody, as in `_applies_to_subject`
+                if ac.role_id is None:
+                    rows_by_member[str(ac.organization_member_id)].append(ac)
+            elif ac.role_id is not None:
+                rows_by_role[str(ac.role_id)].append(ac)
+            else:
+                default_rows.append(ac)
+    role_ids_by_user: dict[int, list[str]] = defaultdict(list)
+    if organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS):
+        for user_id, role_id in (
+            RoleMembership.objects.filter(
+                user_id__in=[membership.user_id for membership in memberships],
+                role__organization_id=organization.id,
+            )
+            .valid_for_authorization()
+            .values_list("user_id", "role_id")
+        ):
+            role_ids_by_user[user_id].append(str(role_id))
+
+    default_rows_by_object = None
+    for membership in memberships:
+        # Seeded so `rbac_supported` does not fetch the organization once per member
+        membership.organization = organization
+        role_ids = role_ids_by_user.get(membership.user_id, [])
+        subject = SubjectAccessControl(user=membership.user, team=team, org_membership=membership, member=membership)
+        own_rows = rows_by_member.get(str(membership.id), [])
+        role_rows = [ac for role_id in role_ids for ac in rows_by_role.get(role_id, [])]
+        if own_rows or role_rows:
+            subject.seed_narrowed_access_controls([*default_rows, *own_rows, *role_rows], subject_role_ids=role_ids)
+        else:
+            subject.seed_narrowed_access_controls(
+                default_rows, subject_role_ids=role_ids, rows_by_object=default_rows_by_object
+            )
+            default_rows_by_object = subject._cached_access_controls_by_object
+        yield subject
 
 
 def get_project_scoped_visible_membership_ids(
@@ -391,6 +496,6 @@ def restricted_visible_membership_ids(organization: Organization, user: User) ->
     membership = OrganizationMembership.objects.filter(organization=organization, user_id=user.id).first()
     if membership is None:
         return set()
-    if membership.level >= OrganizationMembership.Level.ADMIN:
+    if membership.effective_level >= OrganizationMembership.Level.ADMIN:
         return None
     return get_project_scoped_visible_membership_ids(organization, membership)

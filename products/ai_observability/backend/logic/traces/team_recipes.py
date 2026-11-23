@@ -7,6 +7,8 @@ from django.db.models import QuerySet
 import structlog
 from cachetools import LRUCache
 
+from posthog.models import User
+
 from ...models.parser_recipe import ParserRecipe
 from ..message_normalizer.errors import RecipeTimeoutError
 from ..message_normalizer.normalizer import RecipeNormalizer, StoredRecipe, compile_stored_recipe, merge_recipes
@@ -27,6 +29,21 @@ _compiled_recipes_lock = threading.Lock()
 
 
 def team_normalizer(team_id: int) -> RecipeNormalizer:
+    return RecipeNormalizer(recipes=merge_recipes(_saved_recipes(team_id)))
+
+
+def team_normalizer_with(team_id: int, candidate: Recipe) -> RecipeNormalizer:
+    """The team's normalizer with a recipe not saved yet added where a newly saved one would run, after the rest."""
+    return RecipeNormalizer(recipes=merge_recipes([*_saved_recipes(team_id), candidate]))
+
+
+def save_team_recipe(team_id: int, user: User, *, name: str, source: str) -> str:
+    return str(
+        ParserRecipe.objects.for_team(team_id).create(team_id=team_id, created_by=user, name=name, source=source).id
+    )
+
+
+def _saved_recipes(team_id: int) -> list[Recipe]:
     team_recipes = ParserRecipe.objects.for_team(team_id)
     versions: list[_RecipeVersion] = [
         (str(recipe_id), updated_at)
@@ -39,7 +56,7 @@ def team_normalizer(team_id: int) -> RecipeNormalizer:
         cached[version] if version in cached else _compiled_recipe(version, sources.get(version[0]))
         for version in versions
     ]
-    return RecipeNormalizer(recipes=merge_recipes([recipe for recipe in recipes if recipe is not None]))
+    return [recipe for recipe in recipes if recipe is not None]
 
 
 def _sources(team_recipes: QuerySet[ParserRecipe], misses: list[_RecipeVersion]) -> dict[str, str]:

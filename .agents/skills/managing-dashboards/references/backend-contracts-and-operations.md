@@ -11,7 +11,7 @@ Dashboards and tiles use soft deletion. Do not replace it with hard deletion.
 - Use a narrow `transaction.atomic()` block for a multi-row dashboard mutation.
 - A bulk update bypasses model signals. Synchronize dependent resources explicitly after a bulk update.
 
-Check `products/dashboards/backend/models/dashboard_tile.py` and `products/dashboards/backend/api/dashboard.py` before you change lifecycle behavior.
+Check `products/dashboards/backend/models/dashboard_tile.py` and `products/dashboards/backend/presentation/views/dashboard.py` before you change lifecycle behavior.
 
 ## Project tree, tags, and resource transfer
 

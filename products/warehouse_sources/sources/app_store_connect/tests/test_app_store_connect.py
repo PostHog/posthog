@@ -17,6 +17,7 @@ from parameterized import parameterized
 from products.warehouse_sources.sources.app_store_connect._config import AppStoreConnectSourceConfig
 from products.warehouse_sources.sources.app_store_connect.app_store_connect import (
     _ANALYTICS_SNAPSHOT_DECISION_NAMESPACE,
+    APP_STORE_CONNECT_AGREEMENT_REQUIRED_ERROR,
     APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
     APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR,
     APP_STORE_CONNECT_READ_FORBIDDEN_ERROR,
@@ -2204,43 +2205,72 @@ def _forbidden_response(**fields: str) -> MagicMock:
 
 
 class TestForbiddenErrors:
-    def test_read_403_carries_apples_words_and_the_read_message(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "role",
+                "FORBIDDEN_ERROR",
+                "The role of this API key cannot read this resource",
+                APP_STORE_CONNECT_READ_FORBIDDEN_ERROR,
+            ),
+            (
+                "agreement",
+                "FORBIDDEN.REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED",
+                "A required agreement is missing or has expired.",
+                APP_STORE_CONNECT_AGREEMENT_REQUIRED_ERROR,
+            ),
+        ]
+    )
+    def test_read_403_carries_apples_words_and_the_matching_message(
+        self, _name: str, code: str, detail: str, expected: str
+    ) -> None:
         session = MagicMock()
-        session.get.return_value = _forbidden_response(
-            code="FORBIDDEN_ERROR", detail="The role of this API key cannot read this resource"
-        )
+        session.get.return_value = _forbidden_response(code=code, detail=detail)
 
         with pytest.raises(AppStoreConnectPermissionError) as exc:
             _get(session, f"{BASE_URL}/v1/salesReports", token_provider=_FakeTokenProvider(), logger=MagicMock())
 
         message = str(exc.value)
-        assert APP_STORE_CONNECT_READ_FORBIDDEN_ERROR in message
-        assert "FORBIDDEN_ERROR" in message
-        assert "The role of this API key cannot read this resource" in message
+        assert message.startswith(expected)
+        assert code in message
+        assert detail in message
 
     @parameterized.expand(
         [
-            ("fresh_create", [], APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR),
+            ("fresh_create", [], "FORBIDDEN_ERROR", APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR),
             (
                 "stopped_for_inactivity",
                 [_resource("analyticsReportRequests", "REQ1", accessType="ONGOING", stoppedDueToInactivity=True)],
+                "FORBIDDEN_ERROR",
                 APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR,
+            ),
+            (
+                "agreement_on_fresh_create",
+                [],
+                "FORBIDDEN.REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED",
+                APP_STORE_CONNECT_AGREEMENT_REQUIRED_ERROR,
+            ),
+            (
+                "agreement_wins_over_inactivity",
+                [_resource("analyticsReportRequests", "REQ1", accessType="ONGOING", stoppedDueToInactivity=True)],
+                "FORBIDDEN.REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED",
+                APP_STORE_CONNECT_AGREEMENT_REQUIRED_ERROR,
             ),
         ]
     )
     def test_create_403_reports_the_create_role_not_a_read_role(
-        self, _name: str, requests_page: list[dict[str, Any]], expected: str
+        self, _name: str, requests_page: list[dict[str, Any]], code: str, expected: str
     ) -> None:
         session = MagicMock()
         session.get.return_value = _json_response(_page(requests_page))
-        session.post.return_value = _forbidden_response(code="FORBIDDEN_ERROR", detail="Admin role required")
+        session.post.return_value = _forbidden_response(code=code, detail="Admin role required")
         report_requests = [_flatten_resource(resource) for resource in requests_page]
 
         with pytest.raises(AppStoreConnectPermissionError) as exc:
             _ensure_report_request(session, _FakeTokenProvider(), MagicMock(), "A1", report_requests)
 
         message = str(exc.value)
-        assert expected in message
+        assert message.startswith(expected)
         # Apple's own words reach the raised message, and the create case never blames Finance or
         # Sales — the read roles the key demonstrably uses on the sales_reports table.
         assert "Admin role required" in message
