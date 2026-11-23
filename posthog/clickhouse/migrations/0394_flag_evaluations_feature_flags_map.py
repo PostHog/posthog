@@ -13,7 +13,8 @@ from posthog.run_mode import run_mode
 # Prod US and EU store sharded_flag_evaluations on the flags cluster, and both the flags and the data nodes carry a
 # flag_evaluations read table. Dev and the local stacks keep the storage table and the read table on the data nodes.
 #
-# The setting change comes first, so a part written after the column exists already uses the bucketed layout.
+# The setting change runs first.
+# The first merge of a part written after the column exists then writes the bucketed layout.
 # ClickHouse does not replicate a settings-only ALTER, so the setting change runs on every host of the storage role.
 # The column ALTERs replicate, so each runs on one host per shard.
 # The ALTERs change metadata only. A part written before them has no map files, and ClickHouse computes the map

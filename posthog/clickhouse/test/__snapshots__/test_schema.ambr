@@ -8604,7 +8604,7 @@
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, flag_key, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))
   
-  SETTINGS ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1, map_serialization_version = 'with_buckets', map_serialization_version_for_zero_level_parts = 'with_buckets', max_buckets_in_map = 32
+  SETTINGS ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1, map_serialization_version = 'with_buckets', max_buckets_in_map = 32
   
   '''
 # ---
@@ -14619,7 +14619,7 @@
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, flag_key, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))
   
-  SETTINGS ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1, map_serialization_version = 'with_buckets', map_serialization_version_for_zero_level_parts = 'with_buckets', max_buckets_in_map = 32
+  SETTINGS ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1, map_serialization_version = 'with_buckets', max_buckets_in_map = 32
   
   '''
 # ---

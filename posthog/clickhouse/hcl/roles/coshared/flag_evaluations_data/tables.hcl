@@ -7,12 +7,11 @@ database "posthog" {
     partition_by = "toYYYYMM(timestamp)"
     ttl          = "toDate(timestamp) + toIntervalDay(92)"
     settings = {
-      index_granularity                              = "8192"
-      map_serialization_version                      = "with_buckets"
-      map_serialization_version_for_zero_level_parts = "with_buckets"
-      materialize_ttl_recalculate_only               = "1"
-      max_buckets_in_map                             = "32"
-      ttl_only_drop_parts                            = "1"
+      index_granularity                = "8192"
+      map_serialization_version        = "with_buckets"
+      materialize_ttl_recalculate_only = "1"
+      max_buckets_in_map               = "32"
+      ttl_only_drop_parts              = "1"
     }
     extend = "_flag_evaluations_columns"
     patch_column "$group_0" {
