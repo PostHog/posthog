@@ -267,24 +267,33 @@ def _queue_if_enabled(hog_function: HogFunction) -> None:
         if not shadow_enabled(hog_function.team, only_evaluate_locally=True):
             return
         # Checked after the flag, so the query runs only for enrolled teams.
-        candidate = scorable_hog_functions().filter(pk=hog_function.pk).first()
+        candidate = scorable_hog_functions(enabled_only=False).filter(pk=hog_function.pk).first()
         if candidate is None or not runs_customer_code(candidate):
             return
 
         from products.cdp.backend.tasks.abuse_classification import classify_hog_function_for_abuse  # noqa: PLC0415
 
-        classify_hog_function_for_abuse.delay(team_id=hog_function.team_id, hog_function_id=str(hog_function.id))
+        # The task reads the row later, so an enable that is undone before it runs is passed along with its content.
+        enabled_content = (
+            {"enabled_content_hash": content_hash(content_of(candidate, candidate.template))}
+            if candidate.enabled
+            else {}
+        )
+        classify_hog_function_for_abuse.delay(
+            team_id=hog_function.team_id, hog_function_id=str(hog_function.id), **enabled_content
+        )
     except Exception:
         logger.exception("cdp_abuse_classifier_queue_failed", hog_function_id=str(hog_function.id))
 
 
 def is_scorable(hog_function: HogFunction) -> bool:
-    """Only functions that run are scored. A disabled one is scored when it is enabled."""
-    return hog_function.enabled and not hog_function.deleted and hog_function.type in CLASSIFIED_TYPES
+    """A disabled function is scored too: the editor's test invocation still runs it, and saving a probe disabled
+    is itself a signal."""
+    return not hog_function.deleted and hog_function.type in CLASSIFIED_TYPES
 
 
 def scorable_hog_functions(*, enabled_only: bool = True) -> QuerySet[HogFunction]:
-    """Enabled destinations, and enabled transformations that may run code a customer wrote.
+    """Destinations, and transformations that may run code a customer wrote. `enabled_only` keeps the running ones.
 
     A transformation runs without network access, so one that runs a template's code unchanged is PostHog's code.
     A destination from a template is still scored: its inputs, such as a webhook URL, can make it abusive.
@@ -322,7 +331,7 @@ def _runs_custom_hog(hog_function: HogFunction) -> bool:
     return template is None or hog_function.hog != template.code
 
 
-def classify_if_due(hog_function: HogFunction) -> None:
+def classify_if_due(hog_function: HogFunction, *, enabled_content_hash: str | None = None) -> None:
     """Score and report a saved function, unless the flag went off or its content was scored since it was queued."""
     if not is_scorable(hog_function) or not runs_customer_code(hog_function) or not shadow_enabled(hog_function.team):
         return
@@ -331,11 +340,23 @@ def classify_if_due(hog_function: HogFunction) -> None:
     rule_hits = rules.matched_rules(runtime_content)
     outbound_call = rules.has_outbound_call(runtime_content)
     scoring = _scoring_for(hog_function.team)
-    entry = _cache_entry(content_hash(content), rule_hits, outbound_call, scoring.account_tier)
-    if cache.get(_hash_key(str(hog_function.id))) == entry:
+    public_content_hash = content_hash(content)
+    enabled = hog_function.enabled or enabled_content_hash == public_content_hash
+    reported = cache.get(_hash_key(str(hog_function.id)))
+    # A verdict reported while enabled covers the same content saved disabled, so disabling a function reports nothing.
+    covering_states = (True,) if enabled else (True, False)
+    if any(
+        reported == _cache_entry(public_content_hash, rule_hits, outbound_call, scoring.account_tier, enabled=state)
+        for state in covering_states
+    ):
         metrics.CLASSIFICATIONS.labels(hog_function.type, "none", "skipped_unchanged").inc()
         return
-    report(hog_function, _score(hog_function, content, rule_hits, outbound_call, scoring), trigger=Trigger.SAVE)
+    report(
+        hog_function,
+        _score(hog_function, content, rule_hits, outbound_call, scoring),
+        trigger=Trigger.SAVE,
+        enabled=enabled,
+    )
 
 
 def classify_for_backfill(hog_function: HogFunction, run_id: str) -> None:
@@ -412,19 +433,33 @@ def _decrypted_secret_inputs(hog_function: HogFunction) -> dict[str, Any]:
 
 
 def _cache_entry(
-    public_content_hash: str, rule_hits: tuple[rules.Rule, ...], outbound_call: bool, account_tier: AccountTier
+    public_content_hash: str,
+    rule_hits: tuple[rules.Rule, ...],
+    outbound_call: bool,
+    account_tier: AccountTier,
+    *,
+    enabled: bool,
 ) -> str:
     """The model sees only the public content, and secret inputs change only the rule hits and the outbound call.
     Keeping all three means a secret change that matches a rule or adds a call scores the function again, while the
     cache holds nothing more about a secret value than the event does. Only the established tier changes whether a
-    moderate score alerts, so an account that enters or leaves it scores again on its next save."""
+    moderate score alerts, so an account that enters or leaves it scores again on its next save. Enabling a function
+    that was scored while disabled reports it again, so a probe that starts running alerts as enabled. An enabled
+    entry carries no state suffix, so entries that earlier releases wrote stay valid."""
     established = account_tier is AccountTier.ESTABLISHED
-    return f"{public_content_hash}:{','.join(rule_hits)}:{int(outbound_call)}:{int(established)}"
+    entry = f"{public_content_hash}:{','.join(rule_hits)}:{int(outbound_call)}:{int(established)}"
+    return entry if enabled else f"{entry}:disabled"
 
 
 def report(
-    hog_function: HogFunction, scored: ScoredHogFunction, *, trigger: Trigger, backfill_run_id: str | None = None
+    hog_function: HogFunction,
+    scored: ScoredHogFunction,
+    *,
+    trigger: Trigger,
+    backfill_run_id: str | None = None,
+    enabled: bool | None = None,
 ) -> None:
+    enabled = hog_function.enabled if enabled is None else enabled
     function_type = hog_function.type or ""
     run = {"trigger": trigger.value} | ({"backfill_run_id": backfill_run_id} if backfill_run_id else {})
     for rule in scored.rule_hits:
@@ -436,7 +471,7 @@ def report(
         metrics.CLASSIFICATIONS.labels(function_type, scored.label, "error").inc()
         # Without a model verdict, a function no rule matched is unknown rather than clean.
         rule_verdict = {"would_alert": scored.would_alert, "would_block": scored.would_block} if rule_hits else {}
-        _capture(hog_function, scored, {**run, "error": reason.value, "rule_hits": rule_hits, **rule_verdict})
+        _capture(hog_function, scored, enabled, {**run, "error": reason.value, "rule_hits": rule_hits, **rule_verdict})
         return
 
     verdict = scored.verdict
@@ -447,6 +482,7 @@ def report(
     _capture(
         hog_function,
         scored,
+        enabled,
         {
             **run,
             **{f"score_{question}": probability for question, probability in verdict.scores.items()},
@@ -464,12 +500,12 @@ def report(
     # Only a delivered verdict is remembered, so a failed classification or capture runs again on the next save.
     cache.set(
         _hash_key(str(hog_function.id)),
-        _cache_entry(scored.content_hash, scored.rule_hits, scored.outbound_call, scored.account_tier),
+        _cache_entry(scored.content_hash, scored.rule_hits, scored.outbound_call, scored.account_tier, enabled=enabled),
         _HASH_TTL_SECONDS,
     )
 
 
-def _capture(hog_function: HogFunction, scored: ScoredHogFunction, outcome: dict[str, object]) -> None:
+def _capture(hog_function: HogFunction, scored: ScoredHogFunction, enabled: bool, outcome: dict[str, object]) -> None:
     team = hog_function.team
     account = scored.account
     properties = {
@@ -486,7 +522,7 @@ def _capture(hog_function: HogFunction, scored: ScoredHogFunction, outcome: dict
         "template_id": hog_function.template_id,
         "code_modified_from_template": scored.code_modified_from_template,
         "outbound_call": scored.outbound_call,
-        "enabled": hog_function.enabled,
+        "enabled": enabled,
         "content_hash": scored.content_hash,
         "admin_url": absolute_uri(f"/admin/cdp/hogfunction/{hog_function.id}/change/"),
         **outcome,

