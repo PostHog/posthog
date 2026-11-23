@@ -17,6 +17,7 @@ const REVIEWED_READ_ONLY_WRITE_SCOPE_TOOLS: Record<string, string> = {
     'scout-trial-report': 'GET; the write scope gates private trials',
     'scout-trial-setup': 'GET; the write scope gates private trials',
     'vision-requests-get': 'GET; the write scope gates scanner output',
+    'view-rename-plan': 'Previews a rename and saves nothing; scoped like the rename it previews',
 }
 
 describe('read-only tools that require a write scope', () => {
