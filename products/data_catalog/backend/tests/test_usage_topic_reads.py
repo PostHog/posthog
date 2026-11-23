@@ -140,6 +140,12 @@ class TestSessionTables(SimpleTestCase):
             ("sql_using_an_untraceable_saved_expression", [_sql("SELECT broken_total FROM events")], None),
             ("sql_using_a_dollar_saved_expression", [_sql("SELECT $billing_total FROM events")], {"events", "billing"}),
             ("sql_selecting_every_field", [_sql("SELECT * FROM events")], {"events", "billing"}),
+            ("sql_with_a_query_tag", [_sql("SELECT 1 FROM <HogQLQuery query='SELECT 1 FROM billing' />")], None),
+            (
+                "sql_over_a_view_by_its_models_name",
+                [_sql("SELECT 1 FROM models.wide_view")],
+                {"models.wide_view", "wide_view", "billing"},
+            ),
             (
                 "sql_selecting_every_field_by_the_full_table_name",
                 [_sql("SELECT * FROM posthog.events")],
@@ -446,7 +452,7 @@ class TestViewChanges(SimpleTestCase):
 
         views = [
             SavedView(names=frozenset({"base"}), sql="SELECT 1 FROM billing", changed_at=at(9)),
-            SavedView(names=frozenset({"top"}), sql="SELECT 1 FROM base", changed_at=at(2)),
+            SavedView(names=frozenset({"top"}), sql="SELECT 1 FROM models.base", changed_at=at(2)),
             SavedView(names=frozenset({"POSTHOG_DELETED_1", "gone"}), sql="SELECT 1 FROM events", changed_at=at(5)),
             SavedView(names=frozenset({"ping"}), sql="SELECT 1 FROM pong", changed_at=at(3)),
             SavedView(names=frozenset({"pong"}), sql="SELECT 1 FROM ping", changed_at=at(4)),
@@ -464,16 +470,16 @@ class TestViewChanges(SimpleTestCase):
         assert changes["gone"] == at(5)
         assert changes["ping"] == changes["pong"] == at(4)
         assert view_field_reads(views, _SOURCES) == {
-            "base": frozenset(),
-            "top": frozenset(),
-            "POSTHOG_DELETED_1": frozenset(),
-            "gone": frozenset(),
+            "base": frozenset({"billing"}),
+            "top": frozenset({"models.base", "base", "billing"}),
+            "POSTHOG_DELETED_1": frozenset({"events"}),
+            "gone": frozenset({"events"}),
             "ping": None,
             "pong": None,
             "in_cohort": None,
             "over_in_cohort": None,
             "wide": frozenset({"events", "billing"}),
-            "over_wide": frozenset({"events", "billing", "stripe_customers"}),
+            "over_wide": frozenset({"wide", "events", "billing", "stripe_customers"}),
         }
 
 
@@ -549,10 +555,13 @@ class TestLoadReadSources(BaseTest):
         assert call_tables(call, sources) is None
 
     def test_a_call_over_a_name_that_no_table_has_after_a_view_save_is_unknown(self) -> None:
-        view = DataWarehouseSavedQuery.objects.create(
+        DataWarehouseSavedQuery.objects.create(
             team=self.team, name="new_name", query={"kind": "HogQLQuery", "query": "SELECT 1 FROM events"}
         )
-        DataWarehouseSavedQuery.objects.filter(id=view.id).update(
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="over_old_name", query={"kind": "HogQLQuery", "query": "SELECT 1 FROM old_name"}
+        )
+        DataWarehouseSavedQuery.objects.filter(team=self.team).update(
             created_at=_CALL_AT - timedelta(days=2), updated_at=_CALL_AT + timedelta(days=1)
         )
         DataWarehouseExpression.objects.for_team(self.team.id).create(
@@ -561,6 +570,7 @@ class TestLoadReadSources(BaseTest):
         calls = [
             _sql("SELECT 1 FROM old_name"),
             _sql("SELECT old_total FROM events"),
+            _sql("SELECT 1 FROM over_old_name"),
             _sql("SELECT 1 FROM new_name"),
             _sql("SELECT 1 FROM events"),
         ]
@@ -570,7 +580,8 @@ class TestLoadReadSources(BaseTest):
         assert [call_tables(call, sources) for call in calls] == [
             None,
             None,
-            frozenset({"new_name"}),
+            None,
+            frozenset({"new_name", "events"}),
             frozenset({"events"}),
         ]
 

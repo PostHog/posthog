@@ -66,8 +66,14 @@ _IDENTIFIER = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
 # `sql_tables` adds this to the tables of a query that selects `*`, because `*` expands the saved expressions of
 # the table. `call_tables` replaces it with the tables that those expressions read.
 _ASTERISK = "*"
-# HogQL reads the same table by `events` and by `posthog.events`.
-_POSTHOG_PREFIX = "posthog."
+# HogQL reads the same table by `events` and by `posthog.events`, and the same view by `v` and by `models.v`.
+_ALIAS_PREFIXES = ("posthog.", "models.")
+
+
+def _bare(table: str) -> str:
+    return next((table.removeprefix(prefix) for prefix in _ALIAS_PREFIXES if table.startswith(prefix)), table)
+
+
 # The query kinds whose reads the scan knows. Another kind, such as a marketing or revenue query, can find and read
 # warehouse tables by itself, so a query with any other kind counts as unknown.
 _TRACED_KINDS = frozenset(
@@ -267,7 +273,7 @@ class ReadSources:
         """The tables that the saved expressions of ``tables`` read, because `*` expands every field of a table."""
         found: set[str] = set()
         for table in tables:
-            for field in (self.table_expressions or {}).get(table.removeprefix(_POSTHOG_PREFIX), frozenset()):
+            for field in (self.table_expressions or {}).get(_bare(table), frozenset()):
                 field_reads = (self.field_tables or {}).get(field)
                 if field_reads is None:
                     return None
@@ -310,6 +316,10 @@ class _SavedFilterFinder(TraversingVisitor):
         self.asterisk = True
         super().visit_columns_expr(node)
 
+    def visit_hogqlx_tag(self, node: ast.HogQLXTag) -> None:
+        # A tag can run a query that the scan does not read.
+        self.found = True
+
     def visit_compare_operation(self, node: ast.CompareOperation) -> None:
         self.found = self.found or node.op in _COHORT_OPERATORS
         super().visit_compare_operation(node)
@@ -320,7 +330,7 @@ class _SavedFilterFinder(TraversingVisitor):
 
 
 def sql_tables(sql: str) -> frozenset[str] | None:
-    """The tables a HogQL query names, or None when it does not parse or runs a saved cohort or action.
+    """The tables a HogQL query names, or None when it does not parse or runs a saved cohort, an action or a tag.
 
     The check reads the parsed query, because a comment between two keywords hides them from a text match. A
     query that selects `*` or `COLUMNS(...)` also gets the `_ASTERISK` marker."""
@@ -529,6 +539,7 @@ def call_tables(call: ReadCall, sources: ReadSources) -> frozenset[str] | None:
     if found is None or fields is None:
         return None
     tables = (found | fields) - {_ASTERISK}
+    tables |= {_bare(table) for table in tables}
     if _ASTERISK in found:
         expanded = current.asterisk_reads(tables)
         if expanded is None:
@@ -813,7 +824,7 @@ def _load_saved_fields(team: Team) -> _SavedFields:
     ):
         if field_name:
             expressions[field_name].add((table_name, expression))
-            by_table[table_name.removeprefix(_POSTHOG_PREFIX)].add(field_name)
+            by_table[_bare(table_name)].add(field_name)
     return _SavedFields(
         field_tables=saved_field_tables(joins, expressions),
         table_expressions={table: frozenset(fields) for table, fields in by_table.items()},
@@ -841,7 +852,7 @@ def view_changes(views: Sequence[SavedView]) -> dict[str, datetime]:
         if view is None or name in path:
             return None
         times = [view.changed_at]
-        for table in (sql_tables(view.sql) or frozenset()) & by_name.keys():
+        for table in {_bare(table) for table in sql_tables(view.sql) or ()} & by_name.keys():
             times.append(last_change(table, (*path, name)))
         found = max((time for time in times if time is not None), default=None)
         latest[name] = found
@@ -851,10 +862,10 @@ def view_changes(views: Sequence[SavedView]) -> dict[str, datetime]:
 
 
 def view_field_reads(views: Sequence[SavedView], fields: ReadSources) -> dict[str, frozenset[str] | None]:
-    """The tables that each view reads through a join or a saved expression field, or None when the scan cannot tell.
+    """The tables that each view reads, or None when the scan cannot tell.
 
-    A reader's denial follows the tables that a view body names. A body also reads the tables of the fields that
-    it names or selects with `*`, and the same tables of each view that it reads. A body that runs a saved cohort
+    A body reads the tables that it names, the tables of the fields that it names or selects with `*`, and the
+    same tables of each view that it reads. A body that runs a saved cohort
     or action, a body that does not parse, and a cycle of views count as unknown."""
     by_name = {name: view for view in views for name in view.names}
     resolved: dict[str, frozenset[str] | None] = {}
@@ -864,7 +875,11 @@ def view_field_reads(views: Sequence[SavedView], fields: ReadSources) -> dict[st
             return resolved[name]
         sql = by_name[name].sql
         named = None if name in path else sql_tables(sql)
+        if named is not None:
+            named |= {_bare(table) for table in named}
         found = None if named is None else fields.field_reads([sql])
+        if named is not None and found is not None:
+            found |= named - {_ASTERISK}
         if named is not None and found is not None and _ASTERISK in named:
             expanded = fields.asterisk_reads(named - {_ASTERISK})
             found = None if expanded is None else found | expanded
