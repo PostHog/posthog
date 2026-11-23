@@ -5318,10 +5318,10 @@ Today (4): `crashes`, `network_4xx`, `network_5xx`, `sessions`
 
 Diffed against: <https://embrace.io/docs/metrics-forwarding/>
 
-- [ ] `Unique users (GET /metrics/api/v1/query_range, query=daily_users_total)` — measure daily active users, which session counts cannot provide (high)
-- [ ] `Crash-free users (GET /metrics/api/v1/query_range, query=hourly_crashed_free_users)` — measure the share of users without crashes rather than the share of sessions without crashes (high)
-- [ ] `Web Vital percentiles and counts (GET /metrics/api/v1/query_range, queries=hourly_web_vital_p75 and hourly_web_vital_total)` — track browser performance by Web Vital name and rating (medium)
-- [ ] `Exceptions (GET /metrics/api/v1/query_range, query=hourly_exception_total)` — track web exceptions that mobile crash totals do not cover (medium)
+- [x] `Unique users (GET /metrics/api/v1/query_range, query=daily_users_total)` — measure daily active users, which session counts cannot provide (high)
+- [x] `Crash-free users (GET /metrics/api/v1/query_range, query=hourly_crashed_free_users)` — measure the share of users without crashes rather than the share of sessions without crashes (high)
+- [x] `Web Vital percentiles and counts (GET /metrics/api/v1/query_range, queries=hourly_web_vital_p75 and hourly_web_vital_total)` — track browser performance by Web Vital name and rating (medium)
+- [x] `Exceptions (GET /metrics/api/v1/query_range, query=hourly_exception_total)` — track web exceptions that mobile crash totals do not cover (medium)
 - [ ] `Custom metric series (GET /metrics/api/v1/query_range, configured metric queries)` — analyze application freezes, session duration, network latency, and other configured performance metrics (medium)
 
 Note: The official metrics table, custom metrics reference, and Metrics API code samples were fetched and parsed. Current tables contain aggregate series, not individual sessions, crashes, or network requests. Custom series need configurable queries or metric discovery; their definitions can require a separate token. Operations that create definitions or configure destinations are excluded.
