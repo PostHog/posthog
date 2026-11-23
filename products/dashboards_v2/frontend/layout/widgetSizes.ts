@@ -9,7 +9,10 @@ interface WidgetSize {
     stackedRows?: { min: number; max: number }
 }
 
-/** One entry per widget type. A team adding a widget type adds its sizes here and its component in `WidgetView`. */
+/**
+ * One entry per widget type. A team adding a widget type adds its sizes here, its component in `WidgetView` and, for a
+ * footer, its content in `WidgetFooter`.
+ */
 const WIDGET_SIZES: Record<Widget['type'], WidgetSize> = {
     stat: { w: 6, h: 3, minW: 3, minH: 2 },
     line: { w: 12, h: 8, minW: 4, minH: 4, stackedRows: { min: 5, max: 8 } },

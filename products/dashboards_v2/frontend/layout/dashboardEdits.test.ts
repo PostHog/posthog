@@ -219,7 +219,7 @@ describe('dashboardEdits', () => {
             const revenue: Tile = {
                 id: 'revenue',
                 place: { x: 0, y: 0, w: 6, h: 3 },
-                widget: { type: 'stat', title: 'Revenue', footer: [{ type: 'updatedAt' }] },
+                widget: { type: 'stat', title: 'Revenue' },
             }
             const tight = applyEdit(dashboard([revenue]), { edit: 'setAppearance', patch: { tileSpacing: 'tight' } })
             const shown = withFolds(tight, {})
