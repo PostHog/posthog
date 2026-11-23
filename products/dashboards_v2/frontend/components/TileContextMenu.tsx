@@ -1,4 +1,3 @@
-import { useActions, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
 import {
@@ -12,7 +11,7 @@ import {
     ContextMenuTrigger,
 } from '@posthog/quill'
 
-import { dashboardV2Logic } from '../dashboardV2Logic'
+import { useDashboardV2 } from '../dashboardV2Context'
 import { type ContentWidget, type ContentWidgetParts, hasPart, showsPart } from '../layout/dashboardTypes'
 
 /** One thing a person can do to a tile, shared by the right-click menu and the hover toolbar so the two agree. */
@@ -42,8 +41,7 @@ const TILE_PARTS: { key: keyof ContentWidgetParts; label: string }[] = [
 ]
 
 export function useContentTileActions(id: string, widget: ContentWidget): TileAction[] {
-    const { dashboard, activeTab, disabledReasonFor } = useValues(dashboardV2Logic)
-    const { applyDashboardEdit } = useActions(dashboardV2Logic)
+    const { dashboard, activeTab, disabledReasonFor, onEdit } = useDashboardV2()
     const otherTabs = dashboard.tabs.filter((tab) => tab.id !== activeTab.id)
 
     const actions: TileAction[] = []
@@ -58,7 +56,7 @@ export function useContentTileActions(id: string, widget: ContentWidget): TileAc
                 label: tab.title,
                 dataAttr: 'dashboard-v2-tile-move-to-tab-item',
                 disabledReason: disabledReasonFor('moveTile'),
-                onSelect: () => applyDashboardEdit({ edit: 'moveTile', id, grid: tab.id }),
+                onSelect: () => onEdit({ edit: 'moveTile', id, grid: tab.id }),
             })),
         })
     }
@@ -80,8 +78,7 @@ export function useContentTileActions(id: string, widget: ContentWidget): TileAc
                     // The description lives in the header, so it cannot be turned on while the header is off.
                     disabledReason: partsDisabledReason ?? (needsHeader ? 'Show the header first' : null),
                     checked: shown,
-                    onSelect: () =>
-                        applyDashboardEdit({ edit: 'setTileParts', id, parts: { ...widget.parts, [key]: !shown } }),
+                    onSelect: () => onEdit({ edit: 'setTileParts', id, parts: { ...widget.parts, [key]: !shown } }),
                 }
             }),
         })
@@ -92,14 +89,13 @@ export function useContentTileActions(id: string, widget: ContentWidget): TileAc
         dataAttr: 'dashboard-v2-tile-remove',
         disabledReason: disabledReasonFor('removeTile'),
         destructive: true,
-        onSelect: () => applyDashboardEdit({ edit: 'removeTile', id }),
+        onSelect: () => onEdit({ edit: 'removeTile', id }),
     })
     return actions
 }
 
 export function useSectionActions(id: string, collapsed: boolean, onStartRename: () => void): TileAction[] {
-    const { disabledReasonFor } = useValues(dashboardV2Logic)
-    const { applyDashboardEdit, setSectionFolded } = useActions(dashboardV2Logic)
+    const { disabledReasonFor, onEdit, onSectionFoldedChange } = useDashboardV2()
     return [
         {
             key: 'rename',
@@ -113,7 +109,7 @@ export function useSectionActions(id: string, collapsed: boolean, onStartRename:
             label: collapsed ? 'Expand' : 'Collapse',
             dataAttr: 'dashboard-v2-section-menu-toggle',
             disabledReason: null,
-            onSelect: () => setSectionFolded(id, !collapsed),
+            onSelect: () => onSectionFoldedChange(id, !collapsed),
         },
         {
             key: 'remove',
@@ -121,7 +117,7 @@ export function useSectionActions(id: string, collapsed: boolean, onStartRename:
             dataAttr: 'dashboard-v2-section-remove',
             disabledReason: disabledReasonFor('removeTile'),
             destructive: true,
-            onSelect: () => applyDashboardEdit({ edit: 'removeTile', id }),
+            onSelect: () => onEdit({ edit: 'removeTile', id }),
         },
     ]
 }

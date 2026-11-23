@@ -1,17 +1,16 @@
 import 'react-grid-layout/css/styles.css'
 
 import clsx from 'clsx'
-import { useActions, useSelector, useValues } from 'kea'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { GridLayout } from 'react-grid-layout'
 import type { Compactor, Layout, LayoutItem } from 'react-grid-layout'
 
 import { useDragAutoScroll } from 'scenes/dashboard/useDragAutoScroll'
 
-import { type DropTarget, dashboardV2Logic } from '../dashboardV2Logic'
+import { useDashboardV2, useDashboardV2Drag } from '../dashboardV2Context'
 import { dropIntoGrid, findTile, toPlacedItems, withSectionRows } from '../layout/dashboardEdits'
-import { GRID, type Tile, type TilePlace, columnWidthPx, isSection, spanPx } from '../layout/dashboardTypes'
-import { type DropZones, gridUnderPointer, readDropZones } from '../layout/dropTargets'
+import { GRID, type Tile, type TilePlace, columnWidthPx, gapPxOf, isSection, spanPx } from '../layout/dashboardTypes'
+import { type DropTarget, type DropZones, gridUnderPointer, readDropZones } from '../layout/dropTargets'
 import { type Gesture, type PlacedItem, bottomOf, placeTiles } from '../layout/placeTiles'
 import { minRows } from '../layout/widgetSizes'
 import { TileFrame } from './TileFrame'
@@ -43,8 +42,9 @@ function toLayout(tiles: Tile[], gapPx: number): Layout {
 }
 
 export function TileGrid({ gridId, tiles, cols, width, editable, onLiveRows }: TileGridProps): JSX.Element {
-    const { applyDashboardEdit, setDropTarget } = useActions(dashboardV2Logic)
-    const { gapPx } = useValues(dashboardV2Logic)
+    const { dashboard, onEdit } = useDashboardV2()
+    const { dropTarget, onDropTargetChange } = useDashboardV2Drag()
+    const gapPx = gapPxOf(dashboard)
     const margin = useMemo<[number, number]>(() => [gapPx, gapPx], [gapPx])
     const { startAutoScroll, autoScrollOnDrag, stopAutoScroll } = useDragAutoScroll()
     const rootRef = useRef<HTMLDivElement>(null)
@@ -63,13 +63,13 @@ export function TileGrid({ gridId, tiles, cols, width, editable, onLiveRows }: T
         })
     }, [])
 
-    // A tile carried in from another grid. Only the grid under the pointer gets a value, so only it re-renders.
-    const incoming: DropTarget | null = useSelector((state) => {
-        const target = dashboardV2Logic.selectors.dropTarget(state)
-        return target?.grid === gridId ? target : null
-    })
+    // A tile carried in from another grid. Only the grid under the pointer gets a value.
+    const incoming: DropTarget | null = dropTarget?.grid === gridId ? dropTarget : null
+    // The carried tile is looked up through a ref, so a change elsewhere in the dashboard does not redo the preview.
+    const dashboardRef = useRef(dashboard)
+    dashboardRef.current = dashboard
     const shownTiles = useMemo(() => {
-        const carried = incoming && findTile(dashboardV2Logic.values.dashboard, incoming.tileId)
+        const carried = incoming && findTile(dashboardRef.current, incoming.tileId)
         // The sections get their heights first, as the drop does, so the preview is where the tile will land.
         const sized = withSectionRows(tiles, cols, liveSectionRows)
         if (!incoming || !carried) {
@@ -171,9 +171,9 @@ export function TileGrid({ gridId, tiles, cols, width, editable, onLiveRows }: T
             }
             lastTarget.current = target
             rootRef.current?.classList.toggle('DashboardV2__grid--tile-away', target !== null)
-            setDropTarget(target)
+            onDropTargetChange(target)
         },
-        [setDropTarget]
+        [onDropTargetChange]
     )
 
     const savePlaces = useCallback(
@@ -182,16 +182,16 @@ export function TileGrid({ gridId, tiles, cols, width, editable, onLiveRows }: T
             for (const { i, x, y, w, h } of finalLayout) {
                 places[i] = { x, y, w, h }
             }
-            applyDashboardEdit({ edit: 'placeTiles', grid: gridId, places, resized })
+            onEdit({ edit: 'placeTiles', grid: gridId, places, resized })
         },
-        [applyDashboardEdit, gridId]
+        [onEdit, gridId]
     )
 
     // A grid can leave the page while a tile from it is still carried: undo, or its section closing.
     useEffect(
         () => () => {
             if (lastTarget.current) {
-                setDropTarget(null)
+                onDropTargetChange(null)
             }
             onLiveRows?.(null)
         },
@@ -264,7 +264,7 @@ export function TileGrid({ gridId, tiles, cols, width, editable, onLiveRows }: T
                     setAway(null)
                     end()
                     if (target && item) {
-                        applyDashboardEdit({
+                        onEdit({
                             edit: 'moveTile',
                             id: item.i,
                             grid: target.grid,

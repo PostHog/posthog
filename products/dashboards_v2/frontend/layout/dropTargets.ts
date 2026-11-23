@@ -7,6 +7,8 @@ export interface PointerTarget {
     y?: number
 }
 
+export type DropTarget = PointerTarget & { tileId: string }
+
 interface DropZone {
     id: string
     element: HTMLElement

@@ -76,6 +76,15 @@ It does not decide places: its compactor is `placeTiles`.
 - Undo and redo cover every edit, and a press that moves nothing adds no undo step.
 - Only people who can edit dashboards can change the layout. Everyone else sees it read-only.
 
+## Embedding a dashboard
+
+The components hold no business logic and never import a kea logic, so any page can render a dashboard.
+
+- `DashboardV2View` in `frontend/components/DashboardV2View.tsx` renders the tabs and the grid from a `DashboardV2Controller` (`frontend/dashboardV2Context.ts`).
+- The host owns the dashboard, undo history, access rules, saving and the URL. It passes values in and gets edits back through `onEdit`.
+- The view passes the controller down through context. The drop target has a context of its own, so a drag re-renders only what reads it.
+- `dashboardV2Logic` is the host for the `/dashboard-v2` scene. Another product supplies its own host and its own header.
+
 ## Appearance
 
 `appearance` sits at the root of the dashboard JSON, beside `tabs`. It sets how the whole dashboard looks and never changes a tile's place.

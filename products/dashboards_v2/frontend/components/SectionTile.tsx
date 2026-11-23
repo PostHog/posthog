@@ -1,11 +1,10 @@
-import { useActions, useValues } from 'kea'
 import { useCallback, useState } from 'react'
 
 import { IconDrag, IconTrash } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
-import { dashboardV2Logic } from '../dashboardV2Logic'
-import { GRID, type SectionWidget, spanPx } from '../layout/dashboardTypes'
+import { useDashboardV2 } from '../dashboardV2Context'
+import { GRID, type SectionWidget, gapPxOf, spanPx } from '../layout/dashboardTypes'
 import { AddTileMenu } from './AddTileMenu'
 import { SectionTitle } from './SectionTitle'
 import { TileContextMenu, useSectionActions } from './TileContextMenu'
@@ -26,8 +25,8 @@ export function SectionTile({
     editable: boolean
     onSectionRows: (id: string, rows: number | null) => void
 }): JSX.Element {
-    const { applyDashboardEdit, setSectionFolded } = useActions(dashboardV2Logic)
-    const { gapPx } = useValues(dashboardV2Logic)
+    const { dashboard, onEdit, onSectionFoldedChange } = useDashboardV2()
+    const gapPx = gapPxOf(dashboard)
     const collapsed = !!widget.collapsed
     const [draft, setDraft] = useState<string | null>(null)
     const actions = useSectionActions(id, collapsed, () => setDraft(widget.title))
@@ -48,8 +47,8 @@ export function SectionTile({
                         title={widget.title}
                         collapsed={collapsed}
                         canEdit={editable}
-                        onToggle={() => setSectionFolded(id, !collapsed)}
-                        onRename={(title) => applyDashboardEdit({ edit: 'updateSection', id, patch: { title } })}
+                        onToggle={() => onSectionFoldedChange(id, !collapsed)}
+                        onRename={(title) => onEdit({ edit: 'updateSection', id, patch: { title } })}
                         draft={draft}
                         onDraftChange={setDraft}
                     />

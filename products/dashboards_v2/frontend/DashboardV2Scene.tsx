@@ -1,8 +1,5 @@
-import './DashboardV2.scss'
-
 import { useActions, useValues } from 'kea'
-import { type CSSProperties, type RefObject, useEffect, useMemo } from 'react'
-import { useContainerWidth } from 'react-grid-layout'
+import { useEffect, useMemo } from 'react'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
@@ -10,11 +7,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { DashboardV2Actions } from './components/DashboardV2Actions'
-import { DashboardV2Tabs } from './components/DashboardV2Tabs'
-import { TileGrid } from './components/TileGrid'
+import { DashboardV2View } from './components/DashboardV2View'
 import { dashboardV2Logic } from './dashboardV2Logic'
-import { stackTiles } from './layout/dashboardEdits'
-import { GRID } from './layout/dashboardTypes'
 
 export const scene: SceneExport = {
     component: DashboardV2Scene,
@@ -37,19 +31,11 @@ function isTyping(target: EventTarget | null): boolean {
 }
 
 function DashboardV2(): JSX.Element {
-    const { dashboard, activeTab, hasPermission, gapPx } = useValues(dashboardV2Logic)
-    const { undo, redo, setStacked } = useActions(dashboardV2Logic)
-    const canUndoRedo = hasPermission('undo')
-    const { width, containerRef, mounted } = useContainerWidth()
-    const stacked = width > 0 && width < GRID.stackBelowPx
-    const tiles = useMemo(
-        () => (stacked ? stackTiles(activeTab.tiles, GRID.columns) : activeTab.tiles),
-        [stacked, activeTab.tiles]
-    )
-
-    useEffect(() => {
-        setStacked(stacked)
-    }, [stacked, setStacked])
+    const { dashboard, activeTab, disabledReasonFor, canUndo, canRedo, dropTarget } = useValues(dashboardV2Logic)
+    const { applyDashboardEdit, setActiveTab, setSectionFolded, setStacked, setDropTarget, undo, redo } =
+        useActions(dashboardV2Logic)
+    const canUndoRedo = disabledReasonFor('undo') === null
+    const history = useMemo(() => ({ canUndo, canRedo, onUndo: undo, onRedo: redo }), [canUndo, canRedo, undo, redo])
 
     useEffect(() => {
         if (!canUndoRedo) {
@@ -72,30 +58,25 @@ function DashboardV2(): JSX.Element {
     }, [canUndoRedo, undo, redo])
 
     return (
-        <div
-            data-quill
-            className="DashboardV2 flex flex-col gap-4 p-4 min-h-full bg-background text-foreground"
-            // The tile gap comes from the dashboard's JSON, so CSS reads it from a variable rather than a class.
-            // oxlint-disable-next-line react/forbid-dom-props
-            style={{ '--dv2-gap': `${gapPx}px` } as CSSProperties}
-        >
-            <header className="flex flex-wrap items-center justify-between gap-2">
-                <h1 className="text-lg font-semibold m-0">{dashboard.title}</h1>
-                <DashboardV2Actions />
-            </header>
-            <DashboardV2Tabs />
-            <div ref={containerRef as RefObject<HTMLDivElement>} className="DashboardV2__canvas">
-                {mounted && width > 0 && (
-                    <TileGrid
-                        key={`${activeTab.id}-${stacked ? 'stacked' : 'grid'}`}
-                        gridId={activeTab.id}
-                        tiles={tiles}
-                        cols={GRID.columns}
-                        width={width}
-                        editable={hasPermission('placeTiles') && !stacked}
-                    />
-                )}
-            </div>
-        </div>
+        <DashboardV2View
+            controller={{
+                dashboard,
+                activeTab,
+                disabledReasonFor,
+                onEdit: applyDashboardEdit,
+                onActiveTabChange: setActiveTab,
+                onSectionFoldedChange: setSectionFolded,
+                onStackedChange: setStacked,
+                history,
+                dropTarget,
+                onDropTargetChange: setDropTarget,
+            }}
+            header={
+                <header className="flex flex-wrap items-center justify-between gap-2">
+                    <h1 className="text-lg font-semibold m-0">{dashboard.title}</h1>
+                    <DashboardV2Actions />
+                </header>
+            }
+        />
     )
 }

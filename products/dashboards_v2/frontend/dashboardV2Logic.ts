@@ -6,8 +6,8 @@ import { objectsEqual } from 'lib/utils/objects'
 import { type DashboardV2Action, dashboardV2DisabledReason } from './access/dashboardV2Access'
 import { kitchenSinkDashboard } from './fixtures/kitchenSinkDashboard'
 import { type DashboardEdit, applyEdit, settleDashboard, withFolds } from './layout/dashboardEdits'
-import { type Dashboard, type DashboardTab, gapPxOf } from './layout/dashboardTypes'
-import type { PointerTarget } from './layout/dropTargets'
+import { type Dashboard, type DashboardTab } from './layout/dashboardTypes'
+import type { DropTarget } from './layout/dropTargets'
 
 const HISTORY_LIMIT = 100
 
@@ -16,8 +16,6 @@ interface History {
     present: Dashboard
     future: Dashboard[]
 }
-
-export type DropTarget = PointerTarget & { tileId: string }
 
 function commit(history: History, next: Dashboard): History {
     if (next === history.present) {
@@ -36,8 +34,6 @@ export interface dashboardV2LogicValues {
     disabledReasonFor: (action: DashboardV2Action) => string | null
     dropTarget: DropTarget | null
     folds: Record<string, boolean>
-    gapPx: number
-    hasPermission: (action: DashboardV2Action) => boolean
     history: History
     stacked: boolean
     viewedDashboard: Dashboard
@@ -82,13 +78,9 @@ export interface dashboardV2LogicActions {
 export interface dashboardV2LogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         dashboard: (history: History) => Dashboard
-        gapPx: (dashboard: Dashboard) => number
         canUndo: (history: History) => boolean
         canRedo: (history: History) => boolean
         disabledReasonFor: (dashboard: Dashboard, stacked: boolean) => (action: DashboardV2Action) => string | null
-        hasPermission: (
-            disabledReasonFor: (action: DashboardV2Action) => string | null
-        ) => (action: DashboardV2Action) => boolean
         viewedDashboard: (dashboard: Dashboard, folds: Record<string, boolean>) => Dashboard
         activeTab: (viewedDashboard: Dashboard, activeTabId: string | null) => DashboardTab
     }
@@ -154,7 +146,6 @@ export const dashboardV2Logic = kea<dashboardV2LogicType>([
     }),
     selectors({
         dashboard: [(s) => [s.history], (history: History): Dashboard => history.present],
-        gapPx: [(s) => [s.dashboard], (dashboard: Dashboard): number => gapPxOf(dashboard)],
         canUndo: [(s) => [s.history], (history: History): boolean => history.past.length > 0],
         canRedo: [(s) => [s.history], (history: History): boolean => history.future.length > 0],
         disabledReasonFor: [
@@ -162,14 +153,6 @@ export const dashboardV2Logic = kea<dashboardV2LogicType>([
             (dashboard: Dashboard, stacked: boolean): ((action: DashboardV2Action) => string | null) =>
                 (action) =>
                     dashboardV2DisabledReason(action, dashboard.user_access_level) ?? (stacked ? STACKED_REASON : null),
-        ],
-        hasPermission: [
-            (s) => [s.disabledReasonFor],
-            (
-                disabledReasonFor: (action: DashboardV2Action) => string | null
-            ): ((action: DashboardV2Action) => boolean) =>
-                (action) =>
-                    disabledReasonFor(action) === null,
         ],
         viewedDashboard: [
             (s) => [s.dashboard, s.folds],

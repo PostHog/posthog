@@ -1,4 +1,3 @@
-import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconArrowLeft, IconArrowRight, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
@@ -14,7 +13,8 @@ import {
     TabsTrigger,
 } from '@posthog/quill'
 
-import { dashboardV2Logic } from '../dashboardV2Logic'
+import type { DashboardV2Action } from '../access/dashboardV2Access'
+import { useDashboardV2, useDashboardV2Drag } from '../dashboardV2Context'
 
 interface TabDraft {
     id: string
@@ -27,8 +27,9 @@ interface TabInsert {
 }
 
 export function DashboardV2Tabs(): JSX.Element | null {
-    const { dashboard, activeTab, hasPermission, dropTarget, disabledReasonFor } = useValues(dashboardV2Logic)
-    const { setActiveTab, applyDashboardEdit } = useActions(dashboardV2Logic)
+    const { dashboard, activeTab, disabledReasonFor, onActiveTabChange, onEdit } = useDashboardV2()
+    const { dropTarget } = useDashboardV2Drag()
+    const hasPermission = (action: DashboardV2Action): boolean => disabledReasonFor(action) === null
     const [draft, setDraft] = useState<TabDraft | null>(null)
     const [draggedId, setDraggedId] = useState<string | null>(null)
     const [insert, setInsert] = useState<TabInsert | null>(null)
@@ -43,7 +44,7 @@ export function DashboardV2Tabs(): JSX.Element | null {
     const dropTab = (): void => {
         if (draggedId !== null && insert !== null) {
             const before = insert.side === 'before' ? insert.id : (tabIds[tabIds.indexOf(insert.id) + 1] ?? null)
-            applyDashboardEdit({ edit: 'moveTab', id: draggedId, before })
+            onEdit({ edit: 'moveTab', id: draggedId, before })
         }
         endDrag()
     }
@@ -60,7 +61,7 @@ export function DashboardV2Tabs(): JSX.Element | null {
         const title = draft.title.trim()
         const original = dashboard.tabs.find((tab) => tab.id === draft.id)?.title
         if (original !== undefined && title && title !== original) {
-            applyDashboardEdit({ edit: 'renameTab', id: draft.id, title })
+            onEdit({ edit: 'renameTab', id: draft.id, title })
         }
         setDraft(null)
     }
@@ -76,7 +77,7 @@ export function DashboardV2Tabs(): JSX.Element | null {
     }
     return (
         <div className="flex items-center gap-2 border-b">
-            <Tabs value={activeTab.id} onValueChange={(value) => setActiveTab(String(value))}>
+            <Tabs value={activeTab.id} onValueChange={(value) => onActiveTabChange(String(value))}>
                 <TabsList variant="line" data-attr="dashboard-v2-tabs">
                     {dashboard.tabs.map((tab, position) => {
                         if (draft?.id === tab.id) {
@@ -185,9 +186,7 @@ export function DashboardV2Tabs(): JSX.Element | null {
                                                 key={key}
                                                 data-attr={`dashboard-v2-move-tab-${key}`}
                                                 disabled={disabled}
-                                                onClick={() =>
-                                                    applyDashboardEdit({ edit: 'moveTab', id: tab.id, before })
-                                                }
+                                                onClick={() => onEdit({ edit: 'moveTab', id: tab.id, before })}
                                             >
                                                 <Icon />
                                                 {label}
@@ -197,7 +196,7 @@ export function DashboardV2Tabs(): JSX.Element | null {
                                         variant="destructive"
                                         data-attr="dashboard-v2-delete-tab"
                                         disabled={removeDisabledReason !== null}
-                                        onClick={() => applyDashboardEdit({ edit: 'removeTab', id: tab.id })}
+                                        onClick={() => onEdit({ edit: 'removeTab', id: tab.id })}
                                     >
                                         <IconTrash />
                                         <span className="flex flex-col items-start">
@@ -220,7 +219,7 @@ export function DashboardV2Tabs(): JSX.Element | null {
                     size="xs"
                     data-attr="dashboard-v2-add-tab"
                     disabledReason={addDisabledReason ?? undefined}
-                    onClick={() => applyDashboardEdit({ edit: 'addTab', title: 'New tab' })}
+                    onClick={() => onEdit({ edit: 'addTab', title: 'New tab' })}
                 >
                     <IconPlus />
                     Tab

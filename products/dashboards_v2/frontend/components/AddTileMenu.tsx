@@ -1,5 +1,3 @@
-import { useActions } from 'kea'
-
 import { IconPlus } from '@posthog/icons'
 import {
     Button,
@@ -12,11 +10,11 @@ import {
     DropdownMenuTrigger,
 } from '@posthog/quill'
 
-import { dashboardV2Logic } from '../dashboardV2Logic'
+import { useDashboardV2 } from '../dashboardV2Context'
 import { NEW_TILES } from '../widgets/newTiles'
 
 export function AddTileMenu({ gridId, label }: { gridId: string; label?: string }): JSX.Element {
-    const { applyDashboardEdit } = useActions(dashboardV2Logic)
+    const { onEdit } = useDashboardV2()
     return (
         <DropdownMenu>
             <DropdownMenuTrigger
@@ -39,7 +37,7 @@ export function AddTileMenu({ gridId, label }: { gridId: string; label?: string 
                     {NEW_TILES.map(({ label: tileLabel, widget }) => (
                         <DropdownMenuItem
                             key={tileLabel}
-                            onClick={() => applyDashboardEdit({ edit: 'addTile', grid: gridId, widget })}
+                            onClick={() => onEdit({ edit: 'addTile', grid: gridId, widget })}
                         >
                             {tileLabel}
                         </DropdownMenuItem>
@@ -48,7 +46,7 @@ export function AddTileMenu({ gridId, label }: { gridId: string; label?: string 
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                     onClick={() =>
-                        applyDashboardEdit({
+                        onEdit({
                             edit: 'addTile',
                             grid: gridId,
                             widget: { type: 'section', title: 'Untitled section', tiles: [] },

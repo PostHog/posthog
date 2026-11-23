@@ -1,5 +1,3 @@
-import { useActions, useValues } from 'kea'
-
 import { IconGear, IconRedo, IconUndo } from '@posthog/icons'
 import {
     Button,
@@ -12,26 +10,27 @@ import {
     DropdownMenuTrigger,
 } from '@posthog/quill'
 
-import { dashboardV2Logic } from '../dashboardV2Logic'
+import type { DashboardV2Action } from '../access/dashboardV2Access'
+import { useDashboardV2 } from '../dashboardV2Context'
 import { TILE_SPACINGS, type TileSpacing } from '../layout/dashboardTypes'
 import { AddTileMenu } from './AddTileMenu'
 
 export function DashboardV2Actions(): JSX.Element {
-    const { canUndo, canRedo, hasPermission, activeTab, dashboard } = useValues(dashboardV2Logic)
-    const { undo, redo, applyDashboardEdit } = useActions(dashboardV2Logic)
+    const { history, disabledReasonFor, activeTab, dashboard, onEdit } = useDashboardV2()
+    const hasPermission = (action: DashboardV2Action): boolean => disabledReasonFor(action) === null
 
     return (
         <div className="flex flex-wrap items-center gap-1">
             {hasPermission('addTile') && <AddTileMenu gridId={activeTab.id} label="Add" />}
-            {hasPermission('undo') && (
+            {history && hasPermission('undo') && (
                 <>
                     <Button
                         size="icon-sm"
                         aria-label="Undo"
                         tooltip="Undo"
                         data-attr="dashboard-v2-undo"
-                        disabledReason={canUndo ? undefined : 'Nothing to undo'}
-                        onClick={undo}
+                        disabledReason={history.canUndo ? undefined : 'Nothing to undo'}
+                        onClick={history.onUndo}
                     >
                         <IconUndo />
                     </Button>
@@ -40,8 +39,8 @@ export function DashboardV2Actions(): JSX.Element {
                         aria-label="Redo"
                         tooltip="Redo"
                         data-attr="dashboard-v2-redo"
-                        disabledReason={canRedo ? undefined : 'Nothing to redo'}
-                        onClick={redo}
+                        disabledReason={history.canRedo ? undefined : 'Nothing to redo'}
+                        onClick={history.onRedo}
                     >
                         <IconRedo />
                     </Button>
@@ -67,7 +66,7 @@ export function DashboardV2Actions(): JSX.Element {
                             <DropdownMenuRadioGroup
                                 value={dashboard.appearance?.tileSpacing ?? 'compact'}
                                 onValueChange={(value) =>
-                                    applyDashboardEdit({
+                                    onEdit({
                                         edit: 'setAppearance',
                                         patch: { tileSpacing: value as TileSpacing },
                                     })
