@@ -572,18 +572,4 @@ describe('transactional send sealing', () => {
         expect(stored.sealed).toBeUndefined()
         expect(JSON.stringify(stored)).toContain(CODE)
     })
-
-    it.each([
-        ['seals', true],
-        ['keeps plaintext', false],
-    ])('%s a sensitive webhook run for the intake topic when sealing is %p', (_name, sealing) => {
-        const webhookRun = send('my-webhook-event')
-        const stored = sanitizer(sealing).sealIntakeRun({
-            ...webhookRun,
-            state: { ...webhookRun.state, sensitive: true },
-        })
-
-        expect(stored.sealed !== undefined).toBe(sealing)
-        expect(JSON.stringify(stored).includes(CODE)).toBe(!sealing)
-    })
 })

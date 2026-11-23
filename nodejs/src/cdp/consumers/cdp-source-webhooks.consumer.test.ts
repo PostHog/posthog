@@ -13,11 +13,9 @@ import { insertHogFunction, insertHogFunctionTemplate } from '~/cdp/_tests/fixtu
 import { CdpApi } from '~/cdp/cdp-api'
 import { CdpIntakeConsumer } from '~/cdp/consumers/cdp-intake.consumer'
 import { HogFlow } from '~/cdp/schema/hogflow'
-import { openSealedState } from '~/cdp/services/cyclotron-v2/job-codec'
 import { template as pixelTemplate } from '~/cdp/templates/_sources/pixel/pixel.template'
 import { template as incomingWebhookTemplate } from '~/cdp/templates/_sources/webhook/incoming_webhook.template'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFunctionType } from '~/cdp/types'
-import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { setupExpressApp } from '~/common/api/router'
 import { KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK, KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -591,54 +589,6 @@ describe('SourceWebhooksConsumer', () => {
                 ])
                 // The worker counts the run once it runs it, because a retry can produce it again before the claim.
                 expect(producedRuns()[0].job.state.state.triggerMetricPending).toBe(true)
-            })
-
-            it('seals a webhook run with a sensitive step on the intake topic when sealing is on', async () => {
-                hub.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = true
-                const sealingApi = new CdpApi(hub, createCdpConsumerDeps(hub), {
-                    hogQueue: createMockJobQueue(),
-                    hogflowQueue,
-                })
-                await sealingApi.start()
-                const sealingApp = setupExpressApp()
-                sealingApp.use('/', sealingApi.router())
-                const sealingServer = sealingApp.listen(0, () => {})
-                const sensitiveFlow = new FixtureHogFlowBuilder()
-                    .withTeamId(team.id)
-                    .withWorkflow({
-                        actions: {
-                            trigger: { type: 'trigger', config: hogFlow.trigger },
-                            email: {
-                                type: 'function_email',
-                                config: { template_id: 'template-email', inputs: {}, sensitive: true },
-                            },
-                        },
-                        edges: [{ from: 'trigger', to: 'email', type: 'continue' }],
-                    })
-                    .build()
-
-                try {
-                    await insertHogFlow(hub.postgres, sensitiveFlow)
-                    const res = await supertest(sealingApp)
-                        .post(`/public/webhooks/${sensitiveFlow.id}`)
-                        .set('Content-Type', 'application/json')
-                        .send({ distinct_id: 'test-distinct-id' })
-
-                    expect(res.status).toEqual(201)
-                    const [run] = producedRuns()
-                    expect(run.job.state.state.event.properties).toBeUndefined()
-                    // The worker opens it with the CDP's own keys and gets the webhook's event back.
-                    const opened = openSealedState(
-                        run.job.state,
-                        { id: run.job.id, teamId: team.id },
-                        new EncryptedFields(hub.CDP_SEALED_STATE_KEYS)
-                    )
-                    expect(opened.stateUnreadable).toBeUndefined()
-                    expect(opened.state.event).toMatchObject({ event: 'my-event', properties: expect.any(Object) })
-                } finally {
-                    sealingServer.close()
-                    await sealingApi.stop()
-                }
             })
 
             it('should add logs and metrics', async () => {

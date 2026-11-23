@@ -14,7 +14,6 @@ import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.s
 import { HOG_FLOW_QUOTA_LIMITED_MESSAGE } from '../services/hogflows/hogflow-quota-limiting'
 import { actionIdForLogging } from '../services/hogflows/hogflow-utils'
 import { IdempotentJobQueue, JobQueue } from '../services/job-queue/job-queue.interface'
-import { createInvocationSanitizer } from '../services/job-queue/shared'
 import { HogWatcherFunctionState, HogWatcherState, sameWatcherState } from '../services/monitoring/hog-watcher.service'
 import {
     CyclotronJobInvocationHogFunction,
@@ -144,12 +143,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         this.hogflowQueue = jobQueues.hogflowQueue
         this.runIntake = new RunIntake({
             hogflowQueue: this.hogflowQueue,
-            producer: new IntakeProducer(
-                this.outputs,
-                undefined,
-                createInvocationSanitizer(this.config).sealIntakeRun,
-                intakeClusterOf(this.config)
-            ),
+            producer: new IntakeProducer(this.outputs, undefined, undefined, intakeClusterOf(this.config)),
         })
     }
 
