@@ -1,5 +1,6 @@
 import hashlib
 from enum import StrEnum
+from uuid import UUID
 
 from django.conf import settings
 from django.core.cache import caches
@@ -190,6 +191,8 @@ def _record(
 
     # Foreign key columns give the ids without a query. `object` admits SyntheticUser, which request.user omits.
     principal: object = request.user
+    team_id: int | None
+    organization_id: UUID | None
     if token_on_path is not None:
         team_id, organization_id = token_on_path.team_id, token_on_path.organization_id
     elif isinstance(principal, SyntheticUser):
