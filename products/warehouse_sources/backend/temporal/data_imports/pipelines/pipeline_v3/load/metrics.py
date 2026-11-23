@@ -98,6 +98,39 @@ CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL = Counter(
 
 # Non-zero means a DELETE is about to erase data the target still holds. Alert on this; enrichment
 # failing has no other detector.
+CDC_LOAD_LABELS = ["table_mode", "write_mode"]
+
+# _ph_cdc_timestamp is the source transaction's commit time, so this spans capture, the buffer
+# and the load. The oldest change bounds the latency of every row in the batch.
+CDC_FRESHNESS_SECONDS = Histogram(
+    "warehouse_load_cdc_freshness_seconds",
+    "Seconds from the source commit of a CDC batch's oldest change to the batch landing in Delta",
+    labelnames=CDC_LOAD_LABELS,
+    buckets=(10, 30, 60, 120, 180, 300, 450, 600, 900, 1200, 1800, 3600, 7200, 14400, 43200, 86400),
+)
+
+CDC_MERGE_DURATION_SECONDS = Histogram(
+    "warehouse_load_cdc_merge_duration_seconds",
+    "Duration of the Delta write of one CDC batch",
+    labelnames=CDC_LOAD_LABELS,
+    buckets=(0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0),
+)
+
+# Observed on the batches the loader already samples the file count for, which includes batch 0 of every run.
+CDC_TABLE_FILE_COUNT = Histogram(
+    "warehouse_load_cdc_table_file_count",
+    "Files in the Delta table after a CDC batch's write",
+    labelnames=CDC_LOAD_LABELS,
+    buckets=(1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000),
+)
+
+CDC_BATCH_ROWS = Histogram(
+    "warehouse_load_cdc_batch_rows",
+    "Rows written by one CDC batch",
+    labelnames=CDC_LOAD_LABELS,
+    buckets=(1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 50000),
+)
+
 CDC_DELETE_ENRICHMENT_VIOLATIONS_TOTAL = Counter(
     "warehouse_load_cdc_delete_enrichment_violations_total",
     "DELETE rows that would null a data column the target currently holds",

@@ -3,6 +3,7 @@ import socket
 import dataclasses
 from collections.abc import Callable
 from contextlib import AbstractContextManager
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from django.conf import settings
@@ -31,6 +32,7 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
+    CDC_TIMESTAMP_COLUMN,
     CURRENT_HISTORY_PARTITION,
     TOAST_OMITTED_COLUMN,
     enrich_delete_rows,
@@ -104,8 +106,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     mark_batch_as_processed,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
+    CDC_BATCH_ROWS,
     CDC_DELETE_ENRICHMENT_VIOLATIONS_TOTAL,
+    CDC_FRESHNESS_SECONDS,
+    CDC_MERGE_DURATION_SECONDS,
     CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL,
+    CDC_TABLE_FILE_COUNT,
     DELTA_COMPACT_DURING_REBUILD_TOTAL,
     DELTA_ROWS_WRITTEN_TOTAL,
     DELTA_WRITE_DURATION_SECONDS,
@@ -560,6 +566,39 @@ def _file_count_after_write(
     if commits_behind == 1 and isinstance(deltalite_file_count_change, int):
         return len(delta_table.file_uris()) + deltalite_file_count_change
     return None
+
+
+def _cdc_freshness_seconds(pa_table: pa.Table) -> float | None:
+    """Seconds since the source committed the batch's oldest change, or None when no row carries a commit time."""
+    if CDC_TIMESTAMP_COLUMN not in pa_table.column_names:
+        return None
+    oldest = pc.min(pa_table.column(CDC_TIMESTAMP_COLUMN)).as_py()
+    if oldest is None:
+        return None
+    if oldest.tzinfo is None:
+        oldest = oldest.replace(tzinfo=UTC)
+    # A source clock ahead of ours would read as a negative age.
+    return max(0.0, (datetime.now(UTC) - oldest).total_seconds())
+
+
+def _record_cdc_load_metrics(
+    pa_table: pa.Table,
+    *,
+    schema: ExternalDataSchema,
+    cdc_write_mode: str | None,
+    rows: int,
+    write_seconds: float | None,
+    file_count: int | None,
+) -> None:
+    labels = {"table_mode": schema.cdc_table_mode, "write_mode": cdc_write_mode or "none"}
+    CDC_BATCH_ROWS.labels(**labels).observe(rows)
+    if write_seconds is not None:
+        CDC_MERGE_DURATION_SECONDS.labels(**labels).observe(write_seconds)
+    if file_count is not None:
+        CDC_TABLE_FILE_COUNT.labels(**labels).observe(file_count)
+    freshness = _cdc_freshness_seconds(pa_table)
+    if freshness is not None:
+        CDC_FRESHNESS_SECONDS.labels(**labels).observe(freshness)
 
 
 def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessage) -> PostLoadResult:
@@ -1891,6 +1930,16 @@ def _process_message_reported(
             # all batches, then overlay the current batch for JSON detection.
             internal_schema.add_pyarrow_schema(pyarrow_schema_from_arrow_exportable(delta_table.schema()))
             internal_schema.add_pyarrow_table(pa_table)
+
+        if export_signal.sync_type == "cdc":
+            _record_cdc_load_metrics(
+                pa_table,
+                schema=schema,
+                cdc_write_mode=cdc_write_mode,
+                rows=source_rows,
+                write_seconds=timer.seconds("write"),
+                file_count=file_count,
+            )
 
         logger.debug(
             "batch_written_to_delta_lake",

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 import pytest
+import time_machine
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from django.test import override_settings
@@ -14,12 +15,14 @@ import pyarrow as pa
 from asgiref.sync import async_to_sync
 from deltalake import DeltaTable, write_deltalake
 from parameterized import parameterized
+from prometheus_client import REGISTRY, Histogram
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
     CDC_SEQ_COLUMN,
+    CDC_TIMESTAMP_COLUMN,
     HISTORY_NAMING,
     HISTORY_PARTITION_COLUMN,
     LEGACY_HISTORY_NAMING,
@@ -43,10 +46,17 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.pos
     SUMMARY_EVENT,
     post_load_phase,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
+    CDC_BATCH_ROWS,
+    CDC_FRESHNESS_SECONDS,
+    CDC_MERGE_DURATION_SECONDS,
+    CDC_TABLE_FILE_COUNT,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     INCOMPLETE_RUN_ERROR,
     IncompleteRunError,
     _apply_partitioning,
+    _cdc_freshness_seconds,
     _dedupe_before_write,
     _enrich_cdc_rows,
     _file_count_after_write,
@@ -830,6 +840,113 @@ class TestPostWriteHandleReads:
         written = [call for call in mock_logger.debug.call_args_list if call.args[0] == "batch_written_to_delta_lake"]
         assert len(written) == 1
         assert written[0].kwargs["file_count"] == expected_file_count
+
+
+def _observation_count(histogram: Histogram) -> float:
+    return sum(
+        sample.value for metric in histogram.collect() for sample in metric.samples if sample.name.endswith("_count")
+    )
+
+
+class TestCdcLoadMetrics:
+    _NOW = dt.datetime(2026, 11, 23, 12, 0, tzinfo=dt.UTC)
+
+    @parameterized.expand(
+        [
+            ("cdc_batch", "cdc", "incremental_merge", True),
+            ("incremental_batch", "incremental", None, False),
+            # An incremental history lane writes in scd2_append mode, but its rows are not changes.
+            ("incremental_history_batch", "incremental", "scd2_append", False),
+        ]
+    )
+    @time_machine.travel(_NOW, tick=False)
+    @patch(f"{_PROCESSOR}.stage_history_batch", new_callable=AsyncMock)
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}.mark_batch_as_processed")
+    @patch(f"{_PROCESSOR}._handle_partial_data_loading", new_callable=AsyncMock)
+    @patch(f"{_PROCESSOR}.read_parquet")
+    @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
+    @patch(f"{_PROCESSOR}.DeltaWriter")
+    @patch(f"{_PROCESSOR}.DeltaTableRef")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    def test_only_a_cdc_batch_records_the_cdc_load_metrics(
+        self,
+        _case: str,
+        sync_type: str,
+        cdc_write_mode: str | None,
+        expect_recorded: bool,
+        mock_job_model: MagicMock,
+        mock_helper_cls: MagicMock,
+        mock_writer_cls: MagicMock,
+        _already: MagicMock,
+        mock_read: MagicMock,
+        _partial: AsyncMock,
+        _mark: MagicMock,
+        _analytics: MagicMock,
+        mock_stage_history: AsyncMock,
+    ) -> None:
+        mock_read.return_value = pa.table(
+            {
+                "id": pa.array([1, 2, 3], pa.int64()),
+                CDC_OP_COLUMN: ["U", "I", "U"],
+                CDC_TIMESTAMP_COLUMN: pa.array(
+                    [self._NOW - dt.timedelta(seconds=s) for s in (300, 600, 60)], pa.timestamp("us", tz="UTC")
+                ),
+            }
+        )
+        written = MagicMock()
+        written.schema.return_value = pa.schema([_COL_ID])
+        written.version.return_value = 7
+        written.file_uris.return_value = ["a", "b"]
+        helper = mock_helper_cls.return_value
+        helper.get_delta_table = AsyncMock(return_value=None)
+        helper.latest_known_version.return_value = 7
+        mock_writer_cls.return_value.write = AsyncMock(return_value=written)
+        mock_writer_cls.return_value.deltalite_file_count_change = None
+        mock_stage_history.return_value = written
+        job = MagicMock()
+        job.schema.table = None
+        job.schema.cdc_table_mode = "both"
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = job
+        labels = {"table_mode": "both", "write_mode": "incremental_merge"}
+        freshness_before = REGISTRY.get_sample_value("warehouse_load_cdc_freshness_seconds_sum", labels) or 0.0
+        file_count_before = REGISTRY.get_sample_value("warehouse_load_cdc_table_file_count_sum", labels) or 0.0
+        rows_before = REGISTRY.get_sample_value("warehouse_load_cdc_batch_rows_sum", labels) or 0.0
+        histograms = (CDC_FRESHNESS_SECONDS, CDC_MERGE_DURATION_SECONDS, CDC_TABLE_FILE_COUNT, CDC_BATCH_ROWS)
+        counts_before = [_observation_count(histogram) for histogram in histograms]
+
+        process_message(
+            _message(batch_index=0, sync_type=sync_type, cdc_write_mode=cdc_write_mode, is_first_ever_sync=False)
+        )
+
+        counts_after = [_observation_count(histogram) for histogram in histograms]
+        assert [after - before for before, after in zip(counts_before, counts_after)] == [int(expect_recorded)] * 4
+        if expect_recorded:
+            freshness = REGISTRY.get_sample_value("warehouse_load_cdc_freshness_seconds_sum", labels)
+            file_count = REGISTRY.get_sample_value("warehouse_load_cdc_table_file_count_sum", labels)
+            rows = REGISTRY.get_sample_value("warehouse_load_cdc_batch_rows_sum", labels)
+            assert (freshness, file_count, rows) == (freshness_before + 600, file_count_before + 2, rows_before + 3)
+
+    @parameterized.expand(
+        [
+            ("source_clock_ahead", "UTC", [dt.timedelta(seconds=-30)], 0.0),
+            ("naive_timestamps_read_as_utc", None, [dt.timedelta(seconds=90), dt.timedelta(seconds=45)], 90.0),
+            ("all_null", "UTC", [None], None),
+        ]
+    )
+    @time_machine.travel(_NOW, tick=False)
+    def test_freshness_of_the_oldest_change(
+        self, _case: str, tz: str | None, ages: list[dt.timedelta | None], expected: float | None
+    ) -> None:
+        now = self._NOW if tz else self._NOW.replace(tzinfo=None)
+        table = pa.table(
+            {CDC_TIMESTAMP_COLUMN: pa.array([None if a is None else now - a for a in ages], pa.timestamp("us", tz=tz))}
+        )
+
+        assert _cdc_freshness_seconds(table) == expected
+
+    def test_a_batch_without_commit_timestamps_has_no_freshness(self) -> None:
+        assert _cdc_freshness_seconds(pa.table({"id": [1]})) is None
 
 
 class TestFileCountAfterWrite:
