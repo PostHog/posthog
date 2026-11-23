@@ -14,6 +14,7 @@ import type {
 
 import type { ScoutSurface } from '../../../inboxAnalytics'
 import { scoutPrecheckLogic } from '../../../logics/scoutPrecheckLogic'
+import { scoutDisplayName } from '../../../utils/scoutRunsWindow'
 
 const QUERY_PLACEHOLDER = `SELECT count()
 FROM events
@@ -154,7 +155,7 @@ export function ScoutPrecheckSection({
                                     className="font-mono text-[11.5px]"
                                     disabled={updating}
                                     onChange={setDraft}
-                                    aria-label={`${config.skill_name} pre-check query`}
+                                    aria-label={`${scoutDisplayName(config)} pre-check query`}
                                 />
                                 {testRunFailed ? (
                                     <span role="alert" className="text-[11.5px] text-danger">

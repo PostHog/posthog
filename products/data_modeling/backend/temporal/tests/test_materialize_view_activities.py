@@ -1,5 +1,6 @@
 import asyncio
 import datetime as dt
+import tempfile
 import contextlib
 from collections.abc import AsyncIterator, Callable, Collection, Iterable
 from dataclasses import replace
@@ -152,6 +153,20 @@ async def _make_job(
         parent_workflow_id=parent_workflow_id,
         manually_triggered_by=manually_triggered_by,
     )
+
+
+def _rust_panic() -> BaseException:
+    # pyo3 creates PanicException at runtime, so no module exports it. delta-rs panics on a
+    # decimal buffer that is not 16-byte aligned, which gives a real one.
+    zeros = pa.array([0, 0, 0], pa.int64()).buffers()[1]
+    assert zeros is not None
+    misaligned = pa.Array.from_buffers(pa.decimal128(38, 0), 1, [None, zeros.slice(8, 16)])
+    with tempfile.TemporaryDirectory() as table_path:
+        try:
+            deltalake.write_deltalake(table_path, pa.RecordBatch.from_arrays([misaligned], names=["d"]))
+        except BaseException as panic:
+            return panic
+    raise AssertionError("delta-rs accepted a misaligned decimal buffer")
 
 
 class TestMaterializeViewManagedWarehouseActivity:
@@ -1942,8 +1957,32 @@ class TestMaterializeViewActivity:
             assert materialized.column_names == camel_case_names
             assert materialized.num_rows == 6
 
+    @pytest.mark.parametrize(
+        "first_column,later_column",
+        [
+            pytest.param(pa.array(["r0", "r1"]), pa.array(["r0", "r1"]), id="string"),
+            pytest.param(
+                pa.array([[1], [2]], pa.list_(pa.field("element", pa.int64(), nullable=False))),
+                pa.array([[1, None], [2]], pa.list_(pa.field("element", pa.int64()))),
+                id="list_element_turns_nullable",
+            ),
+            pytest.param(
+                pa.array([{"a": 1}, {"a": 2}], pa.struct([pa.field("a", pa.int64(), nullable=False)])),
+                pa.array([{"a": None}, {"a": 2}], pa.struct([pa.field("a", pa.int64())])),
+                id="struct_field_turns_nullable",
+            ),
+            pytest.param(
+                pa.array(
+                    [[("k", [1])], []],
+                    pa.map_(pa.string(), pa.list_(pa.field("element", pa.int64(), nullable=False))),
+                ),
+                pa.array([[("k", [None])], []], pa.map_(pa.string(), pa.list_(pa.int64()))),
+                id="list_element_in_a_map_value_turns_nullable",
+            ),
+        ],
+    )
     async def test_preserves_column_casing_for_non_nullable_columns_across_batches(
-        self, activity_environment, ateam, anode, ajob, bucket_name, adag
+        self, activity_environment, ateam, anode, ajob, bucket_name, adag, first_column, later_column
     ):
         # regression: ClickHouse emits NON-nullable columns for expressions, constants,
         # concat()/toString(), and non-Nullable source columns. When such a query spans more
@@ -1954,17 +1993,14 @@ class TestMaterializeViewActivity:
         # for any column containing uppercase characters. This mirrors the customer query whose
         # camelCase columns (userId, portfolioId, pHuniqueId, aumDKK, ...) are all non-nullable.
         camel_case_names = ["date", "userId", "portfolioId", "pHuniqueId", "aumDKK", "aum_ETF"]
-        non_nullable_schema = pa.schema([pa.field(name, pa.string(), nullable=False) for name in camel_case_names])
 
         def mock_hogql_table(*args, **kwargs):
             del args, kwargs
-            batches = [
-                pa.RecordBatch.from_arrays(
-                    [pa.array([f"b{i}r0", f"b{i}r1"], type=pa.string()) for _ in camel_case_names],
-                    schema=non_nullable_schema,
-                )
-                for i in range(3)
-            ]
+            batches = []
+            for i in range(3):
+                column = first_column if i == 0 else later_column
+                schema = pa.schema([pa.field(name, column.type, nullable=False) for name in camel_case_names])
+                batches.append(pa.RecordBatch.from_arrays([column for _ in camel_case_names], schema=schema))
 
             async def async_generator():
                 for batch in batches:
@@ -2053,7 +2089,16 @@ class TestMaterializeViewActivity:
             assert empty_parquet.metadata.num_row_groups == 0
             assert empty_parquet.schema_arrow.names == ["id", "name"]
 
-    async def test_write_failure_surfaces(self, activity_environment, ateam, anode, ajob, bucket_name, adag):
+    @pytest.mark.parametrize(
+        "write_error,expected_message",
+        [
+            pytest.param(lambda: RuntimeError("boom"), "boom", id="exception"),
+            pytest.param(_rust_panic, "not aligned with the specified scalar type", id="rust_panic"),
+        ],
+    )
+    async def test_write_failure_surfaces(
+        self, activity_environment, ateam, anode, ajob, bucket_name, adag, write_error, expected_message
+    ):
         # regression: a failure in a per-batch write_deltalake call must surface from the
         # activity so Temporal retries, rather than being swallowed.
         names = ["a", "b"]
@@ -2071,9 +2116,11 @@ class TestMaterializeViewActivity:
 
             return async_generator()
 
+        error = write_error()
+
         def raising_write(*args, **kwargs):
             del args, kwargs
-            raise RuntimeError("boom")
+            raise error
 
         with (
             override_settings(
@@ -2093,7 +2140,7 @@ class TestMaterializeViewActivity:
                 node_id=str(anode.id),
                 job_id=str(ajob.id),
             )
-            with pytest.raises(RuntimeError, match="boom"):
+            with pytest.raises(Exception, match=expected_message):
                 await activity_environment.run(materialize_view_activity, inputs)
 
     @pytest.mark.parametrize(
@@ -3155,6 +3202,42 @@ class TestMaterializeViewStagesAccountPropertyRows:
         staged_object = await minio_client.get_object(Bucket=bucket_name, Key=keys[0])
         table = pq.read_table(BytesIO(await staged_object["Body"].read()))
         assert table.column_names == ["mrr", "organization_id"]
+
+    async def test_a_rust_panic_while_reading_the_snapshot_turns_account_sync_off(
+        self, activity_environment, ateam, anode, ajob, adag, bucket_name
+    ) -> None:
+        projection = [
+            AccountPropertySourceProjection(key_column="organization_id", columns=frozenset({"organization_id", "mrr"}))
+        ]
+        panic = _rust_panic()
+        inputs = MaterializeViewInputs(
+            team_id=ateam.pk, dag_id=str(adag.id), node_id=str(anode.id), job_id=str(ajob.id)
+        )
+        with (
+            override_settings(
+                BUCKET_URL=f"s3://{bucket_name}",
+                DATAWAREHOUSE_BUCKET=bucket_name,
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+                USE_LOCAL_SETUP=True,
+            ),
+            unittest.mock.patch(
+                "products.data_modeling.backend.temporal.activities.materialize_view.hogql_table",
+                self._hogql_table,
+            ),
+            unittest.mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports."
+                "pipelines.core.account_property_row_sink.account_property_projection_for",
+                return_value=projection,
+            ),
+            unittest.mock.patch.object(deltalake.DeltaTable, "version", side_effect=panic),
+        ):
+            result = await activity_environment.run(materialize_view_activity, inputs)
+
+        assert result.row_count == 2
+        assert result.account_property_sync_enabled is False
+        assert result.delta_version is None
 
 
 class TestAwsStorageOptions:

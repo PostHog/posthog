@@ -65,10 +65,15 @@ def add_credit(request: HttpRequest, obj: Model, form: forms.Form | None) -> Htt
         messages.error(request, refused.detail)
         return HttpResponse(status=400)
     if result.duplicate:
-        messages.info(request, f"Idempotent replay, no new credit. Team '{obj.name}' balance: ${result.balance_usd}.")
+        messages.info(
+            request,
+            f"Idempotent replay, no new credit. Organization balance for team '{obj.name}': ${result.balance_usd}.",
+        )
     else:
         messages.success(
-            request, f"Added ${result.amount_usd} to team '{obj.name}'. New balance: ${result.balance_usd}."
+            request,
+            f"Added ${result.amount_usd} to the organization of team '{obj.name}'. "
+            f"Organization balance, shared by its teams: ${result.balance_usd}.",
         )
     return None
 
@@ -117,7 +122,7 @@ class AIGatewayPanel(Panel):
                 key="add-credit",
                 label="Add credit",
                 handler=add_credit,
-                description="Adds USD credit to the team's gateway wallet.",
+                description="Adds USD credit to the organization's gateway balance, which all its teams share.",
                 form_class=AddCreditForm,
             )
         ]
