@@ -238,6 +238,8 @@ def record_people_import(team_id: int, run_id: UUID, step: str, outcome: Mapping
         if run.status not in ACTIVE_IMPORT_STATUSES:
             return
         progress = run.progress.setdefault(step, _new_step_progress())
+        # Temporal can run this again after it saved, and the counter adds each contact once.
+        already_recorded = "people_import" in progress
         progress["people_import"] = dict(outcome)
         not_sent = 0
         if (sent := outcome.get("sent")) is not None:
@@ -264,13 +266,21 @@ def record_people_import(team_id: int, run_id: UUID, step: str, outcome: Mapping
                 error_class=PEOPLE_IMPORT_FAILED_CLASS,
             )
         run.save(update_fields=["progress"])
+    if already_recorded:
+        return
     for outcome_name, count in _step_outcomes(progress).items():
         IMPORT_CONTACTS.labels(provider=run.provider, step=step, outcome=outcome_name).inc(count)
 
 
 def _people_imports(team_id: int, run_id: UUID, step: str) -> list[PeopleImportPlan]:
-    progress = _runs(team_id).get(id=run_id).progress.get(step, {})
-    return [PeopleImportPlan(**plan) for plan in progress.get("people_imports", [])]
+    run = _runs(team_id).get(id=run_id)
+    plans = run.progress.get(step, {}).get("people_imports", [])
+    return [PeopleImportPlan(**plan, provider=run.provider, step=step) for plan in plans]
+
+
+def _stored_plan(plan: PeopleImportPlan) -> dict[str, Any]:
+    # A worker on the previous release can't load a plan with keys it doesn't know, so the labels stay out.
+    return {key: value for key, value in asdict(plan).items() if key not in ("provider", "step")}
 
 
 def close_stale_runs() -> int:
@@ -470,8 +480,7 @@ def _save_page(team_id: int, run_id: UUID, step: str, attempt: int, page: Import
             _add_items(progress, saved.items)
             if saved.people_imports:
                 progress["people_imports"] = progress.get("people_imports", []) + [
-                    asdict(replace(plan, created_by_id=run.created_by_id, provider=run.provider, step=step))
-                    for plan in saved.people_imports
+                    _stored_plan(replace(plan, created_by_id=run.created_by_id)) for plan in saved.people_imports
                 ]
             progress["checkpoint"] = page.checkpoint
             if page.checkpoint is None:
@@ -543,21 +552,26 @@ def _mark_completed(progress: dict[str, Any]) -> None:
 
 def _step_outcomes(progress: Mapping[str, Any]) -> dict[str, int]:
     """How many records a step imported, skipped and failed. A contacts step counts people, not contacts sent."""
-    people_import = progress.get("people_import")
+    people_import = progress.get("people_import", {})
+    counts = progress.get("counts", {})
     if people_import:
         if people_import.get("sent") is not None:
-            counts = progress.get("counts", {})
             to_send = counts.get("people_to_send", people_import["sent"])
             return {
                 "imported": people_import["sent"],
                 "skipped": max(progress.get("processed", 0) - to_send, 0),
                 "failed": counts.get("not_sent", 0),
             }
-        return {
-            "imported": people_import["found"],
-            "skipped": max(progress.get("processed", 0) - people_import["people"], 0),
-            "failed": people_import["people"] - people_import["found"],
-        }
+        if people_import.get("people"):
+            return {
+                "imported": people_import["found"],
+                "skipped": max(progress.get("processed", 0) - people_import["people"], 0),
+                "failed": people_import["people"] - people_import["found"],
+            }
+    if progress.get("people_imports"):
+        # The contacts were stored, but sending them never reported back.
+        to_send = counts.get("people_to_send", 0)
+        return {"imported": 0, "skipped": max(progress.get("processed", 0) - to_send, 0), "failed": to_send}
     return {
         "imported": progress.get("imported", 0),
         "skipped": max(progress.get("processed", 0) - progress.get("imported", 0), 0),

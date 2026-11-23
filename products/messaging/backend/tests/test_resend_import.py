@@ -17,6 +17,7 @@ from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.integrations import IntegrationManager, IntegrationRecord
 
@@ -70,6 +71,16 @@ def _sync_email_template() -> None:
             "inputs_schema": [{"key": "email", "type": "native_email", "label": "Email", "required": True}],
         }
     )
+
+
+def _import_contacts() -> dict[str, float]:
+    return {
+        outcome: REGISTRY.get_sample_value(
+            "messaging_provider_import_contacts_total", {"provider": "resend", "step": "contacts", "outcome": outcome}
+        )
+        or 0
+        for outcome in ("imported", "failed")
+    }
 
 
 class FakeResend:
@@ -770,9 +781,15 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         )
 
         # Storage fails during the first sweep, and the next hourly sweep deletes the contacts.
-        with patch.object(self.people.storage, "delete_objects", side_effect=ConnectionError("storage is down")):
+        with (
+            patch.object(self.people.storage, "delete_objects", side_effect=ConnectionError("storage is down")),
+            patch("products.messaging.backend.provider_imports.runs.report_user_action") as report,
+        ):
             assert runs.close_stale_runs() == 1
         assert self.people.stored != {}
+        properties = report.call_args.args[2]
+        assert (properties["stage"], properties["error_class"]) == ("failed", "PeopleImportFailed")
+        assert properties["counts"]["contacts"] == {"imported": 0, "skipped": 1, "failed": 3}
         runs.close_stale_runs()
 
         run.refresh_from_db()
@@ -1029,8 +1046,19 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
             outcome = {"sent": sent.people, "new_people": sent.new_people, "failed_lists": 0}
         except ContactsCaptureFailed:
             outcome = {"sent": 0, "new_people": 0, "failed_lists": 1}
+        # What a worker on the previous release can load.
+        assert set(plan) == {"cohort_id", "storage_prefix", "chunks", "send_events", "created_by_id"}
+        [everyone_plan, _] = runs.run_step(self.team.id, run.id, "contacts", attempt=2)
+        assert (everyone_plan.provider, everyone_plan.step) == ("resend", "contacts")
+        contacts_before = _import_contacts()
+        # Temporal runs this again when it lost the answer.
         runs.record_people_import(self.team.id, run.id, "contacts", outcome)
-        runs.finish_run(self.team.id, run.id)
+        runs.record_people_import(self.team.id, run.id, "contacts", outcome)
+        outcomes = {"imported": counts["people"], "failed": counts["not_sent"]}
+        assert {key: _import_contacts()[key] - contacts_before[key] for key in outcomes} == outcomes
+        with patch("products.messaging.backend.provider_imports.runs.report_user_action") as report:
+            runs.finish_run(self.team.id, run.id)
+        assert outcomes.items() <= report.call_args.args[2]["counts"]["contacts"].items()
         run.refresh_from_db()
         assert run.progress["contacts"]["last_error"] == (
             "3 contacts didn't reach PostHog, so their people weren't created or updated. Import again to retry."
