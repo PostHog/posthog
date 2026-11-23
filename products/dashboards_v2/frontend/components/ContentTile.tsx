@@ -4,6 +4,7 @@ import { IconTrash } from '@posthog/icons'
 import { Button, Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@posthog/quill'
 
 import { type ContentWidget, isPartShown } from '../layout/dashboardTypes'
+import { WidgetFooter } from '../widgets/WidgetFooter'
 import { WidgetView } from '../widgets/WidgetView'
 import { ContentTileFooter } from './ContentTileFooter'
 import { TileContextMenu, useContentTileActions } from './TileContextMenu'
@@ -34,7 +35,7 @@ export function ContentTile({
 
     const showHeader = isPartShown(widget, 'header')
     const showDescription = isPartShown(widget, 'description')
-    const footer = isPartShown(widget, 'footer') ? widget.footer : undefined
+    const showFooter = isPartShown(widget, 'footer')
 
     return (
         <TileContextMenu actions={actions}>
@@ -58,7 +59,11 @@ export function ContentTile({
                 <CardContent className="flex flex-col flex-1 min-h-0 overflow-hidden">
                     <WidgetView widget={widget} />
                 </CardContent>
-                {footer && <ContentTileFooter items={footer} refreshedAt={widget.refreshedAt} />}
+                {showFooter && (
+                    <ContentTileFooter>
+                        <WidgetFooter widget={widget} />
+                    </ContentTileFooter>
+                )}
             </Card>
         </TileContextMenu>
     )

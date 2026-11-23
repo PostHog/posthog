@@ -179,5 +179,4 @@ describe('dashboardEdits', () => {
         expect(moved.tabs.map((tab) => tab.id)).toEqual(expected)
         expect(allPlaces(moved).sort()).toEqual(allPlaces(board).sort())
     })
-
 })
