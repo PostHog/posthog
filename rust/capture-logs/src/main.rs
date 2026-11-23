@@ -304,7 +304,6 @@ async fn main() {
         .merge(prometheus_router)
         .merge(firehose_router)
         .layer(cors)
-        // The last layer added is the outermost, so it runs before every other reader of the headers.
         .layer(axum::middleware::from_fn(hash_secret_keys));
 
     let http_server = tokio::spawn(async move {

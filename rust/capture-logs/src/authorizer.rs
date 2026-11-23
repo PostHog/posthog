@@ -72,7 +72,6 @@ impl Authorizer {
     ) -> Result<&'a str, Rejection> {
         let (token, from_header) = resolve_token(headers, query_token)
             .map_err(|rejection| self.reject(signal, "missing_token", rejection))?;
-        // Only `hash_secret_keys` writes a digest, and it writes only to a header.
         self.check(token, signal, from_header && signal == Signal::Logs)?;
         Ok(token)
     }
@@ -142,14 +141,12 @@ impl Authorizer {
 
     fn check(&self, token: &str, signal: Signal, digest_allowed: bool) -> Result<(), Rejection> {
         let is_digest = is_secret_key_digest(token);
-        // A key that `hash_secret_keys` did not hash came from a URL path or a query string, and
-        // those reach access logs. The key scope is `logs:write`, so a digest is for logs only.
+        // A key that is not hashed came from a URL. The key scope is `logs:write`.
         if find_secret_key(token).is_some() || (is_digest && !digest_allowed) {
             return Err(self.reject(signal, "secret_key_not_allowed", secret_key_not_allowed()));
         }
 
-        // The key prefix next to a character that no token has can be a secret key in a form that
-        // `find_secret_key` does not find. A public token without the prefix is not affected.
+        // This can be a key in a form that `find_secret_key` does not find.
         let is_token_char = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'-';
         let holds_key_prefix = token.to_ascii_lowercase().contains(SECRET_KEY_PREFIX);
         if holds_key_prefix && !token.bytes().all(is_token_char) {

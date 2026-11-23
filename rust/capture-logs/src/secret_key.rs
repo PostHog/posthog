@@ -1,5 +1,4 @@
-//! The handlers write the token to spans, to a debug file and to Kafka. That is safe for a public
-//! project token and not for a secret key, so a secret key becomes its digest before they run.
+//! A secret key becomes its digest here, before a handler writes the token to a span or to Kafka.
 
 use axum::{
     body::Body,
@@ -17,13 +16,10 @@ pub const SECRET_KEY_PREFIX: &str = "phs_";
 /// Must match `hash_key_value` in posthog/models/utils.py, which writes `secure_value`.
 pub const SECRET_KEY_DIGEST_PREFIX: &str = "sha256$";
 
-/// A generated key has up to 48 characters after the prefix, and a public token has 43 in total.
-/// So a run this long marks a key even with no boundary before it, as in `Bearer%20phs_...`.
+/// Longer than a whole public token, so a run this long is a key even with no boundary before it.
 const SECRET_KEY_RUN: usize = 44;
 
-/// Finds a secret key behind a scheme, a quote or an encoding, with the prefix in any letter case.
-/// A public token that holds `phs_` in the middle does not match, and neither does a key that the
-/// sender changed in another way.
+/// Finds a pasted key. It does not find a key that the sender transformed.
 pub fn find_secret_key(value: &str) -> Option<&str> {
     let is_key_char = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
     // ASCII lowercase keeps every byte offset, so an index into `lowercase` is valid in `value`.
@@ -39,8 +35,6 @@ pub fn find_secret_key(value: &str) -> Option<&str> {
         })
 }
 
-/// `DROP_EVENTS_BY_TOKEN` entries have the form `token` or `token:distinct_id`. The authorizer
-/// sees only the digest of a secret key, so an entry that holds the key must hold the digest.
 pub fn hash_secret_keys_in_drop_list(drop_list: &str) -> String {
     drop_list
         .split(',')
@@ -68,8 +62,7 @@ pub(crate) const EXAMPLE_DIGEST: &str =
     "sha256$e39f07893ca51c363342a580d6699460bc91b2f829304ac421b4c02ee99a5fd0";
 
 pub async fn hash_secret_keys(mut req: Request<Body>, next: Next) -> Response {
-    // Only a header can carry a key. A URL path and a query string reach access logs before this
-    // layer runs, so the authorizer rejects a key that arrives in one of them.
+    // A URL reaches access logs before this layer runs, so only a header can carry a key.
     for name in [
         header::AUTHORIZATION,
         HeaderName::from_static(ACCESS_KEY_HEADER),
@@ -77,8 +70,7 @@ pub async fn hash_secret_keys(mut req: Request<Body>, next: Next) -> Response {
         let mut digest = None;
         for value in req.headers().get_all(&name) {
             let Ok(value) = value.to_str() else { continue };
-            // The consumer trusts a digest as much as the key. A sender that learned a digest must
-            // not be able to send it in place of the key, so only this layer may write one.
+            // The consumer trusts a digest as much as the key, so only this layer may write one.
             if value.contains(SECRET_KEY_DIGEST_PREFIX) {
                 return unauthorized("Invalid token").into_response();
             }
