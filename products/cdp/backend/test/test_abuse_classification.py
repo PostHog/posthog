@@ -404,6 +404,18 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 2,
                 {"hog": "print(event)"},
             ),
+            (
+                "secret_input_that_adds_a_request_fan_out",
+                {
+                    "inputs": {
+                        "url": {"value": "https://hooks.example.com/orders"},
+                        "api_key": {"value": "{arrayMap(toString, [1])}"},
+                        "body": {"value": {"bytecode": "https://collector.example.net"}},
+                    }
+                },
+                2,
+                {"hog": RULE_FREE_HOG},
+            ),
         ]
     )
     def test_a_resave_is_scored_again_only_when_its_content_changes(

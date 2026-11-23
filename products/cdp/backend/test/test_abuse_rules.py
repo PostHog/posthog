@@ -777,6 +777,7 @@ class TestAbuseRules(SimpleTestCase):
                 None,
             ),
             ("other_slack_path", post_to("https://slack.com/oauth/x"), None),
+            ("dot_segment_out_of_the_api_path", post_to("https://slack.com/api/../oauth/v2/authorize"), None),
             ("lookalike_host", post_to("https://slack.com.example.net/api/x"), None),
             ("plain_http", post_to("http://hooks.slack.com/services/x"), None),
             ("userinfo_before_the_host", post_to("https://hooks.slack.com@collector.example.net/x"), None),
@@ -887,6 +888,29 @@ class TestAbuseRules(SimpleTestCase):
                 False,
             ),
             ("huge_range", content(hog="let ids := range(100000)\nfetch(inputs.url, {'body': ids})"), False),
+            (
+                "recursive_lambda_with_a_request",
+                content(
+                    hog="let send := n -> if(n > 0, concat(fetch(inputs.url).status, send(n - 1)), '')\nreturn send(2)"
+                ),
+                False,
+            ),
+            (
+                "request_in_a_for_initializer",
+                content(hog="for (let res := fetch(inputs.url); false; res := null) {\n  print(res)\n}"),
+                True,
+            ),
+            (
+                "escaping_replacements",
+                content(hog="fetch(inputs.url, {'body': replaceAll(inputs.text, '&', '&amp;')})"),
+                True,
+            ),
+            (
+                "replacement_from_an_input",
+                content(hog="fetch(inputs.url, {'body': replaceAll(inputs.text, 'a', inputs.replacement)})"),
+                False,
+            ),
+            ("sleep", content(hog="sleep(10)\nfetch(inputs.url)"), False),
             ("code_that_does_not_parse", content(hog="let x := (", inputs={}), False),
         ]
     )

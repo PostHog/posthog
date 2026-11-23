@@ -163,6 +163,9 @@ _TEAMS_WEBHOOK_DOMAIN = ".webhook.office.com"
 _INTERNAL_HOST_RULES = frozenset({Rule.INTERNAL_HOST, Rule.INTERNAL_HOST_REFERENCE})
 # These rules alert by themselves, and keeping the resource score beside them lets a high score still block.
 _AMPLIFICATION_RULES = frozenset({Rule.HUGE_RANGE, Rule.REPLACE_AMPLIFICATION})
+# The VM charges a builtin's result to the memory cap only after it builds it, and `replaceAll` multiplies its input by
+# the ratio of replacement to search length. A computed or much longer replacement can pass the cap in one step.
+_MAX_REPLACEMENT_GROWTH = 8
 # A DNS name whose last label starts with a letter, so neither the host nor its top-level label reads as an address.
 _PUBLIC_DNS_NAME = re.compile(r"(?:[a-z0-9_](?:[a-z0-9_-]*[a-z0-9_])?\.)+[a-z](?:[a-z0-9-]*[a-z0-9])?")
 # A URL part that could name a host on its own, such as a redirect target in the query string.
@@ -222,7 +225,7 @@ def set_aside_scores(content: HogFunctionContent, rule_hits: Iterable[Rule]) -> 
         set_aside["internal_network"] = SetAsideReason.LITERAL_PUBLIC_URLS
     if requests.calls_out and requests.only_literal_fetches and all(map(_is_chat_message_api, requests.literal_urls)):
         set_aside["malformed_payload"] = SetAsideReason.CHAT_MESSAGES_ONLY
-    if not requests.fans_out and not rules & _AMPLIFICATION_RULES:
+    if not requests.fans_out and not requests.uncapped_step and not rules & _AMPLIFICATION_RULES:
         set_aside["resource_exhaustion"] = SetAsideReason.NO_REQUEST_FAN_OUT
     return set_aside
 
@@ -235,6 +238,7 @@ class _Requests:
     literal_urls: tuple[str, ...]
     # A call that can send a request runs in a loop, a callback, a function called from either, or a recursive one.
     fans_out: bool
+    uncapped_step: bool
 
 
 def _requests_of(content: HogFunctionContent) -> _Requests | None:
@@ -255,6 +259,7 @@ def _requests_of(content: HogFunctionContent) -> _Requests | None:
         only_literal_fetches=all(shape.only_literal_fetches for shape in shapes),
         literal_urls=tuple(url for shape in shapes for url in shape.literal_urls),
         fans_out=any(shape.fans_out for shape in shapes),
+        uncapped_step=any(shape.uncapped_step for shape in shapes),
     )
 
 
@@ -265,6 +270,9 @@ def _is_chat_message_api(url: str) -> bool:
     host = canonicalize_host(parts.hostname or "")
     if host.endswith(_TEAMS_WEBHOOK_DOMAIN):
         return True
+    # The runtime resolves `..` before it sends, so `/api/../oauth` reaches `/oauth`.
+    if any(segment in (".", "..") for segment in unquote(parts.path).split("/")):
+        return False
     return any(host == api_host and parts.path.startswith(path) for api_host, path in _CHAT_MESSAGE_APIS)
 
 
@@ -409,7 +417,7 @@ class _CallGraph:
     calls: list[_LocalCall] = field(default_factory=list)
     used_as_values: set[str] = field(default_factory=set)
 
-    def requests(self, literal_urls: list[str], other_call: bool, fans_out: bool) -> _Requests:
+    def requests(self, literal_urls: list[str], other_call: bool, fans_out: bool, uncapped_step: bool) -> _Requests:
         """A call to a function declared with `fun`, or with `let` as a lambda literal, and never rebound runs that
         body, which this walk checked. A call to any other local can run anything."""
         static = self.declared - self.rebound
@@ -434,6 +442,7 @@ class _CallGraph:
             only_literal_fetches=not other_call,
             literal_urls=tuple(literal_urls),
             fans_out=fans_out or bool(repeated & sends) or bool(recursive),
+            uncapped_step=uncapped_step,
         )
 
 
@@ -469,10 +478,11 @@ class _HogCodeVisitor(TraversingVisitor):
         self._literal_urls: list[str] = []
         self._other_call = False
         self._fans_out = False
+        self._uncapped_step = False
         self._graph = _CallGraph()
 
     def requests(self) -> _Requests:
-        return self._graph.requests(self._literal_urls, self._other_call, self._fans_out)
+        return self._graph.requests(self._literal_urls, self._other_call, self._fans_out, self._uncapped_step)
 
     def _sends(self, literal_url: str | None = None) -> None:
         """A call here can send a request: a `fetch` of `literal_url`, or any call when it is None."""
@@ -545,8 +555,12 @@ class _HogCodeVisitor(TraversingVisitor):
             self.visit(node.body)
 
     def visit_for_statement(self, node: ast.ForStatement) -> None:
-        with self._scope(), self._loop():
-            super().visit_for_statement(node)
+        with self._scope():
+            self.visit(node.initializer)
+            with self._loop():
+                self.visit(node.condition)
+                self.visit(node.increment)
+                self.visit(node.body)
 
     def visit_try_catch_statement(self, node: ast.TryCatchStatement) -> None:
         self.visit(node.try_stmt)
@@ -557,7 +571,9 @@ class _HogCodeVisitor(TraversingVisitor):
         self.visit(node.finally_stmt)
 
     def visit_variable_declaration(self, node: ast.VariableDeclaration) -> None:
+        # The compiler binds a lambda's name before its body, so the body can call itself.
         if isinstance(node.expr, ast.Lambda):
+            self._scopes[-1].add(node.name)
             self._graph.declared.add(node.name)
             self._visit_lambda(node.expr, name=node.name)
         else:
@@ -609,6 +625,8 @@ class _HogCodeVisitor(TraversingVisitor):
             # The builtin calls the value once per element.
             self._sends()
             self._fans_out = True
+        if node.name == "sleep" or (node.name == "replaceAll" and not _bounded_replacement(node.args)):
+            self._uncapped_step = True
         if node.name in INTERNAL_FUNCTIONS:
             self.matched.add(Rule.INTERNAL_FUNCTION)
         elif node.name == "range" and _hog_range_size(node.args) > MAX_RANGE_SIZE:
@@ -663,6 +681,13 @@ def _replaces_empty_string(args: list[ast.Expr]) -> bool:
     if len(args) != 3:
         return False
     return _is_empty_string(args[1]) and not _is_empty_string(args[2])
+
+
+def _bounded_replacement(args: list[ast.Expr]) -> bool:
+    match args:
+        case [_, ast.Constant(value=str(search)), ast.Constant(value=str(replacement))] if search:
+            return len(replacement) <= _MAX_REPLACEMENT_GROWTH * len(search)
+    return False
 
 
 def _is_empty_string(expr: ast.Expr) -> bool:
