@@ -367,145 +367,153 @@ export const emailDomainStatusLogic = kea<emailDomainStatusLogicType>([
                     : [],
         ],
     }),
-    listeners(({ actions, values, cache }) => ({
-        loadStatusSuccess: ({ status, payload }) => {
-            if (values.integrationId === null) {
-                return
-            }
-            // A failed check keeps the last status, which must not end polling as if it were fresh.
-            if (values.lastCheckFailed) {
-                if (values.pollingStartedAt === null) {
-                    actions.startPolling()
-                }
-                actions.schedulePoll()
-                return
-            }
-            if (waitsForSender(status, values.sender)) {
-                cache.statusAwaitingSender = true
-                return
-            }
-            const recordAttempts: number = cache.verificationRecordAttempts ?? 0
-            const verified = values.domainVerified
-            const recordStep = recordStepOf(status, verified, recordAttempts, !!payload?.refresh, values.sendingStopped)
-            if (recordStep) {
-                const runStep = {
-                    'live-check': () => actions.loadStatus(true),
-                    record: () => {
-                        cache.verificationRecordAttempts = recordAttempts + 1
-                        actions.recordVerification()
-                    },
-                    'recheck-sender': () => {
-                        actions.checkSendingRestored()
-                        if (values.pollingStartedAt === null) {
-                            actions.startPolling()
-                        }
-                        actions.schedulePoll()
-                    },
-                }[recordStep]
-                runStep()
-                return
-            }
-            // A stopped sender keeps polling through a failed status, so a teammate's repair still shows.
-            if (verified || (status?.status === 'failed' && !values.sendingStopped)) {
-                cache.disposables.dispose('poll')
-                if (verified) {
-                    actions.loadIntegrations()
-                    // Verifying the first sender makes it the project default on the server.
-                    teamLogic.findMounted()?.actions.loadCurrentTeam()
-                }
-                return
-            }
+    listeners(({ actions, values, cache }) => {
+        const keepPolling = (): void => {
             if (values.pollingStartedAt === null) {
                 actions.startPolling()
             }
             actions.schedulePoll()
-        },
-        senderSaved: () => {
-            // A ready page stopped polling, so a save that brings back the stop marker reads the status again.
-            if (values.sendingStopped) {
-                actions.recheck()
-            }
-        },
-        loadSenderSuccess: ({ sender }) => {
-            if (cache.statusAwaitingSender && sender) {
-                cache.statusAwaitingSender = false
-                actions.loadStatus()
-            }
-        },
-        checkSendingRestored: async () => {
-            if (!values.integrationId || !values.currentTeamId) {
-                return
-            }
-            try {
-                const sender = await integrationsRetrieve(String(values.currentTeamId), values.integrationId)
-                if (!isSendingStopped(sender)) {
-                    actions.verificationRecorded()
+        }
+        return {
+            loadStatusSuccess: ({ status, payload }) => {
+                if (values.integrationId === null) {
+                    return
                 }
-            } catch {
-                // The next poll reads the sender again.
-            }
-        },
-        recordVerification: async () => {
-            if (!values.integrationId || !values.currentTeamId) {
-                return
-            }
-            try {
-                const result = await integrationsEmailVerifyCreate(String(values.currentTeamId), values.integrationId)
-                if (result.status === 'success') {
-                    actions.verificationRecorded()
+                // A failed check keeps the last status, which must not end polling as if it were fresh.
+                if (values.lastCheckFailed) {
+                    keepPolling()
+                    return
                 }
-            } catch (error) {
-                if (error instanceof ApiError && error.status === 403) {
-                    // Retrying can't succeed, so the polls only watch for a teammate's repair.
-                    cache.verificationRecordAttempts = MAX_VERIFICATION_RECORD_ATTEMPTS
-                    actions.verifyForbidden()
+                if (waitsForSender(status, values.sender)) {
+                    cache.statusAwaitingSender = true
+                    return
                 }
-                actions.schedulePoll()
-                return
-            }
-            actions.loadStatus(true)
-        },
-        schedulePoll: () => {
-            if (values.pollingStopped) {
-                return
-            }
-            const elapsed = Date.now() - (values.pollingStartedAt ?? Date.now())
-            if (elapsed >= POLL_MAX_MS) {
-                actions.stopPolling()
-                return
-            }
-            cache.disposables.add(() => {
+                const recordAttempts: number = cache.verificationRecordAttempts ?? 0
+                const verified = values.domainVerified
+                const recordStep = recordStepOf(
+                    status,
+                    verified,
+                    recordAttempts,
+                    !!payload?.refresh,
+                    values.sendingStopped
+                )
+                if (recordStep) {
+                    const runStep = {
+                        'live-check': () => actions.loadStatus(true),
+                        record: () => {
+                            cache.verificationRecordAttempts = recordAttempts + 1
+                            actions.recordVerification()
+                        },
+                        'recheck-sender': () => {
+                            actions.checkSendingRestored()
+                            keepPolling()
+                        },
+                    }[recordStep]
+                    runStep()
+                    return
+                }
+                // A stopped sender keeps polling through a failed status, so a teammate's repair still shows.
+                if (verified || (status?.status === 'failed' && !values.sendingStopped)) {
+                    cache.disposables.dispose('poll')
+                    if (verified) {
+                        actions.loadIntegrations()
+                        // Verifying the first sender makes it the project default on the server.
+                        teamLogic.findMounted()?.actions.loadCurrentTeam()
+                    }
+                    return
+                }
+                keepPolling()
+            },
+            senderSaved: () => {
+                // A ready page stopped polling, so a save that brings back the stop marker reads the status again.
+                if (values.sendingStopped) {
+                    actions.recheck()
+                }
+            },
+            loadSenderSuccess: ({ sender }) => {
+                if (cache.statusAwaitingSender && sender) {
+                    cache.statusAwaitingSender = false
+                    actions.loadStatus()
+                }
+            },
+            checkSendingRestored: async () => {
+                if (!values.integrationId || !values.currentTeamId) {
+                    return
+                }
+                try {
+                    const sender = await integrationsRetrieve(String(values.currentTeamId), values.integrationId)
+                    if (!isSendingStopped(sender)) {
+                        actions.verificationRecorded()
+                    }
+                } catch {
+                    // The next poll reads the sender again.
+                }
+            },
+            recordVerification: async () => {
+                if (!values.integrationId || !values.currentTeamId) {
+                    return
+                }
+                try {
+                    const result = await integrationsEmailVerifyCreate(
+                        String(values.currentTeamId),
+                        values.integrationId
+                    )
+                    if (result.status === 'success') {
+                        actions.verificationRecorded()
+                    }
+                } catch (error) {
+                    if (error instanceof ApiError && error.status === 403) {
+                        // Retrying can't succeed, so the polls only watch for a teammate's repair.
+                        cache.verificationRecordAttempts = MAX_VERIFICATION_RECORD_ATTEMPTS
+                        actions.verifyForbidden()
+                    }
+                    actions.schedulePoll()
+                    return
+                }
+                actions.loadStatus(true)
+            },
+            schedulePoll: () => {
+                if (values.pollingStopped) {
+                    return
+                }
                 const elapsed = Date.now() - (values.pollingStartedAt ?? Date.now())
                 if (elapsed >= POLL_MAX_MS) {
                     actions.stopPolling()
-                    return () => undefined
+                    return
                 }
-                const delay = elapsed < POLL_FAST_WINDOW_MS ? POLL_FAST_MS : POLL_SLOW_MS
-                const timer = window.setTimeout(() => actions.loadStatus(), delay)
-                return () => clearTimeout(timer)
-            }, 'poll')
-        },
-        stopPolling: () => {
-            cache.disposables.dispose('poll')
-        },
-        statusCheckFailed: ({ httpStatus }) => {
-            if (httpStatus && STATUS_ERRORS_THAT_END_POLLING.includes(httpStatus)) {
-                actions.stopPolling()
-            }
-        },
-        recheck: () => {
-            actions.loadStatus(true)
-        },
-        checkAgain: () => {
-            // pinned: analytics event name
-            posthog.capture('email domain check again clicked', { domain: values.domain })
-            // A manual check may write: verify sets up what the provider is missing, which polling never does.
-            actions.restartVerification()
-        },
-        restartVerificationSuccess: () => {
-            actions.recheck()
-        },
-    })),
+                cache.disposables.add(() => {
+                    const elapsed = Date.now() - (values.pollingStartedAt ?? Date.now())
+                    if (elapsed >= POLL_MAX_MS) {
+                        actions.stopPolling()
+                        return () => undefined
+                    }
+                    const delay = elapsed < POLL_FAST_WINDOW_MS ? POLL_FAST_MS : POLL_SLOW_MS
+                    const timer = window.setTimeout(() => actions.loadStatus(), delay)
+                    return () => clearTimeout(timer)
+                }, 'poll')
+            },
+            stopPolling: () => {
+                cache.disposables.dispose('poll')
+            },
+            statusCheckFailed: ({ httpStatus }) => {
+                if (httpStatus && STATUS_ERRORS_THAT_END_POLLING.includes(httpStatus)) {
+                    actions.stopPolling()
+                }
+            },
+            recheck: () => {
+                actions.loadStatus(true)
+            },
+            checkAgain: () => {
+                // pinned: analytics event name
+                posthog.capture('email domain check again clicked', { domain: values.domain })
+                // A manual check may write: verify sets up what the provider is missing, which polling never does.
+                actions.restartVerification()
+            },
+            restartVerificationSuccess: () => {
+                actions.recheck()
+            },
+        }
+    }),
     afterMount(({ actions, values }) => {
         if (values.integrationId !== null) {
             actions.loadStatus()
