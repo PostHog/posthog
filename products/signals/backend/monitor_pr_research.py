@@ -13,6 +13,7 @@ from products.signals.backend.models import SignalReport
 from products.signals.backend.monitor_pr import (
     MonitorPRInput,
     PRMonitoringOutput,
+    attempt_key,
     finish_monitoring_research,
     load_pull_request,
 )
@@ -63,7 +64,7 @@ Return only JSON matching the supplied schema.
 
 def _context(inputs: MonitorPRInput) -> CustomPromptSandboxContext | None:
     report = SignalReport.objects.select_related("team__organization").get(team_id=inputs.team_id, id=inputs.report_id)
-    if report.status != SignalReport.Status.IN_PROGRESS:
+    if report.status != SignalReport.Status.IN_PROGRESS or attempt_key(report) != inputs.attempt_key:
         return None
     user = User.objects.get(
         id=inputs.user_id,

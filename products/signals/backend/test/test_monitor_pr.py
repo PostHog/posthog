@@ -256,7 +256,7 @@ class TestMonitorPR(APIBaseTest):
         else:
             assert report.status == SignalReport.Status.MONITORING
             assert report.monitoring_started_at == merged_at
-            assert report.metrics[0]["metric_id"] == "checkout"
+            assert report.metrics[0]["metric_id"] == "primary_metric"
             assert report.metrics[0]["role"] == "primary"
         claim = get_active_claim(team_id=self.team.id, report_id=str(report.id))
         if scenario == "closed":
@@ -317,6 +317,7 @@ class TestMonitorPR(APIBaseTest):
         assert retried_inputs.note == "Keep original note"
 
         pr = load_pull_request(self.team.id, PR_URL)
+        assert _context(inputs) is None
         fail_monitoring_research(inputs)
         finish_monitoring_research(inputs, self.output(), pr)
         restarted.refresh_from_db()
@@ -503,6 +504,9 @@ class TestMonitorPR(APIBaseTest):
             report.refresh_from_db()
             assert report.status == SignalReport.Status.READY
             assert "baseline" not in report.summary
+            check = SignalReportCheck.objects.for_team(self.team.id).get(report=report)
+            assert check.title == "Post-merge check for example/widget#42"
+            assert check.rationale == ""
             teammate = User.objects.create_and_join(self.organization, email="teammate@example.com", password="test")
             self.client.force_login(teammate)
             artefacts = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/").json()[
