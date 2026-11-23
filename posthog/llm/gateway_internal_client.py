@@ -1,9 +1,13 @@
+import json
+import uuid
 import dataclasses
-from typing import Any
+from typing import Any, TypeGuard
 
 from django.conf import settings
 
 import httpx
+
+from posthog.dataclasses import frozen
 
 INTERNAL_API_TIMEOUT_SECONDS = 5.0
 REPORTED_SPEND_TIMEOUT_SECONDS = 2.0
@@ -15,9 +19,16 @@ INTERNAL_ACTOR_HEADER = "X-Internal-Actor"
 ADMIN_ACTOR = "posthog-admin"
 TASKS_COMPUTE_ACTOR = "tasks-compute"
 BILLING_ACTOR = "billing"
-# A bad body, or an Idempotency-Key the gateway holds with another amount. Every other
-# failure, including 401, 403, 404 and 429, can pass once the gateway or its config recovers.
+# A body that the route doesn't take, or an operation ID or reload key that the gateway holds with
+# another amount. Every other failure, including 401, 403, 404 and 429, can pass once the gateway, its
+# keys or its config recover.
 REJECTED_STATUS_CODES = frozenset({400, 409})
+SIGNED_ENVELOPE_FIELDS = ("body", "signed_at", "key_id", "signature")
+SIGNED_MESSAGE_ROUTES = {
+    "ai_funding_added": "/internal/accounts/{organization_id}/credits",
+    "ai_funding_reversed": "/internal/accounts/{organization_id}/credits/reversal",
+    "ai_reload_outcome": "/internal/accounts/{organization_id}/reload-outcome",
+}
 
 
 class AIGatewayInternalError(Exception):
@@ -56,15 +67,6 @@ class Wallet:
     has_ledger: bool
     balance: str | None
     recent: list[LedgerEntry]
-
-
-@dataclasses.dataclass(frozen=True)
-class OrgLedgerResult:
-    org_id: str
-    entry_id: str
-    amount_usd: str
-    balance_usd: str
-    duplicate: bool
 
 
 @dataclasses.dataclass(frozen=True)
@@ -249,84 +251,86 @@ def get_usage_report_rows(params: dict[str, str]) -> list[dict[str, Any]]:
         page_params = {**params, "order_by": "key", "cursor": page.next_cursor}
 
 
-def grant_org_credit(org_id: str, amount_usd: str, reason: str, idempotency_key: str) -> OrgLedgerResult:
-    """Add funding that billing collected to the organization's AI wallet, once per idempotency key."""
-    return _post_org_ledger_entry(f"/internal/accounts/{org_id}/credits", org_id, amount_usd, reason, idempotency_key)
+class MalformedSignedMessage(ValueError):
+    """A signed envelope that PostHog can't route, so sending it again fails the same way."""
 
 
-def reverse_org_credit(org_id: str, amount_usd: str, reason: str, idempotency_key: str) -> OrgLedgerResult:
-    """Take back funding that a dispute reversed, whatever the wallet holds, once per idempotency key."""
-    return _post_org_ledger_entry(
-        f"/internal/accounts/{org_id}/credits/reversal", org_id, amount_usd, reason, idempotency_key
-    )
+@frozen
+class SignedMessage:
+    """A signed envelope as PostHog received it, with the two body fields that route it.
 
-
-def report_reload_outcome(
-    org_id: str, idempotency_key: str, result: str, *, amount_usd: str | None = None, reason: str | None = None
-) -> None:
-    """Tell the gateway how billing answered one of its low-balance reload requests.
-
-    `idempotency_key` is the key the gateway sent on the reload route. `result` is `charged`, with the
-    amount, or `declined`, with the reason. The gateway closes its open reload request on this outcome.
+    PostHog holds no signing key, so it never checks the signature. The receiver checks it over the exact
+    `body` string, so PostHog sends the envelope on unchanged.
     """
-    url, token = _config()
-    body = {"idempotency_key": idempotency_key, "result": result}
-    if amount_usd is not None:
-        body["amount_usd"] = amount_usd
-    if reason is not None:
-        body["reason"] = reason
+
+    envelope: dict[str, Any]
+    type: str
+    organization_id: str
+
+
+def read_signed_message(envelope: object) -> SignedMessage:
+    """Read the type and the organization ID from the body of a signed envelope.
+
+    Raises `MalformedSignedMessage` when a field of the envelope isn't a string, or the body isn't a JSON
+    object. It also raises it when the body has no type or no organization ID.
+    """
+    if not isinstance(envelope, dict) or not all(isinstance(envelope.get(f), str) for f in SIGNED_ENVELOPE_FIELDS):
+        raise MalformedSignedMessage("the envelope needs body, signed_at, key_id and signature as strings")
     try:
-        response = httpx.post(
-            f"{url}/internal/accounts/{org_id}/reload-outcome",
-            headers=_auth_headers(token, {INTERNAL_ACTOR_HEADER: BILLING_ACTOR}),
-            json=body,
-            timeout=INTERNAL_API_TIMEOUT_SECONDS,
-            trust_env=False,
-        )
-    except httpx.HTTPError as exc:
-        raise AIGatewayInternalError(f"reload outcome request failed: {exc}") from exc
-
-    if response.status_code in REJECTED_STATUS_CODES:
-        raise AIGatewayRequestRejected(_error_detail(response), response.status_code)
-    if response.status_code >= 400:
-        raise AIGatewayInternalError(_error_detail(response))
-
-
-def _post_org_ledger_entry(
-    path: str, org_id: str, amount_usd: str, reason: str, idempotency_key: str
-) -> OrgLedgerResult:
-    url, token = _config()
-    try:
-        response = httpx.post(
-            f"{url}{path}",
-            headers=_auth_headers(
-                token, {IDEMPOTENCY_KEY_HEADER: idempotency_key, INTERNAL_ACTOR_HEADER: BILLING_ACTOR}
-            ),
-            json={"amount_usd": amount_usd, "reason": reason},
-            timeout=INTERNAL_API_TIMEOUT_SECONDS,
-            trust_env=False,
-        )
-    except httpx.HTTPError as exc:
-        raise AIGatewayInternalError(f"org ledger request failed: {exc}") from exc
-
-    if response.status_code in REJECTED_STATUS_CODES:
-        raise AIGatewayRequestRejected(_error_detail(response), response.status_code)
-    if response.status_code >= 400:
-        raise AIGatewayInternalError(_error_detail(response))
-
-    try:
-        data = response.json()
+        body: Any = json.loads(envelope["body"])
     except ValueError as exc:
-        raise AIGatewayInternalError(f"org ledger response was not valid JSON: {exc}") from exc
-    if not data.get("entry_id") or data.get("balance_usd") is None:
-        raise AIGatewayInternalError("org ledger response missing required fields (entry_id/balance_usd)")
-    return OrgLedgerResult(
-        org_id=str(data.get("org_id", org_id)),
-        entry_id=data["entry_id"],
-        amount_usd=data.get("amount_usd", ""),
-        balance_usd=data["balance_usd"],
-        duplicate=bool(data.get("duplicate", False)),
-    )
+        raise MalformedSignedMessage("the envelope's body isn't JSON") from exc
+    if not isinstance(body, dict):
+        raise MalformedSignedMessage("the envelope's body isn't a JSON object")
+    message_type = body.get("type")
+    if not isinstance(message_type, str) or not message_type:
+        raise MalformedSignedMessage("the envelope's body has no type")
+    organization_id = body.get("organization_id")
+    if not _is_canonical_uuid(organization_id):
+        raise MalformedSignedMessage("the envelope's body has no organization ID")
+    return SignedMessage(envelope=envelope, type=message_type, organization_id=organization_id)
+
+
+def post_signed_message(message: SignedMessage) -> object:
+    """Post a message that billing signed for the gateway, unchanged, to the route for its body type.
+
+    Returns the gateway's 200 answer, parsed from JSON. Raises `MalformedSignedMessage` for a body type that
+    no route takes, and `AIGatewayRequestRejected` for a 400 or a 409. Every other answer, and no answer,
+    raises `AIGatewayInternalError`.
+    """
+    route = SIGNED_MESSAGE_ROUTES.get(message.type)
+    if route is None:
+        raise MalformedSignedMessage(f"no gateway route takes {message.type}")
+    url, token = _config()
+    try:
+        response = httpx.post(
+            f"{url}{route.format(organization_id=message.organization_id)}",
+            headers=_auth_headers(token, {INTERNAL_ACTOR_HEADER: BILLING_ACTOR}),
+            json=message.envelope,
+            timeout=INTERNAL_API_TIMEOUT_SECONDS,
+            trust_env=False,
+        )
+    except httpx.HTTPError as exc:
+        raise AIGatewayInternalError(f"{message.type} request failed: {exc}") from exc
+
+    if response.status_code in REJECTED_STATUS_CODES:
+        raise AIGatewayRequestRejected(_error_detail(response), response.status_code)
+    if response.status_code != 200:
+        raise AIGatewayInternalError(f"{message.type} answered {response.status_code}: {_error_detail(response)}")
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise AIGatewayInternalError(f"{message.type} answer was not valid JSON: {exc}") from exc
+
+
+def _is_canonical_uuid(value: object) -> TypeGuard[str]:
+    # The ID goes into the route's path, so only the canonical form of a UUID passes.
+    if not isinstance(value, str):
+        return False
+    try:
+        return str(uuid.UUID(value)) == value
+    except ValueError:
+        return False
 
 
 def _error_detail(response: httpx.Response) -> str:

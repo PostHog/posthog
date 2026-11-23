@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from unittest.mock import patch
 
@@ -12,13 +14,13 @@ from posthog.llm.gateway_internal_client import (
     AIGatewayInternalError,
     AIGatewayNotConfigured,
     AIGatewayRequestRejected,
+    MalformedSignedMessage,
     add_credit,
     get_usage_report,
     get_usage_report_rows,
     get_wallet,
-    grant_org_credit,
-    report_reload_outcome,
-    reverse_org_credit,
+    post_signed_message,
+    read_signed_message,
 )
 
 ORG_ID = "0190b3a1-1111-7000-8000-000000000001"
@@ -245,116 +247,110 @@ class TestNotConfigured:
             add_credit(42, ORG_ID, "10", "x", "key")
 
 
-ORG_LEDGER_RESPONSE = {
-    "org_id": ORG_ID,
-    "entry_id": "entry-1",
-    "amount_usd": "20.00",
-    "balance_usd": "118.40",
-    "duplicate": False,
-}
+def _body(message_type: str = "ai_funding_added", **fields: object) -> str:
+    # Spaced unlike json.dumps, so a relay that serializes the body again changes it.
+    return (
+        "{"
+        + ",  ".join(
+            f"{json.dumps(key)}:  {json.dumps(value)}"
+            for key, value in {"type": message_type, "version": 1, "organization_id": ORG_ID, **fields}.items()
+        )
+        + "}"
+    )
 
 
-class TestOrgLedger:
+def _envelope(**fields: object) -> dict:
+    return {
+        "body": _body(),
+        "signed_at": "2026-11-23T18:04:05Z",
+        "key_id": "billing-us-1",
+        "signature": "5f0c1e",
+        **fields,
+    }
+
+
+class TestReadSignedMessage:
+    def test_reads_the_type_and_organization_and_keeps_the_envelope(self):
+        envelope = _envelope()
+
+        message = read_signed_message(envelope)
+
+        assert (message.type, message.organization_id) == ("ai_funding_added", ORG_ID)
+        assert message.envelope is envelope
+
     @pytest.mark.parametrize(
-        "record, path",
+        "envelope",
         [
-            (grant_org_credit, f"/internal/accounts/{ORG_ID}/credits"),
-            (reverse_org_credit, f"/internal/accounts/{ORG_ID}/credits/reversal"),
+            pytest.param(None, id="no_envelope"),
+            pytest.param({k: v for k, v in _envelope().items() if k != "signature"}, id="missing_signature"),
+            pytest.param(_envelope(signed_at=1795543445), id="signed_at_not_a_string"),
+            pytest.param(_envelope(body="not json"), id="body_not_json"),
+            pytest.param(_envelope(body="[]"), id="body_not_an_object"),
+            pytest.param(_envelope(body=json.dumps({"organization_id": ORG_ID})), id="no_type"),
+            pytest.param(_envelope(body=json.dumps({"type": "ai_funding_added"})), id="no_organization"),
+            pytest.param(
+                _envelope(body=json.dumps({"type": "ai_funding_added", "organization_id": "../../admin"})),
+                id="organization_not_a_uuid",
+            ),
+        ],
+    )
+    def test_an_envelope_that_cannot_be_routed_is_malformed(self, envelope):
+        with pytest.raises(MalformedSignedMessage):
+            read_signed_message(envelope)
+
+
+class TestPostSignedMessage:
+    @pytest.mark.parametrize(
+        "message_type, path",
+        [
+            ("ai_funding_added", f"/internal/accounts/{ORG_ID}/credits"),
+            ("ai_funding_reversed", f"/internal/accounts/{ORG_ID}/credits/reversal"),
+            ("ai_reload_outcome", f"/internal/accounts/{ORG_ID}/reload-outcome"),
         ],
     )
     @patch("posthog.llm.gateway_internal_client.settings")
-    def test_posts_to_the_org_route_as_billing(self, mock_settings, record, path):
+    def test_posts_the_envelope_unchanged_to_the_route_for_its_type(self, mock_settings, message_type, path):
         _configured(mock_settings)
-        with patch(
-            "posthog.llm.gateway_internal_client.httpx.post", return_value=_response(200, ORG_LEDGER_RESPONSE)
-        ) as mock_post:
-            result = record(ORG_ID, "20.00", "top_up", "ai_credit:in_1")
+        envelope = _envelope(body=_body(message_type))
+        answer = {"entry_id": "entry-1", "duplicate": False}
+        with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=_response(200, answer)) as mock_post:
+            result = post_signed_message(read_signed_message(envelope))
 
         assert mock_post.call_args.args[0] == f"http://gw{path}"
-        headers = mock_post.call_args.kwargs["headers"]
-        assert headers["Authorization"] == "Bearer tok"
-        assert headers[IDEMPOTENCY_KEY_HEADER] == "ai_credit:in_1"
-        assert headers[INTERNAL_ACTOR_HEADER] == BILLING_ACTOR
-        assert mock_post.call_args.kwargs["json"] == {"amount_usd": "20.00", "reason": "top_up"}
+        assert mock_post.call_args.kwargs["json"] == envelope
+        assert mock_post.call_args.kwargs["headers"] == {
+            "Authorization": "Bearer tok",
+            INTERNAL_ACTOR_HEADER: BILLING_ACTOR,
+        }
         assert mock_post.call_args.kwargs["trust_env"] is False
-        assert (result.org_id, result.entry_id, result.balance_usd, result.duplicate) == (
-            ORG_ID,
-            "entry-1",
-            "118.40",
-            False,
-        )
+        assert result == answer
 
-    @patch("posthog.llm.gateway_internal_client.settings")
-    def test_a_conflict_is_rejected_with_its_status(self, mock_settings):
-        _configured(mock_settings)
-        conflict = _response(409, {"error": "amount_usd does not match the original entry for this Idempotency-Key"})
-        with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=conflict):
-            with pytest.raises(AIGatewayRequestRejected, match="does not match") as excinfo:
-                grant_org_credit(ORG_ID, "25.00", "top_up", "ai_credit:in_1")
-
-        assert excinfo.value.status_code == 409
-
-    @pytest.mark.parametrize("status", [401, 403, 404, 408, 429, 500, 503])
-    @patch("posthog.llm.gateway_internal_client.settings")
-    def test_a_failure_that_can_recover_is_an_internal_error_to_retry(self, mock_settings, status):
-        _configured(mock_settings)
-        with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=_response(status, {"error": "no"})):
-            with pytest.raises(AIGatewayInternalError) as excinfo:
-                grant_org_credit(ORG_ID, "20.00", "top_up", "ai_credit:in_1")
-
-        assert not isinstance(excinfo.value, AIGatewayRequestRejected)
-
-
-class TestReportReloadOutcome:
     @pytest.mark.parametrize(
-        "kwargs, body",
+        "answer, rejected",
         [
-            (
-                {"result": "charged", "amount_usd": "45.90"},
-                {"idempotency_key": "low-balance-1", "result": "charged", "amount_usd": "45.90"},
-            ),
-            (
-                {"result": "declined", "reason": "card_declined"},
-                {"idempotency_key": "low-balance-1", "result": "declined", "reason": "card_declined"},
-            ),
+            pytest.param(_response(400), True, id="bad_body"),
+            pytest.param(_response(409), True, id="operation_with_another_amount"),
+            pytest.param(_response(204), False, id="no_content"),
+            pytest.param(_response(401), False, id="unknown_key"),
+            pytest.param(_response(429), False, id="rate_limited"),
+            pytest.param(_response(503), False, id="unavailable"),
+            pytest.param(httpx.ConnectError("refused"), False, id="no_answer"),
         ],
     )
     @patch("posthog.llm.gateway_internal_client.settings")
-    def test_posts_the_outcome_to_the_org_route_as_billing(self, mock_settings, kwargs, body):
+    def test_only_a_200_delivers_and_only_400_or_409_is_rejected(self, mock_settings, answer, rejected):
         _configured(mock_settings)
-        with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=_response(204)) as mock_post:
-            report_reload_outcome(ORG_ID, "low-balance-1", **kwargs)
-
-        assert mock_post.call_args.args[0] == f"http://gw/internal/accounts/{ORG_ID}/reload-outcome"
-        headers = mock_post.call_args.kwargs["headers"]
-        assert headers["Authorization"] == "Bearer tok"
-        assert headers[INTERNAL_ACTOR_HEADER] == BILLING_ACTOR
-        assert mock_post.call_args.kwargs["json"] == body
-        assert mock_post.call_args.kwargs["trust_env"] is False
-
-    @pytest.mark.parametrize("status", [400, 409])
-    @patch("posthog.llm.gateway_internal_client.settings")
-    def test_a_refusal_is_rejected_with_its_status(self, mock_settings, status):
-        _configured(mock_settings)
-        with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=_response(status, {"error": "no"})):
-            with pytest.raises(AIGatewayRequestRejected) as excinfo:
-                report_reload_outcome(ORG_ID, "low-balance-1", "charged", amount_usd="45.90")
-
-        assert excinfo.value.status_code == status
-
-    @pytest.mark.parametrize("status", [401, 404, 429, 500, 503])
-    @patch("posthog.llm.gateway_internal_client.settings")
-    def test_a_failure_that_can_recover_is_an_internal_error_to_retry(self, mock_settings, status):
-        _configured(mock_settings)
-        with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=_response(status, {"error": "no"})):
+        with patch("posthog.llm.gateway_internal_client.httpx.post", side_effect=[answer]):
             with pytest.raises(AIGatewayInternalError) as excinfo:
-                report_reload_outcome(ORG_ID, "low-balance-1", "charged", amount_usd="45.90")
+                post_signed_message(read_signed_message(_envelope()))
 
-        assert not isinstance(excinfo.value, AIGatewayRequestRejected)
+        assert isinstance(excinfo.value, AIGatewayRequestRejected) is rejected
 
     @patch("posthog.llm.gateway_internal_client.settings")
-    def test_a_network_failure_is_an_internal_error_to_retry(self, mock_settings):
+    def test_a_type_that_no_route_takes_is_malformed_and_never_sent(self, mock_settings):
         _configured(mock_settings)
-        with patch("posthog.llm.gateway_internal_client.httpx.post", side_effect=httpx.ConnectError("refused")):
-            with pytest.raises(AIGatewayInternalError):
-                report_reload_outcome(ORG_ID, "low-balance-1", "charged", amount_usd="45.90")
+        with patch("posthog.llm.gateway_internal_client.httpx.post") as mock_post:
+            with pytest.raises(MalformedSignedMessage):
+                post_signed_message(read_signed_message(_envelope(body=_body("ai_reload_requested"))))
+
+        mock_post.assert_not_called()
