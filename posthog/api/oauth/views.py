@@ -1749,8 +1749,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         )
 
         # `validate_scopes` narrows a `*` request to the app's ceiling instead of rejecting it
-        # (when the ceiling is seeded or the app registered itself); track that volume so `*` can be
-        # retired once it drains.
+        # (see `wildcard_is_narrowed`); track that volume so `*` can be retired once it drains.
         wildcard_is_narrowed = resolve_ceiling(application.ceiling_scopes) is not None or application.is_self_registered
         if "*" in requested_scope_tokens and wildcard_is_narrowed:
             posthoganalytics.capture(

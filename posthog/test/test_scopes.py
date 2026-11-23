@@ -450,8 +450,7 @@ class TestClampScopesToCeiling(SimpleTestCase):
 
     def test_wildcard_under_empty_ceiling_gated_by_flag(self) -> None:
         # Narrowing `*` under an empty ceiling would strip the legacy client's full access,
-        # so it is kept verbatim where the caller grandfathers it and resolves to the
-        # unprivileged default where it doesn't.
+        # so it is kept verbatim where the caller grandfathers it and expands to the default where it doesn't.
         assert clamp_scopes_to_ceiling(["*"], [], allow_wildcard_under_empty_ceiling=True) == ["*"]
 
         narrowed = clamp_scopes_to_ceiling(["openid", "*"], [], allow_wildcard_under_empty_ceiling=False)
