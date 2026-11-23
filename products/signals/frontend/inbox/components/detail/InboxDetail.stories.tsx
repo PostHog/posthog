@@ -389,9 +389,6 @@ export const Report: Story = {
 
 export const ReportReadyToImplement: Story = {
     decorators: [readyToImplementMocks],
-    parameters: {
-        featureFlags: { [FEATURE_FLAGS.INBOX_REPORT_IMPLEMENT_BUTTON_POSITION]: 'control' },
-    },
     render: () => (
         <Frame>
             <ReportDetail
@@ -404,17 +401,12 @@ export const ReportReadyToImplement: Story = {
     ),
 }
 
-export const ReportImplementButtonInHeader: Story = {
+export const ReportViewTaskButtonInHeader: Story = {
     ...ReportReadyToImplement,
+    decorators: [],
     parameters: {
-        featureFlags: { [FEATURE_FLAGS.INBOX_REPORT_IMPLEMENT_BUTTON_POSITION]: 'test' },
         testOptions: { snapshotBrowsers: [] },
     },
-}
-
-export const ReportViewTaskButtonInHeader: Story = {
-    ...ReportImplementButtonInHeader,
-    decorators: [],
 }
 
 export const ReportWithoutCodeAccess: Story = {
