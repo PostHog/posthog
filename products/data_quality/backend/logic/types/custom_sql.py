@@ -38,32 +38,56 @@ def parse_failing_rows_query(query: str) -> ast.SelectQuery | ast.SelectSetQuery
 
 
 class _BareColumnNames(TraversingVisitor):
-    def __init__(self) -> None:
+    """Bare column names read within one SELECT scope, optionally ignoring one expression."""
+
+    def __init__(self, root: ast.Expr, skip: ast.Expr | None = None) -> None:
         self.names: set[str] = set()
+        self._root = root
+        self._skip = skip
+        self._bound: list[set[str]] = []
+
+    def visit(self, node: ast.AST | None) -> None:
+        if node is not None and node is self._skip:
+            return
+        super().visit(node)
 
     def visit_field(self, node: ast.Field) -> None:
         # A dotted chain such as properties.order_id reads a property or a joined table, not the column
         # the alias hides, so only a bare name can clash.
-        if len(node.chain) == 1:
+        if len(node.chain) == 1 and not any(node.chain[0] in bound for bound in self._bound):
             self.names.add(str(node.chain[0]))
 
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        self._bound.append(set(node.args))
+        super().visit_lambda(node)
+        self._bound.pop()
+
     def visit_select_query(self, node: ast.SelectQuery) -> None:
-        # A subquery inside the expression has its own scope, so its columns cannot clash with this alias.
-        return
+        # A subquery has its own scope, so its columns cannot clash with an alias in this one.
+        if node is self._root:
+            super().visit_select_query(node)
 
 
 class _AliasShadowFinder(TraversingVisitor):
     def __init__(self) -> None:
         self.name: str | None = None
 
-    def visit_alias(self, node: ast.Alias) -> None:
-        # `x AS x` and `t.x AS x` only rename the column, so nothing changes when ClickHouse reads x as the alias.
-        if self.name is None and not isinstance(node.expr, ast.Field):
-            fields = _BareColumnNames()
-            fields.visit(node.expr)
-            if node.alias in fields.names:
-                self.name = node.alias
-        super().visit_alias(node)
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        for item in node.select or []:
+            # `x AS x` and `t.x AS x` only rename the column, so nothing changes when ClickHouse reads x as the alias.
+            if self.name is not None or not isinstance(item, ast.Alias) or isinstance(item.expr, ast.Field):
+                continue
+            own = _BareColumnNames(item.expr)
+            own.visit(item.expr)
+            if item.alias not in own.names:
+                continue
+            # ClickHouse resolves the alias's own expression against the column, so the alias only
+            # hides the column from the rest of the same SELECT.
+            elsewhere = _BareColumnNames(node, skip=item)
+            elsewhere.visit(node)
+            if item.alias in elsewhere.names:
+                self.name = item.alias
+        super().visit_select_query(node)
 
 
 def parse_custom_sql_query(query: str) -> ast.SelectQuery | ast.SelectSetQuery:
