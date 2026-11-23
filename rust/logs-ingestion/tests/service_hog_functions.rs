@@ -5,6 +5,9 @@ use logs_ingestion::service::hog_functions::{EncryptedFields, PgHogFunctions};
 use logs_ingestion::transformations::HogFunctionSource;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::mpsc;
 
 const DATABASE_URL: &str = "postgres://posthog:posthog@localhost:5432/postgres";
 const KEY: &str = "00beef0000beef0000beef0000beef00";
@@ -151,4 +154,82 @@ async fn loads_transformations_with_smallint_order_and_decrypted_inputs() {
     let reloaded = source.transformations(TEAM_ID as i64).await.unwrap();
     let names: Vec<&str> = reloaded.iter().map(|f| f.name.as_str()).collect();
     assert_eq!(names, vec!["second", "first", "null"]);
+}
+
+const REDIS_ADDR: &str = "127.0.0.1:6379";
+
+/// Forwards to Redis and reports each accepted connection and each `subscribe` reply.
+/// After `silent` is set, it holds every connection open and forwards nothing, as a half-open link does.
+async fn redis_proxy(
+    silent: Arc<std::sync::atomic::AtomicBool>,
+    events: mpsc::UnboundedSender<&'static str>,
+) -> std::net::SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        loop {
+            let (client, _) = listener.accept().await.unwrap();
+            let _ = events.send("accepted");
+            let Ok(server) = TcpStream::connect(REDIS_ADDR).await else {
+                continue;
+            };
+            let (mut from_client, mut to_client) = client.into_split();
+            let (mut from_server, mut to_server) = server.into_split();
+            let (silent_up, silent_down) = (silent.clone(), silent.clone());
+            let events = events.clone();
+            tokio::spawn(async move {
+                let mut buffer = [0u8; 4096];
+                while let Ok(read) = from_client.read(&mut buffer).await {
+                    if read == 0 || silent_up.load(std::sync::atomic::Ordering::SeqCst) {
+                        break;
+                    }
+                    let _ = to_server.write_all(&buffer[..read]).await;
+                }
+                std::future::pending::<()>().await;
+            });
+            tokio::spawn(async move {
+                let mut buffer = [0u8; 4096];
+                while let Ok(read) = from_server.read(&mut buffer).await {
+                    if read == 0 || silent_down.load(std::sync::atomic::Ordering::SeqCst) {
+                        break;
+                    }
+                    let _ = to_client.write_all(&buffer[..read]).await;
+                    if buffer[..read].windows(9).any(|w| w == b"subscribe") {
+                        let _ = events.send("subscribed");
+                    }
+                }
+                std::future::pending::<()>().await;
+            });
+        }
+    });
+    address
+}
+
+#[tokio::test]
+async fn the_reload_listener_reconnects_when_the_connection_goes_silent() {
+    // The listener never queries Postgres, so the pool does not connect.
+    let pool = PgPoolOptions::new().connect_lazy(DATABASE_URL).unwrap();
+    if TcpStream::connect(REDIS_ADDR).await.is_err() {
+        eprintln!("skipping: no Redis at {REDIS_ADDR}");
+        return;
+    }
+    let silent = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (events, mut seen) = mpsc::unbounded_channel();
+    let address = redis_proxy(silent.clone(), events).await;
+    let functions = PgHogFunctions::new(pool, Arc::new(EncryptedFields::new(KEY).unwrap()));
+    let listener = functions.spawn_reload_listener_with(
+        redis::Client::open(format!("redis://{address}")).unwrap(),
+        Duration::from_millis(50),
+        Duration::from_millis(500),
+    );
+
+    assert_eq!(seen.recv().await, Some("accepted"));
+    assert_eq!(seen.recv().await, Some("subscribed"));
+    // Six ping intervals pass on a healthy connection with no reconnect.
+    let healthy = tokio::time::timeout(Duration::from_millis(300), seen.recv()).await;
+    assert!(healthy.is_err(), "{healthy:?}");
+    silent.store(true, std::sync::atomic::Ordering::SeqCst);
+    let reconnected = tokio::time::timeout(Duration::from_secs(10), seen.recv()).await;
+    assert_eq!(reconnected, Ok(Some("accepted")));
+    listener.abort();
 }

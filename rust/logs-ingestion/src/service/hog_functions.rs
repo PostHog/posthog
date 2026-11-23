@@ -20,6 +20,9 @@ use super::lazy_loader::{LazyLoader, LazyLoaderOptions, LoadResult};
 use super::postgres::classify_pg_error;
 
 pub const RELOAD_CHANNEL: &str = "reload-hog-functions";
+/// A half-open connection delivers nothing and reports no error, so the listener pings a subscription that is idle.
+const RELOAD_PING_INTERVAL: Duration = Duration::from_secs(30);
+const RELOAD_PING_TIMEOUT: Duration = Duration::from_secs(5);
 const REFRESH_AGE: Duration = Duration::from_secs(5 * 60);
 
 pub struct EncryptedFields {
@@ -216,10 +219,19 @@ impl PgHogFunctions {
     }
 
     pub fn spawn_reload_listener(&self, client: redis::Client) -> tokio::task::JoinHandle<()> {
+        self.spawn_reload_listener_with(client, RELOAD_PING_INTERVAL, RELOAD_PING_TIMEOUT)
+    }
+
+    pub fn spawn_reload_listener_with(
+        &self,
+        client: redis::Client,
+        ping_interval: Duration,
+        ping_timeout: Duration,
+    ) -> tokio::task::JoinHandle<()> {
         let this = self.clone();
         tokio::spawn(async move {
             loop {
-                if let Err(error) = this.listen(&client).await {
+                if let Err(error) = this.listen(&client, ping_interval, ping_timeout).await {
                     tracing::warn!(error = %error, "reload-hog-functions subscription lost, reconnecting");
                 }
                 tokio::time::sleep(Duration::from_secs(1)).await;
@@ -227,11 +239,32 @@ impl PgHogFunctions {
         })
     }
 
-    async fn listen(&self, client: &redis::Client) -> anyhow::Result<()> {
-        let mut pubsub = client.get_async_pubsub().await?;
-        pubsub.subscribe(RELOAD_CHANNEL).await?;
-        let mut messages = pubsub.on_message();
-        while let Some(message) = messages.next().await {
+    async fn listen(
+        &self,
+        client: &redis::Client,
+        ping_interval: Duration,
+        ping_timeout: Duration,
+    ) -> anyhow::Result<()> {
+        let subscribe = async {
+            let mut pubsub = client.get_async_pubsub().await?;
+            pubsub.subscribe(RELOAD_CHANNEL).await?;
+            anyhow::Ok(pubsub)
+        };
+        let (mut sink, mut messages) = tokio::time::timeout(ping_timeout, subscribe)
+            .await
+            .map_err(|_| anyhow::anyhow!("subscribe timed out"))??
+            .split();
+        loop {
+            let message = match tokio::time::timeout(ping_interval, messages.next()).await {
+                Ok(Some(message)) => message,
+                Ok(None) => anyhow::bail!("subscription stream ended"),
+                Err(_) => {
+                    tokio::time::timeout(ping_timeout, sink.ping::<redis::Value>())
+                        .await
+                        .map_err(|_| anyhow::anyhow!("ping timed out"))??;
+                    continue;
+                }
+            };
             let payload: String = message.get_payload().unwrap_or_default();
             let parsed = json_parse(&payload).unwrap_or(JsValue::Null);
             let JsValue::Object(object) = parsed else {
@@ -252,7 +285,6 @@ impl PgHogFunctions {
             tracing::debug!(team_id, ?ids, "reloading hog functions");
             self.reload(&team_id, &ids);
         }
-        anyhow::bail!("subscription stream ended")
     }
 }
 
