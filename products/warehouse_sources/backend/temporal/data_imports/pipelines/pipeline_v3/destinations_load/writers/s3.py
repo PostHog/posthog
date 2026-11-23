@@ -52,7 +52,7 @@ import botocore.exceptions
 from posthog.models.integration import AWSS3RoleBasedIntegration, S3CompatibleIntegration
 from posthog.models.team import Team
 
-from products.batch_exports.backend.facade.contracts import AWSCredentials
+from products.batch_exports.backend.facade.contracts import AWSCredentials, InvalidKeyError
 from products.batch_exports.backend.facade.destinations.s3 import (
     S3_SUPPORTED_COMPRESSIONS,
     ConcurrentS3Consumer,
@@ -62,6 +62,7 @@ from products.batch_exports.backend.facade.destinations.s3 import (
     S3IntegrationNotFoundError,
     get_credentials_using_user_aws_role,
     get_s3_integration,
+    render_key_prefix,
     s3_client,
 )
 from products.batch_exports.backend.facade.pipeline import ParquetStreamTransformer
@@ -290,7 +291,19 @@ class S3DestinationWriter:
         config = ctx.config or {}
         self._bucket: str = (config.get("bucket") or config.get("bucket_name") or "").strip().strip("/")
         self._region: str = (config.get("region") or "").strip()
-        self._prefix: str = (config.get("prefix") or "").strip("/")
+        raw_prefix: str = config.get("prefix") or ""
+        try:
+            rendered_prefix = (
+                render_key_prefix(raw_prefix, at=ctx.run_started_at.astimezone(dt.UTC), table=ctx.table_name)
+                if ctx.run_started_at is not None
+                else raw_prefix
+            )
+        except InvalidKeyError as err:
+            raise DestinationConfigurationError(ctx.destination_name, str(err)) from err
+        self._prefix: str = rendered_prefix.strip("/")
+        # A prefix that places `{table}` itself already gives each table its own folder.
+        filled_table = rendered_prefix != raw_prefix and "{table}" in raw_prefix
+        self._table_folder: str = "" if filled_table else ctx.table_name
         self._use_virtual_style_addressing = bool(config.get("use_virtual_style_addressing"))
         self._compression: ParquetCompression = config.get("compression") or DEFAULT_COMPRESSION
 
@@ -325,7 +338,7 @@ class S3DestinationWriter:
     # --- keys -------------------------------------------------------------------------
 
     def _run_prefix(self) -> str:
-        parts = [p for p in (self._prefix, self._ctx.table_name, self._ctx.run_uuid) if p]
+        parts = [p for p in (self._prefix, self._table_folder, self._ctx.run_uuid) if p]
         return f"{'/'.join(parts)}/"
 
     def _object_key(self, batch_index: int) -> str:
