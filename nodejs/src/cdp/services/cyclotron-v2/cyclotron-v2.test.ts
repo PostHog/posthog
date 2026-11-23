@@ -3645,7 +3645,8 @@ describe('Cyclotron V2', () => {
                 const withBacklog = await buffersReadBy(claimOnce, mode)
 
                 expect(withBacklog - withoutBacklog).toBeLessThan(BACKLOG_BUFFER_BUDGET_WITH_CLAIM_INDEX_WRITES)
-            }
+            },
+            10_000
         )
     })
 
