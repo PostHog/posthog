@@ -1428,7 +1428,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         }
     }),
 
-    afterMount(({ actions, props }) => {
+    afterMount(({ actions, props, cache }) => {
+        cache.unmounted = false
         if (props.value) {
             actions.resetEmailTemplate(props.value)
             autoRevealAdvancedFields(actions, props)
