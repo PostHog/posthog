@@ -14,6 +14,7 @@ const COMPLETED_IMPORT: DashboardImportApi = {
     dashboard_name: 'Checkout service',
     phase: null,
     panel_progress: [],
+    agent_activity: null,
     layout_rounds: null,
     layout_round: null,
     dashboard_id: 1,
@@ -75,6 +76,13 @@ const RUNNING_IMPORT: DashboardImportApi = {
         { key: 'p5', title: 'Error logs', state: 'done' },
         { key: 'p6', title: 'Service map', state: 'skipped' },
     ],
+    agent_activity: {
+        kind: 'searching_metrics',
+        seconds: 14,
+        idle_seconds: 3,
+        subject: 'http_server_requests',
+        panel_count: null,
+    },
 }
 
 // The progress step shows a spinner on the current phase for as long as the import runs, and the runner waits
@@ -91,6 +99,26 @@ export const ImportProgress: Story = {
     render: () => {
         useDelayedOnMountEffect(() => {
             metricsDashboardImportLogic.actions.openImport(RUNNING_IMPORT)
+        })
+
+        return <MetricsDashboardImportModal />
+    },
+}
+
+export const ImportProgressAgentStalled: Story = {
+    parameters: { testOptions: { ...progressTestOptions, snapshotBrowsers: [] } },
+    render: () => {
+        useDelayedOnMountEffect(() => {
+            metricsDashboardImportLogic.actions.openImport({
+                ...RUNNING_IMPORT,
+                agent_activity: {
+                    kind: 'running_query',
+                    seconds: 262,
+                    idle_seconds: 252,
+                    subject: null,
+                    panel_count: null,
+                },
+            })
         })
 
         return <MetricsDashboardImportModal />

@@ -12,6 +12,7 @@ import type {
 } from 'products/metrics/frontend/generated/api.schemas'
 
 import { metricsDashboardImportLogic } from '../metricsDashboardImportLogic'
+import { DashboardImportAgentActivity } from './DashboardImportAgentActivity'
 
 const PHASES: { key: DashboardImportPhaseEnumApi; label: string }[] = [
     { key: 'starting', label: 'Start agent' },
@@ -100,11 +101,14 @@ export function DashboardImportProgress(): JSX.Element {
                 <div className="text-xs text-secondary" translate="no">
                     {`${settled} panels matched`}
                 </div>
-            ) : phase === 'matching' ? (
+            ) : phase === 'matching' && !currentImport?.agent_activity ? (
                 <div className="flex items-center gap-2 text-sm text-secondary">
                     <Spinner className="text-base" />
                     Reading the dashboard
                 </div>
+            ) : null}
+            {phase === 'matching' && currentImport?.agent_activity ? (
+                <DashboardImportAgentActivity activity={currentImport.agent_activity} />
             ) : null}
             {panels.length > 0 && (
                 <ul className="m-0 p-0 list-none max-h-80 overflow-y-auto rounded border divide-y">
@@ -117,7 +121,7 @@ export function DashboardImportProgress(): JSX.Element {
                             {panel.state === 'skipped' ? (
                                 <span className="ml-auto shrink-0 text-xs text-muted">No equivalent</span>
                             ) : panel.state === 'working' ? (
-                                <span className="ml-auto shrink-0 text-xs text-secondary">Checking</span>
+                                <span className="ml-auto shrink-0 text-xs text-secondary">Retrying</span>
                             ) : null}
                         </li>
                     ))}

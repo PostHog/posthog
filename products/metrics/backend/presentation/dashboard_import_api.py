@@ -41,6 +41,7 @@ from products.metrics.backend.facade.contracts import (
     PanelQueryCheckRequest,
 )
 from products.metrics.backend.facade.enums import (
+    AgentActivityKind,
     DashboardImportPhase,
     DashboardImportSource,
     DashboardImportState,
@@ -120,6 +121,24 @@ class DashboardImportPanelProgressSerializer(serializers.Serializer):
     )
 
 
+class DashboardImportAgentActivitySerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        choices=AgentActivityKind.choices,
+        help_text="What the agent does now, from its latest tool call. 'thinking' is the time between tool calls.",
+    )
+    seconds = serializers.IntegerField(help_text="Seconds since the action started.")
+    idle_seconds = serializers.IntegerField(
+        help_text="Seconds since the agent's last logged activity. A high value can mean that the agent is stuck."
+    )
+    subject = serializers.CharField(
+        allow_null=True,
+        help_text="The search term, metric name or attribute key that the action works on, when it has one.",
+    )
+    panel_count = serializers.IntegerField(
+        allow_null=True, help_text="Number of panels that a 'checking_panels' action checks."
+    )
+
+
 class DashboardImportSerializer(serializers.Serializer):
     id = serializers.CharField(
         allow_null=True,
@@ -138,6 +157,9 @@ class DashboardImportSerializer(serializers.Serializer):
     )
     panel_progress = DashboardImportPanelProgressSerializer(
         many=True, help_text="Where each panel is, while the import runs."
+    )
+    agent_activity = DashboardImportAgentActivitySerializer(
+        allow_null=True, help_text="The agent's latest action, while the phase is 'matching'. Null otherwise."
     )
     layout_rounds = serializers.IntegerField(
         allow_null=True,

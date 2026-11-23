@@ -28,6 +28,7 @@ from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import connection, transaction
 from django.utils import timezone
 
@@ -52,6 +53,7 @@ from products.dashboards.backend.facade.dashboard_creation import (
     move_dashboard_tiles,
 )
 from products.exports.backend.facade.api import render_png_export
+from products.metrics.backend.dashboard_import.activity import AgentAction, latest_agent_action
 from products.metrics.backend.dashboard_import.catalog import HISTOGRAM_TYPES, MetricCatalog
 from products.metrics.backend.dashboard_import.display import agent_unit
 from products.metrics.backend.dashboard_import.grafana import MAX_PANELS, GrafanaDashboardParser, GrafanaImportError
@@ -91,6 +93,7 @@ from products.metrics.backend.dashboard_import.spec import (
 from products.metrics.backend.dashboard_import.tiles import insight_query, insight_tile, text_tile
 from products.metrics.backend.dashboard_import.validation import PanelValidator, QueryCheck
 from products.metrics.backend.facade.contracts import (
+    DashboardImportAgentActivity,
     DashboardImportError,
     DashboardImportInProgress,
     DashboardImportNotAllowed,
@@ -129,6 +132,8 @@ START_CHECK_SECONDS = 20.0
 FINAL_CHECK_SECONDS = 60.0
 # A finalizer that holds the claim longer than this died before it saved a result, so another may take over.
 CLAIM_TIMEOUT = dt.timedelta(minutes=5)
+# The dialog polls every few seconds and each read downloads the whole run log, so several polls share one read.
+ACTIVITY_CACHE_SECONDS = 10
 MAX_GRAFANA_JSON_BYTES = 5 * 1024 * 1024
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 MAX_IMAGE_PIXELS = 40_000_000
@@ -404,6 +409,7 @@ class DashboardImporter:
             dashboard_name=state.dashboard_name,
             phase=phase,
             panel_progress=_panel_progress(state),
+            agent_activity=_agent_activity(run, self._team.id) if phase == DashboardImportPhase.MATCHING else None,
             layout_rounds=MAX_LAYOUT_ROUNDS if check else None,
         )
 
@@ -988,6 +994,37 @@ _PROGRESS_BY_OUTCOME = {
     "approximated": PanelProgressState.DONE,
     "skipped": PanelProgressState.SKIPPED,
 }
+
+
+def _agent_activity(run: TaskRunDTO, team_id: int) -> DashboardImportAgentActivity | None:
+    key = f"metrics_dashboard_import_activity:{run.id}"
+    cached: tuple[AgentAction | None] | None = cache.get(key)
+    if cached is None:
+        cached = (_read_agent_action(run, team_id),)
+        cache.set(key, cached, ACTIVITY_CACHE_SECONDS)
+    action = cached[0]
+    if action is None:
+        return None
+    now = timezone.now()
+    return DashboardImportAgentActivity(
+        kind=action.kind,
+        seconds=max(0, int((now - action.started_at).total_seconds())),
+        idle_seconds=max(0, int((now - action.last_activity_at).total_seconds())),
+        subject=action.subject,
+        panel_count=action.panel_count,
+    )
+
+
+def _read_agent_action(run: TaskRunDTO, team_id: int) -> AgentAction | None:
+    try:
+        logs = tasks_facade.get_task_run_logs(run.id, run.task_id, team_id)
+        if not logs:
+            return None
+        content = tasks_facade.read_task_run_log_content(logs)
+        return latest_agent_action(content)
+    except Exception:
+        logger.warning("metrics_dashboard_import_activity_read_failed", run_id=str(run.id), exc_info=True)
+        return None
 
 
 def _panel_progress(state: ImportState) -> tuple[DashboardImportPanelProgress, ...]:

@@ -1,9 +1,10 @@
 import io
 import json
 import base64
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -583,6 +584,40 @@ class TestDashboardImportAPI(APIBaseTest):
         assert progress() == [("Panel 2", "done"), ("Panel 3", "working")]
         check("sum(rate(orders_total))")
         assert progress() == [("Panel 2", "done"), ("Panel 3", "done")]
+
+    def test_a_matching_import_shows_the_agent_action(self) -> None:
+        started = self._start(source="grafana", grafana_json=_grafana("rate(payments_total[5m])"))
+        run = TaskRun.objects.get(task_id=started["id"])
+        run.status = TaskRun.Status.IN_PROGRESS
+        run.save(update_fields=["status"])
+        now = timezone.now()
+        update = {
+            "sessionUpdate": "tool_call",
+            "toolCallId": "call-1",
+            "_meta": {"claudeCode": {"toolName": "mcp__posthog__exec"}},
+            "rawInput": {"command": 'call metric-names-list {"value": "payments"}'},
+        }
+        run.append_log(
+            [
+                {
+                    "type": "notification",
+                    "timestamp": (now - timedelta(seconds=30)).isoformat(),
+                    "notification": {"method": "session/update", "params": {"update": update}},
+                }
+            ]
+        )
+
+        with time_machine.travel(now, tick=False):
+            body = self.client.get(f"{self.url}{started['id']}/").json()
+
+        assert body["phase"] == "matching"
+        assert body["agent_activity"] == {
+            "kind": "searching_metrics",
+            "seconds": 30,
+            "idle_seconds": 30,
+            "subject": "payments",
+            "panel_count": None,
+        }
 
     def test_validate_reports_what_to_fix_for_each_panel(self) -> None:
         response = self.client.post(

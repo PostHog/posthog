@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .enums import (
+    AgentActivityKind,
     AttributeScope,
     DashboardImportPhase,
     DashboardImportSource,
@@ -542,6 +543,17 @@ class DashboardImportPanelProgress:
 
 
 @dataclass(frozen=True, slots=True)
+class DashboardImportAgentActivity:
+    """The agent's latest action. `seconds` counts from its start, `idle_seconds` from the agent's last log entry."""
+
+    kind: AgentActivityKind
+    seconds: int
+    idle_seconds: int
+    subject: str | None = None
+    panel_count: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class DashboardImportSummary:
     total: int
     imported: int
@@ -560,6 +572,7 @@ class DashboardImportStatus:
     dashboard_name: str
     phase: DashboardImportPhase | None = None
     panel_progress: tuple[DashboardImportPanelProgress, ...] = ()
+    agent_activity: DashboardImportAgentActivity | None = None
     # The import compares at most `layout_rounds` pictures of the dashboard with the screenshot. None when it does not.
     layout_rounds: int | None = None
     layout_round: int | None = None
