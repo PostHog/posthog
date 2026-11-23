@@ -252,6 +252,7 @@ class TestProjectFanOut:
         [
             ("project_quality_profiles", "qualityprofiles/search", "profiles", "org"),
             ("pull_requests", "project_pull_requests/list", "pullRequests", None),
+            ("project_branches", "project_branches/list", "branches", None),
         ]
     )
     def test_requests_each_project_once_and_tags_rows(
@@ -299,4 +300,71 @@ class TestComponents:
         assert [(r.param("component"), r.param("p"), r.param("strategy")) for r in tree_requests] == [
             ("P1", "1", "all"),
             ("P1", "2", "all"),
+        ]
+
+
+class TestPagedFanOut:
+    @parameterized.expand(
+        [
+            (
+                "project_analyses_nested_paging",
+                "project_analyses",
+                "components/search_projects",
+                _projects("P1", "P2"),
+                "project_analyses/search",
+                "project",
+                lambda parent, page, total, rows: {"paging": _paging(page, 2, total), "analyses": rows},
+                ("project_key",),
+                None,
+            ),
+            (
+                "user_group_members_flat_paging",
+                "user_group_members",
+                "user_groups/search",
+                _response([{"id": "P1", "name": "devs"}, {"id": "P2", "name": "ops"}], total=2, key="groups"),
+                "user_groups/users",
+                "id",
+                lambda parent, page, total, rows: {"p": page, "ps": 2, "total": total, "users": rows},
+                ("group_id",),
+                "org",
+            ),
+        ]
+    )
+    def test_walks_each_parent_by_the_server_paging(
+        self,
+        _name: str,
+        endpoint: str,
+        parent_path: str,
+        parent_response: ScriptedResponse,
+        child_path: str,
+        resolve_param: str,
+        page_body: Callable[[str, int, int, list[dict[str, Any]]], dict[str, Any]],
+        parent_columns: tuple[str, ...],
+        organization: str | None,
+    ) -> None:
+        # P1 has 3 rows over two pages of 2; P2 has one row. The server applies a page size of 2 although we
+        # ask for 500, so a paginator that compares the row count with the requested size stops after page 1.
+        pages = {("P1", "1"): ["a", "b"], ("P1", "2"): ["c"], ("P2", "1"): ["a"]}
+        totals = {"P1": 3, "P2": 1}
+
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith(parent_path):
+                return parent_response
+            parent, page = request.param(resolve_param) or "", request.param("p") or ""
+            rows = [{"key": key, "login": key} for key in pages[(parent, page)]]
+            return ScriptedResponse(json=page_body(parent, int(page), totals[parent], rows))
+
+        result = _run(endpoint, script)
+
+        assert [(*(row[c] for c in parent_columns), row["key"]) for row in result.rows] == [
+            ("P1", "a"),
+            ("P1", "b"),
+            ("P1", "c"),
+            ("P2", "a"),
+        ]
+        child_requests = [r for r in result.requests if r.path.endswith(child_path)]
+        assert [(r.param(resolve_param), r.param("p"), r.param("organization")) for r in child_requests] == [
+            ("P1", "1", organization),
+            ("P1", "2", organization),
+            ("P2", "1", organization),
         ]

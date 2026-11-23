@@ -390,6 +390,19 @@ def test_target_report_without_site_audit_target_fails_permanently(healthscores:
     assert len(result.requests) == 1
 
 
+def test_issues_bad_request_fails_permanently() -> None:
+    source = AhrefsSource()
+    result = SourceDriver(source, AhrefsSourceConfig(api_key="test-key", project_id="123")).run(
+        "site_audit_issues", [ScriptedResponse(status=400, json={"error": "Invalid project state"})]
+    )
+    assert isinstance(result.raised, HTTPError)
+    raised = str(result.raised)
+    assert error_message_matches(raised, source.get_non_retryable_errors())
+    mapped = [m for key, m in source.get_non_retryable_errors().items() if error_message_matches(raised, [key])]
+    assert mapped and mapped[0] is not None and "completed crawl" in mapped[0]
+    assert len(result.requests) == 1
+
+
 @pytest.mark.parametrize("count", [99, 100, 101])
 def test_page_sample_cap(count: int) -> None:
     rows = [{"url": f"https://example.com/{i}"} for i in range(count)]

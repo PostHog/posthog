@@ -132,27 +132,27 @@ export interface definitionLogicActions {
         definition:
             | PropertyDefinition
             | {
-                  created_at?: string | undefined
-                  default_columns?: string[] | undefined
-                  description?: string | undefined
-                  enforcement_mode?: SchemaEnforcementMode | undefined
-                  hidden?: boolean | undefined
+                  created_at?: string
+                  default_columns?: string[]
+                  description?: string
+                  enforcement_mode?: SchemaEnforcementMode
+                  hidden?: boolean
                   id: string
-                  is_action?: boolean | undefined
-                  is_data_warehouse?: boolean | undefined
-                  last_seen_at?: string | undefined
-                  last_updated_at?: string | undefined
-                  media_preview_urls?: string[] | undefined
+                  is_action?: boolean
+                  is_data_warehouse?: boolean
+                  last_seen_at?: string
+                  last_updated_at?: string
+                  media_preview_urls?: string[]
                   name: string
-                  owner?: UserBasicType | null | undefined
-                  primary_property?: string | null | undefined
-                  scheduled_deletion_at?: string | null | undefined
-                  tags?: string[] | undefined
-                  updated_at?: string | undefined
-                  updated_by?: UserBasicType | null | undefined
-                  verified?: boolean | undefined
-                  verified_at?: string | undefined
-                  verified_by?: string | undefined
+                  owner?: UserBasicType | null
+                  primary_property?: string | null
+                  scheduled_deletion_at?: string | null
+                  tags?: string[]
+                  updated_at?: string
+                  updated_by?: UserBasicType | null
+                  verified?: boolean
+                  verified_at?: string
+                  verified_by?: string
               },
         payload?: {
             id: string
@@ -161,27 +161,27 @@ export interface definitionLogicActions {
         definition:
             | PropertyDefinition
             | {
-                  created_at?: string | undefined
-                  default_columns?: string[] | undefined
-                  description?: string | undefined
-                  enforcement_mode?: SchemaEnforcementMode | undefined
-                  hidden?: boolean | undefined
+                  created_at?: string
+                  default_columns?: string[]
+                  description?: string
+                  enforcement_mode?: SchemaEnforcementMode
+                  hidden?: boolean
                   id: string
-                  is_action?: boolean | undefined
-                  is_data_warehouse?: boolean | undefined
-                  last_seen_at?: string | undefined
-                  last_updated_at?: string | undefined
-                  media_preview_urls?: string[] | undefined
+                  is_action?: boolean
+                  is_data_warehouse?: boolean
+                  last_seen_at?: string
+                  last_updated_at?: string
+                  media_preview_urls?: string[]
                   name: string
-                  owner?: UserBasicType | null | undefined
-                  primary_property?: string | null | undefined
-                  scheduled_deletion_at?: string | null | undefined
-                  tags?: string[] | undefined
-                  updated_at?: string | undefined
-                  updated_by?: UserBasicType | null | undefined
-                  verified?: boolean | undefined
-                  verified_at?: string | undefined
-                  verified_by?: string | undefined
+                  owner?: UserBasicType | null
+                  primary_property?: string | null
+                  scheduled_deletion_at?: string | null
+                  tags?: string[]
+                  updated_at?: string
+                  updated_by?: UserBasicType | null
+                  verified?: boolean
+                  verified_at?: string
+                  verified_by?: string
               }
         payload?: {
             id: string

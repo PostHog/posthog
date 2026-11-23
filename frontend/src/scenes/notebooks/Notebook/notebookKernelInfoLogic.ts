@@ -249,9 +249,9 @@ export interface notebookKernelInfoLogicActions {
         nextAction: 'restart' | 'start'
     ) => {
         config: {
-            cpu_cores?: number | undefined
-            idle_timeout_seconds?: number | undefined
-            memory_gb?: number | undefined
+            cpu_cores?: number
+            idle_timeout_seconds?: number
+            memory_gb?: number
         }
         nextAction: 'restart' | 'start'
     }

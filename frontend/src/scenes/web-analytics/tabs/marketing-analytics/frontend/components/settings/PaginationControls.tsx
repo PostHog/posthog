@@ -7,7 +7,7 @@ export enum ItemName {
     Sources = 'sources',
 }
 
-interface PaginationControlsProps {
+export interface PaginationControlsProps {
     hasMoreItems: boolean
     showAll: boolean
     onToggleShowAll: () => void

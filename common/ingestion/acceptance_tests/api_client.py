@@ -189,7 +189,7 @@ class PostHogTestClient:
         return []
 
     def capture_ai_event(self, api_key: str, event: str, distinct_id: str, properties: dict[str, Any]) -> None:
-        """Send an AI event on the SDK's dedicated AI lane (POSTs JSON to /i/v0/ai/batch/)."""
+        """Send an AI event on the SDK's dedicated AI lane (POSTs JSON to /i/v1/ai/events)."""
         client = Posthog(
             api_key,
             host=self.base_url,

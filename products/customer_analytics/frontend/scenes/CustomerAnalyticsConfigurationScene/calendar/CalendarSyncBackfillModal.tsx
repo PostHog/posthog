@@ -2,6 +2,9 @@ import { LemonButton, LemonLabel, LemonModal } from '@posthog/lemon-ui'
 
 import { DatePicker } from 'lib/components/DatePicker/DatePicker'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
+import { QuillCalendarSyncBackfillModal } from './QuillCalendarSyncBackfillModal'
 
 export interface CalendarSyncBackfillModalProps {
     isOpen: boolean
@@ -26,6 +29,24 @@ export function CalendarSyncBackfillModal({
     onSubmit,
     onClose,
 }: CalendarSyncBackfillModalProps): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return (
+            <QuillCalendarSyncBackfillModal
+                isOpen={isOpen}
+                startDate={startDate}
+                endDate={endDate}
+                dateError={dateError}
+                isSubmitting={isSubmitting}
+                onStartDateChange={onStartDateChange}
+                onEndDateChange={onEndDateChange}
+                onSubmit={onSubmit}
+                onClose={onClose}
+            />
+        )
+    }
+
     return (
         <LemonModal
             isOpen={isOpen}

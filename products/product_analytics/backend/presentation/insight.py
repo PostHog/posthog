@@ -1425,6 +1425,10 @@ class InsightSerializer(InsightBasicSerializer):
     @lru_cache(maxsize=1)  # noqa: B019 - short-lived serializer
     def insight_result(self, insight: Insight) -> InsightResult:
 
+        # The caller reads results separately, such as a dashboard first load that reads them through cached_tiles.
+        if self.context.get("omit_insight_results"):
+            return InsightResult(result=None, last_refresh=None, cache_key=None, is_cached=False, timezone=None)
+
         dashboard: Any = self.context.get("dashboard")
 
         # Check if we have an expected cache key from the image exporter

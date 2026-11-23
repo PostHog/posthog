@@ -177,6 +177,33 @@ class TestFanout:
             "/api/public/v1/chapters/102/contents",
         ]
 
+    @parameterized.expand([("bundle_courses", "courses"), ("bundle_enrollments", "enrollments")])
+    def test_bundle_children_fan_out_over_bundle_products_only(self, endpoint: str, child_path: str) -> None:
+        result = _run(
+            endpoint,
+            [
+                _response(
+                    [
+                        {"id": 1, "productable_type": "Course", "productable_id": 40},
+                        {"id": 2, "productable_type": "Bundle", "productable_id": 50},
+                        {"id": 3, "productable_type": "Bundle", "productable_id": None},
+                        {"id": 4, "productable_type": "Bundle", "productable_id": 60},
+                    ],
+                    total_pages=1,
+                ),
+                _response([{"id": 7}], total_pages=1),
+                _response([{"id": 7}, {"id": 8}], total_pages=1),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": 7, "bundle_id": 50}, {"id": 7, "bundle_id": 60}, {"id": 8, "bundle_id": 60}]
+        assert result.paths == [
+            "/api/public/v1/products",
+            f"/api/public/v1/bundles/50/{child_path}",
+            f"/api/public/v1/bundles/60/{child_path}",
+        ]
+
     def test_resume_skips_completed_parents(self) -> None:
         result = _run(
             "course_reviews",
@@ -217,6 +244,21 @@ class TestIncrementalFilter:
             db_incremental_field_last_value=value,
         )
         assert ("query[updated_on_or_after]" in result.requests[0].query) is expected_present
+
+    def test_fan_out_filter_goes_on_child_requests_only(self) -> None:
+        result = _run(
+            "bundle_enrollments",
+            [
+                _response([{"id": 2, "productable_type": "Bundle", "productable_id": 50}], total_pages=1),
+                _response([{"id": 1}], total_pages=1),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 4, 10, 0, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/api/public/v1/products", "/api/public/v1/bundles/50/enrollments"]
+        assert result.params("query[updated_on_or_after]") == [None, "2026-03-04"]
 
 
 class TestErrorHandling:

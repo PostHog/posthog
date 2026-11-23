@@ -510,6 +510,42 @@ CREATE TABLE posthog.kafka_events_json_native_json (
   dmat_string_9 Nullable(String),
   captured_at Nullable(DateTime64(6, 'UTC'))
 ) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_events_json_native_json', kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_events_json';
+CREATE TABLE posthog.kafka_events_json_recent (
+  uuid UUID,
+  event String,
+  properties String CODEC(ZSTD(3)),
+  timestamp DateTime64(6, 'UTC'),
+  team_id Int64,
+  distinct_id String,
+  elements_chain String,
+  created_at DateTime64(6, 'UTC'),
+  person_id UUID,
+  person_created_at DateTime64(3),
+  person_properties String CODEC(ZSTD(3)),
+  group0_properties String CODEC(ZSTD(3)),
+  group1_properties String CODEC(ZSTD(3)),
+  group2_properties String CODEC(ZSTD(3)),
+  group3_properties String CODEC(ZSTD(3)),
+  group4_properties String CODEC(ZSTD(3)),
+  group0_created_at DateTime64(3),
+  group1_created_at DateTime64(3),
+  group2_created_at DateTime64(3),
+  group3_created_at DateTime64(3),
+  group4_created_at DateTime64(3),
+  person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2),
+  historical_migration Bool,
+  dmat_string_0 Nullable(String),
+  dmat_string_1 Nullable(String),
+  dmat_string_2 Nullable(String),
+  dmat_string_3 Nullable(String),
+  dmat_string_4 Nullable(String),
+  dmat_string_5 Nullable(String),
+  dmat_string_6 Nullable(String),
+  dmat_string_7 Nullable(String),
+  dmat_string_8 Nullable(String),
+  dmat_string_9 Nullable(String),
+  captured_at Nullable(DateTime64(6, 'UTC'))
+) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_events_json_recent', kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_events_json';
 CREATE TABLE posthog.kafka_flag_evaluations (
   uuid UUID,
   event LowCardinality(String),
@@ -2075,6 +2111,42 @@ CREATE TABLE posthog.sharded_events_json (
   INDEX minmax_historical_migration historical_migration TYPE minmax GRANULARITY 1,
   INDEX minmax_created_at created_at TYPE minmax GRANULARITY 1
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.events_json', '{replica}', _timestamp) PRIMARY KEY (team_id, toDate(timestamp), event, cityHash64(distinct_id)) ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), timestamp, uuid) PARTITION BY clamp(toYYYYMM(timestamp), 202001, 203512) SAMPLE BY cityHash64(distinct_id) SETTINGS enable_block_number_column = 1, enable_block_offset_column = 1, index_granularity = 8192, map_serialization_version = 'with_buckets', object_serialization_version = 'v3', object_shared_data_serialization_version = 'map_with_buckets', propagate_types_serialization_versions_to_nested_types = 1, string_serialization_version = 'single_stream';
+CREATE TABLE posthog.sharded_events_json_recent (
+  uuid UUID,
+  event String,
+  properties String,
+  temporary_properties String,
+  properties_null_keys Array(LowCardinality(String)),
+  temporary_properties_null_keys Array(LowCardinality(String)),
+  timestamp DateTime64(6, 'UTC'),
+  team_id Int64,
+  distinct_id String,
+  created_at DateTime64(6, 'UTC') DEFAULT now(),
+  _timestamp DateTime,
+  _offset UInt64,
+  elements_chain String,
+  person_id UUID,
+  person_properties String,
+  person_properties_null_keys Array(LowCardinality(String)),
+  group0_properties String,
+  group1_properties String,
+  group2_properties String,
+  group3_properties String,
+  group4_properties String,
+  person_created_at DateTime64(3),
+  group0_created_at DateTime64(3),
+  group1_created_at DateTime64(3),
+  group2_created_at DateTime64(3),
+  group3_created_at DateTime64(3),
+  group4_created_at DateTime64(3),
+  inserted_at DateTime64(6, 'UTC') DEFAULT now64(),
+  person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2),
+  consumer_breadcrumbs Array(String),
+  historical_migration Bool,
+  total_event_size UInt32,
+  captured_at DateTime64(6, 'UTC') DEFAULT now(),
+  _partition UInt64
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_events_json_recent', '{replica}', _timestamp) ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid)) PARTITION BY toStartOfDay(inserted_at) TTL toDate(inserted_at) + toIntervalDay(9) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_events_recent (
   uuid UUID,
   event String,
@@ -2159,11 +2231,11 @@ CREATE TABLE posthog.sharded_flag_evaluations (
   response LowCardinality(String) DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag_response',
   session_id String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') COMMENT 'column_materializer::properties::$session_id',
   request_id String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_request_id'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag_request_id',
-  properties_group_custom Map(String, String) MATERIALIZED mapSort(mapFilter((key, _) -> ((key NOT LIKE '$%') AND (key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid', 'epik', 'qclid', 'sccid', 'irclid', '_kx'))), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))),
-  person_properties_map_custom Map(String, String) MATERIALIZED mapSort(mapFilter((key, _) -> (key NOT LIKE '$%'), CAST(JSONExtractKeysAndValues(person_properties, 'String'), 'Map(String, String)'))),
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64,
+  properties_group_custom Map(String, String) MATERIALIZED mapSort(mapFilter((key, _) -> ((key NOT LIKE '$%') AND (key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid', 'epik', 'qclid', 'sccid', 'irclid', '_kx'))), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))),
+  person_properties_map_custom Map(String, String) MATERIALIZED mapSort(mapFilter((key, _) -> (key NOT LIKE '$%'), CAST(JSONExtractKeysAndValues(person_properties, 'String'), 'Map(String, String)'))),
   INDEX distinct_id_idx distinct_id TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX person_id_idx person_id TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX session_id_idx session_id TYPE bloom_filter(0.01) GRANULARITY 1,
@@ -3732,6 +3804,42 @@ CREATE TABLE posthog.writable_events_json (
   captured_at DateTime64(6, 'UTC') DEFAULT now(),
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_events_json', sipHash64(distinct_id));
+CREATE TABLE posthog.writable_events_json_recent (
+  uuid UUID,
+  event String,
+  properties String,
+  temporary_properties String,
+  properties_null_keys Array(LowCardinality(String)),
+  temporary_properties_null_keys Array(LowCardinality(String)),
+  timestamp DateTime64(6, 'UTC'),
+  team_id Int64,
+  distinct_id String,
+  created_at DateTime64(6, 'UTC') DEFAULT now(),
+  _timestamp DateTime,
+  _offset UInt64,
+  elements_chain String,
+  person_id UUID,
+  person_properties String,
+  person_properties_null_keys Array(LowCardinality(String)),
+  group0_properties String,
+  group1_properties String,
+  group2_properties String,
+  group3_properties String,
+  group4_properties String,
+  person_created_at DateTime64(3),
+  group0_created_at DateTime64(3),
+  group1_created_at DateTime64(3),
+  group2_created_at DateTime64(3),
+  group3_created_at DateTime64(3),
+  group4_created_at DateTime64(3),
+  inserted_at DateTime64(6, 'UTC') DEFAULT now64(),
+  person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2),
+  consumer_breadcrumbs Array(String),
+  historical_migration Bool,
+  total_event_size UInt32,
+  captured_at DateTime64(6, 'UTC') DEFAULT now(),
+  _partition UInt64
+) ENGINE = Distributed('posthog_writable', 'posthog', 'sharded_events_json_recent', sipHash64(distinct_id));
 CREATE TABLE posthog.writable_events_recent (
   uuid UUID,
   event String,
@@ -4557,6 +4665,63 @@ CREATE MATERIALIZED VIEW posthog.events_json_mv TO posthog.writable_events (uuid
     )
   ) AS consumer_breadcrumbs
 FROM posthog.kafka_events_json;
+CREATE MATERIALIZED VIEW posthog.events_json_recent_mv TO posthog.writable_events_json_recent (uuid UUID, event String, properties String, temporary_properties String, properties_null_keys Array(String), temporary_properties_null_keys Array(String), inserted_at DateTime64(3), timestamp DateTime64(6, 'UTC'), team_id Int64, distinct_id String, elements_chain String, created_at DateTime64(6, 'UTC'), person_id UUID, person_properties String, person_properties_null_keys Array(String), person_created_at DateTime64(3), group0_properties String, group1_properties String, group2_properties String, group3_properties String, group4_properties String, group0_created_at DateTime64(3), group1_created_at DateTime64(3), group2_created_at DateTime64(3), group3_created_at DateTime64(3), group4_created_at DateTime64(3), person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2), historical_migration Bool, captured_at DateTime64(6, 'UTC'), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64, consumer_breadcrumbs Array(String), total_event_size UInt32) AS SELECT
+  *,
+  accurateCast(byteSize(*) + byteSize(toUInt32(0)), 'UInt32') AS total_event_size
+FROM
+  (
+    SELECT
+      uuid,
+      event,
+      cleaned.properties AS properties,
+      cleaned.temporary_properties AS temporary_properties,
+      cleaned.properties_null_keys AS properties_null_keys,
+      cleaned.temporary_properties_null_keys AS temporary_properties_null_keys,
+      now64() AS inserted_at,
+      timestamp,
+      team_id,
+      distinct_id,
+      elements_chain,
+      created_at,
+      person_id,
+      cleaned.person_properties AS person_properties,
+      cleaned.person_properties_null_keys AS person_properties_null_keys,
+      person_created_at,
+      group0_properties,
+      group1_properties,
+      group2_properties,
+      group3_properties,
+      group4_properties,
+      group0_created_at,
+      group1_created_at,
+      group2_created_at,
+      group3_created_at,
+      group4_created_at,
+      person_mode,
+      historical_migration,
+      coalesce(captured_at, created_at) AS captured_at,
+      _timestamp,
+      _offset,
+      _partition,
+      consumer_breadcrumbs
+    FROM
+      (
+        SELECT
+          *,
+          _timestamp,
+          _offset,
+          _partition,
+          arrayMap(
+            i -> (_headers.value[i]),
+            arrayFilter(
+              i -> ((_headers.name[i]) = 'kafka-consumer-breadcrumbs'),
+              arrayEnumerate(_headers.name)
+            )
+          ) AS consumer_breadcrumbs,
+          JSONCleanPostHogEventForExport(properties, person_properties) AS cleaned
+        FROM posthog.kafka_events_json_recent
+      ) AS source
+  );
 CREATE MATERIALIZED VIEW posthog.events_json_table_mv TO posthog.writable_events_json (uuid UUID, event String, properties String, temporary_properties String, inserted_at DateTime64(3), timestamp DateTime64(6, 'UTC'), team_id Int64, distinct_id String, elements_chain String, created_at DateTime64(6, 'UTC'), person_id UUID, person_properties String, person_created_at DateTime64(3), group0_properties String, group1_properties String, group2_properties String, group3_properties String, group4_properties String, group0_created_at DateTime64(3), group1_created_at DateTime64(3), group2_created_at DateTime64(3), group3_created_at DateTime64(3), group4_created_at DateTime64(3), person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2), historical_migration Bool, captured_at DateTime64(6, 'UTC'), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64, consumer_breadcrumbs Array(String), total_event_size UInt32) AS SELECT
   *,
   accurateCast(byteSize(*) + byteSize(toUInt32(0)), 'UInt32') AS total_event_size
@@ -6623,6 +6788,42 @@ CREATE TABLE posthog.events_json (
   elements_chain_ids Array(String),
   elements_chain_elements Array(Enum8('a'=1, 'button'=2, 'form'=3, 'input'=4, 'select'=5, 'textarea'=6, 'label'=7))
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_events_json', sipHash64(distinct_id));
+CREATE TABLE posthog.events_json_recent (
+  uuid UUID,
+  event String,
+  properties String,
+  temporary_properties String,
+  properties_null_keys Array(LowCardinality(String)),
+  temporary_properties_null_keys Array(LowCardinality(String)),
+  timestamp DateTime64(6, 'UTC'),
+  team_id Int64,
+  distinct_id String,
+  created_at DateTime64(6, 'UTC') DEFAULT now(),
+  _timestamp DateTime,
+  _offset UInt64,
+  elements_chain String,
+  person_id UUID,
+  person_properties String,
+  person_properties_null_keys Array(LowCardinality(String)),
+  group0_properties String,
+  group1_properties String,
+  group2_properties String,
+  group3_properties String,
+  group4_properties String,
+  person_created_at DateTime64(3),
+  group0_created_at DateTime64(3),
+  group1_created_at DateTime64(3),
+  group2_created_at DateTime64(3),
+  group3_created_at DateTime64(3),
+  group4_created_at DateTime64(3),
+  inserted_at DateTime64(6, 'UTC') DEFAULT now64(),
+  person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2),
+  consumer_breadcrumbs Array(String),
+  historical_migration Bool,
+  total_event_size UInt32,
+  captured_at DateTime64(6, 'UTC') DEFAULT now(),
+  _partition UInt64
+) ENGINE = Distributed('posthog_primary_replica', 'posthog', 'sharded_events_json_recent', sipHash64(distinct_id));
 CREATE TABLE posthog.events_recent (
   uuid UUID,
   event String,
@@ -6707,11 +6908,11 @@ CREATE TABLE posthog.flag_evaluations (
   response LowCardinality(String) COMMENT 'column_materializer::properties::$feature_flag_response',
   session_id String COMMENT 'column_materializer::properties::$session_id',
   request_id String COMMENT 'column_materializer::properties::$feature_flag_request_id',
-  properties_group_custom Map(String, String),
-  person_properties_map_custom Map(String, String),
   _timestamp DateTime,
   _offset UInt64,
-  _partition UInt64
+  _partition UInt64,
+  properties_group_custom Map(String, String),
+  person_properties_map_custom Map(String, String)
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_flag_evaluations', sipHash64(distinct_id));
 CREATE TABLE posthog.heatmaps (
   session_id String,

@@ -7,6 +7,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.http import QueryDict
 from django.test import Client
 
 from parameterized import parameterized
@@ -20,6 +21,7 @@ from urllib3.exceptions import MaxRetryError, NewConnectionError
 from posthog.admin.console.tools import Links
 from posthog.clickhouse.client.execute import sync_execute
 
+from products.cdp.backend.console import ReplayFiltersForm
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hog_invocation_results_sql import INSERT_HOG_INVOCATION_RESULT_SQL
 from products.cdp.backend.services.invocation_replay import (
@@ -317,6 +319,13 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
                 [],
                 {"sends_sensitive_email": 2},
             ),
+            (
+                "sensitive_push",
+                {"actions": [{"id": "push", "type": "function_push", "config": {"sensitive": True}}]},
+                {},
+                [],
+                {"sends_sensitive_email": 2},
+            ),
             ("step_template_excluded", {}, {"exclude_template_ids": ("template-hubspot",)}, [], None),
             ("step_template_not_selected", {}, {"template_ids": ("template-google-ads",)}, [], None),
         ]
@@ -607,6 +616,37 @@ class TestReplayConsoleTool(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status
         task.delay.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("link_without_the_checks_keeps_the_defaults", {}, ("template-hubspot",), True),
+            ("form_with_the_checks_unticked_turns_them_off", {"filters_submitted": "1"}, (), False),
+        ]
+    )
+    def test_filters_left_out_of_the_query(
+        self, _name: str, extra: dict[str, str], latest_per_person: tuple[str, ...], checks_on: bool
+    ) -> None:
+        query = QueryDict(mutable=True)
+        query.update(
+            {
+                "window_start": "2026-10-22 11:30:00",
+                "window_end": "2026-10-22 14:00:00",
+                "error_message_contains": "401",
+                **extra,
+            }
+        )
+
+        form = ReplayFiltersForm.from_query(query)
+
+        assert form.is_valid(), form.errors
+        criteria = form.to_criteria()
+        assert criteria.latest_per_person_template_ids == latest_per_person
+        assert (
+            criteria.require_success_since_window,
+            criteria.skip_already_rerun,
+            criteria.skip_failing_before_window,
+        ) == (checks_on,) * 3
+        assert criteria.include_workflows is False
 
     @parameterized.expand([("included", True), ("left_out", False)])
     def test_workflow_failures_are_planned_only_when_included(self, _name: str, include: bool) -> None:
