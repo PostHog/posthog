@@ -272,6 +272,9 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
         # Management commands, seeders and project copies write through the ORM and skip FeatureFlagSerializer.
         # bulk_create, QuerySet.update and migrations do not call save(), so they skip this check.
         update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            # A caller may pass an iterator, which the membership test below would exhaust before Django reads it.
+            update_fields = kwargs["update_fields"] = list(update_fields)
         if update_fields is None or "filters" in update_fields:
             self._require_string_variant_keys()
         super().save(*args, **kwargs)

@@ -17,7 +17,7 @@ A flag that already serves a key in `RESERVED_NEW_VARIANT_KEYS` keeps it, becaus
 and chart continuity. The match is exact, so "True" and "NULL" stay allowed.
 """
 
-from collections.abc import Collection, Iterator, Mapping
+from collections.abc import Collection, Iterator, Mapping, Sequence
 from typing import Any
 
 from posthog.hogql.constants import FEATURE_FLAG_VARIANT_SENTINELS
@@ -68,15 +68,16 @@ def non_string_variants(filters: object) -> list[tuple[str, Any]]:
     ]
 
 
-def _variant_lists(filters: object) -> Iterator[tuple[str, list[Any]]]:
+def _variant_lists(filters: object) -> Iterator[tuple[str, Sequence[Any]]]:
+    # JSONField stores a tuple as a JSON array, so an ORM write can pass either.
     if not isinstance(filters, Mapping):
         return
     kind = detect_config_format(filters).kind
     if kind == "v1":
         multivariate = filters.get("multivariate")
-        if isinstance(multivariate, Mapping) and isinstance(multivariate.get("variants"), list):
+        if isinstance(multivariate, Mapping) and isinstance(multivariate.get("variants"), list | tuple):
             yield "multivariate.variants", multivariate["variants"]
-    elif kind == "v2" and isinstance(filters.get("rules"), list):
+    elif kind == "v2" and isinstance(filters.get("rules"), list | tuple):
         for index, rule in enumerate(filters["rules"]):
-            if isinstance(rule, Mapping) and isinstance(rule.get("variants"), list):
+            if isinstance(rule, Mapping) and isinstance(rule.get("variants"), list | tuple):
                 yield f"rules[{index}].variants", rule["variants"]

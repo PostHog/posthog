@@ -600,6 +600,13 @@ class TestStringVariantKeyOnModelWrites(SimpleTestCase):
                 "save",
             ),
             ("bare_string_variant", {"multivariate": {"variants": ["control"]}}, "multivariate.variants[0]", "save"),
+            ("tuple_of_variants", {"multivariate": {"variants": ({"key": None},)}}, "multivariate.variants[0]", "save"),
+            (
+                "tuple_of_v2_rules",
+                {"version": 2, "rules": ({"variants": ({"key": 1},)},)},
+                "rules[0].variants[0]",
+                "save",
+            ),
             (
                 "v2_experiment_rule",
                 {"version": 2, "rules": [{"variants": [{"key": "a"}]}, {"variants": [{"key": None}]}]},
@@ -647,6 +654,13 @@ class TestStringVariantKeyHeldByStoredFlag(BaseTest):
         flag.save()
         flag.refresh_from_db()
         assert (flag.deleted, flag.filters["multivariate"]["variants"][1]) == (False, KEYLESS_VARIANT)
+
+    def test_a_save_with_update_fields_as_an_iterator_writes_those_fields(self) -> None:
+        flag = self._stored_flag()
+        flag.active = False
+        flag.save(update_fields=iter(["active"]))
+        flag.refresh_from_db()
+        assert flag.active is False
 
     def test_a_save_that_adds_a_variant_without_a_string_key_is_refused(self) -> None:
         flag = self._stored_flag()
