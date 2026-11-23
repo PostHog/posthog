@@ -12,7 +12,7 @@ echo `# <#` >/dev/null
 #
 # Options, each with an environment variable:
 #   --version <version>   HOG_VERSION       Install this version instead of the latest one
-#   --dir <folder>        HOG_INSTALL_DIR   Where to put the binary. Defaults to ~/.local/bin
+#   --dir <folder>        HOG_INSTALL_DIR   Where to put hog and hog-worker. Defaults to ~/.local/bin
 #
 # Everything runs from main, called on the last line, so a download cut short runs nothing.
 
@@ -201,7 +201,7 @@ usage() {
     say ""
     say "Options:"
     say "  --version <version>  Install this version instead of the latest one (HOG_VERSION)"
-    say "  --dir <folder>       Where to put the binary, ~/.local/bin by default (HOG_INSTALL_DIR)"
+    say "  --dir <folder>       Where to put hog and hog-worker, ~/.local/bin by default (HOG_INSTALL_DIR)"
 }
 
 # The hedgehog of the hobby installer, bin/hobby-installer/ui/hedgehog.go.
@@ -265,17 +265,67 @@ main() {
     tar -xzf "$tmp/$archive" -C "$tmp/unpacked"
     [ -f "$tmp/unpacked/hog" ] || err "$archive has no hog binary."
 
-    # Staged next to the destination and run there first, so a build that can't run on this machine
-    # never replaces a working hog, and the rename never leaves a half-written one.
+    # Staged in a folder next to the destination and run there first, so a build that can't run on this
+    # machine never replaces a working hog, and each rename puts a whole file in place.
+    # HOG_CHECK_INSTALL makes hog check the files that ship next to it. A release from before that
+    # check ignores it.
     mkdir -p "$install_dir"
     staged="$install_dir/.hog.$$.tmp"
-    cp "$tmp/unpacked/hog" "$staged"
-    chmod 755 "$staged"
-    if ! installed=$("$staged" --version 2>/dev/null); then
-        rm -f "$staged"
+    kept="$install_dir/.hog.$$.old"
+    if ! mkdir "$staged" "$kept" || ! cp "$tmp/unpacked"/* "$staged/" || ! chmod 755 "$staged"/*; then
+        rm -rf "$staged" "$kept"
+        err "couldn't write to $install_dir, so the install left it as it was."
+    fi
+    if ! installed=$(HOG_CHECK_INSTALL=1 "$staged/hog" --version 2>"$tmp/run-error.txt"); then
+        rm -rf "$staged" "$kept"
+        # The musl build of hog links the C++ runtime, which a bare Alpine image lacks. musl's loader
+        # names the library it can't find, and no glibc loader words it this way.
+        if grep -q -e 'Error loading shared library libstdc++\.so' \
+            -e 'Error loading shared library libgcc_s\.so' "$tmp/run-error.txt"; then
+            err "hog $version needs libstdc++ and libgcc, which this machine doesn't have, so the install left $install_dir as it was. On Alpine, install them and run this again:
+  apk add libstdc++ libgcc"
+        fi
         err "hog $version doesn't run on this machine, so the install left $install_dir as it was."
     fi
-    mv -f "$staged" "$install_dir/hog"
+
+    # The files of a release work only together, so each old one stays aside until every new one is
+    # in place, and all of them go back when one can't be replaced or the install is interrupted. A
+    # name is recorded once its old file is safe aside, before the move that replaces it.
+    # mv puts a file inside a folder of the same name instead of replacing it, so a folder in the way
+    # stops the install before anything changes.
+    for file in "$staged"/*; do
+        name=$(basename "$file")
+        if [ -d "$install_dir/$name" ]; then
+            rm -rf "$staged" "$kept"
+            err "$install_dir/$name is a folder, so the install left $install_dir as it was. Move it away and run this again."
+        fi
+    done
+    replaced=''
+    roll_back() {
+        for old in $replaced; do
+            if [ -f "$kept/$old" ]; then
+                mv -f "$kept/$old" "$install_dir/$old"
+            else
+                rm -f "$install_dir/$old"
+            fi
+        done
+        rm -rf "$staged" "$kept"
+    }
+    trap 'roll_back; exit 1' INT TERM
+    for file in "$staged"/*; do
+        name=$(basename "$file")
+        if [ -f "$install_dir/$name" ] && ! cp -p "$install_dir/$name" "$kept/$name"; then
+            roll_back
+            err "couldn't replace $install_dir/$name, so the install left $install_dir as it was."
+        fi
+        replaced="$replaced $name"
+        if ! mv -f "$file" "$install_dir/$name"; then
+            roll_back
+            err "couldn't replace $install_dir/$name, so the install left $install_dir as it was."
+        fi
+    done
+    trap 'exit 1' INT TERM
+    rm -rf "$staged" "$kept"
     write_receipt
 
     say "${green}Installed hog $installed$reset to $install_dir/hog."
