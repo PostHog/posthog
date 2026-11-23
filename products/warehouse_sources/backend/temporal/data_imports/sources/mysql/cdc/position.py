@@ -16,7 +16,7 @@ class BinlogPosition:
     A binlog position is a file and a byte offset, and it only orders events on one server: after a
     failover the new server numbers its own files. The epoch counts the streams this source has
     started, so every position of a newer stream sorts after every position of an older one.
-    Serialized as ``"{epoch}@{file}:{offset}"``, e.g. ``"0@binlog.000003:157"``.
+    Serialized as ``"{epoch}/{file}:{offset}"``, e.g. ``"0/binlog.000003:157"``.
     """
 
     epoch: int
@@ -42,11 +42,11 @@ class BinlogPosition:
         return (self.epoch << (_FILE_NUMBER_BITS + _OFFSET_BITS)) | (self.file_number << _OFFSET_BITS) | self.offset
 
     def serialize(self) -> str:
-        return f"{self.epoch}@{self.file}:{self.offset}"
+        return f"{self.epoch}/{self.file}:{self.offset}"
 
     @classmethod
     def deserialize(cls, value: str) -> BinlogPosition:
-        epoch, _, rest = value.partition("@")
+        epoch, _, rest = value.partition("/")
         file, _, offset = rest.rpartition(":")
         if not epoch or not file or not offset:
             raise ValueError(f"Not a binlog position: {value!r}")

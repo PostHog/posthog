@@ -31,10 +31,10 @@ class TestBinlogPosition:
     @parameterized.expand(
         [
             ("no_epoch", "binlog.000003:157"),
-            ("no_offset", "0@binlog.000003"),
-            ("no_file_number", "0@binlog:157"),
-            ("epoch_overflow", "2048@binlog.000003:157"),
-            ("file_number_overflow", "0@binlog.1048576:157"),
+            ("no_offset", "0/binlog.000003"),
+            ("no_file_number", "0/binlog:157"),
+            ("epoch_overflow", "2048/binlog.000003:157"),
+            ("file_number_overflow", "0/binlog.1048576:157"),
         ]
     )
     def test_malformed_position_is_refused(self, _name, serialized):

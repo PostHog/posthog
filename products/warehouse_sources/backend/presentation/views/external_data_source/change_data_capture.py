@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Mapping
+from typing import Any, Protocol, runtime_checkable
 
 from django.db import models, transaction
 
@@ -35,9 +36,6 @@ from products.warehouse_sources.backend.facade.source_management import (
     CDCRepairError,
     CDCRepairInProgress,
     CDCSourceAdapter,
-    CDCSourceMixin,
-    SSHTunnelMixin,
-    ValidateDatabaseHostMixin,
     cdc_supported_source_types,
     get_cdc_adapter,
     history_tables,
@@ -266,6 +264,27 @@ def parse_cdc_tuning(
     return tuning, None
 
 
+@runtime_checkable
+class _CDCPrerequisiteCheckSource(Protocol):
+    """A source class that checks its database against the CDC prerequisites before the source exists."""
+
+    def ssh_tunnel_is_valid(self, config: Any, team_id: int) -> tuple[bool, str | None]: ...
+
+    def is_database_host_valid(
+        self, host: str, team_id: int, using_ssh_tunnel: bool = False
+    ) -> tuple[bool, str | None]: ...
+
+    def check_cdc_prerequisites(
+        self,
+        config: Any,
+        management_mode: str,
+        tables: list[str],
+        setup: Mapping[str, Any],
+        require_ssl: bool = True,
+        team_id: int | None = None,
+    ) -> list[str]: ...
+
+
 class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
     def _setup_cdc_resources(
         self, adapter: CDCSourceAdapter, source_model: ExternalDataSource, payload: dict
@@ -377,11 +396,8 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
         # Dispatch to the actual source class so subclasses (Supabase, Neon) can run
         # their own pre-connection checks, e.g. rejecting pooled hosts for CDC.
         source_impl = base.SourceRegistry.get_source(source_type)
-        if not (
-            isinstance(source_impl, CDCSourceMixin)
-            and isinstance(source_impl, SSHTunnelMixin)
-            and isinstance(source_impl, ValidateDatabaseHostMixin)
-        ):
+        prerequisite_check = source_impl if isinstance(source_impl, _CDCPrerequisiteCheckSource) else None
+        if prerequisite_check is None:
             return setup_error_response(
                 SourceSetupErrorCode.CDC_UNSUPPORTED_SOURCE_TYPE,
                 f"CDC prerequisite checks are not supported for source type: {source_type}",
@@ -397,12 +413,12 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
         config = source_impl.parse_config(config_data)
 
         # SSRF protection: reject internal/private hosts (same as validate_credentials).
-        is_ssh_valid, ssh_errors = source_impl.ssh_tunnel_is_valid(config, self.team_id)
+        is_ssh_valid, ssh_errors = prerequisite_check.ssh_tunnel_is_valid(config, self.team_id)
         if not is_ssh_valid:
             return setup_error_response(
                 SourceSetupErrorCode.HOST_NOT_ALLOWED, ssh_errors or "SSH tunnel host not allowed"
             )
-        valid_host, host_errors = source_impl.is_database_host_valid(
+        valid_host, host_errors = prerequisite_check.is_database_host_valid(
             config.host,
             self.team_id,
             using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False,
@@ -420,7 +436,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
         tables = config_data.get("tables") or []
 
         try:
-            prereq_errors = source_impl.check_cdc_prerequisites(
+            prereq_errors = prerequisite_check.check_cdc_prerequisites(
                 config,
                 management_mode=management_mode,
                 tables=tables,
