@@ -145,12 +145,11 @@ def write_findings(report_dir: str | None, findings: dict[str, list[dict]]) -> N
 
 
 def run_jscpd(scan_root: Path, out_dir: Path, formats: list[str]) -> list[dict]:
-    """Scan one tree with jscpd, one format at a time, and return its clone list.
+    """Scan one tree in a separate jscpd process for each format.
 
-    jscpd holds the tokens of every format in one run in memory at once, and a
-    run over all formats of this repo needs more memory than the CI runner has.
-    jscpd pairs files only within one format, so separate runs find the same
-    clones with the memory peak of the largest format alone.
+    jscpd keeps every format's tokens in memory. Separate runs preserve clone
+    detection because jscpd only compares files within one format, while
+    limiting peak memory to the largest format.
     """
     return [
         clone for format_name in formats for clone in run_jscpd_format(scan_root, out_dir / format_name, format_name)
@@ -181,8 +180,8 @@ def run_jscpd_format(scan_root: Path, out_dir: Path, format_name: str) -> list[d
             ],
             capture_output=True,
             text=True,
-            # Two scans must finish inside the CI job's timeout-minutes, or the
-            # job dies before the failure section can post.
+            # Bound each subprocess so a stalled format scan cannot consume the
+            # CI job's entire timeout before it posts the failure section.
             timeout=SCAN_TIMEOUT_SECONDS,
             cwd=scan_root,
         )
