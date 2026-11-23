@@ -158,6 +158,7 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     // The trace view's Summary mode shows the error
     loadSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
     requestSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
+    loadDistributedTraceId: 'products.ai_observability.frontend.redesign.trace.traceDistributedTraceLogic', // The trace header shows no link when the read fails
     loadTracePullRequest: 'products.ai_observability.frontend.redesign.trace.traceGitPullRequestLogic', // The trace view's git chip stays plain when the read fails
     loadTracesPage: 'products.ai_observability.frontend.redesign.traces.tracesListLogic', // The traces list shows the error, or toasts its own when rows stay on screen
     loadTraceStepItem: 'scenes.ai-observability.saveToDatasetButtonLogic', // The add to dataset dropdown shows the error with a retry
