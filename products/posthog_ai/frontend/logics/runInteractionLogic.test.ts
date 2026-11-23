@@ -2,9 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
@@ -12,7 +10,6 @@ import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 import { initKeaTests } from '~/test/init'
 
 import {
-    tasksModelOverrideCreate,
     tasksRunCreate,
     tasksRunsCancelCreate,
     tasksRunsClearConversationCreate,
@@ -55,6 +52,7 @@ jest.mock('./runStreamLogic', () => {
             markTurnComplete: (isReplay: boolean = false) => ({ isReplay }),
             markRunStarted: true,
             setCurrentMode: (mode: string) => ({ mode }),
+            setSessionConfig: (model: string | null, effort: string | null) => ({ model, effort }),
             handleTerminalStatus: (status: { status: string }) => status,
             setStubStatus: (status: string | null) => ({ status }),
             setStubThinking: (thinking: boolean) => ({ thinking }),
@@ -139,6 +137,14 @@ jest.mock('./runStreamLogic', () => {
                     setCurrentMode: (_: string | null, { mode }: { mode: string }) => mode,
                 },
             ],
+            sessionModel: [
+                null,
+                { setSessionConfig: (state: string | null, { model }: { model: string | null }) => model ?? state },
+            ],
+            sessionEffort: [
+                null,
+                { setSessionConfig: (state: string | null, { effort }: { effort: string | null }) => effort ?? state },
+            ],
             replySuggestions: [
                 null,
                 {
@@ -173,7 +179,6 @@ jest.mock('scenes/projectLogic', () => {
 })
 
 jest.mock('products/tasks/frontend/generated/api', () => ({
-    tasksModelOverrideCreate: jest.fn(),
     tasksRunsCommandCreate: jest.fn(),
     tasksRunCreate: jest.fn(),
     tasksRunsClearConversationCreate: jest.fn(),
@@ -749,32 +754,19 @@ describe('runInteractionLogic', () => {
         expect(logic.values.selectedEffort).toBe('low')
     })
 
-    it.each([
-        [
-            true,
-            [setConfigCommand('model', 'claude-opus-4-8'), userMessageCommand('use opus for this')],
-            'claude-opus-4-8',
-        ],
-        [false, [userMessageCommand('use opus for this')], null],
-    ])(
-        'switches the picker to a model the message names before the send, with the flag %s',
-        async (enabled, expectedCommands, expectedOverride) => {
-            ;(tasksModelOverrideCreate as jest.Mock).mockResolvedValue({
-                model: 'claude-opus-4-8',
-                reasoning_effort: null,
-            })
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_PROMPT_MODEL_SWITCH]: enabled })
-            setThinking(false)
-            logic.actions.setComposerFormValues({ draft: 'use opus for this' })
+    it('follows a model the agent confirms, over a stale pick, and syncs nothing back', async () => {
+        setThinking(false)
+        logic.actions.setModel('claude-sonnet-4-6')
+        stream.actions.setSessionConfig('claude-opus-4-8', null)
+        expect(logic.values.selectedModel).toBe('claude-opus-4-8')
+        logic.actions.setComposerFormValues({ draft: 'ship it' })
 
-            await expectLogic(logic, () => {
-                logic.actions.submitComposerForm()
-            }).toFinishAllListeners()
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
 
-            expect((tasksRunsCommandCreate as jest.Mock).mock.calls).toEqual(expectedCommands)
-            expect(logic.values.modelOverride).toBe(expectedOverride)
-        }
-    )
+        expect((tasksRunsCommandCreate as jest.Mock).mock.calls).toEqual([userMessageCommand('ship it')])
+    })
 
     it('syncs a changed model to the agent right before the message, and only when it changed', async () => {
         setThinking(false)

@@ -3290,25 +3290,6 @@ export const TasksConfigAgentInstructionsCreateBody = /* @__PURE__ */ zod
     .describe('Markdown instructions that PostHog cloud agents load as their user-level AGENTS.md in Tasks runs.')
 
 /**
- * Read a model or reasoning effort that a message asks its task to run on, such as 'use opus for this'. The composer calls this before it sends a message and applies the answer to its model picker. Best-effort: answers with nulls when the message asks for nothing, the feature flag is off, or the classifier fails, so a client sends the message unchanged.
- * @summary Read a model request from a message
- */
-export const tasksModelOverrideCreateBodyMessageMax = 10000
-
-export const TasksModelOverrideCreateBody = /* @__PURE__ */ zod.object({
-    message: zod
-        .string()
-        .max(tasksModelOverrideCreateBodyMessageMax)
-        .describe('The message the person is about to send to the agent, without any context block.'),
-    runtime_adapter: zod
-        .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
-        .optional()
-        .describe(
-            'Limit the answer to the models of this runtime. A live run cannot change its runtime, so a follow-up to a live run passes the runtime of that run.\n\n\* `claude` - claude\n\* `codex` - codex'
-        ),
-})
-
-/**
  * Returns the GitHub titles of the pull requests that the latest run of each task opened.
  * @summary Fetch pull request titles for tasks
  */

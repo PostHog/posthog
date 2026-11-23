@@ -76,8 +76,6 @@ import type {
     TaskDetailDTOApi,
     TaskHandoffRequestApi,
     TaskMentionsListParams,
-    TaskModelOverrideRequestApi,
-    TaskModelOverrideResponseApi,
     TaskPinRequestApi,
     TaskPinResponseApi,
     TaskPresenceBeaconRequestApi,
@@ -2810,27 +2808,6 @@ export const tasksConfigAgentInstructionsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(tasksAgentInstructionsApi),
-    })
-}
-
-export const getTasksModelOverrideCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/tasks/model_override/`
-}
-
-/**
- * Read a model or reasoning effort that a message asks its task to run on, such as 'use opus for this'. The composer calls this before it sends a message and applies the answer to its model picker. Best-effort: answers with nulls when the message asks for nothing, the feature flag is off, or the classifier fails, so a client sends the message unchanged.
- * @summary Read a model request from a message
- */
-export const tasksModelOverrideCreate = async (
-    projectId: string,
-    taskModelOverrideRequestApi: TaskModelOverrideRequestApi,
-    options?: RequestInit
-): Promise<TaskModelOverrideResponseApi> => {
-    return apiMutator<TaskModelOverrideResponseApi>(getTasksModelOverrideCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(taskModelOverrideRequestApi),
     })
 }
 

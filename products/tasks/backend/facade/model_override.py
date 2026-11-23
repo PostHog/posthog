@@ -3,7 +3,6 @@ from products.tasks.backend.logic.model_override import (
     ModelOverride,
     ModelOverrideAttribution,
     classify_model_override,
-    may_request_model_override,
 )
 
 __all__ = [
@@ -11,5 +10,4 @@ __all__ = [
     "ModelOverride",
     "ModelOverrideAttribution",
     "classify_model_override",
-    "may_request_model_override",
 ]

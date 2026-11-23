@@ -131,6 +131,7 @@ from .activities.start_dev_stack_preview import (
     start_dev_stack_preview,
     wait_dev_stack_preview,
 )
+from .activities.switch_model_from_message import SwitchModelFromMessageInput, switch_model_from_message
 from .activities.track_workflow_event import SANDBOX_DEADLINE_EVENT, TrackWorkflowEventInput, track_workflow_event
 from .activities.update_task_run_status import (
     SANDBOX_GONE_STATE_KEY,
@@ -355,6 +356,18 @@ def _check_rotation_activity_before_boot() -> bool:
 
 
 _PATCH_ID_PERSIST_AGENT_MEMORY = "persist-agent-memory-2026-11"
+_PATCH_ID_SWITCH_MODEL_FROM_MESSAGE = "tasks-switch-model-from-message-2026-11"
+# The classifier call is bounded at two attempts of 10s, and a slow call must not hold the message back longer.
+_SWITCH_MODEL_FROM_MESSAGE_TIMEOUT = timedelta(seconds=30)
+
+
+def _check_switch_model_from_message_patch() -> bool:
+    # Outside a workflow no activity can run, so the switch is skipped rather than assumed.
+    if not workflow.in_workflow():
+        return False
+    return workflow.patched(_PATCH_ID_SWITCH_MODEL_FROM_MESSAGE)
+
+
 # Time left before sandbox expiry for the deadline snapshot, which a slow memory persist must not eat.
 _ROTATION_SNAPSHOT_RESERVE = timedelta(minutes=5)
 _PERSIST_AGENT_MEMORY_ATTEMPT_TIMEOUT = timedelta(minutes=3)
@@ -588,6 +601,20 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             # read files from that turn.
             self._agent_memory_persist_enabled = False
             await self._drain_agent_memory_persist_task()
+        if (
+            _check_switch_model_from_message_patch()
+            and followup.message
+            and not followup.steer
+            and self.context.origin_product == "posthog_ai"
+        ):
+            await self._switch_model_from_message(
+                SwitchModelFromMessageInput(
+                    run_id=self.context.run_id,
+                    message=followup.message,
+                    actor_user_id=followup.actor_user_id,
+                    live=True,
+                )
+            )
         outcome = await self._send_followup_to_sandbox(
             message=followup.message,
             artifact_ids=followup.artifact_ids,
@@ -616,6 +643,18 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     sequence=followup.sequence,
                 ),
             )
+
+    async def _switch_model_from_message(self, input: SwitchModelFromMessageInput) -> None:
+        # Best effort: the message goes out on the current model when the switch fails.
+        try:
+            await workflow.execute_activity(
+                switch_model_from_message,
+                input,
+                start_to_close_timeout=_SWITCH_MODEL_FROM_MESSAGE_TIMEOUT,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except temporalio.exceptions.ActivityError:
+            workflow.logger.warning("switch_model_from_message_failed", extra={"run_id": input.run_id})
 
     async def _finish_active_followup(self) -> None:
         self._shutting_down = True
@@ -1212,6 +1251,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         agent_shadow_task: asyncio.Task[None] | None = None
         self._agent_boot_interaction_telemetry_enabled = input.resumed_sandbox is None
         try:
+            if _check_switch_model_from_message_patch() and input.resumed_sandbox is None:
+                # Before the context load, so the agent starts on the model the first message asks for.
+                await self._switch_model_from_message(SwitchModelFromMessageInput(run_id=input.run_id))
             self._context = await self._get_task_processing_context(input)
             if self._stream_generation is not None:
                 self._context.stream_generation = self._stream_generation

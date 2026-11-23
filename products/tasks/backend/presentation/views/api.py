@@ -77,7 +77,6 @@ from products.exports.backend.facade.api import render_png_export
 
 if TYPE_CHECKING:
     from products.exports.backend.facade.api import ExportedAsset
-from products.tasks.backend.constants import REASONING_EFFORTS
 from products.tasks.backend.facade import (
     access as tasks_access,
     agent_run_starts as tasks_agent_run_starts,
@@ -117,12 +116,6 @@ from products.tasks.backend.facade.metrics import (
     observe_stream_token_routed,
 )
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
-from products.tasks.backend.facade.model_override import (
-    ModelOverride,
-    ModelOverrideAttribution,
-    classify_model_override,
-    may_request_model_override,
-)
 from products.tasks.backend.facade.profiles import find_task_profile, public_profile_for_origin
 from products.tasks.backend.facade.run_config import (
     WARMABLE_ORIGIN_PRODUCTS,
@@ -147,7 +140,6 @@ from products.tasks.backend.facade.streams import (
     run_uses_dedicated_stream,
     session_update_type,
 )
-from products.tasks.backend.feature_flags import get_model_access_error, prompt_model_switch_enabled
 from products.tasks.backend.presentation import run_context
 from products.tasks.backend.presentation.serializers import (
     ConnectionTokenResponseSerializer,
@@ -179,8 +171,6 @@ from products.tasks.backend.presentation.serializers import (
     TaskHandoffRequestSerializer,
     TaskListItemSerializer,
     TaskListQuerySerializer,
-    TaskModelOverrideRequestSerializer,
-    TaskModelOverrideResponseSerializer,
     TaskPinRequestSerializer,
     TaskPinResponseSerializer,
     TaskPresenceBeaconRequestSerializer,
@@ -1319,47 +1309,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def models(self, request, **kwargs):
         choices = available_model_choices(TASK_RUN_GATEWAY_PRODUCT)
         return Response(ModelCatalogueResponseSerializer({"models": choices}).data)
-
-    @validated_request(
-        request_serializer=TaskModelOverrideRequestSerializer,
-        responses={200: OpenApiResponse(response=TaskModelOverrideResponseSerializer)},
-        summary="Read a model request from a message",
-        description=(
-            "Read a model or reasoning effort that a message asks its task to run on, such as "
-            "'use opus for this'. The composer calls this before it sends a message and applies the answer "
-            "to its model picker. Best-effort: answers with nulls when the message asks for nothing, the "
-            "feature flag is off, or the classifier fails, so a client sends the message unchanged."
-        ),
-    )
-    @action(detail=False, methods=["post"], url_path="model_override", required_scopes=["task:write"])
-    def model_override(self, request, **kwargs):
-        user = cast(User, request.user)
-        message = request.validated_data["message"]
-        runtime_adapter = request.validated_data.get("runtime_adapter")
-        catalogue = tuple(
-            choice
-            for choice in available_model_choices(TASK_RUN_GATEWAY_PRODUCT)
-            if runtime_adapter in (None, choice.runtime_adapter)
-        )
-        override = ModelOverride(model=None, reasoning_effort=None)
-        # The flag and model access checks are network calls, so the free word check goes first.
-        if may_request_model_override(message, catalogue) and prompt_model_switch_enabled(self.team, user):
-            from ee.hogai.utils.feature_flags import is_privacy_mode_enabled  # noqa: PLC0415
-
-            choices = tuple(
-                choice
-                for choice in catalogue
-                if get_model_access_error(choice.model, distinct_id=user.distinct_id) is None
-            )
-            attribution = ModelOverrideAttribution(
-                ai_product="posthog_ai",
-                properties={"posthog_ai_feature": "model_override"},
-                distinct_id=str(user.distinct_id),
-                privacy_mode=is_privacy_mode_enabled(self.team),
-            )
-            override = classify_model_override(message, choices, attribution) or override
-        effort = override.reasoning_effort
-        return Response({"model": override.model, "reasoning_effort": effort if effort in REASONING_EFFORTS else None})
 
     @extend_schema(request=TaskPinRequestSerializer, responses={200: TaskPinResponseSerializer})
     @action(detail=True, methods=["post"], url_path="pin", required_scopes=["task:write"])

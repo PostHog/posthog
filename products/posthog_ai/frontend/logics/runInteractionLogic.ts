@@ -17,9 +17,7 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import posthog from 'posthog-js'
 
 import { ApiError, readableErrorMessage } from 'lib/api-error'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
@@ -41,6 +39,7 @@ import {
 import {
     tasksRunCreate,
     tasksRunsClearConversationCreate,
+    tasksRunsRetrieve,
     tasksRunsCommandCreate,
 } from 'products/tasks/frontend/generated/api'
 import {
@@ -60,7 +59,6 @@ import { rememberAttachmentPreview } from '../utils/attachmentPreviews'
 import type { PendingAttachment } from '../utils/attachments'
 import { extractCommentContexts, withCommentContexts } from '../utils/commentContext'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
-import { applyPromptModelSwitch } from '../utils/promptModelSwitch'
 import type { ReplySuggestions } from '../utils/replySuggestions'
 import { submitWithWarmRunRetry } from '../utils/warmRunSubmission'
 import { chatContextLogic, chatSendItems } from './chatContextLogic'
@@ -192,7 +190,6 @@ export interface runInteractionLogicValues {
     picks: AttachedContextItem[] // chatContextLogic
     queuedAttachments: PendingAttachment[] // composerAttachmentsLogic
     stagedAttachments: PendingAttachment[] // composerAttachmentsLogic
-    featureFlags: FeatureFlagsSet // featureFlagLogic
     catalogue: ModelChoiceApi[] // modelCatalogueLogic
     currentProjectId: number | null // projectLogic
     cancellationState: CancellationState // runCancellationLogic
@@ -200,6 +197,8 @@ export interface runInteractionLogicValues {
     bootstrappedTaskId: string | null // runStreamLogic
     conversationClearSupported: boolean // runStreamLogic
     currentMode: string | null // runStreamLogic
+    sessionEffort: string | null // runStreamLogic
+    sessionModel: string | null // runStreamLogic
     currentRunStatus: RunStatus | null // runStreamLogic
     isThinking: boolean // runStreamLogic
     pendingPermissionRequest: PermissionRequestRecord | null // runStreamLogic
@@ -382,6 +381,16 @@ export interface runInteractionLogicActions {
     } // runStreamLogic
     setCurrentMode: (mode: string) => {
         mode: string
+    } // runStreamLogic
+    markRunStarted: () => {
+        value: true
+    } // runStreamLogic
+    setSessionConfig: (
+        model: string | null,
+        effort: string | null
+    ) => {
+        model: string | null
+        effort: string | null
     } // runStreamLogic
     startOptimisticResume: (
         message: string,
@@ -733,6 +742,8 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 'bootstrappedRunId',
                 'bootstrappedTaskId',
                 'replySuggestions',
+                'sessionModel',
+                'sessionEffort',
             ],
             attachedContextLogic,
             ['sentContextKeysByTask', 'seenContextLinesByTask'],
@@ -742,8 +753,6 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             ['dataProcessingAccepted'],
             modelCatalogueLogic,
             ['catalogue'],
-            featureFlagLogic,
-            ['featureFlags'],
             taskRunDefaultsLogic,
             ['defaultModel', 'defaultEffort'],
             runCancellationLogic({ streamKey: props.streamKey ?? props.runId }),
@@ -763,6 +772,8 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 'cancelRun',
                 'markTurnComplete',
                 'setCurrentMode',
+                'markRunStarted',
+                'setSessionConfig',
                 'handleTerminalStatus',
                 'markPermissionRequestResolved',
                 'permissionResponseFailed',
@@ -960,12 +971,16 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             null as string | null,
             {
                 setModel: (_, { model }) => model,
+                // The agent's confirmed config is authoritative, like its mode below. A stale pick that
+                // stayed would show the wrong model and sync it back on the next send.
+                setSessionConfig: (state, { model }) => (model ? null : state),
             },
         ],
         effortOverride: [
             null as string | null,
             {
                 setEffort: (_, { effort }) => effort,
+                setSessionConfig: (state, { effort }) => (effort ? null : state),
             },
         ],
         modeOverride: [
@@ -993,12 +1008,14 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             null as string | null,
             {
                 setSentModel: (_, { model }) => model,
+                setSessionConfig: (state, { model }) => model ?? state,
             },
         ],
         sentEffort: [
             null as string | null,
             {
                 setSentEffort: (_, { effort }) => effort,
+                setSessionConfig: (state, { effort }) => effort ?? state,
             },
         ],
         sentMode: [
@@ -1117,6 +1134,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         selectedModel: [
             (s) => [
                 s.modelOverride,
+                s.sessionModel,
                 (_, p) => p.currentModel,
                 s.sessionBaseline,
                 s.catalogue,
@@ -1126,6 +1144,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             ],
             (
                 override: string | null,
+                sessionModel: string | null,
                 current: string | null | undefined,
                 baseline: SessionBaseline,
                 catalogue: ModelChoiceApi[],
@@ -1140,19 +1159,33 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     getRuntimeAdapterForModel(catalogue, override) !== runtimeAdapter
                         ? null
                         : override
-                return compatibleOverride ?? current ?? baseline.model ?? getDefaultModelForTaskRuntime(taskRuntime)
+                return (
+                    compatibleOverride ??
+                    sessionModel ??
+                    current ??
+                    baseline.model ??
+                    getDefaultModelForTaskRuntime(taskRuntime)
+                )
             },
         ],
         selectedEffort: [
-            (s) => [s.effortOverride, (_, p) => p.currentEffort, s.sessionBaseline, s.selectedModel, s.catalogue],
+            (s) => [
+                s.effortOverride,
+                s.sessionEffort,
+                (_, p) => p.currentEffort,
+                s.sessionBaseline,
+                s.selectedModel,
+                s.catalogue,
+            ],
             (
                 override: string | null,
+                sessionEffort: string | null,
                 current: string | null | undefined,
                 baseline: SessionBaseline,
                 model: string,
                 catalogue: ModelChoiceApi[]
             ): ReasoningEffortEnumApi =>
-                resolveEffortForModel(catalogue, override ?? current ?? baseline.effort, model),
+                resolveEffortForModel(catalogue, override ?? sessionEffort ?? current ?? baseline.effort, model),
         ],
         // The permission mode to display and launch with: the client-side override, else the session's live
         // mode (from the stream's `current_mode_update` frames), else the run's stored launch mode, else the
@@ -1304,14 +1337,6 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             cache.sendGeneration = (cache.sendGeneration ?? 0) + 1
             actions.setSending(false)
         }
-
-        // A message that names a model or an effort switches the picker before the send reads it, so the
-        // existing sync (`set_config_option`, or the new run's request) carries the switch to the agent.
-        // Checked before the await, so a send without the switch still starts in the same tick.
-        const promptModelSwitchEnabled = (content: string): boolean =>
-            !!values.featureFlags[FEATURE_FLAGS.PHAI_PROMPT_MODEL_SWITCH] &&
-            values.currentProjectId != null &&
-            !isClearCommand(content)
 
         const noteTerminalDraft = (): void => {
             // Consent gates warming as it gates sending: a warm boots a cloud sandbox and restores
@@ -1533,19 +1558,6 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 }
                 actions.persistTaskDraft()
                 try {
-                    if (promptModelSwitchEnabled(content)) {
-                        // A live run cannot change its runtime, so the switch stays on the run's runtime.
-                        await applyPromptModelSwitch(
-                            String(projectId),
-                            content,
-                            'follow_up',
-                            actions,
-                            props.currentRuntimeAdapter ?? null
-                        )
-                        if (!isCurrent()) {
-                            return
-                        }
-                    }
                     // Sync the picked model/effort to the agent session first, but only what the user actually
                     // changed since the last sync — mid-run config lives as session state, so it must go via a
                     // `set_config_option` command before the message rather than ride inside `user_message`. A
@@ -1687,6 +1699,30 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             },
 
             // The agent finished a turn — drain any staged follow-ups.
+            // The workflow can switch the model before the agent starts, when the first message asks for one, and
+            // the agent reports no config at boot. So the run record is the one place that names the start model.
+            markRunStarted: async () => {
+                const { taskId, runId } = props
+                if (!taskId || !runId || values.isTerminal || values.currentProjectId == null) {
+                    return
+                }
+                try {
+                    const run = await tasksRunsRetrieve(String(values.currentProjectId), taskId, runId)
+                    if (cache.disposables.isDisposed || props.runId !== runId) {
+                        return
+                    }
+                    const state = (run.state ?? {}) as Record<string, unknown>
+                    const stateValue = (key: string): string | null =>
+                        typeof state[key] === 'string' ? (state[key] as string) : null
+                    actions.setSessionConfig(
+                        run.model ?? stateValue('model'),
+                        run.reasoning_effort ?? stateValue('reasoning_effort')
+                    )
+                } catch {
+                    // The picker keeps the model it had, which is the model the run started on unless switched.
+                }
+            },
+
             markTurnComplete: ({ isReplay }) => {
                 if (!isReplay) {
                     actions.flushQueue()
@@ -1756,12 +1792,6 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 )
                 actions.claimApplyBackTargets(streamKey)
                 try {
-                    if (promptModelSwitchEnabled(content)) {
-                        await applyPromptModelSwitch(projectId, content, 'new_run', actions)
-                        if (!isCurrent()) {
-                            return
-                        }
-                    }
                     // Same endpoint as the "Run again" button, but seeded with the user's message and chained
                     // from the finished run so the new run continues the thread, and carrying the picked model /
                     // reasoning effort (the resume schema can't, so we send the Claude create shape). The response

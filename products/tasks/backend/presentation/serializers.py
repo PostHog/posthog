@@ -3690,37 +3690,6 @@ class ModelCatalogueResponseSerializer(serializers.Serializer):
     )
 
 
-class TaskModelOverrideRequestSerializer(serializers.Serializer):
-    message = serializers.CharField(
-        max_length=10_000,
-        help_text="The message the person is about to send to the agent, without any context block.",
-    )
-    runtime_adapter = serializers.ChoiceField(
-        choices=RuntimeAdapter.choices,
-        required=False,
-        allow_null=True,
-        help_text=(
-            "Limit the answer to the models of this runtime. A live run cannot change its runtime, "
-            "so a follow-up to a live run passes the runtime of that run."
-        ),
-    )
-
-
-class TaskModelOverrideResponseSerializer(serializers.Serializer):
-    model = serializers.CharField(
-        allow_null=True,
-        help_text="Model id that the message asks this task to run on, or null when it asks for no model.",
-    )
-    reasoning_effort = serializers.ChoiceField(
-        choices=list(REASONING_EFFORTS),
-        allow_null=True,
-        help_text=(
-            "Reasoning effort that the message asks for, or null when it asks for none. "
-            "Not checked against the model, so the client clamps it to an effort the model supports."
-        ),
-    )
-
-
 class RepositoryReadinessQuerySerializer(serializers.Serializer):
     repository = serializers.CharField(required=True, help_text="Repository in org/repo format")
     window_days = serializers.IntegerField(required=False, default=7, min_value=1, max_value=30)
