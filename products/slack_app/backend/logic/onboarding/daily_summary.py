@@ -122,6 +122,8 @@ class SummaryThread:
     # The person is in the thread: they started it, replied, or were mentioned.
     involves_person: bool
     permalink: str | None = None
+    # The users any person in the thread tagged, so a caller can tell work handed to an app.
+    tagged: tuple[str, ...] = ()
 
 
 @frozen
@@ -136,6 +138,11 @@ def wants_summary(integration: WorkspaceIntegration, slack_user_id: str) -> bool
     return is_slack_app_daily_summary_enabled(
         integration, linked_posthog_distinct_id(slack_user_id=slack_user_id, slack_team_id=integration.integration_id)
     )
+
+
+def tagged_users(texts: Iterable[str]) -> tuple[str, ...]:
+    """The users the texts tag, in order and each once."""
+    return tuple(dict.fromkeys(user for text in texts for user in _MENTION.findall(text)))
 
 
 def app_took_part(messages: Iterable[dict[str, Any]], bot_user_id: str | None) -> bool:
@@ -417,6 +424,7 @@ def _summary_thread(
         text=thread_text(read.messages),
         involves_person=root.involves(slack_user_id) or any(m.get("user") == slack_user_id for m in read.messages),
         permalink=thread_permalink(slack, root.channel_id, root.ts),
+        tagged=tagged_users(str(m.get("text") or "") for m in read.messages),
     )
 
 
