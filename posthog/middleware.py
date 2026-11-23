@@ -1246,16 +1246,9 @@ def get_or_set_session_cookie_created_at(request: HttpRequest) -> float:
 
 SESSION_EXPIRED_MESSAGE = "Your session has expired. Please log in again."
 # `next` lands in the `/login` URL, which analytics and the request log record, so a URL with a credential gets none.
-# The path prefixes are pages that load no analytics. An app page reports its own URL, so its token is not new there.
+# A share link is the exception: returning to it matters more than its token reaching the instance's own analytics.
 _NO_RETURN_QUERY_PARAMS = CREDENTIAL_QUERY_PARAMS | {"code"}
-_NO_RETURN_PATH_PREFIXES = (
-    "/shared/",
-    "/shared_dashboard/",
-    "/embedded/",
-    "/exporter/",
-    "/messaging-preferences/",
-    "/canvas-artifacts/",
-)
+_NO_RETURN_PATH_PREFIXES = ("/messaging-preferences/", "/canvas-artifacts/")
 
 
 def session_expired_login_url(request: HttpRequest) -> str:
