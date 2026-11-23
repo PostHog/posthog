@@ -7421,7 +7421,7 @@
         "feature": "warehouse_sources",
         "summary": "Get a table's destinations",
         "title": "Get a table's destinations",
-        "required_scopes": ["external_data_source:write"],
+        "required_scopes": ["external_data_source:read"],
         "api_operations": ["GET /api/projects/{project_id}/external_data_schemas/{id}/destinations/"],
         "annotations": {
             "destructiveHint": false,
@@ -7663,7 +7663,7 @@
         "feature": "warehouse_sources",
         "summary": "Get a source's destinations",
         "title": "Get a source's destinations",
-        "required_scopes": ["external_data_source:write"],
+        "required_scopes": ["external_data_source:read"],
         "api_operations": ["GET /api/projects/{project_id}/external_data_sources/{id}/destinations/"],
         "annotations": {
             "destructiveHint": false,
