@@ -686,14 +686,17 @@ class TestRecomputeFromAppMetrics(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("complaints already behind the last demotion", 0, 4, "tier_not_used_enough"),
-            ("new complaints after the last demotion", 2, 3, "rates_above_threshold"),
+            ("complaints that fed the last demotion", timedelta(hours=-1), 4, "tier_not_used_enough"),
+            ("complaints later on the demotion day", timedelta(hours=1), 3, "rates_above_threshold"),
+            ("complaints days after the demotion", timedelta(days=2), 3, "rates_above_threshold"),
         ]
     )
     def test_one_incident_demotes_once_when_the_cooldown_ends(
-        self, _name: str, days_after_demotion: int, expected_tier: int, expected_reason: str
+        self, _name: str, complaints_after_demotion: timedelta, expected_tier: int, expected_reason: str
     ) -> None:
-        demoted_at = datetime(2026, 1, 10, 6, 0, tzinfo=UTC)
+        # Hour-aligned timestamps, as app_metrics2 stores them.
+        demoted_at = datetime(2026, 1, 10, 6, 15, tzinfo=UTC)
+        demotion_hour = demoted_at.replace(minute=0)
         TeamWorkflowsConfig.objects.update_or_create(
             team=self.team,
             defaults={
@@ -703,9 +706,8 @@ class TestRecomputeFromAppMetrics(ClickhouseTestMixin, BaseTest):
             },
         )
         for day in range(-7, 7):
-            self._metric("email_sent", 200, demoted_at + timedelta(days=day, hours=5))
-        # Shortly before a sweep, so in the first case they fed the demotion itself.
-        self._metric("email_blocked", 2, demoted_at + timedelta(days=days_after_demotion, minutes=-30))
+            self._metric("email_sent", 200, demotion_hour + timedelta(days=day, hours=5))
+        self._metric("email_blocked", 2, demotion_hour + complaints_after_demotion)
 
         with time_machine.travel(demoted_at + timedelta(days=7, minutes=1), tick=False):
             decisions = recompute_email_sending_tiers(team_ids=[self.team.id])
