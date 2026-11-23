@@ -15,7 +15,9 @@ import { markServerResolvedIntegration } from '../../utils/integration-input-ref
 import { HogInputsService } from '../hog-inputs.service'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { IntegrationSource } from '../managers/integration-source'
+import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { CONSUMER_STOP_DEADLINE_MS, CyclotronJobQueuePostgresV2 } from './job-queue-postgres-v2'
+import { CyclotronJobQueueRateLimitedPostgresV2 } from './job-queue-rate-limited-postgres-v2'
 import { ConsumerOptions } from './job-queue.interface'
 
 describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
@@ -110,8 +112,17 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
 
     const otherTeamId = (): number => teamId + 1
 
-    async function startQueue(url = dbUrl(CYCLOTRON_DB.host, CYCLOTRON_DB.port), insertBatchSize = 1000) {
-        const queue = new CyclotronJobQueuePostgresV2(10, {
+    const limiterThatGrantsEveryClaim = {
+        ping: () => Promise.resolve(),
+        claimUpTo: ({ requested }: { requested: number }) => Promise.resolve(requested),
+    } as unknown as RateLimiterService
+
+    async function startQueue(
+        url = dbUrl(CYCLOTRON_DB.host, CYCLOTRON_DB.port),
+        insertBatchSize = 1000,
+        rateLimited = false
+    ) {
+        const config = {
             CYCLOTRON_NODE_DATABASE_URL: url,
             CYCLOTRON_SHARD_DEPTH_LIMIT: 1_000_000,
             CDP_CYCLOTRON_BATCH_DELAY_MS: 10,
@@ -125,7 +136,16 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
             CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
             CDP_SEALED_STATE_KEYS: '',
             ENCRYPTION_SALT_KEYS,
-        })
+        }
+        const queue = rateLimited
+            ? new CyclotronJobQueueRateLimitedPostgresV2(10, config, {
+                  limiter: limiterThatGrantsEveryClaim,
+                  key: 'job-queue-test',
+                  capacity: 10,
+                  refillPerSecond: 10,
+                  throttledPollDelayMs: 10,
+              })
+            : new CyclotronJobQueuePostgresV2(10, config)
         queues.push(queue)
         await queue.startAsProducer()
         return queue
@@ -653,13 +673,24 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
     })
 
     it.each([
-        ['the stop deadline', undefined, CONSUMER_STOP_DEADLINE_MS],
-        ['the stop deadline its consumer sets', CONSUMER_STOP_DEADLINE_MS + 30_000, CONSUMER_STOP_DEADLINE_MS + 30_000],
+        ['the stop deadline', undefined, CONSUMER_STOP_DEADLINE_MS, false],
+        [
+            'the stop deadline its consumer sets',
+            CONSUMER_STOP_DEADLINE_MS + 30_000,
+            CONSUMER_STOP_DEADLINE_MS + 30_000,
+            false,
+        ],
+        [
+            'the stop deadline its consumer sets, behind the SES rate limit',
+            CONSUMER_STOP_DEADLINE_MS + 30_000,
+            CONSUMER_STOP_DEADLINE_MS + 30_000,
+            true,
+        ],
     ])(
         'returns at %s, counted from the start of the stop, when the database stops answering mid-write',
-        async (_name, stopDeadlineMs, deadlineMs) => {
+        async (_name, stopDeadlineMs, deadlineMs, rateLimited) => {
             const proxy = await startStallableProxy()
-            const queue = await startQueue(proxy.url)
+            const queue = await startQueue(proxy.url, undefined, rateLimited)
             await enqueue(queue)
             const [claimed] = await (await consume(queue, queueName, undefined, { stopDeadlineMs })).claimed()
 
