@@ -41,6 +41,11 @@ class PostHogAppGitHubClient(StamphogGitHubClient):
         Only the repo config's project counts, so one project's routing never writes through another
         project's installation. Raises ``PostHogAppNotInstalled`` when the project has none.
         """
+        # The routing comment is found again by this login, so without it every retry posts another one.
+        if posthog_app_bot_login() is None:
+            raise PostHogAppNotInstalled(
+                "GITHUB_APP_SLUG is not set, so the PostHog GitHub App's comments cannot be found"
+            )
         owner = repository.partition("/")[0].lower()
         for record in IntegrationManager.github.oauth.list(team_id):
             account_name = str((record.config.get("account") or {}).get("name") or "")

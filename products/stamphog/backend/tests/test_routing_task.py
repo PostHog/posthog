@@ -11,6 +11,7 @@ from django.test import override_settings
 
 from celery.exceptions import Retry
 
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 from posthog.ownership.github_files import OwnershipUnavailable
@@ -1896,12 +1897,16 @@ def test_an_abandoned_claim_does_not_block_the_pull_request(team, user, routing_
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_routing_without_a_posthog_app_installation_fails_before_any_write(team, user, routing_chain) -> None:
-    _setup(routing_chain, team, user, posthog_app=False)
+@pytest.mark.parametrize("missing", ["installation", "app_slug"])
+def test_routing_without_a_posthog_app_installation_fails_before_any_write(
+    team, user, routing_chain, missing: str
+) -> None:
+    _setup(routing_chain, team, user, posthog_app=missing != "installation")
     routing_chain.cut_model.answer = _CUT_BETA
 
-    with pytest.raises(Retry) as retry:
-        _run_event_task(MagicMock())
+    with override_instance_config("GITHUB_APP_SLUG", "" if missing == "app_slug" else POSTHOG_APP_SLUG):
+        with pytest.raises(Retry) as retry:
+            _run_event_task(MagicMock())
 
     assert isinstance(retry.value.exc, PostHogAppNotInstalled)
     assert routing_chain.recorder.github_writes == []
