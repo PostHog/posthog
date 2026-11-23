@@ -2463,10 +2463,9 @@ class TestSessionAgeMiddleware(APIBaseTest):
                 "/project/2/dashboard/5?date_from=-7d&tab=a",
                 "&next=/project/2/dashboard/5%3Fdate_from%3D-7d%26tab%3Da",
             ),
-            ("api_call", "get", "/api/users/@me/", ""),
+            ("public_page", "get", "/shared/share-token", "&next=/shared/share-token"),
             ("login_token_link", "get", "/agentic/login?token=one-time-token&team_id=2", ""),
-            ("public_token_link", "get", "/reset/user-uuid/one-time-token", ""),
-            ("app_oauth_callback", "get", "/integrations/slack/callback?code=one-time-code&state=signed-state", ""),
+            ("oauth_callback", "get", "/toolbar_oauth/callback?code=one-time-code&state=signed-state", ""),
             ("form_post", "post", "/project/2/dashboard/5", ""),
         ]
     )
