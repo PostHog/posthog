@@ -53,7 +53,7 @@ export function QuillHighlightPicksStarter({ size }: { size: 'small' | 'large' }
                 ) : volume ? (
                     'Your week in recordings'
                 ) : (
-                    'Nothing to watch yet'
+                    'No highlights to watch yet'
                 )
             }
             body={

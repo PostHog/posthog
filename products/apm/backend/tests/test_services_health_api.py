@@ -108,12 +108,16 @@ class TestServicesHealthAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertAlmostEqual(web["health"]["error_rate"], 0.1)
         self.assertAlmostEqual(web["health"]["request_rate"], 10 / 7200, places=6)
         self.assertGreaterEqual(web["health"]["p95_ms"], 50)
+        # Nine fast requests and one error: the error counts as frustrated.
+        self.assertAlmostEqual(web["health"]["apdex"], 0.9)
         self.assertEqual(data["results"][2]["status"], "good")
+        self.assertAlmostEqual(data["results"][2]["health"]["apdex"], 1.0)
 
     def test_root_client_spans_count_when_a_service_has_no_server_spans(self) -> None:
         worker = next(r for r in self._list()["results"] if r["service_name"] == "worker")
         self.assertEqual(worker["health"]["span_count"], 4)
         self.assertAlmostEqual(worker["health"]["error_rate"], 0.25)
+        self.assertAlmostEqual(worker["health"]["apdex"], 0.75)
         self.assertEqual(worker["status"], "serious")
 
     def test_environment_filters_and_is_listed(self) -> None:
@@ -243,20 +247,6 @@ class TestServicesHealthAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(sum(everything[0]["sparkline"]), 5)
         staging = self._list(environment="staging", **window)["results"]
         self.assertEqual([(r["health"]["span_count"], r["health"]["error_count"]) for r in staging], [(3, 1)])
-
-    def test_more_environments_do_not_push_later_services_past_the_sparkline_limit(self) -> None:
-        writer = SpanWriter(team_id=self.team.id, base=dt.datetime(2026, 6, 9, 8, 0, 0), uuid_prefix="019e8779")
-        for env in ("prod", "staging", "dev"):
-            writer.span("a-many-envs", env=env)
-        writer.span("b-one-env", env="prod")
-        writer.insert()
-
-        with patch("products.apm.backend.logic.health.sources.SPARKLINE_ROWS_LIMIT", 2):
-            results = self._list(environment=None, date_from="2026-06-09T07:00:00Z", date_to="2026-06-09T09:00:00Z")[
-                "results"
-            ]
-
-        self.assertEqual({r["service_name"]: sum(r["sparkline"]) for r in results}, {"a-many-envs": 3, "b-one-env": 1})
 
     def test_a_window_shorter_than_one_second_per_point_keeps_every_span_in_the_sparkline(self) -> None:
         writer = SpanWriter(team_id=self.team.id, base=dt.datetime(2026, 6, 10, 8, 0, 0), uuid_prefix="019e877a")

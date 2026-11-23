@@ -313,7 +313,7 @@ async fn writer_upsert_does_not_wait_on_a_person_foreign_key_check() {
 }
 
 #[tokio::test]
-async fn writer_writes_empty_meta_and_merges_last_seen() {
+async fn writer_merges_last_seen_instead_of_assigning() {
     let pool = create_test_pool().await;
     let team_id: i32 = 99_006;
     cleanup_team(&pool, team_id).await;
@@ -325,9 +325,8 @@ async fn writer_writes_empty_meta_and_merges_last_seen() {
     );
 
     let fetch = |pool: sqlx::PgPool| async move {
-        let row: (i64, Option<String>, Option<String>, Option<DateTime<Utc>>) = sqlx::query_as(
-            "SELECT version, properties_last_updated_at::text, properties_last_operation::text,
-                    last_seen_at
+        let row: (i64, Option<DateTime<Utc>>) = sqlx::query_as(
+            "SELECT version, last_seen_at
              FROM personhog_person_tmp WHERE team_id = $1 AND id = $2",
         )
         .bind(team_id)
@@ -335,57 +334,28 @@ async fn writer_writes_empty_meta_and_merges_last_seen() {
         .fetch_one(&pool)
         .await
         .unwrap();
-        (row.0, row.1, row.2, row.3.map(|t| t.timestamp_millis()))
+        (row.0, row.1.map(|t| t.timestamp_millis()))
     };
-    let empty = (Some("{}".to_string()), Some("{}".to_string()));
 
     let mut person = make_person(team_id as i64, 1, 1);
-    person.properties_last_updated_at =
-        serde_json::to_vec(&serde_json::json!({"email": "2026-01-01T00:00:00Z"})).unwrap();
     person.last_seen_at = Some(5000);
     assert!(matches!(
         writer.upsert_batch(vec![person]).await,
         BatchOutcome::Success
     ));
-    let (version, updated_at, operation, last_seen) = fetch(pool.clone()).await;
-    assert_eq!((version, last_seen), (1, Some(5000)));
-    assert_eq!(
-        (updated_at, operation),
-        empty,
-        "an insert must write empty meta even when the record carries meta"
-    );
+    assert_eq!(fetch(pool.clone()).await, (1, Some(5000)));
 
-    // Stands in for meta that ingestion's direct writer left on the row.
-    sqlx::query(
-        "UPDATE personhog_person_tmp
-         SET properties_last_updated_at = '{\"email\": \"2026-01-01T00:00:00Z\"}',
-             properties_last_operation = '{\"email\": \"set\"}'
-         WHERE team_id = $1 AND id = $2",
-    )
-    .bind(team_id)
-    .bind(1_i64)
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    // A leader-shaped record: newer version, no meta, older last-seen. The
-    // version guard admits it, but it must not lower the last-seen value.
-    let mut leader_record = make_person(team_id as i64, 1, 2);
-    leader_record.last_seen_at = Some(3000);
+    // A newer record with an older last-seen. The version guard admits it,
+    // but it must not lower the last-seen value.
+    let mut older_last_seen = make_person(team_id as i64, 1, 2);
+    older_last_seen.last_seen_at = Some(3000);
     assert!(matches!(
-        writer.upsert_batch(vec![leader_record]).await,
+        writer.upsert_batch(vec![older_last_seen]).await,
         BatchOutcome::Success
     ));
-    let (version, updated_at, operation, last_seen) = fetch(pool.clone()).await;
-    assert_eq!(version, 2, "the version guard must admit the newer record");
     assert_eq!(
-        (updated_at, operation),
-        empty,
-        "an update must replace stored meta with empty meta"
-    );
-    assert_eq!(
-        last_seen,
-        Some(5000),
+        fetch(pool.clone()).await,
+        (2, Some(5000)),
         "a record with an older last-seen must not lower the stored value"
     );
 
@@ -396,22 +366,17 @@ async fn writer_writes_empty_meta_and_merges_last_seen() {
         writer.upsert_batch(vec![no_last_seen]).await,
         BatchOutcome::Success
     ));
-    let (version, _, _, last_seen) = fetch(pool.clone()).await;
-    assert_eq!((version, last_seen), (3, Some(5000)));
+    assert_eq!(fetch(pool.clone()).await, (3, Some(5000)));
 
     // A newer last-seen replaces the stored value, so merging must not
-    // freeze the column at its first value. Meta on the record is ignored.
+    // freeze the column at its first value.
     let mut advancing = make_person(team_id as i64, 1, 4);
-    advancing.properties_last_updated_at =
-        serde_json::to_vec(&serde_json::json!({"email": "2026-02-01T00:00:00Z"})).unwrap();
     advancing.last_seen_at = Some(6000);
     assert!(matches!(
         writer.upsert_batch(vec![advancing]).await,
         BatchOutcome::Success
     ));
-    let (version, updated_at, operation, last_seen) = fetch(pool.clone()).await;
-    assert_eq!((version, last_seen), (4, Some(6000)));
-    assert_eq!((updated_at, operation), empty);
+    assert_eq!(fetch(pool.clone()).await, (4, Some(6000)));
 
     cleanup_team(&pool, team_id).await;
 }

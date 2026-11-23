@@ -1,9 +1,6 @@
-import { useActions } from 'kea'
-
 import { LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { DEPENDENCY_KIND_LABEL, errorRateOf } from './dependencies'
-import { dependenciesLogic } from './dependenciesLogic'
 import type { DependencyEdgeApi } from './generated/api.schemas'
 import { formatMs, formatPercent } from './healthDisplay'
 
@@ -13,17 +10,23 @@ interface DependencyTableProps {
     loading: boolean
     emptyState: string
     dataAttr: string
+    serviceLink: (service: string) => { to: string } | { onClick: () => void }
 }
 
-export function DependencyTable({ title, edges, loading, emptyState, dataAttr }: DependencyTableProps): JSX.Element {
-    const { setDependencyService } = useActions(dependenciesLogic)
-
+export function DependencyTable({
+    title,
+    edges,
+    loading,
+    emptyState,
+    dataAttr,
+    serviceLink,
+}: DependencyTableProps): JSX.Element {
     const columns: LemonTableColumns<DependencyEdgeApi> = [
         {
             title: 'Caller',
             key: 'caller',
             render: (_, edge) => (
-                <Link onClick={() => setDependencyService(edge.caller)} data-attr="apm-dependency-caller">
+                <Link {...serviceLink(edge.caller)} data-attr="apm-dependency-caller">
                     {edge.caller}
                 </Link>
             ),
@@ -32,11 +35,11 @@ export function DependencyTable({ title, edges, loading, emptyState, dataAttr }:
             title: 'Callee',
             key: 'callee',
             render: (_, edge) => (
-                <span className="flex items-center gap-2">
+                <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     {edge.inferred ? (
                         <span className="font-semibold">{edge.callee}</span>
                     ) : (
-                        <Link onClick={() => setDependencyService(edge.callee)} data-attr="apm-dependency-callee">
+                        <Link {...serviceLink(edge.callee)} data-attr="apm-dependency-callee">
                             {edge.callee}
                         </Link>
                     )}
@@ -72,7 +75,8 @@ export function DependencyTable({ title, edges, loading, emptyState, dataAttr }:
     ]
 
     return (
-        <div className="flex flex-col gap-1">
+        // min-w-0 lets a grid cell shrink below the table's width so LemonTable scrolls instead of clipping.
+        <div className="flex flex-col gap-1 min-w-0">
             <h3 className="mb-0 text-sm font-semibold">{title}</h3>
             <LemonTable
                 columns={columns}

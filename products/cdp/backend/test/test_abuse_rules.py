@@ -4,8 +4,10 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.hogql.parser import _builtin_parse_cache, _user_parse_cache, clear_parse_caches
+
 from products.cdp.backend.abuse.classifier import HogFunctionContent
-from products.cdp.backend.abuse.rules import Rule, matched_rules
+from products.cdp.backend.abuse.rules import Rule, has_outbound_call, matched_rules
 
 
 def content(
@@ -34,6 +36,21 @@ def content(
 
 def liquid(template: str) -> HogFunctionContent:
     return content(inputs={"body": {"value": template, "templating": "liquid"}})
+
+
+CHAT_TEMPLATE_HOG = (
+    "let body := {'channel': inputs.channel}\n"
+    "if (not empty(inputs.blocks)) {\n  body['blocks'] := inputs.blocks\n}\n"
+    "fetch('https://chat.example.com/api/post', {'method': 'POST', 'body': body})"
+)
+CHAT_INPUTS = {
+    "channel": {"value": "C0001"},
+    "blocks": {"value": [{"type": "button", "url": "{true ? 'https://app.example.com' : 'http://localhost:3000'}"}]},
+}
+
+
+def unedited_template(hog: str, inputs: dict[str, Any]) -> HogFunctionContent:
+    return content(hog=hog, inputs=inputs, template_id="template-example", code_modified_from_template=False)
 
 
 class TestAbuseRules(SimpleTestCase):
@@ -123,6 +140,67 @@ class TestAbuseRules(SimpleTestCase):
             (
                 "internal_mapping_input_of_a_destination",
                 content(mappings=[{"name": "Orders", "inputs": {"url": {"value": "http://10.0.0.8/orders"}}}]),
+                (Rule.INTERNAL_HOST,),
+            ),
+            ("local_link_in_the_message_of_a_stock_template", unedited_template(CHAT_TEMPLATE_HOG, CHAT_INPUTS), ()),
+            (
+                "edited_template_code_that_sends_a_request_to_a_message_link",
+                content(
+                    hog="let request := {'url': 'https://chat.example.com/api/post'}\n"
+                    "let alias := request\n"
+                    "alias['url'] := inputs.blocks[1].url\n"
+                    "fetch(request.url, {'method': 'POST', 'body': {'blocks': inputs.blocks}})",
+                    inputs=CHAT_INPUTS,
+                    template_id="template-example",
+                    code_modified_from_template=True,
+                ),
+                (Rule.INTERNAL_HOST,),
+            ),
+            (
+                "internal_url_input_of_a_stock_template",
+                unedited_template("fetch(inputs.url, {'body': inputs.body})", {"url": {"value": "http://10.0.0.9/"}}),
+                (Rule.INTERNAL_HOST,),
+            ),
+            (
+                "internal_input_in_a_url_variable_of_a_stock_template",
+                unedited_template(
+                    "let target := f'{inputs.base_url}/v1/events'\nfetch(target, {'body': inputs.body})",
+                    {"base_url": {"value": "http://10.0.0.9"}},
+                ),
+                (Rule.INTERNAL_HOST,),
+            ),
+            (
+                "stock_template_url_input_that_renders_another_input",
+                unedited_template(
+                    "fetch(inputs.url, {'body': inputs.body})",
+                    {
+                        "body": {"value": "http://169.254.169.254/latest/"},
+                        "url": {
+                            "value": "{% assign k = 'in' | append: 'puts' %}{{ [k].body }}",
+                            "templating": "liquid",
+                        },
+                    },
+                ),
+                (Rule.INTERNAL_HOST,),
+            ),
+            (
+                "stock_native_destination_whose_code_never_sends_the_request",
+                content(
+                    hog="return event;",
+                    inputs={"url": {"value": "http://127.0.0.1/"}},
+                    template_id="native-webhook",
+                    code_modified_from_template=False,
+                ),
+                (Rule.INTERNAL_HOST,),
+            ),
+            (
+                "stock_template_that_fetches_inside_a_function",
+                unedited_template(
+                    "let url := 'https://api.example.com/v1'\n"
+                    "fun send(url) {\n  return fetch(url, {})\n}\n"
+                    "send(inputs.endpoint)",
+                    {"endpoint": {"value": "http://localhost:8000/"}},
+                ),
                 (Rule.INTERNAL_HOST,),
             ),
             ("ipv4_shorthand", content(inputs={"url": {"value": "http://127.1/"}}), (Rule.INTERNAL_HOST,)),
@@ -215,6 +293,11 @@ class TestAbuseRules(SimpleTestCase):
                 (Rule.INTERNAL_FUNCTION,),
             ),
             (
+                "internal_function_in_an_inline_query_sample",
+                content(hog="let q := (select 1 from events sample {postHogCreateTask({})})"),
+                (Rule.INTERNAL_FUNCTION,),
+            ),
+            (
                 "local_helper_named_like_an_internal_function",
                 content(hog="fun sendEmail(text) {\n  return text\n}\nfetch(inputs.url, {'body': sendEmail('hi')})"),
                 (),
@@ -235,13 +318,32 @@ class TestAbuseRules(SimpleTestCase):
                 (Rule.INTERNAL_FUNCTION,),
             ),
             (
+                "internal_function_name_bound_by_a_catch",
+                content(hog="try {\n  fetch(inputs.url)\n} catch (sendEmail) {\n  print(sendEmail)\n}"),
+                (),
+            ),
+            (
+                "internal_function_called_in_a_try_with_a_catch_of_that_name",
+                content(hog="try {\n  sendEmail({'to': inputs.to})\n} catch (sendEmail) {\n  print(sendEmail)\n}"),
+                (Rule.INTERNAL_FUNCTION,),
+            ),
+            (
                 "internal_function_name_in_a_string",
                 content(hog="print('postHogCreateTask runs in workflows')\nfetch(inputs.url)"),
                 (),
             ),
             (
                 "property_named_like_an_internal_function",
-                content(hog="fetch(inputs.url, {'body': event.properties.postHogGetTicket})"),
+                content(hog="fetch(inputs.url, {'body': event.properties.postHogCreateTask})"),
+                (),
+            ),
+            (
+                "support_ticket_mirror_destination",
+                content(
+                    hog="let ticket := postHogGetTicket({'ticket_id': event.properties.ticket_id})\n"
+                    "postHogUpdateTicket({'ticket_id': event.properties.ticket_id, 'updates': {'status': 'pending'}})\n"
+                    "fetch(inputs.url, {'body': ticket.body})"
+                ),
                 (),
             ),
             (
@@ -333,12 +435,45 @@ class TestAbuseRules(SimpleTestCase):
                     ("a_quote_in_an_inline_comment", "{% # ' %}{{ (1..20000) | size }}"),
                     ("a_raw_block_with_a_loose_end_tag", "{% raw %}x{% endraw ignored %}{{ (1..20000) | size }}"),
                     (
+                        "a_comment_block_closed_by_a_trimmed_end",
+                        "{% comment %}x{% endcomment-%}{{ (1..20000) | size }}",
+                    ),
+                    (
+                        "a_comment_block_with_an_end_tag_in_a_quoted_string",
+                        '{% comment %}{{ "{% endcomment %}{{ \'x" }}{% endcomment %}{{ (1..20000) | size }}',
+                    ),
+                    (
+                        "a_raw_block_with_a_trimmed_end_tag_inside",
+                        "{% raw %}{%- endraw %}{{ 'x }}{% endraw %}{{ (1..20000) | size }}",
+                    ),
+                    (
+                        "a_comment_block_closed_by_an_end_before_a_curly_quote",
+                        "{% comment %}x{% endcomment\u201c %}{{ (1..20000) | size }}",
+                    ),
+                    (
+                        "a_raw_block_closed_by_an_end_before_a_curly_quote",
+                        "{% raw %}x{% endraw\u201c %}{{ (1..20000) | size }}",
+                    ),
+                    ("a_raw_block_closed_after_a_liquid_blank", "{% raw %}x{%\u180eendraw %}{{ (1..20000) | size }}"),
+                    (
+                        "a_raw_block_whose_first_end_tag_meets_another_tag",
+                        "{% raw %}{% endraw\u201c {% assign x %}{{ '{% endraw %}{{ (1..20000) | size }}' }}",
+                    ),
+                    (
                         "a_line_comment_in_a_liquid_block",
                         "{% liquid\n  # the customer's note\n  assign xs = (1..20000)\n%}",
                     ),
                     (
                         "a_comment_block_in_a_liquid_block",
                         "{% liquid\n  comment\n  note\n  endcomment\n  assign xs = (1..20000)\n%}",
+                    ),
+                    (
+                        "a_raw_block_in_a_liquid_block_closed_by_a_trimmed_end",
+                        "{% liquid\n  raw\n  - endraw\n  echo (1..20000) | size\n%}",
+                    ),
+                    (
+                        "a_comment_block_in_a_liquid_block_closed_by_a_trimmed_end",
+                        "{% liquid\n  comment\n  -endcomment\n  echo (1..20000) | size\n%}",
                     ),
                     (
                         "a_comment_block_closed_by_a_suffixed_end",
@@ -363,10 +498,34 @@ class TestAbuseRules(SimpleTestCase):
                     ),
                     ("in_a_liquid_block_line_comment", "{% liquid\n  # (1..20000)\n  echo event.event\n%}"),
                     (
+                        "in_a_comment_block_opened_by_a_trimmed_statement",
+                        "{% liquid\n  - comment\n  echo (1..20000) | size\n  endcomment\n  echo 1\n%}",
+                    ),
+                    (
                         "in_a_comment_block_in_a_liquid_block",
                         "{% liquid\n  comment\n  assign xs = (1..20000)\n  endcomment\n  echo 1\n%}",
                     ),
                     ("in_a_raw_block_with_trimmed_tags", "{%raw-%}{{ (1..20000) | size }}{%endraw%}"),
+                    (
+                        "in_a_raw_block_after_a_trimmed_end_tag",
+                        "{% raw %}{% endraw-%}{{ (1..20000) | size }}{% endraw %}",
+                    ),
+                    (
+                        "in_a_raw_block_after_a_python_only_blank",
+                        "{% raw %}{%\x1cendraw %}{{ (1..20000) | size }}{% endraw %}",
+                    ),
+                    (
+                        "in_a_raw_block_after_an_end_tag_that_meets_another_tag",
+                        "{% raw %}{% endraw\u201c {% assign x %}{{ (1..20000) | size }}{% endraw %}",
+                    ),
+                    (
+                        "in_a_comment_block_after_an_end_tag_in_a_quoted_string",
+                        '{% comment %}{{ "{% endcomment %}" }}{{ (1..20000) | size }}{% endcomment %}',
+                    ),
+                    (
+                        "after_a_comment_block_with_an_end_tag_and_a_space",
+                        "{% comment %}x{% endcomment- %}{{ (1..20000) | size }}",
+                    ),
                     ("after_an_unclosed_quote", "{{ 'Hi }}{{ (1..20000) | size }}"),
                 ]
             ),
@@ -386,6 +545,17 @@ class TestAbuseRules(SimpleTestCase):
             ),
             ("huge_hog_range_with_a_start", content(hog="let ids := range(-5000, 5001)"), (Rule.HUGE_RANGE,)),
             ("hog_range_at_the_limit", content(hog="let ids := range(10000)"), ()),
+            ("local_function_named_range", content(hog="fun range(n) {\n  return [n]\n}\nprint(range(20000))"), ()),
+            (
+                "huge_range_beside_a_local_named_range_in_another_scope",
+                content(hog="fun helper() {\n  let range := 1\n}\nprint(range(20000))"),
+                (Rule.HUGE_RANGE,),
+            ),
+            (
+                "local_lambda_named_replace_all",
+                content(hog="let replaceAll := (s, a, b) -> s\nprint(replaceAll(event.event, '', 'xx'))"),
+                (),
+            ),
             (
                 "huge_range_in_a_hog_template_input",
                 content(inputs={"payload": {"value": "{range(1000000)}", "templating": "hog"}}),
@@ -445,3 +615,128 @@ class TestAbuseRules(SimpleTestCase):
     )
     def test_matched_rules(self, _name: str, function: HogFunctionContent, expected: tuple[Rule, ...]) -> None:
         assert matched_rules(function) == expected
+
+    @parameterized.expand(
+        [
+            ("direct_fetch", content(), True),
+            ("no_call", content(hog="event.properties.internal := true\nreturn event", inputs={}), False),
+            (
+                "fetch_only_in_a_string_and_a_comment",
+                content(hog="print('fetch(inputs.url)')\n// fetch(inputs.url)\nreturn event", inputs={}),
+                False,
+            ),
+            (
+                "call_to_a_local_function_named_fetch",
+                content(hog="fun fetch(url) {\n  return url\n}\nfetch('x')"),
+                True,
+            ),
+            (
+                "fetch_beside_a_local_of_that_name_in_another_scope",
+                content(hog="fun f() {\n  let fetch := 1\n}\nprint(fetch('x'))"),
+                True,
+            ),
+            ("fetch_referenced_without_a_call", content(hog="let senders := {'a': fetch}\nreturn senders"), True),
+            ("fetch_in_a_lambda_callback", content(hog="arrayMap(url -> fetch(url), [inputs.url])"), True),
+            (
+                "property_rewrite_with_builtins_and_lambda_callbacks",
+                content(
+                    hog="event.properties.internal := has(inputs.internal_ips, event.properties.$ip)\n"
+                    "event.properties.tags := arrayMap(tag -> lower(trim(tag)), event.properties.tags ?? [])\n"
+                    "event.properties.internal_tags := arrayFilter(tag -> has(inputs.internal_tags, tag), "
+                    "event.properties.tags)\n"
+                    "return event",
+                    function_type="transformation",
+                    inputs={},
+                ),
+                False,
+            ),
+            ("closure_from_an_input_called_by_name", content(hog="let send := inputs.sender\nsend(inputs.url)"), True),
+            ("closure_called_as_a_member", content(hog="inputs.sender(inputs.url)"), True),
+            ("closure_from_an_input_as_a_callback", content(hog="arrayMap(inputs.sender, [inputs.url])"), True),
+            (
+                "closure_returned_by_a_local_function",
+                content(hog="fun identity(x) {\n  return x\n}\nidentity(inputs.sender)(inputs.url)"),
+                True,
+            ),
+            ("closure_returned_by_a_builtin", content(hog="coalesce(inputs.sender)(inputs.url)"), True),
+            (
+                "closure_swapped_in_through_upvalues",
+                content(
+                    hog="let evil := inputs.sender\nlet good := x -> x\nlet send := x -> good(x)\n"
+                    "let capture := () -> evil\nsend.upvalues[1] := capture.upvalues[1]\nsend(inputs.url)"
+                ),
+                True,
+            ),
+            (
+                "closure_called_as_a_tag",
+                content(hog="let send := inputs.sender\nlet response := <send url={inputs.url} />"),
+                True,
+            ),
+            (
+                "closure_called_through_an_implicit_catch_local",
+                content(hog="try {\n  throw Error('x')\n} catch {\n  e := inputs.sender\n  e(inputs.url)\n}"),
+                True,
+            ),
+            (
+                "closure_called_as_a_tag_through_an_implicit_catch_local",
+                content(
+                    hog="try {\n  throw Error('x')\n} catch {\n  e := inputs.sender\n  return <e url={inputs.url} />\n}"
+                ),
+                True,
+            ),
+            (
+                "inline_query",
+                content(hog="let q := (select event from events limit 1)"),
+                True,
+            ),
+            (
+                "closure_called_through_the_for_in_iterable_temporary",
+                content(hog="for (let x in [inputs.sender, <__H_expr_H__ url={inputs.url} />]) {\n  print(x)\n}"),
+                True,
+            ),
+            (
+                "closure_called_through_a_between_temporary",
+                content(hog="let hit := inputs.sender between <__expr__ url={inputs.url} /> and 1"),
+                True,
+            ),
+            ("send_email", content(hog="sendEmail({'to': inputs.to})"), True),
+            ("posthog_capture", content(hog="postHogCapture({'event': 'copied'})"), True),
+            ("ticket_function", content(hog="postHogGetTicket({'ticket_id': event.properties.ticket_id})"), True),
+            (
+                "fetch_in_a_hog_template_input",
+                content(hog="return event", inputs={"url": {"value": "{fetch(event.uuid)}"}}),
+                True,
+            ),
+            (
+                "fetch_in_the_masking_hash",
+                content(hog="return event", inputs={}, masking={"hash": "{fetch(event.uuid)}"}),
+                True,
+            ),
+            ("code_that_does_not_parse", content(hog="let x := (", inputs={}), True),
+            (
+                "fetch_in_unchanged_template_code",
+                content(template_id="template-webhook", code_modified_from_template=False),
+                True,
+            ),
+            *(
+                (
+                    f"{prefix}_runs_code_other_than_its_hog",
+                    content(hog="return event", inputs={}, template_id=f"{prefix}-x"),
+                    True,
+                )
+                for prefix in ("plugin", "segment", "native")
+            ),
+        ]
+    )
+    def test_has_outbound_call(self, _name: str, function: HogFunctionContent, expected: bool) -> None:
+        assert has_outbound_call(function) is expected
+
+    def test_parsed_code_and_templates_stay_out_of_the_parse_cache(self) -> None:
+        clear_parse_caches()
+        function = content(
+            hog="let ids := range(10)\nfetch(inputs.url, {'body': ids})",
+            inputs={"token": {"value": "{replaceAll('a decrypted secret, long enough to be cached', '', 'x')}"}},
+        )
+
+        assert matched_rules(function) == (Rule.REPLACE_AMPLIFICATION,)
+        assert _builtin_parse_cache.currsize + _user_parse_cache.currsize == 0

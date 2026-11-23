@@ -40,6 +40,19 @@ class TestDeploymentsAPI(ClickhouseTestMixin, APIBaseTest):
             w.span("jobs", env="prod", resource={"service.version": "3.0.0"})
         for i in range(3):
             w.span("jobs", env="staging", kind=3, resource={"service.version": "3.0.0"}, status_code=2 if i == 0 else 0)
+        w.base = dt.datetime(2026, 6, 2, 7, 10, 0)
+        for _ in range(4):
+            w.span("k8s-api", env="prod", resource={"k8s.replicaset.name": "k8s-api-6d4f"})
+        w.base = dt.datetime(2026, 6, 2, 8, 10, 0)
+        for _ in range(5):
+            w.span("k8s-api", env="prod", resource={"k8s.replicaset.name": "k8s-api-7b9c"})
+        w.span("adopting", env="prod", resource={"k8s.replicaset.name": "adopting-1a2b"})
+        w.span("adopting", env="prod", resource={"k8s.replicaset.name": "adopting-3c4d", "service.version": "2.0.0"})
+        w.span("bare", env="prod")
+        w.span("versioned-internals", env="prod", resource={"k8s.replicaset.name": "versioned-internals-5e6f"})
+        w.span("versioned-internals", env="prod", kind=1, parent="root", resource={"service.version": "4.0.0"})
+        w.span("late-internals", env="prod", resource={"service.version": "5.0.0"})
+        w.span("late-internals", env="prod", kind=1, parent="root", resource={"service.version": "5.1.0"})
         w.insert()
 
     def _get(self, **params) -> dict:
@@ -64,14 +77,31 @@ class TestDeploymentsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertAlmostEqual(new["p95_change_pct"], 200, delta=15)
         self.assertLess(old["first_seen"], new["first_seen"])
 
+    def test_version_source_falls_back_to_replica_sets(self) -> None:
+        cases = [
+            ("api", "service.version", ["1.0.0", "1.1.0"]),
+            ("k8s-api", "k8s.replicaset.name", ["k8s-api-6d4f", "k8s-api-7b9c"]),
+            ("adopting", "service.version", ["2.0.0"]),
+            ("bare", None, []),
+            ("versioned-internals", "service.version", []),
+        ]
+        for service, source, versions in cases:
+            with self.subTest(service=service):
+                body = self._get(service=service)
+                self.assertEqual(body["version_source"], source)
+                self.assertEqual([r["version"] for r in body["results"]], versions)
+
     def test_every_environment_picks_entry_or_root_spans_per_environment(self) -> None:
         (row,) = self._get(service="jobs", environment=None)["results"]
         self.assertEqual((row["version"], row["requests"], row["error_count"]), ("3.0.0", 5, 1))
 
-    def test_limit_keeps_the_newest_versions(self) -> None:
-        with patch("products.apm.backend.logic.health.deployments.DEPLOYMENTS_LIMIT", 1):
-            rows = self._get()["results"]
-        self.assertEqual([(r["version"], r["active"]) for r in rows], [("1.1.0", True)])
+    def test_limit_keeps_the_newest_versions_with_requests(self) -> None:
+        cases = [("api", [("1.1.0", True)]), ("late-internals", [("5.0.0", True)])]
+        for service, expected in cases:
+            with self.subTest(service=service):
+                with patch("products.apm.backend.logic.health.deployments.DEPLOYMENTS_LIMIT", 1):
+                    rows = self._get(service=service)["results"]
+                self.assertEqual([(r["version"], r["active"]) for r in rows], expected)
 
     def test_api_key_is_refused_while_the_team_logs_api_slots_are_full(self) -> None:
         key = self.create_personal_api_key_with_scopes(["tracing:read"])

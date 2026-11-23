@@ -59,10 +59,10 @@ A product's own alert row and its platform copy share one `owner`: `source` or `
 
 ### Destinations and delivery
 
-Each platform configuration has a second owner field, `destinations_owner`, because an alert moves its evaluation first and its destinations later.
+Where an alert's destinations live is a rule per alert kind, not a field on the configuration: `source_configs.keeps_platform_destinations` reads it from the kind's registration (`native.platform_destinations`).
 
-- With source-owned destinations, the alert still sends through its HogFunctions. A platform-owned alert on the `HOG_FUNCTION` delivery path has the source emit the internal events its own stack emitted, so customers receive exactly what they received before the cutover.
-- With platform-owned destinations, `AlertDestination` rows hold them, and the platform's own transports send each type natively. Team-wide `AlertReceiver` and `AlertRoute` rows match alerts by label.
+- For a kind whose source keeps HogFunctions, the alert still sends through them. A platform-owned alert on the `HOG_FUNCTION` delivery path has the source emit the internal events its own stack emitted, so customers receive exactly what they received before the cutover.
+- For a kind that keeps platform destinations, `AlertDestination` rows hold them, and the platform's own transports send each type natively. Team-wide `AlertReceiver` and `AlertRoute` rows match alerts by label.
 
 The HogFunction destination and delivery contracts below serve alerts whose destinations have not moved to the platform.
 
@@ -127,6 +127,8 @@ another facade read.
 Not every destination type has something to send for every event kind. An incident manager such as PagerDuty follows only the kinds that trigger or resolve an incident, which a product marks with `EventKindSpec.incident_action`. Every other destination type follows only the kinds without it. Filter a product's event kinds with `destination_handles_event_kind` before building configs; `build_alert_destination_config` raises for a kind the destination type does not handle.
 
 An incident manager needs a resolve for every trigger, or the incident it opened stays open and absorbs the next trigger on the same deduplication key. So the incident kinds follow the firing state, not the notification: emit one on every transition into and out of firing, even when cooldown suppresses the notification. Logs alerts do this with `$logs_alert_incident_opened` and `$logs_alert_incident_closed`, read from `incident_edge` in `products/logs/backend/alert_state_machine.py`.
+
+An edit can also move a firing group from one incident manager to another: a change to an alert's own destinations or labels, or to the team's routes and receivers. `hand_over_after_commit` in `products/alerts_platform/backend/logic/destination_handoff.py` sends the resolve to the incident manager that lost the group and the trigger to the one that gained it, once the edit commits. Resolves go from the edit's own request, up to 20 per edit, because the destination they go to may already be gone. Triggers, and any resolves past that limit, go through a delivery workflow.
 
 A destination type whose configuration is a credential, such as the PagerDuty integration key, stores it as a secret template input. The read path merges `encrypted_inputs` back before it reads a config, so grouping and duplicate detection see the real value while `redact_destination_data` keeps it out of API responses.
 

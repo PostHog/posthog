@@ -403,6 +403,14 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # server-side `idle_in_transaction_session_timeout` (already matched by type above) — same
     # transient class, just culled by the pooler instead of the server. A fresh reconnect recovers.
     "idle transaction timeout",
+    # PgBouncer's own `client_idle_timeout` setting: it disconnects a client that is not inside a
+    # transaction and has gone longer than the configured limit without a statement in flight —
+    # exactly what the offset-chunking fallback's autocommit connection does between pages while
+    # the destination's slow delta-merge runs between yields. Same bare, SQLSTATE-less error-packet
+    # shape as `query_wait_timeout` and `idle transaction timeout` above, so psycopg surfaces it as
+    # ProtocolViolation rather than OperationalError; same transient class, so a fresh reconnect
+    # recovers.
+    "client_idle_timeout",
     # psycopg's own message when `PQconnectStart` reports the connection BAD before the handshake
     # ever begins and libpq has no server-reported error text to attach (see
     # `psycopg.generators._connect` / `psycopg.pq.misc._clean_error_message`). Unlike every other

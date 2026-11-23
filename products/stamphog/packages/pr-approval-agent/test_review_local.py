@@ -855,8 +855,17 @@ def test_attest_confirms_only_what_the_full_review_would_approve(
     assert (review_local.run(context)["final_verdict"] == "APPROVED") is outcome["attested"]
 
 
+# Pins no publisher, so its list-form marker lifts for any author.
+_COMPOSE_PROOF = Attestation(
+    name="compose_proof", check="Compose proof", app_id=91, lifts=("infra_cicd",), paths=(r"^docker/",)
+)
+_OWNERS_PROOF = Attestation(
+    name="owners_proof", check="Owners proof", app_id=92, lifts=("ownership_files",), paths=(r"owners\.yaml$",)
+)
+
+
 @pytest.mark.parametrize(
-    "files, safe_migrations, expected_tier, expected_verdict",
+    "files, proofs, expected_tier, expected_verdict",
     [
         pytest.param(["apps/billing/values.yaml"], [], "T1-agent", "REFUSED", id="billing-config-not-t0"),
         pytest.param(["apps/tests/billing/values.yaml"], [], "T1-agent", "REFUSED", id="billing-test-not-t0"),
@@ -866,18 +875,38 @@ def test_attest_confirms_only_what_the_full_review_would_approve(
         pytest.param(["src/test_app.py"], [], "T0-deterministic", "ESCALATE", id="unaffected-tests-stay-t0"),
         pytest.param(
             ["apps/billing/values.yaml", "posthog/migrations/0999_add_col.py"],
-            ["posthog/migrations/0999_add_col.py"],
+            [("Migration risk", _MIGRATION_RISK_APP_ID, ["posthog/migrations/0999_add_col.py"])],
             "T1-agent",
             "REFUSED",
             id="safe-migration-ignored-in-both-scans",
         ),
+        pytest.param(
+            ["docker/docker-compose.yml"],
+            [("Compose proof", 91, ["docker/docker-compose.yml"])],
+            "T1-agent",
+            "REFUSED",
+            id="attestation-lift-not-t0",
+        ),
+        pytest.param(
+            ["frontend/src/scenes/x/owners.yaml"],
+            [("Owners proof", 92, ["frontend/src/scenes/x/owners.yaml"])],
+            "T1-agent",
+            "REFUSED",
+            id="attested-addition-not-t0",
+        ),
     ],
 )
-def test_deny_exception_requires_full_review_in_pipeline_and_pregate(
-    monkeypatch, tmp_path, files: list[str], safe_migrations: list[str], expected_tier: str, expected_verdict: str
+def test_lifted_deny_requires_full_review_in_pipeline_and_pregate(
+    monkeypatch,
+    tmp_path,
+    files: list[str],
+    proofs: list[tuple[str, int, list[str]]],
+    expected_tier: str,
+    expected_verdict: str,
 ) -> None:
     policy = replace(
         review_pr.POLICY,
+        attestations=(*review_pr.POLICY.attestations, _COMPOSE_PROOF, _OWNERS_PROOF),
         deny_exceptions={
             "billing": (DenyException(keyword="billing", path_prefixes=("apps/",), extensions=(".yaml", ".yml")),),
             "infra_cicd": (DenyException(keyword=None, path_prefixes=(".github/",), extensions=()),),
@@ -900,19 +929,16 @@ def test_deny_exception_requires_full_review_in_pipeline_and_pregate(
         return {"verdict": "REFUSE", "reasoning": "Needs a safer change.", "risk": "high", "issues": []}
 
     monkeypatch.setattr(openai_reviewer.OpenAIReviewer, "review", refuse)
-    checks = (
-        [
-            {
-                "name": "Migration risk",
-                "app": {"id": _MIGRATION_RISK_APP_ID},
-                "status": "completed",
-                "conclusion": "success",
-                "output": {"summary": f"<!-- stamphog:v1 {json.dumps(safe_migrations)} -->"},
-            }
-        ]
-        if safe_migrations
-        else []
-    )
+    checks = [
+        {
+            "name": check,
+            "app": {"id": app_id},
+            "status": "completed",
+            "conclusion": "success",
+            "output": {"summary": f"<!-- stamphog:v1 {json.dumps(proven)} -->"},
+        }
+        for check, app_id, proven in proofs
+    ]
     context = _pregate_context(
         [_api_file(path, status="modified") for path in files],
         check_runs=checks,
@@ -979,6 +1005,22 @@ _DOCS_PROOF = Attestation(
 )
 _DOCS_LINT = replace(_DOCS_PROOF, name="docs_lint", check="Docs lint", app_id=78, paths=(r"^docs/linted\.md$",))
 _DOCS_NOTE = replace(_DOCS_PROOF, name="docs_note", check="Docs note", app_id=79, publisher_files=())
+# Its publisher posts only for a revert, so routing must not wait for it on any other PR.
+_DOCS_REVERT = replace(_DOCS_PROOF, name="docs_revert", check="Docs revert", app_id=82, title="^Revert")
+_SITE_PROOF = replace(
+    _DOCS_PROOF,
+    name="site_proof",
+    check="Site proof",
+    app_id=80,
+    paths=(r"^site/",),
+    publisher_files=(),
+    issuer="tools/site_proof/issuer.yml",
+    issuer_paths=("tools/site_proof/",),
+)
+# Its manifest was missing or invalid on the default branch, so the loader left it no paths.
+_SITE_UNUSABLE = replace(
+    _SITE_PROOF, name="site_unusable", check="Site unusable", app_id=81, paths=(r"^www/",), issuer_paths=()
+)
 
 
 def _bot_context(
@@ -1007,6 +1049,21 @@ def _docs_proof(files: list[str]) -> dict:
     }
 
 
+def _site_proof(check: str, app_id: int, files: list[str]) -> dict:
+    marker = {
+        "files": files,
+        "pr": 1,
+        "head_sha": "h" * 40,
+        "merge_base": "m" * 40,
+        "blobs": {"tools/site_proof/": "c" * 40},
+    }
+    return {
+        **_proof(check, app_id, []),
+        "output": {"summary": f"<!-- stamphog:v1 {json.dumps(marker)} -->"},
+        "pinned_blobs_current": True,
+    }
+
+
 def _proof(check: str, app_id: int, files: list[str]) -> dict:
     return {
         "name": check,
@@ -1022,18 +1079,28 @@ _DOCS_MIGRATION = "docs/migrations/0999_add_col.py"
 
 
 @pytest.mark.parametrize(
-    "bot_authors, context, expect_verdict, failed_gate",
+    "bot_authors, context, expect_verdict, failed_gate, proof_checks, proven",
     [
-        pytest.param((), _bot_context([_MIGRATION], []), "REFUSED", None, id="policy-names-no-bot"),
-        pytest.param((_RENOVATE,), _bot_context([_MIGRATION], [], login="other[bot]"), "REFUSED", None, id="other-bot"),
+        pytest.param((), _bot_context([_MIGRATION], []), "REFUSED", None, [], False, id="policy-names-no-bot"),
         pytest.param(
-            (_RENOVATE,), _bot_context([_MIGRATION], [], user_id=1), "REFUSED", None, id="same-login-other-account"
+            (_RENOVATE,), _bot_context([_MIGRATION], [], login="other[bot]"), "REFUSED", None, [], False, id="other-bot"
+        ),
+        pytest.param(
+            (_RENOVATE,),
+            _bot_context([_MIGRATION], [], user_id=1),
+            "REFUSED",
+            None,
+            [],
+            False,
+            id="same-login-other-account",
         ),
         pytest.param(
             (_RENOVATE,),
             _bot_context(["docs/a.md", ".github/workflows/ci.yml"], [_docs_proof(["docs/a.md"])]),
             "REFUSED",
             "every_file_attested",
+            [],
+            False,
             id="a-file-outside-every-proof",
         ),
         pytest.param(
@@ -1044,6 +1111,8 @@ _DOCS_MIGRATION = "docs/migrations/0999_add_col.py"
             ),
             "REFUSED",
             "every_file_attested",
+            ["Docs proof"],
+            False,
             id="a-rename-leaves-its-old-path-unproven",
         ),
         pytest.param(
@@ -1054,6 +1123,8 @@ _DOCS_MIGRATION = "docs/migrations/0999_add_col.py"
             ),
             None,
             None,
+            ["Docs proof"],
+            True,
             id="a-rename-with-both-paths-proven",
         ),
         pytest.param(
@@ -1064,6 +1135,8 @@ _DOCS_MIGRATION = "docs/migrations/0999_add_col.py"
             ),
             "REFUSED",
             "deny-list",
+            ["Docs proof"],
+            True,
             id="a-deny-that-only-an-unpinned-check-lifts",
         ),
         pytest.param(
@@ -1071,6 +1144,8 @@ _DOCS_MIGRATION = "docs/migrations/0999_add_col.py"
             _bot_context(["docs/a.md", "docs/index.md"], [_docs_proof(["docs/a.md"])]),
             "REFUSED",
             "every_file_attested",
+            ["Docs proof"],
+            False,
             id="a-sibling-file-the-proof-does-not-name",
         ),
         pytest.param(
@@ -1078,6 +1153,8 @@ _DOCS_MIGRATION = "docs/migrations/0999_add_col.py"
             _bot_context([_MIGRATION], [_proof("Migration risk", 2492437, [_MIGRATION])]),
             "REFUSED",
             "every_file_attested",
+            [],
+            False,
             id="a-proof-without-a-pinned-publisher",
         ),
         pytest.param(
@@ -1085,6 +1162,8 @@ _DOCS_MIGRATION = "docs/migrations/0999_add_col.py"
             _bot_context([_MIGRATION], _PENDING_MIGRATION_CHECK),
             "REFUSED",
             "every_file_attested",
+            [],
+            False,
             id="pending-proof-without-a-pinned-publisher",
         ),
         pytest.param(
@@ -1092,6 +1171,8 @@ _DOCS_MIGRATION = "docs/migrations/0999_add_col.py"
             _bot_context(["docs/a.md"], [{"name": "Docs proof", "status": "in_progress", "conclusion": None}]),
             "WAIT",
             None,
+            ["Docs proof"],
+            False,
             id="pending-proof",
         ),
         pytest.param(
@@ -1099,19 +1180,54 @@ _DOCS_MIGRATION = "docs/migrations/0999_add_col.py"
             _bot_context(["docs/linted.md"], [_docs_proof(["docs/linted.md"])]),
             None,
             None,
+            ["Docs proof", "Docs lint"],
+            True,
             id="every-file-proven-while-another-check-runs",
+        ),
+        pytest.param(
+            (_RENOVATE,),
+            _bot_context(["site/a.md"], [_site_proof("Site proof", 80, ["site/a.md"])]),
+            None,
+            None,
+            ["Site proof"],
+            True,
+            id="every-file-proven-by-an-issuer-entry",
+        ),
+        pytest.param(
+            (_RENOVATE,),
+            _bot_context(["www/a.md"], [_site_proof("Site unusable", 81, ["www/a.md"])]),
+            "REFUSED",
+            "every_file_attested",
+            [],
+            False,
+            id="an-issuer-entry-whose-manifest-is-unusable",
         ),
     ],
 )
 def test_an_admitted_bot_is_reviewed_only_when_every_file_is_proven(
-    monkeypatch, bot_authors: tuple[BotAuthor, ...], context: dict, expect_verdict: str | None, failed_gate: str | None
+    monkeypatch,
+    bot_authors: tuple[BotAuthor, ...],
+    context: dict,
+    expect_verdict: str | None,
+    failed_gate: str | None,
+    proof_checks: list[str],
+    proven: bool,
 ) -> None:
     # `Docs lint` never reports here, and it must not hold back a PR whose files are all proven.
     # `Docs note` pins no publisher, so it never counts for a bot.
+    # `Docs revert` covers the same files, but no title here starts with `Revert`.
     policy = replace(
         review_pr.POLICY,
         bot_authors=bot_authors,
-        attestations=(*review_pr.POLICY.attestations, _DOCS_PROOF, _DOCS_LINT, _DOCS_NOTE),
+        attestations=(
+            *review_pr.POLICY.attestations,
+            _DOCS_PROOF,
+            _DOCS_LINT,
+            _DOCS_NOTE,
+            _DOCS_REVERT,
+            _SITE_PROOF,
+            _SITE_UNUSABLE,
+        ),
     )
     monkeypatch.setattr(review_pr, "POLICY", policy)
     monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
@@ -1121,6 +1237,8 @@ def test_an_admitted_bot_is_reviewed_only_when_every_file_is_proven(
 
     # The worker's check before an approval is posted must agree with the pre-check.
     assert review_local.attest(context)["attested"] is (expect_verdict is None)
+    proof = review_local.attestation_proof(context)
+    assert ([check["check"] for check in proof["checks"]], proof["proven"]) == (proof_checks, proven)
     assert outcome["final"] is (expect_verdict is not None)
     if expect_verdict is None:
         assert outcome["not_final_reason"]

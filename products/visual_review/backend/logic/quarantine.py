@@ -257,13 +257,38 @@ def identifiers_lifted_after_commit(run: Run, *, now: datetime) -> set[str]:
     )
     scope_start = now - timedelta(days=LIFT_SCOPE_DAYS)
     identifiers_by_sha: dict[str, set[str]] = defaultdict(set)
+    lifted_at_by_sha: dict[str, datetime] = {}
     for identifier, lifted_at_sha, expires_at in latest_events:
         if lifted_at_sha is not None and expires_at is not None and scope_start < expires_at <= now:
             identifiers_by_sha[lifted_at_sha].add(identifier)
+            lifted_at_by_sha[lifted_at_sha] = max(expires_at, lifted_at_by_sha.get(lifted_at_sha, expires_at))
 
+    newest_first = sorted(lifted_at_by_sha, key=lifted_at_by_sha.__getitem__, reverse=True)
     return {
         identifier
-        for lifted_at_sha, identifiers in identifiers_by_sha.items()
-        if not github_api.commit_contains(run.repo, lifted_at_sha, run.commit_sha)
-        for identifier in identifiers
+        for lifted_at_sha in _commits_missing_from(run, newest_first)
+        for identifier in identifiers_by_sha[lifted_at_sha]
     }
+
+
+def _commits_missing_from(run: Run, lift_commits_newest_first: list[str]) -> set[str]:
+    """The lift commits that the history of `run`'s commit does not contain.
+
+    Each run has a new commit, so asking GitHub about every lift commit makes one request per lift
+    on every run. A lift commit is the default branch head at the time of the lift, so an older lift
+    commit is usually an ancestor of a newer one. When a newer lift commit is in the run's history,
+    an older commit in the history of that newer commit is too. The answer for a pair of lift
+    commits never changes and stays cached across runs, so a run on the default branch asks GitHub
+    about its own commit once. A pair that GitHub cannot confirm falls back to asking about the run.
+    """
+    missing: set[str] = set()
+    contained_newer: str | None = None
+    for lift_commit in lift_commits_newest_first:
+        contained = (
+            contained_newer is not None and github_api.commit_contains(run.repo, lift_commit, contained_newer)
+        ) or github_api.commit_contains(run.repo, lift_commit, run.commit_sha)
+        if contained:
+            contained_newer = lift_commit
+        else:
+            missing.add(lift_commit)
+    return missing

@@ -1,4 +1,7 @@
+from datetime import timedelta
+
 import pytest
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -19,6 +22,16 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.workflows.backend.models import HogFlow, HogFlowBatchJob
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.providers.ses import IspSendingMetrics
+from products.workflows.backend.tests.fakes.ses_endpoint import METRICS_BATCH_PATH, FakeSesEndpoint
+
+
+def _locally_evaluated_flag(released: bool):
+    def feature_enabled(*_args, only_evaluate_locally: bool = False, **_kwargs) -> bool:
+        if not only_evaluate_locally:
+            raise TimeoutError("remote flag evaluation")
+        return released
+
+    return feature_enabled
 
 
 class TestEmailReputationAPI(APIBaseTest):
@@ -55,6 +68,7 @@ class TestEmailReputationAPI(APIBaseTest):
             provider.get_identity_isp_metrics.side_effect = isp_metrics
         else:
             provider.get_identity_isp_metrics.return_value = isp_metrics or []
+        provider.get_account_sending_metrics.return_value = None
         with (
             patch(
                 "products.workflows.backend.services.email_health.fetch_app_metric_totals_by_source",
@@ -85,7 +99,84 @@ class TestEmailReputationAPI(APIBaseTest):
             "email_sending_suspended": False,
             "email_sending_suspended_at": None,
             "email_sending_suspension_reason": "",
+            "infrastructure": None,
         }
+
+    def _get_reputation_from_ses(self, *, released: bool = True) -> dict:
+        with (
+            patch(
+                "products.workflows.backend.services.email_health.fetch_app_metric_totals_by_source",
+                return_value={},
+            ),
+            patch(
+                "products.workflows.backend.services.email_health.posthoganalytics.feature_enabled",
+                side_effect=_locally_evaluated_flag(released),
+            ),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation")
+        assert response.status_code == status.HTTP_200_OK
+        return response.json()
+
+    def test_reputation_shows_the_sending_infrastructure_health_without_its_exact_volume(self):
+        with FakeSesEndpoint().installed() as ses:
+            ses.account_metrics.update(
+                {
+                    "SEND": 4_276_310,
+                    "DELIVERY": 4_253_700,
+                    "PERMANENT_BOUNCE": 12_870,
+                    "TRANSIENT_BOUNCE": 40_115,
+                    "COMPLAINT": 655,
+                    "DELIVERY_COMPLAINT": 3_120_000,
+                }
+            )
+            first = self._get_reputation_from_ses()["infrastructure"]
+            second = self._get_reputation_from_ses()["infrastructure"]
+
+        assert first == {
+            "emails_sent_at_least": 4_000_000,
+            "delivery_rate": 0.994,
+            "bounce_rate": 0.0031,
+            "complaint_rate": 0.0003,
+        }
+        assert second == first
+        assert len([request for request in ses.requests if request.path == METRICS_BATCH_PATH]) == 1
+
+    def test_reputation_retries_the_infrastructure_health_soon_after_a_metric_query_fails(self):
+        with FakeSesEndpoint().installed() as ses, time_machine.travel("2026-03-10T12:00:00Z", tick=False) as clock:
+            ses.account_metrics.update({"SEND": 1_000, "DELIVERY": 990, "DELIVERY_COMPLAINT": 900})
+            ses.failing_metrics.add("DELIVERY")
+            during_the_failure = self._get_reputation_from_ses()["infrastructure"]
+
+            ses.failing_metrics.clear()
+            clock.shift(timedelta(minutes=2))
+            after_it_clears = self._get_reputation_from_ses()["infrastructure"]
+
+        assert during_the_failure is None
+        assert after_it_clears is not None
+
+    def test_reputation_asks_ses_once_when_it_rejects_the_account_query(self):
+        with FakeSesEndpoint().installed() as ses:
+            ses.rejects_metric_batches = True
+            data = self._get_reputation_from_ses()
+
+        assert data["infrastructure"] is None
+        assert len([request for request in ses.requests if request.path == METRICS_BATCH_PATH]) == 1
+
+    def test_reputation_loads_without_the_infrastructure_health_when_ses_is_unreachable(self):
+        with FakeSesEndpoint().installed() as ses:
+            ses.account_metrics.update({"SEND": 1_000, "DELIVERY": 990, "DELIVERY_COMPLAINT": 900})
+            ses.denied = True
+            data = self._get_reputation_from_ses()
+
+        assert data["infrastructure"] is None
+
+    def test_reputation_asks_ses_nothing_for_a_project_without_the_flag(self):
+        with FakeSesEndpoint().installed() as ses:
+            ses.account_metrics.update({"SEND": 1_000, "DELIVERY": 990, "DELIVERY_COMPLAINT": 900})
+            data = self._get_reputation_from_ses(released=False)
+
+        assert data["infrastructure"] is None
+        assert not [request for request in ses.requests if request.path == METRICS_BATCH_PATH]
 
     @override_settings(
         WORKFLOWS_EMAIL_TIER_MODE="enforce",
@@ -153,6 +244,7 @@ class TestEmailReputationAPI(APIBaseTest):
     def test_reputation_endpoint_does_not_redial_aws_after_a_failure(self):
         provider = MagicMock()
         provider.get_tenant_reputation.side_effect = Exception("SES timeout")
+        provider.get_account_sending_metrics.return_value = None
         with (
             patch(
                 "products.workflows.backend.services.email_health.fetch_app_metric_totals_by_source",
@@ -534,6 +626,7 @@ class TestEmailReputationAccessControl(APIBaseTest):
                 complaint_base=0,
             )
         ]
+        provider.get_account_sending_metrics.return_value = None
         with (
             patch(
                 "products.workflows.backend.services.email_health.fetch_app_metric_totals_by_source",

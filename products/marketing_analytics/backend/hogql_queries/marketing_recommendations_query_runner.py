@@ -29,11 +29,16 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import User
 
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import (
+    DISAPPROVED,
+    LIMITED_APPROVALS,
     RECOMMENDATION_SOURCE_TYPES,
     Ad,
     CampaignStats,
+    FlaggedAd,
     KeywordTracking,
     OrganicQueryStats,
+    PolicyAds,
+    PolicyTopic,
     RankingPage,
     RecommendationInputs,
     SearchTermStats,
@@ -58,6 +63,8 @@ class GoogleAdsSessions:
 
 
 ROW_LIMIT = 50000
+# Steps name a few flagged ads per campaign. The rest only add rows, and some carry no finding worth naming.
+FLAGGED_ADS_PER_CAMPAIGN = 20
 PLAIN_AD_TEXT_FIELDS = (
     "ad_group_ad_ad_responsive_search_ad_path1",
     "ad_group_ad_ad_responsive_search_ad_path2",
@@ -189,6 +196,8 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                         ranking_pages=ranking_pages,
                         keyword_tracking=self._keyword_tracking(source),
                         ads=tuple(self._ads(source)),
+                        policy_ads=tuple(self._policy_ads(source)),
+                        flagged_ads=tuple(self._flagged_ads(source)),
                         customer_id=self._customer_id(source),
                     )
                 )
@@ -617,6 +626,58 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             if row[0]
         ]
 
+    def _policy_ads(self, source: MarketingAnalyticsRecommendationsSource) -> list[PolicyAds]:
+        if not source.adTable or not self._readable(source.adTable):
+            return []
+        # Counted in the query, so the row limit on the ad list never cuts a campaign's totals.
+        rows = self._select(
+            """
+            SELECT toString(campaign_id), countIf({status} = {disapproved}), countIf(has({limited}, {status}))
+            FROM {table}
+            WHERE ad_group_ad_status = 'ENABLED'
+            GROUP BY campaign_id
+            HAVING countIf({status} = {disapproved}) + countIf(has({limited}, {status})) > 0
+            """,
+            source.adTable,
+            status=self._field(source.adTable, "ad_group_ad_policy_summary_approval_status"),
+            disapproved=ast.Constant(value=DISAPPROVED),
+            limited=ast.Array(exprs=[ast.Constant(value=status) for status in sorted(LIMITED_APPROVALS)]),
+        )
+        return [PolicyAds(campaign_id=row[0], disapproved=int(row[1]), limited=int(row[2])) for row in rows]
+
+    def _flagged_ads(self, source: MarketingAnalyticsRecommendationsSource) -> list[FlaggedAd]:
+        if not source.adTable or not self._readable(source.adTable):
+            return []
+        status = self._field(source.adTable, "ad_group_ad_policy_summary_approval_status")
+        ad_id = self._field(source.adTable, "ad_group_ad_ad_id")
+        rows = self._select(
+            f"""
+            SELECT toString(campaign_id), toString({{ad_id}}), {{headlines}}, {{plain}}, {{policy_topics}}
+            FROM {{table}}
+            WHERE ad_group_ad_status = 'ENABLED' AND ({{status}} = {{disapproved}} OR has({{limited}}, {{status}}))
+            ORDER BY campaign_id, {{status}} != {{disapproved}}, {{ad_id}}
+            LIMIT {FLAGGED_ADS_PER_CAMPAIGN} BY campaign_id
+            LIMIT {ROW_LIMIT}
+            """,
+            source.adTable,
+            status=status,
+            ad_id=ad_id,
+            headlines=self._field(source.adTable, "ad_group_ad_ad_responsive_search_ad_headlines"),
+            plain=ast.Array(exprs=[self._field(source.adTable, field) for field in PLAIN_AD_TEXT_FIELDS]),
+            policy_topics=self._field(source.adTable, "ad_group_ad_policy_summary_policy_topic_entries"),
+            disapproved=ast.Constant(value=DISAPPROVED),
+            limited=ast.Array(exprs=[ast.Constant(value=status) for status in sorted(LIMITED_APPROVALS)]),
+        )
+        return [
+            FlaggedAd(
+                campaign_id=row[0],
+                ad_id=row[1] or "",
+                headline=next(iter((*_asset_texts(row[2]), *(text for text in row[3] if text))), ""),
+                policy_topics=_policy_topics(row[4]),
+            )
+            for row in rows
+        ]
+
     def _organic_queries(self, source: MarketingAnalyticsRecommendationsSource) -> list[OrganicQueryStats]:
         if not source.queryTable or not self._readable(source.queryTable):
             return []
@@ -722,14 +783,36 @@ def _recommendation_source(source_type: str, tables: dict[str, str]) -> Marketin
     )
 
 
-def _asset_texts(value: str | None) -> tuple[str, ...]:
-    # The sync stores each ad text asset as a JSON message inside a JSON list.
+def _json_messages(value: str | None) -> list[dict[str, Any]]:
+    # The sync stores a repeated message field as a JSON list of JSON messages.
     try:
-        assets = json.loads(value) if value else []
-        parsed = [json.loads(asset) if isinstance(asset, str) else asset for asset in assets]
+        items = json.loads(value) if value else []
+        parsed = [json.loads(item) if isinstance(item, str) else item for item in items]
     except (ValueError, TypeError):
-        return ()
-    return tuple(text for asset in parsed if isinstance(asset, dict) and (text := asset.get("text")))
+        return []
+    return [item for item in parsed if isinstance(item, dict)]
+
+
+def _asset_texts(value: str | None) -> tuple[str, ...]:
+    return tuple(text for asset in _json_messages(value) if (text := asset.get("text")))
+
+
+def _policy_topics(value: str | None) -> tuple[PolicyTopic, ...]:
+    return tuple(
+        PolicyTopic(
+            topic=entry["topic"],
+            type=entry.get("type") or "",
+            texts=tuple(
+                text
+                for evidence in entry.get("evidences") or []
+                if isinstance(evidence, dict)
+                for text in (evidence.get("textList") or {}).get("texts") or []
+                if text
+            ),
+        )
+        for entry in _json_messages(value)
+        if entry.get("topic")
+    )
 
 
 def _json_strings(value: str | None) -> tuple[str, ...]:

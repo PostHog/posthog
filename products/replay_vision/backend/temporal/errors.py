@@ -21,6 +21,8 @@ INELIGIBLE_SESSION_ERROR_TYPE = "IneligibleSession"
 SCANNER_FAILURE_ERROR_TYPE = "ScannerFailure"
 # Always retryable: the create activity's backoff spreads contenders that Postgres would otherwise queue.
 SCANNER_ADMISSION_BUSY_ERROR_TYPE = "ScannerAdmissionBusy"
+# Retryable: the read that found the org unsynced asked billing to sync it, which usually lands within seconds.
+BILLING_SYNC_PENDING_ERROR_TYPE = "BillingSyncPending"
 
 
 class _KindedApplicationError(ApplicationError):

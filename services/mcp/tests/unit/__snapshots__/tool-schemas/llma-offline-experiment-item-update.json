@@ -1,0 +1,68 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "application_trace_id": {
+            "anyOf": [
+                {
+                    "maxLength": 255,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Trace for this item's application execution."
+        },
+        "case_key": {
+            "anyOf": [
+                {
+                    "maxLength": 255,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Case identifier."
+        },
+        "id": {
+            "description": "Experiment UUID.",
+            "type": "string"
+        },
+        "item_id": {
+            "description": "Item UUID within the experiment.",
+            "type": "string"
+        },
+        "model_version": {
+            "anyOf": [
+                {
+                    "maxLength": 255,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Model used for this item."
+        },
+        "revision": {
+            "description": "Revision returned by the latest read of this item, result, or payload.",
+            "minimum": 0,
+            "type": "number"
+        },
+        "trial": {
+            "anyOf": [
+                {
+                    "maxLength": 255,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Trial identifier."
+        }
+    },
+    "required": ["id", "item_id", "revision"],
+    "type": "object"
+}

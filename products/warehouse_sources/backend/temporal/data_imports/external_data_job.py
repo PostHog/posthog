@@ -60,6 +60,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     PersonPropertySyncActivityInputs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
+    CANCELLED_METRIC_STATUS,
     failure_streak_label,
     get_data_import_finished_metric,
     get_fast_returned_run_metric,
@@ -99,12 +100,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     error_message_matches,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.errors import TRANSIENT_EGRESS_PROXY_ERRORS
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.retry_policy import RetryableHTTPError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     DATABASE_HOST_NOT_ALLOWED_ERROR,
     DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
     SOURCE_HOST_NOT_ALLOWED_ERROR,
     SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR,
     TEMPORARY_HOST_RESOLUTION_PREFIX,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UNKNOWN_RESOURCE_PREFIX
 from products.warehouse_sources.backend.temporal.data_imports.util import with_internal_db_retries
@@ -467,10 +472,11 @@ def _customer_facing_error(cause: BaseException | None, activity_type: str | Non
         return CANCELLED_RUN_MESSAGE
     # A REST source exhausted every retry on a transient upstream failure (an HTTP 429/5xx, a dropped
     # connection, or a timeout). Temporal records it as an ApplicationError typed
-    # `RESTClientRetryableError`, whose message is a raw string like "HTTP 503 for <url>". That status
+    # `RESTClientRetryableError` (or `RetryableHTTPError` for a source on `vendor_retry`), whose
+    # message is a raw string like "HTTP 503 for <url>". That status
     # code means nothing to a customer, so replace it with a message that names the cause and says the
     # sync retries on its next schedule.
-    if getattr(cause, "type", None) == "RESTClientRetryableError":
+    if getattr(cause, "type", None) in (RESTClientRetryableError.__name__, RetryableHTTPError.__name__):
         return TRANSIENT_SOURCE_ERROR_MESSAGE
     # A timed-out activity carries Temporal's own wording for its message ("activity StartToClose
     # timeout"), which names our orchestration rather than anything the customer can act on. Only the
@@ -1022,6 +1028,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
         source_type = None
         # The finally block reads it, so it must exist when job creation itself fails.
         failed_runs_in_a_row = 0
+        run_cancelled = False
         consumer_manages_job_status = False
         skip_post_import_activities = False
         workflow_starts_post_import = False
@@ -1544,6 +1551,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 raise
             else:
                 # Handle other activity errors normally
+                run_cancelled = isinstance(e.cause, exceptions.CancelledError)
                 update_inputs.status = ExternalDataJob.Status.FAILED
                 update_inputs.internal_error = str(e.cause)
                 update_inputs.latest_error = _customer_facing_error(e.cause, e.activity_type)
@@ -1563,10 +1571,14 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             )
 
             finished_status = update_inputs.status.lower()
+            # A cancelled run is a person or our own teardown stopping it, not the source failing.
+            # The job still records Failed, but counting it as a failure lets one action that
+            # cancels every schema of a source page the failure-rate alert.
+            metric_status = CANCELLED_METRIC_STATUS if run_cancelled else finished_status
             get_data_import_finished_metric(
                 source_type=source_type,
-                status=finished_status,
-                streak=failure_streak_label(finished_status, failed_runs_in_a_row),
+                status=metric_status,
+                streak=failure_streak_label(metric_status, failed_runs_in_a_row),
             ).add(1)
 
             # This run still owns the v3 lock when no batch reached the loader (extraction failed

@@ -7,10 +7,12 @@ objects stay inside the product.
 
 from __future__ import annotations
 
+from argparse import ArgumentParser
+from collections import Counter
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import asdict
 from datetime import datetime
-from typing import Any, Final, Literal
+from typing import Any, Final, Literal, Protocol
 from uuid import UUID
 
 from posthog.kafka_client.client import ProduceResult
@@ -240,6 +242,12 @@ def soft_delete_alert_destinations(
     )
 
 
+def retire_linked_hog_functions(*, team_id: int, alert_id: UUID, hog_function_ids: Collection[UUID]) -> None:
+    """The platform's retirer for the HogFunctions a deleted destination row links to, which `products.alerts`
+    registers when Django starts."""
+    destinations.retire_linked_hog_functions(team_id=team_id, alert_id=alert_id, hog_function_ids=hog_function_ids)
+
+
 def soft_delete_all_alert_destinations(*, team_id: int, alert_id: str, allowed_event_ids: Collection[str]) -> int:
     return destinations.soft_delete_all_alert_destinations(
         team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
@@ -309,6 +317,15 @@ def configured_destination_template_ids(
 def count_active_alert_destinations(*, team_id: int, alert_id: str, allowed_event_ids: Collection[str]) -> int:
     return destinations.count_active_alert_destinations(
         team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
+    )
+
+
+def active_alert_destination_counts(
+    *, team_id: int, alert_ids: Collection[str], allowed_event_ids: Collection[str]
+) -> dict[str, int]:
+    """`count_active_alert_destinations` for a page of alerts, by alert id. An alert with none is missing."""
+    return destinations.active_alert_destination_counts(
+        team_id=team_id, alert_ids=alert_ids, allowed_event_ids=allowed_event_ids
     )
 
 
@@ -507,3 +524,37 @@ def reset_source_destination(
         hog_function_ids=hog_function_ids,
         row_event_kinds=row_event_kinds,
     )
+
+
+class ConvertedGroup(Protocol):
+    @property
+    def alert_id(self) -> UUID: ...
+
+    @property
+    def hog_function_ids(self) -> tuple[UUID, ...]: ...
+
+    @property
+    def outcome(self) -> str: ...
+
+    @property
+    def detail(self) -> str: ...
+
+
+def add_conversion_arguments(parser: ArgumentParser) -> None:
+    parser.add_argument("--team-id", type=int, required=True, help="The team to convert.")
+    parser.add_argument("--apply", action="store_true", help="Write the changes. Without it, nothing is saved.")
+
+
+def conversion_report(
+    *, team_id: int, apply: bool, conversions: Sequence[ConvertedGroup], converted_outcomes: Collection[str]
+) -> list[str]:
+    """One line per group a destination conversion left on HogFunctions, then a count of every outcome."""
+    lines = [
+        f"alert={conversion.alert_id} hog_functions={','.join(str(i) for i in conversion.hog_function_ids)} "
+        f"outcome={conversion.outcome}" + (f" detail={conversion.detail!r}" if conversion.detail else "")
+        for conversion in conversions
+        if conversion.outcome not in converted_outcomes
+    ]
+    counts = dict(Counter(str(conversion.outcome) for conversion in conversions))
+    lines.append(f"team={team_id} {'applied' if apply else 'dry_run'} {counts or 'no HogFunction destinations'}")
+    return lines

@@ -108,6 +108,10 @@ ACCESS_RULE_DETAIL = (
 UNKNOWN_DATABASE_DETAIL = (
     "The database does not exist on this server. Check the database name on the destination, then run the sync again."
 )
+CONNECT_TIMEOUT_DETAIL = (
+    "The database did not answer on the host and port given. Check the host and port on the destination, "
+    "and allow PostHog's IP addresses through your firewall."
+)
 PERMISSIONS_DETAIL = (
     "The Postgres user lacks permissions. Grant it USAGE and CREATE on the schema, and SELECT, "
     "INSERT, UPDATE and DELETE on its tables, then run the sync again."
@@ -309,6 +313,10 @@ class PostgresDestinationWriter:
                 # The client's host check refused the address. Its message hides which check failed.
                 if isinstance(err.__cause__, ValueError):
                     raise DestinationConfigurationError(self._ctx.destination_name, str(err)) from err
+                # Still retried, since a timeout can clear on its own. The client's own message
+                # names the host and port and gives no next step.
+                if isinstance(err.__cause__, psycopg.errors.ConnectionTimeout):
+                    raise PostgreSQLConnectionError(CONNECT_TIMEOUT_DETAIL) from err
                 detail = connect_configuration_error_detail(err.__cause__) if err.__cause__ else None
                 if detail is not None:
                     raise DestinationConfigurationError(self._ctx.destination_name, detail) from err

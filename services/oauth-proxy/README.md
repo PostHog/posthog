@@ -125,7 +125,7 @@ KV is eventually consistent across Cloudflare's edge locations, so this single-u
 pnpm --filter @posthog/auth-proxy install
 pnpm --filter @posthog/auth-proxy dev        # wrangler dev
 pnpm --filter @posthog/auth-proxy test       # vitest
-pnpm --filter @posthog/auth-proxy typecheck  # tsgo --noEmit
+pnpm --filter @posthog/auth-proxy typecheck  # tsc --noEmit
 pnpm --filter @posthog/auth-proxy cf-typegen # regenerate worker types
 ```
 

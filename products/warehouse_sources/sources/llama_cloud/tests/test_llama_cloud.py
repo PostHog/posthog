@@ -130,41 +130,14 @@ class TestLlamaCloudTransport:
         assert "organization id" in str(result.raised)
         assert result.paths == ["/api/v2/projects"]
 
-    def test_get_rows_pipelines_projects_to_documented_fields(self) -> None:
-        # Pipeline definitions embed third-party credentials in nested config; only the
-        # documented, non-sensitive metadata reaches the warehouse. Includes token/credentials/
-        # headers — the generically-named secrets a key-name denylist would let through.
-        result = self._driver("eu").run(
-            "pipelines",
-            [
-                ScriptedResponse(
-                    json=[
-                        {
-                            "id": "pipeline-1",
-                            "created_at": "2026-01-01T00:00:00Z",
-                            "updated_at": "2026-01-02T00:00:00Z",
-                            "name": "docs",
-                            "project_id": "proj-1",
-                            "pipeline_type": "MANAGED",
-                            "embedding_config": {"component": {"api_key": "sk-secret"}},
-                            "data_sink": {
-                                "component": {
-                                    "token": "bearer-secret",
-                                    "credentials": {"password": "hunter2"},
-                                    "headers": {"Authorization": "Bearer x"},
-                                }
-                            },
-                        }
-                    ]
-                )
-            ],
-        )
-
-        assert result.raised is None
-        assert result.paths == ["/api/v1/pipelines"]
-        assert result.requests[0].origin == "https://api.cloud.eu.llamaindex.ai"
-        assert result.items == [
-            [
+    @parameterized.expand(
+        [
+            (
+                # Pipeline definitions embed third-party credentials in nested config. Includes
+                # token/credentials/headers — the generically-named secrets a key-name denylist
+                # would let through.
+                "pipelines",
+                "/api/v1/pipelines",
                 {
                     "id": "pipeline-1",
                     "created_at": "2026-01-01T00:00:00Z",
@@ -172,9 +145,60 @@ class TestLlamaCloudTransport:
                     "name": "docs",
                     "project_id": "proj-1",
                     "pipeline_type": "MANAGED",
-                }
-            ]
+                    "embedding_config": {"component": {"api_key": "sk-secret"}},
+                    "data_sink": {
+                        "component": {
+                            "token": "bearer-secret",
+                            "credentials": {"password": "hunter2"},
+                            "headers": {"Authorization": "Bearer x"},
+                        }
+                    },
+                },
+                {
+                    "id": "pipeline-1",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "updated_at": "2026-01-02T00:00:00Z",
+                    "name": "docs",
+                    "project_id": "proj-1",
+                    "pipeline_type": "MANAGED",
+                },
+            ),
+            (
+                # Data source connectors hold storage keys and OAuth tokens under `component`.
+                "data_sources",
+                "/api/v1/data-sources",
+                {
+                    "id": "ds-1",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "updated_at": None,
+                    "name": "bucket",
+                    "source_type": "S3",
+                    "project_id": "proj-1",
+                    "version_metadata": {"reader_version": "2.0"},
+                    "custom_metadata": {"team": "docs"},
+                    "component": {"bucket": "b", "aws_access_id": "AKIA-fake", "aws_access_secret": "fake-secret"},
+                },
+                {
+                    "id": "ds-1",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "updated_at": None,
+                    "name": "bucket",
+                    "source_type": "S3",
+                    "project_id": "proj-1",
+                    "version_metadata": {"reader_version": "2.0"},
+                },
+            ),
         ]
+    )
+    def test_get_rows_unpaginated_endpoint_projects_to_documented_fields(
+        self, endpoint: str, path: str, row: dict[str, Any], expected_row: dict[str, Any]
+    ) -> None:
+        result = self._driver("eu").run(endpoint, [ScriptedResponse(json=[row])])
+
+        assert result.raised is None
+        assert result.paths == [path]
+        assert result.requests[0].origin == "https://api.cloud.eu.llamaindex.ai"
+        assert result.items == [[expected_row]]
 
     def test_get_rows_extraction_runs_fans_out_over_agents(self) -> None:
         result = self._driver().run(
@@ -216,20 +240,97 @@ class TestLlamaCloudTransport:
             LlamaCloudResumeConfig(parent_id="agent-3"),
         ]
 
-    def test_get_rows_extraction_runs_resumes_from_saved_agent_and_skip(self) -> None:
+    def test_get_rows_pipeline_files_fans_out_over_pipelines(self) -> None:
         result = self._driver().run(
-            "extraction_runs",
+            "pipeline_files",
             [
-                _page([{"id": "agent-1"}, {"id": "agent-2"}]),
-                ScriptedResponse(json={"items": [{"id": "run-5"}], "total": 6}),
+                ScriptedResponse(json=[{"id": "pipe-1"}, {"id": "pipe-2"}, {"id": "pipe-3"}]),
+                _page(
+                    [{"id": "pf-1", "pipeline_id": "pipe-1", "status": "SUCCESS", "custom_metadata": {"a": 1}}],
+                    next_page_token="files-2",
+                ),
+                _page([{"id": "pf-2", "pipeline_id": "pipe-1", "permission_info": {"users": ["x"]}}]),
+                # pipe-2 was deleted after the pipelines listing.
+                ScriptedResponse(status=404, json={"detail": "Pipeline not found"}),
+                _page([{"id": "pf-3", "pipeline_id": "pipe-3", "resource_info": {"path": "/a"}}]),
             ],
-            resume_state=LlamaCloudResumeConfig(parent_id="agent-2", skip=5),
         )
 
         assert result.raised is None
+        assert result.items == [
+            [{"id": "pf-1", "pipeline_id": "pipe-1", "status": "SUCCESS"}],
+            [{"id": "pf-2", "pipeline_id": "pipe-1"}],
+            [{"id": "pf-3", "pipeline_id": "pipe-3"}],
+        ]
+        assert result.paths == [
+            "/api/v1/pipelines",
+            "/api/v1/beta/pipelines/pipe-1/files",
+            "/api/v1/beta/pipelines/pipe-1/files",
+            "/api/v1/beta/pipelines/pipe-2/files",
+            "/api/v1/beta/pipelines/pipe-3/files",
+        ]
+        assert [request.query for request in result.requests[1:]] == [
+            {"page_size": ("100",)},
+            {"page_size": ("100",), "page_token": ("files-2",)},
+            {"page_size": ("100",)},
+            {"page_size": ("100",)},
+        ]
+        assert result.saved_states == [
+            LlamaCloudResumeConfig(parent_id="pipe-1", next_page_token="files-2"),
+            LlamaCloudResumeConfig(parent_id="pipe-2"),
+            LlamaCloudResumeConfig(parent_id="pipe-3"),
+        ]
+
+    def test_get_rows_fan_out_raises_on_404_for_query_param_parent(self) -> None:
+        # Only a parent id in the path can 404 for a deleted parent; elsewhere a 404 is a real error.
+        result = self._driver().run(
+            "extraction_runs",
+            [_page([{"id": "agent-1"}]), ScriptedResponse(status=404, json={"detail": "Not Found"})],
+        )
+
+        assert isinstance(result.raised, requests.HTTPError)
+
+    @parameterized.expand(
+        [
+            (
+                "skip_limit",
+                "extraction_runs",
+                [
+                    _page([{"id": "agent-1"}, {"id": "agent-2"}]),
+                    ScriptedResponse(json={"items": [{"id": "run-5"}], "total": 6}),
+                ],
+                LlamaCloudResumeConfig(parent_id="agent-2", skip=5),
+                ["/api/v1/beta/extraction-agents", "/api/v1/extraction/runs"],
+                {"extraction_agent_id": ("agent-2",), "skip": ("5",), "limit": ("100",)},
+            ),
+            (
+                "page_token",
+                "pipeline_files",
+                [
+                    ScriptedResponse(json=[{"id": "pipe-1"}, {"id": "pipe-2"}]),
+                    _page([{"id": "run-5"}]),
+                ],
+                LlamaCloudResumeConfig(parent_id="pipe-2", next_page_token="files-3"),
+                ["/api/v1/pipelines", "/api/v1/beta/pipelines/pipe-2/files"],
+                {"page_size": ("100",), "page_token": ("files-3",)},
+            ),
+        ]
+    )
+    def test_get_rows_fan_out_resumes_from_saved_parent(
+        self,
+        _name: str,
+        endpoint: str,
+        script: list[ScriptedResponse],
+        resume_state: LlamaCloudResumeConfig,
+        expected_paths: list[str],
+        expected_query: dict[str, tuple[str, ...]],
+    ) -> None:
+        result = self._driver().run(endpoint, script, resume_state=resume_state)
+
+        assert result.raised is None
         assert result.items == [[{"id": "run-5"}]]
-        assert result.paths == ["/api/v1/beta/extraction-agents", "/api/v1/extraction/runs"]
-        assert result.requests[1].query == {"extraction_agent_id": ("agent-2",), "skip": ("5",), "limit": ("100",)}
+        assert result.paths == expected_paths
+        assert result.requests[1].query == expected_query
 
     @parameterized.expand([(429,), (500,), (503,)])
     def test_fetch_page_raises_retryable_error(self, status_code: int) -> None:

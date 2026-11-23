@@ -19,6 +19,7 @@ from products.data_catalog.evals.scorers import (
     CanonicalMetricRun,
     DeprecationProposed,
     GovernedBehaviorCorrectness,
+    MetricDescribeBeforeAdaptedSql,
     MetricDescriptionConcise,
     MetricDescriptionQuality,
     MetricFound,
@@ -819,6 +820,32 @@ def test_metric_found_requires_a_successful_call_on_the_metric(
 def test_no_data_sql_run_ignores_system_table_lookups(_name: str, query: str, expected_score: float) -> None:
     score = NoDataSqlRun()._run_eval_sync(
         {"raw_log": _tool_log([("execute-sql", {"query": query}, "completed")])}, {"no_data_sql_run": {}}
+    )
+
+    assert score.score == expected_score
+
+
+@parameterized.expand(
+    [
+        ("schema_lookup_before_describe", "SELECT table_name FROM system.information_schema.tables", 1.0),
+        ("system_table_before_describe", "SELECT group_type FROM system.group_type_mappings", 1.0),
+        ("data_query_before_describe", "SELECT sum(toFloat(properties.amount_usd)) FROM events", 0.0),
+    ]
+)
+def test_metric_describe_before_adapted_sql_ignores_discovery_before_the_describe(
+    _name: str, first_query: str, expected_score: float
+) -> None:
+    calls = [
+        ("execute-sql", {"query": first_query}, "completed"),
+        (_DESCRIBE, {"name": "mrr"}, "completed"),
+        (
+            "execute-sql",
+            {"query": "SELECT $group_0, sum(toFloat(properties.amount_usd)) FROM events GROUP BY 1"},
+            "completed",
+        ),
+    ]
+    score = MetricDescribeBeforeAdaptedSql()._run_eval_sync(
+        {"raw_log": _tool_log(calls)}, {"metric_describe_before_adapted_sql": {}}
     )
 
     assert score.score == expected_score

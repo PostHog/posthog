@@ -21,6 +21,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
+    lift_nested,
     make_tracked_session,
     rest_api_resource,
     rest_api_resources,
@@ -242,11 +243,8 @@ def _flatten_map(flatten_key: str) -> Callable[[dict[str, Any]], dict[str, Any]]
     """Lift a nested object (e.g. instance_type_prices' `instance_type`) up into the root."""
 
     def _map(row: dict[str, Any]) -> dict[str, Any]:
-        if isinstance(row.get(flatten_key), dict):
-            nested = row.pop(flatten_key)
-            # Root-level siblings (e.g. `price`) take precedence over nested keys on collision.
-            return {**nested, **row}
-        return row
+        # Root-level siblings (e.g. `price`) take precedence over nested keys on collision.
+        return lift_nested(row, flatten_key)
 
     return _map
 
