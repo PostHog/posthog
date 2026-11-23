@@ -360,12 +360,93 @@ def get_resource(
             "table_format": "delta",
         }
 
+    if name == "AiConversations":
+        endpoint = {
+            "path": "/v1/ai/conversations",
+            "paginator": OmniPageInfoPaginator(),
+            "data_selector": "records",
+        }
+        return {
+            "name": name,
+            "table_name": "ai_conversations",
+            "write_disposition": "replace",
+            "endpoint": endpoint,
+            "table_format": "delta",
+        }
+
+    if name == "Labels":
+        endpoint = {
+            "path": "/v1/labels",
+            "paginator": SinglePagePaginator(),
+            "data_selector": "labels",
+        }
+        return {
+            "name": name,
+            "table_name": "labels",
+            "write_disposition": "replace",
+            "endpoint": endpoint,
+            "table_format": "delta",
+        }
+
+    if name == "UserModelRoles":
+        endpoint = {
+            "path": "/v1/users/{userId}/model-roles",
+            "paginator": SinglePagePaginator(),
+            "data_selector": "results",
+        }
+        return {
+            "name": name,
+            "table_name": "user_model_roles",
+            "write_disposition": "replace",
+            "endpoint": endpoint,
+            "table_format": "delta",
+        }
+
+    if name == "UserGroupModelRoles":
+        endpoint = {
+            "path": "/v1/user-groups/{userGroupId}/model-roles",
+            "paginator": SinglePagePaginator(),
+            "data_selector": "results",
+        }
+        return {
+            "name": name,
+            "table_name": "user_group_model_roles",
+            "write_disposition": "replace",
+            "endpoint": endpoint,
+            "table_format": "delta",
+        }
+
+    if name == "FolderPermissions":
+        endpoint = {
+            "path": "/v1/folders/{folderId}/permissions",
+            "paginator": SinglePagePaginator(),
+            "data_selector": "permits",
+        }
+        return {
+            "name": name,
+            "table_name": "folder_permissions",
+            "write_disposition": "replace",
+            "endpoint": endpoint,
+            "table_format": "delta",
+        }
+
     raise ValueError(f"Unknown Omni endpoint: {name}")
 
 
 def _add_principal_id(row: dict[str, Any]) -> dict[str, Any]:
     # Users carry `userId` and groups carry `userGroupId`; the combined `id` is deprecated.
     row["principalId"] = row.get("userId") or row.get("userGroupId") or row.get("id")
+    return row
+
+
+def _add_role_source(row: dict[str, Any]) -> dict[str, Any]:
+    # `from` says where a role comes from; only group roles name a group. The empty string keeps
+    # the primary key non-null for direct and connection base roles.
+    source = row.get("from")
+    if not isinstance(source, dict):
+        source = {}
+    row["roleSource"] = source.get("type")
+    row["sourceUserGroupId"] = source.get("miniUuid") or ""
     return row
 
 
@@ -411,8 +492,10 @@ def _fanout_resource(
     )
     child = next(r for r in resources if getattr(r, "name", None) == endpoint)
     child = child.add_map(rename_parent_fields(fanout.parent_name, fanout.parent_field_renames))
-    if endpoint == "DocumentPermissions":
+    if endpoint in ("DocumentPermissions", "FolderPermissions"):
         child = child.add_map(_add_principal_id)
+    elif endpoint == "UserModelRoles":
+        child = child.add_map(_add_role_source)
     return child
 
 
@@ -537,8 +620,8 @@ def omni_source(
                 initial_paginator_state = {"start_index": resume_config.start_index}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        # Connections and UserAttributes use SinglePagePaginator and never report a resume state,
-        # so this is a no-op for them.
+        # Connections, UserAttributes and Labels use SinglePagePaginator and never report a resume
+        # state, so this is a no-op for them.
         if not state:
             return
         if is_fanout:
