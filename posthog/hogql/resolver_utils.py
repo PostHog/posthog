@@ -10,6 +10,7 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
+    CTETable,
     DatabaseField,
     DateDatabaseField,
     DateTimeDatabaseField,
@@ -542,4 +543,4 @@ def _build_cte_database_table(
     for name, column in columns.items():
         _recursively_resolve_column(name, column, fields, context)
 
-    return Table(fields=fields)
+    return CTETable(fields=fields)

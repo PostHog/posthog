@@ -36,6 +36,7 @@ from posthog.temporal.common.utils import is_stale_connection_read_only_error
 
 from products.warehouse_sources.backend.facade.contracts import UnreadableSourceInputsError
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
+from products.warehouse_sources.backend.models.external_data_destination_delivery import ExternalDataDestinationDelivery
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     WORKER_RESTART_ERROR_MESSAGE,
@@ -318,12 +319,17 @@ def _publishes_staged_full_refresh(
 
 
 @database_sync_to_async_pool
-def _carry_rows_synced(job: ExternalDataJob, continued: ExternalDataJob) -> None:
-    """Start the row count of `job` from the count of the job it continues.
+def _carry_billable_usage(job: ExternalDataJob, continued: ExternalDataJob) -> None:
+    """Move the usage the continued job counted onto `job`, which continues it.
 
     Only a Completed job bills, and the continued job failed, so without this the rows it read
-    before the cursor never bill. `Greatest` keeps a repeated call from counting them twice.
+    and the egress it delivered before the cursor never bill. `Greatest` keeps a repeated call
+    from counting the rows twice, and the delivery rows can only move once.
     """
+    # The rows carry the job's own team id, so the filter takes it as given.
+    ExternalDataDestinationDelivery.objects.for_team(job.team_id, canonical=True).filter(job_id=continued.id).update(
+        job_id=job.id
+    )
     carried = continued.rows_synced or 0
     if carried <= 0:
         return
@@ -942,7 +948,7 @@ async def _import_data_with_reporting(
                             if await database_sync_to_async_pool(resumable_source_manager.continue_from_job)(
                                 str(job_to_continue.id)
                             ):
-                                await _carry_rows_synced(model, job_to_continue)
+                                await _carry_billable_usage(model, job_to_continue)
                                 await logger.ainfo(
                                     "Continuing the resumable cursor of the previous job, which stopped before it finished",
                                     previous_job_id=str(job_to_continue.id),

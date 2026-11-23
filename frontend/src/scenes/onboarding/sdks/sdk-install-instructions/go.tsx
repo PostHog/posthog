@@ -5,7 +5,7 @@ import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
 function GoInstallSnippet(): JSX.Element {
-    return <CodeSnippet language={Language.Bash}>go get "github.com/posthog/posthog-go"</CodeSnippet>
+    return <CodeSnippet language={Language.Bash}>go get "github.com/posthog/posthog-go/v2"</CodeSnippet>
 }
 
 function GoSetupSnippet(): JSX.Element {
@@ -15,7 +15,7 @@ function GoSetupSnippet(): JSX.Element {
         <CodeSnippet language={Language.Go}>
             {`package main
 import (
-    "github.com/posthog/posthog-go"
+    "github.com/posthog/posthog-go/v2"
 )
 func main() {
     client, _ := posthog.NewWithConfig("${currentTeam?.api_token}", posthog.Config{Endpoint: "${apiHostOrigin()}"})
