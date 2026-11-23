@@ -1,5 +1,5 @@
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.db.models import JSONField, QuerySet
 from django.utils import timezone
 
@@ -7,6 +7,7 @@ from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.team import Team
 from posthog.models.utils import (
     RootTeamMixin,
@@ -19,7 +20,8 @@ from posthog.utils import generate_short_id
 from posthog.uuidt import uuid7
 
 
-class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
+# nosemgrep: no-new-uuidt-models -- an existing model, and its stored ids cannot change.
+class Notebook(Taggable, FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     class Visibility(models.TextChoices):
         INTERNAL = "internal", "internal"
         DEFAULT = "default", "default"
@@ -51,10 +53,17 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     # placeholder and a Python cell as a global. A property of the notebook rather than a block
     # in `content`, so editing prose can never delete it. Null until the notebook declares one.
     variables: JSONField = JSONField(default=None, null=True, blank=True)
+    app_draft: JSONField = JSONField(default=None, null=True, blank=True)
+    app_published: JSONField = JSONField(default=None, null=True, blank=True)
+    app_revision = models.PositiveIntegerField(default=0, db_default=0)
 
     class Meta:
         unique_together = ("team", "short_id")
         db_table = "posthog_notebook"
+
+    def sync_file_system(self) -> None:
+        with transaction.atomic():
+            super().sync_file_system()
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Notebook"]:

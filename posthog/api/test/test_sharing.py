@@ -25,12 +25,13 @@ from posthog.api.sharing import (
     check_can_access_sharing_configuration,
     shared_url_as_png,
 )
-from posthog.api.sharing_publish_gate import dashboard_filter_leaves
+from posthog.api.sharing_publish_gate import check_can_add_insight_to_dashboard, dashboard_filter_leaves
 from posthog.auth import SharingPasswordProtectedAuthentication
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models import ActivityLog, OrganizationMembership, Team
 from posthog.models.data_color_theme import DataColorTheme
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
@@ -247,12 +248,31 @@ class TestSharing(APIBaseTest):
         expected_access_method: DashboardAccessMethod,
         mock_record_access: Mock,
     ) -> None:
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
         config = SharingConfiguration.objects.create(team=self.team, dashboard=self.dashboard, enabled=True)
 
         response = self.client.get(path.format(token=config.access_token))
 
         assert response.status_code == status.HTTP_200_OK
         mock_record_access.assert_called_once_with(expected_access_method)
+        exported_data = TestSharedCohortInlining._parse_exported_data(response.content.decode())
+        assert exported_data["dashboard"]["last_accessed_at"] is not None
+
+    @parameterized.expand(["shared_dashboard", "shared", "embedded"])
+    def test_shared_password_submission_outside_management_ip_policy(self, route: str) -> None:
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        config = SharingConfiguration.objects.create(
+            team=self.team, dashboard=self.dashboard, enabled=True, password_required=True
+        )
+        _, password = SharePassword.create_password(sharing_configuration=config, created_by=self.user)
+        url = f"/{route}/{config.access_token}"
+
+        incorrect = self.client.post(url, {"password": "incorrect-password"})
+        correct = self.client.post(url, {"password": password})
+
+        assert incorrect.status_code == status.HTTP_401_UNAUTHORIZED, incorrect.content
+        assert correct.status_code == status.HTTP_200_OK, correct.content
+        assert correct.json()["shareToken"]
 
     @patch("posthog.api.sharing.render_template")
     @covers_authentication(SharingPasswordProtectedAuthentication)
@@ -646,6 +666,29 @@ class TestSharing(APIBaseTest):
             return MagicMock()
 
         patched_exporter_task.side_effect = add_content_location_on_task_run
+
+    @parameterized.expand(["insights", "dashboards"])
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_shared_preview_ignores_exports_with_selected_filters(self, type: str, _exporter: Mock) -> None:
+        target = self.insight if type == "insights" else self.dashboard
+        ExportedAsset.objects.create(
+            team=self.team,
+            insight=self.insight if type == "insights" else None,
+            dashboard=self.dashboard if type == "dashboards" else None,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            export_context={"filters_override": {"date_from": "-90d"}},
+            content_location="selected-filters.png",
+            created_by=self.user,
+        )
+        share_response = self.client.patch(
+            f"/api/projects/{self.team.id}/{type}/{target.pk}/sharing", {"enabled": True}
+        )
+
+        response = self.client.get(f"/shared/{share_response.json()['access_token']}.png")
+
+        assert response.status_code == 302
+        assert response["Location"] == "/static/blank-dashboard-hog.png"
+        assert ExportedAsset.objects.count() == 2
 
     @parameterized.expand(["insights", "dashboards"])
     @patch("products.exports.backend.models.exported_asset.object_storage.get_presigned_url")
@@ -1609,6 +1652,35 @@ class TestExportCacheKeyFlow(APIBaseTest):
     sharing_config: SharingConfiguration
     exported_asset: ExportedAsset
 
+    @parameterized.expand([("render", True), ("shared", False)])
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    @mock_exporter_template
+    def test_dashboard_export_uses_selected_filters_without_saving_them(
+        self, _name: str, is_renderer: bool, mock_calculate: MagicMock
+    ) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Export filters", filters={"date_from": "-7d"})
+        DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+        self._calculated_result(mock_calculate)
+        selected_filters = {"date_from": "-90d", "date_to": "2026-01-01"}
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            dashboard=dashboard,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            export_context={"filters_override": selected_filters},
+        )
+        share = SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+        url = f"/exporter?token={get_render_access_token(asset)}" if is_renderer else f"/shared/{share.access_token}"
+        separator = "&" if is_renderer else "?"
+        response = self.client.get(f"{url}{separator}filters_override={quote(json.dumps(selected_filters))}")
+        assert response.status_code == 200
+        assert _exported_data(response)["dashboard"]["filters"] == (
+            selected_filters if is_renderer else {"date_from": "-7d"}
+        )
+        exported_query = _exported_data(response)["dashboard"]["tiles"][0]["insight"]["query"]
+        assert exported_query["source"]["after"] == ("-90d" if is_renderer else "-7d")
+        dashboard.refresh_from_db()
+        assert dashboard.filters == {"date_from": "-7d"}
+
     @classmethod
     def setUpTestData(cls) -> None:
         super().setUpTestData()
@@ -1849,6 +1921,8 @@ class TestExportRendererTokenFlow(APIBaseTest):
     def test_exporter_page_mints_token_that_only_serves_its_heatmap_query(
         self, _name: str, heatmap_data_url: str, url_param: str, url_value: str
     ) -> None:
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
         export_context = {
             "heatmap_url": "https://example.com",
             "heatmap_data_url": heatmap_data_url,
@@ -1889,6 +1963,25 @@ class TestExportRendererTokenFlow(APIBaseTest):
             headers={"authorization": f"Bearer {renderer_token}"},
         )
         assert heatmap_response.status_code == status.HTTP_200_OK
+
+    def test_exporter_page_rejects_stored_heatmap_asset_outside_authorized_urls(self) -> None:
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            created_by=self.user,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            export_context={
+                "heatmap_url": "https://example.org/page",
+                "heatmap_data_url": "https://example.org/page",
+                "heatmap_type": "click",
+            },
+        )
+
+        with patch("products.exports.backend.url_security.is_url_allowed", return_value=(True, None)):
+            response = self.client.get(f"/exporter?token={get_render_access_token(asset)}")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_exporter_page_rejects_stored_cross_origin_screenshot_asset(self) -> None:
         asset = ExportedAsset.objects.create(
@@ -2134,6 +2227,16 @@ class TestSharingResourceEditChecks(APIBaseTest):
         assert "cannot be shared through this endpoint" in str(caught.exception)
 
 
+class TestDashboardPublishGate(APIBaseTest):
+    def test_repeated_checks_against_one_dashboard_row_load_its_team_once(self) -> None:
+        destination = Dashboard.objects.get(pk=Dashboard.objects.create(team=self.team, name="Destination").pk)
+        query = {"kind": "HogQLQuery", "query": "select 1"}
+        check_can_add_insight_to_dashboard(self.user, destination, query)
+
+        with self.assertNumQueries(0):
+            check_can_add_insight_to_dashboard(self.user, destination, query)
+
+
 class TestSharingConfigurationReadAccess(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -2181,6 +2284,26 @@ class TestSharingConfigurationReadAccess(APIBaseTest):
 
         assert response.status_code == expected_status, response.json()
         assert (f"{resource}_share_secret" in response.content.decode()) == (expected_status == status.HTTP_200_OK)
+
+    @parameterized.expand(
+        [
+            ("another_project", "other_project", False, status.HTTP_404_NOT_FOUND),
+            ("soft_deleted", "root", True, status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    def test_sharing_config_is_not_found_for_a_dashboard_outside_the_project(
+        self, _name: str, stored_on: str, deleted: bool, expected_status: int
+    ) -> None:
+        owner = Team.objects.create(organization=self.organization) if stored_on == "other_project" else self.team
+        dashboard = Dashboard.objects.create(team=owner, name="Board", deleted=deleted)
+        SharingConfiguration.objects.create(
+            team=self.team, dashboard=dashboard, enabled=True, access_token="project_board_secret"
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing")
+
+        assert response.status_code == expected_status, response.json()
+        assert ("project_board_secret" in response.content.decode()) == (expected_status == status.HTTP_200_OK)
 
 
 def _warehouse_ac_flag(key: str, *args, **kwargs) -> bool:

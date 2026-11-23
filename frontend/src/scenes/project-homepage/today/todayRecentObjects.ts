@@ -3,7 +3,7 @@ import { baseObjectType, libraryObjectHref } from 'scenes/library/libraryUtils'
 
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
-function objectKey(entry: FileSystemEntry): string {
+export function objectKey(entry: FileSystemEntry): string {
     const href = libraryObjectHref({ type: baseObjectType(entry.type), ref: entry.ref }) ?? libraryObjectHref(entry)
     if (!href) {
         return `${baseObjectType(entry.type)}:${entry.ref ?? entry.id}`
@@ -33,22 +33,42 @@ export function recentObjectsForHome(recents: FileSystemEntry[], limit: number):
         .slice(0, limit)
 }
 
-export type JumpBackObject = FileSystemEntry & { jumpBackReason: 'recent' | 'frequent' }
+export type JumpBackObject = FileSystemEntry & { jumpBackReason: 'pinned' | 'recent' | 'frequent' }
 
 export function jumpBackObjectsForHome(
     recents: FileSystemEntry[],
     frequent: FileSystemEntry[],
-    limit: number
+    limit: number,
+    pinned: FileSystemEntry[] = []
 ): JumpBackObject[] {
-    const recentObjects = recentObjectsForHome(recents, limit)
+    const current = new Map<string, FileSystemEntry>()
+    for (const entry of [...recents, ...frequent]) {
+        if (!current.has(objectKey(entry))) {
+            current.set(objectKey(entry), entry)
+        }
+    }
+    const pinnedObjects: FileSystemEntry[] = []
+    for (const entry of pinned) {
+        const key = objectKey(entry)
+        if (libraryObjectHref(entry) !== null && !pinnedObjects.some((pin) => objectKey(pin) === key)) {
+            pinnedObjects.push(current.get(key) ?? entry)
+        }
+    }
+    const pinnedKeys = new Set(pinnedObjects.map(objectKey))
+    const recentObjects = recentObjectsForHome(recents, limit + pinnedObjects.length).filter(
+        (entry) => !pinnedKeys.has(objectKey(entry))
+    )
     const first = recentObjects.slice(0, 2)
-    const seen = new Set(first.map(objectKey))
-    const result: JumpBackObject[] = first.map((entry) => ({ ...entry, jumpBackReason: 'recent' }))
+    const seen = new Set([...pinnedKeys, ...first.map(objectKey)])
+    const result: JumpBackObject[] = [
+        ...pinnedObjects.map((entry): JumpBackObject => ({ ...entry, jumpBackReason: 'pinned' })),
+        ...first.map((entry): JumpBackObject => ({ ...entry, jumpBackReason: 'recent' })),
+    ]
     for (const entry of recentObjectsForHome(frequent, frequent.length)) {
         if (!seen.has(objectKey(entry))) {
             seen.add(objectKey(entry))
             result.push({ ...entry, jumpBackReason: 'frequent' })
-            if (result.length === first.length + 2) {
+            if (result.length === pinnedObjects.length + first.length + 2) {
                 break
             }
         }
@@ -59,5 +79,5 @@ export function jumpBackObjectsForHome(
             result.push({ ...entry, jumpBackReason: 'recent' })
         }
     }
-    return result.slice(0, limit)
+    return result.slice(0, Math.max(limit, pinnedObjects.length))
 }

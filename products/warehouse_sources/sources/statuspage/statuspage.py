@@ -1,5 +1,6 @@
 import dataclasses
-from typing import Any, Optional
+from collections.abc import Callable
+from typing import Any, Optional, cast
 from urllib.parse import urlencode
 
 import requests
@@ -14,11 +15,12 @@ from products.warehouse_sources.sources.sdk import (
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
+    build_chained_resource,
     make_tracked_session,
     rest_api_resource,
     rest_api_resources,
 )
-from products.warehouse_sources.sources.statuspage.settings import STATUSPAGE_ENDPOINTS
+from products.warehouse_sources.sources.statuspage.settings import STATUSPAGE_ENDPOINTS, StatuspageEndpointConfig
 
 STATUSPAGE_BASE_URL = "https://api.statuspage.io/v1"
 # Every page-scoped endpoint fans out over the ids of this top-level listing.
@@ -77,6 +79,88 @@ def _promote_page_id(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+def _page_scoped_parent(
+    config: StatuspageEndpointConfig,
+) -> Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]:
+    keep = config.parent_filter
+
+    def _map(row: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+        row = _promote_page_id(row)
+        if keep is not None and not keep(row):
+            return []
+        return row
+
+    return _map
+
+
+def _chained_resource(
+    config: StatuspageEndpointConfig, client_config: ClientConfig, team_id: int, job_id: str
+) -> Resource:
+    """Fan out /pages -> a page-scoped listing -> one child request per listed row.
+
+    The chain carries no resume state, so the source reports these endpoints as not resumable.
+    """
+    assert config.parent is not None and config.parent_param is not None
+    pages = STATUSPAGE_ENDPOINTS[_PARENT_ENDPOINT]
+    middle = STATUSPAGE_ENDPOINTS[config.parent]
+    child_params: dict[str, Any] = {
+        "page_id": {"type": "resolve", "resource": middle.name, "field": "page_id"},
+        config.parent_param: {"type": "resolve", "resource": middle.name, "field": "id"},
+    }
+    child_endpoint: dict[str, Any] = {
+        "path": config.path,
+        "params": child_params,
+        "response_actions": [
+            *_RETRY_ACTIONS,
+            *({"status_code": status, "action": "ignore"} for status in config.ignore_statuses),
+        ],
+    }
+    if config.single_object:
+        child_endpoint |= {"paginator": "single_page", "data_selector": None, "data_selector_required": False}
+    else:
+        child_params[config.page_size_param] = config.page_size
+
+    return cast(
+        Resource,
+        build_chained_resource(
+            resources=[
+                {
+                    "name": pages.name,
+                    "endpoint": {
+                        "path": pages.path,
+                        "params": {pages.page_size_param: pages.page_size},
+                        "response_actions": _RETRY_ACTIONS,
+                    },
+                },
+                {
+                    "name": middle.name,
+                    "endpoint": {
+                        "path": middle.path,
+                        "params": {
+                            "page_id": {"type": "resolve", "resource": pages.name, "field": "id"},
+                            middle.page_size_param: middle.page_size,
+                        },
+                        "response_actions": _RETRY_ACTIONS,
+                    },
+                    "include_from_parent": ["id"],
+                    "data_map": _page_scoped_parent(config),
+                },
+                {
+                    "name": config.name,
+                    "endpoint": cast(Any, child_endpoint),
+                    "include_from_parent": list(config.parent_fields),
+                },
+            ],
+            child_name=config.name,
+            parent_name=middle.name,
+            parent_field_renames=config.parent_fields,
+            client_config=client_config,
+            team_id=team_id,
+            job_id=job_id,
+        ),
+    )
+
+
 def _client_config(api_key: str) -> ClientConfig:
     return {
         "base_url": STATUSPAGE_BASE_URL,
@@ -106,7 +190,9 @@ def statuspage_source(
     client_config = _client_config(api_key)
 
     resource: Resource
-    if not config.page_scoped:
+    if config.parent is not None:
+        resource = _chained_resource(config, client_config, team_id, job_id)
+    elif not config.page_scoped:
         rest_config: RESTAPIConfig = {
             "client": client_config,
             "resource_defaults": {},
@@ -194,6 +280,8 @@ def statuspage_source(
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
         column_hints=resource.column_hints,
+        # A chained fan-out saves no cursor, so a shutdown hand-off would restart it from the top.
+        supports_resume=config.parent is None,
     )
 
 

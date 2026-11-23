@@ -1,0 +1,76 @@
+{
+    "cache_key": "cache_quantile_exposures_story",
+    "cache_target_age": "2025-09-05T16:27:20.614099Z",
+    "calculation_trigger": null,
+    "date_range": {
+        "date_from": "2025-05-26T12:26:00+00:00",
+        "date_to": "2025-06-03T16:27:00+00:00",
+        "explicitDate": true
+    },
+    "is_cached": true,
+    "kind": "ExperimentExposureQuery",
+    "last_refresh": "2025-09-04T16:27:20.614099Z",
+    "next_allowed_client_refresh": "2025-09-04T16:28:20.614099Z",
+    "query_metadata": {
+        "events": [],
+        "updated_at": "2025-09-04T16:27:21.815558Z"
+    },
+    "query_status": null,
+    "timeseries": [
+        {
+            "days": [
+                "2025-05-26",
+                "2025-05-27",
+                "2025-05-28",
+                "2025-05-29",
+                "2025-05-30",
+                "2025-05-31",
+                "2025-06-01",
+                "2025-06-02",
+                "2025-06-03"
+            ],
+            "exposure_counts": [
+                0.0,
+                82.0,
+                231.0,
+                402.0,
+                571.0,
+                748.0,
+                926.0,
+                1094.0,
+                1240.0
+            ],
+            "variant": "control"
+        },
+        {
+            "days": [
+                "2025-05-26",
+                "2025-05-27",
+                "2025-05-28",
+                "2025-05-29",
+                "2025-05-30",
+                "2025-05-31",
+                "2025-06-01",
+                "2025-06-02",
+                "2025-06-03"
+            ],
+            "exposure_counts": [
+                0.0,
+                77.0,
+                224.0,
+                391.0,
+                560.0,
+                731.0,
+                903.0,
+                1071.0,
+                1215.0
+            ],
+            "variant": "test"
+        }
+    ],
+    "timezone": "UTC",
+    "total_exposures": {
+        "control": 1240.0,
+        "test": 1215.0
+    }
+}

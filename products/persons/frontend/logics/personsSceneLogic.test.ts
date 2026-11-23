@@ -1,7 +1,10 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
@@ -20,6 +23,35 @@ describe('personsSceneLogic', () => {
         sceneLogic({ scenes }).mount()
         logic = personsSceneLogic()
         logic.mount()
+    })
+
+    it.each([
+        ['the persons list', urls.persons(), true],
+        ['a new insight', urls.insightNew({ query: PEOPLE_LIST_DEFAULT_QUERY }), false],
+        ['a person profile', urls.personByUUID('00000000-0000-0000-0000-000000000001'), false],
+    ])('syncs query changes to the URL only on the persons list: %s', async (_, destination, syncsQuery) => {
+        router.actions.push(urls.persons())
+        router.actions.push(destination)
+        await expectLogic(logic).toFinishAllListeners()
+
+        const location = router.values.location
+        const query: DataTableNode = {
+            ...PEOPLE_LIST_DEFAULT_QUERY,
+            source: { kind: NodeKind.ActorsQuery, select: ['person', 'person.created_at'] },
+        }
+
+        await expectLogic(logic, () => logic.actions.setQuery(query)).toFinishAllListeners()
+
+        expect(logic.values.query).toEqual(query)
+        if (syncsQuery) {
+            expect(router.values.location.pathname).toEqual(addProjectIdIfMissing(urls.persons()))
+            expect(router.values.hashParams.q).toEqual(query)
+
+            await expectLogic(logic, () => logic.actions.setQuery(logic.values.defaultQuery)).toFinishAllListeners()
+            expect(router.values.hashParams.q).toBeUndefined()
+        } else {
+            expect(router.values.location).toEqual(location)
+        }
     })
 
     describe('query reducer', () => {
@@ -74,6 +106,22 @@ describe('personsSceneLogic', () => {
                     }),
                 }),
             })
+        })
+    })
+
+    it.each<{ search: string; url: string; searchParams?: Record<string, string> }>([
+        // The shape navigateToHref pushes, which keeps the search as text.
+        { search: 'acme', url: urls.persons(), searchParams: { search: 'acme' } },
+        { search: '001234', url: urls.persons(), searchParams: { search: '001234' } },
+        // A reload or a pasted link, where the router reads `0` as a number.
+        { search: '0', url: `${urls.persons()}?search=0` },
+    ])('fills the search from a search param of $search in the URL', async ({ search, url, searchParams }) => {
+        router.actions.push(url, searchParams)
+
+        await expectLogic(logic).toMatchValues({
+            query: expect.objectContaining({
+                source: { ...PEOPLE_LIST_DEFAULT_QUERY.source, search },
+            }),
         })
     })
 

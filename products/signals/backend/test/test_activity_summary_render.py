@@ -6,7 +6,8 @@ from typing import Any
 
 import pytest
 
-from openai import APIConnectionError
+import httpx
+from openai import APIConnectionError, APIStatusError, BadRequestError, InternalServerError, Omit, RateLimitError
 from parameterized import parameterized
 
 from products.signals.backend.activity_summary.computed import MAX_OWNED, compute_fields
@@ -25,6 +26,7 @@ from products.signals.backend.activity_summary.render import (
     ACTIVITY_LINE_CHARS,
     ACTIVITY_LINES,
     DEFAULT_LIMITS,
+    INBOX_HEADER,
     MAX_ACTIVITY_LINES_PER_DAY,
     MAX_COMPLETION_TOKENS,
     MAX_UNITS_PER_DAY,
@@ -34,6 +36,9 @@ from products.signals.backend.activity_summary.render import (
     VIEWS_HEADER,
     ActivityItem,
     Drop,
+    InboxAction,
+    InboxActivity,
+    InboxArtefact,
     LineRef,
     McpItem,
     Parent,
@@ -47,6 +52,7 @@ from products.signals.backend.activity_summary.render import (
     burst_cap,
     cap_line,
     clean_text,
+    inbox_units,
     mcp_units,
     sample_units,
     sampling_seed,
@@ -54,7 +60,18 @@ from products.signals.backend.activity_summary.render import (
     view_units,
     without_products,
 )
-from products.signals.backend.activity_summary.summaries import PIPELINE_DISTINCT_ID, SummaryPrices, cost_usd, summarize
+from products.signals.backend.activity_summary.summaries import (
+    DEFAULT_VARIANT,
+    FLEX_REQUEST_TIMEOUT_SECONDS,
+    MODEL_PRICES,
+    PIPELINE_DISTINCT_ID,
+    REQUEST_TIMEOUT_SECONDS,
+    ServiceTier,
+    SummaryPrices,
+    SummaryVariant,
+    cost_usd,
+    summarize,
+)
 
 AS_OF = datetime.datetime(2026, 10, 19, tzinfo=datetime.UTC)
 PATH_SECRET = "https://hooks.example.com/services/T000/B000/s3cr3tPathValue?sig=abc"
@@ -105,6 +122,15 @@ def _view(
 ) -> ViewItem:
     opened = tuple(sorted(_at(days_ago + n).date() for n in range(days)))
     return ViewItem(at=_at(days_ago), type=view_type, ref=ref, name=name, days=opened, not_theirs=not_theirs)
+
+
+def _opened(report_id: str, title: str, days_ago: float, first_days_ago: float | None = None) -> InboxAction:
+    first = _at(days_ago if first_days_ago is None else first_days_ago)
+    return InboxAction(report_id=report_id, title=title, type="view", first_at=first, last_at=_at(days_ago))
+
+
+def _acted(report_id: str, title: str, kind: str, days_ago: float = 1, **fields: Any) -> InboxArtefact:
+    return InboxArtefact(report_id=report_id, title=title, type=kind, at=_at(days_ago), **fields)
 
 
 @parameterized.expand(
@@ -526,6 +552,131 @@ def test_activity_units_spread_a_burst_across_days(_name: str, older_days: int, 
     assert drops[Drop.BURST_CAP] + drops[Drop.SAMPLE_CAP] == len(burst) + len(older) - ACTIVITY_LINES
 
 
+@parameterized.expand(
+    [
+        (
+            "lines rank by their strongest fact, so the cap keeps acted and rejected reports over a newer rating",
+            InboxActivity(
+                actions=(
+                    _opened("r1", "Checkout errors after deploy", days_ago=4, first_days_ago=9),
+                    InboxAction(
+                        report_id="r3",
+                        title="LLM cost spike",
+                        type="feedback",
+                        first_at=_at(1),
+                        last_at=_at(1),
+                        sentiment="positive",
+                    ),
+                ),
+                artefacts=(
+                    _acted("r1", "Checkout errors after deploy", "work_claim", days_ago=5),
+                    _acted("r1", "Checkout errors after deploy", "pull_request", days_ago=4),
+                    _acted(
+                        "r2",
+                        "Pageview drop on /pricing",
+                        "dismissal",
+                        days_ago=2,
+                        state="suppressed",
+                        reason="wontfix_irrelevant",
+                        note="test traffic",
+                    ),
+                ),
+            ),
+            RenderLimits(inbox_lines=2),
+            [
+                '- 2026-10-15 "Checkout errors after deploy": linked a pull request, claimed the work, opened it on more than one day',
+                '- 2026-10-17 "Pageview drop on /pricing": dismissed it as not interested (not relevant to this project, "test traffic")',
+            ],
+            {Drop.SAMPLE_CAP: 1},
+        ),
+        (
+            "a resolving reason is acted, a snooze and a routing reason are triage, and an unknown code renders no reason",
+            InboxActivity(
+                artefacts=(
+                    _acted("r1", "Slow dashboard loads", "dismissal", state="resolved", reason="already_fixed"),
+                    _acted("r2", "Signup funnel drop", "dismissal", days_ago=2, state="potential"),
+                    _acted("r3", "Flag rollout stalled", "dismissal", days_ago=3, reason="wrong_assignee"),
+                    _acted("r4", "Replay errors on Safari", "dismissal", days_ago=4, reason="slack_dismiss"),
+                ),
+            ),
+            DEFAULT_LIMITS,
+            [
+                '- 2026-10-15 "Replay errors on Safari": dismissed it',
+                '- 2026-10-16 "Flag rollout stalled": dismissed it (wrong assignee)',
+                '- 2026-10-17 "Signup funnel drop": snoozed it',
+                '- 2026-10-18 "Slow dashboard loads": resolved it (already fixed)',
+            ],
+            {},
+        ),
+        (
+            "read marks, a cleared rating, opens on one day and agent entries say nothing about the person",
+            InboxActivity(
+                actions=(
+                    InboxAction(report_id="r1", title="Read in bulk", type="read", first_at=_at(1), last_at=_at(1)),
+                    InboxAction(report_id="r2", title="Cleared", type="feedback", first_at=_at(1), last_at=_at(1)),
+                    _opened("r3", "Opened once", days_ago=1),
+                ),
+                artefacts=(_acted("r4", "Agent claimed", "work_claim", by_agent=True),),
+            ),
+            DEFAULT_LIMITS,
+            [],
+            {Drop.INBOX_READ_ONLY: 2, Drop.INBOX_SINGLE_VIEW: 1, Drop.INBOX_AGENT_ACTOR: 1},
+        ),
+        (
+            "a bulk triage is one line with the most common reason, and a dismissal outside the window keeps its own line",
+            InboxActivity(
+                artefacts=(
+                    *(
+                        _acted(
+                            f"bulk{index}",
+                            f"Bulk {index}",
+                            "dismissal",
+                            days_ago=2 - index / 86400,
+                            reason="analysis_wrong" if index < 7 else "wontfix_irrelevant",
+                        )
+                        for index in range(10)
+                    ),
+                    _acted("r1", "Kept on its own", "dismissal", days_ago=1, reason="report_unclear"),
+                ),
+            ),
+            DEFAULT_LIMITS,
+            [
+                "- 2026-10-17 dismissed 10 reports at once, mostly as analysis wrong",
+                '- 2026-10-18 "Kept on its own": dismissed it as not interested (report unclear)',
+            ],
+            {Drop.INBOX_BULK_TRIAGE: 9},
+        ),
+        (
+            "a reviewer correction says whether the person removed or added themselves, or only changed others",
+            InboxActivity(
+                artefacts=(
+                    _acted("r1", "Batch export retries", "reviewer_corrections", reviewer_change="removed_self"),
+                    _acted(
+                        "r2", "Export job timeouts", "reviewer_corrections", days_ago=2, reviewer_change="added_self"
+                    ),
+                    _acted("r3", "Flag rollout stalled", "reviewer_corrections", days_ago=3, reviewer_change="others"),
+                ),
+            ),
+            RenderLimits(inbox_lines=2),
+            [
+                '- 2026-10-17 "Export job timeouts": added themselves as reviewer',
+                '- 2026-10-18 "Batch export retries": removed themselves as reviewer',
+            ],
+            {Drop.SAMPLE_CAP: 1},
+        ),
+    ]
+)
+def test_inbox_units(
+    _name: str, inbox: InboxActivity, limits: RenderLimits, expected: list[str], expected_drops: dict[str, int]
+) -> None:
+    drops: Counter[str] = Counter()
+
+    lines = inbox_units(inbox, drops, limits)
+
+    assert [unit.text for unit in lines.units] == expected
+    assert dict(drops) == expected_drops
+
+
 def test_without_products_drops_inbox_rows_and_views_and_counts_them() -> None:
     drops: Counter[str] = Counter()
     activity, views = without_products(
@@ -643,10 +794,13 @@ def test_sampling_is_deterministic_and_favors_recent_units() -> None:
     assert picked_weights.count(4.0) > 2 * picked_weights.count(1.0) > 0
 
 
-def test_build_input_renders_the_four_sections_in_order() -> None:
+def test_build_input_renders_the_five_sections_in_order() -> None:
     rendered = build_input(
         [_task("why", summary="Asked: why did signups drop?", tags=("growth",), days_ago=3)],
-        [_change("Dashboard", "created", "Growth overview", days_ago=1)],
+        [
+            _change("Dashboard", "created", "Growth overview", days_ago=1),
+            _change("SignalReport", "assigned", "Signup form errors", item_id="r1", days_ago=2),
+        ],
         as_of=AS_OF,
         seed=1,
         views=[
@@ -654,6 +808,10 @@ def test_build_input_renders_the_four_sections_in_order() -> None:
             _view("dashboard", "9", "Growth overview", days=3, days_ago=2),
         ],
         mcp=[_mcp("s1", "signups by country", days_ago=2)],
+        inbox=InboxActivity(
+            actions=(_opened("r2", "Weekly signups dipped", days_ago=2, first_days_ago=4),),
+            artefacts=(_acted("r1", "Signup form errors", "note", days_ago=1, note="Fixing the email validator"),),
+        ),
     )
 
     assert rendered is not None
@@ -668,13 +826,19 @@ def test_build_input_renders_the_four_sections_in_order() -> None:
             MCP_HEADER,
             "- m1 2026-10-17, 1 call: signups by country",
             "",
+            INBOX_HEADER,
+            '- 2026-10-18 "Signup form errors": left a note: "Fixing the email validator"',
+            '- 2026-10-17 "Weekly signups dipped": opened it on more than one day',
+            "",
             VIEWS_HEADER,
             '- Dashboard "Growth overview": opened 3 days, last 2026-10-17, edited 1 day',
             '- Insight "Weekly signups": opened 1 day, last 2026-10-18',
         ]
     )
     assert (rendered.n_tasks, rendered.n_activity_lines, rendered.n_mcp_lines, rendered.n_view_lines) == (1, 1, 1, 2)
-    assert rendered.units == 5
+    assert rendered.n_inbox_lines == 2
+    assert rendered.units == 7
+    assert rendered.drops == {Drop.INBOX_IN_ACTIVITY: 1}
     assert (rendered.task_refs, rendered.mcp_refs) == (
         (LineRef(ref="t1", last_at="2026-10-16"),),
         (LineRef(ref="m1", last_at="2026-10-17"),),
@@ -1014,8 +1178,8 @@ def test_build_input_numbers_the_task_refs_that_survive_the_budget_from_one() ->
         _task("new", summary="Asked: why did signups drop?", days_ago=1),
     ]
     expected = f"{TASKS_HEADER}\n- t1 2026-10-18 why did signups drop?"
-    # Each of the four sections adds a two-character separator to the budget, empty or not.
-    budget = len(expected.replace("t1", "t2")) + 2 * 4
+    # Each of the five sections adds a two-character separator to the budget, empty or not.
+    budget = len(expected.replace("t1", "t2")) + 2 * 5
 
     rendered = build_input(tasks, [], as_of=AS_OF, seed=1, limits=RenderLimits(sections_max_chars=budget))
 
@@ -1038,8 +1202,8 @@ def test_build_input_stays_inside_the_budget_when_a_shorter_ref_would_fit_anothe
     ]
     line_chars = len(f"- t1 2026-10-18 {goal}")
     cut_line = cap_line(f"- t10 2026-10-18 {goal}", line_chars)
-    # Each of the four sections adds a two-character separator to the budget, empty or not.
-    budget = len(f"{TASKS_HEADER}\n{cut_line}") + 2 * 4
+    # Each of the five sections adds a two-character separator to the budget, empty or not.
+    budget = len(f"{TASKS_HEADER}\n{cut_line}") + 2 * 5
 
     rendered = build_input(
         tasks,
@@ -1326,14 +1490,21 @@ class FakeLLM:
         self.usage = usage
         self.requests: list[dict[str, Any]] = []
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
+        self.max_retries: int | None = None
+
+    def with_options(self, *, max_retries: int) -> "FakeLLM":
+        self.max_retries = max_retries
+        return self
 
     def create(self, **kwargs: Any) -> SimpleNamespace:
-        self.requests.append(kwargs)
+        self.requests.append({**kwargs, "max_retries": self.max_retries})
+        self.max_retries = None
         answer = self.answers.pop(0) if len(self.answers) > 1 else self.answers[0]
         if isinstance(answer, Exception):
             raise answer
         content, finish_reason = answer if isinstance(answer, tuple) else (answer, "stop")
         return SimpleNamespace(
+            service_tier="default" if isinstance(kwargs.get("service_tier"), Omit) else kwargs.get("service_tier"),
             usage=SimpleNamespace(prompt_tokens=100, completion_tokens=20) if self.usage else None,
             choices=[SimpleNamespace(message=SimpleNamespace(content=content), finish_reason=finish_reason)],
         )
@@ -1386,7 +1557,7 @@ def test_summarize_retries_a_malformed_or_truncated_answer_once(
         llm,  # type: ignore[arg-type]
         rendered_input="- a line",
         previous_summary=None,
-        model="gpt-6-luna",
+        variant=DEFAULT_VARIANT,
         as_of=datetime.date(2026, 10, 18),
     )
 
@@ -1398,16 +1569,116 @@ def test_summarize_retries_a_malformed_or_truncated_answer_once(
     assert (outcome.tokens_in, outcome.tokens_out) == tokens
 
 
+def _status_error(error: type[APIStatusError], status: int) -> APIStatusError:
+    response = httpx.Response(status, request=httpx.Request("POST", "https://gateway.example/v1/chat/completions"))
+    return error("refused", response=response, body=None)
+
+
+_TERRA = SummaryVariant(model="gpt-6.1-terra")
+_TERRA_FLEX = SummaryVariant(model="gpt-6.1-terra", service_tier=ServiceTier.FLEX)
+
+
+@parameterized.expand(
+    [
+        ("standard sends no tier", _TERRA, [_answer()], ["standard"], "default", False, None),
+        ("flex sends the flex tier", _TERRA_FLEX, [_answer()], ["flex"], "flex", False, None),
+        (
+            "a capacity refusal retries on standard",
+            _TERRA_FLEX,
+            [_status_error(RateLimitError, 429), _answer()],
+            ["flex", "standard"],
+            "default",
+            True,
+            None,
+        ),
+        (
+            "a flex timeout retries on standard",
+            _TERRA_FLEX,
+            [_CONNECTION_ERROR, _answer()],
+            ["flex", "standard"],
+            "default",
+            True,
+            None,
+        ),
+        (
+            "a malformed answer after a fallback stays on standard",
+            _TERRA_FLEX,
+            [_status_error(InternalServerError, 503), "not json", _answer()],
+            ["flex", "standard", "standard"],
+            "default",
+            True,
+            None,
+        ),
+        (
+            "a bad request on flex does not retry",
+            _TERRA_FLEX,
+            [_status_error(BadRequestError, 400)],
+            ["flex"],
+            None,
+            False,
+            "api_error: BadRequestError",
+        ),
+        (
+            "a refused standard request does not retry",
+            _TERRA,
+            [_status_error(RateLimitError, 429)],
+            ["standard"],
+            None,
+            False,
+            "api_error: RateLimitError",
+        ),
+    ]
+)
+def test_summarize_sends_the_tier_of_the_variant_and_falls_back_from_a_refused_flex_call(
+    _name: str,
+    variant: SummaryVariant,
+    answers: list[Any],
+    tiers: list[str],
+    served_tier: str | None,
+    fell_back: bool,
+    error: str | None,
+) -> None:
+    llm = FakeLLM(answers)
+    outcome = summarize(
+        llm,  # type: ignore[arg-type]
+        rendered_input="- a line",
+        previous_summary=None,
+        variant=variant,
+        as_of=datetime.date(2026, 10, 18),
+    )
+
+    sent = [
+        (
+            "standard" if isinstance(request["service_tier"], Omit) else request["service_tier"],
+            request["timeout"],
+            request["max_retries"],
+        )
+        for request in llm.requests
+    ]
+    assert sent == [
+        ("flex", FLEX_REQUEST_TIMEOUT_SECONDS, 0) if tier == "flex" else ("standard", REQUEST_TIMEOUT_SECONDS, None)
+        for tier in tiers
+    ]
+    assert {request["model"] for request in llm.requests} == {variant.model}
+    assert (outcome.served_tier, outcome.fell_back, outcome.error) == (served_tier, fell_back, error)
+    answered = [tier for tier, answer in zip(tiers, answers) if not isinstance(answer, Exception)]
+    expected_cost = sum(
+        cost_usd(100, 20, MODEL_PRICES[SummaryVariant(model=variant.model, service_tier=ServiceTier(tier))]) or 0.0
+        for tier in answered
+    )
+    assert outcome.cost_usd == (pytest.approx(expected_cost) if answered else None)
+
+
 def test_summarize_reports_null_tokens_when_the_response_has_no_usage() -> None:
     outcome = summarize(
         FakeLLM([_answer()], usage=False),  # type: ignore[arg-type]
         rendered_input="- a line",
         previous_summary=None,
-        model="gpt-6-luna",
+        variant=DEFAULT_VARIANT,
         as_of=datetime.date(2026, 10, 18),
     )
     assert outcome.summary is not None
-    assert (outcome.tokens_in, outcome.tokens_out) == (None, None)
+    assert (outcome.tokens_in, outcome.tokens_out, outcome.cost_usd) == (None, None, None)
 
 
 def test_summarize_cuts_a_previous_profile_to_a_lowered_limit() -> None:
@@ -1419,7 +1690,7 @@ def test_summarize_cuts_a_previous_profile_to_a_lowered_limit() -> None:
         llm,  # type: ignore[arg-type]
         rendered_input="- a line",
         previous_summary={**PREVIOUS, "profile": stored_profile},
-        model="gpt-6-luna",
+        variant=DEFAULT_VARIANT,
         as_of=datetime.date(2026, 10, 18),
         profile_max_chars=500,
     )

@@ -7,6 +7,7 @@ from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
+from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -226,6 +227,26 @@ class TestHogFlowUtmDefaults(APIBaseTest):
         assert "utm_params" not in self._email_config(sent_broadcast)
         assert self._email_config(scheduled_broadcast)["utm_params"] == {"utm_source": "newsletter"}
         assert "utm_params" not in self._email_config(archived)
+
+    def test_apply_reaches_a_live_email_whose_sender_became_unverified(self) -> None:
+        sender = Integration.objects.create(
+            team=self.team,
+            kind="email",
+            config={"email": "sender@posthog.com", "name": "Sender", "domain": "posthog.com", "verified": False},
+        )
+        live = self._flow("Live", HogFlow.State.ACTIVE)
+        live.actions[1]["config"]["inputs"]["email"]["value"]["from"] = {"integrationId": sender.id}
+        live.save()
+
+        applied = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/apply_utm_defaults",
+            {"dry_run": False, "enable_where_off": True},
+            format="json",
+        )
+
+        assert applied.status_code == 200, applied.json()
+        assert applied.json()["workflows_failed"] == 0
+        assert self._email_config(live)["utm_params"] == {"utm_source": "newsletter"}
 
     def test_a_utm_value_changed_through_the_api_survives_a_later_apply(self) -> None:
         flow = self._flow(

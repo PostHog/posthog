@@ -19,6 +19,7 @@ from posthog.auth import (
     SessionAuthentication,
 )
 from posthog.constants import AvailableFeature
+from posthog.ip_restrictions import IPRestrictionsPermission
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.organization_caching import get_cached_organization_membership
@@ -58,6 +59,7 @@ def token_scope_restrictions(request: Request) -> tuple[list[str] | None, list[i
 READ_BOUNDARY_PERMISSIONS = (
     VerifiedDomainEnforcementPermission,
     ActiveOrganizationPermission,
+    IPRestrictionsPermission,
 )
 ORGANIZATION_BOUNDARY_PERMISSIONS = (*READ_BOUNDARY_PERMISSIONS, MCPAccessPermission)
 
@@ -76,7 +78,10 @@ def personal_api_key_denial(request: Request, organization: Organization) -> str
     membership = get_cached_organization_membership(organization.id, cast(User, request.user))
     if membership is None:
         return None
-    if not organization.members_can_use_personal_api_keys and membership.level < OrganizationMembership.Level.ADMIN:
+    if (
+        not organization.members_can_use_personal_api_keys
+        and membership.effective_level < OrganizationMembership.Level.ADMIN
+    ):
         return (
             f"Organization '{organization.name}' does not allow using personal API keys. "
             f"Contact an admin to enable personal API keys for this organization."
@@ -396,6 +401,9 @@ class ReminderSerializer(serializers.ModelSerializer):
 
 @extend_schema(extensions={"x-product": "reminders"})
 class ReminderViewSet(viewsets.ModelViewSet):
+    # Reads filter each organization and writes validate their actual target in the serializer.
+    _ip_restrictions_use_view_scope = True
+
     scope_object = "user"
     serializer_class = ReminderSerializer
     permission_classes = [IsAuthenticated, APIScopePermission]

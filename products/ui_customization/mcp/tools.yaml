@@ -1,0 +1,77 @@
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product ui_customization
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product ui_customization
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
+category: UI customization
+feature: ui_customization
+url_prefix: /home
+ui_apps: {}
+tools:
+    ui-customization-describe:
+        operation: ui_customization_describe
+        enabled: true
+        title: Describe UI customization
+        description: >
+            Get the layout JSON Schema and default layout for a supported UI customization context, such as
+            analytics_sidebar for the Analytics sidebar, before designing alternatives. Read the schema descriptions for
+            additional server validation rules, including limits across sections. This does not read or change the
+            person's saved layout. Use ui-customization-get to read their layout before replacing it with
+            ui-customization-set. Saving always validates the full layout again.
+        feature_flag: ui-customization
+    ui-customization-get:
+        operation: ui_customization_retrieve
+        enabled: true
+        title: Get UI customization
+        description: >
+            Get the person's layout for a supported UI customization context. For analytics_sidebar, this is the
+            Analytics pane in the new navigation. It is the person's own layout, or the default when customized is
+            false. Call it before you change the fragment, then send the whole changed layout to ui-customization-set.
+            Built-in lists (pinned, recents, by_posthog) are references, not their resolved items. Do not assume a
+            destination is missing because it is not listed here. Check the list contents with the relevant tools before
+            adding shortcuts, or ask the person when those contents are unavailable. Project-wide favorites do not
+            identify the person's own favorites. For a general redesign, use activity-summary-get when available to
+            ground a few navigation suggestions in the current person's recent work, repeatedly opened objects, and
+            product pages in this project. Use the dates and object IDs it returns, and briefly explain why each
+            suggestion is relevant. The summary is not an exact last-few-days query and may be stale, not_ready, or
+            unavailable. When it cannot provide recent context, use resolved Pinned and Recents items or ask what
+            matters now. Activity does not resolve those built-in lists. The person's stated goal takes priority;
+            inferred interests do not authorize removing sections or adding metrics. Do not delay a specific request to
+            fetch activity.
+        feature_flag: ui-customization
+    ui-customization-reset:
+        operation: ui_customization_destroy
+        enabled: true
+        title: Reset UI customization
+        description: >
+            Remove the person's own layout for the selected context, such as analytics_sidebar for the Analytics
+            sidebar, so it shows the default again. Returns the default layout.
+        feature_flag: ui-customization
+    ui-customization-set:
+        operation: ui_customization_update
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Set UI customization
+        description: >
+            Replace the person's layout for the selected UI customization context. It changes only the person who calls
+            it, in this project. For analytics_sidebar: Build the layout from sections of items: links and buttons that
+            open a PostHog page or an insight, dashboard or notebook of this project, metrics that show the latest value
+            of a trends insight, and lists that PostHog fills (pinned, recents, by_posthog). Get the IDs of insights,
+            dashboards and notebooks from their tools first; never invent them. Saving rejects an insight, dashboard or
+            notebook that does not exist, and a metric whose insight is not a trends insight. Use at most 30 items total
+            across all sections, including at most 4 live metrics. Each built-in list counts as one item, but can render
+            many rows. These limits are ceilings, not targets. Keep the menu compact and focused on the destinations the
+            person needs to open. Apply specific requests directly; ask only for missing details. For a general
+            redesign, ask what the person needs to open most often and which existing sections they want to keep. Keep
+            only the optional sections they explicitly choose to retain; ask about undecided sections. Do not offer an
+            additive checklist of metrics, dashboards, buttons, and sections. Reuse or reorder existing navigation
+            instead of duplicating it: Pinned already provides personal shortcuts, and Recents and By PostHog may
+            already contain the requested destinations. Add live metrics only when explicitly requested. If a requested
+            metric is unsupported, explain the limit instead of substituting a different measure without agreement. Stay
+            within the supported layout schema; do not offer code changes or a separate app to satisfy decoration
+            requests. Keep the IDs of sections you keep. After saving, briefly state what changed and explain that
+            ui-customization-reset restores the default, not the previous custom layout. A 400 error names each value
+            that does not fit, so fix those values and send it again.
+        feature_flag: ui-customization

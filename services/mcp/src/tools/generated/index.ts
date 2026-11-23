@@ -6,6 +6,7 @@ import { GENERATED_TOOLS as actions } from './actions'
 import { GENERATED_TOOLS as aeo } from './aeo'
 import { GENERATED_TOOLS as ai_observability } from './ai_observability'
 import { GENERATED_TOOLS as alerts } from './alerts'
+import { GENERATED_TOOLS as alerts_platform } from './alerts_platform'
 import { GENERATED_TOOLS as annotations } from './annotations'
 import { GENERATED_TOOLS as autoresearch } from './autoresearch'
 import { GENERATED_TOOLS as batch_exports } from './batch_exports'
@@ -40,7 +41,6 @@ import { GENERATED_TOOLS as logs } from './logs'
 import { GENERATED_TOOLS as managed_migrations } from './managed_migrations'
 import { GENERATED_TOOLS as marketing_analytics } from './marketing_analytics'
 import { GENERATED_TOOLS as mcp_analytics } from './mcp_analytics'
-import { GENERATED_TOOLS as mcp_registry } from './mcp_registry'
 import { GENERATED_TOOLS as mcp_store } from './mcp_store'
 import { GENERATED_TOOLS as messaging } from './messaging'
 import { GENERATED_TOOLS as metrics } from './metrics'
@@ -51,6 +51,7 @@ import { GENERATED_TOOLS as posthog_ai } from './posthog_ai'
 import { GENERATED_TOOLS as product_analytics } from './product_analytics'
 import { GENERATED_TOOLS as proxyRecords } from './proxy-records'
 import { GENERATED_TOOLS as queryWrappers } from './query-wrappers'
+import { GENERATED_TOOLS as release } from './release'
 import { GENERATED_TOOLS as reminders } from './reminders'
 import { GENERATED_TOOLS as replay } from './replay'
 import { GENERATED_TOOLS as replay_vision } from './replay_vision'
@@ -64,12 +65,15 @@ import { GENERATED_TOOLS as surveys } from './surveys'
 import { GENERATED_TOOLS as tasks } from './tasks'
 import { GENERATED_TOOLS as tracing } from './tracing'
 import { GENERATED_TOOLS as transactional_email_log } from './transactional_email_log'
+import { GENERATED_TOOLS as ui_customization } from './ui_customization'
 import { GENERATED_TOOLS as visual_review } from './visual_review'
+import { GENERATED_TOOLS as warehouse_alerts } from './warehouse_alerts'
 import { GENERATED_TOOLS as warehouse_destinations } from './warehouse_destinations'
 import { GENERATED_TOOLS as warehouse_sources } from './warehouse_sources'
 import { GENERATED_TOOLS as warehouse_suggestions } from './warehouse_suggestions'
 import { GENERATED_TOOLS as web_analytics } from './web_analytics'
 import { GENERATED_TOOLS as wizard } from './wizard'
+import { GENERATED_TOOLS as workflow_email_log } from './workflow_email_log'
 import { GENERATED_TOOLS as workflows } from './workflows'
 
 export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
@@ -78,6 +82,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...aeo,
     ...ai_observability,
     ...alerts,
+    ...alerts_platform,
     ...annotations,
     ...autoresearch,
     ...batch_exports,
@@ -112,7 +117,6 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...managed_migrations,
     ...marketing_analytics,
     ...mcp_analytics,
-    ...mcp_registry,
     ...mcp_store,
     ...messaging,
     ...metrics,
@@ -123,6 +127,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...product_analytics,
     ...proxyRecords,
     ...queryWrappers,
+    ...release,
     ...reminders,
     ...replay,
     ...replay_vision,
@@ -136,11 +141,14 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...tasks,
     ...tracing,
     ...transactional_email_log,
+    ...ui_customization,
     ...visual_review,
+    ...warehouse_alerts,
     ...warehouse_destinations,
     ...warehouse_sources,
     ...warehouse_suggestions,
     ...web_analytics,
     ...wizard,
+    ...workflow_email_log,
     ...workflows,
 }

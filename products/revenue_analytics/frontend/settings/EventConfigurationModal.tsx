@@ -8,12 +8,14 @@ import { CurrencyDropdown } from 'lib/components/BaseCurrency/CurrencyDropdown'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import {
+    CurrencyCode,
     ProductIntentContext,
     ProductKey,
     RevenueAnalyticsEventItem,
@@ -21,6 +23,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { QuillEventConfigurationModal } from './QuillEventConfigurationModal'
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
 export interface EventConfigurationModalProps {
@@ -46,6 +49,7 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
     } = useActions(revenueAnalyticsSettingsLogic)
     const { reportRevenueAnalyticsEventCreated, reportRevenueAnalyticsEventEdited } = useActions(eventUsageLogic)
     const { addProductIntent } = useActions(teamLogic)
+    const quillSurface = useQuillSurface()
 
     // Track the name of the event we care about
     const [eventName, setEventName] = useState<string | null>(() => event?.eventName ?? null)
@@ -59,6 +63,79 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
 
     // Get current event data from store
     const currentEvent = eventName ? events.find((e) => e.eventName === eventName) : null
+
+    const eventFieldDisabledReason = !currentEvent?.eventName ? 'Select an event name first' : undefined
+    const revenuePropertyDisabledReason = !currentEvent?.eventName
+        ? 'Select an event name first'
+        : currentEvent?.eventName === '$pageview' || currentEvent?.eventName === '$autocapture'
+          ? 'Built-in events must use revenue'
+          : undefined
+
+    const onSelectEventName = (selectedEventName: string): void => {
+        if (selectedEventName) {
+            // For new events, create the event immediately
+            addEvent(selectedEventName, baseCurrency)
+            setEventName(selectedEventName)
+        }
+    }
+
+    const onRevenuePropertyChange = (propertyName: string): void => {
+        if (currentEvent?.eventName) {
+            updateEventRevenueProperty(currentEvent.eventName, propertyName || '')
+        }
+    }
+
+    const onCurrencyPropertyChange = (propertyName: string): void => {
+        if (currentEvent?.eventName) {
+            updateEventCurrencyProperty(currentEvent.eventName, {
+                property: propertyName || '',
+            })
+        }
+    }
+
+    const onStaticCurrencyChange = (currency: CurrencyCode): void => {
+        if (currentEvent?.eventName) {
+            updateEventCurrencyProperty(currentEvent.eventName, {
+                static: currency || '',
+            })
+        }
+    }
+
+    const onCurrencyAwareDecimalChange = (checked: boolean): void => {
+        if (currentEvent?.eventName) {
+            updateEventCurrencyAwareDecimalProperty(currentEvent.eventName, checked)
+        }
+    }
+
+    const onProductPropertyChange = (propertyName: string): void => {
+        if (currentEvent?.eventName) {
+            updateEventProductProperty(currentEvent.eventName, propertyName || '')
+        }
+    }
+
+    const onCouponPropertyChange = (propertyName: string): void => {
+        if (currentEvent?.eventName) {
+            updateEventCouponProperty(currentEvent.eventName, propertyName || '')
+        }
+    }
+
+    const onSubscriptionPropertyChange = (propertyName: string): void => {
+        if (currentEvent?.eventName) {
+            updateEventSubscriptionProperty(currentEvent.eventName, propertyName || '')
+        }
+    }
+
+    const onDropoffDaysChange = (value: number | null | undefined): void => {
+        if (currentEvent?.eventName) {
+            updateEventSubscriptionDropoffDays(currentEvent.eventName, Number(value) || 45)
+        }
+    }
+
+    const onDropoffModeChange = (value: SubscriptionDropoffMode | null): void => {
+        if (currentEvent?.eventName && value) {
+            updateEventSubscriptionDropoffMode(currentEvent.eventName, value)
+        }
+    }
 
     const handleSave = (): void => {
         save()
@@ -96,6 +173,31 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
         }
 
         onClose()
+    }
+
+    if (quillSurface) {
+        return (
+            <QuillEventConfigurationModal
+                originalEvent={originalEvent}
+                currentEvent={currentEvent ?? null}
+                accessDeniedReason={accessDeniedReason}
+                saveDisabledReason={accessDeniedReason || saveEventsDisabledReason}
+                eventFieldDisabledReason={eventFieldDisabledReason}
+                revenuePropertyDisabledReason={revenuePropertyDisabledReason}
+                onSelectEventName={onSelectEventName}
+                onRevenuePropertyChange={onRevenuePropertyChange}
+                onCurrencyPropertyChange={onCurrencyPropertyChange}
+                onStaticCurrencyChange={onStaticCurrencyChange}
+                onCurrencyAwareDecimalChange={onCurrencyAwareDecimalChange}
+                onProductPropertyChange={onProductPropertyChange}
+                onCouponPropertyChange={onCouponPropertyChange}
+                onSubscriptionPropertyChange={onSubscriptionPropertyChange}
+                onDropoffDaysChange={onDropoffDaysChange}
+                onDropoffModeChange={onDropoffModeChange}
+                onSave={handleSave}
+                onClose={handleClose}
+            />
+        )
     }
 
     return (
@@ -140,13 +242,7 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
                             <TaxonomicPopover
                                 type="primary"
                                 groupType={TaxonomicFilterGroupType.CustomEvents}
-                                onChange={(selectedEventName: string) => {
-                                    if (selectedEventName) {
-                                        // For new events, create the event immediately
-                                        addEvent(selectedEventName, baseCurrency)
-                                        setEventName(selectedEventName)
-                                    }
-                                }}
+                                onChange={onSelectEventName}
                                 value=""
                                 placeholder="Select or type an event name"
                                 selectingKeyOnly
@@ -164,22 +260,11 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
                         <TaxonomicPopover
                             showNumericalPropsOnly
                             groupType={TaxonomicFilterGroupType.EventProperties}
-                            onChange={(propertyName) => {
-                                if (currentEvent?.eventName) {
-                                    updateEventRevenueProperty(currentEvent.eventName, propertyName || '')
-                                }
-                            }}
+                            onChange={onRevenuePropertyChange}
                             value={currentEvent?.revenueProperty || undefined}
                             placeholder="Select the property that contains revenue amount"
                             selectingKeyOnly
-                            disabledReason={
-                                !currentEvent?.eventName
-                                    ? 'Select an event name first'
-                                    : currentEvent?.eventName === '$pageview' ||
-                                        currentEvent?.eventName === '$autocapture'
-                                      ? 'Built-in events must use revenue'
-                                      : undefined
-                            }
+                            disabledReason={revenuePropertyDisabledReason}
                         />
                         <p className="text-xs text-muted-alt">
                             Choose the property that tracks the amount of revenue generated by this event.
@@ -211,16 +296,10 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
                             <label className="text-sm font-medium">Dynamic Currency Property</label>
                             <TaxonomicPopover
                                 groupType={TaxonomicFilterGroupType.EventProperties}
-                                onChange={(propertyName) => {
-                                    if (currentEvent?.eventName) {
-                                        updateEventCurrencyProperty(currentEvent.eventName, {
-                                            property: propertyName || '',
-                                        })
-                                    }
-                                }}
+                                onChange={onCurrencyPropertyChange}
                                 value={currentEvent?.revenueCurrencyProperty.property || undefined}
                                 placeholder="Select property for dynamic currency"
-                                disabledReason={!currentEvent?.eventName ? 'Select an event name first' : undefined}
+                                disabledReason={eventFieldDisabledReason}
                             />
                         </div>
 
@@ -234,15 +313,9 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
                             <label className="text-sm font-medium">Static Currency</label>
                             <div className={!currentEvent?.eventName ? 'opacity-50 pointer-events-none' : ''}>
                                 <CurrencyDropdown
-                                    onChange={(currency) => {
-                                        if (currentEvent?.eventName) {
-                                            updateEventCurrencyProperty(currentEvent.eventName, {
-                                                static: currency || '',
-                                            })
-                                        }
-                                    }}
+                                    onChange={onStaticCurrencyChange}
                                     value={currentEvent?.revenueCurrencyProperty.static || null}
-                                    disabledReason={!currentEvent?.eventName ? 'Select an event name first' : undefined}
+                                    disabledReason={eventFieldDisabledReason}
                                 />
                             </div>
                         </div>
@@ -251,12 +324,8 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
                     <div className="flex items-center gap-2">
                         <LemonSwitch
                             checked={currentEvent?.currencyAwareDecimal || false}
-                            onChange={(checked) => {
-                                if (currentEvent?.eventName) {
-                                    updateEventCurrencyAwareDecimalProperty(currentEvent.eventName, checked)
-                                }
-                            }}
-                            disabledReason={!currentEvent?.eventName ? 'Select an event name first' : undefined}
+                            onChange={onCurrencyAwareDecimalChange}
+                            disabledReason={eventFieldDisabledReason}
                         />
                         <div className="flex items-center gap-1">
                             <span className="text-sm font-medium">Values are in cents</span>
@@ -278,14 +347,10 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
                             <label className="text-sm font-medium">Product Property</label>
                             <TaxonomicPopover
                                 groupType={TaxonomicFilterGroupType.EventProperties}
-                                onChange={(propertyName) => {
-                                    if (currentEvent?.eventName) {
-                                        updateEventProductProperty(currentEvent.eventName, propertyName || '')
-                                    }
-                                }}
+                                onChange={onProductPropertyChange}
                                 value={currentEvent?.productProperty || undefined}
                                 placeholder="Select product property"
-                                disabledReason={!currentEvent?.eventName ? 'Select an event name first' : undefined}
+                                disabledReason={eventFieldDisabledReason}
                             />
                             <p className="text-xs text-muted-alt">
                                 Track which product was responsible for generating this revenue event
@@ -296,14 +361,10 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
                             <label className="text-sm font-medium">Coupon Property</label>
                             <TaxonomicPopover
                                 groupType={TaxonomicFilterGroupType.EventProperties}
-                                onChange={(propertyName) => {
-                                    if (currentEvent?.eventName) {
-                                        updateEventCouponProperty(currentEvent.eventName, propertyName || '')
-                                    }
-                                }}
+                                onChange={onCouponPropertyChange}
                                 value={currentEvent?.couponProperty || undefined}
                                 placeholder="Select coupon property"
-                                disabledReason={!currentEvent?.eventName ? 'Select an event name first' : undefined}
+                                disabledReason={eventFieldDisabledReason}
                             />
                             <p className="text-xs text-muted-alt">
                                 Track which coupon was applied to this revenue event
@@ -323,14 +384,10 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
                             <label className="text-sm font-medium">Subscription Property</label>
                             <TaxonomicPopover
                                 groupType={TaxonomicFilterGroupType.EventProperties}
-                                onChange={(propertyName) => {
-                                    if (currentEvent?.eventName) {
-                                        updateEventSubscriptionProperty(currentEvent.eventName, propertyName || '')
-                                    }
-                                }}
+                                onChange={onSubscriptionPropertyChange}
                                 value={currentEvent?.subscriptionProperty || undefined}
                                 placeholder="Select subscription property (optional)"
-                                disabledReason={!currentEvent?.eventName ? 'Select an event name first' : undefined}
+                                disabledReason={eventFieldDisabledReason}
                             />
                             <p className="text-xs text-muted-alt">
                                 Track subscription information for ARPU and LTV calculations. Recommended for better
@@ -346,15 +403,8 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
                                     min={1}
                                     max={365}
                                     value={currentEvent?.subscriptionDropoffDays || 45}
-                                    onChange={(value) => {
-                                        if (currentEvent?.eventName) {
-                                            updateEventSubscriptionDropoffDays(
-                                                currentEvent.eventName,
-                                                Number(value) || 45
-                                            )
-                                        }
-                                    }}
-                                    disabledReason={!currentEvent?.eventName ? 'Select an event name first' : undefined}
+                                    onChange={onDropoffDaysChange}
+                                    disabledReason={eventFieldDisabledReason}
                                 />
                                 <p className="text-xs text-muted-alt">
                                     Days to consider subscription active after last event
@@ -365,12 +415,8 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
                                 <label className="text-sm font-medium">Dropoff Mode</label>
                                 <LemonSelect<SubscriptionDropoffMode>
                                     value={currentEvent?.subscriptionDropoffMode || 'last_event'}
-                                    onChange={(value) => {
-                                        if (currentEvent?.eventName && value) {
-                                            updateEventSubscriptionDropoffMode(currentEvent.eventName, value)
-                                        }
-                                    }}
-                                    disabledReason={!currentEvent?.eventName ? 'Select an event name first' : undefined}
+                                    onChange={onDropoffModeChange}
+                                    disabledReason={eventFieldDisabledReason}
                                     options={[
                                         {
                                             label: 'on the date of the last event',

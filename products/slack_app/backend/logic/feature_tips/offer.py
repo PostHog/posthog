@@ -85,7 +85,7 @@ def offer_feature_tip(request: TipRequest) -> SlackFeature | None:
     stored = [rows[0][0]] if rows else []
     # The onboarding thread already teaches the basics, so a tip during it would be a second message to read.
     onboarding = parse_onboarding(rows[0][1]) if rows else None
-    if onboarding is not None and not onboarding.completed:
+    if onboarding is not None and (onboarding.started_at or onboarding.root_ts) and not onboarding.completed:
         return None
     # Most answers come from a reader who opted out or already got today's tip. They stop here,
     # before the lock. Their interaction count no longer gates anything.

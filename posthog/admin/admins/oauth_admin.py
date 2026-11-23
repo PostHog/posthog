@@ -6,78 +6,28 @@ from urllib.parse import urlencode
 
 from django import forms
 from django.contrib import admin, messages
-from django.contrib.admin import helpers
-from django.template.response import TemplateResponse
+from django.http import HttpResponseRedirect
+from django.urls import reverse
 from django.utils.html import format_html
 
 from oauth2_provider.generators import generate_client_id, generate_client_secret
 from oauth2_provider.models import AbstractApplication
 
+from posthog.admin.console.moved import MovedToConsole
+from posthog.admin.console.oauth_tool import RevokeSessionsForm
 from posthog.api.oauth.cimd import is_cimd_client_id
-from posthog.models.oauth import OAuthApplication, revoke_application_sessions
-from posthog.models.oauth_provisioning import PROVISIONING_CAPABILITIES, UNLIMITED_OVERRIDE, ProvisioningConfig
-
-# The provisioning config is one JSONB column, but an operator should still get the checkboxes
-# they had when it was a column each: a raw JSON textarea turns a mistyped capability key into
-# something that silently reads back as "not granted" while looking granted on screen.
-# Derived from the pydantic schema so a capability added there shows up here automatically.
-PROVISIONING_FIELD_PREFIX = "provisioning_"
-PROVISIONING_RATE_LIMIT_PREFIX = "provisioning_rate_limit_"
-SIGNING_CAPABILITY_FIELDS = tuple(
-    f"{PROVISIONING_FIELD_PREFIX}{name}" for name in ("pays_for_customers", "can_create_accounts")
-)
-
-
-def _provisioning_form_fields() -> dict[str, forms.Field]:
-    """One form field per capability. Rate-limit override fields are generated per request
-    in ``get_form`` from the endpoint registry."""
-    fields: dict[str, forms.Field] = {}
-    for name in PROVISIONING_CAPABILITIES:
-        fields[f"{PROVISIONING_FIELD_PREFIX}{name}"] = forms.BooleanField(
-            required=False,
-            label=name.replace("_", " "),
-            help_text=ProvisioningConfig.model_fields[name].description or "",
-        )
-    return fields
-
-
-def _rate_limit_endpoints() -> list[str]:
-    """Every declared rate-limit endpoint, so a new @rate_limited declaration
-    grows an override field here with no admin change."""
-    # Deferred: budgets register when the provisioning view modules import, and this
-    # admin module loads at django.setup() in every process, where pulling the ee
-    # views in eagerly would bloat startup.
-    from ee.api.agentic_provisioning import views  # noqa: F401, PLC0415
-    from ee.api.agentic_provisioning.ratelimits import registered_budgets  # noqa: PLC0415
-
-    return sorted(registered_budgets())
-
-
-def _rate_limit_form_fields() -> dict[str, forms.Field]:
-    return {
-        f"{PROVISIONING_RATE_LIMIT_PREFIX}{name}": forms.IntegerField(
-            required=False,
-            min_value=UNLIMITED_OVERRIDE,
-            label=f"rate limit {name.replace('_', ' ')} (per hour)",
-            help_text="Blank = tier-derived budget; -1 = unlimited. Outranks the tier, including BLOCKED.",
-        )
-        for name in _rate_limit_endpoints()
-    }
-
-
-PROVISIONING_FORM_FIELD_NAMES = tuple(_provisioning_form_fields())
+from posthog.models.oauth import OAuthApplication
+from posthog.models.oauth_provisioning import PROVISIONING_CAPABILITIES
 
 
 class OAuthApplicationForm(forms.ModelForm):
     class Meta:
         model = OAuthApplication
-        # The JSONB column is edited through the generated fields below, never as raw JSON.
-        exclude = ("_provisioning_config",)
+        # Provisioning partners are managed on the app's page in PostHog Admin.
+        exclude = ("_provisioning_config", "is_provisioning_partner")
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
-        self._load_provisioning_initial()
 
         # Set algorithm constraints
         if "algorithm" in self.fields:
@@ -106,17 +56,6 @@ class OAuthApplicationForm(forms.ModelForm):
             if "client_type" in self.fields:
                 self.fields["client_type"].initial = AbstractApplication.CLIENT_CONFIDENTIAL
 
-    def _rate_limit_field_names(self) -> list[str]:
-        return [name for name in self.fields if name.startswith(PROVISIONING_RATE_LIMIT_PREFIX)]
-
-    def _load_provisioning_initial(self) -> None:
-        config = self.instance.provisioning if self.instance.pk else ProvisioningConfig()
-        for name in PROVISIONING_CAPABILITIES:
-            self.fields[f"{PROVISIONING_FIELD_PREFIX}{name}"].initial = getattr(config, name)
-        for field_name in self._rate_limit_field_names():
-            endpoint = field_name.removeprefix(PROVISIONING_RATE_LIMIT_PREFIX)
-            self.fields[field_name].initial = config.rate_limits.get(endpoint)
-
     def _reject_cimd_shaped_client_id(self, cleaned: dict) -> None:
         """Keep a URL-form client_id to the CIMD clients that register themselves.
 
@@ -134,69 +73,30 @@ class OAuthApplicationForm(forms.ModelForm):
                 "themselves. Use the generated value, or an ID that is not a URL.",
             )
 
-    def _provisioning_after_save(self, cleaned: dict) -> ProvisioningConfig:
-        return ProvisioningConfig(
-            **{name: bool(cleaned.get(f"{PROVISIONING_FIELD_PREFIX}{name}")) for name in PROVISIONING_CAPABILITIES},
-            rate_limits={
-                field_name.removeprefix(PROVISIONING_RATE_LIMIT_PREFIX): value
-                for field_name in self._rate_limit_field_names()
-                if (value := cleaned.get(field_name)) is not None
-            },
-        )
+    def _reject_partner_that_cannot_sign(self, cleaned: dict) -> None:
+        """Keep an edit of how the app authenticates from leaving a partner that has to sign without a key.
 
-    def _reject_partner_that_cannot_sign(self, cleaned: dict, provisioning: ProvisioningConfig) -> None:
-        """Keep a provisioning partner that has to sign from being set up without a key to sign with.
-
-        Provisioning auth refuses every request from such a partner. Only the edit that creates the
-        combination is refused: a partner already in it, such as a CIMD client whose metadata dropped
-        its key, stays editable, so staff can still switch it off without unticking a capability.
-        An app that is not a provisioning partner never authenticates through provisioning auth, which
-        leaves the HMAC-signed Stripe Projects app free to pay.
+        The form has not applied the edit to the instance yet, so the instance is the app before it.
         """
         before = self.instance
-        after = OAuthApplication(
-            is_provisioning_partner=cleaned.get("is_provisioning_partner", before.is_provisioning_partner),
+        if before.pk is None:
+            return
+        if before.edit_would_break_provisioning_signature(
             client_type=cleaned.get("client_type", before.client_type),
             jwks_uri=cleaned.get("jwks_uri", before.jwks_uri),
-        )
-        after.provisioning = provisioning
-        if not after.cannot_meet_provisioning_signature or before.cannot_meet_provisioning_signature:
-            return
-        for field_name in SIGNING_CAPABILITY_FIELDS:
-            if cleaned.get(field_name):
-                self.add_error(
-                    field_name,
-                    "A provisioning partner that can create accounts or pays for its customers must sign its "
-                    "requests with a private key. Make it a confidential client with a jwks_uri first.",
-                )
+        ):
+            self.add_error(
+                "client_type",
+                "This provisioning partner can create accounts or pays for its customers, so it must sign its "
+                "requests with a private key. Keep it a confidential client with a jwks_uri, or change its "
+                "capabilities on its page in PostHog Admin first.",
+            )
 
     def clean(self):
         cleaned = super().clean() or {}
         self._reject_cimd_shaped_client_id(cleaned)
-        self.provisioning_after_save = self._provisioning_after_save(cleaned)
-        self._reject_partner_that_cannot_sign(cleaned, self.provisioning_after_save)
-        for field_name in self._rate_limit_field_names():
-            # 0 is rejected rather than meaning "unlimited": that footgun is why the
-            # unlimited sentinel is -1 (UNLIMITED_OVERRIDE).
-            if cleaned.get(field_name) == 0:
-                self.add_error(field_name, "Enter a positive hourly limit, -1 for unlimited, or leave blank.")
+        self._reject_partner_that_cannot_sign(cleaned)
         return cleaned
-
-    def save(self, commit: bool = True):
-        instance = super().save(commit=False)
-        instance.provisioning = self.provisioning_after_save
-
-        if commit:
-            instance.save()
-            self.save_m2m()
-        return instance
-
-
-# Declared on the class rather than added per instance, so admin's fieldset validation and
-# modelform_factory can see them. Fields added in __init__ exist too late for either.
-for _field_name, _form_field in _provisioning_form_fields().items():
-    OAuthApplicationForm.declared_fields[_field_name] = _form_field
-    OAuthApplicationForm.base_fields[_field_name] = _form_field
 
 
 class ProvisioningCapabilityFilter(admin.SimpleListFilter):
@@ -244,6 +144,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
         "is_cimd_client",
         "is_first_party",
         "supports_step_up",
+        "can_manage_ema_issuer",
         "auth_brand",
         "is_provisioning_partner",
         ProvisioningCapabilityFilter,
@@ -284,22 +185,20 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
 
     @admin.action(description="Revoke all sessions (force re-auth under current scopes)")
     def revoke_all_sessions(self, request, queryset):
-        # Irreversible and app-wide (signs out every user/connection), so gate it behind an
-        # interstitial confirmation instead of firing on the first click.
-        if request.POST.get("confirm"):
-            count = queryset.count()
-            for application in queryset:
-                revoke_application_sessions(application)
-            self.message_user(request, f"Revoked all sessions for {count} application(s).")
+        # The confirm step lives in PostHog Admin, which previews the applications and asks for a reason.
+        if queryset.count() > RevokeSessionsForm.MAX_APPLICATIONS:
+            self.message_user(
+                request,
+                f"Pick {RevokeSessionsForm.MAX_APPLICATIONS} applications or fewer to revoke their sessions.",
+                level=messages.ERROR,
+            )
             return None
-        context = {
-            **self.admin_site.each_context(request),
-            "title": "Revoke all sessions",
-            "queryset": queryset,
-            "opts": self.model._meta,
-            "action_checkbox_name": helpers.ACTION_CHECKBOX_NAME,
-        }
-        return TemplateResponse(request, "admin/posthog/oauthapplication/revoke_all_sessions_confirm.html", context)
+        query = urlencode(
+            [("application", str(application_id)) for application_id in queryset.values_list("id", flat=True)]
+        )
+        return HttpResponseRedirect(
+            f"{reverse('admin_console_tool_operation', args=['oauth-sessions', 'revoke'])}?{query}"
+        )
 
     def view_on_site(self, obj: OAuthApplication):
         code_verifier = "test"
@@ -321,12 +220,12 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
 
     def get_readonly_fields(self, request, obj=None):
         if obj:
-            readonly = ["id", "client_id", "is_dcr_client", "is_cimd_client"]
+            readonly = ["id", "client_id", "is_dcr_client", "is_cimd_client", "provisioning"]
             if obj.is_cimd_client:
                 # A CIMD client's scope ceiling is derived from its own metadata document and
                 # re-applied on every refresh, so a manual edit here would be silently reverted.
                 # The unprivileged/hidden allow-list is the only ceiling that applies to CIMD
-                # apps. To cut off an abusive partner, set its provisioning `disabled` switch: deleting
+                # apps. To cut off an abusive partner, block it on its page in PostHog Admin: deleting
                 # the app only revokes its tokens, and a self-registered partner can register again.
                 readonly.append("scopes")
                 # Model validation also rejects optional_scopes on CIMD apps: a split would
@@ -340,12 +239,6 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
 
     def get_fieldsets(self, request, obj=None):
         if obj:
-            provisioning_fields = [
-                "is_provisioning_partner",
-                *PROVISIONING_FORM_FIELD_NAMES,
-                *_rate_limit_form_fields(),
-            ]
-
             return (
                 (None, {"fields": ("id", "name", "client_id", "client_type", "auth_brand", "logo_uri")}),
                 (
@@ -369,26 +262,13 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                             "is_verified",
                             "is_first_party",
                             "supports_step_up",
+                            "can_manage_ema_issuer",
                             "is_dcr_client",
                             "is_cimd_client",
                         )
                     },
                 ),
-                (
-                    "Provisioning",
-                    {
-                        "description": (
-                            "Provisioning settings for partners. Every capability is off unless you "
-                            "grant it here, including for a partner that registered itself. How a partner "
-                            "authenticates follows from the fields above: a confidential client with a "
-                            "jwks_uri signs an assertion with its own key (preferred), a confidential client "
-                            "without one presents a client secret, and a public client is identified by "
-                            "client_id and relies on PKCE. Use the 'Generate a new client secret' action to "
-                            "issue a secret. Leave a rate limit blank to use the endpoint's default."
-                        ),
-                        "fields": tuple(provisioning_fields),
-                    },
-                ),
+                ("Provisioning", {"fields": ("provisioning",)}),
                 (
                     "CIMD",
                     {
@@ -414,15 +294,10 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                     },
                 ),
                 ("Ownership", {"fields": ("user", "organization")}),
-                ("Status", {"fields": ("is_verified", "is_first_party", "supports_step_up")}),
+                ("Status", {"fields": ("is_verified", "is_first_party", "supports_step_up", "can_manage_ema_issuer")}),
             )
 
     def get_form(self, request, obj=None, change=False, **kwargs):
-        # The rate-limit override fields follow the endpoint registry, so they are
-        # declared on a per-request subclass: modelform_factory validates the
-        # fieldset names against the form class, which therefore has to carry them
-        # before super() runs.
-        kwargs["form"] = type("OAuthApplicationAdminForm", (self.form,), dict(_rate_limit_form_fields()))
         form = super().get_form(request, obj, change=change, **kwargs)
 
         if not obj:
@@ -438,6 +313,12 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                 form.base_fields["organization"].initial = request.user.organization
 
         return form
+
+    @admin.display(description="Provisioning partner")
+    def provisioning(self, obj: OAuthApplication) -> str:
+        return MovedToConsole.action(
+            "oauth-application", obj, "provisioning", "Accept or block the partner, capabilities and rate limits"
+        )
 
     @admin.display(description="CIMD URL")
     def cimd_url(self, obj: OAuthApplication):

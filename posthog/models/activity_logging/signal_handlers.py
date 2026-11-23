@@ -50,6 +50,7 @@ from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import OrganizationInvite
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
@@ -324,6 +325,46 @@ def log_user_change_activity(
             error=e,
         )
         capture_exception(e)
+
+
+@mutable_receiver(model_activity_signal, sender=OrganizationIPRestrictions)
+def handle_organization_ip_restrictions_change(
+    sender: type[OrganizationIPRestrictions],
+    scope: ActivityScope,
+    before_update: OrganizationIPRestrictions | None,
+    after_update: OrganizationIPRestrictions | None,
+    activity: str,
+    user: User | None,
+    was_impersonated: bool = False,
+    **kwargs: object,
+) -> None:
+    instance = after_update or before_update
+    if instance is None:
+        return
+    changes = changes_between(scope, previous=before_update, current=after_update)
+    if before_update is None and after_update is not None:
+        changes = [
+            Change(
+                type=scope,
+                field=field_name_overrides[scope][field],
+                action="created",
+                after=getattr(after_update, field),
+            )
+            for field in ("ip_restrictions", "enabled")
+        ]
+    log_activity(
+        organization_id=instance.organization_id,
+        team_id=None,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=instance.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes,
+            name="Organization IP restrictions",
+        ),
+    )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -704,6 +745,15 @@ def handle_tagged_item_change(
 def handle_organization_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
+    # The organization reads its own log, so a staff member who deactivates it for abuse stays unnamed there.
+    deactivated_from_outside = (
+        activity == "updated"
+        and user is not None
+        and before_update is not None
+        and before_update.is_active is not False
+        and after_update.is_active is False
+        and not after_update.memberships.filter(user_id=user.id).exists()
+    )
     log_activity(
         organization_id=after_update.id,
         team_id=None,
@@ -716,6 +766,7 @@ def handle_organization_change(
             changes=changes_between(scope, previous=before_update, current=after_update),
             name=after_update.name,
         ),
+        external_actor=deactivated_from_outside,
     )
 
 
@@ -866,7 +917,7 @@ def handle_project_secret_api_key_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
     changes = changes_between(scope, previous=before_update, current=after_update)
-    log_project_secret_api_key_activity(after_update, activity, user, was_impersonated, changes)
+    log_project_secret_api_key_activity(after_update, activity, user, was_impersonated, changes, previous=before_update)
 
 
 @receiver(pre_delete, sender=ProjectSecretAPIKey)

@@ -1,6 +1,6 @@
 from posthog.test.base import BaseTest
 
-from posthog.scopes import EXPOSED_SCOPE_OBJECTS
+from posthog.scopes.exposure import EXPOSED_SCOPE_OBJECTS
 
 
 class TestOAuthScopeReference(BaseTest):

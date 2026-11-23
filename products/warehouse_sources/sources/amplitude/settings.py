@@ -1,4 +1,5 @@
 from dataclasses import field
+from enum import StrEnum
 
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
@@ -9,6 +10,18 @@ AMPLITUDE_HOSTS: dict[str, str] = {
     "us": "https://amplitude.com",
     "eu": "https://analytics.eu.amplitude.com",
 }
+# The Lookup Table API (v2) and the Experiment Management API live on their own hosts.
+AMPLITUDE_DATA_API_HOSTS: dict[str, str] = {
+    "us": "https://data-api.amplitude.com",
+    "eu": "https://data-api.eu.amplitude.com",
+}
+AMPLITUDE_EXPERIMENT_HOSTS: dict[str, str] = {
+    "us": "https://experiment.amplitude.com",
+    "eu": "https://experiment.eu.amplitude.com",
+}
+
+# The Experiment Management API caps `limit` at 1000.
+EXPERIMENT_PAGE_SIZE = 1000
 
 # The Export API enforces a ~2 hour ingestion latency (events uploaded in the last couple of
 # hours may not be queryable yet) and rejects windows longer than 365 days. We page through
@@ -28,8 +41,57 @@ EVENT_PROPERTIES_ENDPOINT = "event_properties"
 USER_PROPERTIES_ENDPOINT = "user_properties"
 EVENT_CATEGORIES_ENDPOINT = "event_categories"
 GROUP_PROPERTIES_ENDPOINT = "group_properties"
+RETENTION_ENDPOINT = "retention"
+COMPOSITION_ENDPOINT = "composition"
+REVENUE_LTV_ENDPOINT = "revenue_ltv"
+LOOKUP_TABLES_ENDPOINT = "lookup_tables"
+EXPERIMENTS_ENDPOINT = "experiments"
+FLAGS_ENDPOINT = "flags"
+DEPLOYMENTS_ENDPOINT = "deployments"
 
 TAXONOMY_EVENT_PATH = "/api/2/taxonomy/event"
+
+# Dashboard REST charts are computed over a date range we pick, and their values keep changing
+# until a cohort matures (retention days, LTV r1d..r90d), so these tables are a full refresh of a
+# trailing window. Queries that run at the same time may cost 1,000 in total, and retention costs
+# 8 per day, so the window must stay under 125 days.
+DASHBOARD_LOOKBACK_DAYS = 90
+
+# The default retention chart: new users, returning with any event.
+RETENTION_START_EVENT = "_new"
+RETENTION_RETURN_EVENT = "_all"
+
+# The built-in properties the composition endpoint documents for `p`. Custom `gp:` properties are
+# per project and have no list call, so they are not queried.
+COMPOSITION_PROPERTIES = (
+    "version",
+    "country",
+    "city",
+    "region",
+    "DMA",
+    "language",
+    "platform",
+    "os",
+    "device",
+    "start_version",
+    "paying",
+)
+
+# The `m` values of the revenue LTV endpoint.
+REVENUE_LTV_METRICS: dict[int, str] = {
+    0: "arpu",
+    1: "arppu",
+    2: "total_revenue",
+    3: "paying_users",
+}
+
+
+class AmplitudeApi(StrEnum):
+    # Project API key + secret key, HTTP Basic auth.
+    ANALYTICS = "analytics"
+    DATA = "data"
+    # The separate Management API key, Bearer auth.
+    EXPERIMENT_MANAGEMENT = "experiment_management"
 
 
 @frozen
@@ -57,6 +119,14 @@ class AmplitudeEndpointConfig:
     partition_key: str | None = None
     # Set when the endpoint only lists rows for one parent at a time.
     fanout: AmplitudeFanoutConfig | None = None
+    api: AmplitudeApi = AmplitudeApi.ANALYTICS
+    params: dict[str, str] = field(default_factory=dict)
+    # Fields dropped from every row before it is yielded.
+    excluded_fields: tuple[str, ...] = ()
+
+    @property
+    def requires_management_api_key(self) -> bool:
+        return self.api == AmplitudeApi.EXPERIMENT_MANAGEMENT
 
 
 AMPLITUDE_ENDPOINTS: dict[str, AmplitudeEndpointConfig] = {
@@ -130,6 +200,60 @@ AMPLITUDE_ENDPOINTS: dict[str, AmplitudeEndpointConfig] = {
         path="/api/2/taxonomy/group-property",
         primary_keys=["group_property"],
         data_selector="data",
+    ),
+    # Dashboard REST charts, all full refresh over DASHBOARD_LOOKBACK_DAYS.
+    RETENTION_ENDPOINT: AmplitudeEndpointConfig(
+        name=RETENTION_ENDPOINT,
+        path="/api/2/retention",
+        primary_keys=["date", "day"],
+        data_selector="data",
+    ),
+    COMPOSITION_ENDPOINT: AmplitudeEndpointConfig(
+        name=COMPOSITION_ENDPOINT,
+        path="/api/2/composition",
+        primary_keys=["property", "value"],
+        data_selector="data",
+    ),
+    REVENUE_LTV_ENDPOINT: AmplitudeEndpointConfig(
+        name=REVENUE_LTV_ENDPOINT,
+        path="/api/2/revenue/ltv",
+        primary_keys=["date", "metric"],
+        data_selector="data",
+    ),
+    # Lookup Table API 2 returns a bare list of table definitions, with no paging.
+    LOOKUP_TABLES_ENDPOINT: AmplitudeEndpointConfig(
+        name=LOOKUP_TABLES_ENDPOINT,
+        path="/api/3/lookup_table",
+        primary_keys=["name"],
+        api=AmplitudeApi.DATA,
+    ),
+    # Experiment Management API lists, paged with `cursor`/`nextCursor` and ordered newest first.
+    # None has a timestamp filter, so all are full refresh.
+    EXPERIMENTS_ENDPOINT: AmplitudeEndpointConfig(
+        name=EXPERIMENTS_ENDPOINT,
+        path="/api/1/experiments",
+        primary_keys=["id"],
+        data_selector="experiments",
+        api=AmplitudeApi.EXPERIMENT_MANAGEMENT,
+        params={"includeArchived": "true"},
+    ),
+    FLAGS_ENDPOINT: AmplitudeEndpointConfig(
+        name=FLAGS_ENDPOINT,
+        path="/api/1/flags",
+        primary_keys=["id"],
+        data_selector="flags",
+        api=AmplitudeApi.EXPERIMENT_MANAGEMENT,
+        params={"includeArchived": "true"},
+    ),
+    DEPLOYMENTS_ENDPOINT: AmplitudeEndpointConfig(
+        name=DEPLOYMENTS_ENDPOINT,
+        path="/api/1/deployments",
+        primary_keys=["id"],
+        data_selector="deployments",
+        api=AmplitudeApi.EXPERIMENT_MANAGEMENT,
+        # `key` is the deployment key that SDKs use to fetch variants. A server deployment key is a
+        # secret, so it is not copied into the warehouse.
+        excluded_fields=("key",),
     ),
 }
 

@@ -71,6 +71,9 @@ TAGGABLE_MODELS: tuple[TaggableModel, ...] = (
     ),
     TaggableModel(model_label="conversations.Ticket", legacy_field="ticket", object_field=OBJECT_UUID),
     TaggableModel(model_label="customer_analytics.Account", legacy_field="account", object_field=OBJECT_UUID),
+    TaggableModel(
+        model_label="customer_analytics.CustomerTask", legacy_field="customer_task", object_field=OBJECT_UUID
+    ),
     TaggableModel(model_label="endpoints.Endpoint", legacy_field="endpoint", object_field=OBJECT_UUID),
     TaggableModel(model_label="replay_vision.ReplayScanner", legacy_field="replay_scanner", object_field=OBJECT_UUID),
     TaggableModel(model_label="posthog.Project", legacy_field="project", object_field=OBJECT_ID),
@@ -78,6 +81,7 @@ TAGGABLE_MODELS: tuple[TaggableModel, ...] = (
     TaggableModel(model_label="tasks.Task", legacy_field="task", object_field=OBJECT_UUID),
     TaggableModel(model_label="workflows.HogFlow", legacy_field="hog_flow", object_field=OBJECT_UUID),
     TaggableModel(model_label="messaging.MessageTemplate", legacy_field="message_template", object_field=OBJECT_UUID),
+    TaggableModel(model_label="notebooks.Notebook", legacy_field="notebook", object_field=OBJECT_UUID),
 )
 
 _BY_LABEL: dict[str, TaggableModel] = {entry.model_label: entry for entry in TAGGABLE_MODELS}

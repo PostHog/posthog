@@ -16,19 +16,19 @@ import {
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconKey } from 'lib/lemon-ui/icons'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
+import type { ProviderKeyDependentConfigsApi } from '../generated/api.schemas'
 import { LLMProviderIcon } from '../LLMProviderIcon'
 import { AddKeyModal } from './AddKeyModal'
 import { FoundryEndpointField } from './FoundryEndpointField'
 import { KeyValidationStatus } from './KeyValidationStatus'
 import {
-    AlternativeKey,
     DEFAULT_AZURE_API_VERSION,
     DEFAULT_SYSTEM_ONE_BASE_URL,
     DEFAULT_SYSTEM_ONE_MODEL,
-    DependentConfigsResponse,
     EditKeyField,
     LLMProviderKey,
     LLMProviderKeyState,
@@ -39,8 +39,12 @@ import {
     normalizeSystemOneBaseUrlForComparison,
     sortProviderKeys,
 } from './llmProviderKeysLogic'
-import { endpointErrorFieldFromResult } from './providerKeyStateUtils'
+import { endpointErrorFieldFromResult, formatProviderKeyDate } from './providerKeyStateUtils'
+import { QuillDeleteKeyDialog } from './QuillDeleteKeyDialog'
+import { QuillEditKeyDialog } from './QuillEditKeyDialog'
+import { QuillLLMProviderKeysSettings } from './QuillLLMProviderKeysSettings'
 import { SystemOneConnectionFields } from './SystemOneConnectionFields'
+import { TurnedOffEvaluationsBanner } from './TurnedOffEvaluationsBanner'
 
 function StateTag({ state, errorMessage }: { state: LLMProviderKeyState; errorMessage: string | null }): JSX.Element {
     const tagProps: { type: 'success' | 'danger' | 'warning' | 'default'; children: string } = {
@@ -74,19 +78,6 @@ function StateTag({ state, errorMessage }: { state: LLMProviderKeyState; errorMe
     }
 
     return tag
-}
-
-function formatDate(dateString: string | null): string {
-    if (!dateString) {
-        return 'Never'
-    }
-    return new Date(dateString).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-    })
 }
 
 function TextField({
@@ -125,11 +116,12 @@ function EditKeyModal({
     keyToEdit: LLMProviderKey
     restrictionReason: string | null
 }): JSX.Element {
-    const { providerKeysLoading, preValidationResult, preValidationResultLoading, editKeyFieldError } =
+    const { providerKeysLoading, preValidationResult, preValidationResultLoading, keyFieldError } =
         useValues(llmProviderKeysLogic)
     const { systemOneBaseUrl, systemOneModel } = useValues(llmProviderKeysLogic)
-    const { setEditingKey, updateProviderKey, preValidateKey, clearPreValidation, setEditKeyFieldError } =
+    const { setEditingKey, updateProviderKey, preValidateKey, clearPreValidation, setKeyFieldError } =
         useActions(llmProviderKeysLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const isAzureEdit = keyToEdit.provider === 'azure_openai'
     const isSystemOne = keyToEdit.provider === 'system_one'
     const endpointChanged =
@@ -145,15 +137,15 @@ function EditKeyModal({
     const [baseUrl, setBaseUrl] = useState(keyToEdit.base_url_display ?? '')
 
     const fieldErrorFor = (field: EditKeyField): string | null =>
-        editKeyFieldError?.field === field ? editKeyFieldError.message : null
+        keyFieldError?.field === field ? keyFieldError.message : null
 
     // A rejected field keeps its error until the user edits that field again.
     const withFieldErrorCleared =
         (field: EditKeyField, onChange: (value: string) => void): ((value: string) => void) =>
         (value) => {
             onChange(value)
-            if (editKeyFieldError?.field === field) {
-                setEditKeyFieldError(null)
+            if (keyFieldError?.field === field) {
+                setKeyFieldError(null)
             }
         }
 
@@ -279,6 +271,59 @@ function EditKeyModal({
     const apiVersionError = fieldErrorFor('api_version')
     const nameError = fieldErrorFor('name')
     const apiKeyError = fieldErrorFor('api_key')
+    const apiKeyPlaceholder =
+        isSystemOne && endpointChanged
+            ? "Enter the new endpoint's bearer token"
+            : `Leave empty to keep current (${keyToEdit.api_key_masked})`
+    const apiKeyInvalid = !!apiKeyError || (validationFailed && (!hasEndpointField || endpointErrorField === 'key'))
+    const apiKeyHint =
+        isSystemOne && endpointChanged
+            ? 'The saved key will not be sent to the new endpoint. Enter its bearer token, or leave empty for no authentication.'
+            : (apiKeyRequiredReason ?? 'Leave empty to keep the current key')
+
+    if (todayRailNav) {
+        return (
+            <QuillEditKeyDialog
+                onClose={handleClose}
+                onSubmit={handleSubmit}
+                submitLoading={providerKeysLoading}
+                submitDisabled={!isValid}
+                disabledReason={disabledReason}
+                provider={keyToEdit.provider}
+                isAzureEdit={isAzureEdit}
+                isFoundryEdit={isFoundryEdit}
+                isSystemOne={isSystemOne}
+                isOpenAICompatibleEdit={isOpenAICompatibleEdit}
+                azureEndpoint={azureEndpoint}
+                onAzureEndpointChange={withFieldErrorCleared('azure_endpoint', setAzureEndpoint)}
+                azureEndpointError={azureEndpointError}
+                onFoundryEndpointChange={withFieldErrorCleared(
+                    'azure_endpoint',
+                    handleEndpointChange(setAzureEndpoint)
+                )}
+                foundryEndpointError={foundryEndpointError}
+                apiVersion={apiVersion}
+                onApiVersionChange={withFieldErrorCleared('api_version', setApiVersion)}
+                apiVersionError={apiVersionError}
+                baseUrl={baseUrl}
+                onBaseUrlChange={withFieldErrorCleared('base_url', handleEndpointChange(setBaseUrl))}
+                baseUrlError={baseUrlError}
+                name={name}
+                onNameChange={withFieldErrorCleared('name', setName)}
+                nameError={nameError}
+                apiKey={apiKey}
+                onApiKeyChange={withFieldErrorCleared('api_key', handleApiKeyChange)}
+                onApiKeyBlur={handleApiKeyBlur}
+                apiKeyPlaceholder={apiKeyPlaceholder}
+                apiKeyInvalid={apiKeyInvalid}
+                apiKeyError={apiKeyError}
+                apiKeyHint={apiKeyHint}
+                suppressValidationError={endpointErrorField === 'endpoint'}
+                preValidationResult={preValidationResult}
+                preValidationResultLoading={preValidationResultLoading}
+            />
+        )
+    }
 
     return (
         <LemonModal
@@ -358,20 +403,12 @@ function EditKeyModal({
                         value={apiKey}
                         onChange={withFieldErrorCleared('api_key', handleApiKeyChange)}
                         onBlur={handleApiKeyBlur}
-                        placeholder={
-                            isSystemOne && endpointChanged
-                                ? "Enter the new endpoint's bearer token"
-                                : `Leave empty to keep current (${keyToEdit.api_key_masked})`
-                        }
+                        placeholder={apiKeyPlaceholder}
                         type="password"
                         autoComplete="off"
                         className="mt-1"
                         fullWidth
-                        status={
-                            apiKeyError || (validationFailed && (!hasEndpointField || endpointErrorField === 'key'))
-                                ? 'danger'
-                                : undefined
-                        }
+                        status={apiKeyInvalid ? 'danger' : undefined}
                     />
                     {apiKeyError ? (
                         <p className="text-xs text-danger mt-1">{apiKeyError}</p>
@@ -384,11 +421,7 @@ function EditKeyModal({
                             usesFoundry={isFoundryEdit}
                         />
                     ) : (
-                        <p className="text-xs text-muted mt-1">
-                            {isSystemOne && endpointChanged
-                                ? 'The saved key will not be sent to the new endpoint. Enter its bearer token, or leave empty for no authentication.'
-                                : (apiKeyRequiredReason ?? 'Leave empty to keep the current key')}
-                        </p>
+                        <p className="text-xs text-muted mt-1">{apiKeyHint}</p>
                     )}
                 </div>
             </div>
@@ -403,13 +436,14 @@ function DeleteKeyModal({
     restrictionReason,
 }: {
     keyToDelete: LLMProviderKey
-    dependentConfigs: DependentConfigsResponse | null
+    dependentConfigs: ProviderKeyDependentConfigsApi | null
     dependentConfigsLoading: boolean
     restrictionReason: string | null
 }): JSX.Element {
     const { providerKeysLoading } = useValues(llmProviderKeysLogic)
     const { setKeyToDelete, confirmDelete } = useActions(llmProviderKeysLogic)
     const [replacementKeyId, setReplacementKeyId] = useState<string | undefined>(undefined)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const hasEvaluations = (dependentConfigs?.evaluations.length ?? 0) > 0
     const hasAlternatives = (dependentConfigs?.alternative_keys.length ?? 0) > 0
@@ -430,10 +464,29 @@ function DeleteKeyModal({
     }
 
     const replacementOptions =
-        dependentConfigs?.alternative_keys.map((key: AlternativeKey) => ({
+        dependentConfigs?.alternative_keys.map((key) => ({
             value: key.id,
             label: key.name,
         })) ?? []
+
+    if (todayRailNav) {
+        return (
+            <QuillDeleteKeyDialog
+                keyName={keyToDelete.name}
+                dependentConfigs={dependentConfigs}
+                dependentConfigsLoading={dependentConfigsLoading}
+                hasEvaluations={hasEvaluations}
+                hasAlternatives={hasAlternatives}
+                replacementOptions={replacementOptions}
+                replacementKeyId={replacementKeyId}
+                onReplacementKeyChange={setReplacementKeyId}
+                onClose={handleClose}
+                onDelete={handleDelete}
+                deleteLoading={providerKeysLoading}
+                restrictionReason={restrictionReason}
+            />
+        )
+    }
 
     return (
         <LemonModal
@@ -527,6 +580,11 @@ export function LLMProviderKeysSettings(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const handleAdd = (): void => setNewKeyModalOpen(true)
+
+    const handleValidate = (key: LLMProviderKey): void => validateProviderKey({ id: key.id })
 
     const columns: LemonTableColumns<LLMProviderKey> = [
         {
@@ -567,14 +625,14 @@ export function LLMProviderKeysSettings(): JSX.Element {
         {
             title: 'Last used',
             key: 'last_used_at',
-            render: (_, key) => <span className="text-muted text-sm">{formatDate(key.last_used_at)}</span>,
+            render: (_, key) => <span className="text-muted text-sm">{formatProviderKeyDate(key.last_used_at)}</span>,
         },
         {
             title: 'Created',
             key: 'created_at',
             render: (_, key) => (
                 <div className="text-sm">
-                    <div>{formatDate(key.created_at)}</div>
+                    <div>{formatProviderKeyDate(key.created_at)}</div>
                     {key.created_by && (
                         <div className="text-muted text-xs">by {key.created_by.first_name || key.created_by.email}</div>
                     )}
@@ -592,7 +650,7 @@ export function LLMProviderKeysSettings(): JSX.Element {
                         type="secondary"
                         icon={<IconRefresh />}
                         loading={validatingKeyId === key.id}
-                        onClick={() => validateProviderKey({ id: key.id })}
+                        onClick={() => handleValidate(key)}
                         disabledReason={restrictionReason}
                     >
                         Validate
@@ -620,6 +678,33 @@ export function LLMProviderKeysSettings(): JSX.Element {
 
     const isLoading = (providerKeysLoading || evaluationConfigLoading) && providerKeys.length === 0
 
+    if (todayRailNav) {
+        return (
+            <>
+                <QuillLLMProviderKeysSettings
+                    isLoading={isLoading}
+                    providerKeys={sortProviderKeys(providerKeys)}
+                    validatingKeyId={validatingKeyId}
+                    restrictionReason={restrictionReason}
+                    onAdd={handleAdd}
+                    onValidate={handleValidate}
+                    onEdit={setEditingKey}
+                    onDelete={setKeyToDelete}
+                />
+                <AddKeyModal />
+                {editingKey && <EditKeyModal keyToEdit={editingKey} restrictionReason={restrictionReason} />}
+                {keyToDelete && (
+                    <DeleteKeyModal
+                        keyToDelete={keyToDelete}
+                        dependentConfigs={dependentConfigs}
+                        dependentConfigsLoading={dependentConfigsLoading}
+                        restrictionReason={restrictionReason}
+                    />
+                )}
+            </>
+        )
+    }
+
     return (
         <>
             <div className="space-y-6">
@@ -633,12 +718,14 @@ export function LLMProviderKeysSettings(): JSX.Element {
                             </LemonBanner>
                         )}
 
+                        <TurnedOffEvaluationsBanner />
+
                         {providerKeys.length > 0 && (
                             <div className="flex justify-between items-start">
                                 <LemonButton
                                     type="primary"
                                     icon={<IconPlus />}
-                                    onClick={() => setNewKeyModalOpen(true)}
+                                    onClick={handleAdd}
                                     disabledReason={restrictionReason}
                                 >
                                     Add API key
@@ -666,11 +753,7 @@ export function LLMProviderKeysSettings(): JSX.Element {
                                     )}
                                 </p>
                                 {!restrictionReason && (
-                                    <LemonButton
-                                        type="primary"
-                                        icon={<IconPlus />}
-                                        onClick={() => setNewKeyModalOpen(true)}
-                                    >
+                                    <LemonButton type="primary" icon={<IconPlus />} onClick={handleAdd}>
                                         Add API key
                                     </LemonButton>
                                 )}

@@ -5,13 +5,25 @@
 // fleet findings feed reads `loadRunsWindow` (a fixed lookback assembled by walking
 // the runs endpoint's `date_to` cursor past its 100-row page cap).
 
+import { scoutDisplayName } from '@posthog/agent-contracts/scout-names'
+
 import { humanFriendlyDuration } from 'lib/utils/durations'
-import { humanFriendlyCurrency } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalScoutRunStatus, SignalScoutRunSummary } from '../types'
+import { formatCredits, usdToCredits } from './credits'
+
+export {
+    prettifyScoutSkillName,
+    scoutDisplayName,
+    scoutNameForSkill,
+    scoutNamesBySkill,
+    SIGNALS_SCOUT_SKILL_PREFIX,
+    stripScoutPrefix,
+    withScoutNoun,
+} from '@posthog/agent-contracts/scout-names'
 
 /**
  * How many of each scout's most recent runs the per-scout stats describe — the count the
@@ -108,16 +120,6 @@ export function mostRecentEmittedRuns(runs: SignalScoutRunSummary[]): SignalScou
 
 // ── Scout skill-name helpers ──────────────────────────────────────────────────
 
-/** The shared `signals-scout-*` skill-name prefix. The fleet prefix is noise inside the scouts surface. */
-export const SIGNALS_SCOUT_SKILL_PREFIX = 'signals-scout-'
-
-/** Strip the fleet prefix, leaving the bare scout code name verbatim. `signals-scout-apm` → `apm`. */
-export function stripScoutPrefix(skillName: string): string {
-    return skillName.startsWith(SIGNALS_SCOUT_SKILL_PREFIX)
-        ? skillName.slice(SIGNALS_SCOUT_SKILL_PREFIX.length)
-        : skillName
-}
-
 /** The prefix on a report-pipeline stage's writer identity, such as `pipeline:report-research`. A
  * stage writes scout memory but is not a scout. */
 export const PIPELINE_WRITER_PREFIX = 'pipeline:'
@@ -127,21 +129,8 @@ export function isPipelineWriter(skillName: string): boolean {
     return skillName.startsWith(PIPELINE_WRITER_PREFIX)
 }
 
-/** "signals-scout-error-tracking" → "Error tracking" */
-export function prettifyScoutSkillName(skillName: string): string {
-    const cleaned = stripScoutPrefix(skillName).replace(/[-_]/g, ' ').trim()
-    if (!cleaned) {
-        return skillName
-    }
-    return cleaned.charAt(0).toUpperCase() + cleaned.slice(1)
-}
-
 /** Mirrors `SignalScoutConfig.MAX_DISPLAY_NAME_LENGTH`, so the field reports the cap the server enforces. */
 export const MAX_SCOUT_DISPLAY_NAME_LENGTH = 200
-
-export function scoutDisplayName(config: Pick<SignalScoutConfig, 'skill_name' | 'display_name'>): string {
-    return config.display_name || prettifyScoutSkillName(config.skill_name)
-}
 
 // ── Run status / outcome ─────────────────────────────────────────────────────
 
@@ -190,12 +179,8 @@ export function formatRunDuration(seconds: number | null): string {
     return humanFriendlyDuration(seconds, { maxUnits: 2 })
 }
 
-/**
- * What a run spent on model calls. A run costing less than a cent gets more digits, since at two
- * decimals it would read as "$0.00", which says the run was free.
- */
 export function formatRunCost(costUsd: number): string {
-    return humanFriendlyCurrency(costUsd, 2)
+    return formatCredits(usdToCredits(costUsd))
 }
 
 /**

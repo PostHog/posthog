@@ -110,7 +110,7 @@ class TestSweepOrphanedTeamMetadataCache(BaseTest):
 
         with (
             patch(
-                "posthog.storage.hypercache_manager._existing_api_tokens",
+                "posthog.storage.hypercache_manager.existing_team_identifiers",
                 side_effect=[set(), OperationalError("down")],
             ),
             pytest.raises(OperationalError),

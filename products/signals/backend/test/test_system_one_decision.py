@@ -47,6 +47,9 @@ from products.signals.backend.temporal.safety_filter import SafetyFilterJudgeRes
 def reset_jev_budget() -> Iterator[MagicMock]:
     TEST_reset_scripts()
     with (
+        patch("products.signals.backend.system_one_decision.requires_trial_accounting", return_value=False),
+        patch("products.signals.backend.trial.reports.requires_trial_accounting", return_value=False),
+        patch("products.signals.backend.llm_spend.TrialLLMExecution.prepare", return_value=None),
         patch("products.signals.backend.system_one_decision.get_client", return_value=FakeRedis()) as get_redis,
         patch("products.signals.backend.system_one_decision.JEV_ADMISSION_TIMEOUT_SECONDS", 600),
         patch("products.signals.backend.system_one_decision.JEV_SHADOW_ADMISSION_TIMEOUT_SECONDS", 600),

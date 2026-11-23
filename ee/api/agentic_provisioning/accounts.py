@@ -4,7 +4,7 @@ the browser consent detour for partners that can't skip it."""
 from __future__ import annotations
 
 import secrets
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
 from django.core.cache import cache
@@ -25,8 +25,9 @@ from posthog.models.organization_provisioning import OrganizationProvisioning, g
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import OnboardingSkippedReason, User
-from posthog.scopes import scopes_within_ceiling
+from posthog.scopes.ceilings import scopes_within_ceiling
 from posthog.tasks.email import send_provisioning_welcome
+from posthog.tasks.workos_radar import report_attempt_success
 from posthog.workos_radar import RadarAction, RadarAuthMethod, SuspiciousAttemptBlocked, evaluate_auth_attempt
 
 from products.security.backend.facade.api import REFUSAL_CODE as SECURITY_REFUSAL_CODE
@@ -37,10 +38,14 @@ from ee.api.agentic_provisioning.constants import (
     AUTH_CODE_TTL_SECONDS,
     PENDING_AUTH_CACHE_PREFIX,
     PENDING_AUTH_TTL_SECONDS,
+    WILDCARD_DNS_EMAIL_DOMAINS,
 )
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
 from ee.api.agentic_provisioning.regions import region_to_host
 from ee.api.agentic_provisioning.tokens import user_can_access_team
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 def partner_label(partner: OAuthApplication | None) -> str:
@@ -263,7 +268,11 @@ class PartnerOrganizationChanged(Exception):
 
 
 def get_or_create_partner_organization_team(
-    user: User, partner: OAuthApplication, approved_organization_id: str | None
+    user: User,
+    partner: OAuthApplication,
+    approved_organization_id: str | None,
+    *,
+    authorize_organization: Callable[[Organization], None],
 ) -> tuple[Team, bool]:
     """Billing works per organization, so the project of a partner that pays for its customers
     must not go in one of the user's own organizations, where the user would pay for the
@@ -281,6 +290,7 @@ def get_or_create_partner_organization_team(
         if (str(organization.id) if organization is not None else None) != approved_organization_id:
             raise PartnerOrganizationChanged
         if organization is not None:
+            authorize_organization(organization)
             team = find_partner_team(locked_user, partner, organization)
             if team is None:
                 team = Team.objects.create_with_data(initiating_user=locked_user, organization=organization)
@@ -327,10 +337,19 @@ def apply_provisioned_onboarding_flags(user: User, team: Team) -> None:
         team.save(update_fields=["completed_snippet_onboarding"])
 
 
+def _email_domain_and_parents(email: str) -> set[str]:
+    labels = email.rpartition("@")[2].lower().split(".")
+    return {".".join(labels[i:]) for i in range(len(labels) - 1)}
+
+
 def is_disposable_email(email: str) -> bool:
     """Whether the email domain, or a parent of it, is a known disposable email provider."""
-    labels = email.rpartition("@")[2].lower().split(".")
-    return any(".".join(labels[i:]) in disposable_email_domains for i in range(len(labels) - 1))
+    return not _email_domain_and_parents(email).isdisjoint(disposable_email_domains)
+
+
+def is_wildcard_dns_email(email: str) -> bool:
+    """Whether the email domain, or a parent of it, is a wildcard DNS service."""
+    return not _email_domain_and_parents(email).isdisjoint(WILDCARD_DNS_EMAIL_DOMAINS)
 
 
 def handle_new_user(
@@ -359,6 +378,11 @@ def handle_new_user(
         capture_provisioning_event("account_request", "access_blocked", partner=partner, region=region)
         raise ProvisioningError(SECURITY_REFUSAL_CODE, SIGNUP_BLOCKED_DETAIL, request_id=request_id, status=403)
 
+    if is_wildcard_dns_email(email):
+        capture_provisioning_event("account_request", "wildcard_dns_email_blocked", partner=partner, region=region)
+        raise ProvisioningError(SECURITY_REFUSAL_CODE, SIGNUP_BLOCKED_DETAIL, request_id=request_id, status=403)
+
+    radar_attempt = None
     if partner.is_verified:
         # Radar scores the request IP and user agent, which belong to the partner server, not the
         # end user. A busy partner therefore looks like a bot. PostHog staff vouch for a verified
@@ -368,7 +392,7 @@ def handle_new_user(
             raise ProvisioningError(SECURITY_REFUSAL_CODE, SIGNUP_BLOCKED_DETAIL, request_id=request_id, status=403)
     else:
         try:
-            evaluate_auth_attempt(
+            radar_attempt = evaluate_auth_attempt(
                 request,
                 email,
                 RadarAction.SIGNUP,
@@ -422,6 +446,7 @@ def handle_new_user(
         region=region,
         team_id=team.id,
     )
+    report_attempt_success(radar_attempt)
 
     apply_provisioned_onboarding_flags(user, team)
 

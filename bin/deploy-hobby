@@ -137,6 +137,15 @@ fi
 # Tag changes on an existing instance are handled by bin/upgrade-hobby.
 if [ -f .env ]; then
     echo "Existing .env found, preserving configuration"
+    # The compose file requires these keys, and an .env from before they existed has none.
+    # An .env edited by hand can also hold the shared keys from the public compose file, so
+    # drop those first. bin/upgrade-hobby handles both the same way.
+    sed -i -E "/^OBJECT_STORAGE_(ACCESS_KEY_ID|SECRET_ACCESS_KEY)=[\"']?object_storage_root_(user|password)[\"']?$/d" .env
+    for key in OBJECT_STORAGE_ACCESS_KEY_ID OBJECT_STORAGE_SECRET_ACCESS_KEY; do
+        if ! grep -qE "^$key=.+" .env; then
+            echo "$key=$(openssl rand -hex 32)" >> .env
+        fi
+    done
 else
     # Optional AI provider keys. PostHog's AI features (the Max assistant, SQL/regex assist)
     # run on your own LLM provider key. These are safe to leave blank now — you can add them
@@ -168,12 +177,18 @@ else
     INTERNAL_REQUEST_TOKEN=$(openssl rand -hex 32)
     # Dedicated key for the tokens Django signs for recording-api, for the same reason.
     RECORDING_API_JWT_SECRET=$(openssl rand -hex 32)
+    # Caddy forwards /posthog to objectstorage, so whoever holds these keys can sign requests
+    # against the bucket from the internet. Every install needs keys of its own.
+    OBJECT_STORAGE_ACCESS_KEY_ID=$(openssl rand -hex 32)
+    OBJECT_STORAGE_SECRET_ACCESS_KEY=$(openssl rand -hex 32)
     cat > .env <<EOF
 POSTHOG_SECRET=$POSTHOG_SECRET
 ENCRYPTION_SALT_KEYS=$ENCRYPTION_SALT_KEYS
 BROWSERLESS_SECRET=$BROWSERLESS_SECRET
 INTERNAL_REQUEST_TOKEN=$INTERNAL_REQUEST_TOKEN
 RECORDING_API_JWT_SECRET=$RECORDING_API_JWT_SECRET
+OBJECT_STORAGE_ACCESS_KEY_ID=$OBJECT_STORAGE_ACCESS_KEY_ID
+OBJECT_STORAGE_SECRET_ACCESS_KEY=$OBJECT_STORAGE_SECRET_ACCESS_KEY
 DOMAIN=$DOMAIN
 TLS_BLOCK=$TLS_BLOCK
 REGISTRY_URL=$REGISTRY_URL
@@ -189,6 +204,8 @@ EOF
     [ -n "$ANTHROPIC_API_KEY" ] && echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY" >> .env
     [ -n "$OPENAI_API_KEY" ] && echo "OPENAI_API_KEY=$OPENAI_API_KEY" >> .env
 fi
+# .env holds Django's SECRET_KEY and the object storage keys, so only its owner may read it.
+chmod 600 .env
 
 # Download GeoLite2-City.mmdb if it doesn't exist
 echo "Downloading GeoIP database file"
@@ -276,7 +293,7 @@ echo "Starting the stack!"
 # Retry docker-compose up with --pull always up to 3 times
 for attempt in 1 2 3; do
     echo "Starting stack (attempt $attempt/3)..."
-    if sudo -E docker-compose -f docker-compose.yml up -d --no-build --pull always; then
+    if sudo -E docker-compose -f docker-compose.yml up -d --no-build --pull always --remove-orphans; then
         echo "Stack started successfully"
         break
     else

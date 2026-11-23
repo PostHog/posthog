@@ -765,6 +765,8 @@ class TestProductIntent(BaseTest):
             # No engagement and no data is not activation.
             ("first-ingested context but no data found", {"metrics_first_ingested": 1}, False, False),
             ("no engagement at all", {}, False, False),
+            # Derived series are computed from spans and logs, so charting them is not metrics use.
+            ("charted only derived series", {"metrics_derived_query_run": 4}, False, False),
         ]
     )
     def test_has_activated_metrics(self, _name: str, contexts: dict, has_data: bool, expected: bool) -> None:
@@ -784,12 +786,24 @@ class TestProductIntent(BaseTest):
         intent.refresh_from_db()
         assert intent.activated_at is not None
 
-    def test_has_activated_workflows_with_active_workflow(self):
+    @parameterized.expand(
+        [
+            ("no_steps", None, True),
+            ("automation_only", ["function"], True),
+            ("sandbox_email_only", ["email_sandbox"], False),
+            ("sandbox_email_with_automation", ["email_sandbox", "function"], False),
+            ("sandbox_email_with_own_email", ["email_sandbox", "function_email"], True),
+        ]
+    )
+    def test_has_activated_workflows_with_active_workflow(
+        self, _name: str, step_types: list[str] | None, expected: bool
+    ) -> None:
         self.product_intent.product_type = ProductKey.WORKFLOWS
         self.product_intent.save()
-        create_workflow_for_test(team_id=self.team.id, name="Test workflow", status="active")
+        actions = None if step_types is None else [{"id": t, "type": t} for t in ["trigger", *step_types]]
+        create_workflow_for_test(team_id=self.team.id, name="Test workflow", status="active", actions=actions)
 
-        assert self.product_intent.has_activated_workflows() is True
+        assert self.product_intent.has_activated_workflows() is expected
 
     def test_has_not_activated_workflows_with_draft_workflow_only(self):
         self.product_intent.product_type = ProductKey.WORKFLOWS

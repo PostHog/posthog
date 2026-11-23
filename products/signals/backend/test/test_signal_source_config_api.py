@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 from threading import Barrier
 from typing import TYPE_CHECKING
 
@@ -20,6 +21,8 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.alerts.backend.models.alert import AlertConfiguration
+from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.emission.steering import afetch_source_config
 from products.signals.backend.facade.api import set_signal_source_types_enabled
 from products.signals.backend.facade.source_configs import (
@@ -30,14 +33,23 @@ from products.signals.backend.facade.source_configs import (
     get_analytics_alert_name_patterns,
     get_analytics_alert_scope,
 )
-from products.signals.backend.models import SignalSourceConfig
+from products.signals.backend.models import (
+    SignalFilterCatalogVersion,
+    SignalFilterSourceDefinition,
+    SignalSourceConfig,
+    SignalSourceFilterState,
+)
 from products.signals.backend.serializers import SignalSourceConfigSerializer
-from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+from products.signals.backend.source_filters import saved_filter_fingerprint, writes_open
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 
 from common.hogvm.python.execute import execute_bytecode
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+
+_SAVED_FILTER = {"expression": "assignee_id IS NULL", "catalog_version": 1}
 
 
 class TestSignalSourceConfigAPI(APIBaseTest):
@@ -52,6 +64,52 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         if config_id:
             return f"{base}{config_id}/"
         return base
+
+    # --- Alert pattern preview ---
+
+    @parameterized.expand(
+        [
+            (
+                "valid",
+                {"alert_allow_patterns": ["(?i)^checkout", "revenue"], "alert_block_patterns": [" test"]},
+                None,
+                None,
+                ["not_allowed", "blocked", "passed"],
+            ),
+            ("no_patterns", {}, None, None, ["passed", "passed", "passed"]),
+            (
+                "invalid_allow",
+                {"alert_allow_patterns": ["(checkout"], "alert_block_patterns": ["test"]},
+                "Pattern '(checkout' is not a valid RE2 regex: missing ): (checkout",
+                None,
+                [],
+            ),
+            (
+                "too_many_block",
+                {"alert_block_patterns": [f"p{i}" for i in range(21)]},
+                None,
+                "Must have at most 20 patterns",
+                [],
+            ),
+        ]
+    )
+    def test_alert_pattern_preview(self, _name, body, allow_error, block_error, outcomes):
+        for alert_name, insight_name in [
+            ("Checkout conversion", "Weekly revenue"),
+            ("Checkout test", "Checkout funnel"),
+            ("Signups", "Daily signups"),
+        ]:
+            insight = Insight.objects.create(team=self.team, name=insight_name)
+            AlertConfiguration.objects.create(team=self.team, insight=insight, name=alert_name, enabled=True)
+
+        response = self.client.post(f"{self._url()}alert_pattern_preview/", data=body, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["alert_allow_patterns_error"] == allow_error
+        assert data["alert_block_patterns_error"] == block_error
+        assert [alert["outcome"] for alert in data["alerts"]] == outcomes
+        assert data["has_more"] is False
 
     # --- Create ---
 
@@ -286,6 +344,116 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 1
 
+    def _filter_state_row(self, team: Team, *, live: str = "yes", from_current_filter: bool = True, **fields) -> None:
+        source = ExternalDataSource.objects.create(
+            team=team, source_type="Linear", status="Running", prefix="linear_", deleted=live == "source_deleted"
+        )
+        schema = ExternalDataSchema.objects.create(
+            team=team, source=source, name="issues", deleted=live == "schema_deleted"
+        )
+        saved = _SAVED_FILTER if from_current_filter else {"expression": "priority = 1", "catalog_version": 1}
+        SignalSourceFilterState.objects.create(
+            team=team,
+            source_product="linear",
+            source_type="issue",
+            schema_id=schema.id,
+            filter_fingerprint=saved_filter_fingerprint(saved),
+            **fields,
+        )
+
+    def _linear_config(self, team: Team, *, has_filter: bool = True) -> None:
+        SignalSourceConfig.objects.create(
+            team=team,
+            source_product="linear",
+            source_type="issue",
+            config={"hogql_filter": _SAVED_FILTER} if has_filter else {},
+            created_by=self.user,
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "one_failing_schema_makes_the_source_failing",
+                True,
+                [
+                    {"last_success_at": datetime(2026, 11, 10, 8, tzinfo=UTC), "last_malformed_count": 2},
+                    {
+                        "last_error_code": "unknown_field",
+                        "last_error_message": "Use an unqualified field from the filter catalog.",
+                        "last_error_at": datetime(2026, 11, 10, 9, tzinfo=UTC),
+                        "pending_window_start": datetime(2026, 11, 9, tzinfo=UTC),
+                        "last_malformed_count": 1,
+                    },
+                ],
+                {
+                    "state": "failing",
+                    "error_code": "unknown_field",
+                    "error_message": "Use an unqualified field from the filter catalog.",
+                    "failed_at": "2026-11-10T09:00:00Z",
+                    "unread_since": "2026-11-09T00:00:00Z",
+                    "last_success_at": "2026-11-10T08:00:00Z",
+                    "malformed_count": 3,
+                },
+            ),
+            (
+                "removed_filter_hides_old_failures",
+                False,
+                [{"last_error_code": "query_failed", "last_error_at": datetime(2026, 11, 10, tzinfo=UTC)}],
+                None,
+            ),
+            ("not_fetched_with_the_filter_yet", True, [], None),
+            (
+                "result_of_a_replaced_filter_is_hidden",
+                True,
+                [{"from_current_filter": False, "last_error_code": "catalog_missing"}],
+                None,
+            ),
+            (
+                "failure_on_a_deleted_connection_is_ignored",
+                True,
+                [
+                    {"live": "source_deleted", "last_error_code": "query_failed"},
+                    {"last_success_at": datetime(2026, 11, 10, 8, tzinfo=UTC)},
+                ],
+                {
+                    "state": "ok",
+                    "error_code": None,
+                    "error_message": None,
+                    "failed_at": None,
+                    "unread_since": None,
+                    "last_success_at": "2026-11-10T08:00:00Z",
+                    "malformed_count": 0,
+                },
+            ),
+            (
+                "failure_on_a_deleted_schema_is_ignored",
+                True,
+                [{"live": "schema_deleted", "last_error_code": "query_failed"}],
+                None,
+            ),
+        ]
+    )
+    def test_list_reports_filter_status(self, _name, has_filter, state_rows, expected):
+        self._linear_config(self.team, has_filter=has_filter)
+        for row in state_rows:
+            self._filter_state_row(self.team, **row)
+
+        response = self.client.get(self._url())
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["results"][0]["filter_status"] == expected
+
+    def test_filter_status_reads_only_its_own_environment(self):
+        child = Team.objects.create(organization=self.organization, project=self.team.project, parent_team=self.team)
+        self._filter_state_row(self.team, last_error_code="query_failed")
+        self._filter_state_row(child, last_success_at=datetime(2026, 11, 10, 8, tzinfo=UTC))
+        self._linear_config(child)
+
+        response = self.client.get(f"/api/projects/{child.id}/signals/source_configs/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["results"][0]["filter_status"]["state"] == "ok"
+
     # --- Retrieve ---
 
     def test_retrieve_source_config(self):
@@ -490,6 +658,103 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         config.refresh_from_db()
         assert config.config == {}
 
+    def _linear_filter_catalog(self, *, eligible: bool = True) -> None:
+        source = SignalFilterSourceDefinition.objects.create(
+            source_product="linear", source_type="issue", adapter_kind="warehouse", rollout_state="internal"
+        )
+        version = SignalFilterCatalogVersion.objects.create(
+            source=source,
+            version=1,
+            bundle={
+                "schema_version": 1,
+                "fields": [
+                    {
+                        "name": "project_name",
+                        "type": "string",
+                        "description": "Name of the issue's project.",
+                        "binding": {"kind": "json_path", "column": "project", "path": ["name"]},
+                        "missing_value": "null",
+                        "malformed_value": "error",
+                    }
+                ],
+                "starter_expressions": [],
+            },
+        )
+        source.activate(version)
+        source.filter_query_eligible = eligible
+        source.save()
+
+    @patch("products.signals.backend.source_filters.feature_enabled_or_false", return_value=True)
+    def test_hogql_filter_is_pinned_to_the_catalog_version(self, _flag: object) -> None:
+        self._linear_filter_catalog()
+        config = SignalSourceConfig.objects.create(team=self.team, source_product="linear", source_type="issue")
+
+        response = self.client.patch(
+            self._url(str(config.id)), {"config_set": {"hogql_filter": "project_name = 'Core'"}}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config.refresh_from_db()
+        saved = {"expression": "project_name = 'Core'", "catalog_version": 1}
+        assert config.config["hogql_filter"] == saved
+        source = SignalFilterSourceDefinition.objects.get(source_product="linear", source_type="issue")
+        source.filter_query_eligible = False
+        source.save()
+
+        response = self.client.patch(self._url(str(config.id)), {"config_set": {"steering": "Skip"}}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config.refresh_from_db()
+        assert config.config == {"hogql_filter": saved, "steering": "Skip"}
+
+    @parameterized.expand([("writable", True, True), ("flag_off", False, True), ("not_eligible", True, False)])
+    def test_filter_catalogs_list_only_sources_this_project_can_filter(
+        self, _name: str, flag_enabled: bool, eligible: bool
+    ) -> None:
+        self._linear_filter_catalog(eligible=eligible)
+
+        with patch("products.signals.backend.source_filters.feature_enabled_or_false", return_value=flag_enabled):
+            response = self.client.get(f"{self._url()}filter_catalogs/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        expected = (
+            [
+                {
+                    "source_product": "linear",
+                    "source_type": "issue",
+                    "catalog_version": 1,
+                    "filter_fields": [
+                        {"name": "project_name", "type": "string", "description": "Name of the issue's project."}
+                    ],
+                    "starter_expressions": [],
+                }
+            ]
+            if flag_enabled and eligible
+            else []
+        )
+        assert response.json() == {"results": expected}
+
+    @parameterized.expand(
+        [
+            ("flag_off", False, "project_name = 'Core'"),
+            ("unknown_field", True, "category = 'Core'"),
+            ("not_boolean", True, "project_name"),
+            ("client_pinned_version", True, {"expression": "true", "catalog_version": 1}),
+        ]
+    )
+    def test_invalid_hogql_filter_is_rejected(self, _name: str, flag_enabled: bool, value: object) -> None:
+        self._linear_filter_catalog()
+        config = SignalSourceConfig.objects.create(team=self.team, source_product="linear", source_type="issue")
+
+        with patch("products.signals.backend.source_filters.feature_enabled_or_false", return_value=flag_enabled):
+            response = self.client.patch(
+                self._url(str(config.id)), {"config_set": {"hogql_filter": value}}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        config.refresh_from_db()
+        assert config.config == {}
+
     def test_bulk_disable_is_logged(self) -> None:
         enabled = SignalSourceConfig.objects.create(
             team=self.team, source_product="error_tracking", source_type="issue_created", enabled=True
@@ -605,6 +870,29 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         self.client.logout()
         response = self.client.get(self._url())
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
+
+
+class TestSourceFilterWriteGate(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("enabled", "enabled", True, False, True),
+            ("internal_with_flag", "internal", True, True, True),
+            ("internal_without_flag", "internal", True, False, False),
+            ("disabled_with_flag", "disabled", True, True, False),
+            ("not_eligible", "enabled", False, True, False),
+        ]
+    )
+    def test_writes_open(
+        self, _name: str, rollout_state: str, eligible: bool, internal_flag_enabled: bool, expected: bool
+    ) -> None:
+        assert (
+            writes_open(
+                SignalFilterSourceDefinition.RolloutState(rollout_state),
+                eligible=eligible,
+                internal_flag_enabled=internal_flag_enabled,
+            )
+            is expected
+        )
 
 
 class TestSignalSourceConfigSerializerValidation(SimpleTestCase):

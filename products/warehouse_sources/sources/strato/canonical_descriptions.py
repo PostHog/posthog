@@ -230,4 +230,57 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "permissions": "Actions allowed for the role.",
         },
     },
+    "FixedInstanceSizes": {
+        "description": "Predefined server sizes. Resolves `hardware.fixed_instance_size_id` on servers to a named size.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "id": "Fixed instance size ID.",
+            "name": "Fixed instance size name.",
+            "hardware": "Hardware of the size: vCores, cores per processor, RAM, and HDDs.",
+        },
+    },
+    "BaremetalModels": {
+        "description": "Baremetal server models. Resolves `hardware.baremetal_model_id` on servers to a model.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "id": "Baremetal model ID.",
+            "name": "Baremetal model name.",
+            "hardware": "Hardware of the model: cores, cores per processor, RAM, and HDDs.",
+        },
+    },
+    "Usages": {
+        "description": (
+            "Resource usage for the last 365 days, one row per resource (servers, images, shared storages, "
+            "public IPs). Each service holds the total usage and the intervals where the amount changed."
+        ),
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "resource_type": "Resource type the usage belongs to, such as SERVERS, IMAGES, SHARED_STORAGES, or PUBLIC_IPS.",
+            "resource_key": "Resource ID, or the resource name when the API returns no ID.",
+            "id": "Resource ID.",
+            "name": "Resource name.",
+            "services": "Usage per service (CPU, RAM, HDD, IP, size), with average amount, unit, total usage, and detail intervals.",
+        },
+    },
+    "ServerMonitoring": {
+        "description": (
+            "Monitoring data for each server over the last 30 days: alerts, agent status, and CPU, RAM, "
+            "disk, ping, and transfer samples."
+        ),
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "server_id": "ID of the monitored server.",
+            "id": "Server ID.",
+            "name": "Server name.",
+            "status": "Server state.",
+            "alerts": "Counts of critical, warning, and ok alerts for resources, ports, and processes.",
+            "agent": "Monitoring agent status.",
+            "datacenter": "Data center where the server is located.",
+            "cpu": "CPU thresholds, status, and used-percent samples.",
+            "ram": "RAM thresholds, status, and used-percent samples.",
+            "disk": "Disk thresholds and status.",
+            "internal_ping": "Internal ping thresholds, status, and packet-loss and response-time samples.",
+            "transfer": "Transfer thresholds, status, and downstream and upstream samples.",
+        },
+    },
 }

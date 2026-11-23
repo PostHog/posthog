@@ -1,0 +1,133 @@
+import json
+import asyncio
+from collections import defaultdict
+from datetime import timedelta
+
+from temporalio import workflow
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import ActivityError, WorkflowAlreadyStartedError
+
+from posthog.temporal.common.base import PostHogWorkflow
+
+from products.slack_app.backend.temporal.activities.slack_app_work_focus import (
+    claim_due_slack_app_daily_focus_activity,
+    find_slack_app_work_focus_activity,
+    index_slack_app_daily_summary_activity,
+)
+from products.slack_app.backend.temporal.types import SlackAppDailySummaryIndexInputs, SlackAppWorkFocusInputs
+
+SLACK_APP_WORK_FOCUS_ACTIVITY_TIMEOUT = timedelta(minutes=2)
+# One read of every channel the bot is in, plus Jev over the newest roots, for the largest workspace.
+SLACK_APP_DAILY_SUMMARY_INDEX_TIMEOUT = timedelta(minutes=5)
+# All attempts end inside the sweep's ten-minute run, so a stuck index costs the summary, never the workspace's runs.
+SLACK_APP_DAILY_SUMMARY_INDEX_DEADLINE = timedelta(minutes=6)
+_INDEX_RETRY = RetryPolicy(initial_interval=timedelta(minutes=1), backoff_coefficient=2.0, maximum_attempts=3)
+# A burst of links runs out of search calls for the workspace. The retries wait for tokens, a minute apart at first.
+_RETRY = RetryPolicy(initial_interval=timedelta(minutes=1), backoff_coefficient=2.0, maximum_attempts=5)
+# Everyone in a timezone runs at about the same time, so a large workspace waits longer for search calls.
+_DAILY_RETRY = RetryPolicy(
+    initial_interval=timedelta(minutes=1),
+    backoff_coefficient=2.0,
+    maximum_interval=timedelta(minutes=10),
+    maximum_attempts=12,
+)
+
+
+async def _index_workspace(integration_id: int, slack_team_id: str, slack_user_ids: list[str]) -> None:
+    """One read of the workspace's channels for the daily summary. A failure costs the summary, never the run."""
+    try:
+        await workflow.execute_activity(
+            index_slack_app_daily_summary_activity,
+            SlackAppDailySummaryIndexInputs(
+                integration_id=integration_id, slack_team_id=slack_team_id, slack_user_ids=slack_user_ids
+            ),
+            start_to_close_timeout=SLACK_APP_DAILY_SUMMARY_INDEX_TIMEOUT,
+            schedule_to_close_timeout=SLACK_APP_DAILY_SUMMARY_INDEX_DEADLINE,
+            retry_policy=_INDEX_RETRY,
+            summary=f"index the channels of {slack_team_id}",
+        )
+    except ActivityError:
+        workflow.logger.warning("slack_app_daily_summary_index_failed", extra={"slack_team_id": slack_team_id})
+
+
+def slack_app_work_focus_workflow_id(slack_team_id: str, slack_user_id: str) -> str:
+    return f"slack-app-work-focus-{slack_team_id}-{slack_user_id}"
+
+
+def slack_app_daily_focus_workflow_id(inputs: SlackAppWorkFocusInputs) -> str:
+    return f"slack-app-daily-focus-{inputs.slack_team_id}-{inputs.slack_user_id}-{inputs.since}"
+
+
+@workflow.defn(name="slack-app-work-focus")
+class SlackAppWorkFocusWorkflow(PostHogWorkflow):
+    """One run per person after the account link. The search, the model call and the DM run in one activity,
+    so the messages never pass through Temporal."""
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> SlackAppWorkFocusInputs:
+        return SlackAppWorkFocusInputs(**json.loads(inputs[0]))
+
+    @workflow.run
+    async def run(self, inputs: SlackAppWorkFocusInputs) -> None:
+        if inputs.start_delay_seconds > 0:
+            await workflow.sleep(timedelta(seconds=inputs.start_delay_seconds))
+        # The first run after the link has no sweep before it, so it indexes the workspace's channels itself. Runs
+        # that started before this step existed replay without it.
+        if inputs.since is None and workflow.patched("slack-app-work-focus-first-run-index"):
+            await _index_workspace(inputs.integration_id, inputs.slack_team_id, [inputs.slack_user_id])
+        outcome = await workflow.execute_activity(
+            find_slack_app_work_focus_activity,
+            inputs,
+            start_to_close_timeout=SLACK_APP_WORK_FOCUS_ACTIVITY_TIMEOUT,
+            retry_policy=_RETRY if inputs.since is None else _DAILY_RETRY,
+            summary="find the work focus",
+        )
+        workflow.set_current_details(outcome)
+
+
+@workflow.defn(name="slack-app-daily-focus-sweep")
+class SlackAppDailyFocusSweepWorkflow(PostHogWorkflow):
+    """Runs every 15 minutes and starts a daily work focus for each person whose time has come. Each workspace first
+    gets one read of its channels for the daily summary, then its people start; the workspaces run side by side."""
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> None:
+        return None
+
+    @workflow.run
+    async def run(self) -> int:
+        due = await workflow.execute_activity(
+            claim_due_slack_app_daily_focus_activity,
+            start_to_close_timeout=timedelta(minutes=1),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+            summary="claim the due daily work focus runs",
+        )
+        # A sweep that started before the index step existed replays its children in claim order, without it.
+        if not workflow.patched("slack-app-daily-focus-sweep-index"):
+            return await self._start_children(due)
+        by_workspace: dict[tuple[int, str], list[SlackAppWorkFocusInputs]] = defaultdict(list)
+        for inputs in due:
+            by_workspace[(inputs.integration_id, inputs.slack_team_id)].append(inputs)
+        started = await asyncio.gather(*(self._run_workspace(people) for people in by_workspace.values()))
+        return sum(started)
+
+    async def _run_workspace(self, people: list[SlackAppWorkFocusInputs]) -> int:
+        first = people[0]
+        await _index_workspace(first.integration_id, first.slack_team_id, [inputs.slack_user_id for inputs in people])
+        return await self._start_children(people)
+
+    async def _start_children(self, people: list[SlackAppWorkFocusInputs]) -> int:
+        started = 0
+        for inputs in people:
+            try:
+                await workflow.start_child_workflow(
+                    SlackAppWorkFocusWorkflow.run,
+                    inputs,
+                    id=slack_app_daily_focus_workflow_id(inputs),
+                    parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                    id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
+                )
+                started += 1
+            except WorkflowAlreadyStartedError:
+                pass
+        return started

@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import timedelta
 
 import pytest
@@ -7,12 +8,14 @@ from django.test import override_settings
 
 import requests
 from parameterized import parameterized
+from temporalio.common import RetryPolicy
 from temporalio.testing import ActivityEnvironment
 
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.tasks.backend.exceptions import (
     CredentialUnavailableError,
@@ -340,6 +343,63 @@ async def test_github_token_failure_maps_to_run_error(
         assert raised.value.next_retry_delay == timedelta(seconds=30)
 
 
+@pytest.mark.parametrize(
+    "attempt, unreported, expected_delay",
+    [(1, True, timedelta(seconds=1)), (2, True, timedelta(seconds=2)), (3, False, None)],
+    ids=["first_attempt", "middle_attempt", "last_attempt"],
+)
+@patch("products.tasks.backend.exceptions.capture_exception")
+@patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.emit_agent_log")
+@patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_github_token")
+async def test_transient_github_token_failure_is_reported_only_on_last_attempt(
+    mock_full: MagicMock,
+    _mock_log: MagicMock,
+    mock_capture: MagicMock,
+    attempt: int,
+    unreported: bool,
+    expected_delay: timedelta | None,
+) -> None:
+    from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (  # noqa: PLC0415 — activities import the workflow stack; keep it off this module's import path
+        InjectFreshTokensOnResumeInput,
+        inject_fresh_tokens_on_resume,
+    )
+
+    mock_full.side_effect = requests.Timeout("timed out")
+    ctx = TaskProcessingContext(
+        task_id="t",
+        run_id="r",
+        team_id=1,
+        team_uuid="u",
+        organization_id="o",
+        github_integration_id=5,
+        repository="acme/repo",
+        distinct_id="d",
+        state={},
+    )
+    env = ActivityEnvironment()
+    env.info = dataclasses.replace(
+        env.info, attempt=attempt, retry_policy=RetryPolicy(maximum_attempts=3), schedule_to_close_timeout=None
+    )
+
+    with (
+        patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox._load_task"),
+        patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_task_run_credential_user"),
+        pytest.raises(ProcessTaskTransientError) as raised,
+    ):
+        await env.run(
+            inject_fresh_tokens_on_resume,
+            InjectFreshTokensOnResumeInput(context=ctx, sandbox_id="sandbox-id", repository="acme/repo"),
+        )
+
+    error = raised.value
+    assert is_expected_activity_failure(error) is unreported
+    assert error.non_retryable is False
+    assert error.next_retry_delay == expected_delay
+    if not unreported:
+        assert error.type == "ProcessTaskTransientError"
+    mock_capture.assert_not_called()
+
+
 def test_readonly_token_is_still_minted_when_the_cache_fails():
     integration = _team_integration()
     broken_cache = MagicMock()
@@ -413,10 +473,10 @@ def test_readonly_token_scopes_repositories_without_widening_permissions(reposit
 def test_scoped_token_is_always_pinned_to_run_repositories(repositories, expected):
     integration = _team_integration()
     with (
-        patch("products.tasks.backend.temporal.process_task.utils.Integration.objects.get"),
+        patch("products.tasks.backend.temporal.process_task.utils.IntegrationManager"),
         patch("products.tasks.backend.temporal.process_task.utils.GitHubIntegration", return_value=integration),
     ):
-        token = get_scoped_github_token(5, repositories, PUSH_SANDBOX_GITHUB_PERMISSIONS)
+        token = get_scoped_github_token(2, 5, repositories, PUSH_SANDBOX_GITHUB_PERMISSIONS)
     if expected:
         assert token == integration.mint_scoped_installation_token.return_value
         integration.mint_scoped_installation_token.assert_called_once_with(
@@ -431,8 +491,8 @@ def test_scoped_token_mint_failure_reaches_the_caller():
     integration = _team_integration()
     integration.mint_scoped_installation_token.side_effect = GitHubRateLimitError("rate limited", retry_after=30)
     with (
-        patch("products.tasks.backend.temporal.process_task.utils.Integration.objects.get"),
+        patch("products.tasks.backend.temporal.process_task.utils.IntegrationManager"),
         patch("products.tasks.backend.temporal.process_task.utils.GitHubIntegration", return_value=integration),
         pytest.raises(GitHubRateLimitError),
     ):
-        get_scoped_github_token(5, ["acme/api"], READONLY_SANDBOX_GITHUB_PERMISSIONS)
+        get_scoped_github_token(2, 5, ["acme/api"], READONLY_SANDBOX_GITHUB_PERMISSIONS)

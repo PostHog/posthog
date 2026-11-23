@@ -1,7 +1,7 @@
 import re
 import json
 from datetime import timedelta
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 import requests
 import structlog
@@ -57,11 +57,6 @@ def reload_evaluations_on_workers(team_id: int, evaluation_ids: list[str]):
     publish_message("reload-evaluations", {"teamId": team_id, "evaluationIds": evaluation_ids})
 
 
-def reload_taggers_on_workers(team_id: int, tagger_ids: list[str]):
-    logger.info(f"Reloading taggers {tagger_ids} on workers")
-    publish_message("reload-taggers", {"teamId": team_id, "taggerIds": tagger_ids})
-
-
 def reload_provider_keys_on_workers(team_id: int, provider_key_ids: list[str]):
     logger.info(f"Reloading provider keys {provider_key_ids} on workers")
     publish_message("reload-provider-keys", {"teamId": team_id, "providerKeyIds": provider_key_ids})
@@ -105,6 +100,30 @@ def create_hog_flow_invocation_test(team_id: int, hog_flow_id: str, payload: dic
     )
 
 
+# The web tier mints this token as it mints the cancel tokens, so it shares their key on its own audience.
+WORKFLOWS_MANUAL_RUN_JWT_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.WORKFLOWS_MANUAL_RUN,
+    settings_name="WORKFLOWS_CANCEL_JWT_SECRETS",
+    default_ttl=timedelta(minutes=2),
+)
+
+
+def create_hog_flow_manual_invocation(
+    team_id: int, hog_flow_id: str, user_id: str, variables: dict[str, object]
+) -> requests.Response:
+    """Run a manually triggered workflow for `user_id`, the email of the user who started it.
+    The caller checks that the user may edit the workflow. Raises RuntimeError when the signing
+    key is not set. CdpApi.postHogFlowManualInvocation verifies the token."""
+    logger.info(f"Creating manual hog flow invocation for hog flow {hog_flow_id} on workers")
+    token = WORKFLOWS_MANUAL_RUN_JWT_PURPOSE.mint({"team_id": team_id, "hog_flow_id": hog_flow_id, "user_id": user_id})
+    return internal_requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/manual_invocations",
+        json={"user_id": user_id, "variables": variables},
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=10,
+    )
+
+
 def create_hog_flow_scheduled_invocation(
     team_id: int, hog_flow_id: str, variables: dict[str, object]
 ) -> requests.Response:
@@ -115,6 +134,23 @@ def create_hog_flow_scheduled_invocation(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/scheduled_invocations",
         json={"variables": variables},
         headers=get_internal_api_headers(),
+        timeout=10,
+    )
+
+
+WORKFLOWS_SCHEDULED_RUNS_JWT_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.WORKFLOWS_SCHEDULED_RUNS,
+    settings_name="WORKFLOWS_CANCEL_JWT_SECRETS",
+    default_ttl=timedelta(minutes=2),
+)
+
+
+def create_hog_flow_scheduled_invocations(runs: list[dict[str, Any]]) -> requests.Response:
+    token = WORKFLOWS_SCHEDULED_RUNS_JWT_PURPOSE.mint({"team_ids": sorted({run["team_id"] for run in runs})})
+    return internal_requests.post(
+        CDP_API_URL + "/api/hog_flows/scheduled_invocations",
+        json={"runs": runs},
+        headers={"Authorization": f"Bearer {token}"},
         timeout=10,
     )
 
@@ -264,14 +300,13 @@ WORKFLOWS_RESUME_BATCH_JWT_PURPOSE = ScopedServiceJwtPurpose(
 )
 
 
-def _mint_transactional_email_jwt(team_id: int, hog_flow_id: str, **route_claims: str) -> str:
-    """Short-lived scoped JWT for one transactional email send, pinned to the team and the transactional email's
-    workflow so a leaked token can only send that email. Verified in the plugin server's CdpApi."""
+def _mint_transactional_email_jwt(team_id: int, **route_claims: str) -> str:
+    """Short-lived scoped JWT for one transactional email request, pinned to the team and to its route's claims,
+    such as the transactional email's workflow, so a leaked token can only make that request. Verified in the
+    plugin server's CdpApi."""
     if not WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE.enabled():
         raise RuntimeError("WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET is not configured — cannot send email")
-    return WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE.mint(
-        {"team_id": team_id, "hog_flow_id": hog_flow_id, **route_claims}
-    )
+    return WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE.mint({"team_id": team_id, **route_claims})
 
 
 def send_transactional_email(
@@ -282,7 +317,7 @@ def send_transactional_email(
     return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/transactional_email",
         json=payload,
-        headers={"Authorization": f"Bearer {_mint_transactional_email_jwt(team_id, hog_flow_id)}"},
+        headers={"Authorization": f"Bearer {_mint_transactional_email_jwt(team_id, hog_flow_id=hog_flow_id)}"},
         timeout=timeout,
     )
 
@@ -295,7 +330,53 @@ def send_accepted_transactional_email(
         data=json.dumps(payload, ensure_ascii=False).encode(),
         headers={
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {_mint_transactional_email_jwt(team_id, hog_flow_id, kind='code_send')}",
+            "Authorization": f"Bearer {_mint_transactional_email_jwt(team_id, hog_flow_id=hog_flow_id, kind='code_send')}",
+        },
+        timeout=timeout,
+    )
+
+
+def send_transactional_email_batch(
+    team_id: int, hog_flow_id: str, payload: dict, *, timeout: float = 30
+) -> requests.Response:
+    return _post_transactional_email_batch(
+        f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/transactional_email/batch",
+        _mint_transactional_email_jwt(team_id, hog_flow_id=hog_flow_id, kind="template_batch"),
+        payload,
+        timeout,
+    )
+
+
+def send_accepted_transactional_email_batch(
+    team_id: int, hog_flow_id: str, payload: dict, *, timeout: float = 30
+) -> requests.Response:
+    return _post_transactional_email_batch(
+        f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/transactional_email/send/batch",
+        _mint_transactional_email_jwt(team_id, hog_flow_id=hog_flow_id, kind="code_send_batch"),
+        payload,
+        timeout,
+    )
+
+
+def _post_transactional_email_batch(path: str, token: str, payload: dict, timeout: float) -> requests.Response:
+    return internal_requests.post(
+        CDP_API_URL + path,
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
+        timeout=timeout,
+    )
+
+
+def prepare_transactional_email_attachment_uploads(
+    team_id: int, payload: dict, *, timeout: float = 10
+) -> requests.Response:
+    """Ask where to upload each of a send's files. 200 answers each file as present or with a signed PUT."""
+    return internal_requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/transactional_email/attachments/uploads",
+        data=json.dumps(payload).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {_mint_transactional_email_jwt(team_id, kind='attachment_upload')}",
         },
         timeout=timeout,
     )
@@ -396,10 +477,16 @@ def create_batch_hog_flow_job_invocation(
     max_audience_size: int | None = None,
     filters: dict | None = None,
     realtime_cohort: dict | None = None,
+    audience_snapshot: dict | None = None,
 ) -> requests.Response:
     return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/batch_invocations/{batch_job_id}",
-        json={"max_audience_size": max_audience_size, "filters": filters, "realtime_cohort": realtime_cohort},
+        json={
+            "max_audience_size": max_audience_size,
+            "filters": filters,
+            "realtime_cohort": realtime_cohort,
+            "audience_snapshot": audience_snapshot,
+        },
         headers=get_internal_api_headers(),
         # A run waits on this call while it is created, so a stalled CDP API must not hold it open.
         timeout=30,
@@ -432,6 +519,8 @@ def rerun_hog_invocations(
         CDP_API_URL + f"/api/projects/{team_id}/{function_kind}s/{function_id}/rerun",
         json=payload,
         headers=get_internal_api_headers(),
+        # The call only enqueues a wrapper job, so a stalled CDP API must not hold a replay of many functions open.
+        timeout=30,
     )
 
 

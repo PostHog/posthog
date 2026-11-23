@@ -58,7 +58,7 @@ pub(crate) struct Drain {
 
 enum Phase {
     Starting,
-    Consuming { drain_timeout: Option<Duration> },
+    Consuming { drain_timeout: Duration },
     Draining { drain: Drain },
     Stopped,
 }
@@ -80,7 +80,7 @@ impl Default for RebalanceState {
 }
 
 impl RebalanceState {
-    pub(crate) fn on_started(&mut self, drain_timeout: Option<Duration>) {
+    pub(crate) fn on_started(&mut self, drain_timeout: Duration) {
         if matches!(self.phase, Phase::Starting) {
             self.phase = Phase::Consuming { drain_timeout };
         }
@@ -102,7 +102,7 @@ impl RebalanceState {
         match self.phase {
             // A lost assignment belongs to another member, so its commit fails.
             Phase::Consuming {
-                drain_timeout: Some(timeout),
+                drain_timeout: timeout,
             } if !lost => {
                 let revoke = self.next_revoke();
                 self.events.push(Event::Draining {
@@ -191,7 +191,7 @@ impl RebalanceState {
         match std::mem::replace(&mut self.phase, Phase::Stopped) {
             Phase::Draining { drain } => {
                 self.phase = Phase::Consuming {
-                    drain_timeout: Some(drain.timeout),
+                    drain_timeout: drain.timeout,
                 };
                 Some(drain)
             }
@@ -225,7 +225,7 @@ mod tests {
 
     fn consuming() -> RebalanceState {
         let mut state = RebalanceState::default();
-        state.on_started(Some(TIMEOUT));
+        state.on_started(TIMEOUT);
         state
     }
 
@@ -261,12 +261,6 @@ mod tests {
         );
     }
 
-    fn without_drains() -> RebalanceState {
-        let mut state = RebalanceState::default();
-        state.on_started(None);
-        state
-    }
-
     fn draining() -> RebalanceState {
         let mut state = consuming();
         state.on_revoked(vec![p(9)], unassign(), false, Instant::now());
@@ -288,7 +282,6 @@ mod tests {
 
     #[rstest::rstest]
     #[case::lost(LoopUnassignCase { state: consuming, lost: true, revoke: RevokeId(1) })]
-    #[case::no_drain_timeout(LoopUnassignCase { state: without_drains, lost: false, revoke: RevokeId(1) })]
     #[case::during_a_drain(LoopUnassignCase { state: draining, lost: false, revoke: RevokeId(2) })]
     fn a_revoke_that_does_not_drain_goes_to_the_loop_with_its_unassign(
         #[case] case: LoopUnassignCase,
@@ -344,8 +337,8 @@ mod tests {
     }
 
     fn revoked_and_never_taken() -> RebalanceState {
-        let mut state = without_drains();
-        state.on_revoked(vec![p(0)], unassign(), false, Instant::now());
+        let mut state = consuming();
+        state.on_revoked(vec![p(0)], unassign(), true, Instant::now());
         state
     }
 

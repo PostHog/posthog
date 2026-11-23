@@ -6,7 +6,7 @@ import { expectLogic } from 'kea-test-utils'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -74,6 +74,7 @@ const githubIssuesConfig = {
     created_at: '2026-07-27T00:00:00Z',
     updated_at: '2026-07-27T00:00:00Z',
     status: null,
+    filter_status: null,
 }
 
 const declinedJiraDraft: InboxOnboardingDraftApi = {
@@ -678,6 +679,7 @@ describe('signalSourcesLogic', () => {
                 }
                 return {
                     ...analyticsConfig,
+                    filter_status: null,
                     config: { ...analyticsConfig.config, alert_scope: scope },
                 } as SignalSourceConfigApi
             })
@@ -705,6 +707,7 @@ describe('signalSourcesLogic', () => {
             created_at: '2026-07-30T00:00:00Z',
             updated_at: '2026-07-30T00:00:00Z',
             status: null,
+            filter_status: null,
         })
         logic.actions.loadSourceConfigsSuccess([
             {
@@ -780,6 +783,19 @@ describe('signalSourcesLogic', () => {
         arrange(logic)
 
         expect(logic.values.productStatusBySource.error_tracking).toMatchObject({ enabled, dataStatus })
+    })
+
+    it.each([
+        { level: OrganizationMembershipLevel.Member, enableDisabledReason: 'Ask a project admin to turn on Support' },
+        { level: OrganizationMembershipLevel.Admin, enableDisabledReason: undefined },
+    ])('blocks turning on Support below project admin (level $level)', ({ level, enableDisabledReason }) => {
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            conversations_enabled: false,
+            effective_membership_level: level,
+        })
+
+        expect(logic.values.productStatusBySource.conversations?.enableDisabledReason).toBe(enableDisabledReason)
     })
 
     it('keeps loaded product statuses visible until a background refresh completes', async () => {

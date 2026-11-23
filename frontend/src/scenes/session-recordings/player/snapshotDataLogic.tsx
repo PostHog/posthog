@@ -103,12 +103,12 @@ export interface snapshotDataLogicActions {
         errorObject?: any
     }
     loadSnapshotSourcesSuccess: (
-        snapshotSources: SessionRecordingSnapshotSource[],
+        snapshotSources: import('@posthog/replay-shared').SessionRecordingSnapshotSource[],
         payload?: {
             breakpointLength: number | undefined
         }
     ) => {
-        snapshotSources: SessionRecordingSnapshotSource[]
+        snapshotSources: import('@posthog/replay-shared').SessionRecordingSnapshotSource[]
         payload?: {
             breakpointLength: number | undefined
         }
@@ -117,7 +117,7 @@ export interface snapshotDataLogicActions {
         value: true
     }
     loadSnapshotsForSource: (sources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]) => {
-        sources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
+        sources: Pick<import('@posthog/replay-shared').SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
     }
     loadSnapshotsForSourceFailure: (
         error: string,
@@ -129,28 +129,34 @@ export interface snapshotDataLogicActions {
     loadSnapshotsForSourceSuccess: (
         snapshotsForSource:
             | {
-                  source: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>
+                  source: Pick<import('@posthog/replay-shared').SessionRecordingSnapshotSource, 'blob_key' | 'source'>
                   sources?: undefined
               }
             | {
                   source?: undefined
-                  sources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
+                  sources: Pick<
+                      import('@posthog/replay-shared').SessionRecordingSnapshotSource,
+                      'blob_key' | 'source'
+                  >[]
               },
         payload?: {
-            sources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
+            sources: Pick<import('@posthog/replay-shared').SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
         }
     ) => {
         snapshotsForSource:
             | {
-                  source: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>
+                  source: Pick<import('@posthog/replay-shared').SessionRecordingSnapshotSource, 'blob_key' | 'source'>
                   sources?: undefined
               }
             | {
                   source?: undefined
-                  sources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
+                  sources: Pick<
+                      import('@posthog/replay-shared').SessionRecordingSnapshotSource,
+                      'blob_key' | 'source'
+                  >[]
               }
         payload?: {
-            sources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
+            sources: Pick<import('@posthog/replay-shared').SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
         }
     }
     maybeStartPolling: () => {
@@ -175,7 +181,7 @@ export interface snapshotDataLogicActions {
         token: string | null
     }
     setSnapshots: (snapshots: RecordingSnapshot[]) => {
-        snapshots: RecordingSnapshot[]
+        snapshots: import('@posthog/replay-shared').RecordingSnapshot[]
     }
     setTargetTimestamp: (
         timestamp: number | null,
@@ -214,23 +220,15 @@ export interface snapshotDataLogicMeta {
             snapshotsForSourceLoading: boolean,
             storeVersion: number
         ) => boolean
-        snapshotsLoaded: (
-            snapshotSources: import('@posthog/replay-shared').SessionRecordingSnapshotSource[] | null
-        ) => boolean
+        snapshotsLoaded: (snapshotSources: SessionRecordingSnapshotSource[] | null) => boolean
         isLoadingSnapshots: (
             loadingSources: Pick<
-                import('@posthog/replay-shared').SessionRecordingSnapshotSource,
+                SessionRecordingSnapshotSource,
                 'blob_key' | 'end_timestamp' | 'source' | 'start_timestamp'
             >[]
         ) => boolean
-        allSourcesLoaded: (
-            snapshotSources: import('@posthog/replay-shared').SessionRecordingSnapshotSource[] | null,
-            storeVersion: number
-        ) => boolean
-        storeVersion: (
-            storeUpdateCount: number,
-            snapshotSources: import('@posthog/replay-shared').SessionRecordingSnapshotSource[] | null
-        ) => number
+        allSourcesLoaded: (snapshotSources: SessionRecordingSnapshotSource[] | null, storeVersion: number) => boolean
+        storeVersion: (storeUpdateCount: number, snapshotSources: SessionRecordingSnapshotSource[] | null) => number
         snapshotStore: (storeVersion: number) => SnapshotStore
         sourceLoadingStates: (storeVersion: number) => SourceLoadingState[]
         recordingDeletedError: (
@@ -270,6 +268,16 @@ function directBlockFallbackReason(e: unknown): string {
     return 'unknown'
 }
 
+// The block token goes only to this app's own block route, never to a host taken from the listing.
+function isReplayBlockRouteUrl(url: string): boolean {
+    try {
+        const parsed = new URL(url, window.location.origin)
+        return parsed.origin === window.location.origin && parsed.pathname.startsWith('/replay-blocks/')
+    } catch {
+        return false
+    }
+}
+
 // Reads a batch straight from recording-api when the listing gave every block a url, so the browser caches each
 // block. Returns null to use the snapshots endpoint instead, which serves every recording.
 async function loadBlocksDirectly(
@@ -282,7 +290,7 @@ async function loadBlocksDirectly(
     const urlsByKey = new Map((listedSources ?? []).map((s) => [s.blob_key, s.url]))
     const urls = sources.map((s) => urlsByKey.get(s.blob_key))
     // A second 401 after a fresh token means the token can never work here, so stop paying for a failed batch.
-    if (!token || direct.unauthorizedCount > 1 || urls.some((url) => !url)) {
+    if (!token || direct.unauthorizedCount > 1 || urls.some((url) => !url || !isReplayBlockRouteUrl(url))) {
         return null
     }
     try {

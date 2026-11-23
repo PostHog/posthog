@@ -168,15 +168,29 @@ class TestValidateCredentials:
 
 
 class TestPagination:
-    def test_paginates_via_cursor(self):
+    @pytest.mark.parametrize(
+        "endpoint, object_name",
+        [
+            ("companies", "companies"),
+            ("activities", "timelineActivities"),
+            ("note_targets", "noteTargets"),
+            ("task_targets", "taskTargets"),
+            ("workspace_members", "workspaceMembers"),
+        ],
+    )
+    def test_paginates_via_cursor(self, endpoint, object_name):
         result = _run(
             [
-                _page([{"id": "1"}, {"id": "2"}], has_next_page=True, end_cursor="cursor-a"),
-                _page([{"id": "3"}], has_next_page=False, end_cursor="cursor-b"),
-            ]
+                _page([{"id": "1"}, {"id": "2"}], object_name=object_name, has_next_page=True, end_cursor="cursor-a"),
+                _page([{"id": "3"}], object_name=object_name, has_next_page=False, end_cursor="cursor-b"),
+            ],
+            endpoint=endpoint,
         )
 
         assert [r["id"] for r in result.rows] == ["1", "2", "3"]
+        assert {request.url.split("?")[0] for request in result.requests} == {
+            f"https://api.twenty.com/rest/{object_name}"
+        }
         assert result.params("starting_after") == [None, "cursor-a"]
         assert result.requests[0].param("limit") == "200"
 
@@ -243,6 +257,20 @@ class TestPagination:
         # on `opportunities`); the request is unchanged on every retry, so this must stop the sync
         # instead of retrying forever.
         result = _run(always(ScriptedResponse(status=400, json={"code": "TypeError"})), endpoint="opportunities")
+
+        assert result.raised is not None
+        assert error_message_matches(str(result.raised), TwentySource().get_non_retryable_errors())
+
+    def test_unresolvable_host_is_non_retryable(self):
+        # A self-hosted instance URL that doesn't resolve via DNS is a permanent customer-side
+        # misconfiguration (typo, decommissioned host): every retry re-does the same failing
+        # lookup, so this must stop the sync instead of retrying forever.
+        with mock.patch.object(
+            twenty_module,
+            "_is_host_safe",
+            return_value=(False, "Couldn't resolve the host 'twenty.example.com'. Check that it's spelled correctly."),
+        ):
+            result = _run([_page([{"id": "1"}])])
 
         assert result.raised is not None
         assert error_message_matches(str(result.raised), TwentySource().get_non_retryable_errors())

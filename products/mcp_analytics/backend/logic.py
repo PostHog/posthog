@@ -1,3 +1,4 @@
+import re
 import json
 import hashlib
 import dataclasses
@@ -14,10 +15,13 @@ from posthog.schema import AnyPropertyFilterDiscriminated, DateRange, EventPrope
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.utils.caller_context import map_in_caller_context
@@ -30,26 +34,25 @@ from posthog.models.user import User
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.utils import generate_cache_key
 
-from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
+from products.access_control.backend.facade.api import (
+    get_restricted_properties_with_group_type_index_for_team,
+    split_restricted_property_names,
+)
 from products.access_control.backend.facade.property_access import restriction_fingerprint
 from products.mcp_analytics.backend import intent_generation, mcp_harness
-from products.mcp_analytics.backend.constants import (
-    MAX_SNAPSHOT_CLUSTERS,
-    MCP_MISSING_CAPABILITY_EVENT,
-    MCP_TOOL_CALL_EVENT,
-)
+from products.mcp_analytics.backend.constants import MAX_SNAPSHOT_CLUSTERS, MCP_TOOL_CALL_EVENT
 from products.mcp_analytics.backend.custom_harnesses import custom_harness_rules
 from products.mcp_analytics.backend.facade import contracts, enums
 from products.mcp_analytics.backend.facade.contracts import CustomHarnessRule
-from products.mcp_analytics.backend.hogql_queries.base import shared_filter_exprs
+from products.mcp_analytics.backend.hogql_queries.base import missing_capability_report_expr, shared_filter_exprs
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
 
 # How long a snapshot may sit in COMPUTING before we assume the run died and
 # auto-recover. Must exceed the compute activity's schedule_to_close budget
-# (400s, covering queue wait + both attempts — see intent_clustering
+# (1300s, covering queue wait + both attempts — see intent_clustering
 # constants); past that, nothing can still legitimately write a final status,
 # so the row is a dead run whose worker never reached _mark_error.
-STALE_COMPUTING_THRESHOLD = timedelta(minutes=8)
+STALE_COMPUTING_THRESHOLD = timedelta(minutes=25)
 
 _MCP_TOOL_CALLS_SQL = """
 SELECT
@@ -63,10 +66,17 @@ SELECT
     JSONExtractRaw(properties, '$mcp_parameters') AS parameters,
     JSONExtractRaw(properties, '$mcp_response') AS response,
     toString(properties.$mcp_error_type) AS error_type,
-    toString(properties.$mcp_error_status) AS error_status
+    toString(properties.$mcp_error_status) AS error_status,
+    toString(properties.$mcp_exec_verb) AS exec_verb,
+    toString(properties.$mcp_exec_target_tool) AS exec_target_tool,
+    JSONExtractRaw(properties, '$mcp_input_keys') AS input_keys,
+    toString(properties.$mcp_error_code) AS error_code,
+    toString(properties.$mcp_error_field) AS error_field,
+    toString(properties.$mcp_llm_model) AS llm_model
 FROM events
 WHERE event = {event}
     AND timestamp >= {date_from}
+    AND {date_to_bound}
     AND $session_id = {session_id}
     AND {shared_filters}
 ORDER BY timestamp ASC, event_id ASC
@@ -136,7 +146,7 @@ ACTIVITY_OVERVIEW_REFRESH_COOLDOWN_SECONDS = 5
 
 # One row per $session_id, aggregated straight from events. The column shape
 # (min/max/count/groupUniqArray/argMax) maps 1:1 onto a future AggregatingMergeTree
-# if per-team volume ever warrants materialising it. __SEARCH__ / __ORDER__ are
+# if per-team volume ever warrants materialising it. The __UPPERCASE__ markers are
 # validated structural fragments injected before parsing; {placeholders} are HogQL
 # value placeholders.
 #
@@ -183,15 +193,7 @@ FROM (
         -- $session_id is a materialised String column — '' (not NULL) for sessionless
         -- events — so a bare `!= ''` drops them without a coalesce.
         AND $session_id != ''
-        AND $session_id IN (
-            SELECT $session_id
-            FROM events
-            WHERE event = {event}
-                AND timestamp >= {window_from}
-                AND timestamp <= {window_to}
-                AND $session_id != ''
-                AND {shared_filters}
-        )
+        AND $session_id IN (__SESSIONS__)
 )
 GROUP BY session_id
 -- Session-level inclusion: at least one *matching* event inside the requested window.
@@ -199,9 +201,59 @@ HAVING countIf(matches AND timestamp >= {window_from} AND timestamp <= {window_t
     __SEARCH__
     __HAS_ERRORS__
 ORDER BY __ORDER__
-LIMIT {limit}
-OFFSET {offset}
+__PAGE__
 """
+
+_SESSIONS_IN_WINDOW_SQL = """
+SELECT $session_id
+FROM events
+WHERE event = {event}
+    AND timestamp >= {window_from}
+    AND timestamp <= {window_to}
+    AND $session_id != ''
+    AND {shared_filters}
+"""
+
+# The page's sessions, picked from columns stored outside `properties`. Parsing `properties` for
+# every event in the scan is most of the cost of _MCP_SESSIONS_SQL, so the outer query parses it
+# only for these sessions. Sorts, searches and filters on tools, client or errors can't use it.
+_SESSIONS_PAGE_SQL = """
+SELECT session_id
+FROM (
+    SELECT
+        session_id,
+        min(timestamp) AS session_start,
+        max(timestamp) AS session_end,
+        dateDiff('second', min(timestamp), max(timestamp)) AS duration_seconds,
+        countIf(matches) AS tool_call_count,
+        argMaxIf(event_distinct_id, timestamp, matches) AS distinct_id
+    FROM (
+        SELECT
+            $session_id AS session_id,
+            timestamp,
+            distinct_id AS event_distinct_id,
+            {shared_filters} AS matches
+        FROM events
+        WHERE event = {event}
+            AND timestamp >= {scan_from}
+            AND timestamp <= {scan_to}
+            AND $session_id != ''
+            __CANDIDATES__
+    )
+    GROUP BY session_id
+    HAVING countIf(matches AND timestamp >= {window_from} AND timestamp <= {window_to}) > 0
+    ORDER BY __ORDER__
+    LIMIT {limit}
+    OFFSET {offset}
+)
+"""
+
+_PAGE_SQL = "LIMIT {limit} OFFSET {offset}"
+# The page query already skipped `offset` rows. The limit stays explicit because HogQL caps a
+# query without one at its default row limit, which is smaller than the largest page.
+_PAGED_SESSIONS_LIMIT_SQL = "LIMIT {limit}"
+
+_SORT_FIELDS_READING_PROPERTIES = frozenset({"mcp_client_name"})
 
 # Search is post-aggregation (folded into HAVING) so a match returns the whole session,
 # not just the matching events. tools_used / distinct_id / mcp_client_name are aggregates,
@@ -366,6 +418,7 @@ def _query_mcp_sessions(
     window_from = query_date_range.date_from()
     window_to = query_date_range.date_to()
 
+    shared_filters = shared_filters_expr(team, properties, filter_test_accounts)
     # Over-fetch one row to learn whether a next page exists, without a count query.
     placeholders: dict[str, ast.Expr] = {
         "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
@@ -375,7 +428,7 @@ def _query_mcp_sessions(
         "window_to": ast.Constant(value=window_to),
         "limit": ast.Constant(value=limit + 1),
         "offset": ast.Constant(value=offset),
-        "shared_filters": shared_filters_expr(team, properties, filter_test_accounts),
+        "shared_filters": shared_filters,
     }
 
     search_text = ""
@@ -385,8 +438,28 @@ def _query_mcp_sessions(
         placeholders["search"] = ast.Constant(value=f"%{term}%")
 
     has_errors_text = "" if has_errors is None else _SESSION_HAS_ERRORS_FILTER[has_errors]
+    pages_before_reading_properties = (
+        not search_text and not has_errors_text and column not in _SORT_FIELDS_READING_PROPERTIES
+    )
+    sessions_text, page_text = (
+        (_SESSIONS_PAGE_SQL, _PAGED_SESSIONS_LIMIT_SQL)
+        if pages_before_reading_properties
+        else (_SESSIONS_IN_WINDOW_SQL, _PAGE_SQL)
+    )
+    context = _sessions_query_context(team, user, properties, filter_test_accounts)
+    # The page query evaluates the filters on every event in the scan. When they read a JSON blob, narrowing to
+    # sessions that match inside the window first reads less of it. Otherwise the narrowing is one more sequential
+    # pass over events, which costs more than it saves.
+    candidates_text = (
+        f"AND $session_id IN ({_SESSIONS_IN_WINDOW_SQL})"
+        if pages_before_reading_properties and _filters_read_event_json(team, user, shared_filters, context.database)
+        else ""
+    )
     sql = (
-        _MCP_SESSIONS_SQL.replace("__SEARCH__", search_text)
+        _MCP_SESSIONS_SQL.replace("__SESSIONS__", sessions_text)
+        .replace("__CANDIDATES__", candidates_text)
+        .replace("__PAGE__", page_text)
+        .replace("__SEARCH__", search_text)
         .replace("__HAS_ERRORS__", has_errors_text)
         .replace("__ORDER__", order_text)
     )
@@ -397,7 +470,12 @@ def _query_mcp_sessions(
     with tags_context(
         product=Product.MCP_ANALYTICS, feature=Feature.QUERY, team_id=team.id, name="mcp_analytics_sessions_list"
     ):
-        response = execute_hogql_query(query=query, team=team, user=user)
+        response = execute_hogql_query(
+            query=query,
+            team=team,
+            user=user,
+            context=context,
+        )
 
     rows = [_row_to_session_dict(row) for row in (response.results or [])]
     has_next = len(rows) > limit
@@ -406,6 +484,49 @@ def _query_mcp_sessions(
     intents_by_session = _attach_intents(team, [row["session_id"] for row in rows])
     results = [_to_session_contract(row, persons_by_distinct_id, intents_by_session) for row in rows]
     return contracts.MCPSessionsPage(results=results, has_next=has_next)
+
+
+def _sessions_query_context(
+    team: Team,
+    user: User | None,
+    properties: list[AnyPropertyFilterDiscriminated] | None,
+    filter_test_accounts: bool,
+) -> HogQLContext:
+    # Building the full database loads the team's data warehouse catalog, which takes seconds on
+    # teams with many sources. The session queries read only events and persons, so they skip it
+    # unless a filter needs it.
+    database = (
+        Database.create_for_posthog_tables(team)
+        if _filters_read_only_built_in_tables(team, properties, filter_test_accounts)
+        else None
+    )
+    return HogQLContext(team_id=team.pk, team=team, user=user, database=database)
+
+
+_EVENT_JSON_COLUMN = re.compile(r"\bevents\.(?:person_)?properties\b")
+
+
+def _filters_read_event_json(team: Team, user: User | None, filters: ast.Expr, database: Database | None) -> bool:
+    if isinstance(filters, ast.Constant):
+        return False
+    query = ast.SelectQuery(
+        select=[ast.Constant(value=1)],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+        where=clone_expr(filters),
+    )
+    context = HogQLContext(
+        team_id=team.pk,
+        team=team,
+        user=user,
+        database=database or Database.create_for_posthog_tables(team),
+        modifiers=create_default_modifiers_for_team(team),
+        enable_select_queries=True,
+    )
+    try:
+        sql, _ = prepare_and_print_ast(query, context, dialect="clickhouse")
+    except BaseHogQLError:
+        return True
+    return _EVENT_JSON_COLUMN.search(sql) is not None
 
 
 def _row_to_session_dict(row: tuple[Any, ...]) -> dict[str, Any]:
@@ -574,7 +695,7 @@ FROM (
 _ACTIVITY_MISSING_CAPABILITY_SQL = """
 SELECT count()
 FROM events
-WHERE event = {missing_capability_event} AND timestamp >= {date_from}
+WHERE ({missing_capability_report}) AND timestamp >= {date_from}
     AND {missing_capability_filters}
 """
 
@@ -709,10 +830,10 @@ def _shared_activity_database(team: Team, user: User | None) -> Database | None:
     )
 
 
-_MEMBER_INDEPENDENT_FILTER_TYPES = frozenset({"event", "person"})
+_BUILT_IN_TABLE_FILTER_TYPES = frozenset({"event", "person"})
 
 
-def _filters_read_the_same_for_every_member(
+def _filters_read_only_built_in_tables(
     team: Team, properties: list[AnyPropertyFilterDiscriminated] | None, filter_test_accounts: bool
 ) -> bool:
     # Other filter types (session, HogQL, cohort, warehouse) and $virt_* keys can read tables or fields
@@ -723,7 +844,7 @@ def _filters_read_the_same_for_every_member(
         filters += team.test_account_filters or []
     return all(
         isinstance(f, dict)
-        and f.get("type") in _MEMBER_INDEPENDENT_FILTER_TYPES
+        and f.get("type") in _BUILT_IN_TABLE_FILTER_TYPES
         and not str(f.get("key", "")).startswith("$virt")
         for f in filters
     )
@@ -737,7 +858,7 @@ def _activity_overview_cache_key(
     user: User | None,
 ) -> str:
     filters = _filters_cache_fragment(team, properties, filter_test_accounts)
-    shared = _filters_read_the_same_for_every_member(team, properties, filter_test_accounts)
+    shared = _filters_read_only_built_in_tables(team, properties, filter_test_accounts)
     member = None if shared or user is None else user.pk
     return generate_cache_key(
         team.pk, f"mcp_activity_overview_{filters}_{restriction_fingerprint(restrictions)}_{member}"
@@ -834,7 +955,7 @@ def _query_activity_overview(
                 _ACTIVITY_MISSING_CAPABILITY_SQL,
                 "mcp_analytics_activity_missing_capabilities",
                 {
-                    "missing_capability_event": ast.Constant(value=MCP_MISSING_CAPABILITY_EVENT),
+                    "missing_capability_report": missing_capability_report_expr(),
                     "missing_capability_filters": missing_capability_filters,
                     "date_from": date_from,
                 },
@@ -954,6 +1075,7 @@ def list_mcp_tool_calls(
     limit: int,
     offset: int,
     date_from: datetime | None = None,
+    date_to: datetime | None = None,
     properties: list[AnyPropertyFilterDiscriminated] | None = None,
     filter_test_accounts: bool = False,
     user: User | None = None,
@@ -963,7 +1085,9 @@ def list_mcp_tool_calls(
     ``date_from`` is the timestamp lower bound that lets the events sort key prune the scan
     (``$session_id`` alone isn't in the sort key). The caller passes the session's start so the
     detail view stays correct for sessions older than the default ``SESSION_EVENTS_LOOKBACK``;
-    when omitted it falls back to that window for param-less API/token callers.
+    when omitted it falls back to that window for param-less API/token callers. ``date_to`` is the
+    matching upper bound; the caller passes the session's end so an older session's scan stops there
+    instead of reading every event up to now.
 
     ``limit`` / ``offset`` page through the session's calls; over-fetch one row to report
     ``has_next`` without a separate count query.
@@ -980,6 +1104,11 @@ def list_mcp_tool_calls(
         placeholders={
             "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
             "date_from": ast.Constant(value=date_from or (timezone.now() - intent_generation.SESSION_EVENTS_LOOKBACK)),
+            "date_to_bound": (
+                parse_expr("timestamp <= {date_to}", placeholders={"date_to": ast.Constant(value=date_to)})
+                if date_to
+                else ast.Constant(value=True)
+            ),
             "session_id": ast.Constant(value=session_id),
             "limit": ast.Constant(value=limit + 1),
             "offset": ast.Constant(value=offset),
@@ -989,7 +1118,12 @@ def list_mcp_tool_calls(
     with tags_context(
         product=Product.MCP_ANALYTICS, feature=Feature.QUERY, team_id=team.id, name="mcp_analytics_sessions_tool_calls"
     ):
-        response = execute_hogql_query(query=query, team=team, user=user)
+        response = execute_hogql_query(
+            query=query,
+            team=team,
+            user=user,
+            context=_sessions_query_context(team, user, properties, filter_test_accounts),
+        )
     rows = response.results or []
     has_next = len(rows) > limit
     results = [
@@ -1005,10 +1139,28 @@ def list_mcp_tool_calls(
             response=row[8] or "",
             error_type=row[9] or "",
             error_status=row[10] or "",
+            exec_verb=row[11] or "",
+            exec_target_tool=row[12] or "",
+            input_keys=_string_list(row[13]),
+            error_code=row[14] or "",
+            error_field=row[15] or "",
+            llm_model=row[16] or "",
         )
         for row in rows[:limit]
     ]
     return contracts.MCPToolCallsPage(results=results, has_next=has_next)
+
+
+def _string_list(raw: str | None) -> list[str]:
+    # Event properties are client-supplied, so a malformed or hostile value reads as no keys.
+    try:
+        value = json.loads(raw) if raw else []
+    except (ValueError, RecursionError):
+        return []
+    if not isinstance(value, list):
+        return []
+    # isprintable() also drops lone surrogates, which the JSON renderer cannot encode.
+    return [item for item in value if isinstance(item, str) and item.strip() and item.isprintable()]
 
 
 def _parse_int(value: str | int | None) -> int | None:
@@ -1052,8 +1204,20 @@ def _scope_blob_to_tool(
     return clusters, tools, overlaps
 
 
-def get_intent_cluster_snapshot(team: Team, tool: str | None = None) -> contracts.IntentClusterSnapshot:
-    """Return the current intent cluster snapshot for a team.
+# Event properties the snapshot copies text from. The snapshot is computed once per
+# team and shared, so property access control has to be applied when it is read.
+INTENT_TEXT_PROPERTIES = frozenset({"$mcp_intent"})
+TOOL_DESCRIPTION_PROPERTIES = frozenset({"$mcp_tool_description", "$mcp_exec_tool_call_description"})
+
+
+def get_intent_cluster_snapshot(
+    team: Team, *, user: User | None, tool: str | None = None
+) -> contracts.IntentClusterSnapshot:
+    """Return the current intent cluster snapshot for a team, as ``user`` may read it.
+
+    When ``user`` can't read ``$mcp_intent``, every intent string (cluster labels,
+    samples, long-tail samples, recurring texts) comes back empty and
+    ``intent_text_redacted`` is set. Tool descriptions are blanked the same way.
 
     ``tool`` narrows clusters, pivot, and overlaps to that tool's slice; the
     coverage meta stays whole-snapshot because it describes the run. Surfaces
@@ -1107,7 +1271,11 @@ def get_intent_cluster_snapshot(team: Team, tool: str | None = None) -> contract
     if tool is not None:
         clusters_raw, tools_raw, overlaps_raw = _scope_blob_to_tool(clusters_raw, tools_raw, overlaps_raw, tool)
 
-    return contracts.IntentClusterSnapshot(
+    long_tail_raw = blob.get("long_tail") if isinstance(blob, dict) else None
+    # The recurring list is whole-snapshot automation, not part of any one tool's slice.
+    recurring_raw = blob.get("recurring", []) if isinstance(blob, dict) and tool is None else []
+
+    result = contracts.IntentClusterSnapshot(
         status=snapshot.status,
         error_message=snapshot.error_message,
         last_computed_at=snapshot.last_computed_at,
@@ -1116,6 +1284,53 @@ def get_intent_cluster_snapshot(team: Team, tool: str | None = None) -> contract
         computed_with=_to_meta_dto(meta_raw) if isinstance(meta_raw, dict) else None,
         tools=[_to_tool_pivot_dto(item) for item in tools_raw if isinstance(item, dict)],
         tool_overlaps=[_to_overlap_dto(item) for item in overlaps_raw if isinstance(item, dict)],
+        long_tail=_to_long_tail_dto(long_tail_raw) if isinstance(long_tail_raw, dict) and tool is None else None,
+        recurring=[_to_recurring_dto(item) for item in recurring_raw if isinstance(item, dict)],
+    )
+    return _redact_restricted_snapshot_text(team, user, result)
+
+
+def _redact_restricted_snapshot_text(
+    team: Team, user: User | None, snapshot: contracts.IntentClusterSnapshot
+) -> contracts.IntentClusterSnapshot:
+    restricted = split_restricted_property_names(
+        get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk)
+    ).event
+    if TOOL_DESCRIPTION_PROPERTIES & restricted:
+        snapshot = dataclasses.replace(
+            snapshot, tools=[dataclasses.replace(t, description=None) for t in snapshot.tools]
+        )
+    if not INTENT_TEXT_PROPERTIES & restricted:
+        return snapshot
+    return dataclasses.replace(
+        snapshot,
+        intent_text_redacted=True,
+        clusters=[dataclasses.replace(c, label="", sample_intents=[]) for c in snapshot.clusters],
+        long_tail=dataclasses.replace(snapshot.long_tail, sample_intents=[]) if snapshot.long_tail else None,
+        recurring=[dataclasses.replace(r, intent_text="", sample_variants=[]) for r in snapshot.recurring],
+    )
+
+
+def _to_long_tail_dto(item: dict[str, Any]) -> contracts.IntentClusterLongTail:
+    return contracts.IntentClusterLongTail(
+        intent_count=int(item.get("intent_count", 0)),
+        session_count=int(item.get("session_count", 0)),
+        call_count=int(item.get("call_count", 0)),
+        error_count=int(item.get("error_count", 0)),
+        error_rate_pct=float(item.get("error_rate_pct", 0.0)),
+        sample_intents=[str(s) for s in item.get("sample_intents", []) if isinstance(s, str)],
+    )
+
+
+def _to_recurring_dto(item: dict[str, Any]) -> contracts.RecurringIntentEntry:
+    return contracts.RecurringIntentEntry(
+        intent_text=str(item.get("intent_text", "")),
+        session_count=int(item.get("session_count", 0)),
+        call_count=int(item.get("call_count", 0)),
+        error_count=int(item.get("error_count", 0)),
+        error_rate_pct=float(item.get("error_rate_pct", 0.0)),
+        variant_count=int(item.get("variant_count", 1)),
+        sample_variants=[str(s) for s in item.get("sample_variants", []) if isinstance(s, str)],
     )
 
 

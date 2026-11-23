@@ -1,6 +1,12 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
+
+import { navPanelProductPushLogic } from 'lib/components/NavPanelAdvertisement/navPanelProductPushLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { recentItemsModel } from '~/models/recentItemsModel'
@@ -215,8 +221,8 @@ describe('todayLogic', () => {
 
     it('sends the Inbox ranking label events for the reports the home shows and acts on', async () => {
         const capture = jest.spyOn(posthog, 'capture')
-        const report = makeReport({ id: 'a' })
-        listResponse = [200, { results: [report], count: 1 }]
+        const report = makeReport({ id: 'a', personal_tier: 'top', personal_reason: 'You own this area.' })
+        listResponse = [200, { results: [report], count: 1, ranker: 'personal' }]
         const logic = todayLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -246,7 +252,15 @@ describe('todayLogic', () => {
                     expect.objectContaining({
                         surface: 'today',
                         list: 'briefing',
-                        impressions: [expect.objectContaining({ report_id: 'a', rank: 1 })],
+                        impressions: [
+                            expect.objectContaining({
+                                report_id: 'a',
+                                rank: 1,
+                                ranker_id: 'personal',
+                                personal_tier: 'top',
+                                personal_reason_shown: true,
+                            }),
+                        ],
                     }),
                     undefined,
                 ],
@@ -258,6 +272,9 @@ describe('todayLogic', () => {
                         open_method: 'click',
                         list: 'briefing',
                         rank: 1,
+                        ranker_id: 'personal',
+                        personal_tier: 'top',
+                        personal_reason_shown: true,
                     }),
                     undefined,
                 ],
@@ -268,6 +285,17 @@ describe('todayLogic', () => {
                 ],
             ])
         )
+        expect(capture.mock.calls.filter(([event]) => event === 'today report opened')).toEqual([
+            [
+                'today report opened',
+                expect.objectContaining({
+                    report_id: 'a',
+                    ranker_id: 'personal',
+                    personal_tier: 'top',
+                    personal_reason_shown: true,
+                }),
+            ],
+        ])
     })
 
     it('ranks the report list events by the position the list shows them in', async () => {
@@ -376,6 +404,25 @@ describe('todayLogic', () => {
             sort: 'recommended',
             created_after: '2026-10-21T12:00:00.000Z',
             limit: String(TOP_REPORT_COUNT),
+        })
+    })
+
+    it('keeps the ranking of the top reports for later pages', async () => {
+        jest.spyOn(Date, 'now').mockReturnValue(new Date('2026-10-28T12:00:00.000Z').getTime())
+        listResponse = [200, { results: [makeReport({ id: 'a' })], count: 5, ranking_id: 'ranking-1' }]
+        const logic = todayLogic()
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        listResponse = [200, { results: [makeReport({ id: 'b' })], count: 5, ranking_id: 'ranking-1' }]
+        await expectLogic(logic, () => {
+            logic.actions.loadMoreReports()
+        }).toDispatchActions(['loadMoreReportsSuccess'])
+        expect(Object.fromEntries(listParams!.entries())).toMatchObject({
+            sort: 'recommended',
+            ranking_id: 'ranking-1',
+            exclude: 'a',
         })
     })
 
@@ -520,6 +567,63 @@ describe('todayLogic', () => {
         } finally {
             window.POSTHOG_APP_CONTEXT = appContext
         }
+    })
+
+    it.each([
+        ['the product push as a row', true, false, false, 'session_replay', null],
+        ['a broadcast as a banner in place of the product push', true, true, false, null, 'broadcast'],
+        ['the MCP card as a banner between campaigns', false, false, false, null, 'mcp_connect'],
+        ['no banner over sample reports', false, true, true, null, null],
+    ])('shows %s', async (_, hasCampaign, hasBroadcast, sampleData, pushedProduct, bannerType) => {
+        useMocks({
+            get: {
+                '/api/organizations/:organization_id/product_push_campaign/active/': () =>
+                    hasCampaign
+                        ? [200, { id: 'campaign-1', product_key: 'session_replay', product_path: 'Session replay' }]
+                        : [204],
+            },
+        })
+        jest.mocked(posthog.getFeatureFlagResult).mockReturnValue(
+            hasBroadcast
+                ? ({
+                      payload: {
+                          broadcast: 'beta',
+                          title: 'Beta',
+                          text: 'Try it.',
+                          emoji: '🧪',
+                          emojiLabel: 'test tube',
+                      },
+                  } as any)
+                : undefined
+        )
+        try {
+            await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
+
+            const logic = todayLogic()
+            logic.mount()
+            await expectLogic(navPanelProductPushLogic).toDispatchActions(['loadActiveCampaignSuccess'])
+            if (sampleData) {
+                logic.actions.setUseSampleData(true)
+            }
+
+            expect(logic.values.forYouProductPush?.campaign.product_key ?? null).toBe(pushedProduct)
+            expect(logic.values.promoBanner?.type ?? null).toBe(bannerType)
+        } finally {
+            jest.mocked(posthog.getFeatureFlagResult).mockReset()
+        }
+    })
+
+    it('keeps jump back pins separate for each person', () => {
+        const logic = todayLogic()
+        logic.mount()
+        const pin = { id: 'dash', path: 'Dashboards/Private', type: 'dashboard', ref: '1' }
+
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, uuid: 'first-person' })
+        logic.actions.toggleJumpBackPin(logic.values.jumpBackPinScope as string, pin, 'picker')
+        expect(logic.values.pinnedObjects.map((entry) => entry.id)).toEqual(['dash'])
+
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, uuid: 'second-person' })
+        expect(logic.values.pinnedObjects).toEqual([])
     })
 
     test.each([

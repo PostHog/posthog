@@ -2,7 +2,6 @@ from typing import Optional, cast
 
 from products.warehouse_sources.sources.azure_devops._config import AzureDevOpsSourceConfig
 from products.warehouse_sources.sources.azure_devops.azure_devops import (
-    AZURE_DEVOPS_VERSION_7_2,
     AZURE_DEVOPS_VERSION_LEGACY,
     AzureDevOpsResumeConfig,
     azure_devops_source,
@@ -40,9 +39,8 @@ class AzureDevOpsSource(ResumableSource[AzureDevOpsSourceConfig, AzureDevOpsResu
 
     api_docs_url = "https://learn.microsoft.com/en-us/azure/devops/integrate/concepts/rest-api-versioning"
 
-    # The legacy label keeps sending api-version 7.1; 7.2 is the current GA stable API.
-    supported_versions = (AZURE_DEVOPS_VERSION_LEGACY, AZURE_DEVOPS_VERSION_7_2)
-    default_version = AZURE_DEVOPS_VERSION_7_2
+    supported_versions = (AZURE_DEVOPS_VERSION_LEGACY,)
+    default_version = AZURE_DEVOPS_VERSION_LEGACY
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

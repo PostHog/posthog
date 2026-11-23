@@ -1,6 +1,8 @@
 from datetime import UTC, datetime
 from typing import Any
 
+import time_machine
+
 from parameterized import parameterized
 from requests import HTTPError
 
@@ -322,16 +324,95 @@ class TestCollectionFanOut:
             {"id": "p1", "collection_id": "c2", "organization_id": "o2"},
         ]
 
-    def test_configured_org_skips_org_enumeration(self) -> None:
+    @parameterized.expand(
+        [
+            ("collection_projects", "collections", "relationships/projects", "collection_id"),
+            ("container_image_target_refs", "container_images", "relationships/image_target_refs", "image_id"),
+        ]
+    )
+    def test_configured_org_skips_org_enumeration(
+        self, endpoint: str, parent_path: str, child_suffix: str, parent_id_column: str
+    ) -> None:
         result = _run(
-            "collection_projects",
+            endpoint,
             [_page([{"id": "c1"}, {"id": "c2"}]), _page([{"id": "p1"}]), _page([])],
             organization_id="o9",
         )
         assert result.raised is None
         assert _paths(result) == [
-            "/orgs/o9/collections",
-            "/orgs/o9/collections/c1/relationships/projects",
-            "/orgs/o9/collections/c2/relationships/projects",
+            f"/orgs/o9/{parent_path}",
+            f"/orgs/o9/{parent_path}/c1/{child_suffix}",
+            f"/orgs/o9/{parent_path}/c2/{child_suffix}",
         ]
-        assert result.rows == [{"id": "p1", "collection_id": "c1", "organization_id": "o9"}]
+        assert result.rows == [{"id": "p1", parent_id_column: "c1", "organization_id": "o9"}]
+
+
+def _audit_page(items: list[dict], next_link: Any = None) -> ScriptedResponse:
+    body: dict[str, Any] = {"data": {"items": items}}
+    if next_link is not None:
+        body["links"] = {"next": next_link}
+    return ScriptedResponse(json=body)
+
+
+_EVENT = {"created": "2026-03-01T10:00:00Z", "event": "org.project.add", "org_id": "o1", "content": {"a": 1}}
+
+
+class TestAuditLogs:
+    @parameterized.expand(
+        [
+            # No watermark: send the start of the 90-day retention window, or Snyk returns only
+            # the events since the start of yesterday.
+            ("org_full_refresh", "org_audit_logs", False, None, "2026-01-16T00:00:00Z"),
+            ("org_first_incremental_sync", "org_audit_logs", True, None, "2026-01-16T00:00:00Z"),
+            ("org_watermark", "org_audit_logs", True, datetime(2026, 4, 1, 8, tzinfo=UTC), "2026-04-01T08:00:00Z"),
+            (
+                "org_watermark_past_retention",
+                "org_audit_logs",
+                True,
+                datetime(2025, 1, 1, tzinfo=UTC),
+                "2026-01-16T00:00:00Z",
+            ),
+            ("group_full_refresh", "group_audit_logs", False, None, "2026-01-16T00:00:00Z"),
+            ("group_watermark", "group_audit_logs", True, datetime(2026, 4, 1, 8, tzinfo=UTC), "2026-04-01T08:00:00Z"),
+        ]
+    )
+    @time_machine.travel("2026-04-15T12:00:00Z", tick=False)
+    def test_window_start_and_page_size_params(
+        self, _name: str, endpoint: str, incremental: bool, watermark: datetime | None, expected_from: str
+    ) -> None:
+        if endpoint == "org_audit_logs":
+            script = [_audit_page([dict(_EVENT)])]
+        else:
+            script = [_page([_org("o1", "g1")]), _audit_page([dict(_EVENT)])]
+        result = _run(
+            endpoint,
+            script,
+            organization_id="o1" if endpoint == "org_audit_logs" else None,
+            should_use_incremental_field=incremental,
+            db_incremental_field_last_value=watermark,
+            incremental_field="created" if incremental else None,
+        )
+        assert result.raised is None
+        audit_request = result.requests[-1]
+        assert audit_request.param("from") == expected_from
+        assert audit_request.param("size") == "100"
+        assert audit_request.param("limit") is None
+        assert len(result.rows) == 1
+
+    def test_items_get_a_stable_synthetic_id(self) -> None:
+        other = {**_EVENT, "content": {"a": 2}}
+        page2 = f"{HOST}/rest/orgs/o1/audit_logs/search?version={SNYK_REST_VERSION}&size=100&cursor=c2"
+        first = _run(
+            "org_audit_logs",
+            [_audit_page([dict(_EVENT), other], next_link=page2), _audit_page([])],
+            organization_id="o1",
+        )
+        again = _run("org_audit_logs", [_audit_page([dict(_EVENT)])], organization_id="o1")
+
+        assert first.raised is None
+        assert len(first.urls) == 2
+        ids = [row["id"] for row in first.rows]
+        # Events that differ only in content stay two rows; the same event re-fetched merges onto one.
+        assert ids[0] != ids[1]
+        assert again.rows[0]["id"] == ids[0]
+        assert first.rows[0] == {**_EVENT, "id": ids[0], "organization_id": "o1"}

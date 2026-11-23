@@ -2,7 +2,7 @@ import re
 import time
 import dataclasses
 from collections import Counter
-from collections.abc import AsyncIterable, Iterable, Iterator
+from collections.abc import AsyncIterable, Callable, Iterable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from email.utils import format_datetime, parsedate_to_datetime
 from typing import Any, Optional
@@ -17,12 +17,18 @@ from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.sources.mailgun.settings import (
+    BOUNCE_CLASSIFICATION_DIMENSIONS,
+    BOUNCE_CLASSIFICATION_ENDPOINT,
+    BOUNCE_CLASSIFICATION_METRICS,
+    BOUNCE_CLASSIFICATION_PATH,
+    BOUNCE_CLASSIFICATION_PRIMARY_KEYS,
     LOGS_ENDPOINT,
     LOGS_PATH,
     MAILGUN_ENDPOINTS,
     MAILGUN_METRICS_ENDPOINTS,
-    METRICS,
-    METRICS_PATH,
+    TEMPLATE_VERSIONS_ENDPOINT,
+    TEMPLATE_VERSIONS_PATH,
+    TEMPLATE_VERSIONS_PRIMARY_KEYS,
     WEBHOOK_EVENTS_ENDPOINT,
     WEBHOOK_TYPES,
     MailgunEndpointConfig,
@@ -38,6 +44,7 @@ from products.warehouse_sources.sources.sdk import (
     WebhookSyncResult,
     make_tracked_session,
     retry_with_deadline,
+    to_epoch,
 )
 from products.warehouse_sources.sources.sdk.internals import table_from_py_list
 
@@ -78,6 +85,13 @@ METRICS_REFRESH_DAYS = 2
 # Backstop for a Metrics API that ignores `skip` and keeps serving full pages for one day. Sized
 # far above the distinct values any breakdown dimension reaches in a day.
 MAX_METRICS_ROWS_PER_DAY = 1_000_000
+# The bounce classification API caps `limit` at 50.
+BOUNCE_CLASSIFICATION_PAGE_SIZE = 50
+# Mailgun documents no retention for bounce classification, so a sync with no watermark reads the
+# same 30 days the event store keeps on standard plans rather than risk a rejected window.
+BOUNCE_CLASSIFICATION_LOOKBACK_DAYS = 30
+# Template version listings cap `limit` at 100.
+TEMPLATE_VERSIONS_PAGE_SIZE = 100
 # The Logs API caps `limit` at 100.
 LOGS_PAGE_SIZE = 100
 # Mailgun keeps logs for its plan's event retention, at most 30 days on standard plans, so a
@@ -115,6 +129,10 @@ class MailgunResumeConfig:
     logs_start: Optional[str] = None
     logs_end: Optional[str] = None
     logs_token: Optional[str] = None
+    # Template versions: the template whose versions the in-flight chain reads, and the templates of
+    # `current_domain` not yet started.
+    current_template: Optional[str] = None
+    pending_templates: list[str] = dataclasses.field(default_factory=list)
 
 
 def base_url_for_region(region: str) -> str:
@@ -129,11 +147,8 @@ def _to_epoch(value: Any) -> Optional[int]:
         return value
     if isinstance(value, float):
         return int(value)
-    if isinstance(value, datetime):
-        dt = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
-        return int(dt.timestamp())
-    if isinstance(value, date):
-        return int(datetime.combine(value, datetime.min.time(), tzinfo=UTC).timestamp())
+    if isinstance(value, datetime | date):
+        return to_epoch(value)
     try:
         return int(float(value))
     except (TypeError, ValueError):
@@ -197,6 +212,9 @@ def _initial_url(
     domain: Optional[str],
     begin: Optional[int] = None,
 ) -> Optional[str]:
+    if config.pagination == "single":
+        return _build_url(base_url, _endpoint_path(config, domain), {})
+
     params: dict[str, Any] = {"limit": config.page_size}
 
     if config.pagination == "skip":
@@ -233,6 +251,9 @@ def _increment_skip(current_url: str, page_size: int) -> str:
 def _next_page_url(
     config: MailgunEndpointConfig, current_url: str, data: dict[str, Any], items_count: int
 ) -> Optional[str]:
+    if config.pagination == "single":
+        return None
+
     if config.pagination == "skip":
         if items_count < config.page_size:
             return None
@@ -560,16 +581,18 @@ def _parse_rfc2822(value: Any) -> Any:
 def _metrics_request_body(config: MailgunMetricsEndpointConfig, day: date, skip: int) -> dict[str, Any]:
     start = datetime.combine(day, datetime.min.time(), tzinfo=UTC)
     dimensions = ["time", config.dimension] if config.dimension else ["time"]
-    return {
+    body: dict[str, Any] = {
         "start": format_datetime(start),
         "end": format_datetime(start + timedelta(days=1) - timedelta(seconds=1)),
         "resolution": "day",
         "dimensions": dimensions,
-        "metrics": list(METRICS),
+        "metrics": list(config.metrics),
+    }
+    if config.paginated:
         # Within a single day the breakdown dimension is unique, so sorting on it keeps
         # skip/limit pages stable.
-        "pagination": {"sort": f"{dimensions[-1]}:asc", "skip": skip, "limit": METRICS_PAGE_SIZE},
-    }
+        body["pagination"] = {"sort": f"{dimensions[-1]}:asc", "skip": skip, "limit": METRICS_PAGE_SIZE}
+    return body
 
 
 def _metrics_row(item: dict[str, Any]) -> dict[str, Any]:
@@ -586,24 +609,26 @@ def _metrics_row(item: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
-def get_metrics_rows(
+def _daily_rows(
+    url: str,
     api_key: str,
-    region: str,
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[MailgunResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
+    lookback_days: int,
+    page_size: Optional[int],
+    request_body: Callable[[date, int], dict[str, Any]],
+    to_row: Callable[[dict[str, Any]], dict[str, Any]],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
 ) -> Iterator[list[dict[str, Any]]]:
-    """Walk the Metrics API one UTC day at a time, oldest first.
+    """Walk a POST analytics API one UTC day at a time, oldest first.
 
-    One day per request keeps every page deterministic, since `time` and the breakdown dimension
-    together are unique only within a day."""
-    config = MAILGUN_METRICS_ENDPOINTS[endpoint]
-    url = f"{base_url_for_region(region)}{METRICS_PATH}"
+    One day per request keeps every page deterministic, since the day and the breakdown dimensions
+    together are unique only within a day. A `page_size` of None means one response per day."""
     today = datetime.now(UTC).date()
 
-    day = today - timedelta(days=METRICS_LOOKBACK_DAYS - 1)
+    day = today - timedelta(days=lookback_days - 1)
     if should_use_incremental_field:
         last_day = _to_date(db_incremental_field_last_value)
         if last_day is not None:
@@ -617,25 +642,215 @@ def get_metrics_rows(
         logger.debug(f"Mailgun: resuming {endpoint} at day={day}, skip={skip}")
 
     while day <= today:
-        data = _fetch_page(url, api_key, logger, json_body=_metrics_request_body(config, day, skip))
+        data = _fetch_page(url, api_key, logger, json_body=request_body(day, skip))
         items = data.get("items") or []
 
-        if len(items) < METRICS_PAGE_SIZE:
+        if page_size is None or len(items) < page_size:
             day, skip = day + timedelta(days=1), 0
-        elif skip + METRICS_PAGE_SIZE >= MAX_METRICS_ROWS_PER_DAY:
+        elif skip + page_size >= MAX_METRICS_ROWS_PER_DAY:
             logger.warning(
                 f"Mailgun: stopping {endpoint} for {day} after {MAX_METRICS_ROWS_PER_DAY} rows; "
-                "the Metrics API kept returning full pages"
+                "the API kept returning full pages"
             )
             day, skip = day + timedelta(days=1), 0
         else:
-            skip += METRICS_PAGE_SIZE
+            skip += page_size
 
         resumable_source_manager.save_state(MailgunResumeConfig(metrics_day=day.isoformat(), metrics_skip=skip))
         if items:
-            yield [_metrics_row(item) for item in items]
+            yield [to_row(item) for item in items]
         else:
             resumable_source_manager.safe_point()
+
+
+def get_metrics_rows(
+    api_key: str,
+    region: str,
+    endpoint: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[MailgunResumeConfig],
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+) -> Iterator[list[dict[str, Any]]]:
+    config = MAILGUN_METRICS_ENDPOINTS[endpoint]
+    return _daily_rows(
+        url=f"{base_url_for_region(region)}{config.path}",
+        api_key=api_key,
+        endpoint=endpoint,
+        logger=logger,
+        resumable_source_manager=resumable_source_manager,
+        lookback_days=METRICS_LOOKBACK_DAYS,
+        page_size=METRICS_PAGE_SIZE if config.paginated else None,
+        request_body=lambda day, skip: _metrics_request_body(config, day, skip),
+        to_row=_metrics_row,
+        should_use_incremental_field=should_use_incremental_field,
+        db_incremental_field_last_value=db_incremental_field_last_value,
+    )
+
+
+def _bounce_classification_request_body(day: date, skip: int) -> dict[str, Any]:
+    start = datetime.combine(day, datetime.min.time(), tzinfo=UTC)
+    return {
+        "start": format_datetime(start),
+        "end": format_datetime(start + timedelta(days=1) - timedelta(seconds=1)),
+        "resolution": "day",
+        "dimensions": list(BOUNCE_CLASSIFICATION_DIMENSIONS),
+        "metrics": list(BOUNCE_CLASSIFICATION_METRICS),
+        # The API sorts on one column only. Mailgun documents no tie order, so a day that spans
+        # several pages can shift rows across a page boundary; merge on the primary key absorbs
+        # duplicates from that.
+        "pagination": {"sort": "domain.name:asc", "skip": skip, "limit": BOUNCE_CLASSIFICATION_PAGE_SIZE},
+    }
+
+
+def _bounce_classification_row(item: dict[str, Any]) -> dict[str, Any]:
+    row = {key.replace(".", "_").replace("-", "_"): value for key, value in item.items() if key != "metrics"}
+    row.update(item.get("metrics") or {})
+    row["timestamp"] = _parse_rfc2822(row.get("timestamp"))
+    return row
+
+
+def get_bounce_classification_rows(
+    api_key: str,
+    region: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[MailgunResumeConfig],
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+) -> Iterator[list[dict[str, Any]]]:
+    return _daily_rows(
+        url=f"{base_url_for_region(region)}{BOUNCE_CLASSIFICATION_PATH}",
+        api_key=api_key,
+        endpoint=BOUNCE_CLASSIFICATION_ENDPOINT,
+        logger=logger,
+        resumable_source_manager=resumable_source_manager,
+        lookback_days=BOUNCE_CLASSIFICATION_LOOKBACK_DAYS,
+        page_size=BOUNCE_CLASSIFICATION_PAGE_SIZE,
+        request_body=_bounce_classification_request_body,
+        to_row=_bounce_classification_row,
+        should_use_incremental_field=should_use_incremental_field,
+        db_incremental_field_last_value=db_incremental_field_last_value,
+    )
+
+
+def _list_template_names(api_key: str, base_url: str, domain: str, logger: FilteringBoundLogger) -> list[str]:
+    config = MAILGUN_ENDPOINTS["templates"]
+    names: list[str] = []
+    url: Optional[str] = _initial_url(base_url, config, domain)
+    seen_urls: set[str] = set()
+
+    while url is not None and url not in seen_urls and len(seen_urls) < MAX_PAGES_PER_CHAIN:
+        seen_urls.add(url)
+        data = _fetch_page(url, api_key, logger)
+        items = data.get("items") or []
+        names.extend(item["name"] for item in items if item.get("name"))
+        url = _next_page_url(config, url, data, len(items))
+
+    return names
+
+
+def _template_versions_url(base_url: str, domain: str, template: str) -> str:
+    path = TEMPLATE_VERSIONS_PATH.format(domain=quote(domain, safe=""), template=quote(template, safe=""))
+    return _build_url(base_url, path, {"limit": TEMPLATE_VERSIONS_PAGE_SIZE})
+
+
+def get_template_version_rows(
+    api_key: str,
+    region: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[MailgunResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Fan out over every sending domain, then over every template of that domain."""
+    templates_config = MAILGUN_ENDPOINTS["templates"]
+    base_url = base_url_for_region(region)
+
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume_config is not None:
+        pending_domains = list(resume_config.pending_domains)
+        current_domain = resume_config.current_domain
+        pending_templates = list(resume_config.pending_templates)
+        current_template = resume_config.current_template
+        current_url = resume_config.next_url
+        logger.debug(
+            f"Mailgun: resuming {TEMPLATE_VERSIONS_ENDPOINT}. url={current_url}, domain={current_domain}, "
+            f"template={current_template}, pending_domains={len(pending_domains)}"
+        )
+    else:
+        pending_domains = get_domain_names(api_key, base_url, logger)
+        current_domain = None
+        pending_templates = []
+        current_template = None
+        current_url = None
+
+    def state(next_url: Optional[str]) -> MailgunResumeConfig:
+        return MailgunResumeConfig(
+            next_url=next_url,
+            current_domain=current_domain,
+            pending_domains=pending_domains,
+            current_template=current_template,
+            pending_templates=pending_templates,
+        )
+
+    seen_urls: set[str] = set()
+
+    while current_url is not None or pending_templates or pending_domains:
+        if current_url is None and not pending_templates:
+            current_domain = pending_domains.pop(0)
+            current_template = None
+            try:
+                pending_templates = _list_template_names(api_key, base_url, current_domain, logger)
+            except requests.HTTPError as error:
+                if not _is_skippable_domain_error(templates_config, current_domain, error):
+                    raise
+                assert error.response is not None
+                logger.warning(
+                    f"Mailgun: skipping domain {current_domain} for {TEMPLATE_VERSIONS_ENDPOINT}; "
+                    f"listing its templates returned {error.response.status_code}"
+                )
+                pending_templates = []
+            resumable_source_manager.save_state(state(None))
+            resumable_source_manager.safe_point()
+            continue
+
+        if current_url is None:
+            assert current_domain is not None
+            current_template = pending_templates.pop(0)
+            current_url = _template_versions_url(base_url, current_domain, current_template)
+            seen_urls.clear()
+
+        if current_url in seen_urls or len(seen_urls) >= MAX_PAGES_PER_CHAIN:
+            logger.warning(
+                f"Mailgun: stopping pagination for {TEMPLATE_VERSIONS_ENDPOINT}; domain={current_domain}, "
+                f"template={current_template}, url={current_url}"
+            )
+            current_url = None
+            resumable_source_manager.save_state(state(None))
+            continue
+
+        seen_urls.add(current_url)
+
+        try:
+            data = _fetch_page(current_url, api_key, logger)
+        except requests.HTTPError as error:
+            # A template deleted after the listing was read has no versions left to sync.
+            if error.response is None or error.response.status_code != 404:
+                raise
+            data = {}
+
+        items = (data.get("template") or {}).get("versions") or []
+        next_url = _next_page_url(templates_config, current_url, data, len(items))
+        resumable_source_manager.save_state(state(next_url))
+
+        if items:
+            yield [
+                {**item, "domain": current_domain, "template_name": current_template}
+                for item in items
+                if isinstance(item, dict)
+            ]
+        else:
+            resumable_source_manager.safe_point()
+
+        current_url = next_url
 
 
 def _parse_log_timestamp(value: Any) -> Any:
@@ -1064,6 +1279,40 @@ def mailgun_source(
             partition_mode="datetime",
             partition_format="month",
             partition_keys=["time"],
+        )
+
+    if endpoint == BOUNCE_CLASSIFICATION_ENDPOINT:
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: get_bounce_classification_rows(
+                api_key=api_key,
+                region=region,
+                logger=logger,
+                resumable_source_manager=resumable_source_manager,
+                should_use_incremental_field=should_use_incremental_field,
+                db_incremental_field_last_value=db_incremental_field_last_value,
+            ),
+            primary_keys=BOUNCE_CLASSIFICATION_PRIMARY_KEYS,
+            sort_mode="asc",
+            partition_count=1,
+            partition_size=1,
+            partition_mode="datetime",
+            partition_format="month",
+            partition_keys=["timestamp"],
+        )
+
+    if endpoint == TEMPLATE_VERSIONS_ENDPOINT:
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: get_template_version_rows(
+                api_key=api_key,
+                region=region,
+                logger=logger,
+                resumable_source_manager=resumable_source_manager,
+            ),
+            primary_keys=TEMPLATE_VERSIONS_PRIMARY_KEYS,
+            partition_count=1,
+            partition_size=1,
         )
 
     if endpoint == LOGS_ENDPOINT:

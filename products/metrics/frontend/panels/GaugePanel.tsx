@@ -1,7 +1,7 @@
 import { getColorVar } from 'lib/colors'
 
 import { flattenSeriesRows } from './metricsReduce'
-import { thresholdColor } from './metricsThresholds'
+import { thresholdColorToken } from './metricsThresholds'
 import { metricValuesFormatter } from './metricsUnits'
 import type { MetricsPanelProps } from './registry'
 import { resolveReducer } from './registry'
@@ -61,14 +61,14 @@ export function GaugePanel({ series, display, fallbackName }: MetricsPanelProps)
     }
 
     return (
-        <div className="flex h-full w-full flex-wrap content-center items-center justify-center gap-4 overflow-auto p-2">
+        <div className="flex h-full w-full flex-1 flex-wrap content-center items-center justify-center gap-4 overflow-auto p-2">
             {rows.map((row, index) => {
                 const value = row.values[reducer] ?? null
                 const unit = row.series.unit ?? undefined
                 const { min, max } = gaugeBounds(value ?? 0, display)
                 const formatValue = metricValuesFormatter(unit, [value ?? 0, min, max])
                 const fraction = value === null ? 0 : Math.min(Math.max((value - min) / (max - min), 0), 1)
-                const color = getColorVar(thresholdColor(value, display.thresholds, FALLBACK_COLOR))
+                const color = getColorVar(thresholdColorToken(value, display.thresholds, FALLBACK_COLOR))
                 const name =
                     Object.entries(row.labels)
                         .map(([k, v]) => `${k}=${v}`)

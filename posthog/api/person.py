@@ -44,7 +44,7 @@ from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action, paging_params, parse_actor_property_filters
-from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.event_usage import get_request_analytics_properties
@@ -74,8 +74,14 @@ from posthog.models.person.util import (
     get_persons_by_uuids,
     get_persons_mapped_by_distinct_id,
 )
+from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.personhog_client.caller_tag import personhog_caller_tag
-from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateThrottle, UserOrEmailRateThrottle
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    PersonalOrProjectSecretApiKeyRateThrottle,
+    ProjectSecretApiKeyTeamRateThrottle,
+    UserOrEmailRateThrottle,
+)
 from posthog.renderers import SafeJSONRenderer
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.slo.context import JsonValue, SloSpec, slo_operation
@@ -90,6 +96,7 @@ from posthog.utils import (
     str_to_bool,
 )
 
+from products.access_control.backend.facade.api import property_key_overlaps_restriction, redact_restricted_properties
 from products.ai_training.backend.facade.api import queue_person_training_deletion
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_ids_by_person_uuid
@@ -181,7 +188,7 @@ def get_person_name(team: Team, person: Person) -> str:
 
 
 def get_person_name_helper(
-    person_pk: int, person_properties: dict[str, str], distinct_ids: list[str], team: Team
+    person_pk: int | str | uuid.UUID, person_properties: dict[str, str], distinct_ids: list[str], team: Team
 ) -> str:
     display_name = None
     for property in team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES:
@@ -206,14 +213,24 @@ class PersonsWebSustainedThrottle(UserOrEmailRateThrottle):
     rate = "1200/hour"
 
 
-class PersonsDeleteBurstThrottle(PersonalApiKeyRateThrottle):
+class PersonsDeleteBurstThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
     scope = "persons_delete_burst"
     rate = "480/minute"
 
 
-class PersonsDeleteSustainedThrottle(PersonalApiKeyRateThrottle):
+class PersonsDeleteSustainedThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
     scope = "persons_delete_sustained"
     rate = "4800/hour"
+
+
+class PersonsDeleteTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    scope = "persons_delete_burst"
+    rate = PersonsDeleteBurstThrottle.rate
+
+
+class PersonsDeleteTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    scope = "persons_delete_sustained"
+    rate = PersonsDeleteSustainedThrottle.rate
 
 
 class PersonUpdatePropertyRequestSerializer(serializers.Serializer):
@@ -455,9 +472,13 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
             representation["distinct_ids"] = sorted(representation["distinct_ids"], key=is_anonymous_id)
             restricted = self.context.get("restricted_person_properties")
             if restricted and representation.get("properties"):
-                representation["properties"] = {
-                    k: v for k, v in representation["properties"].items() if k not in restricted
-                }
+                representation["properties"] = redact_restricted_properties(representation["properties"], restricted)
+                representation["name"] = get_person_name_helper(
+                    instance.pk,
+                    representation["properties"],
+                    representation["distinct_ids"],
+                    self.context["get_team"](),
+                )
             return representation
         elif isinstance(instance, MissingPerson):
             return {
@@ -716,6 +737,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
 
     scope_object = "person"
+    authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    psak_allowed_actions = ["bulk_delete"]
     renderer_classes = cast(
         tuple[type[BaseRenderer], ...],
         (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer),
@@ -726,6 +749,13 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     pagination_class = PersonLimitOffsetPagination
 
     def get_throttles(self):
+        if is_authenticated_via_project_secret_api_key(self.request):
+            return [
+                PersonsDeleteBurstThrottle(),
+                PersonsDeleteSustainedThrottle(),
+                PersonsDeleteTeamBurstThrottle(),
+                PersonsDeleteTeamSustainedThrottle(),
+            ]
         # API is commonly used for data deletion, so we want to throttle that less aggressively
         if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication):
             if self.action in ("destroy", "bulk_delete", "delete_events", "delete_recordings"):
@@ -1035,9 +1065,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             for person_dict in serialized_actors:
                 properties = person_dict.get("properties")
                 if isinstance(properties, dict):
-                    person_dict["properties"] = {
-                        k: v for k, v in properties.items() if k not in restricted_person_properties
-                    }
+                    person_dict["properties"] = redact_restricted_properties(properties, restricted_person_properties)
+                    person_dict["name"] = get_person_name_helper(
+                        person_dict["id"], person_dict["properties"], person_dict["distinct_ids"], team
+                    )
 
         # After the restriction, so no tag reveals a hidden property. CSV would turn the list into
         # per-row columns.
@@ -1156,6 +1187,18 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not distinct_ids and not ids:
             raise ValidationError("You need to specify either distinct_ids or ids")
 
+        if is_authenticated_via_project_secret_api_key(request):
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=None,
+                item_id=None,
+                scope="Person",
+                activity="bulk_delete_requested",
+                detail=Detail(),
+                was_impersonated=False,
+            )
+
         if allow_queued and settings.PERSON_BULK_DELETE_ASYNC:
             return self._queue_bulk_delete_persons(
                 request,
@@ -1166,6 +1209,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 keep_person=keep_person,
             )
 
+        actor = None if is_authenticated_via_project_secret_api_key(request) else cast(User, request.user)
         persons = resolve_persons_for_deletion(self.team_id, ids, distinct_ids)
         if not keep_person or delete_recordings:
             queue_person_training_deletion(
@@ -1180,7 +1224,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             result = delete_persons_profile(
                 self.team_id,
                 persons,
-                actor=cast(User, request.user),
+                actor=actor,
                 request=request,
                 organization_id=self.organization.id,
                 queue_ai_training_deletion=False,
@@ -1194,11 +1238,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ]
 
         if delete_events:
-            queue_person_event_deletion(self.team_id, persons, actor=cast(User, request.user))
+            queue_person_event_deletion(self.team_id, persons, actor=actor)
         if delete_recordings:
-            queue_person_recording_deletion(
-                self.team_id, persons, actor=cast(User, request.user), queue_ai_training_deletion=False
-            )
+            queue_person_recording_deletion(self.team_id, persons, actor=actor, queue_ai_training_deletion=False)
 
         return {
             "persons_found": len(persons),
@@ -1220,7 +1262,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         keep_person: bool,
     ) -> dict[str, Any]:
         """Resolve persons without their distinct IDs and hand every distinct-ID-dependent step to Celery."""
-        actor = cast(User, request.user)
+        actor = None if is_authenticated_via_project_secret_api_key(request) else cast(User, request.user)
         persons = resolve_persons_for_deletion(self.team_id, ids, distinct_ids, with_distinct_ids=False)
         # A requested distinct ID with no person row can still own replay sessions. The task covers
         # every distinct ID of each resolved person, so only those unmatched IDs are handed over.
@@ -1349,7 +1391,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 user=user,
                 property_type=PropertyDefinition.Type.PERSON,
             )
-            if key in restricted:
+            if property_key_overlaps_restriction(key, restricted):
                 span.set_attribute("result_count", 0)
                 resp = response.Response({"results": [], "refreshing": False})
                 resp["Cache-Control"] = "max-age=10"
@@ -1974,7 +2016,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         tags=["persons"],
     )
     @action(methods=["GET"], detail=False, required_scopes=["person:read"])
-    def properties_at_time(self, request: request.Request) -> response.Response:
+    def properties_at_time(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         """
         Get person properties as they existed at a specific point in time.
 
@@ -2056,13 +2098,16 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 timestamp=timestamp,
                 distinct_ids=distinct_ids_queried,
                 include_set_once=include_set_once,
+                user=cast(User, request.user),
             )
 
-            # Serialize the person object
-            person_data = PersonSerializer(person, context={"get_team": lambda: self.team}).data
+            serializer_context = {**self.get_serializer_context(), "get_team": lambda: self.team}
+            person_data = PersonSerializer(person, context=serializer_context).data
 
-            # Replace current properties with point-in-time properties
-            person_data["properties"] = point_in_time_properties
+            # The serializer only filtered the current properties, not these reconstructed ones.
+            person_data["properties"] = redact_restricted_properties(
+                point_in_time_properties, serializer_context.get("restricted_person_properties") or set()
+            )
 
             # Add metadata about the point-in-time query
             person_data["point_in_time_metadata"] = {

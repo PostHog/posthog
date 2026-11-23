@@ -10,7 +10,6 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ("signals", "0001_squash_2026_09_07_initial"),
         ("tasks", "0001_squash_2026_09_07_initial"),
         ("tasks", "0120_backfill_canvas_search_documents"),
     ]

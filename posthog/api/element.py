@@ -23,10 +23,10 @@ from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import Element, Team
+from posthog.models import Element, Team, User
 from posthog.models.element.chain_query import normalized_elements_chain_expr
 from posthog.models.element.element import build_attributes_filter, chain_to_element_dicts
-from posthog.models.property.parse import parse_properties_for_team
+from posthog.models.property.parse import parse_properties_for_team, parse_property_group_data
 from posthog.permissions import posthog_feature_flag_enabled
 from posthog.utils import format_query_params_absolute_url
 
@@ -60,6 +60,22 @@ ELEMENT_STATS_TIME_HISTOGRAM = Histogram(
 SUPPORTED_VALUES_KEYS = {"tag_name", "text", "href", "attr_id"}
 _SUPPORTED_VALUES_KEYS_DISPLAY = ", ".join(sorted(SUPPORTED_VALUES_KEYS))
 KEYS_WITH_NO_LISTABLE_VALUES = {"selector"}
+
+STATS_PROPERTY_FILTER_TYPES = frozenset({"cohort", "element", "event", "person"})
+
+
+def _validate_stats_property_filter_types(properties: object) -> None:
+    disallowed = {prop.type for prop in parse_property_group_data(properties).flat} - STATS_PROPERTY_FILTER_TYPES
+    if disallowed:
+        raise ValidationError(
+            {
+                "properties": (
+                    f"Unsupported property filter type(s): {', '.join(sorted(map(str, disallowed)))}. "
+                    f"Supported types: {', '.join(sorted(STATS_PROPERTY_FILTER_TYPES))}."
+                )
+            }
+        )
+
 
 ELEMENT_STATS_RESULT_COUNT_HISTOGRAM = Histogram(
     "element_stats_result_count",
@@ -153,7 +169,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "JSON-encoded list of property filters to apply to the underlying events, e.g. "
                     '[{"key": "$current_url", "value": "https://example.com/page"}] or '
                     '[{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}]. '
-                    "Supports event, person, cohort, element, and HogQL property filter types."
+                    "Supports event, person, cohort, and element property filter types."
                 ),
             ),
             OpenApiParameter(
@@ -182,6 +198,8 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             timer = ServerTimingsGathered()
 
             with timer("prepare_for_query"), tracer.start_as_current_span("elements_api_stats.prepare_for_query"):
+                # team test-account filters, folded in below, may legitimately hold HogQL
+                _validate_stats_property_filter_types(request.GET.get("properties"))
                 property_groups = parse_properties_for_team(request.GET.dict(), self.team)
                 date_range = QueryDateRange(
                     date_range=DateRange(
@@ -278,6 +296,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     query=select,
                     team=self.team,
                     query_type="elements_stats",
+                    user=request.user if isinstance(request.user, User) else None,
                     # the toolbar paginates in pages of up to 50k, so limit + 1 must
                     # survive above the default 50k query cap
                     limit_context=LimitContext.HEATMAPS,
@@ -311,8 +330,8 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
             elements_response.headers["Server-Timing"] = timer.to_header_string()
-            elements_response.headers["Cache-Control"] = "public, max-age=30"  # Cache for 30 seconds
-            elements_response.headers["Vary"] = "Accept, Accept-Encoding, Query-String"
+            elements_response.headers["Cache-Control"] = "private, max-age=30"
+            elements_response.headers["Vary"] = "Accept, Accept-Encoding, Query-String, Authorization, Cookie"
             return elements_response
 
     def _events_filter(self, request) -> tuple[Literal["$autocapture", "$rageclick", "$dead_click"], ...]:
@@ -417,7 +436,12 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "filter_regex": ast.Constant(value=filter_regex),
                 },
             )
-            result = execute_hogql_query(query=select, team=self.team, query_type="elements_values").results
+            result = execute_hogql_query(
+                query=select,
+                team=self.team,
+                query_type="elements_values",
+                user=request.user if isinstance(request.user, User) else None,
+            ).results
             span.set_attribute("result_count", len(result))
             return response.Response([{"name": row[0]} for row in result])
 

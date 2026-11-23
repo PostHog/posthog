@@ -2,6 +2,8 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
+from django.db import models
+
 from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 from rest_framework_dataclasses.fields import EnumField
@@ -17,10 +19,11 @@ from products.ai_observability.backend.api.offline_experiment_serializers import
 )
 from products.ai_observability.backend.api.query import validate_query_parameters
 from products.ai_observability.backend.api.resource_tags import ResourceTagFilterField
+from products.ai_observability.backend.composite_scorers import CompositeConfigSerializer
 from products.ai_observability.backend.models.offline_evaluations import (
     OfflineEvaluationResult,
     OfflineExperiment,
-    PayloadState,
+    PayloadState as StoredPayloadState,
 )
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition
 from products.ai_observability.backend.offline_evaluation_read_types import (
@@ -227,6 +230,12 @@ class OfflineScorerHistoryQuerySerializer(OfflineHistoryQuerySerializer):
 
 
 class OfflineExperimentReadSerializer(serializers.Serializer):
+    updated_at = serializers.DateTimeField(
+        required=False, allow_null=True, help_text="Most recent item, result, or payload change."
+    )
+    closed_item_count = serializers.IntegerField(
+        required=False, allow_null=True, help_text="Number of items when the experiment closed."
+    )
     created_by = UserBasicSerializer(
         read_only=True, allow_null=True, help_text="User who submitted the experiment, or null for service credentials."
     )
@@ -276,6 +285,12 @@ class OfflineExperimentReadSerializer(serializers.Serializer):
 
 
 class OfflineScorerVersionReadSerializer(serializers.Serializer):
+    calculation = serializers.ChoiceField(
+        choices=ScoreDefinition.Calculation.choices, help_text="Reported or computed from other item scores."
+    )
+    composition = CompositeConfigSerializer(
+        allow_null=True, help_text="Immutable formula and exact input versions for a composite."
+    )
     id = serializers.UUIDField(help_text="Exact immutable scorer-version UUID.")
     definition_id = serializers.UUIDField(help_text="Stable scorer definition UUID.")
     version = serializers.IntegerField(help_text="Version number within the definition.")
@@ -287,7 +302,28 @@ class OfflineScorerVersionReadSerializer(serializers.Serializer):
     config = ScoreDefinitionConfigField(help_text="Pinned immutable configuration used to interpret these results.")
 
 
+class PayloadState(models.TextChoices):
+    NOT_PROVIDED = StoredPayloadState.NOT_PROVIDED.value, StoredPayloadState.NOT_PROVIDED.label
+    AVAILABLE = StoredPayloadState.AVAILABLE.value, StoredPayloadState.AVAILABLE.label
+    EXPIRED = StoredPayloadState.EXPIRED.value, StoredPayloadState.EXPIRED.label
+    DELETED = "deleted", "Deleted"
+
+
 class OfflineResultFieldsSerializer(serializers.Serializer):
+    is_stale = serializers.BooleanField(
+        help_text="Whether the item's input, output, or expected output changed after this score."
+    )
+    revision = serializers.IntegerField(required=False, help_text="Current revision for updates and deletes.")
+    score_updated_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="Time of the latest score update. For composites, the oldest input score time.",
+    )
+    input_result_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_null=True,
+        help_text="Input result UUIDs for a computed score, in formula input order. Null for reported scores.",
+    )
     id = serializers.UUIDField(help_text="Stable result UUID.")
     item_id = serializers.UUIDField(help_text="Item evaluated by this result.")
     status = serializers.ChoiceField(choices=OfflineEvaluationResult.Status.choices, help_text="Evaluation outcome.")
@@ -325,6 +361,10 @@ class OfflineResultCellsSerializer(serializers.Serializer):
 
 
 class OfflineItemReadSerializer(serializers.Serializer):
+    revision = serializers.IntegerField(required=False, help_text="Current revision for updates and deletes.")
+    content_updated_at = serializers.DateTimeField(
+        required=False, allow_null=True, help_text="Last change to the input, output, or expected output."
+    )
     model_version = serializers.CharField(
         allow_null=True, required=False, help_text="Model used for the item, falling back to the experiment's model."
     )
@@ -353,6 +393,10 @@ class OfflineItemReadSerializer(serializers.Serializer):
 
 
 class OfflineItemPayloadReadSerializer(serializers.Serializer):
+    revision = serializers.IntegerField(required=False, help_text="Current revision of the payload owner.")
+    deleted_at = serializers.DateTimeField(
+        required=False, allow_null=True, help_text="Time of explicit payload deletion."
+    )
     id = serializers.UUIDField(help_text="Owning item UUID.")
     payload_state = serializers.ChoiceField(choices=PayloadState.choices, help_text="Durable payload storage state.")
     payload_expires_at = serializers.DateTimeField(allow_null=True, help_text="Payload retention deadline.")
@@ -399,6 +443,9 @@ class OfflineCategorySummarySerializer(serializers.Serializer):
 
 
 class OfflineScorerSummarySerializer(serializers.Serializer):
+    not_requested_count = serializers.IntegerField(
+        help_text="Items without a composite request. These are excluded from missing results and pass rates."
+    )
     scorer = OfflineScorerVersionReadSerializer(help_text="Exact scorer version summarized.")
     observed_item_count = serializers.IntegerField(
         help_text="All observed experiment items, independent of scorer selection or item pagination."

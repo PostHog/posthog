@@ -20,6 +20,8 @@ from pydantic import ValidationError as PydanticValidationError
 
 from posthog.schema import PropertyGroupFilter
 
+from posthog.hogql.errors import QueryError
+
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import ProduceResult
 from posthog.models import Team
@@ -32,7 +34,13 @@ from products.alerts.backend.facade.destinations import (
     flush_alert_internal_events,
     produce_alert_internal_event,
 )
+from products.alerts_platform.backend.facade.check_errors import AlertErrorCode, classify_check_error
 from products.alerts_platform.backend.facade.delivery_slo import alert_delivery_slo
+from products.alerts_platform.backend.facade.rolling_checks import (
+    derive_breaches,
+    resolve_check_end,
+    rolling_check_lookback_minutes,
+)
 from products.logs.backend.alert_check_query import (
     AlertCheckQuery,
     BatchedAlertCheckQuery,
@@ -40,16 +48,10 @@ from products.logs.backend.alert_check_query import (
     BucketedCount,
     fetch_live_logs_checkpoint,
     is_projection_eligible,
-    resolve_alert_date_to,
 )
 from products.logs.backend.alert_destinations import LOGS_ALERT_INCIDENT_CLOSED_EVENT, LOGS_ALERT_INCIDENT_OPENED_EVENT
-from products.logs.backend.alert_error_classifier import (
-    AlertErrorCode,
-    classify as classify_alert_error,
-)
 from products.logs.backend.alert_event_properties import failure_event_properties, threshold_event_properties
 from products.logs.backend.alert_incidents import close_incident, has_incident_destination, incident_closed_properties
-from products.logs.backend.alert_lookback import rolling_check_lookback_minutes
 from products.logs.backend.alert_signal_emitter import (
     NotifiedAlert,
     emit_alert_state_change_signal,
@@ -149,34 +151,6 @@ def _post_cohort_memory_cleanup() -> None:
     except Exception:
         logger.exception("gc.collect failed in post-cohort cleanup")
     _safe_record("worker_gc_objects gauge", record_worker_memory_snapshot)
-
-
-def _derive_breaches(
-    buckets: list[BucketedCount],
-    threshold_count: int,
-    threshold_operator: str,
-    evaluation_periods: int,
-) -> tuple[bool, ...]:
-    """Map ASC-ordered bucketed CH counts to a newest-first breach tuple of length M.
-
-    CH's `GROUP BY` only emits buckets that have data. The state machine needs M
-    data points regardless of how sparse the underlying log volume is — so we
-    pad the result to `evaluation_periods` with the implicit count=0 outcome:
-    `False` for `above` (0 < threshold), `True` for `below` (0 < threshold given
-    the model's min_value=1 validator).
-
-    Without this pad, a `below` alert on a truly silent service would never
-    fire — CH returns no buckets, the breach tuple is empty, and the N-of-M
-    evaluator never sees the implicit "count is below threshold" signal.
-    """
-    if threshold_operator == "above":
-        actual = tuple(b.count > threshold_count for b in reversed(buckets))
-        missing_breach = False
-    else:
-        actual = tuple(b.count < threshold_count for b in reversed(buckets))
-        missing_breach = True
-    pad = (missing_breach,) * max(0, evaluation_periods - len(actual))
-    return actual + pad
 
 
 @dataclasses.dataclass(frozen=True)
@@ -308,7 +282,6 @@ class _DispatchedAlert:
     produce_result: ProduceResult | None = None
     incident_produce_result: ProduceResult | None = None
     suppressed_by_quiet_hours: bool = False
-    shadowed: bool = False
 
     @property
     def produced(self) -> bool:
@@ -576,7 +549,7 @@ def _cohort_manifests_from_alerts(
                 _mark_alert_broken_for_bad_config(str(row["id"]), broken_reason)
                 continue
             nca = row["next_check_at"] if row["next_check_at"] is not None else now
-            date_to = resolve_alert_date_to(nca, checkpoint)
+            date_to = resolve_check_end(nca, checkpoint)
             projection_eligible = is_projection_eligible(row["filters"])
             key = (
                 row["team_id"],
@@ -734,8 +707,7 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                 delivery_slo_handles: dict[str, SloHandle] = {}
                 for evaluation in evaluations:
                     delivery_action = evaluation.outcome.notification
-                    # A shadowed alert sends nothing, so it has no delivery to measure.
-                    if delivery_action != NotificationAction.NONE and not evaluation.alert.platform_owned:
+                    if delivery_action != NotificationAction.NONE:
                         alert_id = str(evaluation.alert.id)
                         delivery_slo_handles[alert_id] = slo_stack.enter_context(
                             alert_delivery_slo(
@@ -960,6 +932,13 @@ def _run_per_alert_queries(cohort: _AlertCohort) -> _CohortQueryResult:
     return _CohortQueryResult(per_alert=per_alert)
 
 
+def _is_alert_filter_error(exc: Exception) -> bool:
+    # HogQL rejects the alert's own filters with a QueryError, which the user sees and fixes, so it is not a
+    # PostHog error. ClickHouse errors classified as invalid_query (UNKNOWN_FUNCTION, TYPE_MISMATCH) can come from
+    # a regression in the generated query, so they still go to error tracking.
+    return isinstance(exc, QueryError)
+
+
 def _run_cohort_query(cohort: _AlertCohort) -> _CohortQueryResult:
     """Batched CH query for a cohort; per-alert fallback on non-transient failure.
 
@@ -979,7 +958,7 @@ def _run_cohort_query(cohort: _AlertCohort) -> _CohortQueryResult:
 
         alert_ids = [str(a.id) for a in cohort.alerts]
 
-        classified = classify_alert_error(e)
+        classified = classify_check_error(e)
         if classified.is_transient:
             logger.warning(
                 "Batched cohort query failed (transient); skipping per-alert fallback",
@@ -1000,7 +979,8 @@ def _run_cohort_query(cohort: _AlertCohort) -> _CohortQueryResult:
             error=str(e),
             classification=classified.code,
         )
-        capture_exception(e, {"team_id": team_id, "cohort_size": cohort_size, "alert_ids": alert_ids})
+        if not _is_alert_filter_error(e):
+            capture_exception(e, {"team_id": team_id, "cohort_size": cohort_size, "alert_ids": alert_ids})
         _safe_record("cohort_query_fallback counter", increment_cohort_query_fallback, "batched_failure")
         return _run_per_alert_queries(cohort)
 
@@ -1100,13 +1080,6 @@ def _dispatch_for_alert(evaluation: _AlertEvaluation, now: datetime) -> _Dispatc
                 notification_failed=False,
                 suppressed_by_quiet_hours=True,
             )
-
-        # Decided and enqueued under the row lock a cutover also takes, so a cutover cannot land
-        # between the two. Counted as delivered, so state and cooldown move as they would have. An
-        # owner change since the check read the alert also sends nothing: the row now carries the
-        # other stack's state, which this check never saw, and the save skips it too.
-        if current_alert.platform_owned or current_alert.owner_changed_at != evaluation.alert.owner_changed_at:
-            return _DispatchedAlert(evaluation=evaluation, notification_failed=False, shadowed=True)
 
         produce_result = _dispatch_notification(
             evaluation.outcome,
@@ -1291,28 +1264,20 @@ def _save_cohort_outcomes(
     update_ms: int | None = None
     saved: list[_DispatchedAlert] = list(dispatched)
     failed: list[_DispatchedAlert] = []
-    superseded: list[_DispatchedAlert] = []
     try:
         with transaction.atomic():
-            current = {
-                alert_id: (restriction, owner_changed_at)
-                for alert_id, restriction, owner_changed_at in LogsAlertConfiguration.objects.select_for_update()
+            current = dict(
+                LogsAlertConfiguration.objects.select_for_update()
                 .filter(id__in=[d.evaluation.alert.id for d in dispatched])
-                .values_list("id", "schedule_restriction", "owner_changed_at")
-            }
+                .values_list("id", "schedule_restriction")
+            )
 
             # The worker can evaluate an alert while a user saves quiet hours. Locking
             # before staging makes either write order safe: this worker uses the saved
             # restriction, or the API waits and then reschedules after this check.
             staged: list[tuple[_DispatchedAlert, list[str], LogsAlertEvent | None]] = []
             for d in dispatched:
-                restriction, owner_changed_at = current.get(d.evaluation.alert.id, (None, None))
-                # A cutover or rollback carried another stack's state onto this row after the check
-                # read it, so this check's state and schedule are stale and are not saved.
-                if owner_changed_at != d.evaluation.alert.owner_changed_at:
-                    superseded.append(d)
-                    continue
-                d.evaluation.alert.schedule_restriction = restriction
+                d.evaluation.alert.schedule_restriction = current.get(d.evaluation.alert.id)
                 update_fields, event = _stage_alert_for_save(d, now)
                 staged.append((d, update_fields, event))
 
@@ -1337,7 +1302,6 @@ def _save_cohort_outcomes(
         capture_exception(e, {"cohort_size": len(dispatched), "fallback": "per_alert"})
         increment_cohort_save_fallback("integrity_error")
         saved, failed = _save_staged_per_alert(staged)
-        saved += superseded
 
     save_ms = int((time.perf_counter() - save_start) * 1000)
     with _safe_record_block("cohort save metrics"):
@@ -1365,17 +1329,9 @@ def _save_staged_per_alert(
     for d, update_fields, event in staged:
         try:
             with transaction.atomic():
-                # The bulk attempt's locks are gone, so an owner change can have landed since.
-                current_owner_changed_at = (
-                    LogsAlertConfiguration.objects.select_for_update()
-                    .filter(id=d.evaluation.alert.id)
-                    .values_list("owner_changed_at", flat=True)
-                    .first()
-                )
-                if current_owner_changed_at == d.evaluation.alert.owner_changed_at:
-                    if event is not None:
-                        event.save()
-                    d.evaluation.alert.save(update_fields=update_fields)
+                if event is not None:
+                    event.save()
+                d.evaluation.alert.save(update_fields=update_fields)
             saved.append(d)
         except Exception as e:
             logger.exception(
@@ -1442,7 +1398,7 @@ def _build_notified_from_saved(saved: list[_DispatchedAlert]) -> list[NotifiedAl
     """
     notified: list[NotifiedAlert] = []
     for d in saved:
-        if d.notification_failed or d.shadowed:
+        if d.notification_failed:
             continue
         mapping = signal_action_and_weight(d.evaluation.outcome.notification)
         if mapping is None:
@@ -1492,7 +1448,7 @@ def _evaluate_single_alert(
     original_next_check_at = alert.next_check_at
 
     nca = alert.next_check_at if alert.next_check_at is not None else now
-    date_to = resolve_alert_date_to(nca, checkpoint)
+    date_to = resolve_check_end(nca, checkpoint)
     date_from = date_to - timedelta(
         minutes=rolling_check_lookback_minutes(
             alert.window_minutes, alert.check_interval_minutes, alert.evaluation_periods
@@ -1523,7 +1479,9 @@ def _evaluate_single_alert(
             )
             query_duration_ms = int((time.perf_counter() - query_start) * 1000)
 
-        breaches = _derive_breaches(buckets, alert.threshold_count, alert.threshold_operator, alert.evaluation_periods)
+        breaches = derive_breaches(
+            [b.count for b in buckets], alert.threshold_count, alert.threshold_operator, alert.evaluation_periods
+        )
         latest_count = buckets[-1].count if buckets else 0
         check_result = CheckResult(
             result_count=latest_count,
@@ -1532,9 +1490,10 @@ def _evaluate_single_alert(
         )
         recent_breaches = breaches[1:]
     except Exception as e:
-        classified = classify_alert_error(e)
+        classified = classify_check_error(e)
         error_category = classified.code
-        capture_exception(e, {"alert_id": str(alert.id), "classification": classified.code})
+        if not _is_alert_filter_error(e):
+            capture_exception(e, {"alert_id": str(alert.id), "classification": classified.code})
         logger.warning(
             "Alert check query failed",
             alert_id=str(alert.id),

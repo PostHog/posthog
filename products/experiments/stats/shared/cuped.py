@@ -12,7 +12,9 @@ Experiments by Utilizing Pre-Experiment Data"
 
 from dataclasses import dataclass
 
-from .statistics import ProportionStatistic, RatioStatistic, SampleMeanStatistic, StatisticError
+from posthog.dataclasses import frozen
+
+from .statistics import ProportionStatistic, RatioStatistic, RelativeEffectBaseline, SampleMeanStatistic, StatisticError
 
 VARIANCE_FLOOR = 1e-10
 
@@ -32,7 +34,7 @@ class CupedCovariate:
     sum_of_cross_products: float
 
 
-@dataclass
+@frozen
 class CupedResult:
     """Result of CUPED adjustment with metadata for display.
 
@@ -40,19 +42,17 @@ class CupedResult:
         treatment_adjusted: CUPED-adjusted treatment statistic.
         control_adjusted: CUPED-adjusted control statistic.
         theta: The regression coefficient used for adjustment.
-        treatment_unadjusted_mean: Original treatment mean before adjustment.
-        control_unadjusted_mean: Original control mean before adjustment.
         variance_reduction_treatment: Fraction of variance reduced (1 - adjusted/original).
         variance_reduction_control: Fraction of variance reduced (1 - adjusted/original).
+        relative_effect_baseline: The unadjusted control mean that relative effects divide by, with its moments.
     """
 
     treatment_adjusted: SampleMeanStatistic
     control_adjusted: SampleMeanStatistic
     theta: float
-    treatment_unadjusted_mean: float
-    control_unadjusted_mean: float
     variance_reduction_treatment: float
     variance_reduction_control: float
+    relative_effect_baseline: RelativeEffectBaseline
 
 
 def _get_post_sum(post: SampleMeanStatistic | ProportionStatistic) -> float:
@@ -177,7 +177,7 @@ def cuped_adjust(
     Raises:
         StatisticError: If inputs are invalid (mismatched n, unsupported types).
     """
-    if isinstance(treatment_post, RatioStatistic) or isinstance(control_post, RatioStatistic):  # type: ignore[unreachable]
+    if isinstance(treatment_post, RatioStatistic) or isinstance(control_post, RatioStatistic):
         raise StatisticError("CUPED adjustment for ratio metrics is not yet supported")
 
     if type(treatment_post) is not type(control_post):
@@ -192,10 +192,21 @@ def cuped_adjust(
             f"Control post n ({control_post.n}) does not match pre n ({control_cuped.pre_statistic.n})"
         )
 
-    treatment_unadjusted_mean = _get_post_mean(treatment_post)
-    control_unadjusted_mean = _get_post_mean(control_post)
-
     theta = compute_theta(treatment_post, control_post, treatment_cuped, control_cuped)
+
+    control_covariance = _compute_covariance(
+        n=control_post.n,
+        post_sum=_get_post_sum(control_post),
+        pre_sum=control_cuped.pre_statistic.sum,
+        sum_of_cross_products=control_cuped.sum_of_cross_products,
+    )
+    # Treat fitted theta as fixed to first order: randomization makes the population covariate difference zero.
+    # Cov(T_adj - C_adj, C_raw) = -(Var(Y_C) - theta * Cov(Y_C, X_C)) / n_C, with per-observation control moments.
+    relative_effect_baseline = RelativeEffectBaseline(
+        mean=_get_post_mean(control_post),
+        variance=control_post.variance / control_post.n,
+        difference_covariance=-(control_post.variance - theta * control_covariance) / control_post.n,
+    )
 
     if theta == 0.0:
         treatment_adjusted, _ = _adjust_group(treatment_post, treatment_cuped, 0.0)
@@ -204,10 +215,9 @@ def cuped_adjust(
             treatment_adjusted=treatment_adjusted,
             control_adjusted=control_adjusted,
             theta=0.0,
-            treatment_unadjusted_mean=treatment_unadjusted_mean,
-            control_unadjusted_mean=control_unadjusted_mean,
             variance_reduction_treatment=0.0,
             variance_reduction_control=0.0,
+            relative_effect_baseline=relative_effect_baseline,
         )
 
     treatment_adjusted, vr_treatment = _adjust_group(treatment_post, treatment_cuped, theta)
@@ -217,8 +227,7 @@ def cuped_adjust(
         treatment_adjusted=treatment_adjusted,
         control_adjusted=control_adjusted,
         theta=theta,
-        treatment_unadjusted_mean=treatment_unadjusted_mean,
-        control_unadjusted_mean=control_unadjusted_mean,
         variance_reduction_treatment=vr_treatment,
         variance_reduction_control=vr_control,
+        relative_effect_baseline=relative_effect_baseline,
     )

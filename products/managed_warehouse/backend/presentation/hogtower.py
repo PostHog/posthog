@@ -189,9 +189,11 @@ def _status(call: _Call) -> TranslatedResponse:
             "database": connection.get("database") or warehouse.get("database_name", ""),
             "username": connection.get("username") or "root",
         }
-    bucket = _dict(warehouse.get("data_store")).get("bucket_name")
-    if bucket:
-        out["bucket"] = bucket
+    data_store = _dict(warehouse.get("data_store"))
+    if data_store.get("bucket_name"):
+        out["bucket"] = data_store["bucket_name"]
+    if data_store.get("prefix"):
+        out["bucket_prefix"] = data_store["prefix"]
     return TranslatedResponse(resp.status_code, out)
 
 
@@ -332,10 +334,18 @@ def _trino(call: _Call) -> TranslatedResponse:
     resp = call.send("GET", f"{call.warehouse}/trino")
     if not resp.ok or not isinstance(resp.body, dict):
         return resp
+    tenancy = resp.body.get("trino")
     live = resp.body.get("live")
     if isinstance(live, dict) and isinstance(live.get("enabled"), bool):
-        return TranslatedResponse(resp.status_code, live)
-    tenancy = resp.body.get("trino")
+        # The live body is duckgres's and knows nothing of hoglake: the tenancy row says
+        # which backend the catalog is and whether hoglake's catalog exists yet.
+        detail = dict(live)
+        if isinstance(tenancy, dict):
+            if tenancy.get("backend"):
+                detail["backend"] = tenancy["backend"]
+            if "hoglake_initialized" in tenancy:
+                detail["hoglake_initialized"] = tenancy["hoglake_initialized"] is True
+        return TranslatedResponse(resp.status_code, detail)
     if not isinstance(tenancy, dict) or tenancy.get("enabled") is not True:
         out: dict[str, Any] = {"enabled": False}
         if isinstance(tenancy, dict) and tenancy.get("backend"):
@@ -353,7 +363,12 @@ def _trino(call: _Call) -> TranslatedResponse:
             trino_status[key] = tenancy[key]
     return TranslatedResponse(
         resp.status_code,
-        {"enabled": True, "backend": tenancy.get("backend", ""), "status": trino_status},
+        {
+            "enabled": True,
+            "backend": tenancy.get("backend", ""),
+            "hoglake_initialized": tenancy.get("hoglake_initialized") is True,
+            "status": trino_status,
+        },
     )
 
 

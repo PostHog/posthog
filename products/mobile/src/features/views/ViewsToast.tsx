@@ -87,9 +87,7 @@ export function ViewsToast({
                     accessibilityLiveRegion="polite"
                     testID="views-toast"
                 >
-                    <Text style={styles.text} numberOfLines={1}>
-                        {toast.text}
-                    </Text>
+                    <Text style={styles.text}>{toast.text}</Text>
                     {undo ? (
                         <Pressable44
                             onPress={() => {
@@ -132,6 +130,7 @@ const useStyles = createStyles(({ colors }) => ({
     text: {
         flexShrink: 1,
         fontSize: 15,
+        lineHeight: 20,
         fontWeight: '600',
         color: colors.onInk,
     },

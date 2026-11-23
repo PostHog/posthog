@@ -73,6 +73,7 @@ SDK_LIBRARIES = [
     "posthog-unity",
     "posthog-godot",
     "posthog-unreal",
+    "posthog-electron",
     "posthog-server",
     "other",
 ]
@@ -133,6 +134,8 @@ def get_team_request_library_key(team_id: int, request_type: FlagRequestType, li
 def increment_request_count(
     team_id: int, count: int = 1, request_type: FlagRequestType = FlagRequestType.DECIDE
 ) -> None:
+    if not settings.FLAGS_BILLING_COUNTERS_ENABLED:
+        return
     try:
         client = get_client()
         time_bucket = str(int(time.time() / CACHE_BUCKET_SIZE))
@@ -143,6 +146,8 @@ def increment_request_count(
 
 
 def increment_local_evaluation_request_counts(team_id: int) -> None:
+    if not settings.FLAGS_BILLING_COUNTERS_ENABLED:
+        return
     # One round trip for both counters, so a Redis stall delays the flag list request once.
     try:
         pipe = get_client().pipeline(transaction=False)

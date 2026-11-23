@@ -109,6 +109,30 @@ class TestEntityEndpoints:
         assert result.items == [[{"id": "1"}]]
         assert len(_token_requests(result.requests)) == 2
 
+    @pytest.mark.parametrize(
+        "endpoint, expected_path",
+        [
+            ("campaigns", "/backstage/api/1.0/acct/campaigns/"),
+            ("allowed_accounts", "/backstage/api/1.0/users/current/allowed-accounts"),
+            ("advertisers", "/backstage/api/1.0/acct/advertisers"),
+        ],
+    )
+    def test_requests_account_or_user_scoped_path(self, endpoint, expected_path):
+        result = _driver().run(endpoint, _script(ScriptedResponse(json={"results": [{"id": 1}], "metadata": {}})))
+
+        assert result.items == [[{"id": 1}]]
+        assert [request.path for request in _api_requests(result.requests)] == [expected_path]
+
+    @pytest.mark.parametrize("endpoint, expect_failure", [("advertisers", False), ("campaigns", True)])
+    def test_404_is_empty_only_for_endpoints_that_allow_it(self, endpoint, expect_failure):
+        result = _driver().run(
+            endpoint,
+            _script(ScriptedResponse(status=404, json={"http_status": 404, "message": "Not found"})),
+        )
+
+        assert result.items == []
+        assert (result.raised is not None and "404" in str(result.raised)) is expect_failure
+
 
 class TestCampaignItemsFanOut:
     def test_resumes_from_saved_campaign_index(self):
@@ -167,14 +191,32 @@ class TestReportWindows:
         assert api_requests[0].param("start_date") == resume_start
         assert len(api_requests) == 1
 
-    def test_snapshot_report_uses_trailing_window_single_fetch(self):
-        result = _driver().run(
-            "top_campaign_content",
-            _script(ScriptedResponse(json={"results": [{"campaign": "1", "item": "9"}]})),
-        )
+    @pytest.mark.parametrize(
+        "endpoint, dimension, row",
+        [
+            ("top_campaign_content", "top-campaign-content/dimensions/item_breakdown", {"campaign": "1", "item": "9"}),
+            (
+                "campaign_summary_by_site",
+                "campaign-summary/dimensions/site_breakdown",
+                {"site": "demo-site", "site_name": "Demo Site", "blocking_level": "NONE", "spent": 1.5},
+            ),
+            (
+                "campaign_summary_by_country",
+                "campaign-summary/dimensions/country_breakdown",
+                {"country": "FR", "country_name": "France", "clicks": 3},
+            ),
+        ],
+    )
+    def test_snapshot_report_uses_trailing_window_single_fetch(self, endpoint, dimension, row):
+        result = _driver().run(endpoint, _script(ScriptedResponse(json={"results": [row]})))
 
-        assert result.items == [[{"campaign": "1", "item": "9"}]]
-        assert len(_api_requests(result.requests)) == 1
+        assert result.items == [[row]]
+        api_requests = _api_requests(result.requests)
+        assert len(api_requests) == 1
+        assert api_requests[0].path == f"/backstage/api/1.0/acct/reports/{dimension}"
+        start, end = api_requests[0].param("start_date"), api_requests[0].param("end_date")
+        assert start is not None and end is not None
+        assert date.fromisoformat(end) - date.fromisoformat(start) == timedelta(days=REPORT_LOOKBACK_DAYS)
         assert result.saved_states == []
 
 

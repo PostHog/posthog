@@ -51,7 +51,8 @@ if [ -z "$merge_base" ]; then
     echo "Warning: no merge-base for $BASE_SHA and HEAD (shallow fetch too shallow?) — comparing against $BASE_SHA directly"
     merge_base="$BASE_SHA"
 fi
-changed_test_files=$(git diff --name-only --diff-filter=AM "$merge_base..HEAD" -- 'playwright/**/*.spec.ts' 'products/*/frontend/e2e/**/*.spec.ts')
+# Glob magic lets `**/` match no directory, so a spec directly under a product's e2e/ matches too.
+changed_test_files=$(git diff --name-only --diff-filter=AM "$merge_base..HEAD" -- ':(glob)playwright/**/*.spec.ts' ':(glob)products/*/frontend/e2e/**/*.spec.ts')
 
 if [ -z "$changed_test_files" ]; then
     echo "No changed Playwright test files found — skipping flake verification"

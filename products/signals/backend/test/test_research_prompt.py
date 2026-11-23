@@ -573,6 +573,29 @@ class TestBuildReportPresentationPrompt:
         assert ("Match reviewer UUIDs" in prompt) == enabled
         assert ("not a global ban" in prompt) == enabled
 
+    @pytest.mark.parametrize("selection", [False, True])
+    @pytest.mark.parametrize("evidence", [False, True])
+    @pytest.mark.parametrize("code", [False, True])
+    def test_assignee_evidence_requires_both_flags_and_a_repository(
+        self, selection: bool, evidence: bool, code: bool
+    ) -> None:
+        prompt = build_report_presentation_prompt(
+            1, reviewer_selection_enabled=selection, assignee_evidence_enabled=evidence, code_available=code
+        )
+        assert ("posthog-assignee-evidence" in prompt) == (selection and evidence and code)
+        if selection and evidence and code:
+            assert "--paths-file" in prompt
+            assert "`owners.yaml`, and standard CODEOWNERS rules" in prompt
+            assert "organization-qualified GitHub teams" in prompt
+            assert "without a GitHub account" in prompt
+            assert "not an eligibility list" in prompt
+            assert "If absent in an older image" in prompt
+            assert "Team membership, implementation authorship, and review alone do not establish" in prompt
+            assert "leave that candidate unselected" in prompt
+            assert "Do not add the original author as an extra reviewer" in prompt
+        else:
+            assert "leave that candidate unselected" not in prompt
+
     def test_metric_guidance_and_schema_field_only_present_when_enabled(self):
         off = build_report_presentation_prompt(2, metrics_enabled=False)
         on = build_report_presentation_prompt(2, metrics_enabled=True)
@@ -865,3 +888,21 @@ class TestOwnPullRequestCarveOut:
         assert self._PR in prompt
         assert "the previous summary" in prompt
         assert "obsolete_pr_urls" in prompt
+
+
+class TestSourceIssueCarveOut:
+    _ISSUES = ["https://github.com/posthog/posthog/issues/7", "https://github.com/posthog/posthog-js/issues/8"]
+
+    @pytest.mark.parametrize("code_available", [True, False])
+    @pytest.mark.parametrize("issues", [_ISSUES, []])
+    def test_research_and_actionability_prompts_exempt_only_the_report_own_source_issues(self, code_available, issues):
+        # A person files an issue and assigns it to themselves to ask for the work. Read as competing
+        # work, the assignment makes the report already_addressed and hides Implement.
+        prompts = [
+            build_initial_research_prompt(_make_signal({}), 1, code_available=code_available, source_issue_urls=issues),
+            build_actionability_prompt(1, code_available=code_available, source_issue_urls=issues),
+        ]
+        for prompt in prompts:
+            assert all(url in prompt for url in issues)
+            assert ("never count as `already_addressed`" in prompt) is bool(issues)
+            assert ("github.com" in prompt) is bool(issues)

@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    CatalogAttentionApi,
     CertificationCreateApi,
     DataCatalogCertificationApi,
     DataCatalogCertificationsListParams,
@@ -26,11 +27,16 @@ import type {
     DataCatalogMetricsRunCreateParams,
     DataCatalogRelationshipProposalApi,
     DataCatalogRelationshipProposalsListParams,
+    MetricAvailabilityApi,
+    MetricUsageApi,
     PaginatedDataCatalogCertificationListApi,
     PaginatedDataCatalogMetricListApi,
     PaginatedDataCatalogRelationshipProposalListApi,
     PatchedDataCatalogMetricApi,
+    PendingReviewCountsApi,
     RelationshipRejectApi,
+    UsageSnapshotApi,
+    UsageSnapshotSummaryApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -49,6 +55,23 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getDataCatalogAttentionRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_catalog/attention/`
+}
+
+/**
+ * The review and model counts of the catalog's navigation badge. Each part you can't read counts 0.
+ */
+export const dataCatalogAttentionRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<CatalogAttentionApi> => {
+    return apiMutator<CatalogAttentionApi>(getDataCatalogAttentionRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getDataCatalogCertificationsListUrl = (
     projectId: string,
@@ -175,6 +198,23 @@ export const dataCatalogCertificationsDeprecateCreate = async (
     return apiMutator<DataCatalogCertificationApi>(getDataCatalogCertificationsDeprecateCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getDataCatalogMetricAvailabilityRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_catalog/metric_availability/`
+}
+
+/**
+ * Whether the project has any live metric. Skips the list's per-table access checks, which build the whole HogQL schema.
+ */
+export const dataCatalogMetricAvailabilityRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<MetricAvailabilityApi> => {
+    return apiMutator<MetricAvailabilityApi>(getDataCatalogMetricAvailabilityRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -383,6 +423,24 @@ export const dataCatalogMetricsRunCreate = async (
     })
 }
 
+export const getDataCatalogMetricsUsageRetrieveUrl = (projectId: string, name: string) => {
+    return `/api/projects/${projectId}/data_catalog/metrics/${name}/usage/`
+}
+
+/**
+ * How the metric was used in the latest usage scan: direct runs and agent re-derivations.
+ */
+export const dataCatalogMetricsUsageRetrieve = async (
+    projectId: string,
+    name: string,
+    options?: RequestInit
+): Promise<MetricUsageApi> => {
+    return apiMutator<MetricUsageApi>(getDataCatalogMetricsUsageRetrieveUrl(projectId, name), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getDataCatalogMetricsBulkChangeOwnerCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/data_catalog/metrics/bulk/change_owner/`
 }
@@ -440,6 +498,23 @@ export const dataCatalogMetricsBulkDeleteCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(dataCatalogMetricBulkNamesRequestApi),
+    })
+}
+
+export const getDataCatalogPendingReviewRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_catalog/pending_review/`
+}
+
+/**
+ * How many items wait in each review queue, as its list shows them to you, up to ten minutes behind an access change.
+ */
+export const dataCatalogPendingReviewRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<PendingReviewCountsApi> => {
+    return apiMutator<PendingReviewCountsApi>(getDataCatalogPendingReviewRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -563,4 +638,55 @@ export const dataCatalogRelationshipProposalsRejectCreate = async (
             body: JSON.stringify(relationshipRejectApi),
         }
     )
+}
+
+export const getDataCatalogUsageListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_catalog/usage/`
+}
+
+/**
+ * Up to a year of usage scans for the project, newest first, without payloads.
+ */
+export const dataCatalogUsageList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<UsageSnapshotSummaryApi[]> => {
+    return apiMutator<UsageSnapshotSummaryApi[]>(getDataCatalogUsageListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataCatalogUsageLatestRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_catalog/usage/latest/`
+}
+
+/**
+ * The newest finished usage scan, with its payload.
+ */
+export const dataCatalogUsageLatestRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<UsageSnapshotApi> => {
+    return apiMutator<UsageSnapshotApi>(getDataCatalogUsageLatestRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataCatalogUsageRecomputeCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_catalog/usage/recompute/`
+}
+
+/**
+ * Start a usage scan now. The new snapshot computes until the scan finishes.
+ */
+export const dataCatalogUsageRecomputeCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<UsageSnapshotSummaryApi> => {
+    return apiMutator<UsageSnapshotSummaryApi>(getDataCatalogUsageRecomputeCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
 }

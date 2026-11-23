@@ -14,7 +14,7 @@ const overview = (
 describe('promptsOverview', () => {
     it('words each KPI against the window before', () => {
         expect(promptsOverviewKpis(EXAMPLE_PROMPT_SET_OVERVIEW)).toEqual({
-            promptsTracked: { value: '42', note: '44 ran in the last 30 days, 31 of them cited', delta: null },
+            promptsTracked: { value: '42', note: '44 ran in this date range, 31 of them cited', delta: null },
             checks: {
                 value: '2,520',
                 note: '60 checks failed',
@@ -38,6 +38,28 @@ describe('promptsOverview', () => {
                     tooltip: 'Against the 30 days before, in percentage points',
                 },
             },
+            position: {
+                value: '#2.3',
+                note: 'Over 984\u00a0cited answers',
+                delta: { label: '0.5 better', direction: 'up', tooltip: 'Against the 30 days before. Lower is better' },
+            },
+        })
+    })
+
+    it.each([
+        ['a worse rank reads as a loss', 2.0, 1.5, { label: '0.5 worse', direction: 'down' }],
+        ['the same rank', 2.0, 2.0, { label: 'No change', direction: 'flat' }],
+        ['no rank before', 2.0, null, null],
+    ])('compares the average position when %s', (_name, now, before, expected) => {
+        const delta = promptsOverviewKpis(overview({ avg_position: now }, { avg_position: before })).position.delta
+        expect(delta && { label: delta.label, direction: delta.direction }).toEqual(expected)
+    })
+
+    it('has no position without a cited answer', () => {
+        expect(promptsOverviewKpis(overview({ cited: 0, avg_position: null })).position).toEqual({
+            value: 'Not cited',
+            note: 'No cited answers in this date range',
+            delta: null,
         })
     })
 
@@ -62,9 +84,9 @@ describe('promptsOverview', () => {
     })
 
     it.each([
-        ['none of them', { prompts: 3, prompts_cited: 0 }, '3 ran in the last 30 days, none of them cited'],
-        ['all of them', { prompts: 3, prompts_cited: 3 }, '3 ran in the last 30 days, all of them cited'],
-        ['no run', { prompts: 0, prompts_cited: 0 }, 'None ran in the last 30 days'],
+        ['none of them', { prompts: 3, prompts_cited: 0 }, '3 ran in this date range, none of them cited'],
+        ['all of them', { prompts: 3, prompts_cited: 3 }, '3 ran in this date range, all of them cited'],
+        ['no run', { prompts: 0, prompts_cited: 0 }, 'None ran in this date range'],
     ])('describes the cited prompts when %s', (_name, counts, note) => {
         expect(promptsOverviewKpis(overview(counts)).promptsTracked.note).toBe(note)
     })

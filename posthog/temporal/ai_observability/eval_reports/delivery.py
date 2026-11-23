@@ -42,6 +42,10 @@ _slack_converter = SlackMarkdownConverter()
 
 _INVITE_UTM_TAGS = "utm_source=posthog&utm_campaign=eval_report&utm_medium=slack"
 
+_EMAIL_NO_ADDRESSES_ERROR = (
+    "Failed to send email: The email destination has no addresses. Add an address or remove the email destination."
+)
+
 _SLACK_RECONNECT_HINT = "The Slack connection no longer works. Reconnect Slack in your project settings."
 # Slack errors that no retry can fix, each with the step the user must take.
 _SLACK_CONFIG_ERROR_HINTS = {
@@ -299,6 +303,20 @@ def _render_section_mrkdwn(title: str, content: str, project_id: int, citation_m
     return f"*{title}*\n{mrkdwn_content}"
 
 
+def _report_url(project_id: int, evaluation_id: str, report_run_id: str) -> str:
+    from posthog.utils import absolute_uri
+
+    # report_run is the evaluation page's URL param that opens this report in its drawer.
+    return absolute_uri(f"/project/{project_id}/ai-evals/evaluations/{evaluation_id}?report_run={report_run_id}")
+
+
+def _email_addresses(target: dict) -> list[str]:
+    value = target.get("value")
+    if not isinstance(value, str):
+        return []
+    return [address.strip() for address in value.split(",") if address.strip()]
+
+
 def deliver_email_report(
     report_run,
     targets: list[dict],
@@ -310,7 +328,6 @@ def deliver_email_report(
 ) -> list[str]:
     """Send report via email. Returns list of errors (empty if all succeeded)."""
     from posthog.email import EmailMessage
-    from posthog.utils import absolute_uri
 
     content = EvalReportContent.from_dict(report_run.content)
     citation_map = _build_citation_map(content.citations)
@@ -322,7 +339,7 @@ def deliver_email_report(
         body_parts.append(_render_section_html(section.title, section.content, project_id, citation_map))
     body_html = "\n".join(body_parts)
 
-    evaluation_url = absolute_uri(f"/project/{project_id}/ai-evals/evaluations/{evaluation_id}")
+    evaluation_url = _report_url(project_id, evaluation_id, str(report_run.id))
     period_start_display = _format_period_for_display(period_start)
     period_end_display = _format_period_for_display(period_end)
     subject_title = content.title or "Evaluation report"
@@ -332,8 +349,7 @@ def deliver_email_report(
         if target.get("type") != "email":
             continue
 
-        emails = [e.strip() for e in target.get("value", "").split(",") if e.strip()]
-        for email_addr in emails:
+        for email_addr in _email_addresses(target):
             try:
                 message = EmailMessage(
                     campaign_key=f"eval_report_{report_run.report_id}_{report_run.id}",
@@ -386,6 +402,7 @@ def deliver_slack_report(
     report_run,
     targets: list[dict],
     evaluation_name: str,
+    evaluation_id: str,
     team_id: int,
     project_id: int,
     period_start: str,
@@ -410,8 +427,10 @@ def deliver_slack_report(
     if len(header_text) > 150:
         header_text = header_text[:147] + "..."
 
+    report_url = _report_url(project_id, evaluation_id, str(report_run.id))
     period_line = (
         f"*{evaluation_name}*  ·  {_format_period_for_display(period_start)} → {_format_period_for_display(period_end)}"
+        f"  ·  <{report_url}|Open in PostHog>"
     )
 
     team = Team.objects.select_related("organization").get(id=team_id)
@@ -492,13 +511,23 @@ def deliver_slack_report(
     return failures
 
 
+def _report_destinations(targets: list[dict]) -> list[dict[str, str]]:
+    destinations: list[dict[str, str]] = []
+    for target in targets:
+        if target.get("type") == "email":
+            destinations.extend({"type": "email", "name": address} for address in _email_addresses(target))
+        elif target.get("type") == "slack" and target.get("channel"):
+            destinations.append({"type": "slack", "name": _slack_channel_label(target["channel"])})
+    return destinations
+
+
 def deliver_report(report_id: str, report_run_id: str) -> None:
     """Deliver a report run via all configured delivery targets.
 
     Raises RuntimeError after persisting FAILED status if ALL delivery targets
     fail, so the Temporal activity surfaces the failure and the retry policy
     kicks in. Partial failures return normally (with delivery_status=partial_failure).
-    If every failure is a Slack configuration error, a retry cannot fix it, so the
+    If every failure is a configuration error, a retry cannot fix it, so the
     report is disabled and its creator notified instead.
     """
     from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
@@ -517,6 +546,8 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
     all_errors: list[str] = []
 
     email_targets = [t for t in targets if t.get("type") == "email"]
+    email_config_errors = [_EMAIL_NO_ADDRESSES_ERROR for t in email_targets if not _email_addresses(t)]
+    all_errors.extend(email_config_errors)
     email_errors: list[str] = []
     if email_targets:
         email_errors = deliver_email_report(
@@ -528,25 +559,23 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
     slack_failures: list[SlackDeliveryFailure] = []
     if slack_targets:
         slack_failures = deliver_slack_report(
-            report_run, slack_targets, evaluation_name, team_id, project_id, period_start, period_end
+            report_run, slack_targets, evaluation_name, evaluation_id, team_id, project_id, period_start, period_end
         )
         all_errors.extend(failure.message for failure in slack_failures)
 
     had_any_target = bool(email_targets or slack_targets)
     # Each email target may contain multiple comma-separated addresses, and deliver_email_report
     # appends one error per address that fails — so count attempts per address, not per target.
-    email_attempts = sum(
-        len([addr.strip() for addr in t.get("value", "").split(",") if addr.strip()]) for t in email_targets
-    )
+    email_attempts = sum(len(_email_addresses(t)) for t in email_targets)
     slack_attempts = len(slack_targets)
-    total_attempts = email_attempts + slack_attempts
+    total_attempts = email_attempts + len(email_config_errors) + slack_attempts
     all_failed = had_any_target and total_attempts > 0 and len(all_errors) >= total_attempts
 
     from posthog.temporal.ai_observability.eval_reports.metrics import increment_delivery
 
     for _ in range(email_attempts - len(email_errors)):
         increment_delivery("email", "delivered")
-    for _ in range(len(email_errors)):
+    for _ in range(len(email_errors) + len(email_config_errors)):
         increment_delivery("email", "failed")
     for _ in range(slack_attempts - len(slack_failures)):
         increment_delivery("slack", "delivered")
@@ -564,7 +593,8 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
         report_run.delivery_status = EvaluationReportRun.DeliveryStatus.DELIVERED
 
     report_run.delivery_errors = all_errors
-    report_run.save(update_fields=["delivery_status", "delivery_errors"])
+    report_run.delivery_destinations = _report_destinations(targets)
+    report_run.save(update_fields=["delivery_status", "delivery_errors", "delivery_destinations"])
 
     logger.info(
         "llma_eval_reports_delivery_completed",

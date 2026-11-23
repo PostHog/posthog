@@ -2,7 +2,7 @@ use crate::authorizer::Signal;
 use crate::log_record::{apply_timestamp_override, datetime_from_millis, KafkaLogRow};
 use crate::service::{decode_body_if_gzip_magic, Service};
 use axum::{
-    extract::{Extension, Path, Query, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::Json,
 };
@@ -13,8 +13,7 @@ use metrics::counter;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{json, Value};
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::collections::HashMap;
 use tracing::{debug, error, instrument, warn};
 use uuid::Uuid;
 
@@ -160,29 +159,6 @@ impl ParsedDelivery {
             }
         }
     }
-}
-
-/// The token from the URL path first, then the `Authorization` header (`Bearer`, `bearer` or a bare
-/// token), then `?token=`. A drain can only set its URL and custom headers.
-pub fn token_from_request(
-    path_token: Option<&str>,
-    headers: &HeaderMap,
-    query_token: Option<&str>,
-) -> Option<String> {
-    let header_token = headers
-        .get("authorization")
-        .and_then(|value| value.to_str().ok())
-        .map(|auth| {
-            auth.strip_prefix("Bearer ")
-                .or_else(|| auth.strip_prefix("bearer "))
-                .unwrap_or(auth)
-                .trim()
-        });
-    [path_token, header_token, query_token]
-        .into_iter()
-        .flatten()
-        .find(|token| !token.is_empty())
-        .map(str::to_string)
 }
 
 fn hex_to_base64(hex_str: &str) -> String {
@@ -484,31 +460,6 @@ pub fn vercel_log_to_kafka_row(log: VercelLog, token: &str) -> (KafkaLogRow, boo
     (row, was_overridden)
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct VercelDrainGate {
-    allow_all: bool,
-    tokens: Arc<HashSet<String>>,
-}
-
-impl VercelDrainGate {
-    pub fn new(enabled_tokens: &str) -> Self {
-        let tokens: HashSet<String> = enabled_tokens
-            .split(',')
-            .map(str::trim)
-            .filter(|t| !t.is_empty())
-            .map(String::from)
-            .collect();
-        Self {
-            allow_all: tokens.contains("*"),
-            tokens: Arc::new(tokens),
-        }
-    }
-
-    pub fn allows(&self, token: &str) -> bool {
-        self.allow_all || self.tokens.contains(token)
-    }
-}
-
 #[derive(Deserialize, Debug)]
 pub struct VercelQueryParams {
     pub token: Option<String>,
@@ -525,32 +476,18 @@ pub struct VercelQueryParams {
 ]
 pub async fn export_vercel_logs_http(
     State(service): State<Service>,
-    Extension(gate): Extension<VercelDrainGate>,
     path_token: Option<Path<String>>,
     Query(query_params): Query<VercelQueryParams>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let Some(token) = token_from_request(
+    let token = service.authorizer.authorize_from_path_header_or_query(
         path_token.as_ref().map(|Path(token)| token.as_str()),
         &headers,
         query_params.token.as_deref(),
-    ) else {
-        error!("No token provided");
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "No token provided"})),
-        ));
-    };
-
-    service.authorizer.authorize_token(&token, Signal::Logs)?;
-    tracing::Span::current().record("token", &token);
-
-    if !gate.allows(&token) {
-        debug!("Vercel drain route is not enabled for this token");
-        counter!(REJECTED_COUNTER, "reason" => "gate_closed").increment(1);
-        return Err((StatusCode::NOT_FOUND, Json(json!({"error": "Not found"}))));
-    }
+        Signal::Logs,
+    )?;
+    tracing::Span::current().record("token", token);
 
     let body = decode_body_if_gzip_magic(body, service.max_request_body_size_bytes)?;
 
@@ -611,7 +548,7 @@ pub async fn export_vercel_logs_http(
     let results: Vec<(KafkaLogRow, bool)> = parsed
         .logs
         .into_iter()
-        .map(|log| vercel_log_to_kafka_row(log, &token))
+        .map(|log| vercel_log_to_kafka_row(log, token))
         .collect();
     let row_count = results.len();
     let timestamps_overridden = results.iter().filter(|(_, overridden)| *overridden).count() as u64;
@@ -620,7 +557,7 @@ pub async fn export_vercel_logs_http(
     if let Err(e) = service
         .sink
         .write(
-            &token,
+            token,
             rows,
             body.len() as u64,
             timestamps_overridden,

@@ -24,6 +24,7 @@ const TYPE_ALIASES: Record<string, string[]> = {
     alert: ['alerts'],
     ticket: ['tickets', 'support'],
     endpoints: ['endpoint'],
+    person: ['persons', 'people'],
     'hog_function/destination': ['destinations'],
     'hog_function/transformation': ['transformations'],
 }
@@ -49,6 +50,7 @@ const EXTRA_TYPES: Record<string, FileSystemTypeDefinition> = {
         listHref: () => urls.destinations(),
         fileSystemTypes: ['hog_function/destination', 'hog_function/site_destination'],
     },
+    person: { name: 'Person', iconType: 'persons', listHref: () => urls.persons(), listSearchParam: 'search' },
     'hog_function/transformation': {
         name: 'Transformation',
         iconType: 'data_transformation',
@@ -78,22 +80,21 @@ let cachedTypeOptions: ValueOption[] | null = null
 const typeOptions = (): ValueOption[] => {
     if (cachedTypeOptions === null) {
         cachedTypeOptions = Object.entries(COMMAND_K_TYPES)
-            .flatMap(([type, definition]) =>
-                definition.name
-                    ? [
-                          {
-                              value: type,
-                              label: definition.name,
-                              aliases: [
-                                  type,
-                                  definition.name.toLowerCase().replace(/\s+/g, '-'),
-                                  ...(TYPE_ALIASES[type] ?? []),
-                              ],
-                              iconType: definition.iconType ?? type,
-                          },
-                      ]
-                    : []
-            )
+            .flatMap(([type, definition]) => {
+                if (!definition.name) {
+                    return []
+                }
+                const typedValue = definition.name.toLowerCase().replace(/\s+/g, '-')
+                return [
+                    {
+                        value: type,
+                        label: definition.name,
+                        typedValue,
+                        aliases: [type, typedValue, ...(TYPE_ALIASES[type] ?? [])],
+                        iconType: definition.iconType ?? type,
+                    },
+                ]
+            })
             .sort((a, b) => a.label.localeCompare(b.label))
     }
     return cachedTypeOptions

@@ -117,8 +117,7 @@ def _run_row(
         "updated_at": _ts(started + timedelta(seconds=duration_seconds)),
         "run_attempt": run_attempt,
         "pull_requests": None,
-        # Faithful to the webhook's MINIMAL `repository` payload: faking a default_branch here
-        # would green-light a detector reading a column production never lands.
+        # The webhook lands a minimal `repository` payload with no default_branch, so the fixture omits it too.
         "repository": json.dumps({"full_name": repository}),
     }
 
@@ -162,7 +161,6 @@ def _job_row(
 
 
 def _assert_emittable(finding: CISignalFinding) -> None:
-    # The exact emit-time check: detector payload drift would silently reject every signal in prod.
     validate_signal_input(
         source_product=SOURCE_PRODUCT,
         source_type=finding.source_type,
@@ -175,8 +173,6 @@ def _assert_emittable(finding: CISignalFinding) -> None:
 
 
 def test_source_type_constants_match_signals_taxonomy() -> None:
-    # Guards the constants ↔ signals taxonomy mirror: a drift here makes emit_signal reject
-    # every CI signal as an unknown source_product/source_type, silently emitting nothing.
     assert SOURCE_PRODUCT in {product.value for product in SignalSourceConfig.SourceProduct}
     for source_type in (SOURCE_TYPE_FLAKY_CHECK, SOURCE_TYPE_BROKEN_DEFAULT_BRANCH, SOURCE_TYPE_DURATION_REGRESSION):
         assert source_type in {choice.value for choice in SignalSourceConfig.SourceType}
@@ -184,9 +180,6 @@ def test_source_type_constants_match_signals_taxonomy() -> None:
 
 
 def test_detect_all_raises_when_every_detector_fails() -> None:
-    # A ClickHouse outage failing all three detectors must fail the activity so it retries and
-    # alerts, not read as healthy CI with zero findings; one bad detector still must not
-    # suppress the others' findings.
     curated = mock.Mock()
     boom = RuntimeError("clickhouse down")
 
@@ -222,16 +215,12 @@ def _flaky_row(job_name: str, run_id: int, *, workflow_name: str = "CI", head_sh
 
 
 def _detect_flaky_over(rows: list[FlakyJobRun], *, min_flaky_runs: int) -> list[CISignalFinding]:
-    # Grouping runs in Python after this query returns; TestCISignalDetectors covers the SQL row shape.
     with mock.patch(f"{_DETECTORS}.query_workflow_flakiness", return_value=rows):
         return detect_flaky_checks(mock.Mock(), min_flaky_runs=min_flaky_runs)
 
 
 def test_flaky_source_ids_are_collision_free_and_bounded() -> None:
-    # (workflow='build', job='test:linux') and (workflow='build:test', job='linux') would share
-    # a ledger key with naive ':' joins, letting one condition suppress the other's emission;
-    # an oversized name would exceed the ledger column, fail to record after emit, and re-emit
-    # every sweep.
+    # A plain ':' join of workflow and job would give the first two rows the same ledger key.
     rows = [
         _flaky_row("test:linux", 1, workflow_name="build"),
         _flaky_row("linux", 1, workflow_name="build:test"),
@@ -244,8 +233,6 @@ def test_flaky_source_ids_are_collision_free_and_bounded() -> None:
 
 
 def test_flaky_check_emits_one_signal_per_job_per_week_not_per_rerun() -> None:
-    # The sweep re-reads a rolling window hourly. Keying a recurring flake per rerun turned 51
-    # flaky jobs into 905 signals against real PostHog/posthog data: one card per occurrence.
     rows = [_flaky_row("flaky-job", run_id, head_sha=f"sha{run_id}") for run_id in (1, 2, 3)]
     findings = _detect_flaky_over(rows, min_flaky_runs=3)
     assert len(findings) == 1
@@ -255,8 +242,7 @@ def test_flaky_check_emits_one_signal_per_job_per_week_not_per_rerun() -> None:
 
 
 def test_flaky_check_groups_a_sharded_job_under_one_signal() -> None:
-    # Real rendered names with the shard label mid-name: an end-anchored match still splits
-    # this job, and per-shard keys each miss min_flaky_runs, so 3 recoveries report nothing.
+    # The shard label sits mid-name, so an end-anchored match would not group these.
     shards = [
         "Product tests (warehouse-sources (1/4), events schema legacy)",
         "Product tests (warehouse-sources (1/5), events schema legacy)",
@@ -265,7 +251,6 @@ def test_flaky_check_groups_a_sharded_job_under_one_signal() -> None:
     rows = [_flaky_row(shard, run_id, head_sha=f"shaS{run_id}") for run_id, shard in enumerate(shards, start=1)]
     findings = _detect_flaky_over(rows, min_flaky_runs=3)
     assert len(findings) == 1
-    # extra keeps the worked example's real job name so warehouse investigation queries match.
     assert "CI job 'Product tests (warehouse-sources, events schema legacy)'" in findings[0].description
     assert findings[0].extra["job_name"] == "Product tests (warehouse-sources (1/6), events schema legacy)"
     assert findings[0].extra["flaky_count"] == 3
@@ -276,8 +261,6 @@ def test_flaky_check_groups_a_sharded_job_under_one_signal() -> None:
 
 
 def test_flaky_check_counts_runs_not_shard_recoveries() -> None:
-    # One run recovering on three shards is one flaky run: counting query rows would let a
-    # single bad run clear min_flaky_runs on its own.
     rows = [
         _flaky_row(f"Product tests (warehouse-sources ({index}/6), events schema legacy)", 1) for index in (1, 2, 3)
     ]
@@ -286,8 +269,6 @@ def test_flaky_check_counts_runs_not_shard_recoveries() -> None:
 
 class TestDetectForSourceMultiRepo(BaseTest):
     def test_multi_repo_source_snapshots_one_authorized_target(self) -> None:
-        # One roster entry per configured repo must not become duplicate sweep targets:
-        # duplicates would rescan every repo and race the emission ledger within one batch.
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="gh-multi-snap",
@@ -307,8 +288,6 @@ class TestDetectForSourceMultiRepo(BaseTest):
         assert [entry.source_id for entry in authorized] == [str(source.id)]
 
     def test_detects_across_every_synced_repo_of_a_multi_repo_source(self) -> None:
-        # A multi-repo source must contribute findings for each synced repo, not just the one the
-        # bare (repo-less) resolver picks; a repo still backfilling an endpoint is skipped.
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="gh-multi",
@@ -321,7 +300,7 @@ class TestDetectForSourceMultiRepo(BaseTest):
         repo_endpoints = {
             "Acme/one": ["pull_requests", "workflow_runs"],
             "Acme/two": ["pull_requests", "workflow_runs"],
-            "Acme/three": ["pull_requests"],  # workflow_runs still syncing => repo not scanned
+            "Acme/three": ["pull_requests"],  # No workflow_runs schema, so this repo is not scanned.
         }
         for repo, endpoints in repo_endpoints.items():
             slug = repo.replace("/", "_").lower()
@@ -380,8 +359,6 @@ class TestDetectForSourceMultiRepo(BaseTest):
         return source
 
     def test_one_repos_total_failure_does_not_abort_sibling_repos(self) -> None:
-        # detect_all raises when every detector fails for a repo; that must not discard a healthy
-        # sibling's findings; otherwise one repo's transient warehouse error blinds the whole source.
         source = self._two_synced_repo_source()
         uac = UserAccessControl(user=self.user, team=self.team)
 
@@ -403,7 +380,6 @@ class TestDetectForSourceMultiRepo(BaseTest):
         assert {finding.source_id for finding in findings} == {"acme/two:ci:flaky"}
 
     def test_all_repos_failing_re_raises_so_the_activity_retries(self) -> None:
-        # But if every scanned repo fails, surface it: a swallowed all-fail would read as healthy CI.
         source = self._two_synced_repo_source()
         uac = UserAccessControl(user=self.user, team=self.team)
         with mock.patch(f"{_DETECT}.detect_all", side_effect=RuntimeError("clickhouse down")):
@@ -423,7 +399,7 @@ class TestCISignalSourceAuthorization(BaseTest):
         assert {source.source_id for source in authorized} == {str(first.id), str(second.id)}
         assert {source.authorized_by_user_id for source in authorized} == {self.user.id}
 
-        # Connected after enabling => never authorized.
+        # A source connected after enabling is not in the snapshot.
         create_github_source(self.team, prefix="three_", source_id="gh-3")
         assert {source.source_id for source in list_authorized_ci_signal_sources(team=self.team)} == {
             str(first.id),
@@ -450,8 +426,7 @@ class TestCISignalSourceAuthorization(BaseTest):
         self.user.is_active = True
         self.user.save()
 
-        # An authorizer removed from the organization no longer authorizes anything, at discovery
-        # and again at detection time (retries can run long after discovery).
+        # Detection checks membership again because retries can run long after discovery.
         self.user.organization_memberships.all().delete()
         assert list_authorized_ci_signal_sources(team=self.team) == []
         target = CISignalTarget(team_id=self.team.id, source_id=str(first.id), authorized_by_user_id=self.user.id)
@@ -459,8 +434,7 @@ class TestCISignalSourceAuthorization(BaseTest):
             assert _detect_for_target(target) == ([], None)
 
     def test_rollout_flag_is_evaluated_as_the_enabling_user(self) -> None:
-        # The flag's release condition is a person cohort; evaluating with any synthetic
-        # team-scoped distinct_id can never match it and silently disables the sweep everywhere.
+        # The flag's release condition is a person cohort, which a synthetic team-scoped distinct_id never matches.
         with mock.patch("posthoganalytics.feature_enabled", return_value=True) as flag_check:
             assert _rollout_flag_enabled(self.team, self.user)
         assert flag_check.call_args.args[1] == (self.user.distinct_id or str(self.user.uuid))
@@ -491,23 +465,17 @@ class TestCISignalEmissionLedger(BaseTest):
 
     def test_unemitted_filters_recorded_findings(self) -> None:
         findings = [self._finding("a"), self._finding("b")]
-        # A read alone records nothing, so a re-read still returns everything.
         assert {f.source_id for f in _unemitted(self.team, findings)} == {"a", "b"}
         assert {f.source_id for f in _unemitted(self.team, findings)} == {"a", "b"}
-        # Recording one drops it from the next read; unrecorded and new conditions still come through.
         _record_emitted(self.team, self._finding("a"))
         assert {f.source_id for f in _unemitted(self.team, [*findings, self._finding("c")])} == {"b", "c"}
 
     def test_record_is_per_finding_so_a_failed_emit_is_retried(self) -> None:
-        # The coordinator records only after a successful emit. A finding whose emit raised is never
-        # recorded, so the next sweep re-detects and retries it rather than suppressing it for a week.
         findings = [self._finding("emitted"), self._finding("failed")]
         _record_emitted(self.team, findings[0])
         assert {f.source_id for f in _unemitted(self.team, findings)} == {"failed"}
 
     def test_activity_without_ai_approval_neither_emits_nor_records(self) -> None:
-        # emit_signal silently returns when the org isn't AI-approved; recording before that would
-        # bury the finding for its whole dedupe window. The activity gates approval up front instead.
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
         target = CISignalTarget(team_id=self.team.id, source_id="gh-1", authorized_by_user_id=self.user.id)
@@ -521,9 +489,6 @@ class TestCISignalEmissionLedger(BaseTest):
         assert not SignalEmissionRecord.objects.filter(team=self.team).exists()
 
     def test_finding_of_a_disabled_source_type_is_not_emitted_or_recorded(self) -> None:
-        # emit_signal silently drops a signal whose source_type is disabled (e.g. one type turned off
-        # via the generic config endpoint). Recording it would suppress the finding forever, so the
-        # coordinator skips it and leaves the ledger clean; a later re-enable then emits it fresh.
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         target = CISignalTarget(team_id=self.team.id, source_id="gh-1", authorized_by_user_id=self.user.id)
@@ -548,7 +513,6 @@ class TestCISignalEmissionLedger(BaseTest):
         assert is_dry_run(team=self.team) is True
 
     def test_re_enable_preserves_operator_config_keys(self) -> None:
-        # A routine off/on toggle must not flip a shadow-mode team live by wiping dry_run.
         create_github_source(self.team, prefix="one_", source_id="gh-dry")
         update_ci_signals_config(team=self.team, enabled=True, created_by_id=self.user.id)
         for row in SignalSourceConfig.objects.filter(team=self.team, source_product=SOURCE_PRODUCT):
@@ -560,7 +524,6 @@ class TestCISignalEmissionLedger(BaseTest):
         row = SignalSourceConfig.objects.get(
             team=self.team, source_product=SOURCE_PRODUCT, source_type=SOURCE_TYPE_FLAKY_CHECK
         )
-        # The authorization snapshot still refreshes alongside the preserved operator keys.
         assert row.config[AUTHORIZED_SOURCES_CONFIG_KEY]
 
 
@@ -597,8 +560,6 @@ class TestSyncStatus(BaseTest):
     def test_sync_status_resolves_repo_qualified_schema_names(
         self, _name: str, overrides: dict[str, ExternalDataSchemaStatus], expected: CISignalsSyncStatus
     ) -> None:
-        # Multi-repo sources qualify schema names; a bare-name match would pin the status at
-        # RUNNING forever and never surface FAILED.
         statuses = dict.fromkeys(CI_SIGNAL_REQUIRED_SCHEMAS, ExternalDataSchemaStatus.COMPLETED)
         statuses.update(overrides)
         self._github_source_with_schemas(source_id="gh-sync", repo="acme/one", statuses=statuses)
@@ -610,7 +571,6 @@ class TestSyncStatus(BaseTest):
             repo="acme/one",
             statuses=dict.fromkeys(CI_SIGNAL_REQUIRED_SCHEMAS, ExternalDataSchemaStatus.COMPLETED),
         )
-        # An issues-only GitHub source (no CI tables syncing) must not pin the status at RUNNING.
         self._github_source_with_schemas(
             source_id="gh-issues", repo="acme/two", statuses={"issues": ExternalDataSchemaStatus.RUNNING}
         )
@@ -618,10 +578,6 @@ class TestSyncStatus(BaseTest):
 
 
 class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
-    """Detectors run over a real seeded github_workflow_runs warehouse table. Each test seeds both a
-    should-fire and a should-not-fire workflow and asserts the detected set, so it catches both
-    missed conditions and false positives."""
-
     def _seed_table(
         self,
         rows: list[dict[str, Any]],
@@ -668,9 +624,7 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
                 source=source,
                 credential=credential,
             )
-        # The curated run source joins the PR snapshot to attribute each run to the PR that produced
-        # it, so a table of that shape must always exist. Only the default-branch detector reads its
-        # rows; the flaky and duration detectors leave pr_rows unset and get an empty table.
+        # The curated run source always joins the PR snapshot, so the table must exist even when it is empty.
         prs_table, _source, _credential = self._seed_table(
             pr_rows or [],
             table_name="github_pull_requests",
@@ -704,11 +658,7 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         _assert_emittable(findings[0])
 
     def test_flaky_query_keeps_same_commit_reruns_as_distinct_runs(self) -> None:
-        # Three separate runs of one job on one commit must come back as three rows. Grouping that
-        # drops run_id still compiles if run_id is wrapped in an aggregate, and then collapses them
-        # into one row, so flaky_count reads 1 and nothing clears min_flaky_runs. Only a multi-run
-        # seed on a shared head_sha catches that; the mocked detector tests supply the row shape
-        # rather than proving the SQL produces it.
+        # The runs share one head_sha, so a query that groups without run_id would collapse them into one row.
         now = datetime.now(UTC).replace(tzinfo=None)
         rows = [
             _run_row(run_id, "CI", "shaR", "success", now - timedelta(hours=run_id + 1), 60, run_attempt=2)
@@ -727,8 +677,7 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            # A `* Pass` gate fails only because a job it gates failed, so counting it emits a second
-            # signal for every real flake. NO_OP_JOB_MAX_SECONDS drops this one.
+            # 3s is under NO_OP_JOB_MAX_SECONDS, which drops this gate job.
             ("Tests Pass", 3),
             # 46s clears the duration floor, so only BY_DESIGN_FAILURES can drop these.
             *[(name, 46) for name in _BY_DESIGN_JOB_NAMES],
@@ -765,8 +714,6 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         assert {f.extra["job_name"] for f in findings} == {"real-test-job"}
 
     def test_flaky_check_reports_by_design_job_names_in_another_repo(self) -> None:
-        # Every team runs this detector over its own repos, so the repo qualifier has to hold.
-        # The qualifier lives once in the SQL, so one by-design name proves it for the list.
         job_name = _BY_DESIGN_JOB_NAMES[0]
         now = datetime.now(UTC).replace(tzinfo=None)
         rows = [
@@ -788,14 +735,12 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
             _run_row(4, "legacy-ci", "s4", "failure", now - timedelta(hours=4), 30, head_branch="master"),
             _run_row(5, "legacy-ci", "s5", "failure", now - timedelta(hours=3), 30, head_branch="master"),
         ]
-        # The stale PR reported "master" before the repo renamed its default branch; argMax over
-        # updated_at must resolve to the newer "trunk" report, or the failing legacy-ci would fire.
+        # The older PR reports the default branch from before a rename. The newer report must win, or legacy-ci would fire.
         prs = [
             _default_branch_pr_row(1, now - timedelta(days=30), default_branch="master"),
             _default_branch_pr_row(2, now - timedelta(days=1), default_branch="trunk"),
         ]
-        # Both detector calls must read one clock: each keys its source_id on the observation
-        # week, so two real-clock reads straddling Monday 00:00 UTC would fail the equality below.
+        # Each detector call keys its source_id on the observation week, so both calls must read one clock.
         with time_machine.travel(now, tick=False):
             findings = detect_broken_default_branch(self._curated_over_runs(rows, pr_rows=prs), min_runs=2)
             assert {f.extra["workflow_name"] for f in findings} == {"red-ci"}
@@ -803,15 +748,11 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
             assert findings[0].extra["branch"] == "trunk"
             _assert_emittable(findings[0])
 
-            # A still-red branch must dedupe against one weekly key: a new completed run changing the
-            # source_id would re-emit the same standing condition on every hourly sweep.
             rows.append(_run_row(6, "red-ci", "s6", "failure", now - timedelta(hours=1), 30, head_branch="trunk"))
             refreshed = detect_broken_default_branch(self._curated_over_runs(rows, pr_rows=prs), min_runs=2)
             assert refreshed[0].source_id == findings[0].source_id
 
     def test_broken_default_branch_without_pr_evidence_never_guesses(self) -> None:
-        # With no PR row for this repo its default branch is unknown, and a fallback guess of
-        # master/main would mint a P1 from inference rather than from GitHub's report.
         now = datetime.now(UTC).replace(tzinfo=None)
         rows = [
             _run_row(1, "red-ci", "s1", "failure", now - timedelta(hours=3), 30, head_branch="master"),
@@ -821,9 +762,6 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         assert detect_broken_default_branch(self._curated_over_runs(rows, pr_rows=prs), min_runs=2) == []
 
     def test_broken_default_branch_does_not_count_cancelled_runs_as_failures(self) -> None:
-        # A concurrency group cancelling superseded trunk runs is normal, not a red branch. Counting
-        # cancelled runs against the rate pins heavy-cancel workflows permanently under the floor,
-        # which made the guard a no-op and fired P1 on every transient red.
         now = datetime.now(UTC).replace(tzinfo=None)
         rows = [
             _run_row(index, "busy-ci", f"c{index}", "cancelled", now - timedelta(hours=index), 30)
@@ -832,7 +770,7 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         rows += [
             _run_row(20, "busy-ci", "ok1", "success", now - timedelta(hours=10), 30),
             _run_row(21, "busy-ci", "ok2", "success", now - timedelta(hours=11), 30),
-            # Latest completed run is a decisive failure, but 2 of 3 conclusive runs passed.
+            # The latest run failed, but 2 of the 3 runs with a verdict passed.
             _run_row(22, "busy-ci", "bad", "failure", now - timedelta(minutes=30), 30),
         ]
         prs = [_default_branch_pr_row(1, now - timedelta(days=1), default_branch="main")]
@@ -843,22 +781,22 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         current = now - timedelta(days=1)
         baseline = now - timedelta(days=8)
         rows = [
-            # slow-ci: 10s baseline → 120s current (big absolute + relative jump) → regression.
+            # slow-ci: 10s to 120s clears both gates.
             _run_row(1, "slow-ci", "c1", "success", current, 120),
             _run_row(2, "slow-ci", "c2", "success", current - timedelta(hours=1), 120),
             _run_row(3, "slow-ci", "b1", "success", baseline, 10),
             _run_row(4, "slow-ci", "b2", "success", baseline - timedelta(hours=1), 10),
-            # long-ci: 1000s → 1350s (+35% / +350s) clears both gates well short of a doubling → regression.
+            # long-ci: 1000s to 1350s clears both gates without doubling.
             _run_row(13, "long-ci", "c7", "success", current, 1350),
             _run_row(14, "long-ci", "c8", "success", current - timedelta(hours=1), 1350),
             _run_row(15, "long-ci", "b7", "success", baseline, 1000),
             _run_row(16, "long-ci", "b8", "success", baseline - timedelta(hours=1), 1000),
-            # steady-ci: 100s → 104s (+4% / +4s) fails the absolute-jump guard → no signal.
+            # steady-ci: 100s to 104s fails the absolute gate.
             _run_row(5, "steady-ci", "c3", "success", current, 104),
             _run_row(6, "steady-ci", "c4", "success", current - timedelta(hours=1), 104),
             _run_row(7, "steady-ci", "b3", "success", baseline, 100),
             _run_row(8, "steady-ci", "b4", "success", baseline - timedelta(hours=1), 100),
-            # mild-ci: 950s → 1100s (+16% / +150s) clears the absolute floor but fails the relative gate → no signal.
+            # mild-ci: 950s to 1100s clears the absolute gate but fails the relative gate.
             _run_row(17, "mild-ci", "c9", "success", current, 1100),
             _run_row(18, "mild-ci", "c10", "success", current - timedelta(hours=1), 1100),
             _run_row(19, "mild-ci", "b9", "success", baseline, 950),
@@ -875,21 +813,17 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
             _assert_emittable(finding)
 
     def test_duration_regression_ignores_no_op_dominated_windows(self) -> None:
-        # A window of mostly sub-10s no-op gate successes plus one real run passes a
-        # successful_run_count gate, but its p95 is a 1-sample figure. Gating on the non-no-op
-        # percentile population instead must suppress the false regression the thin sample would fire.
         now = datetime.now(UTC).replace(tzinfo=None)
         current = now - timedelta(days=1)
         baseline = now - timedelta(days=8)
         rows = [
-            _run_row(1, "gated-ci", "c1", "success", current, 120),  # the one real run
-            _run_row(2, "gated-ci", "c2", "success", current - timedelta(hours=1), 5),  # no-op gate
-            _run_row(3, "gated-ci", "c3", "success", current - timedelta(hours=2), 5),  # no-op gate
-            _run_row(4, "gated-ci", "b1", "success", baseline, 10),  # the one real baseline run
-            _run_row(5, "gated-ci", "b2", "success", baseline - timedelta(hours=1), 5),  # no-op gate
-            _run_row(6, "gated-ci", "b3", "success", baseline - timedelta(hours=2), 5),  # no-op gate
+            _run_row(1, "gated-ci", "c1", "success", current, 120),
+            _run_row(2, "gated-ci", "c2", "success", current - timedelta(hours=1), 5),
+            _run_row(3, "gated-ci", "c3", "success", current - timedelta(hours=2), 5),
+            _run_row(4, "gated-ci", "b1", "success", baseline, 10),
+            _run_row(5, "gated-ci", "b2", "success", baseline - timedelta(hours=1), 5),
+            _run_row(6, "gated-ci", "b3", "success", baseline - timedelta(hours=2), 5),
         ]
-        # successful_run_count is 3 per window (passes min_runs=2), but only 1 non-no-op run each →
-        # percentile_run_count is 1 < 2, so no regression fires despite the 10s→120s p95 jump.
+        # Each window has 3 successful runs but only 1 that is not a 5s no-op, which is under min_runs.
         findings = detect_ci_duration_regressions(self._curated_over_runs(rows), min_runs=2)
         assert findings == []

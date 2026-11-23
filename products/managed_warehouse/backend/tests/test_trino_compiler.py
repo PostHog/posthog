@@ -33,6 +33,7 @@ from products.managed_warehouse.backend.trino_compiler import (
     TrinoTargetUnavailable,
     compile_hogql_to_trino_sql,
     get_ready_trino_catalog_name,
+    get_trino_target_readiness,
     prepare_hogql_to_trino_compiler,
 )
 from products.warehouse_sources.backend.facade.models import (
@@ -99,6 +100,7 @@ class TestReadyTrinoCatalogName:
         "body, status_code, expected_log",
         [
             ({"error": "example upstream failure"}, 503, {"reason": "http_error", "log_level": "warning"}),
+            ({"error": "example missing target"}, 404, {"reason": "http_error", "log_level": "warning"}),
             ([], 200, {"reason": "invalid_response", "response_type": "list", "log_level": "warning"}),
             (
                 {"enabled": False},
@@ -195,7 +197,9 @@ class TestReadyTrinoCatalogName:
             ),
             capture_logs() as logs,
         ):
-            assert get_ready_trino_catalog_name("org-1") is None
+            readiness = get_trino_target_readiness("org-1")
+        assert readiness.catalog_name is None
+        assert readiness.lookup_failed is (status_code >= 500)
         assert logs == [
             {
                 "event": "trino_target_not_ready",
@@ -281,9 +285,15 @@ class TestCompileHogQLToTrinoSQL:
             ("SELECT tuple(1, 'x') AS tag", True),
             ("SELECT 1 AS id, [tuple(1, 'x')] AS tags", True),
             ("SELECT map('a', tuple(1)) AS pairs", True),
+            ("SELECT 1 > 0 AS flag", True),
+            ("SELECT toBool(1) AS flag", True),
+            ("SELECT [1 > 0] AS flags", True),
+            ("SELECT map('a', 1 = 1) AS flags", True),
+            ("SELECT JSONHas(properties, 'key') AS flag FROM events", True),
+            ("SELECT [JSONHas(properties, 'key')] AS flags FROM events", True),
         ],
     )
-    def test_flags_output_columns_that_may_hold_anonymous_rows(self, query: str, needs_probe: bool) -> None:
+    def test_flags_output_columns_whose_types_the_build_reads_back(self, query: str, needs_probe: bool) -> None:
         organization = Organization.objects.create(name="trino-row-type-probe")
         team = Team.objects.create(organization=organization)
         membership = _membership(team_id=team.pk, organization_id=str(organization.pk))
@@ -356,9 +366,9 @@ class TestCompileHogQLToTrinoSQL:
         assert compiled.sql == (
             'SELECT "org_catalog"."posthog"."events_production"."event" '
             'FROM "org_catalog"."posthog"."events_production" '
-            'WHERE ("org_catalog"."posthog"."events_production"."event" = %(hogql_val_0)s)' + trino_limit_clause
+            'WHERE ("org_catalog"."posthog"."events_production"."event" = \'signup\')' + trino_limit_clause
         )
-        assert compiled.values == {"hogql_val_0": "signup"}
+        assert compiled.values == {}
         assert compiled.hogql == "SELECT event FROM events WHERE equals(event, 'signup')" + limit_clause
 
     @pytest.mark.django_db
@@ -482,7 +492,7 @@ class TestCompileHogQLToTrinoSQL:
         assert (compiled.sql, compiled.values) == (without_diagnostics.sql, without_diagnostics.values)
         assert (round_trip.sql, round_trip.values) == (compiled.sql, compiled.values)
         assert '"org_catalog"."posthog"."events_production"' in compiled.sql
-        assert "signup" in compiled.values.values()
+        assert "'signup'" in compiled.sql
         assert "translation_source" in compiled.hogql
 
     def test_fails_closed_without_a_ready_catalog(self) -> None:
@@ -532,8 +542,8 @@ class TestPreparedTrinoCompiler:
             ) as build_database,
         ):
             compiler = prepare_hogql_to_trino_compiler(team.pk, team=team)
-            first = compiler.compile(HogQLQuery(query="SELECT {value}", values={"value": "first"}))
-            second = compiler.compile(HogQLQuery(query="SELECT {value}", values={"value": "second"}))
+            first = compiler.compile(HogQLQuery(query="SELECT {value}", values={"value": "fir\0st"}))
+            second = compiler.compile(HogQLQuery(query="SELECT {value}", values={"value": "sec\0ond"}))
             groups = compiler.compile(HogQLQuery(query="SELECT index, key, properties.name FROM groups"))
             raw_groups = compiler.compile(HogQLQuery(query="SELECT key, updated_at FROM raw_groups"))
 
@@ -543,8 +553,8 @@ class TestPreparedTrinoCompiler:
         assert compiler.team_id == team.pk
         assert compiler.organization_id == str(team.organization_id)
         assert compiler.catalog_name == "org_catalog"
-        assert first.values == {"hogql_val_0": "first"}
-        assert second.values == {"hogql_val_0": "second"}
+        assert first.values == {"hogql_val_0": "fir\0st"}
+        assert second.values == {"hogql_val_0": "sec\0ond"}
         for result in (groups, raw_groups):
             assert '"org_catalog"."posthog"."groups_production"' in result.sql
             assert "group_key" in result.sql

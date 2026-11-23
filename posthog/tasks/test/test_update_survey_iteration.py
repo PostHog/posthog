@@ -69,6 +69,36 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         self.assertIsNotNone(self.recurring_survey.end_date)
         self.assertEqual(self.recurring_survey.current_iteration, 1)
 
+    @parameterized.expand(
+        [
+            # Started three windows and a day ago: the fourth window is current.
+            ("missed_two_runs", timedelta(days=60 * 3 + 1), 4),
+            # A backdated start must not store every window since then.
+            ("backdated_start", timedelta(days=60 * 10_000 + 1), 10_001),
+        ]
+    )
+    def test_open_ended_survey_keeps_repeating(self, _name: str, age: timedelta, expected_iteration: int) -> None:
+        start_date = now() - age
+        Survey.objects.filter(pk=self.recurring_survey.pk).update(
+            repeat_until_stopped=True,
+            iteration_count=None,
+            start_date=start_date,
+            # Windows as stored at launch, before the task missed every later run.
+            iteration_start_dates=[start_date, start_date + timedelta(days=self.iteration_frequency_days)],
+        )
+
+        update_survey_iteration()
+
+        self.recurring_survey.refresh_from_db()
+        self.assertIsNone(self.recurring_survey.end_date)
+        self.assertEqual(self.recurring_survey.current_iteration, expected_iteration)
+        windows = self.recurring_survey.iteration_start_dates or []
+        self.assertEqual(len(windows), 2)
+        self.assertEqual(self.recurring_survey.current_iteration_start_date, windows[0])
+        assert windows[0] is not None and windows[1] is not None
+        self.assertLessEqual(windows[0], now())
+        self.assertGreater(windows[1], now())
+
     def test_survey_with_once_schedule_is_not_ended_by_stale_iteration_fields(self) -> None:
         self.recurring_survey.schedule = Survey.Schedule.ONCE
         self.recurring_survey.start_date = now() - timedelta(days=self.iteration_frequency_days * 3 + 1)
@@ -152,9 +182,22 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         self.recurring_survey.refresh_from_db()
         self.assertIsNone(self.recurring_survey.current_iteration)
 
-    def test_can_update_internal_targeting_flag(self) -> None:
-        # expected_targeting_filters =
+    @parameterized.expand(
+        [
+            ("no_wait_period", None, None),
+            ("wait_period", 7, 7),
+            # The API accepted any JSON here before it validated the value.
+            ("malformed_wait_period", "7", None),
+            # A JSON integer has no width limit, and this one is wider than a float.
+            ("oversized_wait_period", -(10**309), None),
+        ]
+    )
+    def test_can_update_internal_targeting_flag(
+        self, _name: str, stored_wait_period: object, expected_wait_period_days: int | None
+    ) -> None:
         self.recurring_survey.start_date = now() - timedelta(self.iteration_frequency_days * 3)
+        if stored_wait_period is not None:
+            self.recurring_survey.conditions = {"seenSurveyWaitPeriodInDays": stored_wait_period}
         self.recurring_survey.save()
         self.assertEqual(self.recurring_survey.current_iteration, 1)
         update_survey_iteration()
@@ -162,7 +205,34 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         self.assertEqual(self.recurring_survey.current_iteration, 3)
         assert self.recurring_survey.internal_targeting_flag is not None
 
-        self.assertEqual(self.recurring_survey.internal_targeting_flag.filters, self._expected_iteration_filters(3))
+        self.assertEqual(
+            self.recurring_survey.internal_targeting_flag.filters,
+            self._expected_iteration_filters(3, expected_wait_period_days),
+        )
+
+    def test_a_failing_survey_does_not_stop_the_rest_of_the_run(self) -> None:
+        self.recurring_survey.start_date = now() - timedelta(self.iteration_frequency_days * 3)
+        self.recurring_survey.save()
+        survey_without_a_flag = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Second popover survey",
+            type="popover",
+            questions=[{"type": "open", "question": "What's a survey?"}],
+            start_date=now() - timedelta(self.iteration_frequency_days * 3),
+            schedule=Survey.Schedule.RECURRING,
+            iteration_count=3,
+            iteration_frequency_days=self.iteration_frequency_days,
+        )
+
+        # Only the survey from setUp holds a flag to update, so this fails that survey alone.
+        with patch("posthog.tasks.update_survey_iteration.update_flag", side_effect=Exception("flag write failed")):
+            update_survey_iteration()
+
+        self.recurring_survey.refresh_from_db()
+        survey_without_a_flag.refresh_from_db()
+        self.assertEqual(self.recurring_survey.current_iteration, 1)
+        self.assertEqual(survey_without_a_flag.current_iteration, 3)
 
     def test_can_create_internal_targeting_flag(self) -> None:
         self.recurring_survey.start_date = now() - timedelta(self.iteration_frequency_days * 3)
@@ -226,31 +296,67 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
 
         self.assertEqual(flag_filters, self._expected_iteration_filters(3))
 
-    def _expected_iteration_filters(self, iteration: int) -> dict:
+    def _expected_iteration_filters(self, iteration: int, wait_period_days: int | None = None) -> dict:
         # aggregation_group_type_index (None = person-aggregated) is normalized onto
         # every condition set by the flag serializer on the way through the facade
-        return {
-            "groups": [
+        base_properties = [
+            {
+                "key": f"$survey_dismissed/{self.recurring_survey.id}/{iteration}",
+                "value": "is_not_set",
+                "operator": "is_not_set",
+                "type": "person",
+            },
+            {
+                "key": f"$survey_responded/{self.recurring_survey.id}/{iteration}",
+                "value": "is_not_set",
+                "operator": "is_not_set",
+                "type": "person",
+            },
+        ]
+
+        if wait_period_days is None:
+            groups = [
+                {
+                    "variant": "",
+                    "rollout_percentage": 100,
+                    "aggregation_group_type_index": None,
+                    "properties": base_properties,
+                }
+            ]
+        else:
+            groups = [
                 {
                     "variant": "",
                     "rollout_percentage": 100,
                     "aggregation_group_type_index": None,
                     "properties": [
+                        *base_properties,
                         {
-                            "key": f"$survey_dismissed/{self.recurring_survey.id}/{iteration}",
-                            "value": "is_not_set",
-                            "operator": "is_not_set",
-                            "type": "person",
-                        },
-                        {
-                            "key": f"$survey_responded/{self.recurring_survey.id}/{iteration}",
+                            "key": "$survey_last_seen_date",
                             "value": "is_not_set",
                             "operator": "is_not_set",
                             "type": "person",
                         },
                     ],
-                }
-            ],
+                },
+                {
+                    "variant": "",
+                    "rollout_percentage": 100,
+                    "aggregation_group_type_index": None,
+                    "properties": [
+                        *base_properties,
+                        {
+                            "key": "$survey_last_seen_date",
+                            "value": f"{wait_period_days}d",
+                            "operator": "is_date_before",
+                            "type": "person",
+                        },
+                    ],
+                },
+            ]
+
+        return {
+            "groups": groups,
             "aggregation_group_type_index": None,
         }
 

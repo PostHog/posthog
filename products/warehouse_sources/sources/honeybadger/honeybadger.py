@@ -1,7 +1,7 @@
 import time
 import dataclasses
 from collections.abc import Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import urlencode, urljoin, urlparse
 
@@ -42,10 +42,14 @@ class HoneybadgerResumeConfig:
     fault_id: int | None = None
     site_id: str | None = None
     alarm_id: str | None = None
+    team_id: int | None = None
+    account_id: str | None = None
 
 
 # Fan-out parent list under a project -> the child row column / resume bookmark holding its id.
 _FAN_OUT_PARENT_KEYS = {"faults": "fault_id", "sites": "site_id", "alarms": "alarm_id"}
+# Fan-out parent list at the API root -> the child row column / resume bookmark holding its id.
+_ROOT_FAN_OUT_PARENT_KEYS = {"teams": "team_id", "accounts": "account_id"}
 
 
 def _make_session(api_key: str) -> requests.Session:
@@ -74,6 +78,13 @@ def _to_unix_timestamp(value: Any) -> int:
     if isinstance(value, int | float):
         return int(value)
     return int(datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp())
+
+
+def _format_filter_value(value: Any, value_format: str) -> int | str:
+    timestamp = _to_unix_timestamp(value)
+    if value_format == "iso8601":
+        return datetime.fromtimestamp(timestamp, tz=UTC).isoformat()
+    return timestamp
 
 
 @retry_with_deadline(
@@ -184,6 +195,10 @@ def _build_params(
 ) -> dict[str, Any]:
     params: dict[str, Any] = {"limit": PAGE_LIMIT} if config.paginated else {}
     params.update(config.query_params)
+    if config.report_window_days is not None:
+        params["start"] = (
+            (datetime.now(UTC) - timedelta(days=config.report_window_days)).replace(microsecond=0).isoformat()
+        )
 
     if not should_use_incremental_field or db_incremental_field_last_value is None:
         return params
@@ -201,7 +216,7 @@ def _build_params(
         )
         return params
 
-    params[query_param] = _to_unix_timestamp(db_incremental_field_last_value)
+    params[query_param] = _format_filter_value(db_incremental_field_last_value, config.incremental_param_format)
     return params
 
 
@@ -223,10 +238,18 @@ def _build_parent_params(
     return params
 
 
-def _time_series_rows(project_id: Any, pairs: list[Any]) -> list[dict]:
+def _parse_pair_key(key: Any, key_format: str) -> Any:
+    if key_format == "epoch":
+        return datetime.fromtimestamp(key, tz=UTC)
+    if key_format == "iso8601":
+        return datetime.fromisoformat(str(key).replace("Z", "+00:00"))
+    return key
+
+
+def _time_series_rows(config: HoneybadgerEndpointConfig, project_id: Any, pairs: list[Any]) -> list[dict]:
     return [
-        {"project_id": project_id, "bucket_start": datetime.fromtimestamp(timestamp, tz=UTC), "count": count}
-        for timestamp, count in pairs
+        {"project_id": project_id, config.pair_key: _parse_pair_key(key, config.pair_key_format), "count": count}
+        for key, count in pairs
     ]
 
 
@@ -297,7 +320,7 @@ def _get_project_child_rows(
         for results, next_url in _iter_pages(session, first_url, logger, config.data_selector):
             if results:
                 if config.time_series:
-                    yield _time_series_rows(project_id, results)
+                    yield _time_series_rows(config, project_id, results)
                 else:
                     # The traversal determines the parent, so API rows cannot change their project attribution.
                     yield [{**item, "project_id": project_id} for item in results]
@@ -393,6 +416,70 @@ def _get_nested_rows(
             )
 
 
+def _get_root_rows(
+    session: requests.Session,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[HoneybadgerResumeConfig],
+    resume: HoneybadgerResumeConfig | None,
+    config: HoneybadgerEndpointConfig,
+    params: dict[str, Any],
+) -> Iterator[list[dict]]:
+    first_url = (
+        resume.next_url if resume and resume.next_url else _build_url(f"{HONEYBADGER_BASE_URL}{config.path}", params)
+    )
+    for results, next_url in _iter_pages(session, first_url, logger, config.data_selector):
+        if next_url:
+            resumable_source_manager.save_state(HoneybadgerResumeConfig(next_url=next_url))
+        if results:
+            yield results
+        resumable_source_manager.safe_point()
+
+
+def _get_root_child_rows(
+    session: requests.Session,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[HoneybadgerResumeConfig],
+    resume: HoneybadgerResumeConfig | None,
+    config: HoneybadgerEndpointConfig,
+    fan_out_parent: str,
+    params: dict[str, Any],
+) -> Iterator[list[dict]]:
+    """One-level fan-out over a root list (teams or accounts) -> {endpoint}."""
+    parent_key = _ROOT_FAN_OUT_PARENT_KEYS[fan_out_parent]
+    parents = _collect_items(session, f"{HONEYBADGER_BASE_URL}/{fan_out_parent}", logger, resumable_source_manager)
+    parent_ids = [parent["id"] for parent in parents]
+    parent_columns = {
+        parent["id"]: {column: parent.get(field_name) for field_name, column in config.parent_fields.items()}
+        for parent in parents
+    }
+
+    remaining = parent_ids
+    resume_url: str | None = None
+    resume_parent_id = getattr(resume, parent_key) if resume is not None else None
+    if resume_parent_id is not None and resume_parent_id in parent_ids:
+        remaining = parent_ids[parent_ids.index(resume_parent_id) :]
+        resume_url = resume.next_url if resume is not None else None
+
+    for index, parent_id in enumerate(remaining):
+        first_url = resume_url or _build_url(
+            f"{HONEYBADGER_BASE_URL}{config.path.format(**{parent_key: parent_id})}", params
+        )
+        resume_url = None
+
+        for results, next_url in _iter_pages(session, first_url, logger, config.data_selector):
+            # Stage the position after this page before yielding it: the next page of this
+            # parent, or the next parent once this one is done.
+            if next_url:
+                resumable_source_manager.save_state(
+                    HoneybadgerResumeConfig(next_url=next_url, **{parent_key: parent_id})
+                )
+            elif index + 1 < len(remaining):
+                resumable_source_manager.save_state(HoneybadgerResumeConfig(**{parent_key: remaining[index + 1]}))
+            if results:
+                yield [{**item, parent_key: parent_id, **parent_columns[parent_id]} for item in results]
+            resumable_source_manager.safe_point()
+
+
 def get_rows(
     api_key: str,
     endpoint: str,
@@ -419,10 +506,16 @@ def get_rows(
         yield from _get_nested_rows(
             session, logger, resumable_source_manager, resume, config, config.fan_out_parent, params, parent_params
         )
+    elif config.root_fan_out_parent is not None:
+        yield from _get_root_child_rows(
+            session, logger, resumable_source_manager, resume, config, config.root_fan_out_parent, params
+        )
     elif "{project_id}" in config.path:
         yield from _get_project_child_rows(session, logger, resumable_source_manager, resume, config, params)
-    else:
+    elif config.path == "/projects":
         yield from _get_project_rows(session, logger, resumable_source_manager, resume, params)
+    else:
+        yield from _get_root_rows(session, logger, resumable_source_manager, resume, config, params)
 
 
 def honeybadger_source(

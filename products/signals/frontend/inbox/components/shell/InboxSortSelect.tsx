@@ -14,11 +14,7 @@ const toSortSelectOption = (option: InboxSortOption): { value: string; label: st
     tooltip: option.description,
 })
 const SORT_SELECT_OPTIONS = INBOX_SORT_OPTIONS.map(toSortSelectOption)
-const SORT_SELECT_SECTIONS_WITH_MODEL = [
-    { options: SORT_SELECT_OPTIONS },
-    { title: 'Model scores', options: INBOX_MODEL_SORT_OPTIONS.map(toSortSelectOption) },
-]
-const ALL_SORT_OPTIONS = [...INBOX_SORT_OPTIONS, ...INBOX_MODEL_SORT_OPTIONS]
+const MODEL_SORT_SELECT_OPTIONS = INBOX_MODEL_SORT_OPTIONS.map(toSortSelectOption)
 
 /**
  * The report list's sort order. It orders the list rather than narrowing it, so it sits after the
@@ -27,7 +23,7 @@ const ALL_SORT_OPTIONS = [...INBOX_SORT_OPTIONS, ...INBOX_MODEL_SORT_OPTIONS]
 export function InboxSortSelect(): JSX.Element {
     const { activeSortField, activeSortDirection, modelSortAvailable } = useValues(inboxFiltersLogic)
     const { setSort } = useActions(inboxFiltersLogic)
-    const sortOptions = modelSortAvailable ? ALL_SORT_OPTIONS : INBOX_SORT_OPTIONS
+    const sortOptions = modelSortAvailable ? [...INBOX_SORT_OPTIONS, ...INBOX_MODEL_SORT_OPTIONS] : INBOX_SORT_OPTIONS
     const activeKey = inboxSortOptionKey(activeSortField, activeSortDirection)
     const activeLabel = sortOptions.find((o) => inboxSortOptionKey(o.field, o.direction) === activeKey)?.label ?? ''
 
@@ -41,7 +37,17 @@ export function InboxSortSelect(): JSX.Element {
                     setSort(option.field, option.direction)
                 }
             }}
-            options={modelSortAvailable ? SORT_SELECT_SECTIONS_WITH_MODEL : SORT_SELECT_OPTIONS}
+            options={
+                modelSortAvailable
+                    ? [
+                          { options: SORT_SELECT_OPTIONS },
+                          {
+                              title: 'Model scores',
+                              options: MODEL_SORT_SELECT_OPTIONS,
+                          },
+                      ]
+                    : SORT_SELECT_OPTIONS
+            }
             icon={<IconSort />}
             tooltip={`Sort: ${activeLabel}`}
             renderButtonContent={(leaf) => <span className="hidden @md:inline">{leaf?.label ?? ''}</span>}

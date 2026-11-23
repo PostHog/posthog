@@ -3,6 +3,8 @@ mod integration_utils;
 
 use async_trait::async_trait;
 use axum_test_helper::TestClient;
+use capture::ai_event_limits::AI_MAX_EVENT_BYTES_CEILING;
+use capture::ai_event_size_caps::AiEventSizeCaps;
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
 use capture::event_restrictions::{
@@ -142,7 +144,7 @@ struct TestClientOptions {
     // every emit site.
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
     // `None` uses 960KB (983_040).
-    ai_max_event_bytes: Option<u64>,
+    ai_max_event_bytes: Option<AiEventSizeCaps>,
     // Opt-in AI byte budget. `None` (default) matches deploys with
     // `AI_BYTE_LIMIT_PER_SECOND=0`, where setup builds no limiter.
     ai_byte_rate_limiter: Option<Arc<GlobalRateLimiter>>,
@@ -184,23 +186,24 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         options.event_restriction_service,
         None, // recorder_handle
         CaptureMode::Ai,
-        None,                                          // concurrency_limit
-        25 * 1024 * 1024,                              // event_payload_size_limit
-        false,                                         // enable_historical_rerouting
-        1_i64,                                         // historical_rerouting_threshold_days
-        false,                                         // is_mirror_deploy
-        0.0_f32,                                       // verbose_sample_percent
-        26_214_400,                                    // ai_max_sum_of_parts_bytes
-        options.ai_max_event_bytes.unwrap_or(983_040), // ai_max_event_bytes
-        None,                                          // body_chunk_read_timeout_ms
-        256,                                           // body_read_chunk_size_kb
-        10 * 1024 * 1024,                              // capture_v1_max_compressed_body_bytes
-        50 * 1024 * 1024,                              // capture_v1_max_decompressed_body_bytes
-        None,                                          // overflow_limiter
+        None,             // concurrency_limit
+        25 * 1024 * 1024, // event_payload_size_limit
+        false,            // enable_historical_rerouting
+        1_i64,            // historical_rerouting_threshold_days
+        false,            // is_mirror_deploy
+        0.0_f32,          // verbose_sample_percent
+        26_214_400,       // ai_max_sum_of_parts_bytes
+        options.ai_max_event_bytes.unwrap_or_else(|| 983_040.into()),
+        None,             // body_chunk_read_timeout_ms
+        256,              // body_read_chunk_size_kb
+        10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
+        None,             // overflow_limiter
         options.ai_events_overflow_limiter,
         options.ai_byte_rate_limiter,
         None, // replay_overflow_limiter
         8,    // capture_v1_scatter_gather_min_batch
+        true, // capture_v1_legacy_property_splice
         options.ai_gateway_signing_secret,
         options.ingestion_warning_emitter, // ingestion_warning_emitter
     );
@@ -226,11 +229,19 @@ fn make_test_client_collecting_warnings(
 const ENDPOINT: &str = "/i/v0/ai/otel";
 
 async fn send_request(sink: &CapturingSink, request: &ExportTraceServiceRequest) -> u16 {
+    send_request_to(sink, ENDPOINT, request).await
+}
+
+async fn send_request_to(
+    sink: &CapturingSink,
+    path: &str,
+    request: &ExportTraceServiceRequest,
+) -> u16 {
     let client = make_test_client(sink);
     let body = request.encode_to_vec();
 
     let resp = client
-        .post(ENDPOINT)
+        .post(path)
         .header("Content-Type", "application/x-protobuf")
         .header("Authorization", format!("Bearer {}", TOKEN))
         .body(body)
@@ -404,12 +415,18 @@ async fn make_restriction_service(restrictions: Vec<Restriction>) -> EventRestri
     service
 }
 
+/// `/v1/traces` is where OTLP exporters send traces when configured with the
+/// generic `OTEL_EXPORTER_OTLP_ENDPOINT`, which appends the signal path.
+#[rstest::rstest]
+#[case::base(ENDPOINT)]
+#[case::trailing_slash("/i/v0/ai/otel/")]
+#[case::generic_endpoint_signal_path("/i/v0/ai/otel/v1/traces")]
 #[tokio::test]
-async fn test_single_span_produces_one_event() {
+async fn test_single_span_produces_one_event(#[case] path: &str) {
     let sink = CapturingSink::new();
     let request = make_single_span_request();
 
-    let status = send_request(&sink, &request).await;
+    let status = send_request_to(&sink, path, &request).await;
     assert_eq!(status, 200);
 
     let events = sink.get_events().await;
@@ -925,7 +942,7 @@ async fn oversized_spans_are_shed_and_warn_while_the_export_succeeds() {
         &sink,
         TestClientOptions {
             ingestion_warning_emitter: Some(emitter.clone()),
-            ai_max_event_bytes: Some(64),
+            ai_max_event_bytes: Some(64.into()),
             ..Default::default()
         },
     );
@@ -946,6 +963,42 @@ async fn oversized_spans_are_shed_and_warn_while_the_export_succeeds() {
         emitted[0].extra_details.get("droppedSpans"),
         Some(&json!(1))
     );
+}
+
+#[rstest::rstest]
+#[case::listed_token_keeps_it(TOKEN, 1, 0)]
+#[case::other_token_still_sheds_it("phc_other", 0, 1)]
+#[tokio::test]
+async fn a_raised_token_cap_keeps_a_span_over_the_default(
+    #[case] raised_token: &str,
+    #[case] expected_events: usize,
+    #[case] expected_warnings: usize,
+) {
+    let sink = CapturingSink::new();
+    let emitter = Arc::new(CollectingEmitter::default());
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            ingestion_warning_emitter: Some(emitter.clone()),
+            ai_max_event_bytes: Some(AiEventSizeCaps::parse(
+                64,
+                &format!("{raised_token}=24000000"),
+                AI_MAX_EVENT_BYTES_CEILING,
+            )),
+            ..Default::default()
+        },
+    );
+
+    let status = send_request_with_client(&client, &make_single_span_request()).await;
+
+    assert_eq!(status, 200, "the export must still be accepted");
+    assert_eq!(sink.get_events().await.len(), expected_events);
+    let emitted = emitter.emitted();
+    assert_eq!(emitted.len(), expected_warnings);
+    if let Some(warning) = emitted.first() {
+        assert_eq!(warning.warning, WarningType::MessageSizeTooLarge);
+        assert_eq!(warning.extra_details.get("droppedSpans"), Some(&json!(1)));
+    }
 }
 
 // The warning is the only feedback channel for this outcome: the OTLP contract

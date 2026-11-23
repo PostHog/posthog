@@ -1,6 +1,6 @@
 import re
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
@@ -28,14 +28,29 @@ DEFAULT_LOOKBACK_DAYS = 30
 # versions this API in the endpoint path, not via a request header, and this source has always
 # queried the v5 `query_range` endpoint. So the framework's legacy unversioned label and this
 # explicit label resolve to the same requests — new sources are stamped "v5" while existing pins
-# keep syncing byte-for-byte. The management REST endpoints (rules, dashboards, channels) are
-# unversioned v1 and stay hardcoded in settings.py.
+# keep using the same telemetry API. Management endpoint versions are defined in settings.py.
 SIGNOZ_API_VERSION_V5 = "v5"
 
 QUERY_RANGE_PATH = "/api/v5/query_range"
 
 HOST_NOT_ALLOWED_ERROR = "SigNoz host is not allowed"
 NON_JSON_RESPONSE_ERROR = "SigNoz host returned a non-JSON response"
+
+INVALID_HOST_ERROR = (
+    "Enter your SigNoz host as a domain name or IP address, for example example.signoz.io. "
+    "PostHog connects over HTTPS on port 443, so leave out any port."
+)
+TLS_ERROR = (
+    "PostHog couldn't verify your SigNoz host's TLS certificate. "
+    "Use a host with a certificate that a public certificate authority signed, then try again."
+)
+CONNECTION_ERROR = (
+    "PostHog couldn't connect to your SigNoz host. "
+    "Check the host and that it's reachable from the internet over HTTPS, then try again."
+)
+UNEXPECTED_RESPONSE_ERROR = (
+    "Your SigNoz host returned an unexpected response. Check the host and API key, then try again."
+)
 
 
 class SigNozRetryableError(Exception):
@@ -122,10 +137,10 @@ def validate_credentials(
     try:
         normalized = normalize_host(host)
     except Exception:
-        return False, "Invalid SigNoz host"
+        return False, INVALID_HOST_ERROR
 
     if not normalized or not re.match(r"^[A-Za-z0-9.\-]+$", normalized):
-        return False, "Invalid SigNoz host"
+        return False, INVALID_HOST_ERROR
 
     # The host is fully customer-controlled (cloud tenant or self-hosted URL), so block hosts
     # that resolve to private/internal addresses (SSRF). Only enforced on cloud — see _is_host_safe.
@@ -134,7 +149,7 @@ def validate_credentials(
         if not host_ok:
             return False, host_err or HOST_NOT_ALLOWED_ERROR
 
-    url = f"https://{normalized}/api/v1/rules"
+    url = f"https://{normalized}/api/v1/channels"
     try:
         # Don't follow redirects: the validated host could 3xx to an internal address,
         # defeating the host check above (SSRF). capture=False keeps the probe out of HTTP
@@ -142,8 +157,11 @@ def validate_credentials(
         response = make_tracked_session(redact_values=(api_key,), capture=False).get(
             url, headers=_get_headers(api_key), timeout=10, allow_redirects=False
         )
-    except requests.exceptions.RequestException as e:
-        return False, str(e)
+    # Never return str(e): it carries the host, URL and raw urllib3 detail.
+    except requests.exceptions.SSLError:
+        return False, TLS_ERROR
+    except requests.exceptions.RequestException:
+        return False, CONNECTION_ERROR
 
     if response.is_redirect or response.is_permanent_redirect:
         return False, HOST_NOT_ALLOWED_ERROR
@@ -165,7 +183,7 @@ def validate_credentials(
             return True, None
         return False, "Your SigNoz API key lacks the required permissions for this endpoint."
 
-    return False, f"SigNoz credential validation failed (status {response.status_code})."
+    return False, UNEXPECTED_RESPONSE_ERROR
 
 
 def _build_query_range_body(
@@ -233,6 +251,23 @@ def _extract_config_items(response_json: Any, config: SigNozEndpointConfig) -> l
     if not isinstance(node, list):
         return []
     items = [item for item in node if isinstance(item, dict)]
+    if config.name == "alert_rules":
+        items = [
+            {
+                **item,
+                **{
+                    key: item[legacy_key]
+                    for key, legacy_key in (
+                        ("createdAt", "createAt"),
+                        ("createdBy", "createBy"),
+                        ("updatedAt", "updateAt"),
+                        ("updatedBy", "updateBy"),
+                    )
+                    if key not in item and legacy_key in item
+                },
+            }
+            for item in items
+        ]
     if config.allowed_fields is not None:
         # Strict allowlist — drop everything else so credential-bearing fields never leak
         # into the warehouse table (see SigNozEndpointConfig.allowed_fields).
@@ -246,6 +281,43 @@ def _parse_retry_after(response: requests.Response) -> float | None:
     if raw and raw.strip().isdigit():
         return min(float(raw.strip()), MAX_RETRY_AFTER_SECONDS)
     return None
+
+
+def _get_config_rows(
+    base: str, config: SigNozEndpointConfig, fetch: Callable[[str], Any]
+) -> Iterator[list[dict[str, Any]]]:
+    if config.legacy_path is None:
+        items = _extract_config_items(fetch(f"{base}{config.path}"), config)
+        if items:
+            yield items
+        return
+
+    # Prefer the v1 list while the instance still serves it: it returns full rule and dashboard
+    # definitions, so existing tables keep their columns. SigNoz v0.150+ removed these routes.
+    legacy_config = dataclasses.replace(config, data_keys=config.legacy_data_keys, allowed_fields=None)
+    try:
+        legacy_response = fetch(f"{base}{config.legacy_path}")
+    except (requests.HTTPError, SigNozNonJSONResponseError) as error:
+        if isinstance(error, requests.HTTPError) and (error.response is None or error.response.status_code != 404):
+            raise
+        # Removed routes can return the SPA's HTML with status 200 instead of a 404.
+    else:
+        items = _extract_config_items(legacy_response, legacy_config)
+        if items:
+            yield items
+        return
+
+    page_size = min(config.page_size, 200)
+    offset = 0
+    while True:
+        response = fetch(f"{base}{config.path}?limit={page_size}&offset={offset}&sort=created_at&order=asc")
+        items = _extract_config_items(response, config)
+        if not items:
+            return
+        yield items
+        offset += len(items)
+        if offset >= response["data"]["total"]:
+            return
 
 
 def _retry_wait(retry_state: RetryCallState) -> float:
@@ -338,9 +410,7 @@ def get_rows(
             raise
 
     if config.kind == "config":
-        items = _extract_config_items(fetch(f"{base}{config.path}"), config)
-        if items:
-            yield items
+        yield from _get_config_rows(base, config, fetch)
         return
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None

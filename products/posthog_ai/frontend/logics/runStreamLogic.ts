@@ -1245,7 +1245,9 @@ function isAgentMessageEntry(entry: StoredLogEntry): boolean {
     return (
         entry.notification.method === 'session/update' &&
         isRecord(update) &&
-        (update.sessionUpdate === 'agent_message_chunk' || update.sessionUpdate === 'agent_message')
+        (update.sessionUpdate === 'agent_message_chunk' ||
+            update.sessionUpdate === 'agent_message' ||
+            update.sessionUpdate === 'agent_thought_chunk')
     )
 }
 
@@ -2748,13 +2750,13 @@ export interface runStreamLogicActions {
         taskRuntime?: string | null
         traceId?: string
     }) => {
-        justCreatedRun?: boolean | undefined
-        pagedHistory?: boolean | undefined
-        retainedMessage?: string | undefined
+        justCreatedRun?: boolean
+        pagedHistory?: boolean
+        retainedMessage?: string
         runId: string
         taskId: string
-        taskRuntime?: string | null | undefined
-        traceId?: string | undefined
+        taskRuntime?: string | null
+        traceId?: string
     }
     cancelPermissionDelivery: () => {
         value: true
@@ -2792,8 +2794,8 @@ export interface runStreamLogicActions {
         replayedFromHistory?: boolean
         status: RunStatus
     }) => {
-        errorMessage?: string | null | undefined
-        replayedFromHistory?: boolean | undefined
+        errorMessage?: string | null
+        replayedFromHistory?: boolean
         status: RunStatus
     }
     ingestAcpFrame: (
@@ -2849,9 +2851,9 @@ export interface runStreamLogicActions {
     }
     openSseForRun: (payload: { runId: string; startLatest?: boolean; taskId: string; traceId?: string }) => {
         runId: string
-        startLatest?: boolean | undefined
+        startLatest?: boolean
         taskId: string
-        traceId?: string | undefined
+        traceId?: string
     }
     permissionResponseFailed: (requestId: string) => {
         requestId: string
@@ -2913,8 +2915,8 @@ export interface runStreamLogicActions {
         optionId: string
         requestId: string
     }) => {
-        answers?: Record<string, string> | undefined
-        customInput?: string | undefined
+        answers?: Record<string, string>
+        customInput?: string
         optionId: string
         requestId: string
     }

@@ -56,13 +56,15 @@ export const ProjectTokenSchema = z
     })
     .brand<'ProjectToken'>()
 
-// A workload token is a JWT, which has no PostHog prefix.
-export const WorkloadTokenSchema = z
-    .string({ error: 'The token must be text.' })
-    .regex(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/, {
-        error: (issue) => tokenError(issue.input, 'a workload token', 'be a JWT, three parts joined by dots'),
+function jwt(name: string): z.ZodString {
+    return z.string({ error: 'The token must be text.' }).regex(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/, {
+        error: (issue) => tokenError(issue.input, name, 'be a JWT, three parts joined by dots'),
     })
-    .brand<'WorkloadToken'>()
+}
+
+// A workload token is a JWT, which has no PostHog prefix.
+export const WorkloadTokenSchema = jwt('a workload token').brand<'WorkloadToken'>()
+export const ProviderIdTokenSchema = jwt('an OIDC token').brand<'ProviderIdToken'>()
 
 export type PersonalApiKey = z.output<typeof PersonalApiKeySchema>
 export type ProjectToken = z.output<typeof ProjectTokenSchema>
@@ -71,8 +73,9 @@ export type TeamSecretToken = z.output<typeof TeamSecretTokenSchema>
 export type OAuthAccessToken = z.output<typeof OAuthAccessTokenSchema>
 export type OAuthRefreshToken = z.output<typeof OAuthRefreshTokenSchema>
 export type WorkloadToken = z.output<typeof WorkloadTokenSchema>
+export type ProviderIdToken = z.output<typeof ProviderIdTokenSchema>
 
-export type BearerToken = PersonalApiKey | OAuthAccessToken
+export type BearerToken = PersonalApiKey | OAuthAccessToken | WorkloadToken
 
 const LOG_IN_AGAIN = 'Run `hog auth login` to log in again.'
 const PROJECT_SETTINGS = 'Copy it again from your project settings: https://app.posthog.com/settings/project-details'
@@ -123,4 +126,8 @@ export function parseOAuthRefreshToken(raw: unknown, failure?: Partial<ParseFail
 
 export function parseWorkloadToken(raw: unknown, failure?: Partial<ParseFailure>): WorkloadToken {
     return parseOrThrow(WorkloadTokenSchema, raw, { code: 'invalid_workload_token', ...failure })
+}
+
+export function parseProviderIdToken(raw: unknown, failure?: Partial<ParseFailure>): ProviderIdToken {
+    return parseOrThrow(ProviderIdTokenSchema, raw, { code: 'invalid_oidc_token', ...failure })
 }

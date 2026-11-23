@@ -1,18 +1,17 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
-import { router } from 'kea-router'
 
 import { FEATURE_FLAGS, STORYBOOK_FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
-import { App } from 'scenes/App'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { SettingSectionId } from '../types'
+import { SETTINGS_STORY_TEST_OPTIONS, SettingsStoryApp } from './SettingsStoryApp'
+import { withTodayRailNav } from './withTodayRailNav'
 
 interface StoryProps {
     sectionId: SettingSectionId
@@ -26,6 +25,7 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
         viewMode: 'story',
         mockDate: '2023-05-25',
         featureFlags: STORYBOOK_FEATURE_FLAGS,
+        testOptions: SETTINGS_STORY_TEST_OPTIONS,
     },
     decorators: [
         mswDecorator({
@@ -42,8 +42,7 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                     personal_github_connected: false,
                 },
                 '/api/users/@me/integrations/github/install_requests/': { results: [], install_url: null },
-                // The tags field autocompletes from this; unmocked, its error toast lands in the snapshot.
-                '/api/projects/:id/tags': ['eu-region', 'production'],
+                '/api/projects/:id/tags': { results: ['eu-region', 'production'], next: null, count: 2 },
             },
             patch: {
                 // bounce the setting back as is. `updateCurrentTeam` patches the environment for
@@ -59,14 +58,7 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
             },
         }),
     ],
-    render: ({ sectionId }: StoryProps) => {
-        // Navigate synchronously before <App /> mounts so it renders the settings scene directly,
-        // never the project homepage. A useEffect push fires after the first paint, so the snapshot
-        // can race and capture the homepage frame instead.
-        router.actions.push(urls.settings(sectionId))
-
-        return <App />
-    },
+    render: ({ sectionId }: StoryProps) => <SettingsStoryApp sectionId={sectionId} />,
 }
 export default meta
 
@@ -122,6 +114,8 @@ export const SettingsProjectLogs: Story = {
     ],
 }
 
+export const SettingsProjectLogsQuill: Story = withTodayRailNav(SettingsProjectLogs)
+
 export const SettingsProjectLogsReadOnly: Story = {
     ...SettingsProjectLogs,
     render: ({ sectionId }) => {
@@ -129,8 +123,7 @@ export const SettingsProjectLogsReadOnly: Story = {
             ...MOCK_DEFAULT_TEAM,
             effective_membership_level: OrganizationMembershipLevel.Member,
         })
-        router.actions.push(urls.settings(sectionId))
-        return <App />
+        return <SettingsStoryApp sectionId={sectionId} />
     },
 }
 

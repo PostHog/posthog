@@ -19,7 +19,7 @@ It keeps heavy, memory-hungry work off the video-export fleet, which runs the re
 | App secrets | None. The fleet has no worker secret.                                             |
 
 The worker starts with `start_temporal_worker --task-queue self-driving-task-queue`.
-`WORKFLOWS_DICT` in `posthog/management/commands/start_temporal_worker.py` maps that queue to `SELF_DRIVING_WORKFLOWS` and `SELF_DRIVING_ACTIVITIES` from `products/signals/backend/temporal/__init__.py`.
+The `TEMPORAL` declaration in `products/signals/backend/facade/temporal.py` binds that queue to `SELF_DRIVING_WORKFLOWS` and `SELF_DRIVING_ACTIVITIES` from `products/signals/backend/temporal/__init__.py`.
 
 ## What runs on it
 
@@ -97,6 +97,25 @@ Do these checks in each region.
 6. Make sure that no video-export pod restarts with `OOMKilled` after the cut-over.
 
 ## Common operations
+
+**Safety-filter billing and trial refusals.**
+
+The buffer drops a signal when safety-filter admission raises `QuotaLimitExceeded` or `TrialRefused`.
+The activity requests spend finalization for signals with a signal ID and team ID, then returns a terminal refusal.
+It records the drop in `signals_dropped_total` with `stage="safety_filter"` and logs `signals_safety_filter.admission_refused` with the refusal reason.
+These refusals do not emit the unsafe-content block event.
+Temporary safety-provider failures still retry.
+
+After deployment, check that admission refusals produce drops without repeated safety-filter exceptions, and that healthy signals still reach grouping.
+Existing buffered signals adopt this behavior on their next safety-filter activity attempt.
+
+**Grouping batches for an organization without AI consent.**
+`team-signal-grouping-v2` checks organization AI data processing consent at the start of each run.
+If consent is disabled or unset, the workflow requests spend finalization for queued signals and drops all pending batch keys.
+It completes without sending those signals to AI.
+Temporary consent lookup failures retry and keep the queued batches.
+Existing runs adopt the check after `continue_as_new`.
+After deployment, verify that these runs complete and log `signals_grouping_skipped_ai_consent`.
 
 **Pause the sweep.**
 Run `temporal schedule toggle --schedule-id inbox-ranking-scoring-sweep-schedule --pause --reason "<why>"`.

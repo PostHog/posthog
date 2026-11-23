@@ -1,0 +1,31 @@
+# Single-field content wrappers (`{content}` / `{message}` / `{text}`, no role
+# or type). Legacy lost the text to its stringify fallback; these salvage it.
+# Role is left to the default (the column's role) rather than forced to `user`,
+# so an output-side wrapper stays `assistant`.
+
+id: wrappers
+
+rules:
+    - on:
+          role: { exists: false }
+          type: { exists: false }
+          content: { is: string }
+      emit:
+          content: $.content
+
+    - on:
+          role: { exists: false }
+          type: { exists: false }
+          content: { exists: false }
+          message: { is: string }
+      emit:
+          content: $.message
+
+    - on:
+          role: { exists: false }
+          type: { exists: false }
+          content: { exists: false }
+          message: { exists: false }
+          text: { is: string }
+      emit:
+          content: $.text

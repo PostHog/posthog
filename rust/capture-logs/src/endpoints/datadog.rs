@@ -1,6 +1,8 @@
 use crate::authorizer::Signal;
 use crate::log_record::{apply_timestamp_override, datetime_from_millis, KafkaLogRow};
-use crate::service::{decode_body_if_gzip_magic, Service};
+use crate::service::{
+    decode_body_if_gzip_magic, expansion_rejection, log_row_expanded_bytes, Service,
+};
 use axum::{
     extract::State,
     extract::{Path, Query},
@@ -103,22 +105,6 @@ pub fn parse_datadog_tags(ddtags: Option<&str>) -> HashMap<String, String> {
         }
     }
     attributes
-}
-
-fn extract_token_from_auth_header(headers: &HeaderMap) -> Option<String> {
-    headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .map(|auth| {
-            // Support both "Bearer <token>" and just "<token>"
-            if let Some(token) = auth.strip_prefix("Bearer ") {
-                token.trim().to_string()
-            } else if let Some(token) = auth.strip_prefix("bearer ") {
-                token.trim().to_string()
-            } else {
-                auth.trim().to_string()
-            }
-        })
 }
 
 fn hex_to_base64(hex_str: &str) -> String {
@@ -290,28 +276,15 @@ pub async fn export_datadog_logs_http(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    // Try to get token from: path, Authorization header, or query param
-    let token = match path_token {
-        Some(Path(t)) if !t.is_empty() => t,
-        _ => match extract_token_from_auth_header(&headers) {
-            Some(t) if !t.is_empty() => t,
-            _ => match query_params.token.as_deref() {
-                Some(t) if !t.is_empty() => t.to_string(),
-                _ => {
-                    error!("No token provided");
-                    return Err((
-                        StatusCode::UNAUTHORIZED,
-                        Json(json!({"error": "No token provided"})),
-                    ));
-                }
-            },
-        },
-    };
-
     // Datadog agents ship logs, so this shares the logs signal.
-    service.authorizer.authorize_token(&token, Signal::Logs)?;
+    let token = service.authorizer.authorize_from_path_header_or_query(
+        path_token.as_ref().map(|Path(token)| token.as_str()),
+        &headers,
+        query_params.token.as_deref(),
+        Signal::Logs,
+    )?;
 
-    tracing::Span::current().record("token", &token);
+    tracing::Span::current().record("token", token);
 
     let body = decode_body_if_gzip_magic(body, service.max_request_body_size_bytes)?;
 
@@ -329,18 +302,24 @@ pub async fn export_datadog_logs_http(
         },
     };
 
-    let results: Vec<(KafkaLogRow, bool)> = logs
-        .into_iter()
-        .map(|log| datadog_log_to_kafka_row(log, &query_params))
-        .collect();
+    let mut rows: Vec<KafkaLogRow> = Vec::with_capacity(logs.len());
+    let mut timestamps_overridden: u64 = 0;
+    let mut expanded_bytes: usize = 0;
+    for log in logs {
+        let (row, overridden) = datadog_log_to_kafka_row(log, &query_params);
+        expanded_bytes += log_row_expanded_bytes(&row);
+        if expanded_bytes > service.max_expanded_request_bytes {
+            return Err(expansion_rejection(service.max_expanded_request_bytes));
+        }
+        timestamps_overridden += u64::from(overridden);
+        rows.push(row);
+    }
 
-    let row_count = results.len();
-    let timestamps_overridden = results.iter().filter(|(_, overridden)| *overridden).count() as u64;
-    let rows: Vec<KafkaLogRow> = results.into_iter().map(|(row, _)| row).collect();
+    let row_count = rows.len();
     if let Err(e) = service
         .sink
         .write(
-            &token,
+            token,
             rows,
             body.len() as u64,
             timestamps_overridden,

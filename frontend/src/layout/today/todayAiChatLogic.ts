@@ -22,6 +22,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { SidePanelTab } from '~/types'
 
 import type { TaskActivityDTOApi } from '../../../../products/tasks/frontend/generated/api.schemas'
+import type { TaskActivityReadMarkerApi } from '../../../../products/tasks/frontend/generated/api.schemas'
 import { todayContextPanelLogic } from './todayContextPanelLogic'
 import { TodayPanelChatTask, runnerCreationFor } from './todayPanelChat'
 import { todayPanelChatSessionLogic } from './todayPanelChatSessionLogic'
@@ -107,11 +108,11 @@ export interface todayAiChatLogicActions {
         value: true
     } // todayPanelChatSessionLogic
     markSessionRead: (
-        marker: import('../../../../products/tasks/frontend/generated/api.schemas').TaskActivityReadMarkerApi,
+        marker: TaskActivityReadMarkerApi,
         activityIds: string[]
     ) => {
         activityIds: string[]
-        marker: import('../../../../products/tasks/frontend/generated/api.schemas').TaskActivityReadMarkerApi
+        marker: TaskActivityReadMarkerApi
     } // todaySpacesLogic
     carryContextToFullScreen: () => {
         value: true

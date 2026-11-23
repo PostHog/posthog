@@ -93,7 +93,8 @@ Each reply has a short button label and the full text the button sends. Every re
 - have a label that means the same as the text it sends
 - have a label that names the choice in words, not only by its number or letter, such as "Option 2"
 - read like a short message a person typed, and not every label starts with the same word, such as "Use" or "Yes"
-- if the answer asks more than one question, answer every question, and not offer near-copies that change one part of a combination
+- if the answer asks more than one question, answer every question, and not offer near-copies that change one part of a combination. Alternatives joined by "or" are one question with options, not two questions. One reply that answers every question with the choices the answer recommends is enough, and the next rule does not apply
+- together, if the answer asks one question that offers options, include a reply for every option, up to 3 replies, except an option the person can only pick by typing information the answer asks for, such as a table name. A reply must not guess that information, so that option gets no reply, and the set is complete without it. A follow-up question that applies to only one option is part of that option and does not let the replies leave out another option
 - be written by the person, to the agent, as their next message in the thread
 - make sense on its own, without the person typing more
 - ask only for actions the answer names or clearly implies

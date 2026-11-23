@@ -16,6 +16,8 @@ import { NodeKind, type RecordingsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { ScannerModelEnumApi } from '../generated/api.schemas'
+import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { makeQuota } from '../utils/quotaTestUtils'
 import { parseCsvParam, parseNumericParam, parseSortParam } from '../utils/urlParams'
 import { newScanner } from './newScanner'
 import { replayFiltersScannerLogic } from './replayFiltersScannerLogic'
@@ -98,7 +100,6 @@ describe('replayScannerLogic', () => {
                 scanner_type: 'monitor',
                 scanner_config: { prompt: '' },
                 sampling_rate: 0.2,
-                sampling_mode: 'balanced',
             })
         })
 
@@ -256,7 +257,7 @@ describe('replayScannerLogic', () => {
                     query: null,
                     free_only: freeOnly,
                     credit_limit: freeOnly ? null : 4000,
-                    ...(solved ? { sampling_mode: 'balanced', sampling_rate: 0.5 } : {}),
+                    ...(solved ? { sampling_rate: 0.5 } : {}),
                 },
             ])
             router.actions.push(urls.replayVisionScannerGoal('new'))
@@ -295,8 +296,15 @@ describe('replayScannerLogic', () => {
                 left: 800,
                 expected: { mode: 'budget', spend: { monthlyCreditBudget: 3000 } },
             },
+            {
+                case: 'every credit free',
+                mode: 'free' as const,
+                left: null,
+                expected: { mode: 'budget', spend: { monthlyCreditBudget: 3000 } },
+            },
         ])('picks the spend for a goal draft: $case', ({ mode, left, expected }) => {
-            expect(goalSpendChoice(mode, 3000, left)).toMatchObject(expected)
+            const quota = makeQuota({ credit_limit: null, free_monthly_credits: left, credits_used: 0 })
+            expect(goalSpendChoice(mode, 3000, quota)).toMatchObject(expected)
         })
 
         it('keeps the default query (every session) when the draft has no session filter', async () => {
@@ -595,6 +603,24 @@ describe('replayScannerLogic', () => {
                 'replay_vision_scanner_creation_started',
                 expect.objectContaining({ creation_method: 'ai', entry_point: 'replay_filters' })
             )
+        })
+
+        it('prefills both goal budget inputs at the org free credits until the person edits them', () => {
+            const popover = replayFiltersScannerLogic()
+            popover.mount()
+            visionQuotaLogic.actions.loadQuotaSuccess(makeQuota({ free_monthly_credits: 1000 }))
+
+            const prefilled = [logic.values.goalBudgetInput, popover.values.budget]
+            logic.actions.setGoalBudgetInput(4000)
+            popover.actions.setBudget(null)
+
+            expect([...prefilled, logic.values.goalBudgetInput, popover.values.budget]).toEqual([
+                1000,
+                1000,
+                4000,
+                null,
+            ])
+            popover.unmount()
         })
 
         // A click in the consent dialog closes both popovers before the confirm button's own click.
@@ -1405,7 +1431,18 @@ describe('replayScannerLogic', () => {
             })
         })
 
-        it('turns off free credits only with a patch of that one field and clears the stopped state', async () => {
+        it.each([
+            ['while capped, a patch of that one field', true, null, { free_only: false }],
+            [
+                'after the free credits turned it off, it turns on too',
+                false,
+                'free_credits_used' as const,
+                {
+                    free_only: false,
+                    enabled: true,
+                },
+            ],
+        ])('turns off free credits only %s', async (_name, enabled, disabled_reason, expectedBody) => {
             let patchedBody: any
             useMocks({
                 patch: {
@@ -1415,7 +1452,8 @@ describe('replayScannerLogic', () => {
                             200,
                             {
                                 ...loadedScanner,
-                                free_only: false,
+                                ...patchedBody,
+                                disabled_reason: null,
                                 limit_reached: false,
                                 limit_from_free_credits: false,
                             },
@@ -1424,18 +1462,30 @@ describe('replayScannerLogic', () => {
                 },
             })
             await expectLogic(editLogic, () => editLogic.actions.loadScanner()).toFinishAllListeners()
-            editLogic.actions.setScannerValues({ free_only: true, limit_reached: true, limit_from_free_credits: true })
+            editLogic.actions.setScannerValues({
+                enabled,
+                disabled_reason,
+                free_only: true,
+                limit_reached: true,
+                limit_from_free_credits: true,
+            })
             await expectLogic(editLogic, () => editLogic.actions.turnOffFreeOnly()).toDispatchActions([
                 'turnOffFreeOnlySuccess',
             ])
-            expect(patchedBody).toEqual({ free_only: false })
-            const running = { free_only: false, limit_reached: false, limit_from_free_credits: false }
+            expect(patchedBody).toEqual(expectedBody)
+            const running = {
+                enabled: true,
+                disabled_reason: null,
+                free_only: false,
+                limit_reached: false,
+                limit_from_free_credits: false,
+            }
             expect(editLogic.values.scanner).toMatchObject(running)
             expect(editLogic.values.originalScanner).toMatchObject(running)
             expect(editLogic.values.turningOffFreeOnly).toBe(false)
         })
 
-        it('turning a blocked scanner on takes the saved blocker and creator, not just the flag', async () => {
+        it('turning a blocked scanner on takes the saved blocker, creator and free-only, not just the flag', async () => {
             const newCreator = {
                 id: 99,
                 uuid: 'taker',
@@ -1447,16 +1497,26 @@ describe('replayScannerLogic', () => {
                 patch: {
                     '/api/projects/:team/vision/scanners/:id/': () => [
                         200,
-                        { ...loadedScanner, enabled: true, unrunnable_reason: null, created_by: newCreator },
+                        {
+                            ...loadedScanner,
+                            enabled: true,
+                            disabled_reason: null,
+                            created_by: newCreator,
+                            free_only: false,
+                        },
                     ],
                 },
             })
             await expectLogic(editLogic, () => editLogic.actions.loadScanner()).toFinishAllListeners()
-            editLogic.actions.setScannerValues({ enabled: false, unrunnable_reason: 'creator_lost_access' })
+            editLogic.actions.setScannerValues({
+                enabled: false,
+                disabled_reason: 'creator_lost_access',
+                free_only: true,
+            })
             await expectLogic(editLogic, () => editLogic.actions.toggleEnabled()).toDispatchActions([
                 'toggleEnabledSuccess',
             ])
-            const runnable = { enabled: true, unrunnable_reason: null, created_by: newCreator }
+            const runnable = { enabled: true, disabled_reason: null, created_by: newCreator, free_only: false }
             expect(editLogic.values.scanner).toMatchObject(runnable)
             expect(editLogic.values.originalScanner).toMatchObject(runnable)
         })

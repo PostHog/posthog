@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Literal, Optional
 
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, SortMode
 
@@ -30,6 +30,13 @@ class SquarespaceEndpointConfig:
     # Static query params applied to the first page only (sort/filter). Cannot be sent
     # alongside a cursor, so they're dropped once pagination starts.
     extra_params: dict[str, str] = field(default_factory=dict)
+    # "cursor" endpoints page with an opaque `cursor`; "offset" endpoints page with
+    # `offset`/`limit` and report `hasNextPage` at the top level of the body.
+    pagination: Literal["cursor", "offset"] = "cursor"
+    # Fan-out endpoints read one sub-resource per row of this parent endpoint. The parent's
+    # id fills the `{parent_id}` placeholder in `path` and is copied onto each row as `parent_id_field`.
+    parent: Optional[str] = None
+    parent_id_field: Optional[str] = None
 
 
 def _modified_on_incremental_field() -> list[IncrementalField]:
@@ -125,6 +132,41 @@ SQUARESPACE_ENDPOINTS: dict[str, SquarespaceEndpointConfig] = {
         data_key="fulfillmentOptions",
         primary_keys=["id"],
         incremental_fields=[],
+    ),
+    # Contacts (the replacement for Profiles) have a stable `createdOn` but no time filter, so
+    # full refresh only.
+    "contacts": SquarespaceEndpointConfig(
+        name="contacts",
+        api_version="v1",
+        path="/contacts",
+        data_key="contacts",
+        primary_keys=["id"],
+        partition_key="createdOn",
+        incremental_fields=[],
+    ),
+    # Discounts page by offset and have no timestamp a row keeps for life (`validFrom` is
+    # editable), so full refresh with no partitioning. Ascending creation order keeps offsets
+    # stable while new discounts are added during a sync.
+    "discounts": SquarespaceEndpointConfig(
+        name="discounts",
+        api_version="v1",
+        path="/commerce/discounts",
+        data_key="discounts",
+        primary_keys=["id"],
+        incremental_fields=[],
+        pagination="offset",
+        extra_params={"sortBy": "CREATED_ON", "sortDirection": "ASCENDING"},
+    ),
+    # One request per contact, so a sync costs a request for every contact on the site.
+    "contact_address_book": SquarespaceEndpointConfig(
+        name="contact_address_book",
+        api_version="v1",
+        path="/contacts/{parent_id}/address-book",
+        data_key="addressBook.addressBookEntries",
+        primary_keys=["contactId", "id"],
+        incremental_fields=[],
+        parent="contacts",
+        parent_id_field="contactId",
     ),
 }
 

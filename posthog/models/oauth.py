@@ -1,3 +1,4 @@
+import copy
 import enum
 import uuid
 from datetime import timedelta
@@ -36,6 +37,7 @@ from posthog.models.utils import (
     hash_key_value,
     mask_key_value,
 )
+from posthog.scopes.catalog import translate_renamed_scopes
 
 if TYPE_CHECKING:
     from posthog.models import Organization, User
@@ -167,6 +169,18 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         ),
     )
 
+    # Set only by PostHog staff in the admin, like `supports_step_up`. An admin who grants the
+    # scope makes PostHog trust this client's issuer to sign in members of their organization.
+    can_manage_ema_issuer: models.BooleanField = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text=(
+            "True if this client may request ema_issuer:manage, which registers its ID-JAG issuer as trusted "
+            "for an organization. Only grant this to clients PostHog has agreed enterprise-managed auth with. "
+            "Removing it also makes PostHog reject assertions from every issuer this client registered."
+        ),
+    )
+
     auth_brand: models.CharField = models.CharField(
         max_length=32,
         choices=[(brand.value, brand.value) for brand in OAuthApplicationAuthBrand],
@@ -205,8 +219,8 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
 
     @property
     def ceiling_scopes(self) -> list[str]:
-        """The full grantable set: `scopes` plus `optional_scopes`, deduplicated."""
-        return list(dict.fromkeys([*self.scopes, *self.optional_scopes]))
+        """The full grantable set: `scopes` plus `optional_scopes`, deduplicated, renamed scopes translated."""
+        return translate_renamed_scopes([*self.scopes, *self.optional_scopes])
 
     @property
     def required_scopes(self) -> list[str]:
@@ -215,8 +229,17 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         # (MCP / `*` / empty) so nothing is required and the user picks freely. Self-registered
         # (DCR / CIMD) ceilings are already filtered to grantable scopes and shown as locked rows
         # the user can decline by cancelling, so they carry the same required floor as any other app.
-        return list(self.scopes)
+        return translate_renamed_scopes(self.scopes)
 
+    # On an instance that does not issue verification tokens, a CIMD app whose token the issuer confirmed is linked to
+    # an organization on the issuer. This names the issuer, because `organization` can only point at this instance.
+    organization_link_issuer: models.CharField = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="The PostHog instance whose organization a CIMD app is linked to, when that is not this instance.",
+    )
     # Generation marker for app-wide session revocation. A refresh presenting a token issued
     # before this timestamp is rejected at mint time, so a refresh racing revoke_application_sessions
     # can't slip new tokens past the one-shot bulk revoke.
@@ -325,7 +348,7 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         one CIMD registration reads."""
         from posthog.models.oauth_provisioning import PartnerTier  # noqa: PLC0415
 
-        attested = self.organization_id is not None
+        attested = self.organization_id is not None or bool(self.organization_link_issuer)
         if self.requires_client_authentication:
             return PartnerTier.JWKS_ATTESTED if attested else PartnerTier.JWKS
         return PartnerTier.PUBLIC_ATTESTED if attested else PartnerTier.PUBLIC
@@ -393,10 +416,37 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         return self.provisioning_signing is ProvisioningSigning.REQUIRED
 
     @property
+    def needs_organization_link(self) -> bool:
+        """A self-registered partner with no PostHog organization behind it, while staff require one. Staff-created
+        partners are exempt, because staff already know who runs them."""
+        from posthog.models.instance_setting import get_instance_setting  # noqa: PLC0415
+
+        return (
+            self.is_cimd_client
+            and self.organization_id is None
+            and not self.organization_link_issuer
+            and bool(get_instance_setting("CIMD_PROVISIONING_REQUIRES_ORGANIZATION"))
+        )
+
+    @property
+    def provisioning_allowed(self) -> bool:
+        """Whether the partner may provision right now. Every partner gate reads this rather than `active`."""
+        return self.provisioning.active and not self.needs_organization_link
+
+    @property
     def cannot_meet_provisioning_signature(self) -> bool:
         # Checked per request rather than stored, because a CIMD refresh demotes a partner to public once its
         # metadata drops its key.
         return self.requires_provisioning_signature and not self.uses_private_key_jwt_auth
+
+    def edit_would_break_provisioning_signature(self, **changes: object) -> bool:
+        """Whether applying ``changes`` leaves a partner that has to sign without a key to sign with, so provisioning
+        auth would refuse every request it makes. A partner already in that state, such as a CIMD client whose
+        metadata dropped its key, stays editable, so staff can still change its other settings."""
+        after = copy.copy(self)
+        for name, value in changes.items():
+            setattr(after, name, value)
+        return after.cannot_meet_provisioning_signature and not self.cannot_meet_provisioning_signature
 
     class Meta(AbstractApplication.Meta):
         verbose_name = "OAuth Application"
@@ -767,6 +817,8 @@ class OAuthDeviceGrant(AbstractDeviceGrant):
     # The scopes the client asked for, already clamped to the application's ceiling. The token
     # gets these, never the scopes the client sends when it polls.
     scope: models.TextField = models.TextField(null=True)
+    # The requested scopes the person can't remove at approval, such as the new scopes of a step-up.
+    required_scope: models.TextField = models.TextField(null=True, blank=True)
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
     created: models.DateTimeField = models.DateTimeField(auto_now_add=True)
 
