@@ -805,6 +805,21 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 [_HEALTH_PAUSED],
                 (-timedelta(days=1), _WITH_AN_OVERRIDE_CONDITION),
             ),
+            (
+                "custom_exposure_event",
+                {
+                    "metrics": [_HEALTH_METRIC],
+                    "exposure_criteria": {
+                        "exposure_config": {
+                            "kind": "ExperimentEventExposureConfig",
+                            "event": "$pageview",
+                            "properties": [],
+                        }
+                    },
+                },
+                None,
+                [_HEALTH_PAUSED],
+            ),
         ]
     )
     def test_health_reports_findings(
@@ -845,6 +860,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             metrics=experiment_fields.get("metrics", []),
             metrics_secondary=experiment_fields.get("metrics_secondary", []),
             stats_config=experiment_fields.get("stats_config", {}),
+            exposure_criteria=experiment_fields.get("exposure_criteria", {}),
         )
         if shared_metric_link is not None:
             saved_metric = ExperimentSavedMetric.objects.create(
@@ -890,7 +906,8 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 "rule": None,
             },
         )
-        # The added condition set has no rollout percentage, which the flag service reads as 100.
+        # The added condition set has no rollout percentage, which the flag service reads as 100. It serves nobody,
+        # because the first set has no filters and a 100% rollout.
         added_variant = {"condition_added_after_launch": None, "override_set_before_launch": "test"}
         added_condition = (
             [
@@ -899,11 +916,13 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                     "property_count": 1,
                     "aggregation_group_type_index": None,
                     "variant": added_variant[_name],
+                    "reachable": False,
                 }
             ]
             if _name in added_variant
             else []
         )
+        counted_event = {"custom_exposure_event": "$pageview"}.get(_name)
         self.assertEqual(
             health["setup"],
             {
@@ -913,6 +932,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                         "property_count": 0,
                         "aggregation_group_type_index": None,
                         "variant": None,
+                        "reachable": True,
                     },
                     *added_condition,
                 ],
@@ -922,7 +942,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 "evaluation_runtime": "all",
                 "evaluation_contexts": ["web-app"],
                 "ensure_experience_continuity": False,
-                "exposure": {"event": None, "action": None, "activation": None},
+                "exposure": {"event": counted_event, "action": None, "activation": None},
             },
         )
         if _name == "condition_added_after_launch":

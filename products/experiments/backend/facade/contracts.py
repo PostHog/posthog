@@ -620,6 +620,8 @@ class ExperimentHealthReleaseCondition:
     property_count: int
     aggregation_group_type_index: int | None
     variant: str | None
+    # False when the set serves nobody: its rollout is 0%, or an earlier set ends the flag's evaluation before it.
+    reachable: bool
 
 
 @frozen

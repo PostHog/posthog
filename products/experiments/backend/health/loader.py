@@ -13,12 +13,7 @@ from products.experiments.backend.facade.contracts import (
 )
 from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.health.condition_set_traffic import load_condition_set_traffic
-from products.experiments.backend.health.context import (
-    ExposureEvents,
-    HealthContext,
-    flag_calls_readable,
-    load_health_context,
-)
+from products.experiments.backend.health.context import HealthContext, flag_calls_readable, load_health_context
 from products.experiments.backend.health.exposure_columns import load_filters_without_column
 from products.experiments.backend.health.exposure_gate import load_flag_history
 from products.experiments.backend.health.exposure_inputs import ExposureInputs, load_exposure_inputs
@@ -31,7 +26,6 @@ from products.experiments.backend.health.registry import EXPERIMENT_HEALTH_CHECK
 from products.experiments.backend.health.skips import NOT_ON_FLAG_RULE
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.setup_context import ProjectSetupFacts, build_project_setup_facts
-from products.feature_flags.backend.facade.edits import parse_variants
 from products.feature_flags.backend.facade.filters import (
     condition_aggregation,
     condition_rollout_percentage,
@@ -64,7 +58,7 @@ def evaluate_experiment_health(
         # feature flag rule yet.
         return not_checked_health(EXPERIMENT_HEALTH_CHECKS, NOT_ON_FLAG_RULE)
     ctx = _health_context(experiment, reader_access, user)
-    return replace(evaluate(ctx, EXPERIMENT_HEALTH_CHECKS), setup=_health_setup(experiment, ctx.exposure_events))
+    return replace(evaluate(ctx, EXPERIMENT_HEALTH_CHECKS), setup=_health_setup(experiment, ctx))
 
 
 def load_experiment_health_inputs(
@@ -89,20 +83,25 @@ def load_experiment_health_inputs(
     )
 
 
-def _health_setup(experiment: Experiment, exposure_events: ExposureEvents | None) -> ExperimentHealthSetup | None:
-    # django-stubs types the id as int, but an unsaved instance can carry None.
-    feature_flag_id: int | None = experiment.feature_flag_id
-    if feature_flag_id is None:
+def _health_setup(experiment: Experiment, ctx: HealthContext) -> ExperimentHealthSetup | None:
+    if ctx.flag is None:
         return None
     flag = experiment.feature_flag
     conditions = flag.conditions if isinstance(flag.conditions, list) else []
-    variant_keys = {variant.key for variant in parse_variants(flag.variants) if variant.key}
+    variant_keys = {variant.key for variant in ctx.flag.variants if variant.key}
+    reachable_numbers = {condition.number for condition in ctx.flag.reachable_conditions}
+    exposure_events = ctx.exposure_events
     # The sets as stored, not the users they reach: the checks judge what the configuration does.
     # A null column means the model default, which the flag service applies too.
     return ExperimentHealthSetup(
         release_conditions=tuple(
-            _release_condition(condition, flag.aggregation_group_type_index, variant_keys)
-            for condition in conditions
+            _release_condition(
+                condition,
+                flag.aggregation_group_type_index,
+                variant_keys,
+                reachable=number in reachable_numbers,
+            )
+            for number, condition in enumerate(conditions, start=1)
             if isinstance(condition, dict)
         ),
         early_exit=flag.early_exit,
@@ -122,7 +121,7 @@ def _health_setup(experiment: Experiment, exposure_events: ExposureEvents | None
 
 
 def _release_condition(
-    condition: dict[str, Any], flag_aggregation: int | None, variant_keys: set[str]
+    condition: dict[str, Any], flag_aggregation: int | None, variant_keys: set[str], *, reachable: bool
 ) -> ExperimentHealthReleaseCondition:
     properties = condition.get("properties")
     return ExperimentHealthReleaseCondition(
@@ -130,6 +129,7 @@ def _release_condition(
         property_count=len(properties) if isinstance(properties, list) else 0,
         aggregation_group_type_index=condition_aggregation(condition, flag_aggregation),
         variant=pinned_variant(condition, variant_keys),
+        reachable=reachable,
     )
 
 

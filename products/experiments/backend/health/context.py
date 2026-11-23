@@ -1085,7 +1085,7 @@ def _exposure_events(experiment: Experiment) -> ExposureEvents | None:
 def _event_or_action_name(config: ExperimentEventExposureConfig | ActionsNode) -> str:
     if isinstance(config, ExperimentEventExposureConfig):
         return config.event
-    return config.name or f"action {config.id}"
+    return config.name or f"Action {config.id}"
 
 
 def _filter_values(value: list[str | float | bool] | str | float | bool | None) -> tuple[str | float | bool, ...]:

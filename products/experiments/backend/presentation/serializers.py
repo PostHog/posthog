@@ -429,6 +429,12 @@ class ExperimentHealthReleaseConditionSerializer(serializers.Serializer):
             "flag service ignores."
         ),
     )
+    reachable = serializers.BooleanField(
+        help_text=(
+            "Whether the condition set can serve anyone. False when its rollout is 0%, or when an earlier set without "
+            "filters ends the flag's evaluation before it, so its rollout and variant override apply to nobody."
+        ),
+    )
 
 
 class ExperimentHealthExposureSetupSerializer(serializers.Serializer):

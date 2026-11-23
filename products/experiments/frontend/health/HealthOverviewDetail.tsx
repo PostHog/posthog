@@ -63,7 +63,9 @@ function releaseConditionsText(
     // Numbered as on the flag page, because the sets are the stored configuration, not the users they reach.
     return sets.length === 1
         ? capitalizeFirstLetter(sets[0])
-        : sets.map((set, index) => `Set ${index + 1}: ${set}`).join(' · ')
+        : sets
+              .map((set, index) => `Set ${index + 1}${conditions[index].reachable ? '' : ' (serves nobody)'}: ${set}`)
+              .join(' · ')
 }
 
 function exposureEventText({ event, action, activation }: ExperimentHealthExposureSetupApi): string {
