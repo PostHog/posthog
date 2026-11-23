@@ -1,5 +1,6 @@
 import json
-from dataclasses import asdict, dataclass, replace
+from collections.abc import Sequence
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from typing import Any, TypeVar
 from uuid import UUID
@@ -83,6 +84,7 @@ from products.signals.backend.report_monitoring_signals import (
     MONITORING_EVIDENCE_MIN_CHARS,
     monitoring_research_evidence,
 )
+from products.signals.backend.report_prompts import normalize_suggested_prompts, suggested_prompts_batch_error
 from products.signals.backend.report_steering import ReportSteering, load_research_steering
 from products.signals.backend.report_tags import team_tag_vocabulary
 from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules, StaleReviewerProposal
@@ -103,6 +105,7 @@ from products.signals.backend.temporal.agentic import (
     resolve_acting_user_id_for_team,
     resolve_user_id_for_team,
 )
+from products.signals.backend.temporal.llm import LLMRefusalError
 from products.signals.backend.temporal.types import SignalData
 from products.signals.backend.trial.reports import trial_report_activity
 from products.signals.backend.typed_report_links import (
@@ -186,6 +189,13 @@ class RunAgenticReportOutput:
     # matching title and summary. `None` keeps the stored set, which is also what an older workflow
     # history replays as.
     tags: list[str] | None = None
+    # The suggested prompts to store with the title and summary, already normalized and judged
+    # safe. `[]` clears the stored set, which is also what an older workflow history replays as.
+    suggested_prompts: list[str] = field(default_factory=list)
+    # Set when the research-written title or summary failed the safety judge, so the workflow fails
+    # the report instead of storing the text. `None` passed the judge, which is also what an older
+    # workflow history replays as.
+    unsafe_prose_explanation: str | None = None
 
 
 _ArtefactContentT = TypeVar("_ArtefactContentT", bound=BaseModel)
@@ -283,14 +293,22 @@ async def _load_previous_research(team_id: int, report_id: str) -> ReportResearc
 
 
 @frozen
-class _TagContext:
+class _PresentationContext:
     current_tags: list[str]
     team_tags: list[str]
+    current_suggested_prompts: list[str]
 
 
-def _load_tag_context(team_id: int, report_id: str) -> _TagContext:
-    current = SignalReport.objects.filter(team_id=team_id, id=report_id).values_list("tags", flat=True).first()
-    return _TagContext(current_tags=list(current or []), team_tags=team_tag_vocabulary(team_id))
+def _load_presentation_context(team_id: int, report_id: str) -> _PresentationContext:
+    current = (
+        SignalReport.objects.filter(team_id=team_id, id=report_id).values_list("tags", "suggested_prompts").first()
+    )
+    tags, suggested_prompts = current if current else (None, None)
+    return _PresentationContext(
+        current_tags=list(tags or []),
+        team_tags=team_tag_vocabulary(team_id),
+        current_suggested_prompts=list(suggested_prompts or []),
+    )
 
 
 def _parse_stored_charts(raw: object, report_id: str) -> list[ReportChart]:
@@ -831,6 +849,92 @@ def _resolve_report_charts_payload(
     return [chart.model_dump(mode="json") for chart in charts]
 
 
+@frozen
+class _ResearchOutputVerdict:
+    # Set when the research-written title or summary failed the safety judge, so the workflow fails
+    # the report instead of storing the text.
+    unsafe_prose_explanation: str | None
+    suggested_prompts: list[str]
+
+
+async def _judge_research_output(
+    prompts: Sequence[str],
+    *,
+    team_id: int,
+    report_id: str,
+    signal_id: str | None,
+    title: str,
+    summary: str,
+    checks_summary: str | None,
+) -> _ResearchOutputVerdict:
+    """Judge the research-written text and the suggested prompts to store with it.
+
+    The prompts are judged with the text in one call, and a safe verdict covers both. When that call
+    rejects the set or cannot run, a second call judges the text alone, so an unsafe prompt drops
+    only the prompts while unsafe text fails the report. A run without prompts takes only the second
+    call.
+
+    The verdict keeps `[]` prompts rather than `None` when the run keeps none. Research rewrites the
+    prose that the stored prompts were written about, so keeping them would put prompts about the
+    old report under the new one. The presentation prompt shows research the stored prompts, so it
+    can send again the ones that still fit.
+
+    Never raises. This runs after the whole sandbox research, and Temporal retries a failed activity
+    from the start, so a raise here would repeat the research. A text judge that refuses or fails
+    counts as unsafe, because unjudged text must not surface or feed autostart.
+    """
+    normalized = normalize_suggested_prompts(prompts)
+    log = logger.bind(team_id=team_id, report_id=report_id, prompt_count=len(normalized))
+    if normalized and (batch_error := suggested_prompts_batch_error(normalized)):
+        log.warning("dropping research suggested prompts", reason=batch_error)
+        normalized = []
+    if normalized:
+        try:
+            safety = await report_safety_judge.judge_suggested_prompts(
+                team_id=team_id,
+                report_id=report_id,
+                signal_id=signal_id,
+                title=title,
+                summary=summary,
+                checks_summary=checks_summary,
+                suggested_prompts=normalized,
+            )
+        except LLMRefusalError:
+            log.warning("dropping research suggested prompts", reason="safety model refused")
+        except Exception:
+            log.exception("dropping research suggested prompts", reason="safety judge failed")
+        else:
+            if safety.choice:
+                return _ResearchOutputVerdict(unsafe_prose_explanation=None, suggested_prompts=normalized)
+            log.warning("dropping research suggested prompts", reason="judged unsafe", explanation=safety.explanation)
+    try:
+        prose_safety = await report_safety_judge.judge_report_prose(
+            team_id=team_id,
+            report_id=report_id,
+            signal_id=signal_id,
+            title=title,
+            summary=summary,
+            checks_summary=checks_summary,
+        )
+    except LLMRefusalError:
+        log.warning("research report text failed safety review", reason="safety model refused")
+        return _ResearchOutputVerdict(
+            unsafe_prose_explanation="The safety model refused to assess the research output.", suggested_prompts=[]
+        )
+    except Exception:
+        log.exception("research report text failed safety review", reason="safety judge failed")
+        return _ResearchOutputVerdict(
+            unsafe_prose_explanation="The safety check on the research output failed.", suggested_prompts=[]
+        )
+    if not prose_safety.choice:
+        log.warning("research report text failed safety review", explanation=prose_safety.explanation)
+        return _ResearchOutputVerdict(
+            unsafe_prose_explanation=prose_safety.explanation or "The safety judge rejected the research output.",
+            suggested_prompts=[],
+        )
+    return _ResearchOutputVerdict(unsafe_prose_explanation=None, suggested_prompts=[])
+
+
 def _resolve_report_metrics_payload(
     metrics: list[ReportMetric],
     metrics_enabled: bool,
@@ -1318,7 +1422,7 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
             await database_sync_to_async(_capture_research_steering_attached, thread_sensitive=False)(
                 team_id=input.team_id, report_id=input.report_id, steering=steering
             )
-            tag_context = await database_sync_to_async(_load_tag_context, thread_sensitive=False)(
+            presentation_context = await database_sync_to_async(_load_presentation_context, thread_sensitive=False)(
                 input.team_id, input.report_id
             )
             # 3. Run the agentic research in the sandbox
@@ -1398,8 +1502,9 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
                 agent_checks_enabled=agent_checks_enabled,
                 steering_section=steering.section,
                 suggestable_products=suggestable_products,
-                current_tags=tag_context.current_tags,
-                team_tags=tag_context.team_tags,
+                current_tags=presentation_context.current_tags,
+                team_tags=presentation_context.team_tags,
+                current_suggested_prompts=presentation_context.current_suggested_prompts,
                 source_issues=source_issues,
             )
             # 4. Persist artefacts, avoid partial data from failed runs
@@ -1433,6 +1538,18 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
             report_id=input.report_id,
             team_id=input.team_id,
         )
+        # The judge is an LLM call outside the research heartbeat block, and the activity's heartbeat
+        # timeout is shorter than a slow judge call.
+        async with Heartbeater():
+            research_verdict = await _judge_research_output(
+                result.suggested_prompts,
+                team_id=input.team_id,
+                report_id=input.report_id,
+                signal_id=input.signal_id,
+                title=result.title,
+                summary=result.summary,
+                checks_summary=result.checks_summary,
+            )
         logger.info(
             "signals agentic report completed",
             report_id=input.report_id,
@@ -1462,6 +1579,8 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
             research_task_id=result.research_task_id,
             charts_enabled=True,
             tags=result.tags,
+            suggested_prompts=research_verdict.suggested_prompts,
+            unsafe_prose_explanation=research_verdict.unsafe_prose_explanation,
         )
     except AgentStartupFailed as error:
         raise ApplicationError(
