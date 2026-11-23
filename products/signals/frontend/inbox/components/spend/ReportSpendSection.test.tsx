@@ -32,31 +32,34 @@ describe('ReportSpendSection', () => {
     test.each([
         {
             name: 'scout-authored report with a scout run receipt',
-            spend: { scout_authored: true, scout: 1400 },
+            scoutAuthored: true,
+            scoutSpend: 1400,
             header: null,
             generationRow: false,
             notTracked: 0,
         },
         {
             name: 'scout-authored report without a scout run receipt',
-            spend: { scout_authored: true, scout: null },
+            scoutAuthored: true,
+            scoutSpend: null,
             header: null,
             generationRow: false,
             notTracked: 1,
         },
         {
             name: 'pipeline report without generation receipts',
-            spend: { scout_authored: false, scout: null },
+            scoutAuthored: false,
+            scoutSpend: null,
             header: 'Not tracked',
             generationRow: true,
             notTracked: 2,
         },
-    ])('$name', async ({ spend, header, generationRow, notTracked }) => {
+    ])('$name', async ({ scoutAuthored, scoutSpend, header, generationRow, notTracked }) => {
         jest.spyOn(api, 'signalsReportSpend').mockResolvedValue({
             generation: amount(null),
             implementation: amount(null),
-            shared_scout_runs: amount(spend.scout),
-            scout_authored: spend.scout_authored,
+            shared_scout_runs: amount(scoutSpend),
+            scout_authored: scoutAuthored,
         })
         render(<ReportSpendSection reportId="report-1" />)
 

@@ -45,7 +45,7 @@ export function ReportSpendSection({
             defaultCollapsed
             onToggleCollapsed={onToggleCollapsed}
             meta={
-                spend && !failed && (ownSpend !== null || generationApplies(spend)) ? (
+                spend && !failed && (ownSpend !== null || !spend.scout_authored) ? (
                     <span className="text-xs text-secondary" data-attr="report-spend-total">
                         <RecordedSpend amount={ownSpend} description="Report generation and implementation." />
                     </span>
