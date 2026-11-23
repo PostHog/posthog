@@ -2,7 +2,12 @@ from abc import ABC, abstractmethod
 from functools import cached_property
 from typing import Any
 
-from posthog.schema import MarketingAnalyticsRecommendationsSource, MarketingAnalyticsRecommendationsSourceType
+from posthog.schema import (
+    MarketingAnalyticsConversionActionsQuery,
+    MarketingAnalyticsRecommendationsQuery,
+    MarketingAnalyticsRecommendationsSource,
+    MarketingAnalyticsRecommendationsSourceType,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -13,6 +18,7 @@ from posthog.hogql.query import create_default_modifiers_for_team, execute_hogql
 from posthog.hogql_queries.query_runner import AR, AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
+from products.marketing_analytics.backend.hogql_queries.access_control import MarketingAnalyticsAccessMixin
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import RECOMMENDATION_SOURCE_TYPES
 from products.warehouse_sources.backend.facade.api import (
     all_queryable_table_keys,
@@ -23,8 +29,9 @@ from products.warehouse_sources.backend.facade.api import (
 ROW_LIMIT = 50000
 
 
-class RecommendationSourcesQueryRunner(AnalyticsQueryRunner[AR], ABC):
+class RecommendationSourcesQueryRunner(MarketingAnalyticsAccessMixin, AnalyticsQueryRunner[AR], ABC):
     hogql_query_type: str
+    query: MarketingAnalyticsRecommendationsQuery | MarketingAnalyticsConversionActionsQuery
 
     @property
     @abstractmethod
@@ -47,8 +54,36 @@ class RecommendationSourcesQueryRunner(AnalyticsQueryRunner[AR], ABC):
             database=self.hogql_database,
         )
 
-    def to_query(self) -> ast.SelectQuery:
-        return ast.SelectQuery(select=[ast.Constant(value=1)])
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        # The runner never executes this query. Save-time access checks, such as publishing a shared link, compile
+        # it as the saving user, so it has to name every table a run reads.
+        tables = {
+            table
+            for source in self.sources
+            for field, table in source
+            if field.endswith("Table")
+            and isinstance(table, str)
+            and (self.hogql_database.has_table(table) or self.hogql_database.is_table_access_denied(table))
+        }
+        if not tables:
+            return ast.SelectQuery(select=[ast.Constant(value=1)])
+        return ast.SelectSetQuery.create_from_queries(
+            [
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=list[str | int](table.split(".")))),
+                    limit=ast.Constant(value=0),
+                )
+                for table in sorted(tables)
+            ],
+            "UNION ALL",
+        )
+
+    @cached_property
+    def sources(self) -> list[MarketingAnalyticsRecommendationsSource]:
+        if self.query.sources is None:
+            return self._project_sources()
+        return list({source.model_dump_json(): source for source in self.query.sources}.values())
 
     def _project_sources(self) -> list[MarketingAnalyticsRecommendationsSource]:
         table_keys = all_queryable_table_keys(self.team.pk)
