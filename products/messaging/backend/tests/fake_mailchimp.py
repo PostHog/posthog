@@ -146,7 +146,11 @@ class FakeMailchimp:
         if route == "members":
             status = query.get("status")
             rows = [row for row in audience["members"] if not status or row["status"] == status]
-            return 200, self._page("members", rows, query), {}
+            page = self._page("members", rows, query)
+            if fields := query.get("fields"):
+                wanted = {name.removeprefix("members.") for name in fields.split(",")}
+                page["members"] = [{k: v for k, v in row.items() if k in wanted} for row in page["members"]]
+            return 200, page, {}
         if route == "abuse":
             return 200, self._page("abuse_reports", audience["abuse_reports"], query), {}
         if route == "categories":

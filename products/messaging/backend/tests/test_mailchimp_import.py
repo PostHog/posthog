@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -206,30 +207,112 @@ class TestMailchimpImport(BaseTest):
         assert retried[0] == ("unsubscribed", "0")
         assert {"Left.Person@example.com", "jürgen.müller@example.com"} <= set(self._opt_outs())
 
-    def test_a_contact_leaving_the_list_mid_import_skips_no_one(self) -> None:
-        self._patch(f"{CLIENT}.PAGE_SIZE", 10)
-        members = self.mailchimp.data["lists"][0]["members"]
-        added = [f"person{number:02}@example.com" for number in range(15)]
-        members.extend({"email_address": email, "status": "unsubscribed"} for email in added)
+    def _change_after_each_read(self, status: str, change: Callable[[int, dict[str, Any]], None]) -> None:
         handle = self.mailchimp.handle
+        audience = self.mailchimp.data["lists"][0]
+        reads = 0
 
-        def resubscribe_after_first_page(
+        def answer_then_change(
             path: str, query: dict[str, str], authorization: str
         ) -> tuple[int, dict[str, Any], dict[str, str]]:
+            nonlocal reads
             answer = handle(path, query, authorization)
-            if (
-                query.get("status") == "unsubscribed"
-                and query.get("offset") == "0"
-                and path.endswith("a1b2c3d4e5/members")
-            ):
-                members[3]["status"] = "subscribed"
+            if query.get("status") == status and path.endswith(f"{audience['id']}/members"):
+                change(reads, audience)
+                reads += 1
             return answer
 
-        with patch.object(self.mailchimp, "handle", resubscribe_after_first_page):
-            run = self._run(["audiences"])
+        patcher = patch.object(self.mailchimp, "handle", answer_then_change)
+        self.addCleanup(patcher.stop)
+        patcher.start()
 
-        assert set(added) <= set(self._opt_outs())
-        assert run.progress["audiences"]["counts"]["unsubscribed"] == 3 + len(added)
+    @parameterized.expand(
+        [
+            # How many contacts leave the front of the list after each read of it.
+            ("within_the_overlap", 250, [5], False),
+            ("exactly_the_overlap", 250, [10], False),
+            ("just_past_the_overlap", 250, [11], False),
+            ("past_the_overlap_before_the_last_page", 205, [0, 20], False),
+            ("shrinks_below_the_offset", 250, [0, 150], False),
+            ("shrinks_to_nothing", 250, [250], False),
+            ("past_the_overlap_on_every_read", 1000, [15] * 40, True),
+        ]
+    )
+    def test_contacts_leaving_the_list_mid_import_skip_no_one(
+        self, _name: str, total: int, leaving: list[int], keeps_changing: bool
+    ) -> None:
+        self._patch(f"{CLIENT}.PAGE_SIZE", 100)
+        audience = self.mailchimp.data["lists"][0]
+        audience["members"] = [
+            {"email_address": f"person{number:04}@example.com", "status": "unsubscribed"} for number in range(total)
+        ]
+
+        def leave(read: int, audience: dict[str, Any]) -> None:
+            audience["members"] = audience["members"][leaving[read] if read < len(leaving) else 0 :]
+
+        self._change_after_each_read("unsubscribed", leave)
+        run = self._run(["audiences"])
+
+        assert run.status == "completed", run.progress
+        progress = run.progress["audiences"]
+        imported = {identifier for identifier in self._opt_outs() if identifier.startswith("person")}
+        stayed = {member["email_address"] for member in audience["members"]}
+        if keeps_changing:
+            assert [warning.split(":")[0] for warning in progress["warnings"]] == ["Weekly newsletter"]
+            assert max(stayed) in imported
+        else:
+            assert progress["warnings"] == []
+            assert stayed <= imported
+        # Contacts read again after a restart count once. The other audience has one unsubscribed contact.
+        assert progress["counts"]["unsubscribed"] == len(imported) + 1
+
+    def test_changed_contacts_moving_behind_unread_ones_hide_no_one(self) -> None:
+        self._patch(f"{CLIENT}.PAGE_SIZE", 100)
+        audience = self.mailchimp.data["lists"][0]
+        audience["members"] = [
+            {
+                "email_address": f"person{number:04}@example.com",
+                "status": "subscribed",
+                "interests": {"int1": False, "int2": False},
+                "last_changed": "2026-01-02T03:04:05+00:00",
+            }
+            for number in range(105)
+        ]
+
+        def change_twelve(read: int, audience: dict[str, Any]) -> None:
+            if read == 0:
+                moved = [{**member, "last_changed": "2026-05-02T03:04:05+00:00"} for member in audience["members"][:12]]
+                audience["members"] = audience["members"][12:] + moved
+
+        self._change_after_each_read("subscribed", change_twelve)
+        run = self._run(["groups"])
+
+        assert run.progress["groups"]["warnings"] == []
+        assert {member["email_address"] for member in audience["members"]} <= set(self._opt_outs())
+
+    def test_a_retry_after_a_restart_reads_the_list_from_the_start(self) -> None:
+        self._patch(f"{CLIENT}.PAGE_SIZE", 100)
+        audience = self.mailchimp.data["lists"][0]
+        audience["members"] = [
+            {"email_address": f"person{number:04}@example.com", "status": "unsubscribed"} for number in range(460)
+        ]
+
+        def leave_then_fail(read: int, audience: dict[str, Any]) -> None:
+            if read == 2:
+                audience["members"] = audience["members"][150:]
+            if read == 3:
+                self.mailchimp.failures.append(
+                    Failure(route="members", status=500, times=100, status_filter="unsubscribed")
+                )
+
+        self._change_after_each_read("unsubscribed", leave_then_fail)
+        run = runs.start_run(self.team.id, "mailchimp", ["audiences"], FULL_KEY, self.user.id, {})
+        with self.assertRaises(ImportProviderUnavailable):
+            runs.run_step(self.team.id, run.id, "audiences", attempt=1)
+        self.mailchimp.failures.clear()
+        runs.run_step(self.team.id, run.id, "audiences", attempt=2)
+
+        assert {member["email_address"] for member in audience["members"]} <= set(self._opt_outs())
 
     def test_an_audience_of_only_pending_contacts_imports(self) -> None:
         old_audience = self.mailchimp.data["lists"][2]

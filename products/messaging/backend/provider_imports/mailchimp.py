@@ -92,6 +92,7 @@ RECENT_DAYS = 90
 UNSENT_STATUSES = frozenset({"save", "paused", "schedule"})
 CATEGORY_KEY_MAX_LENGTH = 64
 EMAILS_PER_PAGE = 10
+MAX_LIST_RESTARTS = 3
 # Contacts who can't get a campaign from this audience in Mailchimp, by the count each adds to.
 LEFT_STATUSES = {
     "unsubscribed": "unsubscribed",
@@ -393,12 +394,14 @@ def _read_targets(
         following = remaining[index + 1] if index + 1 < len(remaining) else None
         after_target: StepCheckpoint | None = {"target": following.position, "offset": 0} if following else None
         offset = first_offset if index == 0 else 0
-        is_first_page = index > 0 or saved_offset == 0
-        previous_page: set[str] = set()
+        restarts = int(checkpoint.get("restarts", 0)) if checkpoint and index == 0 and target.position == saved else 0
+        is_first_page = index > 0 or (saved_offset == 0 and not restarts)
+        read: set[bytes] = set()
+        previous_page: list[bytes] = []
         while True:
             # A contact who leaves the list or changes moves every unread contact back, so each page starts a little
             # before the last one ended and skips the contacts that page already returned.
-            overlap = mailchimp_client.PAGE_SIZE // 10 if previous_page else 0
+            overlap = min(mailchimp_client.PAGE_SIZE // 10, len(previous_page))
             request_offset = max(offset - overlap, 0)
             try:
                 page = client.page(target.path, target.items_key, request_offset, dict(target.params))
@@ -409,24 +412,71 @@ def _read_targets(
                 save_missing = partial(_missing_audience, target) if report else lambda: SavedPage(imported=0)
                 yield ImportPage(processed=0, save=save_missing, checkpoint=after_target)
                 break
+            keys = [_item_key(item) for item in page.items]
+            if restarts <= MAX_LIST_RESTARTS and _moved_past_overlap(
+                page, keys, previous_page, request_offset, overlap
+            ):
+                restarts += 1
+                restarting = restarts <= MAX_LIST_RESTARTS
+                if restarting:
+                    offset = 0
+                    previous_page = []
+                yield ImportPage(
+                    processed=0,
+                    save=(lambda: SavedPage(imported=0)) if restarting else partial(_changing_list, target),
+                    checkpoint={"target": target.position, "offset": offset, "restarts": restarts},
+                )
+                is_first_page = False
+                if restarting:
+                    continue
             end = request_offset + len(page.items)
             moved_on = end > offset
             offset = max(offset, end)
             more = moved_on and offset < page.total
-            items = [item for item in page.items if _item_key(item) not in previous_page]
-            previous_page = {_item_key(item) for item in page.items}
+            items = [item for key, item in zip(keys, page.items) if key not in read]
+            read.update(keys)
+            previous_page = keys
             yield ImportPage(
                 processed=len(items),
                 save=partial(save, target, items, is_first_page),
-                checkpoint={"target": target.position, "offset": offset} if more else after_target,
+                checkpoint={"target": target.position, "offset": offset, "restarts": restarts}
+                if more
+                else after_target,
             )
             is_first_page = False
             if not more:
                 break
 
 
-def _item_key(item: Mapping[str, Any]) -> str:
-    return json.dumps(item, sort_keys=True, default=str)
+def _moved_past_overlap(
+    page: mailchimp_client.MailchimpPage,
+    keys: list[bytes],
+    previous_page: list[bytes],
+    request_offset: int,
+    overlap: int,
+) -> bool:
+    """Whether more contacts left or changed since the previous page than the overlap covers, so unread ones may sit
+    before this page."""
+    if not keys:
+        # A list's normal end is read without an empty page, so this one shrank to before the page.
+        return 0 < page.total <= request_offset
+    return overlap > 0 and set(keys[:overlap]).isdisjoint(previous_page)
+
+
+def _item_key(item: Mapping[str, Any]) -> bytes:
+    # A list is remembered whole while it's read, so each contact keeps only a digest.
+    return hashlib.sha256(json.dumps(item, sort_keys=True, default=str).encode()).digest()
+
+
+def _changing_list(target: _Target) -> SavedPage:
+    name = _audience_name(target.details["audience"])
+    return SavedPage(
+        imported=0,
+        warnings=(
+            f"{name}: this audience kept changing in Mailchimp during the import, so some contacts may be missing. "
+            "Import again when it changes less.",
+        ),
+    )
 
 
 def _missing_audience(target: _Target) -> SavedPage:
@@ -599,7 +649,7 @@ def _fetch_groups(
                 _member_target(
                     audience,
                     status,
-                    "members.email_address,members.interests" if status == "subscribed" else "",
+                    "members.email_address,members.interests,members.last_changed" if status == "subscribed" else "",
                     groups=tuple(groups),
                     first=status == statuses[0],
                 )
