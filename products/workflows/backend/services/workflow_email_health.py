@@ -1,5 +1,6 @@
 from dataclasses import replace
 from datetime import datetime, timedelta
+from itertools import batched
 from typing import Final, Literal
 from uuid import UUID
 
@@ -239,10 +240,8 @@ _TRANSACTIONAL_LOOKUP_BATCH_SIZE = 200
 def _transactional_by_flow(team_by_flow: dict[str, int]) -> dict[str, bool]:
     # Batched because `actions` holds each email step's full HTML, and the sweep's database
     # connection goes through pgbouncer, where Django cannot stream rows with a server-side cursor.
-    flow_ids = list(team_by_flow)
     transactional: dict[str, bool] = {}
-    for start in range(0, len(flow_ids), _TRANSACTIONAL_LOOKUP_BATCH_SIZE):
-        batch = flow_ids[start : start + _TRANSACTIONAL_LOOKUP_BATCH_SIZE]
+    for batch in batched(team_by_flow, _TRANSACTIONAL_LOOKUP_BATCH_SIZE, strict=False):
         team_ids = {team_by_flow[flow_id] for flow_id in batch}
         # nosemgrep: idor-lookup-without-team (internal sweep across teams; ids come from the team-scoped candidate query)
         rows = HogFlow.objects.filter(team_id__in=team_ids, id__in=batch).values_list("id", "actions")

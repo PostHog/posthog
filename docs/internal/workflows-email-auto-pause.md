@@ -60,7 +60,7 @@ Staff admin actions write regardless of the flag, which is the intended dogfood 
 1. Deploy dark. The detector logs `would_pause_workflow_email_sending` and `would_warn_workflow_email_sending` (with workflow name, rates, and volume) and counts `workflow_email_auto_pause_total` / `workflow_email_warning_total` with `mode="dry_run"`.
 2. Read the would-pause list for a week or two and tune thresholds per region if needed.
 3. Validate the machinery with one staff pause on an internal workflow: worker skip, admin email, banner, resume.
-4. Check that a staff alert fires on `would_pause_workflow_email_sending` with `mode="transactional"`. Without it, a transactional breach reaches only the project's admins.
+4. Check that a staff alert fires on `would_pause_workflow_email_sending` with `mode="transactional"`, using a synthetic log line, since a real breach logs `mode="dry_run"` until enforcement is on. Without the alert, a transactional breach reaches only the project's admins.
 5. Set `WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED=true` per region via `posthog/charts`, once this release runs in both regions.
 6. To back out, unset the flag; existing pauses stay until resumed. Before rolling back to a release without the transactional warning, unset the flag, confirm the sweep workers run with it off and any sweep started before that has finished, then let the email queue drain. An older worker drops a transactional warning, and its cooldown is already saved.
 
@@ -94,5 +94,5 @@ Optionally add the pause metric name to `WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_
 - Workflow completion does not confirm an email send. Test responses expose the email provider outcome separately; a skipped send retains its reason, and provider acceptance does not confirm inbox delivery.
 - Skipped sends log at error level in the run and record an `email_paused` metric; the run itself continues past the email step, so downstream steps still execute.
 - A workflow with both transactional and marketing email steps stays pausable, and a pause holds every email step in it, the transactional ones too.
-- The sweep reads a workflow's steps before it writes a pause. A workflow republished as transactional in between is paused; its admins get the pause email and can resume it.
+- The sweep reads a workflow's steps before it writes a pause. A workflow republished as transactional in between is paused and its admins get the pause email. They can resume it, unless it was resumed within the repeat window, when only staff can.
 - Sends from the PostHog test sender (the `email_sandbox` step) never count toward a workflow's rates and are never paused by the detector. They record no ordinary email metrics, and the PostHog test sender has its own controls (see [email sending tiers](workflows-email-sending-tiers.md#posthog-test-sender)).
