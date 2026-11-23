@@ -24,3 +24,8 @@ class McpStoreConfig(AppConfig):
         # and a task it queues onto another broker is never run. Workers start with every deploy, and
         # tests, collectstatic and other one-off commands never send worker_ready.
         worker_ready.connect(queue_catalog_sync_when_worker_is_ready, dispatch_uid="mcp_store_catalog_sync")
+
+        # Members leave through web, SCIM and workers, so this receiver connects in every process.
+        from products.mcp_store.backend import receivers  # noqa: PLC0415 — needs the app registry
+
+        receivers.connect()
