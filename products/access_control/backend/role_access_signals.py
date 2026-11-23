@@ -3,8 +3,6 @@ from typing import Any
 from django.db.models.signals import post_delete, post_save, pre_delete, pre_save
 from django.dispatch import receiver
 
-from posthog.models.organization import OrganizationMembership
-
 from products.access_control.backend.models.role import Role, RoleMembership, invalidate_role_access
 
 
@@ -41,13 +39,3 @@ def invalidate_role_membership(sender: type[RoleMembership], instance: RoleMembe
 @receiver(post_delete, sender=RoleMembership)
 def invalidate_deleted_role_membership(sender: type[RoleMembership], instance: RoleMembership, **kwargs: Any) -> None:
     invalidate_role_access(getattr(instance, "_previous_grant_members", []))
-
-
-@receiver(pre_delete, sender=OrganizationMembership)
-def remove_legacy_role_memberships(
-    sender: type[OrganizationMembership], instance: OrganizationMembership, **kwargs: Any
-) -> None:
-    # NULL links have no membership FK to cascade, so remove them before a later rejoin can inherit them.
-    RoleMembership.objects.filter(
-        user_id=instance.user_id, role__organization_id=instance.organization_id, organization_member__isnull=True
-    ).delete()

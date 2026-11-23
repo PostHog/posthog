@@ -370,7 +370,11 @@ class TestReceivers(_MemberTeamsTest):
             name="Administrators",
             organization_access_level=OrganizationMembership.Level.ADMIN,
         )
-        access_testing.add_role_member(role_id=role_id, user_id=self.member.id)
+        access_testing.add_role_member(
+            role_id=role_id,
+            user_id=self.member.id,
+            organization_member_id=self.member.organization_memberships.get(organization=self.organization).id,
+        )
         assert member_teams.member_teams(self.organization, self.member) == {self.team.id: "write"}
         with self.captureOnCommitCallbacks(execute=True):
             access_testing.set_role_organization_access_level(
