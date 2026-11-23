@@ -303,6 +303,90 @@ describe('statusOf', () => {
             'every invariant held',
         ],
         [
+            'a ramp that ran to its ceiling but lost deliveries and sent duplicates under the hard limit',
+            {
+                convergence: { converged: false, unfinishedJobs: 0, unrecorded: ['run-1', 'run-2'], tookMs: 120_000 },
+                invariants: [
+                    { ...BROKEN, crossedBy: 'run-1' },
+                    { name: 'duplicate_sends', passed: false, observed: 1, unitIds: ['run-3'], crossedBy: 'run-3' },
+                ],
+                ramp: {
+                    end: 'ceiling',
+                    sustainedScale: 5,
+                    reason: 'every step held up to the 5x ceiling',
+                    rates: [
+                        {
+                            index: 0,
+                            scale: 1,
+                            expected: 120,
+                            lost: 0,
+                            lossRate: 0,
+                            sent: 119,
+                            duplicates: 1,
+                            duplicateRate: 1 / 119,
+                        },
+                        {
+                            index: 1,
+                            scale: 2,
+                            expected: 240,
+                            lost: 2,
+                            lossRate: 2 / 240,
+                            sent: 238,
+                            duplicates: 0,
+                            duplicateRate: 0,
+                        },
+                    ],
+                },
+            },
+            'failed',
+            'the ramp ran to its last step, but lost 2 of 360 deliveries (0.56%): 2 in the 2x step; sent 1 duplicate of 357 deliveries (0.28%): 1 in the 1x step',
+        ],
+        [
+            'a ramp that ran to its ceiling with duplicates the janitor resets allow',
+            {
+                ramp: {
+                    end: 'ceiling',
+                    sustainedScale: 5,
+                    reason: 'every step held up to the 5x ceiling',
+                    rates: [
+                        {
+                            index: 0,
+                            scale: 1,
+                            expected: 120,
+                            lost: 0,
+                            lossRate: 0,
+                            sent: 120,
+                            duplicates: 1,
+                            duplicateRate: 1 / 120,
+                        },
+                    ],
+                },
+                invariants: [{ name: 'duplicate_sends', passed: true, observed: 1, unitIds: ['run-3'] }],
+            },
+            'passed',
+            'every invariant held',
+        ],
+        [
+            'a ramp that ran to its ceiling whose last delivery arrived only after the convergence deadline',
+            {
+                convergence: { converged: false, unfinishedJobs: 0, unrecorded: ['run-1'], tookMs: 120_000 },
+                invariants: [{ name: 'at_least_once', passed: true, observed: 0, unitIds: [] }],
+                ramp: { end: 'ceiling', sustainedScale: 5, reason: 'every step held up to the 5x ceiling' },
+            },
+            'failed',
+            'not converged: 0 unfinished jobs, 1 units without a delivery record',
+        ],
+        [
+            'a ramp that ran to its ceiling on a card that does not judge at_least_once, with units left unrecorded',
+            {
+                convergence: { converged: false, unfinishedJobs: 0, unrecorded: ['run-1', 'run-2'], tookMs: 120_000 },
+                invariants: [{ name: 'duplicate_sends', passed: true, observed: 0, unitIds: [] }],
+                ramp: { end: 'ceiling', sustainedScale: 5, reason: 'every step held up to the 5x ceiling' },
+            },
+            'failed',
+            'not converged: 0 unfinished jobs, 2 units without a delivery record',
+        ],
+        [
             'a ramp that held up to its ceiling with a bar the stack has no source for',
             {
                 ramp: {

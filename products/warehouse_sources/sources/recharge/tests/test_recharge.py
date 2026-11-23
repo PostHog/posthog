@@ -10,7 +10,7 @@ from products.warehouse_sources.sources.recharge.recharge import (
     _format_incremental_value,
     validate_credentials,
 )
-from products.warehouse_sources.sources.recharge.settings import RECHARGE_ENDPOINTS
+from products.warehouse_sources.sources.recharge.settings import METAFIELD_OWNER_RESOURCES, RECHARGE_ENDPOINTS
 from products.warehouse_sources.sources.recharge.source import RechargeSource
 from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
@@ -24,6 +24,10 @@ from products.warehouse_sources.sources.sdk.testing import (
 
 def _page(endpoint: str, items: list[dict[str, Any]], next_cursor: str | None) -> ScriptedResponse:
     return ScriptedResponse(json={endpoint: items, "next_cursor": next_cursor})
+
+
+def _first_owner_query(owner_resource: str) -> dict[str, tuple[str, ...]]:
+    return {"limit": ("250",), "sort_by": ("id-asc",), "owner_resource": (owner_resource,)}
 
 
 def _drive(endpoint: str, script: Script, api_key: str = "t", **inputs: Any) -> DriveResult:
@@ -181,7 +185,7 @@ class TestPagination:
 class TestRechargeSource:
     @parameterized.expand([(name,) for name in RECHARGE_ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = _drive(endpoint, [_page(endpoint, [], None)], api_key="token").response
+        response = _drive(endpoint, always(_page(endpoint, [], None)), api_key="token").response
 
         assert response is not None
         assert response.name == endpoint
@@ -193,6 +197,7 @@ class TestRechargeSource:
         [
             ("sorted_endpoint", "customers", "asc"),
             ("unsorted_endpoint", "events", None),
+            ("owner_walk_restarts_the_order_per_owner_type", "metafields", None),
         ]
     )
     def test_sort_mode_is_asc_only_when_the_request_sorts(
@@ -200,7 +205,7 @@ class TestRechargeSource:
     ) -> None:
         response = _drive(
             endpoint,
-            [_page(endpoint, [], None)],
+            always(_page(endpoint, [], None)),
             should_use_incremental_field=True,
             incremental_field="created_at",
             db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
@@ -208,3 +213,123 @@ class TestRechargeSource:
 
         assert response is not None
         assert response.sort_mode == expected_sort_mode
+
+
+class TestCustomerEntitlements:
+    @parameterized.expand(
+        [
+            ("envelope", {"customer_entitlements": [{"id": 7}], "next_cursor": None}, [7]),
+            ("empty_envelope", {"customer_entitlements": [], "next_cursor": None}, []),
+            ("bare_array", [{"id": 7}, {"id": 8}], [7, 8]),
+            ("empty_bare_array", [], []),
+        ]
+    )
+    def test_reads_rows_from_either_response_shape(self, _name: str, body: Any, expected_ids: list[int]) -> None:
+        result = _drive("customer_entitlements", [ScriptedResponse(json=body)])
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == expected_ids
+
+    def test_follows_the_envelope_cursor(self) -> None:
+        result = _drive(
+            "customer_entitlements",
+            [
+                _page("customer_entitlements", [{"id": 9}], "entitlements-2"),
+                _page("customer_entitlements", [{"id": 8}], None),
+            ],
+        )
+
+        assert [row["id"] for row in result.rows] == [9, 8]
+        assert result.queries == [{"limit": ("250",)}, {"cursor": ("entitlements-2",), "limit": ("250",)}]
+
+    @parameterized.expand(
+        [
+            ("full_bare_page_cannot_be_paged", [{"id": i} for i in range(250)]),
+            ("object_without_rows", {"error": "unexpected"}),
+        ]
+    )
+    def test_fails_instead_of_dropping_rows(self, _name: str, body: Any) -> None:
+        result = _drive("customer_entitlements", [ScriptedResponse(json=body)])
+
+        assert isinstance(result.raised, ValueError)
+        assert result.rows == []
+
+
+class TestMetafieldsOwnerWalk:
+    def test_walks_every_owner_type_and_stages_each_owner_start(self) -> None:
+        result = _drive(
+            "metafields",
+            [
+                _page("metafields", [{"id": 1}], "address-2"),
+                _page("metafields", [{"id": 2}], None),
+                _page("metafields", [{"id": 3}], None),
+                *[_page("metafields", [], None) for _ in range(4)],
+            ],
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [1, 2, 3]
+        assert result.queries[0] == {"limit": ("250",), "sort_by": ("id-asc",), "owner_resource": ("address",)}
+        assert result.queries[1] == {"cursor": ("address-2",), "limit": ("250",)}
+        assert result.params("owner_resource") == [
+            "address",
+            None,
+            "store",
+            "customer",
+            "subscription",
+            "order",
+            "charge",
+        ]
+        assert result.saved_states == [
+            RechargeResumeConfig(endpoint="metafields", cursor="address-2", owner_resource="address"),
+            *[
+                RechargeResumeConfig(endpoint="metafields", owner_resource=owner)
+                for owner in ("store", "customer", "subscription", "order", "charge")
+            ],
+        ]
+
+    def test_resume_after_the_last_page_of_an_owner_type_starts_the_next_one(self) -> None:
+        result = _drive(
+            "metafields",
+            [
+                _page("metafields", [{"id": 1}], "address-2"),
+                _page("metafields", [{"id": 2}], None),
+                ScriptedResponse(status=403, json={"errors": "forbidden"}),
+            ],
+        )
+
+        assert result.raised is not None
+        assert [row["id"] for row in result.rows] == [1, 2]
+        assert result.final_state == RechargeResumeConfig(endpoint="metafields", owner_resource="store")
+
+    @parameterized.expand(
+        [
+            (
+                "cursor_inside_an_owner_type",
+                RechargeResumeConfig(endpoint="metafields", cursor="order-3", owner_resource="order"),
+                [{"cursor": ("order-3",), "limit": ("250",)}, _first_owner_query("charge")],
+            ),
+            (
+                "start_of_an_owner_type",
+                RechargeResumeConfig(endpoint="metafields", owner_resource="order"),
+                [_first_owner_query("order"), _first_owner_query("charge")],
+            ),
+            (
+                "cursor_without_an_owner_type",
+                RechargeResumeConfig(endpoint="metafields", cursor="unknown-owner"),
+                [_first_owner_query(owner) for owner in METAFIELD_OWNER_RESOURCES],
+            ),
+            (
+                "state_of_another_endpoint",
+                RechargeResumeConfig(endpoint="customers", cursor="customers-2", owner_resource="order"),
+                [_first_owner_query(owner) for owner in METAFIELD_OWNER_RESOURCES],
+            ),
+        ]
+    )
+    def test_resume(
+        self, _name: str, resume_state: RechargeResumeConfig, expected_queries: list[dict[str, tuple[str, ...]]]
+    ) -> None:
+        result = _drive("metafields", always(_page("metafields", [], None)), resume_state=resume_state)
+
+        assert result.raised is None
+        assert result.queries == expected_queries
