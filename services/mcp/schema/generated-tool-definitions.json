@@ -11503,22 +11503,6 @@
         },
         "requires_ai_consent": true
     },
-    "llma-tagger-list": {
-        "description": "List AI observability taggers for the current project. Supports filtering by enabled status, id__in, search, and ordering. Returns each tagger's name, description, enabled state, type, configuration, conditions, model configuration, creator, and timestamps. Taggers are deprecated and new ones can't be created. To tag or classify generations, create a categorical evaluation with llma-evaluation-create instead.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "List taggers",
-        "title": "List taggers",
-        "required_scopes": ["tagger:read"],
-        "api_operations": ["GET /api/projects/{project_id}/taggers/"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "llm-analytics-tags"
-    },
     "llma-trace-review-create": {
         "description": "Save a trace review. Supports an optional comment, an optional scores array, and an optional queue_id to clear a matching pending review-queue item after the review is saved.",
         "category": "AI observability",
