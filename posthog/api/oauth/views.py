@@ -905,6 +905,9 @@ class OAuthValidator(OAuth2Validator):
         - a `*` token is left untouched: narrowing it would strip all resource access
           on refresh, and `*` is still issued to legacy clients. Its retirement is
           handled separately in #60330 (coupled to #60342).
+        - except for a self-registered (DCR or CIMD) client, whose `*` resolves on
+          refresh as `validate_scopes` resolves it at issue time. Otherwise a `*` minted
+          before that rule would keep the privileged and hidden scopes on every refresh.
         - a token whose scopes have no overlap with the ceiling can't be narrowed
           without emptying it, so we reject the refresh (`invalid_grant`) — the client
           re-authorizes and gets a token within the current ceiling, rather than
@@ -934,6 +937,9 @@ class OAuthValidator(OAuth2Validator):
         if application is None:
             rt = OAuthRefreshToken.objects.filter(token=refresh_token).select_related("application").first()
             application = rt.application if rt else None
+
+        if isinstance(application, OAuthApplication) and application.is_self_registered and "*" in original_list:
+            original_list = clamp_scopes_to_ceiling(original_list, application.ceiling_scopes)
 
         narrowed = narrow_scopes_to_ceiling(original_list, getattr(application, "ceiling_scopes", None) or [])
         if narrowed == [] and getattr(application, "is_first_party", False):

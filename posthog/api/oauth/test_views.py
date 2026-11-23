@@ -2487,6 +2487,24 @@ class TestOAuthAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("dcr_empty_ceiling", "is_dcr_client", [], "*", set(UNPRIVILEGED_SCOPES)),
+            ("cimd_empty_ceiling", "is_cimd_client", [], "*", set(UNPRIVILEGED_SCOPES)),
+            ("dcr_seeded_ceiling", "is_dcr_client", ["experiment:read"], "* openid", {"experiment:read", "openid"}),
+        ]
+    )
+    def test_refresh_resolves_wildcard_token_of_self_registered_client(
+        self, _name, registration_field, ceiling, token_scope, expected
+    ):
+        setattr(self.confidential_application, registration_field, True)
+        self.confidential_application.scopes = ceiling
+        self.confidential_application.save()
+
+        refresh_token = self._create_refreshable_token_pair(token_scope)
+
+        self.assertEqual(self._refresh_and_get_scopes(refresh_token), expected)
+
+    @parameterized.expand(
+        [
             ("oidc_only_survives_nonoverlapping_ceiling", "openid", ["experiment:read"], {"openid"}),
             ("oidc_survives_while_resource_scope_drops", "openid insight:read", ["experiment:read"], {"openid"}),
         ]
