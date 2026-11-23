@@ -221,8 +221,32 @@ describe('intake message', () => {
         expect(insertedFileBytes(encoded.message.value)).toBe(inserted)
     })
 
-    it('reads a send from a producer that does not write the file size as one without files', () => {
-        expect(insertedFileBytes(wireValue(validWireMessage))).toBeNull()
+    it.each([
+        ['without files', jobState],
+        [
+            'with files',
+            {
+                ...jobState,
+                state: {
+                    ...jobState.state,
+                    send: {
+                        attachments: [
+                            {
+                                filename: 'invoice.pdf',
+                                contentType: 'application/pdf',
+                                sizeBytes: 700,
+                                sha256: 'a'.repeat(64),
+                            },
+                            { filename: 'logo.png', contentType: 'image/png', sizeBytes: 300, sha256: 'b'.repeat(64) },
+                        ],
+                    },
+                },
+            },
+        ],
+    ])('accepts a send %s from a producer that does not write the file size, with no size', (_case, state) => {
+        expect(
+            insertedFileBytes(wireValue({ ...validWireMessage, job: { ...validWireMessage.job, state } }))
+        ).toBeNull()
     })
 
     it.each([
@@ -240,8 +264,20 @@ describe('intake message', () => {
         const sized = padded(INTAKE_MESSAGE_MAX_BYTES - unpadded.message.value.length + overBytes)
 
         expect(encodeIntakeMessage({ kind: 'transactional-email', job: sized }).status).toBe(status)
-        expect(
-            encodeIntakeMessage({ kind: 'transactional-email', job: { ...sized, fileBytes: 10_000_000 } }).status
-        ).toBe(status)
+        // The producer passes an explicit null, not undefined, for a send without files.
+        const withoutFiles = encodeIntakeMessage({ kind: 'transactional-email', job: { ...sized, fileBytes: null } })
+        expect(withoutFiles.status).toBe(status)
+        if (withoutFiles.status === 'encoded') {
+            expect(parseJSON(withoutFiles.message.value.toString()).job).not.toHaveProperty('fileBytes')
+            expect(insertedFileBytes(withoutFiles.message.value)).toBeNull()
+        }
+        const withFiles = encodeIntakeMessage({
+            kind: 'transactional-email',
+            job: { ...sized, fileBytes: 10_000_000 },
+        })
+        expect(withFiles.status).toBe(status)
+        if (withFiles.status === 'encoded') {
+            expect(insertedFileBytes(withFiles.message.value)).toBe(10_000_000)
+        }
     })
 })
