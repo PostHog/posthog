@@ -1,5 +1,6 @@
 import {
     BATCH_COPIED_BYTES_MAX,
+    BATCH_COPIED_NODES_MAX,
     BATCH_VARIABLE_DEPTH_MAX,
     BatchCapacity,
     CodeSendBatchRequestSchema,
@@ -56,6 +57,11 @@ describe('transactional email batch', () => {
         })
         // Each of the two recipients copies {"p":"<padding>"}, 8 bytes around the padding, and its own {}, 2 bytes.
         const paddingAtLimit = BATCH_COPIED_BYTES_MAX / 2 - 10
+        // Each of the two recipients copies the keys a and b and the list's elements.
+        const nodesTo = (elements: number) => ({
+            variables: { a: { b: Array.from({ length: elements }, (_, i) => i) } },
+            recipients: [recipient('ada'), recipient('bo')],
+        })
         const paddedTo = (padding: number) => ({
             variables: { p: 'x'.repeat(padding) },
             recipients: [recipient('ada'), recipient('bo')],
@@ -79,6 +85,30 @@ describe('transactional email batch', () => {
             },
             { batch: 'copies at the byte limit', body: paddedTo(paddingAtLimit), exceeds: false },
             { batch: 'copies one byte over the limit', body: paddedTo(paddingAtLimit + 1), exceeds: true },
+            {
+                batch: 'nested keys and elements at the node limit',
+                body: nodesTo(BATCH_COPIED_NODES_MAX / 2 - 2),
+                exceeds: false,
+            },
+            {
+                batch: 'nested keys and elements one node over the limit',
+                body: nodesTo(BATCH_COPIED_NODES_MAX / 2 - 1),
+                exceeds: true,
+            },
+            {
+                batch: 'a full code send of a large html email',
+                body: {
+                    variables: { company: 'Example' },
+                    send: {
+                        content: { subject: 'Hello', html: 'x'.repeat(100 * 1024) },
+                        tracking: { captureEngagement: false },
+                    },
+                    recipients: Array.from({ length: 100 }, (_, i) =>
+                        recipient(`person-${i}`, { first_name: `Person ${i}`, link: `https://example.com/${i}` })
+                    ),
+                },
+                exceeds: false,
+            },
             {
                 batch: 'a code send whose content each recipient copies over the limit',
                 body: {
