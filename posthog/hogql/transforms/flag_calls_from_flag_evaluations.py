@@ -36,7 +36,6 @@ from posthog.hogql.database.schema.flag_evaluations import (
     flag_evaluations_coverage_start,
     utc_midnight,
 )
-from posthog.hogql.database.schema.persons import RawPersonsTable
 from posthog.hogql.database.schema.util.where_clause_extractor import (
     event_field_type,
     top_level_conjuncts,
@@ -343,12 +342,14 @@ def _resolve_with_swaps(
         unreadable = union_unreadable_reason(swapped, context) if union.renamed or only_in_flag_evaluations else None
         if unreadable is not None:
             reason = unreadable
-        elif not _swap_keeps_bindings(original, swapped, swapper.flag_key_predicates, cast(Resolve[ast.Expr], resolve)):
+        elif not _swap_keeps_bindings(
+            original, swapped, swapper.flag_key_predicates, cast(Resolve[ast.Expr], resolve), database
+        ):
             reason = "a name in it would read a different column there"
-        elif not _posthog_events_qualifiers_read_scans(swapped, cast(Resolve[ast.Expr], resolve)):
+        elif not _posthog_events_qualifiers_read_scans(swapped, cast(Resolve[ast.Expr], resolve), database):
             reason = "a name in it that starts with posthog.events reads another table"
         elif not only_in_flag_evaluations and not _swap_reads_properties_alike(
-            original, swapped, context, cast(Resolve[ast.Expr], resolve)
+            original, swapped, context, cast(Resolve[ast.Expr], resolve), database
         ):
             reason = "it reads a property from a different kind of column there"
         else:
@@ -1271,7 +1272,7 @@ def _reads_event_of(table_type: ast.Type | None, expr: ast.Expr) -> bool:
 
 
 def _swap_keeps_bindings(
-    original: ast.AST, swapped: ast.AST, flag_key_predicates: int, resolve: Resolve[ast.Expr]
+    original: ast.AST, swapped: ast.AST, flag_key_predicates: int, resolve: Resolve[ast.Expr], database: "Database"
 ) -> bool:
     """Whether every field and table in the resolved swapped query binds as it does in the resolved original.
 
@@ -1286,8 +1287,8 @@ def _swap_keeps_bindings(
     resolver runs. The collector resolves that moved copy with `resolve`, so its names count too. A moved copy that
     it cannot resolve or recognize makes the check fail.
     """
-    original_bindings = _bindings(original, resolve)
-    swapped_bindings = _bindings(swapped, resolve)
+    original_bindings = _bindings(original, resolve, database)
+    swapped_bindings = _bindings(swapped, resolve, database)
     if original_bindings is None or swapped_bindings is None:
         return False
     return Counter(swapped_bindings) == Counter(original_bindings) + Counter(
@@ -1295,7 +1296,7 @@ def _swap_keeps_bindings(
     )
 
 
-def _posthog_events_qualifiers_read_scans(node: ast.AST, resolve: Resolve[ast.Expr]) -> bool:
+def _posthog_events_qualifiers_read_scans(node: ast.AST, resolve: Resolve[ast.Expr], database: "Database") -> bool:
     """Whether each field that starts with `posthog.events` in the SELECT of a swapped `posthog.events` scan reads an
     events or flag_evaluations scan.
 
@@ -1303,7 +1304,7 @@ def _posthog_events_qualifiers_read_scans(node: ast.AST, resolve: Resolve[ast.Ex
     column named `posthog`. The field then reads that table in both queries, so `_swap_keeps_bindings` does not see it.
     A field in another SELECT reads whatever it names there, and the swap does not count it.
     """
-    moved = _MovedFilterCollector(resolve)
+    moved = _MovedFilterCollector(resolve, database)
     moved.visit(node)
     if moved.unchecked_filter:
         return False
@@ -1374,9 +1375,9 @@ _Binding = tuple[str, str | int, tuple[str, ...]]
 _ADDED_FLAG_KEY_READ: _Binding = ("field", "flag_key", ("scan",))
 
 
-def _bindings(node: ast.AST, resolve: Resolve[ast.Expr]) -> list[_Binding] | None:
+def _bindings(node: ast.AST, resolve: Resolve[ast.Expr], database: "Database") -> list[_Binding] | None:
     """The bindings of `node`, or None when a moved persons filter in it cannot be checked."""
-    collector = _BindingCollector(resolve)
+    collector = _BindingCollector(resolve, database)
     collector.visit(node)
     return None if collector.unchecked_filter else collector.bindings
 
@@ -1391,9 +1392,12 @@ class _MovedFilterVisitor(SyntaxVisitor):
     makes `unchecked_filter` true, because the check cannot show that the filter binds alike.
     """
 
-    def __init__(self, resolve: Resolve[ast.Expr], ctes: dict[str, ast.CTE] | None = None) -> None:
+    def __init__(
+        self, resolve: Resolve[ast.Expr], database: "Database", ctes: dict[str, ast.CTE] | None = None
+    ) -> None:
         super().__init__()
         self.resolve = resolve
+        self.database = database
         # The CTEs that the SELECT being visited declares.
         self.ctes = ctes or {}
         self.unchecked_filter = False
@@ -1420,7 +1424,7 @@ class _MovedFilterVisitor(SyntaxVisitor):
                 self.unchecked_filter = True
                 continue
             persons_scope = ast.SelectQueryType(
-                tables={"raw_persons": ast.TableType(table=RawPersonsTable())}, ctes=self.ctes
+                tables={"raw_persons": ast.TableType(table=self.database.get_table("raw_persons"))}, ctes=self.ctes
             )
             try:
                 resolved = self.resolve(clone_expr(predicate.right), scopes=[persons_scope])
@@ -1438,8 +1442,10 @@ class _MovedFilterCollector(_MovedFilterVisitor):
 
 
 class _BindingCollector(_MovedFilterVisitor):
-    def __init__(self, resolve: Resolve[ast.Expr], ctes: dict[str, ast.CTE] | None = None) -> None:
-        super().__init__(resolve, ctes)
+    def __init__(
+        self, resolve: Resolve[ast.Expr], database: "Database", ctes: dict[str, ast.CTE] | None = None
+    ) -> None:
+        super().__init__(resolve, database, ctes)
         self.bindings: list[_Binding] = []
 
     def visit_field(self, node: ast.Field) -> None:
@@ -1453,7 +1459,7 @@ class _BindingCollector(_MovedFilterVisitor):
         # after the field. The same field can be a plain column on events, so only the alias name and what the
         # expansion reads count. An element stand-in reads no column. It returns what the events column holds for a
         # flag call, so it counts as a read of the scan.
-        inner = _BindingCollector(self.resolve, self.ctes)
+        inner = _BindingCollector(self.resolve, self.database, self.ctes)
         inner.visit(node.expr)
         self.unchecked_filter = self.unchecked_filter or inner.unchecked_filter
         targets = sorted({target for _, _, target in inner.bindings})
@@ -1523,7 +1529,7 @@ def _target(current: ast.Type | None) -> tuple[str, ...]:
 
 
 def _swap_reads_properties_alike(
-    original: ast.AST, swapped: ast.AST, context: HogQLContext, resolve: Resolve[ast.Expr]
+    original: ast.AST, swapped: ast.AST, context: HogQLContext, resolve: Resolve[ast.Expr], database: "Database"
 ) -> bool:
     """Whether each property that the swapped query reads comes from the same kind of column as in the original.
 
@@ -1532,8 +1538,8 @@ def _swap_reads_properties_alike(
     both tables, so reads from it agree. The swap pins `$feature_flag` to keys that are never "" or "null", so a
     read of it agrees whatever column backs it.
     """
-    original_reads = _property_reads(original, context, resolve)
-    swapped_reads = _property_reads(swapped, context, resolve)
+    original_reads = _property_reads(original, context, resolve, database)
+    swapped_reads = _property_reads(swapped, context, resolve, database)
     if original_reads is None or swapped_reads is None:
         return False
     if not original_reads and not swapped_reads:
@@ -1555,9 +1561,11 @@ def _swap_reads_properties_alike(
 _PropertyRead = tuple[str, str, ast.FieldType]
 
 
-def _property_reads(node: ast.AST, context: HogQLContext, resolve: Resolve[ast.Expr]) -> list[_PropertyRead] | None:
+def _property_reads(
+    node: ast.AST, context: HogQLContext, resolve: Resolve[ast.Expr], database: "Database"
+) -> list[_PropertyRead] | None:
     """The property reads in `node`, or None when a moved persons filter in it cannot be checked."""
-    collector = _PropertyReadCollector(context, resolve)
+    collector = _PropertyReadCollector(context, resolve, database)
     collector.visit(node)
     return None if collector.unchecked_filter else collector.reads
 
@@ -1586,8 +1594,8 @@ def _property_sources(reads: list[_PropertyRead], context: HogQLContext) -> list
 
 
 class _PropertyReadCollector(_MovedFilterVisitor):
-    def __init__(self, context: HogQLContext, resolve: Resolve[ast.Expr]) -> None:
-        super().__init__(resolve)
+    def __init__(self, context: HogQLContext, resolve: Resolve[ast.Expr], database: "Database") -> None:
+        super().__init__(resolve, database)
         self.context = context
         self.reads: list[_PropertyRead] = []
 

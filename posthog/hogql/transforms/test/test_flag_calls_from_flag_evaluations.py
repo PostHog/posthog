@@ -26,6 +26,9 @@ from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
 )
 
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_TTL_DAYS
+from posthog.models.scoping import team_scope
+
+from products.data_tools.backend.models.expression import DataWarehouseExpression
 
 NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
 COVERAGE_START = NOW.replace(hour=0) - timedelta(days=FLAG_EVALUATIONS_COMPLETE_DAYS)
@@ -757,6 +760,20 @@ class TestSwapFlagCallsWithPromotedPersonsFilter(BaseTest):
     def test_swaps_when_a_later_cte_has_the_name_of_a_table_that_the_moved_filter_reads(self):
         flag_people = _PROMOTED_OUTER.format(alias=" AS p", name="p", source="SELECT id FROM persons")
         query = f"WITH flag_people AS ({flag_people}), persons AS (SELECT 1 AS unrelated) SELECT * FROM flag_people"
+
+        swap = _swap_flag_evaluations_query(self.team, query, only_in_flag_evaluations=True)
+
+        assert "FROM events" not in swap.source.to_hogql()
+
+    def test_swaps_when_the_moved_filter_reads_a_project_defined_persons_field(self):
+        with team_scope(self.team.id, canonical=True):
+            DataWarehouseExpression.objects.create(
+                team=self.team,
+                table_name="raw_persons",
+                field_name="approved_ids",
+                expression="JSONExtract(properties, 'approved_ids', 'Array(UUID)')",
+            )
+        query = _PROMOTED_OUTER.format(alias=" AS p", name="p", source="approved_ids")
 
         swap = _swap_flag_evaluations_query(self.team, query, only_in_flag_evaluations=True)
 
