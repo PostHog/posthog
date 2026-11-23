@@ -9,7 +9,7 @@ import { useDragAutoScroll } from 'scenes/dashboard/useDragAutoScroll'
 
 import { useDashboardV2, useDashboardV2Drag } from '../dashboardV2Context'
 import { dropIntoGrid, findTile, toPlacedItems, withSectionRows } from '../layout/dashboardEdits'
-import { GRID, type Tile, type TilePlace, columnWidthPx, gapPxOf, isSection, spanPx } from '../layout/dashboardTypes'
+import { GRID, type Tile, type TilePlace, columnWidthPx, isSection, spanPx } from '../layout/dashboardTypes'
 import { type DropTarget, type DropZones, gridUnderPointer, readDropZones } from '../layout/dropTargets'
 import { type Gesture, type PlacedItem, bottomOf, placeTiles } from '../layout/placeTiles'
 import { minRows } from '../layout/widgetSizes'
@@ -42,9 +42,8 @@ function toLayout(tiles: Tile[], gapPx: number): Layout {
 }
 
 export function TileGrid({ gridId, tiles, cols, width, editable, onLiveRows }: TileGridProps): JSX.Element {
-    const { dashboard, onEdit } = useDashboardV2()
-    const { dropTarget, onDropTargetChange } = useDashboardV2Drag()
-    const gapPx = gapPxOf(dashboard)
+    const { dashboard, gapPx, onEdit } = useDashboardV2()
+    const { dropTarget, setDropTarget } = useDashboardV2Drag()
     const margin = useMemo<[number, number]>(() => [gapPx, gapPx], [gapPx])
     const { startAutoScroll, autoScrollOnDrag, stopAutoScroll } = useDragAutoScroll()
     const rootRef = useRef<HTMLDivElement>(null)
@@ -65,18 +64,15 @@ export function TileGrid({ gridId, tiles, cols, width, editable, onLiveRows }: T
 
     // A tile carried in from another grid. Only the grid under the pointer gets a value.
     const incoming: DropTarget | null = dropTarget?.grid === gridId ? dropTarget : null
-    // The carried tile is looked up through a ref, so a change elsewhere in the dashboard does not redo the preview.
-    const dashboardRef = useRef(dashboard)
-    dashboardRef.current = dashboard
     const shownTiles = useMemo(() => {
-        const carried = incoming && findTile(dashboardRef.current, incoming.tileId)
+        const carried = incoming && findTile(dashboard, incoming.tileId)
         // The sections get their heights first, as the drop does, so the preview is where the tile will land.
         const sized = withSectionRows(tiles, cols, liveSectionRows)
         if (!incoming || !carried) {
             return sized
         }
         return dropIntoGrid(sized, cols, gapPx, { ...carried, id: GHOST_ID }, incoming.x ?? 0, incoming.y ?? 0)
-    }, [tiles, cols, gapPx, incoming, liveSectionRows])
+    }, [dashboard, tiles, cols, gapPx, incoming, liveSectionRows])
     const layout = useMemo(
         () =>
             toLayout(shownTiles, gapPx).map((item) =>
@@ -171,9 +167,9 @@ export function TileGrid({ gridId, tiles, cols, width, editable, onLiveRows }: T
             }
             lastTarget.current = target
             rootRef.current?.classList.toggle('DashboardV2__grid--tile-away', target !== null)
-            onDropTargetChange(target)
+            setDropTarget(target)
         },
-        [onDropTargetChange]
+        [setDropTarget]
     )
 
     const savePlaces = useCallback(
@@ -191,7 +187,7 @@ export function TileGrid({ gridId, tiles, cols, width, editable, onLiveRows }: T
     useEffect(
         () => () => {
             if (lastTarget.current) {
-                onDropTargetChange(null)
+                setDropTarget(null)
             }
             onLiveRows?.(null)
         },

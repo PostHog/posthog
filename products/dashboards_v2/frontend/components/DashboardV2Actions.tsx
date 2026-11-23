@@ -10,19 +10,17 @@ import {
     DropdownMenuTrigger,
 } from '@posthog/quill'
 
-import type { DashboardV2Action } from '../access/dashboardV2Access'
 import { useDashboardV2 } from '../dashboardV2Context'
 import { TILE_SPACINGS, type TileSpacing } from '../layout/dashboardTypes'
 import { AddTileMenu } from './AddTileMenu'
 
 export function DashboardV2Actions(): JSX.Element {
-    const { history, disabledReasonFor, activeTab, dashboard, onEdit } = useDashboardV2()
-    const hasPermission = (action: DashboardV2Action): boolean => disabledReasonFor(action) === null
+    const { history, can, activeTab, dashboard, onEdit } = useDashboardV2()
 
     return (
         <div className="flex flex-wrap items-center gap-1">
-            {hasPermission('addTile') && <AddTileMenu gridId={activeTab.id} label="Add" />}
-            {history && hasPermission('undo') && (
+            {can('addTile') && <AddTileMenu gridId={activeTab.id} label="Add" />}
+            {history && can('undo') && (
                 <>
                     <Button
                         size="icon-sm"
@@ -46,7 +44,7 @@ export function DashboardV2Actions(): JSX.Element {
                     </Button>
                 </>
             )}
-            {hasPermission('setAppearance') && (
+            {can('setAppearance') && (
                 <DropdownMenu>
                     <DropdownMenuTrigger
                         render={

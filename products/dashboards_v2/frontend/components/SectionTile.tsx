@@ -4,7 +4,7 @@ import { IconDrag, IconTrash } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
 import { useDashboardV2 } from '../dashboardV2Context'
-import { GRID, type SectionWidget, gapPxOf, spanPx } from '../layout/dashboardTypes'
+import { GRID, type SectionWidget, spanPx } from '../layout/dashboardTypes'
 import { AddTileMenu } from './AddTileMenu'
 import { SectionTitle } from './SectionTitle'
 import { TileContextMenu, useSectionActions } from './TileContextMenu'
@@ -25,8 +25,7 @@ export function SectionTile({
     editable: boolean
     onSectionRows: (id: string, rows: number | null) => void
 }): JSX.Element {
-    const { dashboard, onEdit, onSectionFoldedChange } = useDashboardV2()
-    const gapPx = gapPxOf(dashboard)
+    const { gapPx, onEdit, onSectionFoldedChange } = useDashboardV2()
     const collapsed = !!widget.collapsed
     const [draft, setDraft] = useState<string | null>(null)
     const actions = useSectionActions(id, collapsed, () => setDraft(widget.title))

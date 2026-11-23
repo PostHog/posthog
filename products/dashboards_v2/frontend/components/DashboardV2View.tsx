@@ -1,8 +1,9 @@
 import '../DashboardV2.scss'
 
-import { type CSSProperties, type ReactNode, type RefObject, useEffect, useMemo } from 'react'
+import { type CSSProperties, type ReactNode, type RefObject, useEffect, useMemo, useState } from 'react'
 import { useContainerWidth } from 'react-grid-layout'
 
+import type { DashboardV2Action } from '../access/dashboardV2Access'
 import {
     type DashboardV2Controller,
     DashboardV2DragContext,
@@ -12,8 +13,11 @@ import {
 } from '../dashboardV2Context'
 import { stackTiles } from '../layout/dashboardEdits'
 import { GRID, gapPxOf } from '../layout/dashboardTypes'
+import type { DropTarget } from '../layout/dropTargets'
 import { DashboardV2Tabs } from './DashboardV2Tabs'
 import { TileGrid } from './TileGrid'
+
+const STACKED_REASON = 'Open this dashboard on a wider screen to edit it'
 
 export interface DashboardV2ViewProps {
     controller: DashboardV2Controller
@@ -21,57 +25,59 @@ export interface DashboardV2ViewProps {
     header?: ReactNode
 }
 
-/** A whole dashboard: tabs and grid. It holds no state of its own beyond a gesture in progress. */
-export function DashboardV2View({ controller, header }: DashboardV2ViewProps): JSX.Element {
-    const {
-        dashboard,
-        activeTab,
-        disabledReasonFor,
-        onEdit,
-        onActiveTabChange,
-        onSectionFoldedChange,
-        onStackedChange,
-        history,
-        dropTarget,
-        onDropTargetChange,
-    } = controller
-    const state = useMemo<DashboardV2State>(
-        () => ({
-            dashboard,
-            activeTab,
-            disabledReasonFor,
-            onEdit,
-            onActiveTabChange,
-            onSectionFoldedChange,
-            onStackedChange,
-            history,
-        }),
-        [
-            dashboard,
-            activeTab,
-            disabledReasonFor,
-            onEdit,
-            onActiveTabChange,
-            onSectionFoldedChange,
-            onStackedChange,
-            history,
-        ]
+function isTyping(target: EventTarget | null): boolean {
+    return (
+        target instanceof Element &&
+        !!target.closest('input, textarea, select, [contenteditable="true"], .monaco-editor')
     )
-    const drag = useMemo<DashboardV2DragState>(
-        () => ({ dropTarget, onDropTargetChange }),
-        [dropTarget, onDropTargetChange]
-    )
+}
 
+/** A whole dashboard: tabs and grid. Its own state is only what the screen and a drag in progress decide. */
+export function DashboardV2View({ controller, header }: DashboardV2ViewProps): JSX.Element {
     const { width, containerRef, mounted } = useContainerWidth()
     const stacked = width > 0 && width < GRID.stackBelowPx
+    const [dropTarget, setDropTarget] = useState<DropTarget | null>(null)
+
+    const state = useMemo<DashboardV2State>(() => {
+        const { activeTabId, disabledReasonFor: hostReason, ...rest } = controller
+        const disabledReasonFor = (action: DashboardV2Action): string | null =>
+            hostReason(action) ?? (stacked ? STACKED_REASON : null)
+        return {
+            ...rest,
+            activeTab: rest.dashboard.tabs.find((tab) => tab.id === activeTabId) ?? rest.dashboard.tabs[0],
+            gapPx: gapPxOf(rest.dashboard),
+            disabledReasonFor,
+            can: (action) => disabledReasonFor(action) === null,
+        }
+    }, [controller, stacked])
+    const drag = useMemo<DashboardV2DragState>(() => ({ dropTarget, setDropTarget }), [dropTarget])
+
+    const { activeTab, gapPx, can, history } = state
     const tiles = useMemo(
         () => (stacked ? stackTiles(activeTab.tiles, GRID.columns) : activeTab.tiles),
         [stacked, activeTab.tiles]
     )
 
+    const canUndoRedo = !!history && can('undo')
     useEffect(() => {
-        onStackedChange?.(stacked)
-    }, [stacked, onStackedChange])
+        if (!history || !canUndoRedo) {
+            return
+        }
+        const onKeyDown = (event: KeyboardEvent): void => {
+            const key = event.key.toLowerCase()
+            if (isTyping(event.target) || !(event.metaKey || event.ctrlKey) || (key !== 'z' && key !== 'y')) {
+                return
+            }
+            event.preventDefault()
+            if (key === 'y' || event.shiftKey) {
+                history.onRedo()
+            } else {
+                history.onUndo()
+            }
+        }
+        window.addEventListener('keydown', onKeyDown)
+        return () => window.removeEventListener('keydown', onKeyDown)
+    }, [history, canUndoRedo])
 
     return (
         <DashboardV2StateContext.Provider value={state}>
@@ -81,7 +87,7 @@ export function DashboardV2View({ controller, header }: DashboardV2ViewProps): J
                     className="DashboardV2 flex flex-col gap-4 p-4 min-h-full bg-background text-foreground"
                     // The tile gap comes from the dashboard's JSON, so CSS reads it from a variable rather than a class.
                     // oxlint-disable-next-line react/forbid-dom-props
-                    style={{ '--dv2-gap': `${gapPxOf(dashboard)}px` } as CSSProperties}
+                    style={{ '--dv2-gap': `${gapPx}px` } as CSSProperties}
                 >
                     {header}
                     <DashboardV2Tabs />
@@ -93,7 +99,7 @@ export function DashboardV2View({ controller, header }: DashboardV2ViewProps): J
                                 tiles={tiles}
                                 cols={GRID.columns}
                                 width={width}
-                                editable={disabledReasonFor('placeTiles') === null && !stacked}
+                                editable={can('placeTiles')}
                             />
                         )}
                     </div>

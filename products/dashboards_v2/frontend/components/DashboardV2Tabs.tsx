@@ -13,7 +13,6 @@ import {
     TabsTrigger,
 } from '@posthog/quill'
 
-import type { DashboardV2Action } from '../access/dashboardV2Access'
 import { useDashboardV2, useDashboardV2Drag } from '../dashboardV2Context'
 
 interface TabDraft {
@@ -27,13 +26,12 @@ interface TabInsert {
 }
 
 export function DashboardV2Tabs(): JSX.Element | null {
-    const { dashboard, activeTab, disabledReasonFor, onActiveTabChange, onEdit } = useDashboardV2()
+    const { dashboard, activeTab, disabledReasonFor, can, onActiveTabChange, onEdit } = useDashboardV2()
     const { dropTarget } = useDashboardV2Drag()
-    const hasPermission = (action: DashboardV2Action): boolean => disabledReasonFor(action) === null
     const [draft, setDraft] = useState<TabDraft | null>(null)
     const [draggedId, setDraggedId] = useState<string | null>(null)
     const [insert, setInsert] = useState<TabInsert | null>(null)
-    const canMove = hasPermission('moveTab')
+    const canMove = can('moveTab')
     const tabIds = dashboard.tabs.map((tab) => tab.id)
 
     const endDrag = (): void => {
@@ -72,7 +70,7 @@ export function DashboardV2Tabs(): JSX.Element | null {
         }
     }
 
-    if (dashboard.tabs.length === 1 && !hasPermission('addTab')) {
+    if (dashboard.tabs.length === 1 && !can('addTab')) {
         return null
     }
     return (
@@ -164,7 +162,7 @@ export function DashboardV2Tabs(): JSX.Element | null {
                                 {tab.title}
                             </TabsTrigger>
                         )
-                        if (!hasPermission('renameTab') && !hasPermission('removeTab') && !canMove) {
+                        if (!can('renameTab') && !can('removeTab') && !canMove) {
                             return trigger
                         }
                         return (
@@ -214,7 +212,7 @@ export function DashboardV2Tabs(): JSX.Element | null {
                     })}
                 </TabsList>
             </Tabs>
-            {hasPermission('addTab') && (
+            {can('addTab') && (
                 <Button
                     size="xs"
                     data-attr="dashboard-v2-add-tab"

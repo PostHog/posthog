@@ -6,27 +6,33 @@ import type { Dashboard, DashboardTab } from './layout/dashboardTypes'
 import type { DropTarget } from './layout/dropTargets'
 
 /**
- * Everything the dashboard components read and call. A host owns the state and the rules behind it (history, access,
- * saving, the URL) and passes them in, so the components render the same on any page that embeds them.
+ * What a host passes to `DashboardV2View`. The host owns the state and the rules behind it (history, access, saving,
+ * the URL), so the components render the same on any page that embeds them.
  */
 export interface DashboardV2Controller {
+    /** The dashboard as shown, with closed sections already folded. */
     dashboard: Dashboard
-    /** The tab on show, with closed sections already folded. */
-    activeTab: DashboardTab
+    /** Unknown or unset shows the first tab. */
+    activeTabId: string | null
     disabledReasonFor: (action: DashboardV2Action) => string | null
     onEdit: (edit: DashboardEdit) => void
     onActiveTabChange: (tabId: string) => void
     onSectionFoldedChange: (id: string, collapsed: boolean) => void
-    /** Told when the canvas gets too narrow for the grid, so the host can refuse edits while it is. */
-    onStackedChange?: (stacked: boolean) => void
-    /** Left out, the dashboard shows no undo or redo buttons. */
+    /** Left out, the dashboard shows no undo or redo. */
     history?: { canUndo: boolean; canRedo: boolean; onUndo: () => void; onRedo: () => void }
-    dropTarget: DropTarget | null
-    onDropTargetChange: (dropTarget: DropTarget | null) => void
 }
 
-export type DashboardV2State = Omit<DashboardV2Controller, 'dropTarget' | 'onDropTargetChange'>
-export type DashboardV2DragState = Pick<DashboardV2Controller, 'dropTarget' | 'onDropTargetChange'>
+/** What the components read: the controller, plus what the view works out from it. */
+export interface DashboardV2State extends Omit<DashboardV2Controller, 'activeTabId'> {
+    activeTab: DashboardTab
+    gapPx: number
+    can: (action: DashboardV2Action) => boolean
+}
+
+export interface DashboardV2DragState {
+    dropTarget: DropTarget | null
+    setDropTarget: (dropTarget: DropTarget | null) => void
+}
 
 // The drop target changes on every cell a dragged tile crosses, so it has its own context: tiles that only read the
 // dashboard do not re-render during a drag.

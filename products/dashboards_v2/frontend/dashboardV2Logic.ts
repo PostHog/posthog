@@ -7,7 +7,6 @@ import { type DashboardV2Action, dashboardV2DisabledReason } from './access/dash
 import { kitchenSinkDashboard } from './fixtures/kitchenSinkDashboard'
 import { type DashboardEdit, applyEdit, settleDashboard, withFolds } from './layout/dashboardEdits'
 import { type Dashboard, type DashboardTab } from './layout/dashboardTypes'
-import type { DropTarget } from './layout/dropTargets'
 
 const HISTORY_LIMIT = 100
 
@@ -32,10 +31,8 @@ export interface dashboardV2LogicValues {
     canUndo: boolean
     dashboard: Dashboard
     disabledReasonFor: (action: DashboardV2Action) => string | null
-    dropTarget: DropTarget | null
     folds: Record<string, boolean>
     history: History
-    stacked: boolean
     viewedDashboard: Dashboard
 }
 
@@ -53,18 +50,12 @@ export interface dashboardV2LogicActions {
     setActiveTab: (tabId: string) => {
         tabId: string
     }
-    setDropTarget: (dropTarget: DropTarget | null) => {
-        dropTarget: DropTarget | null
-    }
     setSectionFolded: (
         id: string,
         collapsed: boolean
     ) => {
         collapsed: boolean
         id: string
-    }
-    setStacked: (stacked: boolean) => {
-        stacked: boolean
     }
     stepHistory: (step: 'back' | 'forward') => {
         step: 'back' | 'forward'
@@ -80,7 +71,7 @@ export interface dashboardV2LogicMeta {
         dashboard: (history: History) => Dashboard
         canUndo: (history: History) => boolean
         canRedo: (history: History) => boolean
-        disabledReasonFor: (dashboard: Dashboard, stacked: boolean) => (action: DashboardV2Action) => string | null
+        disabledReasonFor: (dashboard: Dashboard) => (action: DashboardV2Action) => string | null
         viewedDashboard: (dashboard: Dashboard, folds: Record<string, boolean>) => Dashboard
         activeTab: (viewedDashboard: Dashboard, activeTabId: string | null) => DashboardTab
     }
@@ -93,8 +84,6 @@ export type dashboardV2LogicType = MakeLogicType<
     dashboardV2LogicMeta
 >
 
-const STACKED_REASON = 'Open this dashboard on a wider screen to edit it'
-
 export const dashboardV2Logic = kea<dashboardV2LogicType>([
     path(['products', 'dashboardsV2', 'dashboardV2Logic']),
     actions({
@@ -105,8 +94,6 @@ export const dashboardV2Logic = kea<dashboardV2LogicType>([
         redo: true,
         stepHistory: (step: 'back' | 'forward') => ({ step }),
         setActiveTab: (tabId: string) => ({ tabId }),
-        setDropTarget: (dropTarget: DropTarget | null) => ({ dropTarget }),
-        setStacked: (stacked: boolean) => ({ stacked }),
         setSectionFolded: (id: string, collapsed: boolean) => ({ id, collapsed }),
     }),
     reducers({
@@ -134,14 +121,9 @@ export const dashboardV2Logic = kea<dashboardV2LogicType>([
             },
         ],
         activeTabId: [null as string | null, { setActiveTab: (_, { tabId }) => tabId }],
-        stacked: [false, { setStacked: (_, { stacked }) => stacked }],
         folds: [
             {} as Record<string, boolean>,
             { setSectionFolded: (state, { id, collapsed }) => ({ ...state, [id]: collapsed }) },
-        ],
-        dropTarget: [
-            null as DropTarget | null,
-            { setDropTarget: (_, { dropTarget }) => dropTarget, commitDashboard: () => null },
         ],
     }),
     selectors({
@@ -149,10 +131,10 @@ export const dashboardV2Logic = kea<dashboardV2LogicType>([
         canUndo: [(s) => [s.history], (history: History): boolean => history.past.length > 0],
         canRedo: [(s) => [s.history], (history: History): boolean => history.future.length > 0],
         disabledReasonFor: [
-            (s) => [s.dashboard, s.stacked],
-            (dashboard: Dashboard, stacked: boolean): ((action: DashboardV2Action) => string | null) =>
+            (s) => [s.dashboard],
+            (dashboard: Dashboard): ((action: DashboardV2Action) => string | null) =>
                 (action) =>
-                    dashboardV2DisabledReason(action, dashboard.user_access_level) ?? (stacked ? STACKED_REASON : null),
+                    dashboardV2DisabledReason(action, dashboard.user_access_level),
         ],
         viewedDashboard: [
             (s) => [s.dashboard, s.folds],
