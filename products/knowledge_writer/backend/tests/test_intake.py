@@ -127,13 +127,14 @@ SOURCE_DIFF = (
 SOURCE_FILE_TEXT = 'RETENTION_PRESETS = ("30 days", "90 days")  # Presets apply to every project in the team.\n'
 UNCHANGED_SOURCE_LINE_CLAIM = "Presets apply to every project in the team."
 GROUNDING_DID_NOT_RUN = "Grounding did not run"
+NUMBERED_HEADING = "## Keep recordings for 90 days"
 SUPPORTED_QUOTES = {
     NEW_PAGE_LINE: "keep recordings for 90 days",
     UNCHANGED_SOURCE_LINE_CLAIM: "Presets apply to every project",
 }
 STRUCTURED_NEW_PAGE_PATCH = "\n".join(
     [
-        "@@ -0,0 +1,8 @@",
+        "@@ -0,0 +1,9 @@",
         "+---",
         "+title: Retention presets",
         "+sidebar: Docs",
@@ -141,6 +142,7 @@ STRUCTURED_NEW_PAGE_PATCH = "\n".join(
         '+import { CalloutBox } from "components/Docs/CalloutBox"',
         "+<RetentionPresetsIntro />",
         "+## Pick a preset",
+        f"+{NUMBERED_HEADING}",
         f"+{NEW_PAGE_LINE}",
     ]
 )
@@ -1037,14 +1039,16 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
 
 
 @pytest.mark.parametrize(
-    "page_patch",
+    "page_patch, expected_unsupported_lines",
     [
-        pytest.param(STRUCTURED_NEW_PAGE_PATCH, id="without_sending_page_structure"),
-        pytest.param(f"+{UNCHANGED_SOURCE_LINE_CLAIM}", id="against_unchanged_lines_of_touched_files"),
+        pytest.param(STRUCTURED_NEW_PAGE_PATCH, (NUMBERED_HEADING,), id="without_sending_page_structure"),
+        pytest.param(f"+{UNCHANGED_SOURCE_LINE_CLAIM}", (), id="against_unchanged_lines_of_touched_files"),
     ],
 )
 @pytest.mark.django_db
-def test_a_source_owner_without_a_github_integration_is_grounded(team, monkeypatch, page_patch: str) -> None:
+def test_a_source_owner_without_a_github_integration_is_grounded(
+    team, monkeypatch, page_patch: str, expected_unsupported_lines: tuple[str, ...]
+) -> None:
     Integration.objects.create(
         team=team, kind="github", integration_id="31338", config={"account": {"name": "posthog-docs"}}
     )
@@ -1053,7 +1057,7 @@ def test_a_source_owner_without_a_github_integration_is_grounded(team, monkeypat
     added_page = {"filename": NEW_PAGE_PATH, "patch": page_patch}
     with patch(GITHUB_REQUEST, side_effect=DocsGitHub()):
         grounding = ground_draft(source_github(team.id, source, "posthog-docs/posthog.com"), source, [added_page])
-    assert (grounding.ran, grounding.unsupported_lines) == (True, ())
+    assert (grounding.ran, grounding.unsupported_lines) == (True, expected_unsupported_lines)
 
 
 @pytest.mark.django_db

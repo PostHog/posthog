@@ -74,6 +74,8 @@ def source_diff_text(github: GitHubReader, repository: str, commit_sha: str) -> 
     landed = LandedChange(repository=repository, after=commit_sha, pull_request_number=UNREAD_PULL_REQUEST_NUMBER)
     diff_by_path = read_diff_by_path(github, landed)
     diff = "".join(diff_by_path.values())
+    if len(diff) >= MAX_GROUNDING_SOURCE_CHARACTERS:
+        return diff[:MAX_GROUNDING_SOURCE_CHARACTERS]
     return (diff + modified_file_text(github, repository, commit_sha, diff_by_path))[:MAX_GROUNDING_SOURCE_CHARACTERS]
 
 

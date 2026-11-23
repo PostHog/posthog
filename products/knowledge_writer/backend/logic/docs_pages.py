@@ -21,8 +21,10 @@ DIFF_LINE_MARKER_PATTERN = re.compile(r"^[+\- ]", re.MULTILINE)
 CODE_FENCE = "`" * 3
 FRONTMATTER_FENCE = "---"
 IMPORT_PREFIX = "import "
+ESM_IMPORT_SOURCE_PATTERN = re.compile(r"""\sfrom\s+["'][^"']+["'];?$""")
 HEADING_PATTERN = re.compile(r"#{1,6}\s")
-SELF_CLOSING_COMPONENT_PATTERN = re.compile(r"<[A-Z][\w.]*(?:\s[^<>]*)?/>")
+HEADING_CLAIM_PATTERN = re.compile(r"\]\(|\]\[|<a\s|<code>|`|\d")
+SELF_CLOSING_COMPONENT_PATTERN = re.compile(r"<[A-Z][\w.]*\s*/>")
 SOURCE_DIFF_ATTACHMENT_NAME = "knowledge-writer-source.diff"
 HARNESS_FOLDER = ".posthog"
 WRITER_QUOTES_PATH = ".git/writer-quotes.json"
@@ -936,8 +938,8 @@ def is_groundable_line(line: str) -> bool:
 
 def is_page_structure(line: str) -> bool:
     return (
-        line.startswith(IMPORT_PREFIX)
-        or HEADING_PATTERN.match(line) is not None
+        (line.startswith(IMPORT_PREFIX) and ESM_IMPORT_SOURCE_PATTERN.search(line) is not None)
+        or (HEADING_PATTERN.match(line) is not None and HEADING_CLAIM_PATTERN.search(line) is None)
         or SELF_CLOSING_COMPONENT_PATTERN.fullmatch(line) is not None
     )
 
