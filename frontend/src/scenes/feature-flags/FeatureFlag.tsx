@@ -118,6 +118,7 @@ import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 import { FeatureFlagTestingTab } from './FeatureFlagTestingTab'
 import { FeatureFlagUsageMetrics } from './FeatureFlagUsageMetrics'
 import { FLAG_EVALUATIONS_RETENTION_DAYS, readsFlagEvaluationsTable } from './flagEvaluationsTable'
+import { QuillFeatureFlagOverview } from './QuillFeatureFlagOverview'
 import { useFeatureFlagAgentRefresh } from './useFeatureFlagAgentRefresh'
 
 const RESOURCE_TYPE = 'feature_flag'
@@ -378,7 +379,11 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
             {
                 label: 'Overview',
                 key: FeatureFlagsTab.OVERVIEW,
-                content: <FeatureFlagOverview featureFlag={featureFlag} />,
+                content: todayRailNav ? (
+                    <QuillFeatureFlagOverview featureFlag={featureFlag} />
+                ) : (
+                    <FeatureFlagOverview featureFlag={featureFlag} />
+                ),
             },
             {
                 label: 'Usage',
@@ -827,7 +832,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                     )}
                     <SceneTitleSection
                         name={featureFlag.key}
-                        description={featureFlag.name}
+                        description={todayRailNav ? null : featureFlag.name}
                         resourceType={{
                             type: featureFlag.active ? 'feature_flag' : 'feature_flag_off',
                         }}
