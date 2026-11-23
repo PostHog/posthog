@@ -140,6 +140,7 @@ class Command(BaseCommand):
 
     @cached(cache={})
     def get_applied_migrations(self, database) -> set[str]:
+        # The apply path reads this before infi's migrate runs, so on a fresh database the tracking tables don't exist yet.
         return database._get_applied_migrations_and_create_tables(MIGRATIONS_PACKAGE_NAME, replicated=True)
 
     def _create_database_if_not_exists(self, database: str, cluster: str, creds: ClickHouseCredentials) -> None:

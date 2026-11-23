@@ -91,6 +91,7 @@ def test_migrate_authenticates_each_request_with_the_current_password(
     [
         pytest.param({"0001_a"}, 2, ["0002_b"], id="stops_at_upto"),
         pytest.param({"0001_a", "0002_b"}, 2, [], id="skips_a_pending_migration_after_upto"),
+        pytest.param({"0002_b"}, 2, ["0001_a"], id="stops_at_the_last_pending_migration_below_upto"),
         pytest.param({"0001_a"}, 99_999, ["0002_b", "0003_c"], id="applies_every_pending_migration_by_default"),
     ],
 )
