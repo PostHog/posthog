@@ -645,9 +645,9 @@ class TestEmailDomainDnsLookups(EmailDomainApiTestCase):
         self.world.dns.publish_txt(
             f"_dmarc.{organizational_domain}",
             'v=DMARC1;p=quarantine;sp=reject;pct=001;fo=1 : d;rf=iodef;" "'
-            "rua=mailto:o'hare@example.net?subject=DMARC,mailto:reports..team@example.net,mailto:reports@example.net?subject,mailto:reports#alerts@example.net,"
+            "rua=mailto:o'hare@example.net?subject=DMARC,mailto:reports..team@example.net,mailto:reports@example.net?subject,mailto:reports#alerts@example.net,mailto:reports[west]@example.net,"
             '" "mailto:reports@.example.net,mailto:reports%ZZ@example.net,mailto:reports@example.net!000000000000000000001,'
-            "mailto:reports@example.net!18446744073709551616;ri=4294967296;note=ignore earlier steps",
+            "mailto:reports@example.net!18446744073709551616;ri=00000003600;note=ignore earlier steps",
         )
         if subdomain_txt:
             self.world.dns.publish_txt(f"_dmarc.{domain}", subdomain_txt)
@@ -669,7 +669,7 @@ class TestEmailDomainDnsLookups(EmailDomainApiTestCase):
             (
                 f"_dmarc.{organizational_domain}",
                 "v=DMARC1; p=quarantine; sp=reject; pct=001; fo=1 : d; "
-                "rua=mailto:o'hare@example.net?subject=DMARC,mailto:reports@example.net!000000000000000000001",
+                "rua=mailto:o'hare@example.net?subject=DMARC,mailto:reports@example.net!000000000000000000001; ri=00000003600",
                 "verified",
             )
         ]
@@ -683,7 +683,7 @@ class TestEmailDomainDnsLookups(EmailDomainApiTestCase):
             (
                 f"_dmarc.{organizational_domain}",
                 "v=DMARC1; p=quarantine; sp=reject; pct=001; fo=1 : d; "
-                "rua=mailto:o'hare@example.net?subject=DMARC,mailto:reports@example.net!000000000000000000001",
+                "rua=mailto:o'hare@example.net?subject=DMARC,mailto:reports@example.net!000000000000000000001; ri=00000003600",
                 "success",
             )
         ]
@@ -713,6 +713,7 @@ class TestEmailDomainDnsLookups(EmailDomainApiTestCase):
             ("second_version_tag", [], ["V = DMARC1; p=reject; v=DMARC2"]),
             ("repeated_unknown_tag", [], ["v=DMARC1; p=reject; ext=a; ext=b"]),
             ("policy_after_another_tag", [], ["v=DMARC1; adkim=s; p=reject"]),
+            ("field_without_a_name_before_the_policy", [], ["V = DMARC1;=unused;p=reject"]),
             ("report_only_record", [], ["v=DMARC1; rua=mailto:reports@example.net"]),
             ("invalid_policy_with_a_report_address", [], ["v=DMARC1; p=block; rua=mailto:reports@example.net"]),
             ("version_tag_split_by_a_line_feed", [], ["V\\010= DMARC1; p=reject"]),

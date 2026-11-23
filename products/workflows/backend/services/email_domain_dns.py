@@ -33,10 +33,11 @@ MAX_PARALLEL_LOOKUPS = 8
 ABSENT_ERRORS = (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer)
 _DMARC_VERSION = re.compile(r"[vV][ \t]*=[ \t]*DMARC1[ \t]*(;|\Z)")
 _DMARC_REQUEST = r"none|quarantine|reject"
+_URI_LOCAL = r"(?:[a-z0-9_~'*+$()-]|%[0-9a-f]{2})+"
+_URI_QCHARS = r"(?:[a-z0-9._~'*+$():@-]|%[0-9a-f]{2})"
 _DMARC_URI = re.compile(
-    r"mailto:(?:[^\s,;!@?%.#]|%[0-9a-f]{2})+(?:\.(?:[^\s,;!@?%.#]|%[0-9a-f]{2})+)*@[a-z0-9-]+(?:\.[a-z0-9-]+)+"
-    r"(?:\?(?:[^\s,;!%=&#]|%[0-9a-f]{2})+=(?:[^\s,;!%=&#]|%[0-9a-f]{2})*"
-    r"(?:&(?:[^\s,;!%=&#]|%[0-9a-f]{2})+=(?:[^\s,;!%=&#]|%[0-9a-f]{2})*)*)?(?:!(?P<size>[0-9]+)[kmgt]?)?",
+    rf"mailto:{_URI_LOCAL}(?:\.{_URI_LOCAL})*@[a-z0-9-]+(?:\.[a-z0-9-]+)+"
+    rf"(?:\?{_URI_QCHARS}+={_URI_QCHARS}*(?:&{_URI_QCHARS}+={_URI_QCHARS}*)*)?(?:!(?P<size>[0-9]+)[kmgt]?)?",
     re.IGNORECASE,
 )
 _DMARC_TEXT = re.compile(r"[\t\r\n\x20-\x7e]*")
@@ -230,11 +231,10 @@ def _policy_in_force(policy: str) -> str | None:
     specs = [spec.strip(" \t\r\n") for spec in policy.split(";")[1:]]
     if not _DMARC_TEXT.fullmatch(policy) or any("\r" in spec or "\n" in spec for spec in specs):
         return None
-    tags = [
-        (name.strip(" \t").lower(), value.strip(" \t"))
-        for name, _, value in (spec.partition("=") for spec in specs)
-        if name.strip(" \t")
-    ]
+    fields = [spec.partition("=") for spec in specs if spec]
+    if any(not name.strip(" \t") for name, _, _ in fields):
+        return None
+    tags = [(name.strip(" \t").lower(), value.strip(" \t")) for name, _, value in fields]
     names = ["v", *(name for name, _ in tags)]
     if len(names) != len(set(names)):
         return None
@@ -248,7 +248,8 @@ def _valid_tag_value(name: str, value: str) -> str | None:
     if name in _DMARC_URI_TAGS:
         return ",".join(uri for uri in (part.strip() for part in value.split(",")) if _is_report_uri(uri)) or None
     if name == "ri":
-        return value if re.fullmatch(r"[0-9]{1,10}", value) and int(value) < 2**32 else None
+        digits = value.lstrip("0")
+        return value if re.fullmatch(r"[0-9]+", value) and len(digits) <= 10 and int(digits or 0) < 2**32 else None
     known = _DMARC_TAG_VALUES.get(name)
     return value if known is not None and known.fullmatch(value) else None
 
