@@ -1,4 +1,5 @@
 from collections.abc import Collection
+from functools import cached_property
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -8,9 +9,10 @@ from rest_framework.exceptions import PermissionDenied
 
 from posthog.dataclasses import frozen
 
+from products.data_modeling.backend.facade.api import allowed_saved_query_ids
 from products.data_modeling.backend.facade.flags import is_managed_viewset_enabled
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, NodeType
-from products.warehouse_sources.backend.facade.api import allowed_table_ids
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, Node, NodeType
+from products.warehouse_sources.backend.facade.api import allowed_table_ids, denied_table_ids
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -110,8 +112,23 @@ class MetricNodeVisibilityMixin:
     def _managed_views_hidden(self) -> bool:
         return not is_managed_viewset_enabled(self.team)
 
+    @cached_property
+    def _unreadable_node_ids(self) -> frozenset[UUID]:
+        if self.user_access_control.is_organization_admin:
+            return frozenset()
+        denied_tables = denied_table_ids(self.team.pk, self.user_access_control)
+        hidden = Q(properties__warehouse_table_id__in=[str(table_id) for table_id in denied_tables])
+        if not self.user_access_control.has_resource_access(
+            "warehouse_view"
+        ) or self.user_access_control.blocked_resource_ids_by_scope.get("warehouse_view"):
+            readable_views = allowed_saved_query_ids(self.team.pk, self.user_access_control)
+            hidden |= Q(saved_query_id__isnull=False) & ~Q(saved_query_id__in=readable_views)
+        return frozenset(Node.objects.filter(hidden, team=self.team).values_list("pk", flat=True))
+
     def _exclude_hidden_nodes(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.exclude(saved_query__deleted=True)
+        if self._unreadable_node_ids:
+            queryset = queryset.exclude(pk__in=self._unreadable_node_ids)
         if self._managed_views_hidden():
             queryset = queryset.exclude(saved_query__managed_viewset__isnull=False)
         if self._metric_nodes_hidden():
@@ -120,6 +137,8 @@ class MetricNodeVisibilityMixin:
 
     def _exclude_hidden_edges(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.exclude(Q(source__saved_query__deleted=True) | Q(target__saved_query__deleted=True))
+        if hidden := self._unreadable_node_ids:
+            queryset = queryset.exclude(Q(source_id__in=hidden) | Q(target_id__in=hidden))
         if self._managed_views_hidden():
             queryset = queryset.exclude(
                 Q(source__saved_query__managed_viewset__isnull=False)

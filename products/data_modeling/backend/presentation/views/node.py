@@ -344,13 +344,25 @@ class NodeSerializer(serializers.ModelSerializer):
         counts = self.context.get("node_counts")
         if counts and str(node.id) in counts:
             return counts[str(node.id)].upstream
-        return len(_get_upstream_nodes(node, hidden_types=self._hidden_types()))
+        return len(
+            _get_upstream_nodes(
+                node,
+                hidden_types=self._hidden_types(),
+                hidden_node_ids=self.context.get("hidden_node_ids", frozenset()),
+            )
+        )
 
     def get_downstream_count(self, node: Node) -> int:
         counts = self.context.get("node_counts")
         if counts and str(node.id) in counts:
             return counts[str(node.id)].downstream
-        return len(_get_downstream_nodes(node, hidden_types=self._hidden_types()))
+        return len(
+            _get_downstream_nodes(
+                node,
+                hidden_types=self._hidden_types(),
+                hidden_node_ids=self.context.get("hidden_node_ids", frozenset()),
+            )
+        )
 
     def _hidden_types(self) -> frozenset[str]:
         return self.context.get("hidden_node_types") or frozenset()
@@ -574,7 +586,10 @@ _READ_DENIED = "Reading data models requires data warehouse read access."
 
 
 def _get_upstream_nodes(
-    node: Node, include_tables: bool = False, hidden_types: frozenset[str] = frozenset()
+    node: Node,
+    include_tables: bool = False,
+    hidden_types: frozenset[str] = frozenset(),
+    hidden_node_ids: frozenset[UUID] = frozenset(),
 ) -> set[str]:
     """Get all upstream (ancestor) node IDs recursively, optionally excluding TABLE nodes."""
     nodes: set[str] = set()
@@ -589,6 +604,8 @@ def _get_upstream_nodes(
             qs = qs.exclude(source__type=NodeType.TABLE)
         if hidden_types:
             qs = qs.exclude(source__type__in=hidden_types)
+        if hidden_node_ids:
+            qs = qs.exclude(source_id__in=hidden_node_ids)
         current = list(qs.values_list("source_id", flat=True))
         nodes.update(str(i) for i in current)
     return nodes
@@ -598,7 +615,9 @@ def _feeds_a_managed_view(node: Node) -> bool:
     return node.outgoing_edges.filter(target__saved_query__managed_viewset__isnull=False).exists()
 
 
-def _get_downstream_nodes(node: Node, hidden_types: frozenset[str] = frozenset()) -> set[str]:
+def _get_downstream_nodes(
+    node: Node, hidden_types: frozenset[str] = frozenset(), hidden_node_ids: frozenset[UUID] = frozenset()
+) -> set[str]:
     """Get all downstream (descendant) node IDs recursively, excluding TABLE nodes."""
     nodes: set[str] = set()
     current = [node.id]
@@ -614,6 +633,8 @@ def _get_downstream_nodes(node: Node, hidden_types: frozenset[str] = frozenset()
         )
         if hidden_types:
             qs = qs.exclude(target__type__in=hidden_types)
+        if hidden_node_ids:
+            qs = qs.exclude(target_id__in=hidden_node_ids)
         current = list(qs.values_list("target_id", flat=True))
         nodes.update(str(i) for i in current)
     return nodes
@@ -680,6 +701,7 @@ class NodeViewSet(
         return {
             **super().get_serializer_context(),
             "hidden_node_types": self._hidden_node_types(),
+            "hidden_node_ids": self._unreadable_node_ids,
             "read_node_descriptions": self._readable_node_descriptions,
             "read_watched_node_ids": self._watched_among,
         }
@@ -832,7 +854,9 @@ class NodeViewSet(
         nodes = page if page is not None else queryset
 
         node_ids = [str(n.id) for n in nodes]
-        counts = node_lineage_counts(self.team_id, node_ids, hidden_types=self._hidden_node_types())
+        counts = node_lineage_counts(
+            self.team_id, node_ids, hidden_types=self._hidden_node_types(), hidden_node_ids=self._unreadable_node_ids
+        )
 
         serializer = self.get_serializer(
             nodes, many=True, context={**self.get_serializer_context(), "node_counts": counts}
@@ -960,7 +984,13 @@ class NodeViewSet(
         if node is None:
             return response.Response({"error": "Node not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        lineage = node_lineage(self.team_id, node.id, node.dag_id, hidden_types=self._hidden_node_types())
+        lineage = node_lineage(
+            self.team_id,
+            node.id,
+            node.dag_id,
+            hidden_types=self._hidden_node_types(),
+            hidden_node_ids=self._unreadable_node_ids,
+        )
 
         nodes = self._exclude_hidden_nodes(
             _node_queryset_with_latest_job().filter(id__in=lineage.node_ids, team_id=self.team_id)

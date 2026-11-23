@@ -10,6 +10,7 @@ Document order is dependency order: a cell can only read exports of earlier cell
 the rule the editor's staleness chain already relies on. So the plan needs no sorting.
 """
 
+from dataclasses import asdict
 from typing import Any, NotRequired, TypedDict
 from uuid import UUID
 
@@ -26,6 +27,7 @@ from posthog.hogql.direct_connection import (
 
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
+from posthog.notebook_warehouse_tables import NotebookTableAttribution
 
 from products.notebooks.backend.models import Notebook, NotebookNodeRun, NotebookRun
 from products.notebooks.backend.sql_v2 import SQLV2KernelNotRunning, interrupt_sql_v2_run
@@ -67,6 +69,7 @@ class PlannedCell(TypedDict):
     send_raw_query: bool
     # Absent from plans stored before warehouse tables existed.
     warehouse_table_name: NotRequired[str | None]
+    warehouse_table_attribution: NotRequired[dict[str, Any]]
 
 
 class NotebookRunNothingToRun(Exception):
@@ -138,6 +141,7 @@ def _create_notebook_run(
     *,
     trigger: str,
     include_prepared_insights: bool = False,
+    warehouse_table_attribution: NotebookTableAttribution | None = None,
 ) -> NotebookRunStart:
     """Create the run record for `notebook` and price the sandbox it may start.
 
@@ -149,6 +153,10 @@ def _create_notebook_run(
     if not cell_plan:
         raise NotebookRunNothingToRun(_NOTHING_TO_RUN)
     _require_browser_session_for_organization_grant_cells(team, cell_plan)
+    if warehouse_table_attribution is not None:
+        for cell in cell_plan:
+            if cell.get("warehouse_table_name"):
+                cell["warehouse_table_attribution"] = asdict(warehouse_table_attribution)
 
     try:
         # The savepoint keeps the IntegrityError from poisoning a caller's transaction: the
@@ -202,6 +210,7 @@ def start_notebook_run(
     user_id: int | None,
     trigger: str,
     include_prepared_insights: bool = False,
+    warehouse_table_attribution: NotebookTableAttribution | None = None,
 ) -> NotebookRunStarted:
     """Create the run record for a notebook addressed by id, and price the sandbox it may start.
 
@@ -215,6 +224,7 @@ def start_notebook_run(
         notebook.team,
         trigger=trigger,
         include_prepared_insights=include_prepared_insights,
+        warehouse_table_attribution=warehouse_table_attribution,
     )
     return NotebookRunStarted(
         run_id=start.notebook_run.id,
@@ -294,6 +304,7 @@ def node_run_request_for(notebook_run: NotebookRun, index: int) -> NodeRunReques
         send_raw_query=bool(cell.get("send_raw_query")) and connection_id is not None,
         notebook_run_id=notebook_run.id,
         warehouse_table_name=cell.get("warehouse_table_name") if is_python else None,
+        warehouse_table_attribution=NotebookTableAttribution.from_json(cell.get("warehouse_table_attribution")),
     )
 
 

@@ -29,6 +29,7 @@ def sync_notebook_table_to_dag(
     upstream_queries: Sequence[str],
     notebook_short_id: str,
     notebook_node_id: str,
+    run_id: str,
 ) -> list[str]:
     """Put a table that a notebook cell saved into the default DAG, with edges from what the cell read.
 
@@ -45,23 +46,28 @@ def sync_notebook_table_to_dag(
     database = lineage_database(team)
 
     dependencies: set[str] = set()
-    parse_errors: list[str] = []
+    failed = False
     for query in upstream_queries:
         try:
             dependencies |= get_parents_from_model_query(team, table_name, query, database=database)
-        except Exception as e:
-            parse_errors.append(str(e))
+        except Exception:
+            failed = True
+            break
     # A cell that reads the table it writes would point the node at itself.
     dependencies.discard(table_name)
 
     with transaction.atomic():
-        # Take the lock before reading the node, so a table delete cannot remove a node this sync is
-        # about to adopt. A delete soft-deletes the table before it takes this lock, so a table that
-        # is live here is either gone from the DAG after the delete's cleanup or never added.
-        lock_dag(team_id, dag.id)
-        if not DataWarehouseTable.objects.filter(team_id=team_id, id=warehouse_table_id).exclude(deleted=True).exists():
-            logger.info("notebook_table_dag_sync_skipped_deleted_table", team_id=team_id, table_name=table_name)
+        current = (
+            DataWarehouseTable.objects.select_for_update(of=("self",))
+            .filter(team_id=team_id, id=warehouse_table_id, name=table_name)
+            .exclude(deleted=True)
+            .values_list("url_pattern", flat=True)
+            .first()
+        )
+        if not current or not current.endswith(f"/versions/{run_id}.parquet"):
+            logger.info("notebook_table_dag_sync_skipped_stale_run", team_id=team_id, table_name=table_name)
             return []
+        lock_dag(team_id, dag.id)
         node, _ = Node.objects.get_or_create(
             team=team,
             dag=dag,
@@ -78,22 +84,20 @@ def sync_notebook_table_to_dag(
         }
         node.clear_lineage_markers()
         unresolved: list[str] = []
-        try:
-            unresolved = replace_incoming_edges(
-                node,
-                sorted(dependencies),
-                team=team,
-                dag=dag,
-                database=database,
-                on_unresolved="skip",
-            )
-        except CycleDetectionError as e:
-            # The cell reads a view that reads this table. Keep the edges from the last good sync.
-            parse_errors.append(str(e))
-        if parse_errors:
-            node.mark_lineage_sync_failed("; ".join(parse_errors))
-        elif unresolved:
-            node.mark_lineage_unresolved(unresolved)
+        if not failed:
+            try:
+                unresolved = replace_incoming_edges(
+                    node,
+                    sorted(dependencies),
+                    team=team,
+                    dag=dag,
+                    database=database,
+                    on_unresolved="preserve",
+                )
+            except CycleDetectionError:
+                failed = True
+        if failed or unresolved:
+            node.mark_lineage_sync_failed("Some notebook dependencies could not be resolved.")
         node.save(update_fields=["properties", "updated_at"])
 
     logger.info(
@@ -102,7 +106,7 @@ def sync_notebook_table_to_dag(
         node_id=str(node.id),
         dependency_count=len(dependencies),
         unresolved_count=len(unresolved),
-        failed=bool(parse_errors),
+        failed=failed or bool(unresolved),
     )
     return unresolved
 

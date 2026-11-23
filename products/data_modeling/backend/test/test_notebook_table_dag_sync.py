@@ -1,4 +1,5 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -15,10 +16,14 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 class TestSyncNotebookTableToDag(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.table = DataWarehouseTable.objects.create(team=self.team, name="scores", format="Parquet")
+        self.table = DataWarehouseTable.objects.create(
+            team=self.team, name="scores", format="Parquet", url_pattern="https://example.com/versions/current.parquet"
+        )
 
-    def _sync(self, *queries: str) -> list[str]:
-        return sync_notebook_table_to_dag(self.team.id, "scores", str(self.table.id), list(queries), "nb123", "cell-1")
+    def _sync(self, *queries: str, run_id: str = "current") -> list[str]:
+        return sync_notebook_table_to_dag(
+            self.team.id, "scores", str(self.table.id), list(queries), "nb123", "cell-1", run_id
+        )
 
     def _node(self) -> Node:
         return Node.objects.get(team=self.team, name="scores", type=NodeType.TABLE)
@@ -48,6 +53,27 @@ class TestSyncNotebookTableToDag(BaseTest):
         sync_saved_query_to_dag(reader)
         self.assertEqual(Edge.objects.filter(target=self._node()).count(), 2)
 
+    def test_incomplete_query_parse_keeps_prior_edges(self):
+        self._sync("SELECT event FROM events")
+        self._sync("SELECT )", "SELECT * FROM persons")
+
+        node = self._node()
+        self.assertIn(DEGRADED_SYNC_KEY, node.properties["system"])
+        self.assertEqual(set(Edge.objects.filter(target=node).values_list("source__name", flat=True)), {"events"})
+
+    def test_missing_source_keeps_prior_edges(self):
+        self._sync("SELECT event FROM events")
+        with patch(
+            "products.data_modeling.backend.logic.notebook_table_dag_sync.get_parents_from_model_query",
+            return_value={"persons", "unavailable_source"},
+        ):
+            self.assertEqual(self._sync("SELECT 1"), ["unavailable_source"])
+
+        node = self._node()
+        self.assertIn(DEGRADED_SYNC_KEY, node.properties["system"])
+        self.assertEqual(set(Edge.objects.filter(target=node).values_list("source__name", flat=True)), {"events"})
+        self.assertFalse(Node.objects.filter(team=self.team, name="persons").exists())
+
     def test_cycle_marks_the_node_and_keeps_the_last_edges(self):
         self._sync("SELECT event FROM events")
         self._view("top_scores", "SELECT * FROM scores")
@@ -76,6 +102,13 @@ class TestSyncNotebookTableToDag(BaseTest):
             self.assertNotIn(NOTEBOOK_SOURCE_KEY, node.properties)
             self.assertFalse(Edge.objects.filter(target=node).exists())
             self.assertTrue(Edge.objects.filter(source=node, target__saved_query=reader).exists())
+
+    def test_older_run_cannot_replace_current_lineage(self):
+        self._sync("SELECT event FROM events")
+        self._sync("SELECT * FROM persons", run_id="older")
+        self.assertEqual(
+            set(Edge.objects.filter(target=self._node()).values_list("source__name", flat=True)), {"events"}
+        )
 
     def test_sync_after_the_table_is_deleted_adds_nothing(self):
         self.table.soft_delete()

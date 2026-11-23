@@ -30,6 +30,7 @@ class Graph:
         exclude_table_targets: bool = True,
         dag_id: UUID | str | None = None,
         hidden_types: frozenset[str] = frozenset(),
+        hidden_node_ids: frozenset[UUID] = frozenset(),
     ):
         """Load edges and build adjacency maps.
 
@@ -59,7 +60,12 @@ class Graph:
         self._downstream_adj: dict[str, set[str]] = defaultdict(set)  # source -> targets
 
         for source_id, target_id, source_type, target_type in edge_rows:
-            if source_type in hidden_types or target_type in hidden_types:
+            if (
+                source_type in hidden_types
+                or target_type in hidden_types
+                or source_id in hidden_node_ids
+                or target_id in hidden_node_ids
+            ):
                 continue
             s = str(source_id)
             t = str(target_id)
@@ -96,15 +102,22 @@ class Graph:
 
 
 def node_lineage_counts(
-    team_id: int, node_ids: list[str], hidden_types: frozenset[str] = frozenset()
+    team_id: int,
+    node_ids: list[str],
+    hidden_types: frozenset[str] = frozenset(),
+    hidden_node_ids: frozenset[UUID] = frozenset(),
 ) -> dict[str, NodeLineageCounts]:
     """The upstream and downstream count of each node, from one load of the team's edges."""
-    return Graph(team_id=team_id, hidden_types=hidden_types).lineage_counts(node_ids)
+    return Graph(team_id=team_id, hidden_types=hidden_types, hidden_node_ids=hidden_node_ids).lineage_counts(node_ids)
 
 
 def node_lineage(
-    team_id: int, node_id: str | UUID, dag_id: UUID | str, hidden_types: frozenset[str] = frozenset()
+    team_id: int,
+    node_id: str | UUID,
+    dag_id: UUID | str,
+    hidden_types: frozenset[str] = frozenset(),
+    hidden_node_ids: frozenset[UUID] = frozenset(),
 ) -> NodeLineage:
-    graph = Graph(team_id=team_id, dag_id=dag_id, hidden_types=hidden_types)
+    graph = Graph(team_id=team_id, dag_id=dag_id, hidden_types=hidden_types, hidden_node_ids=hidden_node_ids)
     node_ids = frozenset(graph.get_upstream_with_tables(node_id) | graph.get_downstream(node_id) | {str(node_id)})
     return NodeLineage(node_ids=node_ids, counts=graph.lineage_counts(node_ids))

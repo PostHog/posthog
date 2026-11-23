@@ -16,9 +16,10 @@ from posthog.hogql.database.database import MODELS_NAMESPACE_TABLE_ERROR, Databa
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.notebook_warehouse_tables import NotebookTableError, NotebookTableUpload
+from posthog.notebook_warehouse_tables import NotebookTableAttribution, NotebookTableError, NotebookTableUpload
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.warehouse_sources.backend.facade.table_attribution import table_created_via as table_created_via
 from products.warehouse_sources.backend.facade.types import DataWarehouseTableFormat
 from products.warehouse_sources.backend.file_uploads import MAX_UPLOAD_SIZE_BYTES
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -76,16 +77,21 @@ def _live_table(team_id: int, table_name: str) -> DataWarehouseTable | None:
     return DataWarehouseTable.objects.filter(team_id=team_id, name=table_name).exclude(deleted=True).first()
 
 
+_SAVE_UNAVAILABLE = "You don't have permission to save a warehouse table with this name. Choose a different name."
+
+
 def _user(user_id: int | None) -> User | None:
     if user_id is None:
         return None
     try:
-        return User.objects.get(id=user_id)
+        return User.objects.get(id=user_id, is_active=True)
     except User.DoesNotExist as err:
         raise NotebookTableError("The user who started this run no longer exists.") from err
 
 
 def _access(user: User, team_id: int) -> UserAccessControl:
+    if not user.teams.filter(pk=team_id).exists():
+        raise NotebookTableError(_SAVE_UNAVAILABLE)
     return UserAccessControl(user=user, team=Team.objects.get(id=team_id))
 
 
@@ -104,8 +110,17 @@ def validate_notebook_table_name(team_id: int, table_name: str, user_id: int | N
     if is_reserved_models_name(table_name):
         raise NotebookTableError(MODELS_NAMESPACE_TABLE_ERROR)
     user = _user(user_id)
+    access = _access(user, team_id) if user is not None else None
     existing = _live_table(team_id, table_name)
     if existing is not None:
+        if access is not None and (
+            not access.check_access_level_for_object(existing, "editor")
+            or (
+                existing.external_data_source is not None
+                and not access.check_access_level_for_object(existing.external_data_source, "viewer")
+            )
+        ):
+            raise NotebookTableError(_SAVE_UNAVAILABLE)
         prefix = _version_prefix(team_id, table_name)
         if (
             not existing.url_pattern.startswith(prefix)
@@ -114,24 +129,22 @@ def validate_notebook_table_name(team_id: int, table_name: str, user_id: int | N
             raise NotebookTableError(
                 f"A table named '{table_name}' already exists and a notebook didn't create it. Choose a different name."
             )
-        if user is not None and not _access(user, team_id).check_access_level_for_object(existing, "editor"):
-            raise NotebookTableError(f"You don't have permission to replace the warehouse table '{table_name}'.")
         return
-    if user is not None and not _access(user, team_id).check_access_level_for_resource("warehouse_table", "editor"):
-        raise NotebookTableError("You don't have permission to create warehouse tables.")
+    if access is not None and not access.check_access_level_for_resource("warehouse_table", "editor"):
+        raise NotebookTableError(_SAVE_UNAVAILABLE)
     if (
         DataWarehouseTable.objects.filter(team_id=team_id)
         .filter(_notebook_table_storage(team_id, table_name))
         .exclude(deleted=True)
         .exists()
     ):
-        raise NotebookTableError(
-            f"A renamed table still uses the storage for the name '{table_name}'. Choose a different name."
-        )
+        raise NotebookTableError(_SAVE_UNAVAILABLE)
     # has_table only sees what this user may read, so also look the name up team-wide.
     database = Database.create_for(team_id=team_id, user=user)
-    if database.has_table(table_name) or get_view_or_table_by_name(team_id, table_name):
+    if database.has_table(table_name):
         raise NotebookTableError(f"A table or view named '{table_name}' already exists. Choose a different name.")
+    if get_view_or_table_by_name(team_id, table_name):
+        raise NotebookTableError(_SAVE_UNAVAILABLE)
 
 
 def _s3_client(endpoint_url: str | None = None) -> "S3Client":
@@ -167,9 +180,14 @@ def presign_notebook_table_upload(team_id: int, table_name: str, run_id: str) ->
     return NotebookTableUpload(url=upload["url"], fields=upload["fields"])
 
 
-def save_notebook_table(team_id: int, table_name: str, user_id: int | None, run_id: str) -> str:
+def save_notebook_table(
+    team_id: int,
+    table_name: str,
+    user_id: int | None,
+    run_id: str,
+    attribution: NotebookTableAttribution | None = None,
+) -> str:
     """Publish the run's Parquet object and its schema together."""
-    validate_notebook_table_name(team_id, table_name, user_id)
     s3 = _s3_client()
     bucket = settings.DATAWAREHOUSE_BUCKET
     staging_key = build_notebook_table_staging_s3_key(team_id, table_name, run_id)
@@ -193,16 +211,17 @@ def save_notebook_table(team_id: int, table_name: str, user_id: int | None, run_
                 .exclude(deleted=True)
             )
             if len(claimants) > 1 or any(row.name != table_name for row in claimants):
-                raise NotebookTableError(f"Another table now uses the name '{table_name}'. Choose a different name.")
-            if claimants:
-                validate_notebook_table_name(team_id, table_name, user_id)
+                raise NotebookTableError(_SAVE_UNAVAILABLE)
+            validate_notebook_table_name(team_id, table_name, user_id)
+            actor = _user(user_id)
             table = (
                 claimants[0]
                 if claimants
                 else DataWarehouseTable(
                     team_id=team_id,
                     name=table_name,
-                    created_by=_user(user_id),
+                    created_by=actor,
+                    created_via=attribution.created_via if attribution else None,
                 )
             )
             previous = table.url_pattern
@@ -211,6 +230,7 @@ def save_notebook_table(team_id: int, table_name: str, user_id: int | None, run_
             # Runs are dispatched with UUIDv7 IDs. Queue delays must not let older data replace a newer version.
             if previous.startswith(prefix) and previous > url_pattern:
                 raise NotebookTableError("A newer run already saved this table.")
+            before = table.activity_snapshot() if claimants else None
             staged_object = s3.head_object(Bucket=bucket, Key=staging_key)
             if staged_object["ContentLength"] > MAX_UPLOAD_SIZE_BYTES:
                 raise NotebookTableError("The dataframe exceeds the warehouse upload size limit.")
@@ -230,6 +250,13 @@ def save_notebook_table(team_id: int, table_name: str, user_id: int | None, run_
             try:
                 table.set_columns(columns)
                 table.save(internally_computed_url_pattern=True)
+                table.log_table_activity(
+                    "updated" if claimants else "created",
+                    before=before,
+                    user=actor,
+                    credential=attribution.credential if attribution else None,
+                    force_save=True,
+                )
             except Exception:
                 _delete_object(s3, key)
                 raise

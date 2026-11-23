@@ -1590,8 +1590,8 @@ def log_activity(
     # not learn who acted. The row stores no user, no impersonation flag and nothing the request
     # recorded. `is_system=False` keeps it from reading as a change that PostHog made.
     external_actor: bool = False,
+    credential: ActivityCredential | None = None,
 ) -> ActivityLog | None:
-    credential: ActivityCredential | None
     if external_actor:
         user = None
         was_impersonated = False
@@ -1603,7 +1603,8 @@ def log_activity(
             client = activity_storage.get_client()
         if ip_address is None:
             ip_address = activity_storage.get_ip_address()
-        credential = activity_storage.get_credential()
+        if credential is None:
+            credential = activity_storage.get_credential()
         if credential is None and activity_storage.is_request_scoped():
             # The request was anonymous, or an authentication class that records no credential verified
             # it. Say so, so that the row does not read like one written outside a request.

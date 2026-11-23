@@ -1483,10 +1483,19 @@ class TestNodeAccessControl(WarehouseAccessControlTestMixin):
         )
         self.client.force_login(self.editor_user)
 
+        source = Node.objects.create(team=self.team, dag=self.dag, name="events", type=NodeType.TABLE)
+        Edge.objects.create(team=self.team, dag=self.dag, source=source, target=self.node)
         response = self.client.get(self._list_url())
+        detail = self.client.get(f"{self._list_url()}{source.id}/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail.json()["downstream_count"], 0)
+        self.assertEqual(
+            next(row for row in response.json()["results"] if row["id"] == str(source.id))["downstream_count"], 0
+        )
         self.assertNotIn("Private text", response.content.decode())
+        self.assertNotIn(str(self.node.id), response.content.decode())
 
     def _described_view_and_table(self, name: str) -> tuple[DataWarehouseTable, Node]:
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -1544,13 +1553,19 @@ class TestNodeAccessControl(WarehouseAccessControlTestMixin):
         )
         self.client.force_login(self.editor_user)
 
+        edge = Edge.objects.create(team=self.team, dag=self.dag, source=node, target=self.node)
         listed = self.client.get(self._list_url())
         detail = self.client.get(f"{self._list_url()}{node.id}/")
+        lineage = self.client.get(f"{self._list_url()}lineage/?node_id={self.node.id}")
 
         self.assertEqual(listed.status_code, status.HTTP_200_OK)
         self.assertNotIn("private source text", listed.content.decode())
         self.assertIn("private view text", listed.content.decode())
-        self.assertEqual(detail.json()["description"], "")
+        self.assertEqual(detail.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertNotIn(str(node.id), listed.content.decode())
+        self.assertEqual(lineage.status_code, status.HTTP_200_OK)
+        self.assertNotIn(str(node.id), lineage.content.decode())
+        self.assertNotIn(str(edge.id), lineage.content.decode())
 
     def test_table_description_write_refuses_a_member_denied_the_table(self):
         table = DataWarehouseTable.objects.create(
@@ -1571,7 +1586,7 @@ class TestNodeAccessControl(WarehouseAccessControlTestMixin):
 
         response = self.client.patch(f"{self._list_url()}{node.id}/", {"description": "Text"}, format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertFalse(WarehouseColumnAnnotation.objects.for_team(self.team.id).filter(table=table).exists())
 
     @parameterized.expand(
@@ -1600,7 +1615,7 @@ class TestNodeAccessControl(WarehouseAccessControlTestMixin):
         else:
             response = self.client.post(f"{node_url}{action}/")
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         edge.refresh_from_db()
         self.assertEqual(edge.properties, {})
         self.node.refresh_from_db()
@@ -1678,7 +1693,7 @@ class TestNodeWatching(WarehouseAccessControlTestMixin):
         assert (response.status_code, response.json()) == (status.HTTP_200_OK, {"watching": False})
         assert self._watching(self.view_node) is False
 
-    @parameterized.expand([("watch", status.HTTP_403_FORBIDDEN), ("unwatch", status.HTTP_200_OK)])
+    @parameterized.expand([("watch", status.HTTP_404_NOT_FOUND), ("unwatch", status.HTTP_200_OK)])
     def test_a_view_the_caller_cannot_read_can_be_unwatched_but_not_watched(self, action, expected_status):
         self._create_access_control(
             self.viewer_user, resource="warehouse_view", resource_id=str(self.saved_query.id), access_level="none"

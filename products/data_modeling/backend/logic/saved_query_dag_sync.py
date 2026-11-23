@@ -253,7 +253,7 @@ def replace_incoming_edges(
     team: "Team",
     dag: DAG,
     database: Database,
-    on_unresolved: Literal["raise", "skip"],
+    on_unresolved: Literal["raise", "skip", "preserve"],
     extra_properties: dict | None = None,
 ) -> list[str]:
     """Sync the incoming edges of `target` with `dependency_names`, and report what did not resolve.
@@ -264,7 +264,7 @@ def replace_incoming_edges(
     edge-less node.
 
     With `on_unresolved="skip"` a name that matches no node is collected and returned; with "raise"
-    it propagates.
+    it propagates. With "preserve", any unresolved name leaves the previous graph intact.
     """
     unresolved: list[str] = []
     with transaction.atomic():
@@ -286,6 +286,11 @@ def replace_incoming_edges(
                 unresolved.append(dependency_name)
                 continue
             resolved_sources[source.pk] = source
+
+        if unresolved and on_unresolved == "preserve":
+            # A resolved sibling may already have created a source node in this savepoint.
+            transaction.set_rollback(True)
+            return unresolved
 
         current_source_ids = set(
             Edge.objects.filter(team_id=team.pk, target=target).values_list("source_id", flat=True)

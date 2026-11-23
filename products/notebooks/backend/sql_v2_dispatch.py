@@ -6,6 +6,7 @@ the same concurrency ceilings, the same routing between the direct (ClickHouse) 
 the sandbox kernel. The view keeps only what a view owns: validate, call, format.
 """
 
+from dataclasses import asdict
 from datetime import timedelta
 from typing import Literal, TypedDict
 from uuid import UUID
@@ -21,7 +22,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.models.utils import uuid7
-from posthog.notebook_warehouse_tables import NotebookTableError, get_notebook_table_writer
+from posthog.notebook_warehouse_tables import NotebookTableAttribution, NotebookTableError, get_notebook_table_writer
 
 from products.notebooks.backend.compute_pricing import get_compute_rates
 from products.notebooks.backend.facade.contracts import NotebookRunBusy, TeamRunCapacityFull
@@ -101,6 +102,7 @@ class NodeRunRequest:
     notebook_run_id: UUID | None = None
     # Python cells only: the data warehouse table the result dataframe is also saved to.
     warehouse_table_name: str | None = None
+    warehouse_table_attribution: NotebookTableAttribution | None = None
 
 
 @frozen
@@ -332,7 +334,10 @@ def dispatch_cell_run(
     holds a Django object across the boundary, and resolves the models here instead.
     """
     notebook = resolve_team_notebook(team_id, notebook_short_id)
-    return dispatch_node_run(notebook, resolve_user(user_id), notebook.team, request)
+    user = resolve_user(user_id)
+    if request.warehouse_table_name and user_id is not None and user is None:
+        raise NodeRunInvalid("The user who started this run no longer exists.")
+    return dispatch_node_run(notebook, user, notebook.team, request)
 
 
 def kernel_sandbox_is_live(*, team_id: int, notebook_short_id: str, user_id: int | None, runtime_id: UUID) -> bool:
@@ -503,6 +508,9 @@ def dispatch_node_run(notebook: Notebook, user: User | None, team: Team, request
             connection_id=request.connection_id,
             send_raw_query=request.send_raw_query,
             warehouse_table_name=request.warehouse_table_name or None,
+            warehouse_table_attribution=asdict(request.warehouse_table_attribution)
+            if request.warehouse_table_name and request.warehouse_table_attribution
+            else None,
             input_run_ids=_input_run_ids(notebook, user, request, plan) or None,
             status=NotebookNodeRun.Status.RUNNING,
         )

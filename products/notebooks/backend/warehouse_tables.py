@@ -12,7 +12,12 @@ from django.db import transaction
 import structlog
 
 from posthog.exceptions_capture import capture_exception
-from posthog.notebook_warehouse_tables import NotebookTableError, get_notebook_table_writer, sync_notebook_table_to_dag
+from posthog.notebook_warehouse_tables import (
+    NotebookTableAttribution,
+    NotebookTableError,
+    get_notebook_table_writer,
+    sync_notebook_table_to_dag,
+)
 from posthog.ph_client import ph_scoped_capture
 
 from products.notebooks.backend.models import NotebookNodeRun
@@ -89,7 +94,9 @@ def finish_warehouse_table_save(team_id: int, run_id: str) -> None:
     table_id: str | None = None
     outcome: WarehouseTableOutcome
     try:
-        table_id = get_notebook_table_writer().save_notebook_table(team_id, name, run.user_id, str(run.id))
+        table_id = get_notebook_table_writer().save_notebook_table(
+            team_id, name, run.user_id, str(run.id), NotebookTableAttribution.from_json(run.warehouse_table_attribution)
+        )
         outcome = {"name": name, "error": None}
         result = "saved"
     except NotebookTableError as e:
@@ -114,6 +121,7 @@ def finish_warehouse_table_save(team_id: int, run_id: str) -> None:
             upstream_hogql_queries(run),
             run.notebook.short_id,
             run.node_id,
+            str(run.id),
         )
     except Exception as e:
         # The table is saved. Lineage is extra, so a failure here must not report the save as failed.

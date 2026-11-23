@@ -47,12 +47,15 @@ from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
 from posthog.constants import AvailableFeature
+from posthog.event_usage import get_event_source, is_wizard_self_driving_program
 from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, changes_between, load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
+from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.utils import UUIDT
+from posthog.notebook_warehouse_tables import NotebookTableAttribution, NotebookTableError, get_notebook_table_writer
 from posthog.permissions import get_authenticator_scopes
 from posthog.renderers import ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
@@ -79,6 +82,7 @@ from products.notebooks.backend.facade.compute_pricing import (
     find_matching_preset,
     get_compute_rates,
 )
+from products.notebooks.backend.facade.content import iter_prosemirror_nodes
 from products.notebooks.backend.facade.contracts import (
     NotebookContentNotConvertible,
     NotebookRunBusy,
@@ -209,6 +213,7 @@ from products.notebooks.backend.sql_v2_serializers import (
 from products.notebooks.backend.sql_v2_state import (
     NotebookCellLimitExceeded,
     build_notebook_cell_state,
+    extract_cells,
     validate_cell_count,
 )
 from products.notebooks.backend.sql_v2_variables import build_notebook_variables
@@ -218,6 +223,54 @@ from products.tasks.backend.facade.sandbox import SandboxStatus
 from ee.hogai.utils.aio import async_to_sync
 
 logger = structlog.get_logger(__name__)
+
+
+def _warehouse_table_attribution(request: Request) -> NotebookTableAttribution:
+    return NotebookTableAttribution(
+        created_via=get_notebook_table_writer().table_created_via(
+            get_event_source(request), is_wizard_self_driving_program(request)
+        ),
+        credential=activity_storage.get_credential(),
+    )
+
+
+def _require_warehouse_write_scope(request: Request) -> None:
+    scopes = get_authenticator_scopes(request.successful_authenticator)
+    if scopes is not None and "*" not in scopes and "warehouse_table:write" not in scopes:
+        raise PermissionDenied("Saving a warehouse table needs a token with the warehouse_table:write scope.")
+
+
+def _authorize_notebook_table_edit(
+    request: Request, team_id: int, previous: Any, submitted: Any, *, variables_changed: bool = False
+) -> None:
+    if markdown_collab.get_markdown_notebook_markdown(submitted) is not None:
+        cells = extract_cells(submitted, for_edit_authorization=True)
+        targets = {cell.warehouse_table_name for cell in cells if cell.warehouse_table_name}
+        if not targets or (not variables_changed and cells == extract_cells(previous, for_edit_authorization=True)):
+            return
+    else:
+        # Rich-text notebooks also run individual Python cells in the editor.
+        targets = {
+            name.strip()
+            for node in iter_prosemirror_nodes(submitted)
+            if node.get("type") == "ph-python-v2"
+            and isinstance(attrs := node.get("attrs"), dict)
+            and attrs.get("saveToWarehouse")
+            and isinstance(name := attrs.get("warehouseTableName"), str)
+            and name.strip()
+        }
+        if not targets or (not variables_changed and submitted == previous):
+            return
+
+    # A changed upstream cell can alter every frame the notebook publishes.
+    _require_warehouse_write_scope(request)
+    try:
+        for name in sorted(targets):
+            get_notebook_table_writer().validate_notebook_table_name(
+                team_id, name, request.user.id if isinstance(request.user, User) else None
+            )
+    except NotebookTableError as error:
+        raise PermissionDenied(str(error)) from error
 
 
 def depluralize(string: str | None) -> str | None:
@@ -444,6 +497,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             except NotebookCellLimitExceeded as err:
                 raise serializers.ValidationError({"content": str(err)})
             validated_data["content"] = markdown_content
+        _authorize_notebook_table_edit(request, team.id, None, validated_data.get("content"))
         # Search reads text_content, so it mirrors the stored markdown, as a markdown save does.
         validated_data["text_content"] = markdown_collab.get_markdown_notebook_markdown(validated_data["content"])
 
@@ -520,6 +574,15 @@ class NotebookSerializer(NotebookMinimalSerializer):
                 locked_instance.last_modified_by = self.context["request"].user
 
                 update_diff: markdown_collab.MarkdownDiff | None = None
+                if "content" in validated_data or "variables" in validated_data:
+                    _authorize_notebook_table_edit(
+                        self.context["request"],
+                        locked_instance.team_id,
+                        locked_instance.content,
+                        validated_data.get("content", locked_instance.content),
+                        variables_changed="variables" in validated_data
+                        and validated_data["variables"] != locked_instance.variables,
+                    )
                 if "content" in validated_data:
                     if validated_data.get("version") != locked_instance.version:
                         raise Conflict("Someone else edited the Notebook")
@@ -847,14 +910,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # (which carry no scopes) and enforces real RBAC for tokens too.
         if not self._has_query_access():
             raise PermissionDenied("You need query access to run SQL in a notebook.")
-
-    def _require_warehouse_write_scope(self) -> None:
-        # Saving a run's dataframe writes a warehouse table, which the table API gates behind
-        # warehouse_table:write. A token must carry it too. Sessions carry no scopes, and the
-        # dispatch checks their warehouse access control instead.
-        scopes = get_authenticator_scopes(self.request.successful_authenticator)
-        if scopes is not None and "*" not in scopes and "warehouse_table:write" not in scopes:
-            raise PermissionDenied("Saving a warehouse table needs a token with the warehouse_table:write scope.")
 
     def _require_run_connection_access(self, run: NotebookNodeRun, user: User | None) -> None:
         # Dispatch resolved the source for the user who ran the cell, but the run row outlives
@@ -2099,7 +2154,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         if serializer.validated_data["warehouse_table_name"]:
             if not (settings.DEBUG or is_notebook_warehouse_table_save_enabled(user)):
                 raise Http404()
-            self._require_warehouse_write_scope()
+            _require_warehouse_write_scope(request)
 
         node_type = serializer.validated_data["node_type"]
         # Only SQL nodes carry a connection; python always runs in the kernel against PostHog.
@@ -2117,6 +2172,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             send_raw_query=bool(serializer.validated_data["send_raw_query"]) and connection_id is not None,
             reuse_results=serializer.validated_data["reuse_results"],
             warehouse_table_name=(serializer.validated_data["warehouse_table_name"] or "").strip() or None,
+            warehouse_table_attribution=_warehouse_table_attribution(request)
+            if serializer.validated_data["warehouse_table_name"]
+            else None,
         )
         try:
             dispatch = dispatch_cell_run(
@@ -2189,13 +2247,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     # A session cookie is the editor; anything else is a programmatic client.
                     trigger=classify_request_source(request)[0],
                     include_prepared_insights=include_prepared_insights,
+                    warehouse_table_attribution=_warehouse_table_attribution(request),
                 )
                 # Checked on the plan the run froze, not on a separate read of the notebook, so
                 # an edit that lands between the two can't add a save the token may not make.
                 if start.saves_warehouse_tables:
                     if not (settings.DEBUG or is_notebook_warehouse_table_save_enabled(user)):
                         raise Http404()
-                    self._require_warehouse_write_scope()
+                    _require_warehouse_write_scope(request)
         except (NotebookRunNothingToRun, NotebookCellLimitExceeded, ExposedHogQLError) as e:
             return Response({"detail": str(e)}, status=400)
         except NotebookRunAlreadyRunning as e:
@@ -2607,6 +2666,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     f"Can't save: you don't have access to {denied_names}, and this notebook is publicly shared."
                 )
 
+        _authorize_notebook_table_edit(request, notebook.team_id, notebook.content, data["content"])
         result = submit_steps(
             team_id=notebook.team_id,
             notebook_id=str(notebook.short_id),
@@ -2731,6 +2791,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     validate_cell_count(locked_notebook.content, submitted_content)
                 except NotebookCellLimitExceeded as err:
                     raise serializers.ValidationError(str(err))
+                _authorize_notebook_table_edit(
+                    request, locked_notebook.team_id, locked_notebook.content, submitted_content
+                )
                 diff = markdown_collab.build_markdown_update_diff(locked_notebook.content, submitted_content)
                 result = markdown_collab.submit_markdown_update(
                     locked_notebook.team_id,

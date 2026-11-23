@@ -12,8 +12,10 @@ from django.test import SimpleTestCase, override_settings
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.activity_logging.utils import ActivityCredential
 from posthog.models.organization import OrganizationMembership
-from posthog.notebook_warehouse_tables import NotebookTableError, get_notebook_table_writer
+from posthog.notebook_warehouse_tables import NotebookTableAttribution, NotebookTableError, get_notebook_table_writer
 
 from products.access_control.backend.facade.testing import create_access_control
 from products.warehouse_sources.backend.file_uploads import MAX_UPLOAD_SIZE_BYTES
@@ -45,6 +47,21 @@ class TestPresignNotebookTableUpload(SimpleTestCase):
 
 
 class TestValidateNotebookTableName(BaseTest):
+    def test_publication_rechecks_project_membership(self):
+        validate_notebook_table_name(self.team.id, "scores", self.user.id)
+        self.organization_membership.delete()
+        with (
+            patch("products.warehouse_sources.backend.logic.notebook_tables._s3_client") as client,
+            self.assertRaisesRegex(NotebookTableError, "permission to save"),
+        ):
+            save_notebook_table(self.team.id, "scores", self.user.id, "run-2")
+        client.return_value.copy_object.assert_not_called()
+        client.return_value.delete_object.assert_called_once_with(
+            Bucket=settings.DATAWAREHOUSE_BUCKET,
+            Key=build_notebook_table_staging_s3_key(self.team.id, "scores", "run-2"),
+        )
+        self.assertFalse(DataWarehouseTable.objects.filter(team=self.team, name="scores").exists())
+
     def test_save_requires_its_initiating_user_to_exist(self):
         with self.assertRaisesRegex(NotebookTableError, "user who started this run"):
             validate_notebook_table_name(self.team.id, "scores", -1)
@@ -56,7 +73,7 @@ class TestValidateNotebookTableName(BaseTest):
             ("bad_characters", "my-scores", "scores", False, "starts with a letter"),
             ("posthog_table", "events", "scores", False, "already exists"),
             ("another_table", "scores", "scores", False, "a notebook didn't create it"),
-            ("renamed_table_still_reads_the_object", "scores", "archived_scores", True, "renamed table"),
+            ("renamed_table_still_reads_the_object", "scores", "archived_scores", True, "permission to save"),
         ]
     )
     def test_name_rules(
@@ -119,16 +136,33 @@ class TestSaveNotebookTable(BaseTest):
             ),
             patch("products.warehouse_sources.backend.logic.notebook_tables.validate_data_warehouse_table_columns"),
         ):
-            return save_notebook_table(self.team.id, "scores", self.user.id, run_id)
+            return save_notebook_table(
+                self.team.id,
+                "scores",
+                self.user.id,
+                run_id,
+                NotebookTableAttribution(
+                    created_via="api", credential=ActivityCredential(type="personal_api_key", id="15")
+                ),
+            )
 
     def test_publishes_the_staged_object_and_reuses_the_table(self):
         s3 = MagicMock()
 
-        first_id = self._save("run-1", s3)
-        second_id = self._save("run-2", s3, columns={"label": COLUMNS["score"]})
+        with self.captureOnCommitCallbacks(execute=True):
+            first_id = self._save("run-1", s3)
+            second_id = self._save("run-2", s3, columns={"label": COLUMNS["score"]})
+            self.assertEqual(self._save("run-2", s3), second_id)
+
+        history = ActivityLog.objects.filter(team_id=self.team.id, scope="DataWarehouseTable", item_id=first_id)
+        self.assertCountEqual(
+            history.values_list("activity", "user_id", "credential_type", "credential_id"),
+            [(verb, self.user.id, "personal_api_key", "15") for verb in ["created", "updated"]],
+        )
 
         self.assertEqual(first_id, second_id)
         table = DataWarehouseTable.objects.get(id=first_id)
+        self.assertEqual(table.created_via, "api")
         self.assertEqual(table.url_pattern, _object_url(build_notebook_table_s3_key(self.team.id, "scores", "run-2")))
         self.assertEqual(list(table.columns or {}), ["label"])
         with self.assertRaisesRegex(NotebookTableError, "newer run"):
@@ -143,7 +177,7 @@ class TestSaveNotebookTable(BaseTest):
 
         with (
             patch("products.warehouse_sources.backend.logic.notebook_tables.validate_notebook_table_name"),
-            self.assertRaisesRegex(NotebookTableError, "Another table"),
+            self.assertRaisesRegex(NotebookTableError, "permission to save"),
         ):
             self._save("run-2", s3)
 

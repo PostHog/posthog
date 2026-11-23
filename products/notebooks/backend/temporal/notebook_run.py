@@ -148,6 +148,10 @@ def dispatch_notebook_cell_activity(input: NotebookRunCellInput) -> str:
     plan: list[dict[str, Any]] = notebook_run.cell_plan or []
     if input.index >= len(plan):
         raise ApplicationError("The plan no longer has that cell.", type=_UNRECOVERABLE, non_retryable=True)
+    if plan[input.index].get("warehouse_table_name") and notebook_run.user_id is not None and notebook_run.user is None:
+        raise ApplicationError(
+            "The user who started this run no longer exists.", type=_UNRECOVERABLE, non_retryable=True
+        )
     node_id = plan[input.index]["node_id"]
     already_dispatched = (
         NotebookNodeRun.objects.for_team(input.team_id)

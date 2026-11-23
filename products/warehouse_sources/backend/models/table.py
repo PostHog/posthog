@@ -5,7 +5,7 @@ import time
 import subprocess
 from collections.abc import Iterable
 from io import StringIO
-from typing import TYPE_CHECKING, Any, NotRequired, Optional, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, Optional, TypedDict, cast
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
@@ -79,6 +79,7 @@ if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
 
     from posthog.models import User
+    from posthog.models.activity_logging.utils import ActivityCredential
 
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
@@ -628,6 +629,68 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         # A CSV setting for the customer's files. The table now reads Parquet files PostHog wrote.
         self.options = {key: value for key, value in (self.options or {}).items() if key != "csv_allow_double_quotes"}
         return ["external_data_source", "credential", "options"]
+
+    def activity_snapshot(self) -> dict[str, Any]:
+        """The user-editable state of a table, taken before an edit so the log can show the diff."""
+        return {
+            "name": self.name,
+            "format": self.format,
+            "url_pattern": self.url_pattern,
+            "deleted": bool(self.deleted),
+            "options": dict(self.options or {}),
+            # A background task rewrites the `valid` flag of each column, so only the type is compared.
+            "columns": {
+                name: column.get("clickhouse") if isinstance(column, dict) else column
+                for name, column in (self.columns or {}).items()
+            },
+        }
+
+    def log_table_activity(
+        self,
+        activity: Literal["created", "updated", "deleted"],
+        *,
+        before: dict[str, Any] | None = None,
+        credential_changed: bool = False,
+        force_save: bool = False,
+        user: "User | None" = None,
+        credential: "ActivityCredential | None" = None,
+    ) -> None:
+        from posthog.models.activity_logging.activity_log import Change, Detail, dict_changes_between, log_activity
+        from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
+
+        diff = (
+            dict_changes_between("DataWarehouseTable", before, self.activity_snapshot()) if before is not None else []
+        )
+        if any(change.field == "deleted" and change.after for change in diff):
+            activity = "deleted"
+        # Any activity-log reader sees this row, including readers denied the table, so it records
+        # which fields changed and never their values.
+        changes = [
+            Change(
+                type="DataWarehouseTable",
+                field=change.field,
+                action=change.action,
+                before="masked" if change.before is not None else None,
+                after="masked" if change.after is not None else None,
+            )
+            for change in diff
+            if change.field != "deleted"
+        ]
+        if credential_changed:
+            changes.append(Change(type="DataWarehouseTable", field="credential", action="changed"))
+
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self.team_id,
+            user=user if user is not None else get_current_user(),
+            was_impersonated=credential.impersonated_by_id is not None if credential else get_was_impersonated(),
+            credential=credential,
+            item_id=self.id,
+            scope="DataWarehouseTable",
+            activity=activity,
+            detail=Detail(name=self.name, changes=changes),
+            force_save=force_save,
+        )
 
     def soft_delete(self, *, delete_joins: bool = True):
         from products.data_tools.backend.models.join import DataWarehouseJoin

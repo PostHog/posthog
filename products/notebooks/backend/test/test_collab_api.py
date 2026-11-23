@@ -642,6 +642,38 @@ class TestNotebookMarkdownSaveAPI(APIBaseTest):
         assert nb.version == notebook["version"] + 1
         assert nb.text_content == "# Title\n\nHello world"
 
+    @parameterized.expand(
+        [
+            ("patch", 'nodeId="cell" saveToWarehouse={true}'),
+            ("collab", "saveToWarehouse={true}"),
+            ("create", 'saveToWarehouse="true"'),
+        ]
+    )
+    def test_warehouse_target_requires_the_editors_warehouse_scope(self, route, props):
+        notebook = self._create_markdown_notebook()
+        markdown = f'<PythonV2 {props} code="df = 1" warehouseTableName="scores" />'
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user, label="notebook editor", secure_value=hash_key_value(key), scopes=["notebook:write"]
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
+        if route == "collab":
+            result = self._markdown_save(notebook, version=notebook["version"], markdown=markdown)
+        elif route == "create":
+            result = self.client.post(
+                f"/api/projects/{self.team.pk}/notebooks/", data={"content": _markdown_doc(markdown)}, format="json"
+            )
+        else:
+            result = self.client.patch(
+                f"/api/projects/{self.team.pk}/notebooks/{notebook['short_id']}/",
+                data={"version": notebook["version"], "content": _markdown_doc(markdown)},
+                format="json",
+            )
+        assert result.status_code == status.HTTP_403_FORBIDDEN
+        assert "warehouse_table:write" in result.json()["detail"]
+        assert Notebook.objects.get(short_id=notebook["short_id"]).version == notebook["version"]
+
     def test_markdown_save_appends_replayable_diff_to_stream(self):
         from products.notebooks.backend.collab_stream import STREAM_KEY_PATTERN
         from products.notebooks.backend.markdown_collab import apply_utf16_text_changes, markdown_crc

@@ -33,7 +33,7 @@ from posthog.hogql.database.database import (
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.event_usage import EventSource, get_event_source, is_wizard_self_driving_program
+from posthog.event_usage import get_event_source, is_wizard_self_driving_program
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.user import User
@@ -46,7 +46,6 @@ from products.access_control.backend.presentation.access_control import (
 )
 from products.data_modeling.backend.facade.api import delete_notebook_table_node
 from products.data_warehouse.backend.facade.api import get_s3_client
-from products.data_warehouse.backend.presentation.table_activity import log_table_activity, snapshot_table
 from products.warehouse_sources.backend.facade.api import (
     FILE_FORMAT_READ_HINTS,
     FILE_FORMAT_TO_TABLE_FORMAT,
@@ -91,6 +90,7 @@ from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     validate_warehouse_table_url_pattern,
 )
+from products.warehouse_sources.backend.facade.table_attribution import table_created_via
 from products.warehouse_sources.backend.facade.tasks import validate_data_warehouse_table_columns
 from products.warehouse_sources.backend.facade.types import (
     DataWarehouseTableCreatedVia,
@@ -109,24 +109,6 @@ from products.warehouse_sources.backend.presentation.views.external_data_source.
 # the small form fields sent alongside the file.
 MAX_UPLOAD_REQUEST_BODY_BYTES = MAX_FILE_UPLOAD_SIZE_BYTES + 1024 * 1024
 
-# Which request surface each transport attributes a table to. The PostHog apps and the headless
-# agents share `self_driving`, matching how the source path collapses them. Agent transports that
-# wrap MCP but aren't separately tracked (the CLI, Slack, Max, WebMCP) land on `mcp` alongside plain MCP
-# clients, and anything without a surface of its own is a plain API caller.
-_EVENT_SOURCE_TO_CREATED_VIA = {
-    EventSource.WEB: DataWarehouseTableCreatedVia.WEB,
-    EventSource.WIZARD: DataWarehouseTableCreatedVia.WIZARD,
-    EventSource.POSTHOG_CODE: DataWarehouseTableCreatedVia.SELF_DRIVING,
-    EventSource.DESKTOP: DataWarehouseTableCreatedVia.SELF_DRIVING,
-    EventSource.MOBILE: DataWarehouseTableCreatedVia.SELF_DRIVING,
-    EventSource.MCP: DataWarehouseTableCreatedVia.MCP,
-    EventSource.SLACK: DataWarehouseTableCreatedVia.MCP,
-    EventSource.CLI: DataWarehouseTableCreatedVia.MCP,
-    EventSource.POSTHOG_AI: DataWarehouseTableCreatedVia.MCP,
-    EventSource.WEBMCP: DataWarehouseTableCreatedVia.MCP,
-}
-
-
 SELF_MANAGED_CREATE_BLOCKED_MESSAGE = (
     "PostHog no longer links tables that read your bucket directly. "
     "Add an Amazon S3, Google Cloud Storage, Azure Blob or Cloudflare R2 source instead."
@@ -134,21 +116,7 @@ SELF_MANAGED_CREATE_BLOCKED_MESSAGE = (
 
 
 def resolve_created_via(request: request.Request) -> str:
-    """Attribute a table to the surface the request came from.
-
-    Read entirely from the transport (auth method, user-agent, MCP headers) rather than from the
-    request body, so no caller can label its own tables as wizard- or web-created. The values line
-    up with `ExternalDataSourceCreatedVia`, which reaches the same answer from the other direction:
-    a source takes `created_via` from the body because the MCP server injects it there, then
-    upgrades that value using this same transport signal.
-    """
-    event_source = get_event_source(request)
-    created_via = _EVENT_SOURCE_TO_CREATED_VIA.get(event_source, DataWarehouseTableCreatedVia.API)
-    # Every wizard program shares the `posthog/wizard` user-agent, so a self-driving run is only
-    # distinguishable by the marker it adds to that UA.
-    if created_via == DataWarehouseTableCreatedVia.WIZARD and is_wizard_self_driving_program(request):
-        return DataWarehouseTableCreatedVia.SELF_DRIVING
-    return created_via
+    return table_created_via(get_event_source(request), is_wizard_self_driving_program(request))
 
 
 def _file_read_error_message(file_format: str) -> str:
@@ -701,7 +669,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             )
 
         instance.soft_delete()
-        log_table_activity(instance, "deleted")
+        instance.log_table_activity("deleted")
         _delete_hosted_upload_file(instance)
         try:
             delete_notebook_table_node(instance.team_id, str(instance.id))
@@ -714,7 +682,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
     def perform_update(self, serializer):
         instance = serializer.instance
         validated_data = serializer.validated_data
-        before = snapshot_table(instance)
+        before = instance.activity_snapshot()
 
         credential_data = validated_data.pop("credential", None)
         if credential_data:
@@ -764,7 +732,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             instance.save()
         except Exception as err:
             raise serializers.ValidationError(str(err))
-        log_table_activity(instance, "updated", before=before, credential_changed=bool(credential_data))
+        instance.log_table_activity("updated", before=before, credential_changed=bool(credential_data))
 
     @action(methods=["POST"], detail=True)
     def update_schema(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
@@ -779,7 +747,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 status=status.HTTP_400_BAD_REQUEST, data={"message": "The table must be a manually linked table"}
             )
 
-        before = snapshot_table(table)
+        before = table.activity_snapshot()
         columns = table.columns or {}
         column_keys = list(columns.keys())
         for key in updates.keys():
@@ -815,7 +783,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
         table.columns = columns
         table.save()
-        log_table_activity(table, "updated", before=before)
+        table.log_table_activity("updated", before=before)
 
         return response.Response(status=status.HTTP_200_OK)
 
@@ -892,7 +860,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
     @action(methods=["POST"], detail=True, required_scopes=["warehouse_table:write"])
     def refresh_schema(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         table: DataWarehouseTable = self.get_object()
-        before = snapshot_table(table)
+        before = table.activity_snapshot()
 
         # get_columns surfaces read failures as a plain Exception carrying a user-facing message.
         # Without this it reaches the handler as a 500, the same way TableSerializer.create avoids.
@@ -901,7 +869,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         except Exception as err:
             raise serializers.ValidationError(str(err))
         table.save()
-        log_table_activity(table, "updated", before=before)
+        table.log_table_activity("updated", before=before)
 
         return response.Response(status=status.HTTP_200_OK)
 
@@ -1080,7 +1048,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         )
 
         table.save()
-        log_table_activity(table, "created")
+        table.log_table_activity("created")
         # The table reads the file in place until the source's first sync imports it.
         create_file_upload_source(self.team_id, table.pk, upload, read_settings)
 
@@ -1270,7 +1238,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             return self._replace_file_from_legacy_upload(table, file, safe_filename, file_format)
 
         created_table = table is None
-        before = snapshot_table(table) if table is not None else None
+        before = table.activity_snapshot() if table is not None else None
 
         # Create the table record
         try:
@@ -1329,7 +1297,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 # verbatim from request input the way the PATCH endpoint's url_pattern field is.
                 table.save(internally_computed_url_pattern=True)
                 # A re-upload replaces the data even when no metadata changes, so it is always logged.
-                log_table_activity(table, "created" if created_table else "updated", before=before, force_save=True)
+                table.log_table_activity("created" if created_table else "updated", before=before, force_save=True)
 
                 # Validate columns in background
                 validate_data_warehouse_table_columns.delay(team_id, str(table.id))

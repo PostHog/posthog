@@ -359,6 +359,7 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
     # Stored at dispatch, so the callback saves the table the user asked for, never a name the
     # sandbox reports.
     warehouse_table_name = models.CharField(max_length=128, null=True, blank=True)
+    warehouse_table_attribution: JSONField = JSONField(null=True, blank=True)
     input_run_ids: JSONField = JSONField(null=True, blank=True)
     error = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

@@ -155,7 +155,7 @@ def _visualization_from_props(props: dict[str, Any]) -> CellVisualization | None
     )
 
 
-def extract_cells(content: Any) -> list[NotebookCellState]:
+def extract_cells(content: Any, *, for_edit_authorization: bool = False) -> list[NotebookCellState]:
     markdown = _get_markdown_notebook_markdown(content)
     if markdown is None:
         return []
@@ -167,7 +167,10 @@ def extract_cells(content: Any) -> list[NotebookCellState]:
         props = _parse_markdown_component_props(raw)
         node_id = props.get("nodeId")
         if not isinstance(node_id, str) or not node_id:
-            continue
+            # The editor assigns a block fingerprint when the markdown has no persisted id.
+            if not for_edit_authorization:
+                continue
+            node_id = ""
         code = props.get("dataframeQuery") if cell_type == "saved_insight" else props.get("code")
         if cell_type == "sql" and not (isinstance(code, str) and code.strip()):
             code = _code_from_query_prop(props.get("query"))
@@ -178,9 +181,10 @@ def extract_cells(content: Any) -> list[NotebookCellState]:
             dataframe_name = ""
         connection_id = props.get("connectionId")
         warehouse_table_name = props.get("warehouseTableName")
-        if not (
-            cell_type == "python" and props.get("saveToWarehouse") is True and isinstance(warehouse_table_name, str)
-        ):
+        save = props.get("saveToWarehouse")
+        # The editor accepts truthy values on older or hand-authored documents.
+        save_enabled = save is True or (for_edit_authorization and save is not None and save is not False)
+        if not (cell_type == "python" and save_enabled and isinstance(warehouse_table_name, str)):
             warehouse_table_name = None
         cells.append(
             NotebookCellState(

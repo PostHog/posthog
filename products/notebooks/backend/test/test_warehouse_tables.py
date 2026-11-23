@@ -3,8 +3,9 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.models.activity_logging.utils import ActivityCredential
 from posthog.models.scoping import team_scope
-from posthog.notebook_warehouse_tables import NotebookTableError, get_notebook_table_writer
+from posthog.notebook_warehouse_tables import NotebookTableAttribution, NotebookTableError, get_notebook_table_writer
 
 from products.notebooks.backend.models import Notebook, NotebookNodeRun
 from products.notebooks.backend.warehouse_tables import finish_warehouse_table_save
@@ -33,6 +34,10 @@ class TestFinishWarehouseTableSave(BaseTest):
                 node_id="cell-1",
                 status=NotebookNodeRun.Status.DONE,
                 warehouse_table_name="scores",
+                warehouse_table_attribution={
+                    "created_via": "api",
+                    "credential": {"type": "personal_api_key", "id": "15"},
+                },
                 envelope={"status": "ok", "warehouse_table": {"name": "scores", "error": None, "pending": True}},
             )
         with (
@@ -46,9 +51,17 @@ class TestFinishWarehouseTableSave(BaseTest):
         ):
             finish_warehouse_table_save(self.team.id, str(run.id))
 
-        save.assert_called_once_with(self.team.id, "scores", self.user.id, str(run.id))
+        save.assert_called_once_with(
+            self.team.id,
+            "scores",
+            self.user.id,
+            str(run.id),
+            NotebookTableAttribution(
+                created_via="api", credential=ActivityCredential(type="personal_api_key", id="15")
+            ),
+        )
         run = NotebookNodeRun.objects.for_team(self.team.id).get(id=run.id)
         self.assertEqual(run.envelope, {"status": "ok", "warehouse_table": expected})
         self.assertEqual(sync_to_dag.called, synced)
         if synced:
-            sync_to_dag.assert_called_once_with(self.team.id, "scores", "table-id", [], "nbwh01", "cell-1")
+            sync_to_dag.assert_called_once_with(self.team.id, "scores", "table-id", [], "nbwh01", "cell-1", str(run.id))
