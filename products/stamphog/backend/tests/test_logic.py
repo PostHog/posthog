@@ -47,7 +47,7 @@ from products.stamphog.backend.logic.github_client import (
     _build_app_jwt,
 )
 from products.stamphog.backend.logic.refusal_summary import build_summary_prompt, summarize_refusal
-from products.stamphog.backend.logic.rerun_evidence import stored_evidence_fingerprint
+from products.stamphog.backend.logic.rerun_evidence import evidence_fingerprint
 from products.stamphog.backend.logic.review_trigger import derive_review_trigger, trigger_for_run
 from products.stamphog.backend.logic.reviewer import build_reviewer_invocation, parse_reviewer_output
 from products.stamphog.backend.logic.slack_digest import (
@@ -1987,13 +1987,18 @@ class TestEvidenceFingerprint(SimpleTestCase):
     def test_only_what_people_change_moves_the_fingerprint(
         self, _name: str, change: Callable[[dict], None], expect_same: bool
     ) -> None:
-        context = _evidence_context()
-        before = stored_evidence_fingerprint(context)
-        change(context)
-        assert (before == stored_evidence_fingerprint(context)) is expect_same
+        def fingerprint(context: dict) -> str:
+            return evidence_fingerprint(
+                context["pr"],
+                reviews=context["reviews"],
+                discussion=context["discussion"],
+                review_threads=context["review_threads"],
+            )
 
-    def test_a_run_without_a_stored_pr_has_no_fingerprint(self) -> None:
-        assert stored_evidence_fingerprint({"reviews": []}) is None
+        context = _evidence_context()
+        before = fingerprint(context)
+        change(context)
+        assert (before == fingerprint(context)) is expect_same
 
 
 class EngineAttestationProofParsingTests(SimpleTestCase):

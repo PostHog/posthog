@@ -1010,6 +1010,14 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             {"user": user, "author_association": association, "body": body}
         )
 
+    def _answer_but_fail_the_thread_read(self) -> None:
+        self._comment("The flag is checked upstream.")
+        patcher = patch(
+            f"{_CLIENT}.get_pr_review_threads", side_effect=StamphogGitHubError("GraphQL errors", status_code=502)
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     @parameterized.expand(
         [
             ("nothing_changed", ReviewVerdict.REFUSED, lambda t: None, False),
@@ -1021,6 +1029,7 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             ),
             ("author_answered", ReviewVerdict.REFUSED, lambda t: t._comment("The flag is checked upstream."), True),
             ("escalation_answered", ReviewVerdict.ESCALATE, lambda t: t._comment("Owner signed off."), True),
+            ("evidence_unreadable", ReviewVerdict.REFUSED, lambda t: t._answer_but_fail_the_thread_read(), False),
             ("approval_stands", ReviewVerdict.APPROVED, lambda t: t._comment("Thanks."), False),
             ("wait_stands", ReviewVerdict.WAIT, lambda t: t._comment("Thanks."), False),
         ]
@@ -1046,10 +1055,12 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         run_id = self._request().json()["run"]["id"]
         self._finish_as(run_id, ReviewVerdict.REFUSED)
 
-        def answer(text: str) -> dict:
+        def answer(text: str, *, fails: bool = False) -> dict:
             self._comment(text)
             body = self._request().json()
-            if body["created"]:
+            if body["created"] and fails:
+                ReviewRun.objects.unscoped().filter(id=body["run"]["id"]).update(status=ReviewRunStatus.FAILED)
+            elif body["created"]:
                 self._finish_as(body["run"]["id"], ReviewVerdict.REFUSED)
             return body
 
@@ -1058,15 +1069,15 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         second = answer("Second answer.")
         assert second["created"] is True
 
-        # Taking the second answer back restores evidence that a review already saw.
         self.github.issue_comments[("PostHog/posthog", 5)] = after_first
         body = self._request().json()
         assert (body["created"], body["run"]["id"]) == (False, second["run"]["id"])
 
-        third = answer("Third answer.")
+        # A re-run that failed reviewed nothing, so it leaves the third slot free.
+        assert answer("Third answer.", fails=True)["created"] is True
+        third = answer("Fourth answer.")
         assert third["created"] is True
-        # New evidence past the cap re-runs nothing.
-        body = answer("Fourth answer.")
+        body = answer("Fifth answer.")
         assert (body["created"], body["run"]["id"]) == (False, third["run"]["id"])
 
     @parameterized.expand(
