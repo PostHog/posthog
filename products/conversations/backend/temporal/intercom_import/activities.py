@@ -64,6 +64,10 @@ logger = structlog.get_logger(__name__)
 # download and store. Attachments past the budget are skipped, not failed.
 MAX_ATTACHMENT_BYTES_PER_CONVERSATION = 200 * 1024 * 1024
 
+# Every contact beyond the source author costs one Intercom API call, so cap how many one
+# conversation can make the import look up. Contacts past the cap are not copied on replies.
+MAX_CONTACTS_PER_CONVERSATION = 10
+
 
 @frozen
 class EnumerateConversationsInput:
@@ -120,10 +124,16 @@ class _ConversationPartition:
 
 
 @frozen
-class _Requester:
+class _Contact:
     name: str
     email: str
     contact_id: str
+
+
+@frozen
+class _Participants:
+    requester: _Contact
+    cc: list[str]
 
 
 class _AttachmentBudget:
@@ -207,26 +217,64 @@ def _backfill_missing_email_channel(team_id: int, existing_ids: set[str], defaul
         logger.info("intercom_import_backfilled_email_channel", team_id=team_id, backfilled=backfilled)
 
 
-def _resolve_requester(client: IntercomImportClient, conversation: dict[str, Any]) -> _Requester:
-    # Contact-initiated conversations carry the contact's name/email on the source author.
-    # Outbound (admin-initiated) ones don't, so look up the first attached contact instead.
-    author = (conversation.get("source") or {}).get("author") or {}
-    if author.get("type") in CUSTOMER_AUTHOR_TYPES:
-        return _Requester(
-            name=_clean(author.get("name")), email=_clean(author.get("email")), contact_id=_clean(author.get("id"))
-        )
-    contacts = (conversation.get("contacts") or {}).get("contacts") or []
-    contact_id = _clean(contacts[0].get("id")) if contacts else ""
-    if not contact_id:
-        return _Requester(name="", email="", contact_id="")
+def _fetch_contact(client: IntercomImportClient, contact_id: str) -> _Contact:
     try:
         contact = client.fetch_contact(contact_id)
     except IntercomNotFoundError:
         # A deleted contact shouldn't drop the whole conversation, so import it without an email.
         # Any other failure propagates so Temporal retries rather than saving a ticket with no email.
         logger.warning("intercom_import_contact_not_found", contact_id=contact_id)
-        return _Requester(name="", email="", contact_id=contact_id)
-    return _Requester(name=_clean(contact.get("name")), email=_clean(contact.get("email")), contact_id=contact_id)
+        return _Contact(name="", email="", contact_id=contact_id)
+    return _Contact(name=_clean(contact.get("name")), email=_clean(contact.get("email")), contact_id=contact_id)
+
+
+def _conversation_contacts(client: IntercomImportClient, conversation: dict[str, Any]) -> list[_Contact]:
+    """Return the conversation's contacts, with the contact who wrote the first message first.
+
+    Contact-initiated conversations carry the contact's name and email on the source author. The
+    contacts list holds only ids, so every other contact is looked up.
+    """
+    contacts: list[_Contact] = []
+    author = (conversation.get("source") or {}).get("author") or {}
+    if author.get("type") in CUSTOMER_AUTHOR_TYPES:
+        contacts.append(
+            _Contact(
+                name=_clean(author.get("name")), email=_clean(author.get("email")), contact_id=_clean(author.get("id"))
+            )
+        )
+    seen_ids = {contact.contact_id for contact in contacts}
+    attached = (conversation.get("contacts") or {}).get("contacts") or []
+    for entry in attached[:MAX_CONTACTS_PER_CONVERSATION]:
+        contact_id = _clean(entry.get("id"))
+        if not contact_id or contact_id in seen_ids:
+            continue
+        seen_ids.add(contact_id)
+        contacts.append(_fetch_contact(client, contact_id))
+    return contacts
+
+
+def _pick_participants(contacts: list[_Contact], own_addresses: frozenset[str]) -> _Participants:
+    """Choose who the ticket belongs to and who else is copied on replies.
+
+    Mail that a form or a mailing list relays arrives from one of the team's own addresses, and
+    Intercom attaches the real sender as another contact. The first contact is therefore the
+    requester unless its address is the team's own and another contact has an outside address.
+    """
+
+    def is_outside(contact: _Contact) -> bool:
+        return "@" in contact.email and contact.email.lower() not in own_addresses
+
+    if not contacts:
+        return _Participants(requester=_Contact(name="", email="", contact_id=""), cc=[])
+    requester = contacts[0]
+    if requester.email.lower() in own_addresses:
+        requester = next((contact for contact in contacts if is_outside(contact)), requester)
+    cc = dict.fromkeys(
+        contact.email.lower()
+        for contact in contacts
+        if is_outside(contact) and contact.email.lower() != requester.email.lower()
+    )
+    return _Participants(requester=requester, cc=list(cc))
 
 
 def _process_attachments(
@@ -369,10 +417,12 @@ def _build_ticket(
     team: Team,
     conversation: dict[str, Any],
     default_email_channel: EmailChannel | None,
+    own_addresses: frozenset[str],
     staged: list[dict[str, Any]],
 ) -> BuiltTicket:
     conversation_id = str(conversation["id"])
-    requester = _resolve_requester(client, conversation)
+    participants = _pick_participants(_conversation_contacts(client, conversation), own_addresses)
+    requester = participants.requester
     requester_email = requester.email if "@" in requester.email else ""
     # Intercom leads type their own email unverified, so the email must never become the widget
     # access identity: the widget grants a ticket to any viewer whose distinct_ids contain the
@@ -399,6 +449,7 @@ def _build_ticket(
         priority=map_intercom_priority(conversation.get("priority")),
         email_subject=subject[:500] or None,
         email_from=requester_email or None,
+        cc_participants=participants.cc,
         identity_verified=False,
         email_config=default_email_channel,
         anonymous_traits=anonymous_traits,
@@ -430,6 +481,7 @@ def _fetch_and_build_tickets(
     team: Team,
     conversation_ids: list[str],
     default_email_channel: EmailChannel | None,
+    own_addresses: frozenset[str],
     staged: list[dict[str, Any]],
 ) -> tuple[list[BuiltTicket], int]:
     """Fetch each conversation and build its ticket straight away, outside the transaction.
@@ -443,7 +495,7 @@ def _fetch_and_build_tickets(
         staged_before = len(staged)
         try:
             conversation = client.fetch_conversation(conversation_id)
-            built.append(_build_ticket(client, team, conversation, default_email_channel, staged))
+            built.append(_build_ticket(client, team, conversation, default_email_channel, own_addresses, staged))
         except Exception as exc:
             # Rate limits, timeouts, 5xx and storage failures retry the whole batch through
             # Temporal. Nothing from this attempt is persisted yet, so the retry rebuilds it.
@@ -465,7 +517,8 @@ def _import_conversation_batch_sync(input: ImportBatchInput) -> ImportBatchOutpu
     job = IntercomImportJob.objects.for_team(input.team_id).get(id=input.job_id)
     team = Team.objects.get(id=input.team_id)
     client = IntercomImportClient(_credentials_from_job(job))
-    _, default_email_channel = resolve_email_channels(team.id, input.default_email_channel_id)
+    email_channels, default_email_channel = resolve_email_channels(team.id, input.default_email_channel_id)
+    own_addresses = frozenset(address for address in email_channels if address)
 
     partition = _partition_new_conversations(input.team_id, input.conversation_ids)
     skipped = partition.skipped
@@ -478,7 +531,9 @@ def _import_conversation_batch_sync(input: ImportBatchInput) -> ImportBatchOutpu
 
     staged: list[dict[str, Any]] = []
     try:
-        built, failed = _fetch_and_build_tickets(client, team, partition.to_import, default_email_channel, staged)
+        built, failed = _fetch_and_build_tickets(
+            client, team, partition.to_import, default_email_channel, own_addresses, staged
+        )
         if not built:
             return ImportBatchOutput(imported=0, skipped=skipped, failed=failed)
         imported = persist_ticket_batch(team, built, resolve_tags(team.id, built))
