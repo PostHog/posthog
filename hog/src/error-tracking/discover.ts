@@ -7,7 +7,6 @@ import { HogError } from '@/core/errors'
 
 import { HERMES_BUNDLE_EXTENSIONS } from './kinds/hermes'
 import { hasBundleName, JS_EXTENSIONS } from './kinds/js'
-import { nativeFormat } from './native/package'
 import { commandWorker, type Detected } from './worker'
 
 export interface Root {
@@ -68,12 +67,12 @@ const DETECTORS: readonly Detector[] = [
         // can't send, such as files without debug info, as posthog-cli does.
         kind: 'elf',
         extensions: null,
-        matches: (path) => nativeFormat(path) === 'elf',
+        matches: (path, answers) => answers.elf.has(path),
     },
     {
         kind: 'dsym',
         extensions: null,
-        matches: (path) => nativeFormat(path) === 'macho',
+        matches: (path, answers) => answers.macho.has(path),
     },
 ]
 
@@ -194,6 +193,7 @@ export async function discover(
                     (wants('hermes') && hasBundleName(path, HERMES_BUNDLE_EXTENSIONS)),
                 map: wants('hermes') && (isFile || path.endsWith(MAP_EXTENSION)),
                 mapping: wants('proguard') && (isFile || path.endsWith(MAPPING_EXTENSION)),
+                native: wants('elf') || wants('dsym'),
             }))
         }),
         options.publicPathPrefix

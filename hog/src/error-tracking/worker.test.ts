@@ -15,7 +15,10 @@ function program(script: string): string {
 }
 
 const detect = (path: string): Promise<unknown> =>
-    new Worker(path).detect([{ path: '/build/a.js', bundle: true, map: false, mapping: false }], undefined)
+    new Worker(path).detect(
+        [{ path: '/build/a.js', bundle: true, map: false, mapping: false, native: false }],
+        undefined
+    )
 
 describe('starting hog-worker', () => {
     test.each([
