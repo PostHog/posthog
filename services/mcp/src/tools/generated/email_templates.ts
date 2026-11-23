@@ -362,6 +362,7 @@ const workflowsSendEmailExecute = (): ToolBase<typeof WorkflowsSendEmailSchemaEx
 const WorkflowsSendEmailTemplateSchema = () => {
     const MessagingSendEmailCreateBody = orvalSchemas.MessagingSendEmailCreateBody()
     return MessagingSendEmailCreateBody.omit({
+        category: true,
         template_key: true,
         subject: true,
         html: true,
