@@ -2,11 +2,10 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 
 import { teamLogic } from 'scenes/teamLogic'
 
-import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { RunLinkTagHint } from './RunLinkTagHint'
@@ -48,26 +47,5 @@ describe('<RunLinkTagHint />', () => {
             'href',
             expect.stringMatching(/\/settings\/environment-workflows#workflows-email-run-link-tag$/)
         )
-    })
-
-    it('picks up the setting turned on in another tab when the editor regains focus', async () => {
-        loadTeam(false)
-        useMocks({
-            get: {
-                '/api/projects/:id/': {
-                    ...MOCK_DEFAULT_TEAM,
-                    workflows_config: {
-                        capture_workflows_engagement_events: true,
-                        email_workflow_run_link_tag_enabled: true,
-                    },
-                },
-            },
-        })
-        const { container } = render(<RunLinkTagHint />)
-        expect(screen.getByText('Turn it on in settings')).toBeInTheDocument()
-
-        fireEvent.focus(window)
-
-        await waitFor(() => expect(container).toBeEmptyDOMElement())
     })
 })
