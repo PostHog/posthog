@@ -31,10 +31,9 @@ from concurrent.futures import (
     TimeoutError as FutureTimeoutError,
 )
 from contextlib import contextmanager
-from typing import ClassVar, TypeVar
+from typing import TYPE_CHECKING, ClassVar, TypeVar
 from uuid import uuid4
 
-import duckdb
 import pyarrow as pa
 
 from posthog.integrations import IntegrationKind, IntegrationManager, IntegrationNotFound
@@ -72,11 +71,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.motherduck
     connect as connect_motherduck,
 )
 
-T = TypeVar("T")
+# duckdb starts one thread per CPU when it loads, and web processes import this module at boot,
+# so the functions that use duckdb import it themselves.
+if TYPE_CHECKING:
+    import duckdb
 
-# Opens a connection whose current database is the destination's. Tests pass one that opens a
-# local DuckDB file.
-MotherDuckConnector = Callable[[], duckdb.DuckDBPyConnection]
+    # Opens a connection whose current database is the destination's. Tests pass one that opens a
+    # local DuckDB file.
+    MotherDuckConnector = Callable[[], duckdb.DuckDBPyConnection]
+
+T = TypeVar("T")
 
 DEFAULT_SCHEMA = "main"
 
@@ -217,6 +221,8 @@ _PROBE_SLOTS = threading.BoundedSemaphore(MAX_CONCURRENT_PROBES)
 
 
 def _interrupt(connections: list[duckdb.DuckDBPyConnection]) -> None:
+    import duckdb  # noqa: PLC0415
+
     for connection in connections:
         try:
             connection.interrupt()

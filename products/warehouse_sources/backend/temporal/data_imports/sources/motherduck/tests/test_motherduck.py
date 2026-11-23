@@ -32,8 +32,7 @@ _INTERNAL_SERVER_ERROR = (
     "and referencing error ID: deadbeef."
 )
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.motherduck.motherduck"
-_CONNECT_PATH = f"{_MODULE}.duckdb.connect"
+_CONNECT_PATH = "duckdb.connect"
 
 
 def _make_config(**overrides) -> MotherduckSourceConfig:

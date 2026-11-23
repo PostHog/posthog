@@ -232,10 +232,10 @@ class TestInitializeDucklake:
     @patch("products.managed_warehouse.backend.common.reset_ducklake_catalog")
     @patch("products.managed_warehouse.backend.common.run_smoke_check")
     @patch("products.managed_warehouse.backend.common.ensure_ducklake_catalog")
-    @patch("products.managed_warehouse.backend.common.duckdb")
+    @patch("duckdb.connect")
     def test_auto_resets_on_version_mismatch_dev_mode(
         self,
-        mock_duckdb: MagicMock,
+        mock_connect: MagicMock,
         mock_ensure: MagicMock,
         mock_smoke: MagicMock,
         mock_reset: MagicMock,
@@ -243,10 +243,7 @@ class TestInitializeDucklake:
     ):
         mock_conn = MagicMock()
         fresh_conn = MagicMock()
-        mock_duckdb.connect.side_effect = [mock_conn, fresh_conn]
-        mock_duckdb.NotImplementedException = duckdb.NotImplementedException
-        mock_duckdb.InvalidInputException = duckdb.InvalidInputException
-        mock_duckdb.CatalogException = duckdb.CatalogException
+        mock_connect.side_effect = [mock_conn, fresh_conn]
 
         version_exc = duckdb.NotImplementedException("Only DuckLake versions 0.1, 0.2, 0.3-dev1 and 0.3 are supported")
 
@@ -263,18 +260,15 @@ class TestInitializeDucklake:
 
     @patch("products.managed_warehouse.backend.common.is_dev_mode", return_value=False)
     @patch("products.managed_warehouse.backend.common.ensure_ducklake_catalog")
-    @patch("products.managed_warehouse.backend.common.duckdb")
+    @patch("duckdb.connect")
     def test_raises_in_production_mode(
         self,
-        mock_duckdb: MagicMock,
+        mock_connect: MagicMock,
         mock_ensure: MagicMock,
         _mock_dev: MagicMock,
     ):
         mock_conn = MagicMock()
-        mock_duckdb.connect.return_value = mock_conn
-        mock_duckdb.NotImplementedException = duckdb.NotImplementedException
-        mock_duckdb.InvalidInputException = duckdb.InvalidInputException
-        mock_duckdb.CatalogException = duckdb.CatalogException
+        mock_connect.return_value = mock_conn
 
         version_exc = duckdb.NotImplementedException(
             "DuckLake catalog version mismatch: catalog version is 0.3, but the extension requires version 0.4"
@@ -286,18 +280,15 @@ class TestInitializeDucklake:
 
     @patch("products.managed_warehouse.backend.common.is_dev_mode", return_value=True)
     @patch("products.managed_warehouse.backend.common.ensure_ducklake_catalog")
-    @patch("products.managed_warehouse.backend.common.duckdb")
+    @patch("duckdb.connect")
     def test_raises_for_non_version_error_dev_mode(
         self,
-        mock_duckdb: MagicMock,
+        mock_connect: MagicMock,
         mock_ensure: MagicMock,
         _mock_dev: MagicMock,
     ):
         mock_conn = MagicMock()
-        mock_duckdb.connect.return_value = mock_conn
-        mock_duckdb.NotImplementedException = duckdb.NotImplementedException
-        mock_duckdb.InvalidInputException = duckdb.InvalidInputException
-        mock_duckdb.CatalogException = duckdb.CatalogException
+        mock_connect.return_value = mock_conn
 
         unrelated_exc = duckdb.NotImplementedException("COPY FROM is not supported")
 
@@ -310,10 +301,10 @@ class TestInitializeDucklake:
     @patch("products.managed_warehouse.backend.common.reset_ducklake_catalog")
     @patch("products.managed_warehouse.backend.common.run_smoke_check")
     @patch("products.managed_warehouse.backend.common.ensure_ducklake_catalog")
-    @patch("products.managed_warehouse.backend.common.duckdb")
+    @patch("duckdb.connect")
     def test_auto_resets_on_invalid_input_exception(
         self,
-        mock_duckdb: MagicMock,
+        mock_connect: MagicMock,
         mock_ensure: MagicMock,
         mock_smoke: MagicMock,
         mock_reset: MagicMock,
@@ -321,10 +312,7 @@ class TestInitializeDucklake:
     ):
         mock_conn = MagicMock()
         fresh_conn = MagicMock()
-        mock_duckdb.connect.side_effect = [mock_conn, fresh_conn]
-        mock_duckdb.NotImplementedException = duckdb.NotImplementedException
-        mock_duckdb.InvalidInputException = duckdb.InvalidInputException
-        mock_duckdb.CatalogException = duckdb.CatalogException
+        mock_connect.side_effect = [mock_conn, fresh_conn]
 
         version_exc = duckdb.InvalidInputException(
             "DuckLake catalog version mismatch: catalog version is 0.3, but the extension requires version 0.4"

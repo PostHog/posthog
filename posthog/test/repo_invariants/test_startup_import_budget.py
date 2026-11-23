@@ -507,6 +507,34 @@ print("WSGI_PREBUILD_OK")
     assert "WSGI_PREBUILD_OK" in result.stdout, result.stdout[-500:]
 
 
+# The web entry also builds the URLconf, so it imports more than a bare django.setup() does.
+# Each library here starts threads when it loads. bin/granian_preload.py forks the web workers
+# only from a parent without such threads, so the web entry must leave these libraries to the
+# code that uses them.
+FORBIDDEN_AT_WEB_ENTRYPOINT = [
+    "duckdb",  # one thread per CPU — the warehouse and DuckLake modules import it in their functions
+]
+
+
+def test_web_entrypoint_does_not_import_thread_starting_libraries() -> None:
+    probe = """
+import os
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+import posthog.asgi  # noqa: F401
+import sys
+print("\\n".join(sorted(sys.modules)))
+"""
+    result = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, timeout=180)
+    assert result.returncode == 0, f"posthog.asgi import failed:\n{result.stderr[-2000:]}"
+    loaded = set(result.stdout.splitlines())
+
+    offenders = [mod for mod in FORBIDDEN_AT_WEB_ENTRYPOINT if mod in loaded]
+    assert not offenders, (
+        f"The web entry imported {offenders}, which start threads when they load. "
+        "Import the library inside the function that uses it."
+    )
+
+
 # A web worker finalizes Celery on its first `.delay()`. A first-party import during that finalize can
 # deadlock with a thread lazily importing a task module, which hangs that worker for good.
 _WEB_FINALIZE_IMPORTS_PROBE = """

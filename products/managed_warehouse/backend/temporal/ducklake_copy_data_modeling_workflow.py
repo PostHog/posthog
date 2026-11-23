@@ -1,8 +1,8 @@
 import json
 import datetime as dt
 import dataclasses
+from typing import TYPE_CHECKING
 
-import duckdb
 import deltalake
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
@@ -50,6 +50,11 @@ from products.managed_warehouse.backend.temporal.metrics import (
     get_ducklake_copy_data_modeling_verification_metric,
 )
 from products.managed_warehouse.backend.temporal.types import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
+
+# duckdb starts one thread per CPU when it loads, and web processes import this module at boot,
+# so the functions that use duckdb import it themselves.
+if TYPE_CHECKING:
+    import duckdb
 
 LOGGER = get_logger(__name__)
 DATA_MODELING_DUCKLAKE_WORKFLOW_PREFIX = "data_modeling"
@@ -195,6 +200,9 @@ async def prepare_data_modeling_ducklake_metadata_activity(
 @activity.defn
 def copy_data_modeling_model_to_ducklake_activity(inputs: DuckLakeCopyActivityInputs) -> None:
     """Ingest a single model's Delta snapshot into DuckLake using native SQL."""
+
+    import duckdb  # noqa: PLC0415
+
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind(model_label=inputs.model.model_label, job_id=inputs.job_id)
 
@@ -231,6 +239,9 @@ def copy_data_modeling_model_to_ducklake_activity(inputs: DuckLakeCopyActivityIn
 @activity.defn
 def verify_ducklake_copy_activity(inputs: DuckLakeCopyActivityInputs) -> list[DuckLakeCopyVerificationResult]:
     """Run configured DuckDB verification queries to ensure the copy matches the source."""
+
+    import duckdb  # noqa: PLC0415
+
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind(model_label=inputs.model.model_label, job_id=inputs.job_id)
 
@@ -566,6 +577,9 @@ def cleanup_data_modeling_staging_activity(inputs: DuckLakeDataModelingStagingCl
 
 def _attach_ducklake_catalog(conn: duckdb.DuckDBPyConnection, config: dict[str, str], alias: str) -> None:
     """Attach the DuckLake catalog, swallowing the error if already attached."""
+
+    import duckdb  # noqa: PLC0415
+
     try:
         attach_catalog(conn, config, alias=alias)
     except duckdb.CatalogException as exc:
