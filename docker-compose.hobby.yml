@@ -379,13 +379,22 @@ services:
             PERSONHOG_ADDR: 'personhog-router:50052'
             PERSONHOG_ENABLED: 'true'
         depends_on:
-            - db
-            - redis7
-            - clickhouse
-            - kafka
+            db:
+                condition: service_started
+            redis7:
+                condition: service_started
+            clickhouse:
+                condition: service_started
+            kafka:
+                condition: service_started
             # The combined AI consumer's blob store healthchecks the ai-blobs bucket at startup
-            - objectstorage
-            - personhog-router
+            objectstorage:
+                condition: service_started
+            personhog-router:
+                condition: service_started
+            # This service reads Django's tables at startup and exits when one is missing.
+            personhog-tables-ready:
+                condition: service_completed_successfully
 
     ingestion-sessionreplay:
         extends:
@@ -451,10 +460,17 @@ services:
             PERSONHOG_ADDR: 'personhog-router:50052'
             PERSONHOG_ENABLED: 'true'
         depends_on:
-            - db
-            - redis7
-            - kafka
-            - personhog-router
+            db:
+                condition: service_started
+            redis7:
+                condition: service_started
+            kafka:
+                condition: service_started
+            personhog-router:
+                condition: service_started
+            # This service reads Django's tables at startup and exits when one is missing.
+            personhog-tables-ready:
+                condition: service_completed_successfully
 
     ingestion-logs:
         extends:
@@ -967,6 +983,8 @@ services:
     # Waits until web's persons migrations create the tables that personhog-leader and
     # personhog-identity read at boot. Both exit when the tables are missing, and web runs
     # migrations in its own entrypoint, so they cannot depend on a migration step directly.
+    # The persons migrations run after Django's, so the Node ingestion services that read
+    # Django's tables at startup wait on this too.
     personhog-tables-ready:
         image: ${DOCKER_REGISTRY_PREFIX:-}postgres:15.12-alpine
         restart: 'no'
