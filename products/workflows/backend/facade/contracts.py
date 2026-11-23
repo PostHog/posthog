@@ -334,6 +334,51 @@ class ProviderContactsResult:
     notes: tuple[str, ...] = ()
     # How the people the contacts matched spell their email in PostHog, which can differ from the provider's.
     person_emails: tuple[str, ...] = ()
+    # Where the people wait to be sent, in `chunks` parts, for `import_contact_chunk` and `fill_contacts_cohort`.
+    storage_prefix: str = ""
+    chunks: int = 0
+
+
+class ContactsCaptureFailed(Exception):
+    """Capture didn't acknowledge every event of a part. Sending the part again is safe."""
+
+    def __init__(self, message: str, *, acknowledged: int = 0, new_people: int = 0) -> None:
+        super().__init__(message)
+        # The part's people whose events capture did take, and how many of them are new.
+        self.acknowledged = acknowledged
+        self.new_people = new_people
+
+
+class ContactsImportAccessLost(Exception):
+    """The person who started the import can't edit persons in the project anymore. Another try finds the same."""
+
+
+class ContactsCohortGone(Exception):
+    """The cohort a list fills was deleted or isn't static anymore. Another try finds the same."""
+
+
+class ContactsCleanupFailed(Exception):
+    """Object storage kept some of the parts an import stored."""
+
+
+@frozen
+class ContactChunkOutcome:
+    """What sending one stored part of a provider list did."""
+
+    people: int
+    # Of them, the people PostHog had once ingestion caught up.
+    found: int
+    # Of them, the people PostHog didn't have when the list was stored.
+    new_people: int = 0
+
+
+@frozen
+class ContactsCohortFilled:
+    """How a provider list's cohort changed once every part was in."""
+
+    members: int
+    # Members not on the list anymore, such as contacts who left it or unsubscribed.
+    removed: int
 
 
 @frozen
@@ -382,6 +427,16 @@ class EmailSendingSuspensionChange:
     changed_at: datetime | None
     previously_suspended_at: datetime | None = None
     notification_failed: bool = False
+
+
+@frozen
+class EmailInfrastructureHealth:
+    """How the email every project in this region sends through PostHog fared, rounded for display."""
+
+    emails_sent_at_least: int
+    delivery_rate: float
+    bounce_rate: float
+    complaint_rate: float
 
 
 @frozen

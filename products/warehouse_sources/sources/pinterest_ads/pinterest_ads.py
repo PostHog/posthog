@@ -6,6 +6,7 @@ import requests
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.sources.pinterest_ads.settings import (
+    AD_ACCOUNT_TIME_ZONE,
     ANALYTICS_COLUMNS,
     ANALYTICS_ENDPOINT_PATHS,
     ANALYTICS_ID_PARAM_NAMES,
@@ -62,6 +63,7 @@ def pinterest_ads_source(
     source_logger: FilteringBoundLogger,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
+    reporting_timezone: str | None = None,
 ) -> SourceResponse:
     if endpoint not in PINTEREST_ADS_CONFIG:
         raise ValueError(f"Unknown Pinterest Ads endpoint: {endpoint}")
@@ -82,6 +84,7 @@ def pinterest_ads_source(
             source_logger,
             should_use_incremental_field,
             db_incremental_field_last_value,
+            reporting_timezone,
         )
 
     def targeting_analytics_items() -> Iterator[list[dict[str, Any]]]:
@@ -94,6 +97,7 @@ def pinterest_ads_source(
             source_logger,
             should_use_incremental_field,
             db_incremental_field_last_value,
+            reporting_timezone,
         )
 
     items_fn: Callable[[], Iterator[list[dict[str, Any]]]]
@@ -211,6 +215,13 @@ def _parse_targeting_analytics_rows(data: Any) -> list[dict[str, Any]] | None:
     return rows
 
 
+def _reporting_timezone_params(reporting_timezone: str | None) -> dict[str, str]:
+    # Pinterest reports days in UTC (PINTEREST_TIME_ZONE) when the parameter is absent, so only the opt-in value is sent.
+    if reporting_timezone == AD_ACCOUNT_TIME_ZONE:
+        return {"reporting_timezone": AD_ACCOUNT_TIME_ZONE}
+    return {}
+
+
 def _iter_analytics_rows(
     session: requests.Session,
     ad_account_id: str,
@@ -219,6 +230,7 @@ def _iter_analytics_rows(
     source_logger: FilteringBoundLogger,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Optional[Any],
+    reporting_timezone: str | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     path = ANALYTICS_ENDPOINT_PATHS[endpoint].format(ad_account_id=ad_account_id)
     yield from _iter_fanned_out_analytics(
@@ -231,7 +243,11 @@ def _iter_analytics_rows(
         db_incremental_field_last_value,
         resume_kind=ANALYTICS_RESUME_KIND,
         url=f"{BASE_URL}{path}",
-        extra_params={"columns": ",".join(ANALYTICS_COLUMNS), "granularity": "DAY"},
+        extra_params={
+            "columns": ",".join(ANALYTICS_COLUMNS),
+            "granularity": "DAY",
+            **_reporting_timezone_params(reporting_timezone),
+        },
         parse_rows=_parse_analytics_rows,
     )
 
@@ -244,6 +260,7 @@ def _iter_targeting_analytics_rows(
     source_logger: FilteringBoundLogger,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Optional[Any],
+    reporting_timezone: str | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     path = TARGETING_ANALYTICS_ENDPOINT_PATHS[endpoint].format(ad_account_id=ad_account_id)
     id_column = TARGETING_ANALYTICS_ID_COLUMNS[endpoint]
@@ -261,6 +278,7 @@ def _iter_targeting_analytics_rows(
             "columns": ",".join([id_column, *ANALYTICS_COLUMNS]),
             "granularity": "DAY",
             "targeting_types": ",".join(TARGETING_TYPES),
+            **_reporting_timezone_params(reporting_timezone),
         },
         parse_rows=_parse_targeting_analytics_rows,
     )

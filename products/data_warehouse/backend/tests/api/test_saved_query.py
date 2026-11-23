@@ -1574,7 +1574,10 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 200, response.json())
         bounds = response.json()["sync_frequency_bounds"]
         self.assertEqual(response.json()["sync_frequency"], "15min")
-        self.assertEqual(bounds["plan_floor"], {"label": expected_label, "blocker": None} if expected_label else None)
+        self.assertEqual(
+            bounds["plan_floor"],
+            {"label": expected_label, "blocker": None, "pinned": False} if expected_label else None,
+        )
 
     def test_a_withheld_cadence_names_the_view_that_withholds_it(self):
         # A disabled option with no reason reads as a broken control. Every block carries the
@@ -1587,7 +1590,9 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(sorted(blocked), ["12hour", "24hour", "30day", "7day"])
         self.assertEqual(blocked["24hour"]["blocked_by"], "consumer")
         self.assertEqual(blocked["24hour"]["blocker"]["name"], "consumer_view")
-        self.assertEqual(bounds["ceiling"], {"label": "6 hours", "blocker": blocked["24hour"]["blocker"]})
+        self.assertEqual(
+            bounds["ceiling"], {"label": "6 hours", "blocker": blocked["24hour"]["blocker"], "pinned": False}
+        )
         self.assertIsNone(bounds["floor"])
 
     def test_the_refusal_names_the_same_view_the_bounds_blamed(self):

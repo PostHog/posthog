@@ -5079,6 +5079,7 @@ export namespace Schemas {
         leftYAxisSettings: YAxisSettings | null;
         legendPosition: LegendPosition | null;
         metric: MetricChartSettings | null;
+        movingAverageIntervals: number | null;
         pie: PieChartSettings | null;
         resultCustomizations: Record<string, ResultCustomizationByValue> | null;
         rightYAxisSettings: YAxisSettings | null;
@@ -5086,6 +5087,7 @@ export namespace Schemas {
         seriesBreakdownColumn: string | null;
         showAnnotations: boolean | null;
         showLegend: boolean | null;
+        showMovingAverage: boolean | null;
         showNullsAsZero: boolean | null;
         showPieTotal: boolean | null;
         showTotalRow: boolean | null;
@@ -15310,6 +15312,17 @@ export namespace Schemas {
         message: string;
         action?: (OrganizationMemberNoticeAction | null) | undefined;
     };
+    export type OrganizationExternalProjectLink = {
+        id: string;
+        /**
+         * Name shown for the project in the project switcher.
+         */
+        name: string;
+        /**
+         * Full URL of the project on the other PostHog instance.
+         */
+        url: string;
+    };
     export type Organization = {
         id: string;
         /**
@@ -15346,6 +15359,10 @@ export namespace Schemas {
         member_notice?: (OrganizationMemberNotice | null) | undefined;
         member_count: number;
         is_ai_data_processing_approved?: (boolean | null) | undefined;
+        /**
+         * When True, AI data processing cannot be turned on through the UI or API, and members cannot ask admins to turn it on. Set at the organization's request.
+         */
+        is_ai_data_processing_locked: boolean | null;
         is_ai_training_opted_in?: (boolean | null) | undefined;
         /**
          * When True, the AI training opt-out setting cannot be modified through the UI or API.
@@ -15383,6 +15400,10 @@ export namespace Schemas {
          * A warning when the current request's IP address is not in the saved allowlist.
          */
         ip_restrictions_warning: string | null;
+        /**
+         * Projects on other PostHog instances, such as another cloud region, shown in the project switcher. Set by PostHog staff.
+         */
+        external_project_links: Array<OrganizationExternalProjectLink>;
     };
     /**
      * Serializer for `Organization` model with minimal attributes to speeed up loading and transfer times.

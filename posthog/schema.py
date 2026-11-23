@@ -9680,7 +9680,7 @@ class WebPageDirectorySiteTotals(BaseModel):
     bounceRate: float | None = None
     conversions: WebPageDirectoryValue | None = None
     googleSearch: WebPageDirectoryValue | None = None
-    serverLogs: int
+    serverLogs: int | None = None
     timeOnPageP90: float | None = None
     visitors: WebPageDirectoryValue | None = None
 
@@ -17776,6 +17776,8 @@ class CachedWebPageDirectoryQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
+    preComputeStale: bool | None = None
+    preComputedAt: str | None = None
     query_metadata: dict[str, Any] | None = None
     query_scan: QueryScanSummary | None = Field(
         default=None,
@@ -18169,6 +18171,7 @@ class ChartSettings(BaseModel):
         ),
     )
     metric: MetricChartSettings | None = None
+    movingAverageIntervals: float | None = None
     pie: PieChartSettings | None = None
     resultCustomizations: dict[str, ResultCustomizationByValue] | None = Field(
         default=None,
@@ -18179,6 +18182,7 @@ class ChartSettings(BaseModel):
     seriesBreakdownColumn: str | None = None
     showAnnotations: bool | None = None
     showLegend: bool | None = None
+    showMovingAverage: bool | None = None
     showNullsAsZero: bool | None = None
     showPieTotal: bool | None = None
     showTotalRow: bool | None = None
@@ -24351,6 +24355,8 @@ class QueryResponseAlternative27(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStale: bool | None = None
+    preComputedAt: str | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -30918,6 +30924,8 @@ class WebPageDirectoryQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStale: bool | None = None
+    preComputedAt: str | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),

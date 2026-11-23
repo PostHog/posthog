@@ -10,6 +10,31 @@ def _docs(tag: str, operation: str) -> str:
     return f"https://docs.bexio.com/#tag/{tag}/operation/{operation}"
 
 
+# Columns of an item position, shared by the positions of quotes, orders and invoices.
+_ITEM_POSITION_COLUMNS = {
+    "id": "Unique identifier of the position.",
+    "type": "Position type. Always KbPositionArticle for item positions.",
+    "article_id": "ID of the item (article) on the position.",
+    "text": "Text of the position, usually the item name.",
+    "amount": "Quantity, as a decimal string.",
+    "amount_reserved": "Reserved quantity, as a decimal string.",
+    "amount_open": "Quantity not yet delivered, as a decimal string.",
+    "amount_completed": "Delivered quantity, as a decimal string.",
+    "unit_id": "ID of the unit.",
+    "unit_name": "Name of the unit, for example kg.",
+    "unit_price": "Price of one unit, as a decimal string with at most 6 decimals.",
+    "discount_in_percent": "Discount in percent, as a decimal string.",
+    "position_total": "Total of the position, as a decimal string.",
+    "account_id": "ID of the account the position books to.",
+    "tax_id": "ID of the tax.",
+    "tax_value": "Tax rate in percent, as a decimal string.",
+    "pos": "Position number shown on the document.",
+    "internal_pos": "Internal sort order of the position on the document.",
+    "is_optional": "Whether the position is optional. Only used on quotes and orders.",
+    "parent_id": "ID of the parent position, when the position is a sub-position.",
+}
+
+
 # Columns shared by the sales documents (quotes, orders, invoices and deliveries).
 _SALES_DOCUMENT_COLUMNS = {
     "id": "Unique identifier of the document.",
@@ -416,6 +441,65 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "email": "Email address of the user.",
             "is_superadmin": "Whether the user is a superadmin. Only present when the token's user has admin rights.",
             "is_accountant": "Whether the user is an accountant. Only present when the token's user has admin rights.",
+        },
+    },
+    "client_services": {
+        "description": "Business activities, the kinds of work that timesheets record.",
+        "docs_url": _docs("Business-Activities", "v2ListBusinessActivities"),
+        "columns": {
+            "id": "Unique identifier of the business activity.",
+            "name": "Name of the business activity.",
+            "default_is_billable": "Whether time recorded for the activity is billable by default.",
+            "default_price_per_hour": "Default hourly rate of the activity.",
+            "account_id": "ID of the account that the activity books to.",
+        },
+    },
+    "project_states": {
+        "description": "Statuses a project can have, for example active or closed.",
+        "docs_url": _docs("Projects", "v2ListProjectStatus"),
+        "columns": {
+            "id": "Unique identifier of the project status.",
+            "name": "Name of the project status.",
+        },
+    },
+    "project_types": {
+        "description": "Types a project can have, for example internal or customer projects.",
+        "docs_url": _docs("Projects", "v2ListProjectType"),
+        "columns": {
+            "id": "Unique identifier of the project type.",
+            "name": "Name of the project type.",
+        },
+    },
+    "invoice_item_positions": {
+        "description": "Item positions (line items with an item, a quantity and a price) on invoices.",
+        "docs_url": _docs("Item-positions", "v2ListItemPositions"),
+        "columns": {**_ITEM_POSITION_COLUMNS, "invoice_id": "ID of the invoice the position is on."},
+    },
+    "quote_item_positions": {
+        "description": "Item positions (line items with an item, a quantity and a price) on quotes.",
+        "docs_url": _docs("Item-positions", "v2ListItemPositions"),
+        "columns": {**_ITEM_POSITION_COLUMNS, "quote_id": "ID of the quote the position is on."},
+    },
+    "order_item_positions": {
+        "description": "Item positions (line items with an item, a quantity and a price) on orders.",
+        "docs_url": _docs("Item-positions", "v2ListItemPositions"),
+        "columns": {**_ITEM_POSITION_COLUMNS, "order_id": "ID of the order the position is on."},
+    },
+    "outgoing_payments": {
+        "description": "Payments made against supplier bills.",
+        "docs_url": _docs("Outgoing-Payment", "ApiOutgoingPaymentList_GET"),
+        "columns": {
+            "id": "Unique identifier (UUID) of the payment.",
+            "bill_id": "ID of the bill the payment is for.",
+            "payment_type": "Payment method: IBAN, MANUAL, CASH_DISCOUNT, RECONCILED or QR.",
+            "status": "Payment status: PENDING, TRANSFERRED, DOWNLOADED, ERROR, PAID or DISCOUNTED.",
+            "execution_date": "Date the payment is executed.",
+            "amount": "Amount of the payment.",
+            "sender_bank_account_id": "ID of the bank account the payment is sent from.",
+            "receiver_account_no": "Account number of the receiver.",
+            "receiver_iban": "IBAN of the receiver.",
+            "banking_payment_id": "ID of the banking payment order. Only for IBAN and QR payments.",
+            "transaction_id": "ID of the reconciled bank transaction. Only for RECONCILED payments.",
         },
     },
 }

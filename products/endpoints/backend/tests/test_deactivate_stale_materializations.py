@@ -151,9 +151,9 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
         version.refresh_from_db()
         assert version.saved_query is not None
 
-    def test_keeps_old_materialization_that_was_never_executed(self):
+    def test_deactivates_old_materialization_that_was_never_executed(self):
         now = timezone.now()
-        # Materialization enabled 45 days ago but never executed via API key
+        # Materialization enabled 45 days ago, neither the version nor the endpoint ever executed
         endpoint, version = self._create_materialized_endpoint(
             "never_executed",
             last_run_at=now - timedelta(hours=1),
@@ -163,9 +163,8 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
 
         deactivate_stale_materializations()
 
-        # Should not be deactivated - last_executed_at is null (never used via API)
         version.refresh_from_db()
-        assert version.saved_query is not None
+        assert version.saved_query is None
 
     def test_skips_endpoints_not_materialized_recently(self):
         now = timezone.now()
