@@ -1735,11 +1735,15 @@ describe('mirror', () => {
 
         expect(await stored(501)).toMatchObject({ owner_id: String(TEAM_A), source_version: '2', version: 3 })
         expect(await resolveAccessToken(501)).toBe(ACCESS_TOKEN)
-        const rows = (await auditRows()).filter((row) => row.operation === 'mirror')
-        expect(rows.map((row: any) => [row.outcome, row.fields, row.details])).toEqual([
-            ['created', ['access_token'], { origin: 'write', legacy_id: 501, source_version: 1 }],
-            ['updated', ['access_token', 'refresh_token'], { origin: 'retry', legacy_id: 501, source_version: 2 }],
+        // Two requests can share an occurred_at millisecond, so compare the rows sorted by origin.
+        const rows = (await auditRows())
+            .filter((row) => row.operation === 'mirror')
+            .map((row: any) => [row.outcome, row.fields, row.details])
+            .sort((a, b) => a[2].origin.localeCompare(b[2].origin))
+        expect(rows).toEqual([
             ['updated', ['access_token', 'refresh_token'], { origin: 'repair', legacy_id: 501, source_version: 2 }],
+            ['updated', ['access_token', 'refresh_token'], { origin: 'retry', legacy_id: 501, source_version: 2 }],
+            ['created', ['access_token'], { origin: 'write', legacy_id: 501, source_version: 1 }],
         ])
     })
 
@@ -1772,7 +1776,7 @@ describe('mirror', () => {
         expect(await outcomes([mirrorRow(504, 1)])).toEqual(['stale'])
 
         const rows = (await auditRows()).filter((row) => row.operation === 'mirror')
-        expect(rows.map((row) => row.outcome)).toEqual(['created', 'deleted', 'deleted'])
+        expect(rows.map((row) => row.outcome).sort()).toEqual(['created', 'deleted', 'deleted'])
     })
 
     it("answers owner_mismatch for another team's legacy id and writes nothing", async () => {
