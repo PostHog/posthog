@@ -2003,6 +2003,18 @@ def toolbar_oauth_callback(request):
         )
         oauth_app = get_or_create_toolbar_oauth_application(user=request.user)
     except ToolbarOAuthError as exc:
+        if exc.code == "invalid_state":
+            # The state lives a few minutes, and a sign-in prompt on the way can outlast it. Say how to start over.
+            return render_template(
+                "toolbar_oauth_error.html",
+                request,
+                context={
+                    "error_title": "This toolbar sign-in expired",
+                    "error_message": "Open the toolbar from your site again to start a new sign-in.",
+                    "error_code": str(exc.status_code),
+                },
+                status_code=exc.status_code,
+            )
         return HttpResponse(exc.detail, status=exc.status_code)
 
     # The first-party auto-approval path issues this grant with an org-wide

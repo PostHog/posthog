@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import base64
 import hashlib
 import importlib
@@ -4147,6 +4148,42 @@ class TestOAuthAPI(APIBaseTest):
         body = response.json()
         self.assertEqual(body["error"], "invalid_scope")
         self.assertIn("experiment:read", body["error_description"])
+
+    @parameterized.expand([("first_party",), ("auto_approval",)])
+    def test_skipped_consent_waits_for_a_recent_sign_in_then_completes_on_reload(self, grant_path):
+        url = f"{self.base_authorization_url}&state=request-state-123"
+        if grant_path == "first_party":
+            self.confidential_application.is_first_party = True
+            self.confidential_application.save()
+        else:
+            self._set_scope_split(["experiment:read"], [])
+            OAuthAccessToken.objects.create(
+                application=self.confidential_application,
+                user=self.user,
+                token="at_auto_approval_stale_session",
+                expires=timezone.now() + timedelta(days=1),
+                scope="experiment:read",
+                scoped_teams=[self.team.id],
+                scoped_organizations=None,
+            )
+            url += "&scope=experiment:read&approval_prompt=auto"
+
+        with time_machine.travel(timezone.now() + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+            with patch("posthog.api.oauth.views.render_template", return_value=HttpResponse("")) as mock_render:
+                stale_response = self.client.get(url)
+
+            session = self.client.session
+            session[settings.SESSION_LAST_REAUTH_AT_KEY] = time.time()
+            session.save()
+            reloaded_response = self.client.get(url)
+
+        self.assertEqual(stale_response.status_code, status.HTTP_200_OK)
+        self.assertIs(mock_render.call_args.kwargs["context"]["oauth_reauthentication_required"], True)
+
+        self.assertEqual(reloaded_response.status_code, status.HTTP_302_FOUND)
+        query = parse_qs(urlparse(reloaded_response["Location"]).query)
+        self.assertEqual(query["state"], ["request-state-123"])
+        self.assertEqual(OAuthGrant.objects.get(code=query["code"][0]).code_challenge, self.code_challenge)
 
     @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_auto_approval_skipped_when_request_omits_required_scope(self):

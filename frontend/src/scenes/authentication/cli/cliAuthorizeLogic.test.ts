@@ -147,4 +147,38 @@ describe('cliAuthorizeLogic', () => {
             'One or more selected scopes are not permitted. Try choosing a different preset.'
         )
     })
+
+    it('adds a typed code to the URL without resetting the picked scopes', async () => {
+        router.actions.push('/cli/authorize', { use_cases: 'schema' })
+        logic.actions.setAuthorizeValues({
+            userCode: 'ABCD-1234',
+            organizationId: 'org-id',
+            projectId: 1,
+            scopes: ['event_definition:read'],
+        })
+        jest.spyOn(api, 'create').mockResolvedValueOnce({})
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAuthorize()
+        }).toDispatchActions(['submitAuthorizeSuccess'])
+
+        expect(router.values.searchParams).toEqual({ use_cases: 'schema', code: 'ABCD-1234' })
+        expect(logic.values.authorize.scopes).toEqual(['event_definition:read'])
+    })
+
+    it('offers to try again after the person closes the sign-in prompt', async () => {
+        router.actions.push('/cli/authorize', { code: 'ABCD-1234' })
+        logic.actions.setAuthorizeValues({ userCode: 'ABCD-1234', organizationId: 'org-id', projectId: 1 })
+        jest.spyOn(api, 'create').mockRejectedValueOnce(
+            new ApiError(undefined, 403, undefined, { code: 'sensitive_action_required_reauth' })
+        )
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAuthorize()
+        })
+            .toDispatchActions(['submitAuthorizeFailure'])
+            .toMatchValues({ reauthenticationDismissed: true })
+
+        expect(logic.values.authorizeErrors.userCode).toBeUndefined()
+    })
 })

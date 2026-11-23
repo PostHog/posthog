@@ -25,6 +25,7 @@ import { SceneExport } from '../sceneTypes'
 import { OAuthAuthorizeEmaIssuer } from './OAuthAuthorizeEmaIssuer'
 import { OAuthAuthorizeLayout } from './OAuthAuthorizeLayout'
 import { oauthAuthorizeLogic } from './oauthAuthorizeLogic'
+import { OAuthAuthorizeReauthentication } from './OAuthAuthorizeReauthentication'
 
 export const OAuthAuthorizeError = ({
     title,
@@ -107,6 +108,7 @@ export const OAuthAuthorize = (): JSX.Element => {
         newOrganizationLoading,
         selectedOrganization,
         emaIssuerConsent,
+        reauthenticationRequired,
         user,
     } = useValues(oauthAuthorizeLogic)
     const {
@@ -193,6 +195,14 @@ export const OAuthAuthorize = (): JSX.Element => {
                     title="No application found"
                     description="The application requesting access to your data does not exist."
                 />
+            </OAuthAuthorizeLayout>
+        )
+    }
+
+    if (reauthenticationRequired) {
+        return (
+            <OAuthAuthorizeLayout>
+                <OAuthAuthorizeReauthentication />
             </OAuthAuthorizeLayout>
         )
     }

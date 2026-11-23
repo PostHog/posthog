@@ -499,10 +499,14 @@ class TestToolbarOAuthCallbackExchange(ToolbarOAuthAuthorizeMixin, APIBaseTest):
         assert second.status_code >= 400
 
     @override_settings(TOOLBAR_OAUTH_STATE_TTL_SECONDS=0)
-    def test_callback_expired_state_returns_error(self):
+    def test_callback_expired_state_explains_how_to_start_again(self):
         state = self._authorize_and_get_state()
+
         response = self.client.get(f"/toolbar_oauth/callback?code=abc&state={state}")
-        assert response.status_code >= 400
+
+        assert response.status_code == 400
+        assert b"This toolbar sign-in expired" in response.content
+        assert b"Open the toolbar from your site again" in response.content
 
     def test_callback_app_url_root_domain(self):
         self.team.app_urls = ["https://example.com"]

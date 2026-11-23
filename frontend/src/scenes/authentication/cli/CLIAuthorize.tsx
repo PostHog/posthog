@@ -39,6 +39,7 @@ export function CLIAuthorize(): JSX.Element {
         missingErrorTrackingScopes,
         missingEndpointsScopes,
         missingAgentScopes,
+        reauthenticationDismissed,
     } = useValues(cliAuthorizeLogic)
     const { setAuthorizeValue, setScopeRadioValue, setSearchTerm, setScopePreset, resetScopes } =
         useActions(cliAuthorizeLogic)
@@ -245,6 +246,12 @@ export function CLIAuthorize(): JSX.Element {
                                         </AuthBanner>
                                     )}
                                 </div>
+                            )}
+
+                            {reauthenticationDismissed && (
+                                <AuthBanner variant="warning">
+                                    Confirm it's you to authorize the CLI. Select Authorize CLI to try again.
+                                </AuthBanner>
                             )}
 
                             <LemonButton

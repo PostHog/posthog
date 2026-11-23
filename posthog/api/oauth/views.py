@@ -1794,6 +1794,8 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                     request, credentials["scoped_organizations"], credentials["scoped_teams"]
                 )
                 enforce_credential_two_factor(request, credentials["scoped_organizations"], credentials["scoped_teams"])
+                if not request_allows_sensitive_action(request):
+                    return self._reauthentication_required(request, application, "first_party")
 
                 uri, headers, body, status_code = self.create_authorization_response(
                     request=request, scopes=scope_str, credentials=credentials, allow=True
@@ -1843,6 +1845,8 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                             return block
                         if block := _gateway_blocklist_block(request, scope_str.split()):
                             return block
+                        if not request_allows_sensitive_action(request):
+                            return self._reauthentication_required(request, application, "auto_approval")
                         uri, headers, body, status_code = self.create_authorization_response(
                             request=request, scopes=scope_str, credentials=credentials, allow=True
                         )
@@ -1858,22 +1862,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             already_granted_scopes = downgrade_scopes_to_read_only(" ".join(already_granted_scopes)).split()
 
         template_context: dict[str, object] = {
-            "oauth_application": {
-                "name": application.name,
-                "client_id": application.client_id,
-                "is_verified": application.is_verified,
-                "logo_uri": application.logo_uri,
-                "required_scopes": application.required_scopes,
-                # The read-only form of a `*` grant, computed from the same ceiling
-                # resolution `validate_scopes` enforces — the frontend's scope list
-                # drifts from the server's (both over- and under-granting otherwise).
-                "wildcard_read_scopes": sorted(
-                    scope for scope in grantable_ceiling(application.ceiling_scopes) if scope.endswith(":read")
-                ),
-                # The same resolution `validate_scopes` clamps against, so the consent screen
-                # can drop requested scopes the grant will not include instead of promising them.
-                "grantable_scopes": sorted(grantable_ceiling(application.ceiling_scopes)),
-            },
+            "oauth_application": self._application_page_context(application),
             # What `validate_scopes` resolved this request to, which is the set the grant
             # will carry. The consent screen renders this rather than re-parsing `scope`
             # from the URL, so a request the server defaulted or repaired cannot show the
@@ -1910,6 +1899,49 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 template_context["oauth_mcp_consent"] = oauth_mcp_consent
 
         return render_template("index.html", request, context=template_context)
+
+    @staticmethod
+    def _application_page_context(application: OAuthApplication) -> dict[str, object]:
+        return {
+            "name": application.name,
+            "client_id": application.client_id,
+            "is_verified": application.is_verified,
+            "logo_uri": application.logo_uri,
+            "required_scopes": application.required_scopes,
+            # The read-only form of a `*` grant, computed from the same ceiling
+            # resolution `validate_scopes` enforces — the frontend's scope list
+            # drifts from the server's (both over- and under-granting otherwise).
+            "wildcard_read_scopes": sorted(
+                scope for scope in grantable_ceiling(application.ceiling_scopes) if scope.endswith(":read")
+            ),
+            # The same resolution `validate_scopes` clamps against, so the consent screen
+            # can drop requested scopes the grant will not include instead of promising them.
+            "grantable_scopes": sorted(grantable_ceiling(application.ceiling_scopes)),
+        }
+
+    def _reauthentication_required(self, request, application: OAuthApplication, grant_path: str) -> HttpResponse:
+        """Render the authorize page in its sign-in-again state instead of issuing a code without consent.
+
+        The page reloads this same URL after the re-auth, so the request needs no server-side state to survive it.
+        """
+        # pinned: analytics event name
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="oauth_authorization_reauthentication_required",
+            properties={
+                **_oauth_app_event_properties(application),
+                "grant_path": grant_path,
+                **(get_region_info() or {}),
+            },
+        )
+        return render_template(
+            "index.html",
+            request,
+            context={
+                "oauth_application": self._application_page_context(application),
+                "oauth_reauthentication_required": True,
+            },
+        )
 
     def _ema_issuer_consent(
         self, request, application: OAuthApplication, impersonator_id: int | None
