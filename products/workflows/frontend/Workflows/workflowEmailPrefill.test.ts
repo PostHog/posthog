@@ -99,6 +99,26 @@ describe('workflowEmailPrefill', () => {
             '{% raw %}{% assign variables = 1 %}{% endraw %}{{ variables.name }}',
             '{% raw %}{% assign variables = 1 %}{% endraw %}{{ event.properties.name }}',
         ],
+        [
+            'a closing delimiter that trims whitespace',
+            '{%- assign data = variables-%}',
+            '{%- assign data = event.properties-%}',
+        ],
+        [
+            'a quoted value with an escaped quote',
+            "{% assign hint = 'don\\'t type variables.name' %}{{ variables.name }}",
+            "{% assign hint = 'don\\'t type variables.name' %}{{ event.properties.name }}",
+        ],
+        [
+            'its own assignment of variables inside a liquid tag',
+            '{% liquid\n  assign variables = person.properties\n%}{{ variables.name }}',
+            '{% liquid\n  assign variables = person.properties\n%}{{ variables.name }}',
+        ],
+        [
+            'text that names the words for variables',
+            '<p>Look for variables</p>{{ variables.name }}',
+            '<p>Look for variables</p>{{ event.properties.name }}',
+        ],
     ])('copies a template email with %s', (_, html, expected) => {
         const workflow = templatePrefilledWorkflow(NEW_WORKFLOW, EVENT_TRIGGER, {
             name: 'Receipt',
@@ -120,6 +140,25 @@ describe('workflowEmailPrefill', () => {
         expect((workflow.actions[1].config as any).inputs.email.value).toMatchObject({
             subject: 'Order {{ event.properties.id }}',
             html: '{% assign variables = 1 %}{{ variables }}',
+        })
+    })
+
+    it('copies a sender address that reads variables when only the sender name assigns its own', () => {
+        const workflow = templatePrefilledWorkflow(NEW_WORKFLOW, EVENT_TRIGGER, {
+            name: 'Receipt',
+            content: {
+                templating: 'liquid',
+                email: {
+                    from: { integrationId: 5, email: '{{ variables.sender }}', name: '{% assign variables = 1 %}Shop' },
+                    html: '<p>Hi</p>',
+                },
+            },
+        } as any)
+
+        expect((workflow.actions[1].config as any).inputs.email.value.from).toEqual({
+            integrationId: 5,
+            email: '{{ event.properties.sender }}',
+            name: '{% assign variables = 1 %}Shop',
         })
     })
 
