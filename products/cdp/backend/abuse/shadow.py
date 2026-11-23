@@ -273,10 +273,11 @@ def _queue_if_enabled(hog_function: HogFunction) -> None:
 
         from products.cdp.backend.tasks.abuse_classification import classify_hog_function_for_abuse  # noqa: PLC0415
 
-        # The task reads the row later, so an enable that is undone before it runs is passed along with its content.
+        # The task and this check read the row after other writes, so the enable comes from the saved instance and
+        # travels with its content.
         enabled_content = (
-            {"enabled_content_hash": content_hash(content_of(candidate, candidate.template))}
-            if candidate.enabled
+            {"enabled_content_hash": content_hash(content_of(hog_function, candidate.template))}
+            if hog_function.enabled
             else {}
         )
         classify_hog_function_for_abuse.delay(
