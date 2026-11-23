@@ -70,8 +70,8 @@ class TestPlanTail(SimpleTestCase):
             ("no_cached_result", None, NOW + dt.timedelta(minutes=1), "minute", FullRunReason.NO_CACHED_RESULT),
             ("interval_changed", _state(), NOW + dt.timedelta(minutes=1), "minute_5", FullRunReason.INTERVAL_CHANGED),
             (
-                "full_run_older_than_15_minutes",
-                _state(full_at=NOW - dt.timedelta(minutes=14)),
+                "full_run_older_than_an_hour",
+                _state(full_at=NOW - dt.timedelta(minutes=59)),
                 NOW + dt.timedelta(minutes=2),
                 "minute",
                 FullRunReason.PERIODIC_FULL_RUN,
@@ -139,7 +139,10 @@ class TestPlanTail(SimpleTestCase):
     )
     def test_tail_plan(self, _name: str, interval: str, tzinfo: ZoneInfo, cut: str, fetch_from: str) -> None:
         now = NOW + dt.timedelta(minutes=1)
-        previous = _state(date_from=NOW - dt.timedelta(days=7), interval=interval)
+        # The last full run is one 15-minute auto-refresh before the previous refresh.
+        previous = _state(
+            date_from=NOW - dt.timedelta(days=7), interval=interval, full_at=NOW - dt.timedelta(minutes=15)
+        )
 
         plan = plan_tail(
             previous, date_from=now - dt.timedelta(days=7), date_to=now, interval=interval, now=now, tzinfo=tzinfo
@@ -399,7 +402,7 @@ class TestMetricsTailRefresh(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("flag_off", False, dt.timedelta(minutes=2), [None, None], None),
-            ("entry_older_than_15_minutes", True, dt.timedelta(minutes=16), ["full", "full"], None),
+            ("entry_older_than_an_hour", True, dt.timedelta(minutes=61), ["full", "full"], None),
             ("formula_over_a_grouped_clause", True, dt.timedelta(minutes=2), [None, None], "a * 2"),
         ]
     )

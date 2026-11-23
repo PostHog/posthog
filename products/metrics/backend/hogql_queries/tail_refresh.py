@@ -37,7 +37,9 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 RECOMPUTE_WINDOW = dt.timedelta(minutes=5)
-FULL_RUN_EVERY = dt.timedelta(minutes=15)
+# Longer than the dashboard's shortest auto-refresh interval (15 minutes), so an auto-refresh after a
+# full run splices instead of always running in full.
+FULL_RUN_EVERY = dt.timedelta(hours=1)
 
 _STATE_KEY = "metrics_tail"
 
