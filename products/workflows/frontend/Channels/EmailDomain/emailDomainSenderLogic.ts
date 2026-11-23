@@ -25,7 +25,6 @@ export interface EmailSenderConfig {
     provider: 'ses' | 'maildev'
     mail_from_subdomain?: string
     verified?: boolean
-    ses_sending_status?: string
     setup_method?: EmailSetupMethod
 }
 
@@ -312,9 +311,7 @@ export const emailDomainSenderLogic = kea<emailDomainSenderLogicType>([
             }
             try {
                 const saved = await integrationsEmailPartialUpdate(String(currentTeamId), integrationId, {
-                    // Only the name changes here. A verification can adopt another MAIL FROM subdomain after this page
-                    // loaded the sender, and sending the loaded one back would switch the provider to it again.
-                    config: { email: senderConfig.email, provider: senderConfig.provider, name: values.senderName },
+                    config: { ...senderConfig, name: values.senderName },
                 })
                 actions.senderSaved(saved)
             } catch (error) {

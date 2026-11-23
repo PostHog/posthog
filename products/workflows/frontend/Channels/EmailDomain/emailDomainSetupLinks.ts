@@ -12,7 +12,6 @@ export type EmailDomainSetupEntry =
     | 'transactional'
     | 'configure'
     | 'sandbox_sender_banner'
-    | 'sandbox_sender_banner_repair'
 
 export const emailDomainSetupPath = (
     id: number | 'new',
