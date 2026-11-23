@@ -5,11 +5,17 @@ import pytest
 
 import requests
 
-from products.managed_warehouse.backend.temporal.gigahog_client import GigahogClient, GigahogConfig, GigahogError
+from products.managed_warehouse.backend.temporal.gigahog_client import (
+    GigahogClient,
+    GigahogConfig,
+    GigahogError,
+    GigahogTokenError,
+)
 
 
 @pytest.mark.parametrize("api_direct", [False, True])
-def test_gigahog_proxy_routing(monkeypatch, api_direct):
+@pytest.mark.parametrize("oauth_direct", [False, True])
+def test_gigahog_proxy_routing(monkeypatch, api_direct, oauth_direct):
     proxy = "http://proxy.example.test:8080"
     monkeypatch.setenv("HTTPS_PROXY", proxy)
     monkeypatch.setenv("NO_PROXY", "")
@@ -19,9 +25,10 @@ def test_gigahog_proxy_routing(monkeypatch, api_direct):
         catalog="imports",
         data_path="s3://test-bucket/imports/",
         token_url="https://auth.example.test/oauth/token",
-        client_id=f"writer-{api_direct}",
+        client_id=f"writer-{api_direct}-{oauth_direct}",
         client_secret="test-secret",
         api_direct=api_direct,
+        oauth_direct=oauth_direct,
     )
     calls = []
 
@@ -64,6 +71,39 @@ def test_gigahog_proxy_routing(monkeypatch, api_direct):
             assert client.namespace("team_42").name == "team_42"
 
     assert calls == [
-        (config.token_url, proxy, True),
+        (config.token_url, None if oauth_direct else proxy, True),
         (f"{config.url}/v1/catalogs/imports/namespaces/team_42", None if api_direct else proxy, True),
     ]
+
+
+@pytest.mark.parametrize("scheme", ["http", "https"])
+def test_direct_oauth_rejects_insecure_urls_and_redirects(monkeypatch, scheme):
+    token_url = f"{scheme}://auth.example.test/oauth/token"
+    config = GigahogConfig(
+        url="https://api.example.test",
+        catalog="imports",
+        data_path="s3://test-bucket/imports/",
+        token_url=token_url,
+        client_id="writer-redirect-test",
+        client_secret="test-secret",
+        oauth_direct=True,
+    )
+    calls = []
+
+    def send(_adapter, request, **kwargs):
+        calls.append(request.url)
+        response = requests.Response()
+        response.request = request
+        response.url = request.url
+        response.status_code = 307
+        response.headers["Location"] = "https://redirect.example.test/"
+        response._content = b""
+        return response
+
+    monkeypatch.setattr(requests.adapters.HTTPAdapter, "send", send)
+    with pytest.raises(GigahogTokenError) as exc:
+        with GigahogClient(config, team_id=42) as client:
+            client.storage_session()
+
+    assert exc.value.status_code == (307 if scheme == "https" else 0)
+    assert calls == ([token_url] if scheme == "https" else [])

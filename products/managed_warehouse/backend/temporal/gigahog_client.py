@@ -20,7 +20,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import field
 from functools import partial
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import requests
 import structlog
@@ -47,6 +47,7 @@ class GigahogConfig:
     client_id: str
     client_secret: str = field(repr=False)
     api_direct: bool = False
+    oauth_direct: bool = False
 
 
 @frozen
@@ -185,6 +186,7 @@ def _exchange_for_team(config: GigahogConfig, team_id: int, session: requests.Se
             },
             headers={"User-Agent": _USER_AGENT},
             timeout=_REQUEST_TIMEOUT_SECONDS,
+            allow_redirects=not config.oauth_direct,
         ),
         target="token",
     )
@@ -215,15 +217,20 @@ class GigahogClient:
     """Gigahog calls for one team, with that team's token."""
 
     def __init__(self, config: GigahogConfig, *, team_id: int, session: requests.Session | None = None) -> None:
+        if config.oauth_direct and urlsplit(config.token_url).scheme != "https":
+            raise GigahogTokenError(0, "invalid_token_url", "Direct OAuth requires HTTPS")
         self._config = config
         self._team_id = team_id
         self._session = session or requests.Session()
         self._api_session = internal_requests_session() if config.api_direct else self._session
+        self._oauth_session = internal_requests_session() if config.oauth_direct else self._session
         self._base = f"{config.url.rstrip('/')}/v1/catalogs/{_segment(config.catalog)}"
 
     def close(self) -> None:
         if self._api_session is not self._session:
             self._api_session.close()
+        if self._oauth_session is not self._session:
+            self._oauth_session.close()
         self._session.close()
 
     def __enter__(self) -> GigahogClient:
@@ -234,7 +241,7 @@ class GigahogClient:
 
     def storage_session(self, *, fresh: bool = False) -> GigahogStorageSession:
         """The team's S3 session. A `fresh` one has its full lifetime, for a copy that may take long."""
-        return _team_credentials_for(self._config, self._team_id, self._session, renew=fresh).storage
+        return _team_credentials_for(self._config, self._team_id, self._oauth_session, renew=fresh).storage
 
     def namespace(self, namespace: str) -> GigahogNamespace:
         body = self._request("GET", f"/namespaces/{_segment(namespace)}")
@@ -311,7 +318,7 @@ class GigahogClient:
         renewed = False
         ambiguous = False
         while True:
-            token = _team_credentials_for(self._config, self._team_id, self._session, renew=renewed).access_token
+            token = _team_credentials_for(self._config, self._team_id, self._oauth_session, renew=renewed).access_token
             response, ambiguous_send = _send_repeating_transient_failures(
                 partial(
                     self._api_session.request,
