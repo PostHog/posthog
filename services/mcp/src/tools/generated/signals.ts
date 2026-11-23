@@ -143,11 +143,11 @@ const anomalySearch = (): ToolBase<ReturnType<typeof AnomalySearchSchema>, Schem
                 insight_id: params.insight_id,
                 interval: params.interval,
                 limit: params.limit,
-                max_anomaly_rate: params.max_anomaly_rate,
                 offset: params.offset,
                 only_flagged: params.only_flagged,
                 order: params.order,
                 search: params.search,
+                viewed_within_days: params.viewed_within_days,
             },
         })
         return result
@@ -883,6 +883,7 @@ const inboxReportsList = (): ToolBase<
                 offset: params.offset,
                 ordering: params.ordering,
                 plan: params.plan,
+                pr_targets: params.pr_targets,
                 priority: params.priority,
                 ranking_id: params.ranking_id,
                 ranking_min_lift: params.ranking_min_lift,

@@ -992,15 +992,23 @@ def _project_has_governed_metrics(team: Team, user_id: int) -> bool:
         return False
 
 
-def _memory_upkeep_has_written(team: Team) -> bool:
+def _memory_upkeep_is_live(team: Team) -> bool:
     """Whether the run's prompt should describe the memory upkeep scout's entries.
 
-    True once that scout has a live scratchpad entry on the project, so an upkeep run that wrote
-    nothing leaves the section off. Every scout run reads the team's whole scratchpad, so there is
-    no per-user access to check. A failed read is False: the section is optional steering.
+    True while that scout is enabled on the project and has a live scratchpad entry there, so an
+    upkeep run that wrote nothing leaves the section off. The enabled check matters because the
+    scout's cursor never expires: without it, every other scout keeps reading learnings that stopped
+    changing when the upkeep scout was switched off. Every scout run reads the team's whole
+    scratchpad, so there is no per-user access to check. A failed read is False: the section is
+    optional steering.
     """
     try:
-        return has_live_entry_created_by(team_id=team.id, skill_name=MEMORY_UPKEEP_SCOUT)
+        enabled = (
+            SignalScoutConfig.objects.for_team(team.parent_team_id or team.id, canonical=True)
+            .filter(skill_name=MEMORY_UPKEEP_SCOUT, status__in=SignalScoutConfig.RUNNABLE_STATUSES)
+            .exists()
+        )
+        return enabled and has_live_entry_created_by(team_id=team.id, skill_name=MEMORY_UPKEEP_SCOUT)
     except Exception as error:
         capture_exception(error)
         return False
@@ -1290,7 +1298,7 @@ async def _spawn_and_run(
     project_has_governed_metrics = await database_sync_to_async(_project_has_governed_metrics, thread_sensitive=False)(
         team, user_id
     )
-    memory_upkeep_has_written = await database_sync_to_async(_memory_upkeep_has_written, thread_sensitive=False)(team)
+    memory_upkeep_is_live = await database_sync_to_async(_memory_upkeep_is_live, thread_sensitive=False)(team)
     mcp_server_names = await database_sync_to_async(_mcp_server_names_for_run, thread_sensitive=False)(
         team, user_id, config
     )
@@ -1311,7 +1319,7 @@ async def _spawn_and_run(
         project_timezone=team.timezone,
         github_read_access=github_guidance,
         project_has_governed_metrics=project_has_governed_metrics,
-        memory_upkeep_has_written=memory_upkeep_has_written,
+        memory_upkeep_is_live=memory_upkeep_is_live,
         activity_summary_search_available=activity_summary_search,
         inbox_reports_search_available=inbox_reports_search,
         # Names the external MCP servers the sandbox will mount, so *How to call tools* can carve

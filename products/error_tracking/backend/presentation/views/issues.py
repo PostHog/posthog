@@ -70,7 +70,12 @@ class ErrorTrackingIssueCohortReadSerializer(serializers.Serializer):
 
 
 class ErrorTrackingIssueTagDefinitionSerializer(serializers.Serializer):
-    key = serializers.CharField(help_text="Key of the tag. Pass it as `issueTag.key` to filter the issue list.")
+    key = serializers.CharField(
+        help_text=(
+            "Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, "
+            "or in `issueTags.hasNot` to keep the issues that do not."
+        )
+    )
     label = serializers.CharField(help_text="Short name of the tag.")  # type: ignore[assignment]  # shadows DRF Field.label
     description = serializers.CharField(help_text="What the tag means, for a tooltip.")
 

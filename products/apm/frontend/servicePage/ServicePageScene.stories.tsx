@@ -203,16 +203,16 @@ const meta: Meta = {
                         },
                     ]
                 },
-                '/api/:prefix/:team_id/tracing/spans/latency-heatmap/': () => [
+                '/api/:prefix/:team_id/tracing/spans/latency_percentiles/': () => [
                     200,
                     {
-                        results: BUCKETS.flatMap((time, index) => [
-                            { time, bucket_ns: 20_000_000, count: 400 },
-                            { time, bucket_ns: 50_000_000, count: 350 },
-                            { time, bucket_ns: 100_000_000, count: 60 + index * 4 },
-                            { time, bucket_ns: 200_000_000, count: index === 5 ? 60 : 12 },
-                            { time, bucket_ns: 500_000_000, count: index === 5 ? 20 : 4 },
-                        ]),
+                        results: BUCKETS.map((time, index) => ({
+                            time,
+                            count: REQUESTS[index],
+                            p50_ns: (38 + (index % 3)) * 1_000_000,
+                            p95_ns: (index === 5 ? 412 : 176 + index * 3) * 1_000_000,
+                            p99_ns: (index === 5 ? 780 : 320 + index * 5) * 1_000_000,
+                        })),
                     },
                 ],
                 '/api/:prefix/:team_id/tracing/spans/attribute-breakdown/': async ({ request }) => {

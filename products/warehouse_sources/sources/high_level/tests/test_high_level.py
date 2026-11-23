@@ -7,10 +7,12 @@ import time_machine
 
 from requests import ConnectionError as RequestsConnectionError
 
+from products.warehouse_sources.sources.high_level import high_level
 from products.warehouse_sources.sources.high_level._config import HighLevelSourceConfig
 from products.warehouse_sources.sources.high_level.high_level import HighLevelResumeConfig
 from products.warehouse_sources.sources.high_level.source import HighLevelSource
 from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
@@ -258,6 +260,12 @@ class TestLocationScoping:
                 {"altId": LOCATION_ID, "altType": "location", "offset": "0", "limit": "100"},
             ),
             ("forms", {"forms": [], "total": 0}, "/forms/", {"locationId": LOCATION_ID, "skip": "0", "limit": "50"}),
+            (
+                "lost_reasons",
+                {"lostReasons": [], "total": 0},
+                "/opportunities/lost-reason",
+                {"locationId": LOCATION_ID, "skip": "0", "limit": "100"},
+            ),
         ],
     )
     def test_each_endpoint_scopes_the_request_to_the_location(
@@ -274,6 +282,139 @@ class TestLocationScoping:
 
         assert isinstance(result.raised, ValueError)
         assert result.requests == []
+
+
+# With the clock frozen at 2026-03-15, the walk ends at 2027-03-15, so a 2027-02-01 start gives the
+# windows [Feb 1, Mar 3) and [Mar 3, Mar 15).
+WINDOW_ONE_START_MS = 1801440000000
+WINDOW_TWO_START_MS = 1804032000000
+WALK_END_MS = 1805112000000
+
+
+@pytest.fixture
+def short_calendar_walk(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(high_level, "CALENDAR_EVENTS_EARLIEST", datetime(2027, 2, 1, tzinfo=UTC))
+
+
+def _calendar_events_script(events: dict[tuple[str, str], list[dict[str, Any]]]):
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/calendars/":
+            return ScriptedResponse(json={"calendars": [{"id": "cal1"}, {"id": "cal2"}]})
+        key = (request.param("calendarId") or "", request.param("startTime") or "")
+        return ScriptedResponse(json={"events": events.get(key, [])})
+
+    return respond
+
+
+class TestFanOutEndpoints:
+    @pytest.mark.usefixtures("short_calendar_walk")
+    def test_calendar_events_walk_every_window_of_every_calendar(self) -> None:
+        # Starts in window one and ends in window two, so HighLevel can answer it for both windows.
+        crossing = {"id": "e1", "calendarId": "cal1", "startTime": "2027-03-02T23:30:00+00:00"}
+        result = _driver().run(
+            "calendar_events",
+            _calendar_events_script(
+                {
+                    ("cal1", str(WINDOW_ONE_START_MS)): [crossing],
+                    ("cal1", str(WINDOW_TWO_START_MS)): [
+                        crossing,
+                        {"id": "e2", "calendarId": "cal1", "startTime": "2027-03-10T09:00:00+05:30"},
+                    ],
+                    ("cal2", str(WINDOW_TWO_START_MS)): [{"id": "e3", "startTime": "2027-03-11T09:00:00Z"}],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(row["calendarId"], row["id"]) for row in result.rows] == [
+            ("cal1", "e1"),
+            ("cal1", "e2"),
+            ("cal2", "e3"),
+        ]
+        event_requests = [request for request in result.requests if request.path == "/calendars/events"]
+        assert [
+            (request.param("calendarId"), request.param("startTime"), request.param("endTime"))
+            for request in event_requests
+        ] == [
+            ("cal1", str(WINDOW_ONE_START_MS), str(WINDOW_TWO_START_MS - 1)),
+            ("cal1", str(WINDOW_TWO_START_MS), str(WALK_END_MS - 1)),
+            ("cal2", str(WINDOW_ONE_START_MS), str(WINDOW_TWO_START_MS - 1)),
+            ("cal2", str(WINDOW_TWO_START_MS), str(WALK_END_MS - 1)),
+        ]
+        assert {request.param("locationId") for request in event_requests} == {LOCATION_ID}
+        assert result.response is not None and result.response.primary_keys == ["calendarId", "id"]
+
+    @pytest.mark.usefixtures("short_calendar_walk")
+    def test_calendar_events_resume_at_the_saved_window(self) -> None:
+        result = _driver().run(
+            "calendar_events",
+            _calendar_events_script({}),
+            resume_state=HighLevelResumeConfig(
+                paginator_state={
+                    "current": "/calendars/events?calendarId=cal1",
+                    "child_state": {"window_start_ms": WINDOW_TWO_START_MS},
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [
+            (request.param("calendarId"), request.param("startTime"))
+            for request in result.requests
+            if request.path == "/calendars/events"
+        ] == [
+            ("cal1", str(WINDOW_TWO_START_MS)),
+            ("cal2", str(WINDOW_ONE_START_MS)),
+            ("cal2", str(WINDOW_TWO_START_MS)),
+        ]
+
+    def test_contact_notes_fan_out_over_every_contact_page(self) -> None:
+        result = _driver().run(
+            "contact_notes",
+            route(
+                {
+                    "/contacts/search": [
+                        ScriptedResponse(json={"contacts": [_contact("c1"), _contact("c2")], "hasMore": True}),
+                        ScriptedResponse(json={"contacts": [_contact("c3")], "hasMore": False}),
+                    ],
+                    "/contacts/c1/notes": [
+                        ScriptedResponse(json={"notes": [{"id": "n1", "contactId": "c1", "body": "first"}]})
+                    ],
+                    # The contact was deleted after the listing.
+                    "/contacts/c2/notes": [ScriptedResponse(status=404, json={"message": "Contact not found"})],
+                    "/contacts/c3/notes": [ScriptedResponse(json={"notes": [{"id": "n2", "body": "no contact id"}]})],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(row["contactId"], row["id"]) for row in result.rows] == [("c1", "n1"), ("c3", "n2")]
+        assert all("_contacts_id" not in row for row in result.rows)
+        assert [request.query for request in result.requests if request.path.endswith("/notes")] == [{}, {}, {}]
+
+    def test_users_search_reads_the_company_id_from_the_location(self) -> None:
+        result = _driver().run(
+            "users",
+            route(
+                {
+                    f"/locations/{LOCATION_ID}": [
+                        ScriptedResponse(json={"location": {"id": LOCATION_ID, "companyId": "comp_1"}})
+                    ],
+                    "/users/search": [
+                        ScriptedResponse(json={"users": [{"id": f"u{i}"} for i in range(25)], "count": 26}),
+                        ScriptedResponse(json={"users": [{"id": "u25"}], "count": 26}),
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert len(result.rows) == 26
+        search_requests = [request for request in result.requests if request.path == "/users/search"]
+        assert [
+            (request.param("companyId"), request.param("locationId"), request.param("skip"), request.param("limit"))
+            for request in search_requests
+        ] == [("comp_1", LOCATION_ID, "0", "25"), ("comp_1", LOCATION_ID, "25", "25")]
 
 
 class TestValidateCredentials:
@@ -338,6 +479,87 @@ class TestValidateCredentials:
             }
         else:
             assert request.path == f"/locations/{LOCATION_ID}"
+
+    @pytest.mark.parametrize(
+        ("schema_name", "table", "expected_valid", "expected_message_part", "expected_child_query"),
+        [
+            (
+                "calendar_events",
+                {
+                    "/calendars/": [ScriptedResponse(json={"calendars": [{"id": "cal1"}]})],
+                    "/calendars/events": [ScriptedResponse(json={"events": []})],
+                },
+                True,
+                None,
+                {"calendarId": "cal1", "locationId": LOCATION_ID},
+            ),
+            (
+                "calendar_events",
+                {
+                    "/calendars/": [ScriptedResponse(json={"calendars": [{"id": "cal1"}]})],
+                    "/calendars/events": [
+                        ScriptedResponse(status=401, json={"message": "The token is not authorized for this scope."})
+                    ],
+                },
+                False,
+                "`calendars/events.readonly` scope",
+                {"calendarId": "cal1", "locationId": LOCATION_ID},
+            ),
+            (
+                "users",
+                {
+                    f"/locations/{LOCATION_ID}": [
+                        ScriptedResponse(status=401, json={"message": "The token is not authorized for this scope."})
+                    ],
+                },
+                False,
+                "`locations.readonly` scope that the users table needs",
+                None,
+            ),
+            (
+                "users",
+                {
+                    f"/locations/{LOCATION_ID}": [ScriptedResponse(json={"location": {"companyId": "comp_1"}})],
+                    "/users/search": [ScriptedResponse(json={"users": [], "count": 0})],
+                },
+                True,
+                None,
+                {"companyId": "comp_1", "locationId": LOCATION_ID, "skip": "0", "limit": "1"},
+            ),
+            (
+                "contact_notes",
+                {"/contacts/search": [ScriptedResponse(json={"contacts": [], "hasMore": False})]},
+                True,
+                None,
+                None,
+            ),
+        ],
+    )
+    def test_fan_out_tables_probe_the_child_with_a_real_parent_id(
+        self,
+        schema_name: str,
+        table: dict[str, list[ScriptedResponse]],
+        expected_valid: bool,
+        expected_message_part: str | None,
+        expected_child_query: dict[str, str] | None,
+    ) -> None:
+        config = HighLevelSourceConfig(private_integration_token=TOKEN, location_id=LOCATION_ID)
+        with scripted_network(route(table)) as network:
+            valid, message = HighLevelSource().validate_credentials(config, team_id=1, schema_name=schema_name)
+
+        assert valid is expected_valid
+        if expected_message_part is None:
+            assert message is None
+        else:
+            assert message is not None and expected_message_part in message
+        child_requests = network.requests_log[1:]
+        if expected_child_query is None:
+            assert child_requests == []
+        else:
+            assert [
+                {name: values[0] for name, values in request.query.items() if name not in ("startTime", "endTime")}
+                for request in child_requests
+            ] == [expected_child_query]
 
     def test_unreachable_api_is_not_reported_as_bad_credentials(self) -> None:
         config = HighLevelSourceConfig(private_integration_token=TOKEN, location_id=LOCATION_ID)

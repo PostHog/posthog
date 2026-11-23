@@ -242,8 +242,8 @@ class TransactionalEmailImpactSerializer(serializers.Serializer):
     clicked = serializers.IntegerField(help_text="Sends with at least one tracked link click.")
     not_clicked = serializers.IntegerField(help_text="Delivered sends nobody clicked.")
     untracked = serializers.IntegerField(
-        help_text="Sends that went out with open and click tracking off, as sensitive emails do, counted by when they "
-        "were queued like the other counts. They can't record an open or a click."
+        help_text="Sends that went out with open and click tracking off, counted by when they were queued like the "
+        "other counts. They can't record an open or a click."
     )
     window_days = serializers.IntegerField(help_text="How many days after the click or the send the event counts.")
     after_click = TransactionalEmailConversionsSerializer(
