@@ -39,7 +39,7 @@ MAX_PROMPT_CHARS = 20_000
 MAX_HISTORY_CHARS = 12_000
 MAX_CONTEXT_CHARS = 8_000
 MAX_SOURCE_TEXT = 2_800
-CONFIG_VERSION = "context-selection-v15"
+CONFIG_VERSION = "context-selection-v16"
 SELECTION_FLAG = "phai-context-selection"
 DEFAULT_DECISION_MODEL = settings.HOGQL_PROMPT_JEV_MODEL
 # The Slack app renders the thread in a tagged block before the request and puts the closing tag on a line of its
@@ -268,6 +268,8 @@ class ContextSelector:
         path, limit = SOURCE_ENDPOINTS[kind]
         params: dict[str, str | int] = {"limit": limit}
         params["query" if kind in ("skill", "business_knowledge") else "search"] = self.query
+        if kind == "business_knowledge":
+            params["neighbors"] = "false"
         with httpx.Client(
             base_url=settings.SITE_URL,
             headers={"Authorization": self._authorization},
@@ -278,7 +280,15 @@ class ContextSelector:
             response.raise_for_status()
             payload = response.json()
         rows = payload["results"] if isinstance(payload, dict) else payload
-        return [self.record(kind, row) for row in rows[:limit]]
+        candidates: list[Candidate] = []
+        documents: set[str] = set()
+        for row in rows[:limit]:
+            candidate = self.record(kind, row)
+            if candidate.document_id and candidate.document_id in documents:
+                continue
+            documents.add(candidate.document_id)
+            candidates.append(candidate)
+        return candidates
 
     def record(self, kind: SourceKind, row: dict[str, object]) -> Candidate:
         root = f"/api/projects/{self.run.team_id}/"

@@ -51,6 +51,12 @@ export const BusinessKnowledgeDocumentsSearchListQueryParams = () => zod.object(
             'Limit retrieval to sources in this library. Pass the same id to repository search and file read. Omit to search every ready source.'
         ),
     limit: zod.number().optional().describe('Maximum number of ranked chunks to return. Defaults to 10, capped at 20.'),
+    neighbors: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, each matched chunk is returned with the chunks just before and after it in its document. Defaults to true. Pass false to get only the matched chunks, best match first.'
+        ),
     query: zod
         .string()
         .describe(

@@ -42,6 +42,8 @@ tools:
             question when it does not. Results are reranked for relevance by default; pass rerank=false for a faster
             search in fused rank order. Pass library_id to search one library, and pass that same id to repository
             search and file read. Omit library_id to search every ready source.
+        exclude_params:
+            - neighbors
         param_overrides:
             rerank:
                 description: >

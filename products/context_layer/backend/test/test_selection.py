@@ -194,7 +194,16 @@ class TestSelection(SimpleTestCase):
                         "document_id": "doc",
                         "ordinal": 2,
                         "url": "https://docs.example.com/activation",
-                    }
+                    },
+                    {
+                        "chunk_id": "later-chunk",
+                        "document_title": "Activation",
+                        "content": "Another activation passage",
+                        "is_generated": False,
+                        "document_id": "doc",
+                        "ordinal": 7,
+                        "url": "https://docs.example.com/activation",
+                    },
                 ],
             }
         )
@@ -238,7 +247,9 @@ class TestSelection(SimpleTestCase):
             records["certification"]["proposed_status"], "deprecated" if long_source == "certification" else "trusted"
         )
         self.assertEqual(records["relationship"]["status"], "proposed")
-        for candidate in self.model.decide.call_args.kwargs["state"]["candidates"].values():
+        reranked = self.model.decide.call_args.kwargs["state"]["candidates"].values()
+        self.assertEqual([c["id"] for c in reranked if c["kind"] == "business_knowledge"], ["chunk"])
+        for candidate in reranked:
             self.assertLessEqual(len(candidate["text"]), MAX_SOURCE_TEXT)
             if candidate["kind"] == "skill" and long_source == "skill":
                 self.assertEqual(json.loads(candidate["text"])["matches"], self.skill["matches"])
@@ -246,6 +257,8 @@ class TestSelection(SimpleTestCase):
             self.assertEqual(request.headers["Authorization"], "Bearer fake-sandbox-token")
             self.assertTrue(request.url.path.startswith("/api/projects/42/"))
             self.assertEqual(request.url.host, "posthog.example.com")
+            if request.url.path.endswith("business_knowledge/documents/search/"):
+                self.assertEqual(request.url.params["neighbors"], "false")
             parameter = "query" if "search/" in request.url.path else "search"
             query = request.url.params[parameter]
             self.assertLessEqual(len(query), 200)

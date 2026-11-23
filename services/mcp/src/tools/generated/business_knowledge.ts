@@ -42,7 +42,7 @@ const businessKnowledgeDocumentWindowRetrieve = (): ToolBase<
 const BusinessKnowledgeDocumentsSearchSchema = () => {
     const BusinessKnowledgeDocumentsSearchListQueryParams =
         orvalSchemas.BusinessKnowledgeDocumentsSearchListQueryParams()
-    return BusinessKnowledgeDocumentsSearchListQueryParams.extend({
+    return BusinessKnowledgeDocumentsSearchListQueryParams.omit({ neighbors: true }).extend({
         rerank: BusinessKnowledgeDocumentsSearchListQueryParams.shape['rerank']
             .default(true)
             .optional()

@@ -767,12 +767,20 @@ class TestKnowledgeDocumentSearchAPI(APIBaseTest):
         KnowledgeDocument.objects.unscoped().filter(source_id=source.id).update(safety_verdict=SafetyVerdict.SAFE)
         return source
 
+    @parameterized.expand(
+        [
+            ("with_neighbors", {}, [(0, "keyword", None), (1, "context", None)]),
+            ("matched_only", {"neighbors": "false"}, [(0, "keyword", None)]),
+        ]
+    )
     @patch("posthog.api.embedding_worker.generate_embedding", side_effect=Exception("unavailable"))
-    def test_search_returns_ranked_chunks(self, _embed, _ff) -> None:
+    def test_search_returns_ranked_chunks(
+        self, _name: str, params: dict[str, str], expected: list[tuple[int, str, None]], _embed, _ff
+    ) -> None:
         self._ready_safe_source(
             text="Pricing plans are available on request.\n\n" + "x " * 600 + "\n\nOur refund policy is flexible."
         )
-        response = self.client.get(self.url, {"query": "pricing"})
+        response = self.client.get(self.url, {"query": "pricing", **params})
         assert response.status_code == status.HTTP_200_OK, response.content
         body = response.json()
         assert len(body) >= 1
@@ -792,10 +800,7 @@ class TestKnowledgeDocumentSearchAPI(APIBaseTest):
             "matched_by",
             "similarity",
         }
-        assert [(chunk["ordinal"], chunk["matched_by"], chunk["similarity"]) for chunk in body] == [
-            (0, "keyword", None),
-            (1, "context", None),
-        ]
+        assert [(chunk["ordinal"], chunk["matched_by"], chunk["similarity"]) for chunk in body] == expected
         assert first["source_name"] == "Docs"
         assert first["url"] == ""
         assert first["is_generated"] is False

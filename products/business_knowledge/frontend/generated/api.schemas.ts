@@ -835,6 +835,10 @@ export type BusinessKnowledgeDocumentsSearchListParams = {
      */
     limit?: number
     /**
+     * When true, each matched chunk is returned with the chunks just before and after it in its document. Defaults to true. Pass false to get only the matched chunks, best match first.
+     */
+    neighbors?: boolean
+    /**
      * Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project.
      */
     query: string

@@ -753,6 +753,16 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 ),
             ),
             OpenApiParameter(
+                "neighbors",
+                OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "When true, each matched chunk is returned with the chunks just before and after it in its document. "
+                    "Defaults to true. Pass false to get only the matched chunks, best match first."
+                ),
+            ),
+            OpenApiParameter(
                 "library_id",
                 OpenApiTypes.UUID,
                 location=OpenApiParameter.QUERY,
@@ -779,6 +789,7 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         limit = self._parse_int_param(request, "limit", required=False, default=BK_SEARCH_DEFAULT_LIMIT)
         limit = max(1, min(limit, BK_SEARCH_MAX_LIMIT))
         rerank = self._parse_bool_param(request, "rerank", default=False)
+        neighbors = self._parse_bool_param(request, "neighbors", default=True)
         if not _can_read_parent_knowledge(self, request):
             raise exceptions.PermissionDenied(
                 detail="You need access to business knowledge in this project to search it."
@@ -787,7 +798,12 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         search_limit = limit * 2 if rerank else limit
         trace = RetrievalTrace(surface="api")
         results = logic.search_knowledge_for_team(
-            self.team, query.strip(), limit=search_limit, trace=trace, library_id=library_id
+            self.team,
+            query.strip(),
+            limit=search_limit,
+            trace=trace,
+            library_id=library_id,
+            expand_neighbors=neighbors,
         )
         if rerank:
             results = logic.rerank_chunks(

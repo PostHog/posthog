@@ -2807,6 +2807,7 @@ def search_knowledge(
     library_id: UUID | None = None,
     trace: RetrievalTrace | None = None,
     usage_team_id: int | None = None,
+    expand_neighbors: bool = True,
 ) -> list[KnowledgeSearchResult]:
     """
     Run one knowledge search, metered as one query when ``trace`` is given.
@@ -2823,6 +2824,7 @@ def search_knowledge(
         use_semantic=use_semantic,
         query_embedding=query_embedding,
         library_id=library_id,
+        expand_neighbors=expand_neighbors,
     )
     if trace is not None:
         billing.record_query(
@@ -2842,6 +2844,7 @@ def _search_knowledge(
     use_semantic: bool = False,
     query_embedding: list[float] | None = None,
     library_id: UUID | None = None,
+    expand_neighbors: bool = True,
 ) -> list[KnowledgeSearchResult]:
     """
     Hybrid (lexical + semantic) relevance search over BK chunks.
@@ -2852,7 +2855,7 @@ def _search_knowledge(
     When ``use_semantic=True``, the caller must also pass ``query_embedding``
     (the pre-computed query vector). Both FTS and vector results are fused via
     Reciprocal Rank Fusion (RRF), safety-re-joined against Postgres, trimmed
-    to ``limit``, and ordinal-neighbour-expanded.
+    to ``limit``, and ordinal-neighbour-expanded unless ``expand_neighbors`` is false.
     """
     limit = max(1, min(limit, BK_SEARCH_MAX_LIMIT))
 
@@ -2941,7 +2944,7 @@ def _search_knowledge(
     for rank, anchor in enumerate(anchor_chunks):
         doc_rank.setdefault(anchor.document_id, rank)
         wanted_ordinals.setdefault(anchor.document_id, set()).update(
-            (anchor.ordinal - 1, anchor.ordinal, anchor.ordinal + 1)
+            (anchor.ordinal - 1, anchor.ordinal, anchor.ordinal + 1) if expand_neighbors else (anchor.ordinal,)
         )
 
     window_filter = reduce(
@@ -2968,7 +2971,11 @@ def _search_knowledge(
         )
     )
 
-    ordered = sorted(chunks, key=lambda c: (doc_rank.get(c.document_id, len(anchor_chunks)), c.ordinal))
+    if expand_neighbors:
+        ordered = sorted(chunks, key=lambda c: (doc_rank.get(c.document_id, len(anchor_chunks)), c.ordinal))
+    else:
+        anchor_rank = {anchor.id: rank for rank, anchor in enumerate(anchor_chunks)}
+        ordered = sorted((c for c in chunks if c.id in anchor_rank), key=lambda c: anchor_rank[c.id])
 
     return [
         _result_from_chunk(
@@ -2998,6 +3005,7 @@ def search_knowledge_for_team(
     trace: RetrievalTrace,
     limit: int = 10,
     library_id: UUID | None = None,
+    expand_neighbors: bool = True,
 ) -> list[KnowledgeSearchResult]:
     """
     Sync orchestration of hybrid BK search: embed the query, then call
@@ -3028,6 +3036,7 @@ def search_knowledge_for_team(
         query_embedding=embedding,
         library_id=library_id,
         trace=trace,
+        expand_neighbors=expand_neighbors,
     )
 
 
