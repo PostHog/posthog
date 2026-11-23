@@ -45,7 +45,6 @@ from products.messaging.backend.presentation.views.message_templates import (
     EMAIL_SCHEDULED_SENDS_FLAG,
     TRANSACTIONAL_EMAIL_API_FLAG,
     TransactionalEmailBurstThrottle,
-    daily_email_cap,
 )
 from products.messaging.backend.services import transactional_email
 from products.messaging.backend.services.code_email_source import SOURCE_DETECTION_FLAG
@@ -860,21 +859,23 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
-    @parameterized.expand([("tier_0", 0, status.HTTP_429_TOO_MANY_REQUESTS), ("tier_7", 7, status.HTTP_202_ACCEPTED)])
+    @parameterized.expand(
+        [("not_listed", False, status.HTTP_429_TOO_MANY_REQUESTS), ("listed", True, status.HTTP_202_ACCEPTED)]
+    )
     def test_a_send_over_the_burst_limit_is_refused_while_the_throttle_reader_lags(
-        self, mock_post, _flag, _capture, _name, tier, third_status
+        self, mock_post, _flag, _capture, _name, listed, third_status
     ):
         self._cdp_accepts(mock_post)
         client = self._sender_client("secret_key")
-        TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults={"email_sending_tier": tier})
+        allow_list = f"1,{self.team.id}" if listed else "1"
         with (
             override_settings(CACHES=lagging_reader_caches(unique_key_prefix("test-send-throttle"))),
             override_instance_config("RATE_LIMIT_ENABLED", True),
+            override_instance_config("TRANSACTIONAL_EMAIL_RATE_LIMIT_ALLOW_LIST_TEAMS", allow_list),
             patch.object(TransactionalEmailBurstThrottle, "rate", "2/minute"),
         ):
             try:
                 is_rate_limit_enabled.cache_clear()
-                daily_email_cap.cache_clear()
                 statuses = [self._send(client, "template", self.body).status_code for _ in range(3)]
             finally:
                 redis_cache = caches["default"]
