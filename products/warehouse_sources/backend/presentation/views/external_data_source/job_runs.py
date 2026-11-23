@@ -263,10 +263,16 @@ class ExternalDataSourceJobRunsMixin(base.ExternalDataSourceViewSetBase):
                 )
             configs = {st: config for st, config in configs.items() if st in resolved}
 
-        # The shared catalog lists only engines every team has. An engine behind a release flag joins here.
-        for source_type, config in configs.items():
-            if config.get("cdcEngine") is None:
-                config["cdcEngine"] = cdc_engine_for_team(source_type, self.team_id)
+        # The shared catalog lists only engines every team has. An engine behind a release flag joins here, on a
+        # copy, because the catalog object may be shared with other requests.
+        configs = {
+            source_type: (
+                {**config, "cdcEngine": cdc_engine_for_team(source_type, self.team_id)}
+                if config.get("cdcEngine") is None
+                else config
+            )
+            for source_type, config in configs.items()
+        }
 
         response = WizardResponse(status=status.HTTP_200_OK, data=configs)
         # The catalog changes only on a deploy or a release flag, and the URL carries the team, so let the
