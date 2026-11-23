@@ -3,12 +3,16 @@ import posthog from 'posthog-js'
 
 import { IconGithub, IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { Badge, Button, Item, ItemActions, ItemContent, ItemDescription, Skeleton, Text } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { buildGithubDisconnectDescription } from 'lib/integrations/githubDisconnectCopy'
 import { GitHubInstallRequestsBanner } from 'lib/integrations/GitHubInstallRequestsBanner'
 import { GitHubRepoSummary } from 'lib/integrations/GitHubRepoSummary'
+import { QuillIntegrationList } from 'lib/integrations/QuillIntegrationList'
+import { QuillIntegrationRow } from 'lib/integrations/QuillIntegrationRow'
 import { userGithubIntegrationLogic } from 'lib/integrations/userGithubIntegrationLogic'
 import { IconSlack } from 'lib/lemon-ui/icons'
 
@@ -41,6 +45,7 @@ function GitHubInstallationRow({ integration }: { integration: PersonalGitHubInt
     )
     const installationUnavailable = integration.installation_status === 'unavailable'
     const needsReauthorization = !!integration.needs_reauthorization
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const handleDisconnect = (): void => {
         LemonDialog.open({
@@ -67,6 +72,105 @@ function GitHubInstallationRow({ integration }: { integration: PersonalGitHubInt
             },
             secondaryButton: { children: 'Cancel' },
         })
+    }
+
+    const handleReconnect = (): void => {
+        reportPersonalIntegrationConnectClicked('github')
+        connectGitHub()
+    }
+
+    const reconnectDisabledReason = githubConnecting ? 'Starting GitHub authorization…' : undefined
+
+    const repoSummary = (
+        <GitHubRepoSummary
+            repoNames={repositories.map((r: { name: string }) => r.name)}
+            loading={repositoriesLoading}
+            installationId={installationId}
+            accountType={accountType}
+            accountName={accountName}
+            repositorySelection={repositorySelection}
+            total={repositoriesTotal}
+        />
+    )
+
+    if (todayRailNav) {
+        return (
+            <QuillIntegrationRow
+                icon={<IconGithub />}
+                title={accountName || 'GitHub'}
+                badges={
+                    <>
+                        <Badge>{accountType === 'Organization' ? 'Org' : 'Personal'}</Badge>
+                        {needsReauthorization ? <Badge variant="warning">Needs reconnecting</Badge> : null}
+                    </>
+                }
+                meta={
+                    <>
+                        {integration.created_at ? (
+                            <span>
+                                Connected <TZLabel time={integration.created_at} className="align-baseline" />
+                            </span>
+                        ) : (
+                            <span>Connected</span>
+                        )}
+                        {integration.uses_shared_installation ? <span> · Also used by this project</span> : null}
+                    </>
+                }
+                action={
+                    <Button
+                        variant="destructive-outline"
+                        size="icon"
+                        aria-label="Disconnect this installation"
+                        tooltip="Disconnect this installation"
+                        onClick={handleDisconnect}
+                    >
+                        <IconTrash />
+                    </Button>
+                }
+            >
+                {repoSummary}
+                {installationUnavailable ? (
+                    <Item tone="destructive" size="sm">
+                        <ItemContent>
+                            <ItemDescription>
+                                The PostHog app was removed from GitHub. Disconnect this installation, then connect
+                                again if you still need it.
+                            </ItemDescription>
+                        </ItemContent>
+                    </Item>
+                ) : null}
+                {needsReauthorization ? (
+                    <Item tone="warning" size="sm">
+                        <ItemContent>
+                            <ItemDescription>
+                                GitHub stopped accepting this connection
+                                {integration.needs_reauthorization_at ? (
+                                    <>
+                                        {' '}
+                                        <TZLabel
+                                            time={integration.needs_reauthorization_at}
+                                            className="align-baseline"
+                                        />
+                                    </>
+                                ) : null}
+                                . Reconnect to let PostHog read your repos and open pull requests as you again.
+                            </ItemDescription>
+                        </ItemContent>
+                        <ItemActions>
+                            <Button
+                                variant="outline"
+                                onClick={handleReconnect}
+                                loading={githubConnecting}
+                                disabledReason={reconnectDisabledReason}
+                            >
+                                <IconRefresh />
+                                Reconnect
+                            </Button>
+                        </ItemActions>
+                    </Item>
+                ) : null}
+            </QuillIntegrationRow>
+        )
     }
 
     return (
@@ -100,17 +204,7 @@ function GitHubInstallationRow({ integration }: { integration: PersonalGitHubInt
                     )}
                     {integration.uses_shared_installation ? ' · Also used by this project' : ''}
                 </div>
-                <div className="mt-1">
-                    <GitHubRepoSummary
-                        repoNames={repositories.map((r: { name: string }) => r.name)}
-                        loading={repositoriesLoading}
-                        installationId={installationId}
-                        accountType={accountType}
-                        accountName={accountName}
-                        repositorySelection={repositorySelection}
-                        total={repositoriesTotal}
-                    />
-                </div>
+                <div className="mt-1">{repoSummary}</div>
                 {installationUnavailable ? (
                     <LemonBanner type="error" className="mt-2">
                         The PostHog app was removed from GitHub. Disconnect this installation, then connect again if you
@@ -125,12 +219,9 @@ function GitHubInstallationRow({ integration }: { integration: PersonalGitHubInt
                         action={{
                             children: 'Reconnect',
                             icon: <IconRefresh />,
-                            onClick: () => {
-                                reportPersonalIntegrationConnectClicked('github')
-                                connectGitHub()
-                            },
+                            onClick: handleReconnect,
                             loading: githubConnecting,
-                            disabledReason: githubConnecting ? 'Starting GitHub authorization…' : undefined,
+                            disabledReason: reconnectDisabledReason,
                         }}
                     >
                         GitHub stopped accepting this connection
@@ -160,6 +251,7 @@ function GitHubInstallationRow({ integration }: { integration: PersonalGitHubInt
 
 function SlackLinkRow({ integration }: { integration: PersonalSlackIntegration }): JSX.Element {
     const { disconnectSlack } = useActions(personalIntegrationsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const handleUnlink = (): void => {
         LemonDialog.open({
@@ -178,6 +270,41 @@ function SlackLinkRow({ integration }: { integration: PersonalSlackIntegration }
             },
             secondaryButton: { children: 'Cancel' },
         })
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillIntegrationRow
+                icon={<IconSlack />}
+                title={integration.slack_team_name || 'Slack workspace'}
+                badges={<Badge className="font-mono">{integration.slack_user_id}</Badge>}
+                meta={
+                    <>
+                        {integration.created_at ? (
+                            <span>
+                                Linked <TZLabel time={integration.created_at} className="align-baseline" />
+                            </span>
+                        ) : (
+                            <span>Linked</span>
+                        )}
+                        {integration.slack_email_at_link ? (
+                            <span>{` · ${integration.slack_email_at_link}`}</span>
+                        ) : null}
+                    </>
+                }
+                action={
+                    <Button
+                        variant="destructive-outline"
+                        size="icon"
+                        aria-label="Unlink this Slack account"
+                        tooltip="Unlink this Slack account"
+                        onClick={handleUnlink}
+                    >
+                        <IconTrash />
+                    </Button>
+                }
+            />
+        )
     }
 
     return (
@@ -223,6 +350,7 @@ export function PersonalGitHubIntegrations(): JSX.Element {
     const { integrations, healthyIntegrations, integrationsLoading, githubConnecting } =
         useValues(personalIntegrationsLogic)
     const { connectGitHub, startPolling, stopPolling } = useActions(personalIntegrationsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // Refresh the personal rows while this section stays mounted, so an App removed on GitHub shows
     // its unavailable notice without a manual reload.
@@ -231,7 +359,18 @@ export function PersonalGitHubIntegrations(): JSX.Element {
         return () => stopPolling()
     })
 
+    const handleConnect = (): void => {
+        reportPersonalIntegrationConnectClicked('github')
+        connectGitHub()
+    }
+
+    const connectDisabledReason = githubConnecting ? 'Starting GitHub installation…' : undefined
+
     if (integrationsLoading && integrations.length === 0) {
+        if (todayRailNav) {
+            return <Skeleton className="h-16 w-full" />
+        }
+
         return (
             <div className="deprecated-space-y-2">
                 <LemonSkeleton className="h-16 w-full" />
@@ -239,14 +378,45 @@ export function PersonalGitHubIntegrations(): JSX.Element {
         )
     }
 
+    if (todayRailNav) {
+        return (
+            <div className="flex flex-col gap-2">
+                <GitHubInstallRequestsBanner onFinishConnecting={handleConnect} />
+                <QuillIntegrationList
+                    isEmpty={integrations.length === 0}
+                    emptyIcon={<IconGithub />}
+                    emptyTitle="No GitHub installations connected yet"
+                    emptyDescription="Connect to let PostHog access your repos, attribute commits, open pull requests, and assign issues as you. You can add multiple installations for different accounts or organizations."
+                    footer={
+                        <>
+                            <Button
+                                variant="outline"
+                                onClick={handleConnect}
+                                loading={githubConnecting}
+                                disabledReason={connectDisabledReason}
+                            >
+                                <IconPlus />
+                                {healthyIntegrations.length === 0 ? 'Connect GitHub' : 'Add account/organization'}
+                            </Button>
+                            <Text size="xs" variant="muted" render={<span className="m-0 text-balance" />}>
+                                Heads up: if GitHub's <strong>Save</strong> button is disabled at the end of the flow,
+                                flip between <strong>All repositories</strong> and{' '}
+                                <strong>Only select repositories</strong> to proceed.
+                            </Text>
+                        </>
+                    }
+                >
+                    {integrations.map((integration: PersonalGitHubIntegration) => (
+                        <GitHubInstallationRow key={integration.installation_id} integration={integration} />
+                    ))}
+                </QuillIntegrationList>
+            </div>
+        )
+    }
+
     return (
         <div className="flex flex-col gap-2">
-            <GitHubInstallRequestsBanner
-                onFinishConnecting={() => {
-                    reportPersonalIntegrationConnectClicked('github')
-                    connectGitHub()
-                }}
-            />
+            <GitHubInstallRequestsBanner onFinishConnecting={handleConnect} />
             <div className="divide-y rounded border bg-surface-primary">
                 {integrations.length === 0 ? (
                     <div className="px-4 py-6 text-center text-sm text-secondary">
@@ -267,12 +437,9 @@ export function PersonalGitHubIntegrations(): JSX.Element {
                         type="secondary"
                         size="small"
                         icon={<IconPlus />}
-                        onClick={() => {
-                            reportPersonalIntegrationConnectClicked('github')
-                            connectGitHub()
-                        }}
+                        onClick={handleConnect}
                         loading={githubConnecting}
-                        disabledReason={githubConnecting ? 'Starting GitHub installation…' : undefined}
+                        disabledReason={connectDisabledReason}
                     >
                         {healthyIntegrations.length === 0 ? 'Connect GitHub' : 'Add account/organization'}
                     </LemonButton>
@@ -336,6 +503,7 @@ export function PersonalSlackIntegrations(): JSX.Element {
         linkableSlackWorkspacesLoading,
     } = useValues(personalIntegrationsLogic)
     const { connectSlack } = useActions(personalIntegrationsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const hasLinkableWorkspaces = linkableSlackWorkspaces.length > 0
     const onConnect = (): void => {
@@ -344,6 +512,46 @@ export function PersonalSlackIntegrations(): JSX.Element {
         } else if (linkableSlackWorkspaces.length === 1) {
             connectSlack({ workspace: linkableSlackWorkspaces[0] })
         }
+    }
+
+    const connectDisabledReason = !hasLinkableWorkspaces ? 'Loading…' : undefined
+
+    if (todayRailNav) {
+        if (slackIntegrationsLoading && slackIntegrations.length === 0) {
+            return <Skeleton className="h-16 w-full" />
+        }
+
+        return (
+            <QuillIntegrationList
+                isEmpty={slackIntegrations.length === 0}
+                emptyIcon={<IconSlack />}
+                emptyTitle="No Slack account linked"
+                emptyDescription="Link your Slack identity so @PostHog mentions route to you even when your Slack email and PostHog email don't match."
+                footer={
+                    linkableSlackWorkspacesLoading || hasLinkableWorkspaces ? (
+                        <>
+                            <Button
+                                variant="outline"
+                                onClick={onConnect}
+                                loading={slackConnectLoading || linkableSlackWorkspacesLoading}
+                                disabledReason={connectDisabledReason}
+                            >
+                                <IconPlus />
+                                {slackIntegrations.length === 0 ? 'Link my Slack account' : 'Link another workspace'}
+                            </Button>
+                            <Text size="xs" variant="muted" render={<span className="m-0 text-balance" />}>
+                                You'll be redirected to Slack to authorize this PostHog account. The link binds your
+                                Slack user id to your PostHog account — no Slack token is kept after the redirect.
+                            </Text>
+                        </>
+                    ) : null
+                }
+            >
+                {slackIntegrations.map((integration: PersonalSlackIntegration) => (
+                    <SlackLinkRow key={integration.id} integration={integration} />
+                ))}
+            </QuillIntegrationList>
+        )
     }
 
     return (
@@ -375,7 +583,7 @@ export function PersonalSlackIntegrations(): JSX.Element {
                         icon={<IconPlus />}
                         onClick={onConnect}
                         loading={slackConnectLoading || linkableSlackWorkspacesLoading}
-                        disabledReason={!hasLinkableWorkspaces ? 'Loading…' : undefined}
+                        disabledReason={connectDisabledReason}
                     >
                         {slackIntegrations.length === 0 ? 'Link my Slack account' : 'Link another workspace'}
                     </LemonButton>

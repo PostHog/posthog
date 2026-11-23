@@ -258,19 +258,28 @@ class TestResendAutomationTranslation(SimpleTestCase):
             (
                 "cohort_is_set",
                 SegmentCohort(name="Pro (from Resend)", cohort_id=7),
+                False,
                 {"cohort_id": {"value": 7}},
-                "doesn't copy who",
+                "Import Contacts too",
+            ),
+            (
+                "cohort_filled_by_the_same_import",
+                SegmentCohort(name="Pro (from Resend)", cohort_id=7),
+                True,
+                {"cohort_id": {"value": 7}},
+                "also added the segment's contacts",
             ),
             (
                 "no_cohort_keeps_the_step",
                 SegmentCohort(problem="This segment no longer exists in Resend."),
+                False,
                 {},
                 "no longer exists",
             ),
         ]
     )
     def test_add_to_segment_becomes_a_cohort_step(
-        self, _name: str, cohort: SegmentCohort, inputs: dict[str, Any], note: str
+        self, _name: str, cohort: SegmentCohort, members_imported: bool, inputs: dict[str, Any], note: str
     ) -> None:
         translated = translate_automation(
             _automation(
@@ -278,7 +287,7 @@ class TestResendAutomationTranslation(SimpleTestCase):
                 [{"from": "start", "to": "tag"}],
             ),
             {},
-            TranslationContext(segment_cohorts={"seg": cohort}),
+            TranslationContext(segment_cohorts={"seg": cohort}, segment_members_imported=members_imported),
         )
 
         action = next(action for action in translated.workflow["actions"] if action["id"] == "tag")

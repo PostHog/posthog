@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { TagsCombobox } from 'lib/components/Scenes/TagsCombobox'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { EditorFilterProps } from '~/types'
 
