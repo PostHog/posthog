@@ -195,12 +195,12 @@ class TrinoPhysicalFieldLowerer(CloningVisitor):
                     name="arrayDistinct",
                     args=[ast.Call(name="extractAll", args=[source, ast.Constant(value=pattern)])],
                 )
-        if isinstance(field_type, ast.FieldType) and isinstance(table_type, ast.TableType):
-            database_field = field_type.resolve_database_field(self.context)
-            if isinstance(database_field, DatabaseField) and database_field.name != field_type.name:
+        if isinstance(node.type, ast.FieldType) and isinstance(table_type, ast.TableType):
+            database_field = node.type.resolve_database_field(self.context)
+            if isinstance(database_field, DatabaseField) and database_field.name != node.type.name:
                 lowered = super().visit_field(node)
-                lowered.type = field_type
-                lowered.chain[-1] = database_field.name if self.physical_names else field_type.name
+                if self.physical_names:
+                    lowered.chain[-1] = database_field.name
                 if len(lowered.chain) == 1 and source_type is not None:
                     # The second resolver pass cannot recover the source of a renamed bare field.
                     source_alias = self._source_alias(source_type)

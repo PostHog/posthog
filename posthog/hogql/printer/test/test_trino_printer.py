@@ -147,6 +147,13 @@ def test_star_projection_preserves_logical_name_for_physical_column_alias(expose
     )
     assert 'WHERE ("subscriptions"."customer" != ' in where_sql
 
+    order_sql, _ = prepare_and_print_ast(
+        parse_select("SELECT customer_id AS c, 0 AS s FROM subscriptions AS s ORDER BY c"),
+        context,
+        "trino",
+    )
+    assert order_sql.endswith("ORDER BY 1 ASC")
+
     join_sql, _ = prepare_and_print_ast(
         parse_select(
             "SELECT s.customer_id, other.created_at FROM subscriptions AS s "
