@@ -1,11 +1,16 @@
 import z from 'zod'
 
+import { POSTHOG_AI_CONSUMER, SLACK_CONSUMER } from '@/lib/client-detection'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
 
 import servedSkillsJson from './served-skills.json'
 
+// The PostHog-run agents that read skills through `learn`. Other PostHog consumers read an installed copy.
+const SkillConsumerSchema = z.enum([SLACK_CONSUMER, POSTHOG_AI_CONSUMER])
+
 const ServedSkillSchema = z.strictObject({
     feature_flag: z.string().min(1).optional(),
+    consumers: z.array(SkillConsumerSchema).min(1).optional(),
 })
 
 // Strict, so a misspelled key fails the load instead of serving a gated skill to everyone.
@@ -15,6 +20,11 @@ const ServedSkillsSchema = z.strictObject({
 })
 
 export type ServedSkills = Map<string, z.infer<typeof ServedSkillSchema>>
+
+export interface SkillCaller {
+    featureFlags?: EvaluatedFlags | undefined
+    consumer?: string | undefined
+}
 
 export function parseServedSkills(json: unknown): ServedSkills {
     const { skills, context_mill_skills } = ServedSkillsSchema.parse(json)
@@ -27,14 +37,13 @@ export function getServedSkillFeatureFlags(served: ServedSkills = SERVED_SKILLS)
     return [...new Set([...served.values()].flatMap(({ feature_flag }) => (feature_flag ? [feature_flag] : [])))]
 }
 
-export function isSkillServed(
-    name: string,
-    featureFlags: EvaluatedFlags = {},
-    served: ServedSkills = SERVED_SKILLS
-): boolean {
+export function isSkillServed(name: string, caller: SkillCaller = {}, served: ServedSkills = SERVED_SKILLS): boolean {
     const entry = served.get(name)
     if (!entry) {
         return false
     }
-    return entry.feature_flag === undefined || featureFlags[entry.feature_flag] === true
+    if (entry.feature_flag !== undefined && caller.featureFlags?.[entry.feature_flag] !== true) {
+        return false
+    }
+    return entry.consumers === undefined || entry.consumers.some((consumer) => consumer === caller.consumer)
 }

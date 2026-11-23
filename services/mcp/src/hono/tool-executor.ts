@@ -967,7 +967,8 @@ export class ToolExecutor {
         if (!catalog || state.toolFeatureFlags?.[MCP_SERVED_SKILLS_LIST_FLAG] !== true) {
             return catalog
         }
-        return catalog.filter((name) => isSkillServed(name, state.toolFeatureFlags))
+        const consumer = getEffectiveMCPClientContext(state.requestContext, state.sessionContext).mcpConsumer
+        return catalog.filter((name) => isSkillServed(name, { featureFlags: state.toolFeatureFlags, consumer }))
     }
 
     /**

@@ -320,6 +320,7 @@ The bundle holds every skill in the release, including the skills written for Po
 With the `mcp-served-skills-list` flag on, `learn` serves only the skills named in `src/skills/served-skills.json`.
 A skill left out of that file does not appear in search and does not load by name.
 An entry with a `feature_flag` is served only to a caller who has that flag on, the same rule as a tool's `feature_flag`.
+An entry with `consumers` is served only to those PostHog-run agents, matched on the `x-posthog-mcp-consumer` header.
 Project skills are read directly from the request-authenticated project and are not cached by the MCP server.
 Only latest, active, uncategorized skills are exposed through `learn`; category-specific skills such as scouts stay on their own surfaces.
 Project full-text search is bounded to 10 skills, two short snippets per skill, and a five-second database timeout.

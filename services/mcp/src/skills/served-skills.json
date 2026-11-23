@@ -148,7 +148,9 @@
         "suggesting-data-imports": {},
         "suppressing-noisy-errors": {},
         "syncing-migrated-self-managed-tables": {},
-        "transcribing-slack-audio": {},
+        "transcribing-slack-audio": {
+            "consumers": ["slack"]
+        },
         "triaging-error-issues": {},
         "triaging-visual-review-runs": {
             "feature_flag": "visual-review"
