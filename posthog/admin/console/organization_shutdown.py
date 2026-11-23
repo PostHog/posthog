@@ -199,7 +199,7 @@ class OrganizationInventory:
     organization_id: UUID
     name: str
     member_count: int
-    personal_api_key_count: int
+    personal_key_count: int
     background_work: BackgroundWorkListing
 
 
@@ -209,7 +209,7 @@ def take_inventory(organization: Organization) -> OrganizationInventory:
         organization_id=organization.id,
         name=organization.name,
         member_count=organization.members.count(),
-        personal_api_key_count=get_organization_personal_api_keys(organization).count(),
+        personal_key_count=get_organization_personal_api_keys(organization).count(),
         background_work=find_background_work(team_ids),
     )
 
@@ -344,7 +344,7 @@ def inventory_table(inventories: Sequence[OrganizationInventory], actions: dict[
                 Cell(text=str(inventory.organization_id), mono=True),
                 Cell(text=actions[inventory.organization_id]),
                 Cell(text=str(inventory.member_count)),
-                Cell(text=str(inventory.personal_api_key_count)),
+                Cell(text=str(inventory.personal_key_count)),
                 Cell(text=inventory.background_work.summary()),
             )
         )

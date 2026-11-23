@@ -45,6 +45,9 @@ READERS: dict[str, str] = {
     "products/logs/backend/platform_ownership.py": "ownership layer: create (E1)",
     "products/logs/backend/facade/platform_ownership.py": "ownership facade for the logs API's creates (E1)",
     "products/alerts/backend/platform_cutover.py": "cutover and rollback (E2)",
+    "products/alerts/backend/logic/alert_shutdown.py": (
+        "staff shutdown disables insight alerts that still run on the row, and their platform copy (B1-B6)"
+    ),
     "products/logs/backend/destination_conversion.py": "moves destinations off HogFunctions under the row's lock (H5)",
     "products/alerts/backend/management/commands/cut_over_insight_alerts_to_platform.py": "cut command (E2)",
     "products/alerts/backend/platform_alert_backfill.py": "builds copies from rows",
