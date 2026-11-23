@@ -14,6 +14,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.slack_app.backend.logic import interview_recruitment
+from products.slack_app.backend.logic.frustration_response import frustration_response_blocks
 from products.slack_app.backend.logic.interview_recruitment import BOOKING_URL
 from products.slack_app.backend.models import SlackUserProfileCache
 from products.slack_app.backend.services.slack_messages import TURN_FEEDBACK_ACTION_ID, turn_feedback_block
@@ -194,6 +195,29 @@ class TestTurnFeedback(TestCase):
         kwargs = self.mock_analytics.capture.call_args.kwargs
         assert kwargs["event"] == "$ai_feedback"
         assert kwargs["properties"]["$ai_trace_id"] == trace_id
+
+    def test_the_apology_button_and_its_reason_name_their_source(self):
+        blocks = frustration_response_blocks(self.integration.id, str(self.task_run.id), None, None)
+        self._pick(blocks[-1]["elements"][0]["value"])
+        view = self.mock_slack.return_value.client.views_open.call_args.kwargs["view"]
+        rating = self.mock_analytics.capture.call_args.kwargs["properties"]
+
+        self._post(
+            {
+                "type": "view_submission",
+                "team": {"id": self.slack_team_id},
+                "user": {"id": "U_ALICE"},
+                "view": {
+                    "callback_id": view["callback_id"],
+                    "private_metadata": view["private_metadata"],
+                    "state": {"values": {_MODAL_TEXT_BLOCK_ID: {_MODAL_TEXT_ACTION_ID: {"value": "wrong dashboard"}}}},
+                },
+            }
+        )
+
+        reason = self.mock_analytics.capture.call_args.kwargs["properties"]
+        assert (rating["$ai_metric_value"], rating["feedback_source"]) == ("bad", "frustration_response")
+        assert reason["feedback_source"] == "frustration_response"
 
     def test_every_thumbs_down_modal_links_to_the_interview_booking(self):
         client = self.mock_slack.return_value.client

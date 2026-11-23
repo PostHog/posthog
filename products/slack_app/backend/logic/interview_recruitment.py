@@ -149,6 +149,8 @@ class FrustrationInviteRequest:
     signal: FrustrationSignal
     person_message: str | None = None
     trace_id: str | None = None
+    # A verdict the caller already has for ``person_message``, so the model does not run twice.
+    unhappy: bool | None = None
 
 
 def offer_frustration_invite(request: FrustrationInviteRequest) -> bool:
@@ -176,11 +178,15 @@ def offer_frustration_invite(request: FrustrationInviteRequest) -> bool:
     )
     if thread_count < MIN_INTERACTIONS:
         return False
-    if request.signal == "message" and not _is_unhappy(
-        request.person_message or "",
-        team_id=integration.team_id,
-        distinct_id=request.posthog_user.distinct_id if request.posthog_user is not None else None,
-        trace_id=request.trace_id,
+    if request.signal == "message" and not (
+        request.unhappy
+        if request.unhappy is not None
+        else is_unhappy(
+            request.person_message or "",
+            team_id=integration.team_id,
+            distinct_id=request.posthog_user.distinct_id if request.posthog_user is not None else None,
+            trace_id=request.trace_id,
+        )
     ):
         return False
 
@@ -249,7 +255,12 @@ def _release_invite(slack_workspace_id: str, slack_user_id: str, reserved_at: da
 
 
 def classify_sentiment(
-    message: str, *, team_id: int, distinct_id: str | None, trace_id: str | None
+    message: str,
+    *,
+    team_id: int,
+    distinct_id: str | None,
+    trace_id: str | None,
+    classifier: str = "interview_sentiment",
 ) -> SentimentVerdict | None:
     """Ask the decision model whether the person is unhappy with the assistant. ``None`` means no verdict.
 
@@ -266,7 +277,7 @@ def classify_sentiment(
         team_id=team_id,
         distinct_id=distinct_id,
         trace_id=trace_id,
-        properties={CLASSIFIER_PROPERTY: "interview_sentiment"},
+        properties={CLASSIFIER_PROPERTY: classifier},
         timeout=SENTIMENT_TIMEOUT_SECONDS,
     )
     result = client.decide(
@@ -281,10 +292,19 @@ def classify_sentiment(
     return SentimentVerdict(choice=answer.choice, confidence=answer.confidence)
 
 
-def _is_unhappy(message: str, *, team_id: int, distinct_id: str | None, trace_id: str | None) -> bool:
-    """Whether the message reads as unhappy. Any failure reads as no, because a missed invitation costs nothing."""
+def is_unhappy(
+    message: str,
+    *,
+    team_id: int,
+    distinct_id: str | None,
+    trace_id: str | None,
+    classifier: str = "interview_sentiment",
+) -> bool:
+    """Whether the message reads as unhappy. Any failure reads as no, because a missed prompt costs nothing."""
     try:
-        verdict = classify_sentiment(message, team_id=team_id, distinct_id=distinct_id, trace_id=trace_id)
+        verdict = classify_sentiment(
+            message, team_id=team_id, distinct_id=distinct_id, trace_id=trace_id, classifier=classifier
+        )
     except Exception:
         logger.warning("slack_app_interview_sentiment_classifier_failed", exc_info=True)
         return False

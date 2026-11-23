@@ -36,9 +36,12 @@ on a gate that falls back to the workspace as a mix of the two.
 
 from __future__ import annotations
 
+import json
+
 import structlog
 import posthoganalytics
 
+from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationRecord
 from posthog.models.team import Team
 from posthog.utils import get_instance_region
@@ -57,6 +60,7 @@ SLACK_APP_DAILY_WORK_FOCUS_FLAG = "slack-app-daily-work-focus"
 SLACK_APP_JEV_NEEDS_REPO_FLAG = "slack-app-jev-needs-repo"
 SLACK_APP_SLACK_MCP_FLAG = "slack-app-slack-mcp"
 SLACK_APP_DAILY_SUMMARY_FLAG = "slack-app-daily-summary"
+SLACK_APP_FRUSTRATION_RESPONSE_FLAG = "slack-app-frustration-response"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -244,6 +248,44 @@ def is_slack_app_daily_summary_enabled(integration: IntegrationRecord, distinct_
         integration,
         failure_log_key="slack_app_daily_summary_feature_flag_check_failed",
         distinct_id=distinct_id,
+    )
+
+
+@frozen
+class FrustrationResponseGate:
+    gif_urls: tuple[str, ...]
+
+
+def slack_app_frustration_response_gate(
+    integration: IntegrationRecord, distinct_id: str | None
+) -> FrustrationResponseGate | None:
+    """``None`` when the flag is off. The GIFs come from the flag payload, ``{"gif_urls": [...]}``, so the
+    team can change them without a deploy. A missing or malformed payload gives no GIFs, not an error."""
+    try:
+        result = posthoganalytics.get_feature_flag_result(
+            SLACK_APP_FRUSTRATION_RESPONSE_FLAG,
+            distinct_id or f"slack_workspace:{integration.integration_id}",
+            groups={"organization": _organization_id(integration)},
+            person_properties=_region_properties(),
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        logger.exception("slack_app_frustration_response_feature_flag_check_failed", integration_id=integration.id)
+        return None
+    if result is None or not result.enabled:
+        return None
+    payload = result.payload
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            payload = None
+    urls = payload.get("gif_urls") if isinstance(payload, dict) else None
+    if not isinstance(urls, list):
+        return FrustrationResponseGate(gif_urls=())
+    return FrustrationResponseGate(
+        gif_urls=tuple(url for url in urls if isinstance(url, str) and url.startswith("https://"))
     )
 
 

@@ -63,6 +63,10 @@ FEEDBACK_TEXT_MAX_LENGTH = 3000
 
 _RATINGS: dict[str, Literal["good", "bad"]] = {"positive": "good", "negative": "bad"}
 
+# A clicked rating that did not come from the reply's thumbs names its surface in the button value.
+FRUSTRATION_RESPONSE_FEEDBACK_SOURCE = "frustration_response"
+_CLICK_FEEDBACK_SOURCES = frozenset({FRUSTRATION_RESPONSE_FEEDBACK_SOURCE})
+
 # Slack sends a reaction as its emoji name, with any skin tone appended after ``::``.
 # ``+1``/``-1`` are the canonical names for the thumbs; ``thumbsup``/``thumbsdown`` are
 # their standing aliases, kept here in case a client sends the alias form.
@@ -122,6 +126,11 @@ def clicked_feedback_value(payload: dict) -> dict[str, Any]:
         None,
     )
     return _parse_action_value(action.get("value")) if action else {}
+
+
+def _click_feedback_source(value: dict[str, Any]) -> str:
+    source = value.get("source")
+    return source if isinstance(source, str) and source in _CLICK_FEEDBACK_SOURCES else "button"
 
 
 def _modal_metadata(payload: dict) -> dict[str, Any]:
@@ -341,7 +350,7 @@ def _render_reason_modal(private_metadata: str, invite_button: dict[str, Any]) -
     }
 
 
-def _open_reason_modal(payload: dict, target: _FeedbackTarget) -> None:
+def _open_reason_modal(payload: dict, target: _FeedbackTarget, feedback_source: str) -> None:
     """Ask a bad rating for its reason. Best-effort: the rating is already recorded."""
     trigger_id = payload.get("trigger_id")
     if not trigger_id:
@@ -352,6 +361,7 @@ def _open_reason_modal(payload: dict, target: _FeedbackTarget) -> None:
             "run_id": target.run_id,
             "turn_id": target.turn_id,
             "trace_id": target.trace_id,
+            "source": feedback_source,
         }
     )
     invite_button = book_button(
@@ -393,17 +403,18 @@ def handle_turn_feedback_click(payload: dict) -> HttpResponse:
     if target is None:
         return HttpResponse(status=200)
 
+    feedback_source = _click_feedback_source(value)
     # The modal goes first. Its trigger expires seconds after the click, while the capture
     # resolves the clicker's identity against the database on its way out.
     if sentiment == "negative":
-        _open_reason_modal(payload, target)
+        _open_reason_modal(payload, target, feedback_source)
     record_feature_used(
         target.integration.integration_id, payload.get("user", {}).get("id"), SlackFeature.ANSWER_RATING
     )
     _capture(
         target,
         "$ai_metric",
-        {"$ai_metric_name": "quality", "$ai_metric_value": rating, "feedback_source": "button"},
+        {"$ai_metric_name": "quality", "$ai_metric_value": rating, "feedback_source": feedback_source},
     )
     return HttpResponse(status=200)
 
@@ -443,7 +454,7 @@ def handle_turn_feedback_modal_submit(payload: dict) -> HttpResponse:
     _capture(
         target,
         "$ai_feedback",
-        {"$ai_feedback_text": text, "feedback_type": "bad", "feedback_source": "button"},
+        {"$ai_feedback_text": text, "feedback_type": "bad", "feedback_source": _click_feedback_source(metadata)},
     )
     return HttpResponse(status=200)
 
