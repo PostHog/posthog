@@ -31674,6 +31674,7 @@
                 "mcp_server",
                 "streamlit_app",
                 "sql_variable",
+                "subscriptions",
                 "business_knowledge"
             ],
             "type": "string"

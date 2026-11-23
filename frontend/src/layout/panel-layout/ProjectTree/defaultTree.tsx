@@ -510,6 +510,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconBrowser />,
         iconColor: ['var(--color-product-data-pipeline-light)', 'var(--color-product-data-pipeline-dark)'],
     },
+    subscriptions: {
+        icon: <IconNotification />,
+        iconColor: ['var(--color-product-product-analytics-light)', 'var(--color-product-product-analytics-dark)'],
+    },
     sql_variable: {
         icon: <IconBrackets />,
         iconColor: ['var(--color-product-sql-variables-light)', 'var(--color-product-sql-variables-dark)'],

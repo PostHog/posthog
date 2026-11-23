@@ -1,6 +1,7 @@
 import {
     IconApps,
     IconChat,
+    IconDecisionTree,
     IconDatabase,
     IconFlag,
     IconGear,
@@ -39,6 +40,7 @@ export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
     monitor: { label: 'Monitor', title: 'Monitor', icon: <IconPulse /> },
     people: { label: 'People', title: 'People', icon: <IconPeople />, action: TodayNewPeopleButton },
     release: { label: 'Release', title: 'Release', icon: <IconFlag /> },
+    automate: { label: 'Automate', title: 'Automate', icon: <IconDecisionTree /> },
     data: { label: 'Data', title: 'Data', icon: <IconDatabase /> },
     products: { label: 'Products', title: 'Products', icon: <IconApps /> },
     settings: { label: 'Settings', title: 'Settings', icon: <IconGear /> },

@@ -46,6 +46,11 @@ const TodayMonitorSidebar = lazyWithRetry(() =>
         default: m.TodayMonitorSidebar,
     }))
 )
+const TodayAutomateSidebar = lazyWithRetry(() =>
+    import('products/today/frontend/automate/TodayAutomateSidebar').then((m) => ({
+        default: m.TodayAutomateSidebar,
+    }))
+)
 const TodayDataSidebar = lazyWithRetry(() =>
     import('products/today/frontend/data/TodayDataSidebar').then((m) => ({
         default: m.TodayDataSidebar,
@@ -69,6 +74,7 @@ const PANE_SIDEBARS: Record<Exclude<TodayRailPane, 'home'>, { Sidebar: Component
     monitor: { Sidebar: TodayMonitorSidebar, previews: true },
     people: { Sidebar: TodayPeopleSidebar, previews: true },
     release: { Sidebar: ReleaseSidebar },
+    automate: { Sidebar: TodayAutomateSidebar, previews: true },
     data: { Sidebar: TodayDataSidebar, previews: true },
     settings: { Sidebar: TodaySettingsSidebar },
     products: { Sidebar: TodayProductsPane },

@@ -272,6 +272,7 @@ export const FEATURE_FLAGS = {
     APPLICATION_OBSERVABILITY: 'unified-apm-product', // owner: #team-apm — gates the Application observability scene, nav entry, and services API; the backend reads the same key
     APPROVALS: 'approvals', // owner: @yasen-posthog #team-platform-features
     APPROVALS_SCOPE_BY_FLAG_OWNER: 'approvals-scope-by-flag-owner', // owner: @yasen-posthog #team-platform-features, scopes approval policies by the product that owns the flag
+    AUTOMATE_AREA: 'automate-area', // owner: #team-platform-ux, the Automate rail entry under today-rail-nav, which groups workflows, transactional email, destinations, subscriptions and scouts
     AUTORESEARCH: 'autoresearch', // owner: @andrewm4894 #team-platform-features
     AUTORESEARCH_REPORT_NOTEBOOK: 'autoresearch-report-notebook', // owner: @andrewm4894 #team-platform-features, gates the training run report notebook
     AVERAGE_PAGE_VIEW_COLUMN: 'average-page-view-column', // owner: @jordanm-posthog #team-analytics

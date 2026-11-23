@@ -1,3 +1,4 @@
+import { TODAY_AUTOMATE_RECENT_TYPES, TodayAutomateRecent } from './todayAutomateRecents'
 import { TODAY_DATA_RECENT_TYPES, TodayDataRecent } from './todayDataRecents'
 import type { TodayMonitorRecent } from './todayMonitor'
 import { TODAY_PEOPLE_RECENT_TYPES, TodayPeopleRecent } from './todayPeople'
@@ -13,9 +14,14 @@ export interface StoredReleaseRecent extends TodayReleaseRecent {
     viewedAt: number
 }
 
-export type TodayRecent = TodayPeopleRecent | TodayMonitorRecent | TodayReleaseRecent | TodayDataRecent
+export type TodayRecent =
+    | TodayPeopleRecent
+    | TodayMonitorRecent
+    | TodayReleaseRecent
+    | TodayAutomateRecent
+    | TodayDataRecent
 
-export type TodayRecentPane = 'people' | 'monitor' | 'release' | 'data'
+export type TodayRecentPane = 'people' | 'monitor' | 'release' | 'automate' | 'data'
 
 /**
  * A scene logic that opens one record has a selector with this name. It gives the record as a recent, or null until
@@ -29,6 +35,10 @@ export function isPeopleRecent(recent: TodayRecent): recent is TodayPeopleRecent
     return (TODAY_PEOPLE_RECENT_TYPES as readonly string[]).includes(recent.type)
 }
 
+export function isAutomateRecent(recent: TodayRecent): recent is TodayAutomateRecent {
+    return (TODAY_AUTOMATE_RECENT_TYPES as readonly string[]).includes(recent.type)
+}
+
 export function isDataRecent(recent: TodayRecent): recent is TodayDataRecent {
     return (TODAY_DATA_RECENT_TYPES as readonly string[]).includes(recent.type)
 }
@@ -39,12 +49,15 @@ export function isReleaseRecent(recent: TodayRecent): recent is TodayReleaseRece
 
 /** Monitor takes every record that no other pane claims. */
 export function isMonitorRecent(recent: TodayRecent): recent is TodayMonitorRecent {
-    return !isPeopleRecent(recent) && !isDataRecent(recent) && !isReleaseRecent(recent)
+    return !isPeopleRecent(recent) && !isAutomateRecent(recent) && !isDataRecent(recent) && !isReleaseRecent(recent)
 }
 
 export function recentPane(recent: TodayRecent): TodayRecentPane {
     if (isPeopleRecent(recent)) {
         return 'people'
+    }
+    if (isAutomateRecent(recent)) {
+        return 'automate'
     }
     if (isDataRecent(recent)) {
         return 'data'

@@ -42,8 +42,6 @@ function dataDefinitionSpecs(): TodayPaneProductSpec[] {
 
 function dataOutgoingSpecs(): TodayPaneProductSpec[] {
     return [
-        // Destinations stay here until an Automate pane takes them. Batch export pages live under /pipeline.
-        { href: urls.destinations(), section: '/pipeline/batch-exports' },
         { href: urls.warehouseDestinations(), section: urls.warehouseDestinationConnect() },
         { href: urls.endpoints() },
     ]

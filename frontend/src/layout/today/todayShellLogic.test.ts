@@ -207,6 +207,35 @@ describe('todayShellLogic', () => {
     )
 
     test.each([
+        ['/project/1/workflows', 'automate', 'products'],
+        ['/project/1/workflows/0190-flow/workflow', 'automate', 'products'],
+        ['/project/1/transactional/log', 'automate', 'products'],
+        ['/project/1/data-management/destinations', 'automate', 'products'],
+        ['/project/1/pipeline/batch-exports/0190-export', 'automate', null],
+        ['/project/1/subscriptions/12', 'automate', null],
+        ['/project/1/inbox/scouts/checkout-errors', 'automate', 'products'],
+        ['/project/1/inbox/reports', 'products', 'products'],
+        ['/project/1/functions/0190-function', null, null],
+    ])('puts %s under %s with automate-area on, and under %s with it off', (pathname, pane, paneWithoutAutomate) => {
+        expect(railPaneForPath(pathname, { [FEATURE_FLAGS.AUTOMATE_AREA]: true })).toBe(pane)
+        expect(railPaneForPath(pathname, {})).toBe(paneWithoutAutomate)
+    })
+
+    test.each([
+        [true, ['home', 'spaces', 'analytics', 'people', 'automate', 'products'], 'automate'],
+        [false, ['home', 'spaces', 'analytics', 'people', 'products'], 'products'],
+    ] as const)('with automate-area %s, the rail shows %o and a workflow shows %s', (enabled, railPanes, pane) => {
+        const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.AUTOMATE_AREA]: enabled }
+        featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
+        const logic = todayShellLogic()
+        logic.mount()
+        expect(logic.values.railPanes).toEqual(railPanes)
+
+        router.actions.push('/project/1/workflows/0190-flow/workflow')
+        expect(logic.values.activePane).toBe(pane)
+    })
+
+    test.each([
         ['/project/1/data-management/sources', 'data', 'products'],
         ['/project/1/data-management/sources/managed-0190/schemas', 'data', 'products'],
         ['/project/1/data-warehouse/new-source', 'data', 'products'],
@@ -215,8 +244,6 @@ describe('todayShellLogic', () => {
         ['/project/1/data-management/properties', 'data', 'products'],
         ['/project/1/models/0190-model', 'data', 'products'],
         ['/project/1/data-catalog', 'data', 'products'],
-        ['/project/1/data-management/destinations', 'data', 'products'],
-        ['/project/1/pipeline/batch-exports/0190-export', 'data', null],
         ['/project/1/sql', 'products', 'products'],
     ])('puts %s under %s with data-area on, and under %s with it off', (pathname, pane, paneWithoutData) => {
         expect(railPaneForPath(pathname, { [FEATURE_FLAGS.DATA_AREA]: true })).toBe(pane)
@@ -275,6 +302,7 @@ describe('todayShellLogic', () => {
         ['products', 'new', {}, undefined],
         ['settings', 'new', {}, urls.settings('project')],
         ['people', 'new', {}, urls.persons()],
+        ['automate', 'new', {}, urls.workflows()],
         ['data', 'new', {}, urls.sources()],
         ['people', 'new', { [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: true }, urls.customerAnalyticsDashboard()],
         [

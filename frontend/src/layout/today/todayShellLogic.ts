@@ -19,6 +19,7 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { getNavProductPages, navProductHrefForPath } from '~/layout/panel-layout/navbar/tabs/navProductItems'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
+import { automateProductForPath } from './todayAutomate'
 import { dataProductForPath, isDefinitionDetailPath } from './todayData'
 import { isErrorTrackingIssuePath, monitorProductForPath } from './todayMonitor'
 import { isTodayPaneEnabled } from './todayPaneFlags'
@@ -31,6 +32,7 @@ export type TodayRailPane =
     | 'monitor'
     | 'people'
     | 'release'
+    | 'automate'
     | 'data'
     | 'products'
     | 'settings'
@@ -78,6 +80,7 @@ export const TODAY_RAIL_PANES: TodayRailPane[] = [
     'people',
     'release',
     'monitor',
+    'automate',
     'data',
     'products',
 ]
@@ -94,6 +97,7 @@ const RAIL_PANE_HOMES: Partial<
     people: (_, featureFlags) =>
         featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] ? urls.customerAnalyticsDashboard() : urls.persons(),
     release: () => urls.releases(),
+    automate: () => urls.workflows(),
     data: () => urls.sources(),
     settings: () => urls.settings('project'),
 }
@@ -130,8 +134,8 @@ export function nextPhonePages(
 }
 
 /**
- * The pane a route belongs to, or null for pages that keep whichever pane was open. Monitor's and Data's pages belong
- * to them only while their pane is on, and to Products otherwise.
+ * The pane a route belongs to, or null for pages that keep whichever pane was open. Monitor's, Automate's and Data's
+ * pages belong to them only while their pane is on, and to Products otherwise.
  */
 export function railPaneForPath(pathname: string, featureFlags: FeatureFlagsSet): TodayRailPane | null {
     const path = removeProjectIdIfPresent(pathname)
@@ -160,6 +164,9 @@ export function railPaneForPath(pathname: string, featureFlags: FeatureFlagsSet)
     }
     if (isTodayPaneEnabled('monitor', featureFlags) && monitorProductForPath(path)) {
         return 'monitor'
+    }
+    if (isTodayPaneEnabled('automate', featureFlags) && automateProductForPath(path)) {
+        return 'automate'
     }
     if (isTodayPaneEnabled('data', featureFlags) && dataProductForPath(path)) {
         return 'data'
@@ -205,7 +212,7 @@ function productsPaneListsPath(path: string): boolean {
  */
 function productsPaneKeepsPath(path: string, routePane: TodayRailPane | null): boolean {
     return (
-        ((routePane === 'analytics' || routePane === 'monitor' || routePane === 'data') &&
+        ((routePane === 'analytics' || routePane === 'monitor' || routePane === 'automate' || routePane === 'data') &&
             productsPaneListsPath(path)) ||
         (routePane === 'people' && isPeopleListPath(path))
     )

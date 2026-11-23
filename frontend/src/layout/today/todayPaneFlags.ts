@@ -6,6 +6,7 @@ import type { TodayRailPane } from './todayShellLogic'
 const TODAY_PANE_FLAGS: Partial<Record<TodayRailPane, FeatureFlagKey>> = {
     release: FEATURE_FLAGS.RELEASES_AREA,
     monitor: FEATURE_FLAGS.MONITOR_AREA,
+    automate: FEATURE_FLAGS.AUTOMATE_AREA,
     data: FEATURE_FLAGS.DATA_AREA,
 }
 

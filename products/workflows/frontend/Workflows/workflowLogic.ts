@@ -5275,6 +5275,9 @@ export const workflowLogic = kea<workflowLogicType>([
             }
         },
         loadWorkflowSuccess: async ({ originalWorkflow }, _, __, previousState) => {
+            if (props.id && props.id !== 'new') {
+                workflowSceneLogic.findMounted({ id: props.id })?.actions.setWorkflowName(originalWorkflow.name)
+            }
             const missingTemplates = missingStepTemplateIds(originalWorkflow, values.hogFunctionTemplatesById)
             if (missingTemplates.length) {
                 actions.loadMissingHogFunctionTemplates(missingTemplates)
@@ -5334,6 +5337,9 @@ export const workflowLogic = kea<workflowLogicType>([
             }
         },
         saveWorkflowSuccess: async ({ originalWorkflow }) => {
+            if (props.id && props.id !== 'new') {
+                workflowSceneLogic.findMounted({ id: props.id })?.actions.setWorkflowName(originalWorkflow.name)
+            }
             // What this save was dispatched with. A manual save queued behind an auto-save used to
             // relabel the auto-save here, so the auto-save also ran the manual-only work below: a
             // second toast, and a second schedule write that can leave a duplicate schedule.

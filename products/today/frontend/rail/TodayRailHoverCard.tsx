@@ -18,9 +18,15 @@ import { TodayRailPreviewList } from './TodayRailPreviewList'
 export function TodayRailHoverCard({ pane, onAction }: { pane: TodayRailPane; onAction: () => void }): JSX.Element {
     const { shortcutData, shortcutDataLoading } = useValues(sidebarPinsLogic)
     const { recents, recentsLoading } = useValues(recentItemsModel)
-    const { peopleRecents, monitorRecents, releaseRecents } = useValues(todayRecentsLogic)
+    const { peopleRecents, monitorRecents, automateRecents, releaseRecents } = useValues(todayRecentsLogic)
     const localRecents: { type: string; name: string; href: string }[] =
-        pane === 'people' ? peopleRecents : pane === 'monitor' ? monitorRecents : []
+        pane === 'people'
+            ? peopleRecents
+            : pane === 'monitor'
+              ? monitorRecents
+              : pane === 'automate'
+                ? automateRecents
+                : []
     const pins = railPreviewItems(
         pane === 'release'
             ? namedReleaseEntries(
