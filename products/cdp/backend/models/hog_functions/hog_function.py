@@ -15,6 +15,7 @@ from django.utils import timezone
 import structlog
 from prometheus_client import Counter
 
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
@@ -391,11 +392,29 @@ def reload_hog_functions_on_organization_active_change(sender, instance: Organiz
     # Workers leave out the functions of a deactivated organization, so they reload them when staff flip it.
     if created or not instance._is_active_changed:
         return
-    organization_id = instance.pk
-    transaction.on_commit(lambda: _reload_organization_hog_functions(organization_id))
+    organization_id = str(instance.pk)
+    transaction.on_commit(lambda: _enqueue_organization_reload(organization_id))
 
 
-def _reload_organization_hog_functions(organization_id: UUID) -> None:
+def _enqueue_organization_reload(organization_id: str) -> None:
+    from products.cdp.backend.tasks.hog_functions import reload_organization_hog_functions
+
+    # A publish per team can stall on Redis, so it runs in a task. The organization change has committed, so a
+    # failure must not fail the request that made it. Workers also expire their cache on a timer, so a lost
+    # reload only delays the change.
+    try:
+        reload_organization_hog_functions.delay(organization_id)
+    except Exception as e:
+        logger.exception("hog_function_organization_reload_enqueue_failed", organization_id=organization_id)
+        capture_exception(e)
+
+
+def publish_organization_hog_function_reloads(organization_id: UUID) -> None:
+    for team_id, hog_function_ids in _hog_function_ids_by_team(organization_id).items():
+        reload_hog_functions_on_workers(team_id=team_id, hog_function_ids=hog_function_ids)
+
+
+def _hog_function_ids_by_team(organization_id: UUID) -> dict[int, list[str]]:
     # Every team gets a message, because the legacy plugin consumer refreshes its plugin configs on it too.
     by_team: dict[int, list[str]] = {
         team_id: [] for team_id in Team.objects.filter(organization_id=organization_id).values_list("id", flat=True)
@@ -406,14 +425,8 @@ def _reload_organization_hog_functions(organization_id: UUID) -> None:
         deleted=False,
         type__in=TYPES_THAT_RELOAD_PLUGIN_SERVER,
     ).values_list("team_id", "id"):
-        by_team[team_id].append(str(hog_function_id))
-    for team_id, hog_function_ids in by_team.items():
-        try:
-            reload_hog_functions_on_workers(team_id=team_id, hog_function_ids=hog_function_ids)
-        except Exception:
-            # The organization change has committed. Workers also expire their cache on a timer, so a lost
-            # reload only delays the change.
-            logger.exception("hog_function_organization_reload_failed", team_id=team_id)
+        by_team.setdefault(team_id, []).append(str(hog_function_id))
+    return by_team
 
 
 def action_saved(event: ActionSaved) -> None:

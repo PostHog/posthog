@@ -420,8 +420,24 @@ def reload_hog_flows_on_organization_active_change(sender, instance: Organizatio
     # Workers leave out the workflows of a deactivated organization, so they reload them when staff flip it.
     if created or not instance._is_active_changed:
         return
-    organization_id = instance.pk
-    transaction.on_commit(lambda: _reload_deferred_on_workers(_active_hog_flow_ids_by_team(organization_id)))
+    organization_id = str(instance.pk)
+    transaction.on_commit(lambda: _enqueue_organization_reload(organization_id))
+
+
+def _enqueue_organization_reload(organization_id: str) -> None:
+    from products.workflows.backend.tasks.hog_flows import reload_organization_hog_flows  # noqa: PLC0415
+
+    # A publish per team can stall on Redis, so it runs in a task. The organization change has committed, so a
+    # failure must not fail the request that made it.
+    try:
+        reload_organization_hog_flows.delay(organization_id)
+    except Exception as e:
+        logger.exception("hog_flow_organization_reload_enqueue_failed", organization_id=organization_id)
+        capture_exception(e)
+
+
+def publish_organization_hog_flow_reloads(organization_id: UUID) -> None:
+    _reload_deferred_on_workers(_active_hog_flow_ids_by_team(organization_id))
 
 
 def _active_hog_flow_ids_by_team(organization_id: UUID) -> dict[int, set[str]]:

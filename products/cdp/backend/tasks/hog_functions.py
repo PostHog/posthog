@@ -1,4 +1,5 @@
 from typing import Optional
+from uuid import UUID
 
 from django.core.management import call_command
 from django.utils import timezone
@@ -15,6 +16,14 @@ from products.actions.backend.facade.api import find_action_team_id, get_actions
 from products.actions.backend.facade.contracts import ActionNotFound
 
 logger = get_logger(__name__)
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@skip_team_scope_audit
+def reload_organization_hog_functions(organization_id: str) -> None:
+    from products.cdp.backend.models.hog_functions.hog_function import publish_organization_hog_function_reloads
+
+    publish_organization_hog_function_reloads(UUID(organization_id))
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)

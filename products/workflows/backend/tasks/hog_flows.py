@@ -17,7 +17,7 @@ from posthog.utils import get_instance_region
 
 from products.actions.backend.facade.api import find_action_team_id
 from products.actions.backend.facade.contracts import ActionNotFound
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow, publish_organization_hog_flow_reloads
 
 logger = get_logger(__name__)
 
@@ -26,6 +26,12 @@ logger = get_logger(__name__)
 MAX_RESCHEDULE_SLICES = 500
 
 WORKFLOW_CREATED_EVENT = "workflows workflow created"
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@skip_team_scope_audit
+def reload_organization_hog_flows(organization_id: str) -> None:
+    publish_organization_hog_flow_reloads(UUID(organization_id))
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)

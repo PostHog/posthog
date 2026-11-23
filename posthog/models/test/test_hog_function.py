@@ -305,6 +305,18 @@ class TestHogFunction(TestCase):
             else:
                 mock_reload.assert_not_called()
 
+    @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
+    def test_a_failed_organization_reload_does_not_fail_the_organization_save(self, mock_reload: Mock) -> None:
+        HogFunction.objects.create(name="Enabled", team=self.team, type="destination", enabled=True)
+        mock_reload.side_effect = RuntimeError("redis down")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.org.is_active = False
+            self.org.save()
+
+        self.org.refresh_from_db()
+        assert self.org.is_active is False
+
 
 class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
     def setUp(self):
