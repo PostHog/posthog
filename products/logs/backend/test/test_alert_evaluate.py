@@ -805,9 +805,15 @@ class TestLogsAlertEvaluation(APIBaseTest):
         assert after.slot is not None
         assert lapsed.outcomes == () and not lapsed_query.called
 
-    def test_a_logs_alert_with_unreadable_filters_breaks_alone(self) -> None:
+    @parameterized.expand(
+        [
+            ("not_a_dict", []),
+            ("malformed_filter_group", {"filterGroup": [{"type": "AND", "values": []}]}),
+        ]
+    )
+    def test_a_logs_alert_with_unreadable_filters_breaks_alone(self, _name: str, filters: Any) -> None:
         unreadable, healthy = self._configuration(), self._configuration()
-        LogsAlertConfiguration.objects.filter(id=self._legacy_ids[unreadable.id]).update(filters=[])
+        LogsAlertConfiguration.objects.filter(id=self._legacy_ids[unreadable.id]).update(filters=filters)
 
         evaluation, _ = self._run(unreadable, healthy)
 
