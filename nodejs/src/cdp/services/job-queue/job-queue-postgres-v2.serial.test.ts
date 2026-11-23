@@ -1,9 +1,13 @@
+import { Redis } from 'ioredis'
 import { DateTime } from 'luxon'
 import { AddressInfo, Socket, connect, createServer } from 'node:net'
 import { Pool, PoolClient } from 'pg'
 import { register } from 'prom-client'
 import { v4 as uuidv4, v7 as uuidv7 } from 'uuid'
 
+import { defaultConfig } from '~/common/config/config'
+import { RedisClient } from '~/common/redis/redis-v2'
+import { createRedisFromConfig } from '~/common/utils/db/redis'
 import * as posthogUtils from '~/common/utils/posthog'
 import { PubSub } from '~/common/utils/pubsub'
 import { waitForExpect } from '~/tests/helpers/expectations'
@@ -63,6 +67,8 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
     let queues: CyclotronJobQueuePostgresV2[]
     let locks: Lock[]
     let proxies: StallableProxy[]
+    let limiterClient: Redis
+    let limiter: RateLimiterService
 
     const dbUrl = (host: string, port: number): string => {
         const url = new URL(`postgres://posthog:posthog@${host}:${port}/${CYCLOTRON_DB.database}`)
@@ -70,14 +76,30 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         return url.toString()
     }
 
-    beforeAll(() => {
+    beforeAll(async () => {
         admin = new Pool({
             connectionString: `postgres://posthog:posthog@${CYCLOTRON_DB.host}:${CYCLOTRON_DB.port}/${CYCLOTRON_DB.database}`,
         })
+        limiterClient = await createRedisFromConfig(
+            defaultConfig.CDP_REDIS_HOST
+                ? {
+                      url: defaultConfig.CDP_REDIS_HOST,
+                      options: { port: defaultConfig.CDP_REDIS_PORT, password: defaultConfig.CDP_REDIS_PASSWORD },
+                  }
+                : { url: defaultConfig.REDIS_URL }
+        )
+        limiter = new RateLimiterService(
+            {
+                useClient: (_options, callback) => callback(limiterClient as unknown as RedisClient),
+                usePipeline: () => Promise.reject(new Error('the limiter sends no pipelines')),
+            },
+            { name: 'job-queue-test' }
+        )
     })
 
     afterAll(async () => {
         await admin.end()
+        await limiterClient.quit()
     })
 
     beforeEach(async () => {
@@ -112,11 +134,6 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
 
     const otherTeamId = (): number => teamId + 1
 
-    const limiterThatGrantsEveryClaim = {
-        ping: () => Promise.resolve(),
-        claimUpTo: ({ requested }: { requested: number }) => Promise.resolve(requested),
-    } as unknown as RateLimiterService
-
     async function startQueue(
         url = dbUrl(CYCLOTRON_DB.host, CYCLOTRON_DB.port),
         insertBatchSize = 1000,
@@ -139,8 +156,8 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         }
         const queue = rateLimited
             ? new CyclotronJobQueueRateLimitedPostgresV2(10, config, {
-                  limiter: limiterThatGrantsEveryClaim,
-                  key: 'job-queue-test',
+                  limiter,
+                  key: `@posthog-test/job-queue-v2/${uuidv4()}`,
                   capacity: 10,
                   refillPerSecond: 10,
                   throttledPollDelayMs: 10,
