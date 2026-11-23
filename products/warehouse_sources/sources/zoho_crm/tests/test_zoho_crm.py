@@ -33,6 +33,8 @@ from products.warehouse_sources.sources.zoho_crm.zoho_crm import (
     ZohoCRMResumeConfig,
     chunk_fields,
     format_modified_since,
+    get_rows,
+    list_custom_modules,
     readable_field_names,
     resolve_hosts,
     validate_credentials,
@@ -236,12 +238,33 @@ class TestReadableFieldNames:
             with pytest.raises(ZohoCRMApiError, match=expected_detail):
                 readable_field_names(_client(), "v8", "Vendors")
 
-    def test_400_without_a_structured_body_stays_a_plain_http_error(self) -> None:
-        with scripted_network(_script([ScriptedResponse(status=400, body=b"not json")])):
+    @pytest.mark.parametrize(
+        ("call", "responses"),
+        [
+            pytest.param(lambda: readable_field_names(_client(), "v8", "Leads"), [], id="fields_metadata"),
+            pytest.param(lambda: list_custom_modules(_client(), "v8"), [], id="modules_metadata"),
+            pytest.param(
+                lambda: list(
+                    get_rows(
+                        _client(), "v8", "Leads", mock.MagicMock(**{"can_resume.return_value": False}), mock.MagicMock()
+                    )
+                ),
+                [_fields_response(1)],
+                id="records_page",
+            ),
+        ],
+    )
+    @pytest.mark.parametrize("body", [b"not json", b""])
+    def test_400_without_a_structured_body_stays_a_plain_http_error(
+        self, call: Callable[[], Any], responses: list[ScriptedResponse], body: bytes
+    ) -> None:
+        with scripted_network(_script([*responses, ScriptedResponse(status=400, body=body)])):
             with pytest.raises(HTTPError) as ctx:
-                readable_field_names(_client(), "v8", "Leads")
+                call()
 
         assert not isinstance(ctx.value, ZohoCRMApiError)
+        # A self-referencing cause sends Temporal's failure converter into a RecursionError.
+        assert ctx.value.__cause__ is not ctx.value
 
     def test_invalid_module_error_matches_get_non_retryable_errors(self) -> None:
         body = {"code": "INVALID_MODULE", "message": "the module name given seems to be invalid"}

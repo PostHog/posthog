@@ -947,10 +947,13 @@ async function runToItsEnd(cdp: Cdp, invocation: CyclotronJobInvocation): Promis
     throw new Error(`Flow ${invocation.functionId} did not finish within ${MOST_LEGS_PER_RUN} legs`)
 }
 
+type UnitFate = 'delivered' | 'lost' | 'queued'
+
 async function startDeliveringRoles(
     cdp: Cdp,
     specs: RoleSpec[],
-    leaveOneJobRunning: boolean
+    leaveOneJobRunning: boolean,
+    fateOf: (unitId: string) => UnitFate
 ): Promise<DeliveringRoles> {
     const worker = specs.find(({ role }) => role === 'cdp-cyclotron-worker-email')!.env
     const [
@@ -971,6 +974,10 @@ async function startDeliveringRoles(
     let work = Promise.resolve()
 
     const deliver = async (event: RawClickHouseEvent): Promise<void> => {
+        const fate = fateOf(event.distinct_id)
+        if (fate === 'lost') {
+            return
+        }
         const team = await cdp.hub.teamManager.getTeam(event.team_id)
         if (!team) {
             throw new Error(`No team ${event.team_id}`)
@@ -989,6 +996,9 @@ async function startDeliveringRoles(
                     ),
                 cyclotronUrl
             )
+            if (fate === 'queued') {
+                continue
+            }
             await runToItsEnd(cdp, invocation)
             if (jobsToLeaveRunning > 0) {
                 jobsToLeaveRunning -= 1
@@ -1070,7 +1080,8 @@ describe('runner through seed, drive and judge', () => {
 
     const environmentOf = (
         delivering: 'none' | 'all' | 'all, leaving one job running',
-        roleUrl = 'http://127.0.0.1:1'
+        roleUrl = 'http://127.0.0.1:1',
+        fateOf: (unitId: string) => UnitFate = () => 'delivered'
     ): Environment => ({
         up: () => Promise.resolve(),
         async reset(settings: Profile['settings'], replicas: Profile['replicas'] = {}) {
@@ -1082,7 +1093,8 @@ describe('runner through seed, drive and judge', () => {
                     : await startDeliveringRoles(
                           cdp,
                           roleSpecs(env, { url: edge.url }, secretsOf(env), defaultStateDir(env), settings),
-                          delivering !== 'all'
+                          delivering !== 'all',
+                          fateOf
                       )
         },
         edgeUrl: () => edge.url,
@@ -1155,6 +1167,7 @@ describe('runner through seed, drive and judge', () => {
             stopOnBreak,
             bars = [],
             driveFor = '2s',
+            convergeWithin,
             settings = {},
         }: {
             replicas?: Profile['replicas']
@@ -1167,6 +1180,7 @@ describe('runner through seed, drive and judge', () => {
             stopOnBreak?: true
             bars?: Named[]
             driveFor?: string
+            convergeWithin?: string
             settings?: Profile['settings']
         } = {}
     ): LoadedCard => {
@@ -1188,7 +1202,7 @@ describe('runner through seed, drive and judge', () => {
                 measure: measures,
                 bars,
                 valves,
-                convergeWithin: valves.length > 0 ? '8s' : '3s',
+                convergeWithin: convergeWithin ?? (valves.length > 0 ? '8s' : '3s'),
             })
         )
         writeFileSync(
@@ -2005,7 +2019,7 @@ describe('runner through seed, drive and judge', () => {
 
         expect({ status: result.status, statusReason: result.statusReason, ramp: result.ramp }).toEqual({
             status: 'failed',
-            statusReason: 'not converged: 1 unfinished jobs, 0 units without a delivery record',
+            statusReason: 'the ramp broke: the backlog did not drain within convergeWithin: 1 job stayed unfinished',
             ramp: {
                 end: 'broke',
                 sustainedScale: null,
@@ -2017,10 +2031,122 @@ describe('runner through seed, drive and judge', () => {
                     at: null,
                     part: null,
                 },
-                reason: 'the run did not converge, and no step can be blamed for it',
+                reason: 'the backlog did not drain within convergeWithin: 1 job stayed unfinished',
+                stop: {
+                    failure: 'backlog_undrained',
+                    scale: null,
+                    reason: 'the backlog did not drain within convergeWithin: 1 job stayed unfinished',
+                },
+                rates: [
+                    expect.objectContaining({ scale: 1, lost: null }),
+                    expect.objectContaining({ scale: 2, lost: null }),
+                ],
             },
         })
     }, 30_000)
+
+    const unitNumber = (unitId: string): number => Number(unitId.split('-').at(-1))
+    const ratesOf = ({ ramp }: RunResult): object[] =>
+        (ramp?.rates ?? []).map(({ scale, expected, lost }) => ({ scale, expected, lost }))
+
+    it.each<[string, { lost?: number[]; queued?: number[] }, object]>([
+        [
+            'runs a ramp that lost one delivery to its last step and records the step that lost it',
+            { lost: [30] },
+            {
+                status: 'failed',
+                statusReason: 'the ramp ran to its last step, but lost 1 of 60 deliveries (1.67%): 1 in the 10x step',
+                steps: [5, 10],
+                ramp: { end: 'ceiling', sustainedScale: 10, reason: 'every step held up to the 10x ceiling' },
+                rates: [
+                    { scale: 5, expected: 20, lost: 0 },
+                    { scale: 10, expected: 40, lost: 1 },
+                ],
+            },
+        ],
+        [
+            'names a step that lost more than 5% of its deliveries as the hard failure that ends the ramp',
+            { lost: [3, 6, 9] },
+            {
+                status: 'failed',
+                statusReason: expect.stringMatching(
+                    /^the ramp broke: 3 of 20 deliveries were lost in the 5x step \(15%\), over the 5% hard limit; lost 3 of 60/
+                ),
+                steps: [5, 10],
+                ramp: {
+                    end: 'broke',
+                    sustainedScale: null,
+                    stop: {
+                        failure: 'step_loss',
+                        scale: 5,
+                        reason: '3 of 20 deliveries were lost in the 5x step (15%), over the 5% hard limit',
+                    },
+                },
+                rates: [
+                    { scale: 5, expected: 20, lost: 3 },
+                    { scale: 10, expected: 40, lost: 0 },
+                ],
+            },
+        ],
+        [
+            'names the undrained backlog, not a step loss, when more than 5% of a step is still queued at the deadline',
+            { queued: [3, 6, 9] },
+            {
+                status: 'failed',
+                statusReason:
+                    'the ramp broke: the backlog did not drain within convergeWithin: 3 jobs stayed unfinished',
+                steps: [5, 10],
+                ramp: {
+                    end: 'broke',
+                    sustainedScale: null,
+                    stop: {
+                        failure: 'backlog_undrained',
+                        scale: null,
+                        reason: 'the backlog did not drain within convergeWithin: 3 jobs stayed unfinished',
+                    },
+                },
+                rates: [
+                    { scale: 5, expected: 20, lost: null },
+                    { scale: 10, expected: 40, lost: null },
+                ],
+            },
+        ],
+    ])(
+        '%s',
+        async (_story, { lost = [], queued = [] }, expected) => {
+            const fateOf = (unitId: string): UnitFate =>
+                lost.includes(unitNumber(unitId))
+                    ? 'lost'
+                    : queued.includes(unitNumber(unitId))
+                      ? 'queued'
+                      : 'delivered'
+            const result = await createRunner(environmentOf('all', undefined, fateOf), env, {
+                topologyWithinMs: 1000,
+                topologyEveryMs: 10,
+            }).run(
+                shortSmoke([], undefined, {
+                    ramp: [
+                        { scale: 5, for: '2s' },
+                        { scale: 10, for: '2s' },
+                    ],
+                    stopOnBreak: true,
+                    driveFor: '4s',
+                    convergeWithin: '15s',
+                }),
+                NEVER_ABORTED
+            )
+            results.push(result)
+
+            expect({
+                status: result.status,
+                statusReason: result.statusReason,
+                steps: result.units?.steps.map(({ scale }) => scale),
+                ramp: result.ramp,
+                rates: ratesOf(result),
+            }).toMatchObject(expected)
+        },
+        60_000
+    )
 
     it('judges the admission over the first step it drove when a refusal stopped that step early, and offers no later step', async () => {
         const refusingIntake = http.createServer((_request, response) => {

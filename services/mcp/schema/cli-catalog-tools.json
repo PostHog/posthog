@@ -4634,6 +4634,11 @@
                     "param": "search",
                     "key": "search",
                     "csv": false
+                },
+                {
+                    "param": "viewed_within_days",
+                    "key": "viewed_within_days",
+                    "csv": false
                 }
             ],
             "body": null,

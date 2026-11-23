@@ -28,13 +28,18 @@ import type {
 
 import { messageTemplatesLogic } from '../TemplateLibrary/messageTemplatesLogic'
 import { transactionalTemplatesLogic } from '../Transactional/transactionalTemplatesLogic'
-import { ImportedDomainRecord, ImportedDomainSender, importedDomainSenders } from './importedDomainRecords'
+import {
+    DOMAIN_SETUP_STEP,
+    ImportedDomainRecord,
+    ImportedDomainSender,
+    importedDomainSenders,
+} from './importedDomainRecords'
 import { optOutCategoriesLogic } from './optOutCategoriesLogic'
 import { ImportEntryPoint, sortProvidersByName } from './providerImportOrder'
 
 const IMPORT_RUN_POLL_INTERVAL_MS = 2000
 const DOMAIN_SETUP_CHECK_DEBOUNCE_MS = 500
-export const DOMAIN_SETUP_STEP = 'domain_setup'
+const MAX_RUN_DETAIL_RETRIES = 5
 const ACTIVE_IMPORT_RUN_STATUSES: ProviderImportRunApi['status'][] = ['queued', 'running']
 
 export interface ImportFormValues {
@@ -42,6 +47,47 @@ export interface ImportFormValues {
 }
 
 const isActive = (run: ProviderImportRunApi): boolean => ACTIVE_IMPORT_RUN_STATUSES.includes(run.status)
+
+type RunDetailsCache = { runDetails?: Record<string, ProviderImportRunApi>; runDetailRetries?: number }
+
+const hasDetails = (run: ProviderImportRunApi, cache: RunDetailsCache): boolean =>
+    cache.runDetails?.[run.id]?.status === run.status
+
+// The list leaves out each step's items, so the window gets the latest run of each tool in full. A finished run no
+// longer changes, so it's fetched once.
+async function withLatestRunDetails(
+    teamId: string,
+    runs: ProviderImportRunApi[],
+    cache: RunDetailsCache
+): Promise<ProviderImportRunApi[]> {
+    cache.runDetails ??= {}
+    const details = cache.runDetails
+    const latestIds = new Set<string>()
+    const seenProviders = new Set<string>()
+    for (const run of runs) {
+        if (!seenProviders.has(run.provider)) {
+            seenProviders.add(run.provider)
+            latestIds.add(run.id)
+        }
+    }
+    return await Promise.all(
+        runs.map(async (run) => {
+            if (!latestIds.has(run.id)) {
+                return run
+            }
+            if (hasDetails(run, cache) && !isActive(run)) {
+                return details[run.id]
+            }
+            try {
+                const detail = await messagingProviderImportsRetrieve(teamId, run.id)
+                details[run.id] = detail
+                return detail
+            } catch {
+                return run
+            }
+        })
+    )
+}
 
 export const joinWithAnd = (items: string[]): string =>
     items.length <= 1 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
@@ -374,7 +420,7 @@ export const providerImportLogic = kea<providerImportLogicType>([
         setImportSetting: (key: string, value: string) => ({ key, value }),
         importedDataChanged: true,
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, cache }) => ({
         importRuns: [
             null as ProviderImportRunApi[] | null,
             {
@@ -393,7 +439,8 @@ export const providerImportLogic = kea<providerImportLogicType>([
                             })
                         )
                     )
-                    const loaded = [...runs, ...fetched.filter((run): run is ProviderImportRunApi => run !== null)]
+                    const listed = [...runs, ...fetched.filter((run): run is ProviderImportRunApi => run !== null)]
+                    const loaded = await withLatestRunDetails(teamId, listed, cache)
                     // A run started while this request was in flight isn't in its response, so keep it and its polling.
                     const startedMeanwhile = (values.importRuns ?? []).filter(
                         (run) =>
@@ -735,6 +782,7 @@ export const providerImportLogic = kea<providerImportLogicType>([
         openImportModal: ({ entryPoint }) => {
             // pinned: analytics event name - renaming breaks dashboards
             posthog.capture('workflows import window opened', { entry_point: entryPoint })
+            cache.runDetailRetries = 0
             actions.loadImportRuns()
             actions.loadImportProviders()
         },
@@ -802,7 +850,15 @@ export const providerImportLogic = kea<providerImportLogicType>([
             }
             actions.setTrackedImportRunIds(activeIds)
             actions.loadMissingImportedDomainStatuses()
-            if (activeIds.length > 0) {
+            // A finished run whose details failed to load would otherwise show no items, so retry a few times.
+            const missingDetails = Object.values(values.latestImportRunByProvider).some(
+                (run) => !isActive(run) && !hasDetails(run, cache)
+            )
+            cache.runDetailRetries = missingDetails ? (cache.runDetailRetries ?? 0) + 1 : 0
+            if (cache.runDetailRetries === MAX_RUN_DETAIL_RETRIES + 1) {
+                lemonToast.error("Couldn't load the import results. Open the import again to retry.")
+            }
+            if (activeIds.length > 0 || (missingDetails && cache.runDetailRetries <= MAX_RUN_DETAIL_RETRIES)) {
                 cache.disposables.add(() => {
                     const timeout = setTimeout(() => actions.loadImportRuns(), IMPORT_RUN_POLL_INTERVAL_MS)
                     return () => clearTimeout(timeout)
