@@ -64,9 +64,6 @@ class TestSetFlagEvaluationsMode(BaseTest):
             organization=organization, defaults={"flag_evaluations_mode": mode}
         )
 
-    def _listed_ids(self, path: str) -> list[str]:
-        return [line.split()[0] for line in Path(path).read_text().splitlines() if line.strip()]
-
     def _ids_file(self, *lines: object) -> str:
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
@@ -325,12 +322,14 @@ class TestSetFlagEvaluationsMode(BaseTest):
             FlagEvaluationsMode.READ_FLAG_EVALUATIONS if first_chunk_commits else FlagEvaluationsMode.EVENTS,
         )
         self.assertEqual(get_organization_flag_evaluations_mode(second.id), FlagEvaluationsMode.EVENTS)
-        self.assertEqual(self._listed_ids(changed_ids_file), [str(self.organization.id)] if first_chunk_commits else [])
+        self.assertEqual(
+            Path(changed_ids_file).read_text().split(), [str(self.organization.id)] if first_chunk_commits else []
+        )
 
         self._run(*args)
 
         self.assertEqual(get_organization_flag_evaluations_mode(second.id), FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
-        self.assertEqual(self._listed_ids(changed_ids_file), [str(self.organization.id), str(second.id)])
+        self.assertEqual(Path(changed_ids_file).read_text().split(), [str(self.organization.id), str(second.id)])
 
     @parameterized.expand(
         [
@@ -379,7 +378,9 @@ class TestSetFlagEvaluationsMode(BaseTest):
             )
 
         self.assertEqual(self._stored_mode(self.organization), expected_mode)
-        self.assertEqual(self._listed_ids(changed_ids_file), [str(self.organization.id)] if expects_listed else [])
+        self.assertEqual(
+            Path(changed_ids_file).read_text().split(), [str(self.organization.id)] if expects_listed else []
+        )
 
     def test_all_organizations_skips_the_excluded_ones(self) -> None:
         included, excluded = self._organizations_without_config(2)
@@ -392,12 +393,11 @@ class TestSetFlagEvaluationsMode(BaseTest):
         )
         self.assertEqual(get_organization_flag_evaluations_mode(excluded.id), FlagEvaluationsMode.EVENTS)
 
-    def test_a_restore_puts_each_organization_back_to_its_own_settings(self) -> None:
-        moved_up, only_turned_on, from_read = self._organizations_without_config(3)
+    def test_the_changed_ids_file_lists_an_organization_only_when_its_mode_changed(self) -> None:
+        moved, only_turned_on = self._organizations_without_config(2)
         self._store_mode(only_turned_on, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
-        self._store_mode(from_read, FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
         changed_ids_file = self._ids_file()
-        ids_file = self._ids_file(moved_up.id, only_turned_on.id, from_read.id)
+        ids_file = self._ids_file(moved.id, only_turned_on.id)
 
         self._run(
             "--mode",
@@ -408,67 +408,9 @@ class TestSetFlagEvaluationsMode(BaseTest):
             "--write-changed-ids",
             changed_ids_file,
         )
-        self.assertEqual(
-            {organization: self._keeps_events_writes(organization) for organization in (moved_up, only_turned_on)},
-            {moved_up: True, only_turned_on: True},
-        )
 
-        self._run("--restore-from-changed-ids-file", changed_ids_file)
-
-        self.assertEqual(self._stored_mode(moved_up), FlagEvaluationsMode.EVENTS)
-        self.assertEqual(self._stored_mode(only_turned_on), FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
-        self.assertFalse(self._keeps_events_writes(only_turned_on))
-        self.assertEqual(self._stored_mode(from_read), FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
-
-    def test_a_restore_uses_the_first_record_of_an_organization_that_the_file_lists_twice(self) -> None:
-        # A rerun appends to the same file, so a later record can describe a state the run itself did not start from.
-        self._store_mode(self.organization, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
-        changed_ids_file = self._ids_file(f"{self.organization.id} 0 0", f"{self.organization.id} 1 0")
-
-        self._run("--restore-from-changed-ids-file", changed_ids_file)
-
-        self.assertEqual(self._stored_mode(self.organization), FlagEvaluationsMode.EVENTS)
-
-    @parameterized.expand(
-        [
-            ("an_exclude_file", ("--exclude-organization-ids-file", "ids")),
-            ("kept_writes", ("--keep-writing-flag-calls-to-events",)),
-            ("a_changed_ids_file", ("--write-changed-ids", "ids")),
-        ]
-    )
-    def test_a_restore_refuses_an_option_it_would_ignore(self, _name: str, extra_args: tuple[str, ...]) -> None:
-        self._store_mode(self.organization, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
-        changed_ids_file = self._ids_file(f"{self.organization.id} 0 0")
-        args = [changed_ids_file if arg == "ids" else arg for arg in extra_args]
-
-        with self.assertRaises(CommandError):
-            self._run("--restore-from-changed-ids-file", changed_ids_file, *args)
-
-        self.assertEqual(self._stored_mode(self.organization), FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
-
-    def test_a_restore_locks_every_listed_row_in_id_order_before_it_writes_any_group(self) -> None:
-        # Other writers lock rows in id order. Groups restore one after another, so without an up-front lock in that
-        # order a concurrent writer can deadlock with the restore.
-        first, second = self._organizations_without_config(2)
-        self._store_mode(first, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
-        self._store_mode(second, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
-        changed_ids_file = self._ids_file(f"{second.id} 1 0", f"{first.id} 0 0")
-
-        with CaptureQueriesContext(connection) as queries:
-            self._run("--restore-from-changed-ids-file", changed_ids_file)
-
-        statements = [query["sql"] for query in queries]
-        lock = next(i for i, sql in enumerate(statements) if "FOR UPDATE" in sql and "ORDER BY" in sql)
-        first_write = next(i for i, sql in enumerate(statements) if "unnest" in sql)
-        self.assertLess(lock, first_write)
-        self.assertEqual(self._stored_mode(first), FlagEvaluationsMode.EVENTS)
-        self.assertEqual(self._stored_mode(second), FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
-
-    def test_a_restore_refuses_a_file_without_the_previous_settings(self) -> None:
-        changed_ids_file = self._ids_file(self.organization.id)
-
-        with self.assertRaises(CommandError):
-            self._run("--restore-from-changed-ids-file", changed_ids_file)
+        self.assertTrue(self._keeps_events_writes(only_turned_on))
+        self.assertEqual(Path(changed_ids_file).read_text().split(), [str(moved.id)])
 
     def test_a_rollback_from_the_changed_ids_file_lowers_only_the_organizations_the_run_moved(self) -> None:
         already_on_two, moved, deleted_later = self._organizations_without_config(3)
@@ -532,7 +474,7 @@ class TestSetFlagEvaluationsMode(BaseTest):
 
         self._run("--mode", "1", "--organization-id", str(moved.id), "--write-changed-ids", changed_ids_file)
 
-        self.assertEqual(self._listed_ids(changed_ids_file), [str(listed.id), str(moved.id)])
+        self.assertEqual(Path(changed_ids_file).read_text().split(), [str(listed.id), str(moved.id)])
 
     def test_the_upsert_sends_ids_in_sorted_order(self) -> None:
         organizations = self._organizations_without_config(5)
