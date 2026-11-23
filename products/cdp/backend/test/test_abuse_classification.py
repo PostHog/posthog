@@ -350,6 +350,28 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 [],
             ),
             (
+                "integer_cutoff_beyond_float_range_uses_defaults",
+                PAYING_FOR_TEN_DAYS,
+                {**DEFAULT_THRESHOLDS, "established_min_age_days": 10**400},
+                LOW_CONTROL_SCORES,
+                RULE_FREE_HOG,
+                "standard",
+                True,
+                False,
+                [],
+            ),
+            (
+                "fractional_string_cutoff_uses_defaults",
+                PAYING_FOR_TEN_DAYS,
+                {**DEFAULT_THRESHOLDS, "established_min_age_days": "7.0000000000000001"},
+                LOW_CONTROL_SCORES,
+                RULE_FREE_HOG,
+                "standard",
+                True,
+                False,
+                [],
+            ),
+            (
                 "fractional_cutoff_uses_defaults",
                 PAYING_FOR_TEN_DAYS,
                 {**DEFAULT_THRESHOLDS, "established_min_age_days": 0.5},
@@ -642,31 +664,26 @@ class TestAbuseClassification(AbuseClassificationTestCase):
         [
             (
                 "established_account_stops_paying",
-                True,
-                timedelta(days=90),
-                {"has_active_subscription": False},
+                (True, timedelta(days=90)),
+                (False, timedelta(days=90)),
                 [False, True],
             ),
-            ("new_account_grows_into_standard", False, timedelta(days=2), {"created_at_days_ago": 20}, [True]),
+            ("new_account_grows_into_standard", (False, timedelta(days=2)), (False, timedelta(days=20)), [True]),
         ]
     )
     def test_an_unchanged_resave_is_scored_again_only_when_its_alert_gate_changes(
         self,
         _name: str,
-        has_active_subscription: bool,
-        age: timedelta,
-        change: dict[str, Any],
+        account_before: tuple[bool, timedelta],
+        account_after: tuple[bool, timedelta],
         would_alert_per_event: list[bool],
     ) -> None:
         organization = Organization.objects.filter(pk=self.organization.pk)
-        organization.update(has_active_subscription=has_active_subscription, created_at=timezone.now() - age)
+        organization.update(has_active_subscription=account_before[0], created_at=timezone.now() - account_before[1])
         self.gateway.response = httpx.Response(200, json=decision_payload(LOW_CONTROL_SCORES))
         hog_function = self.create_destination(hog=RULE_FREE_HOG)
 
-        if "created_at_days_ago" in change:
-            organization.update(created_at=timezone.now() - timedelta(days=change["created_at_days_ago"]))
-        else:
-            organization.update(**change)
+        organization.update(has_active_subscription=account_after[0], created_at=timezone.now() - account_after[1])
         with self.committed():
             hog_function.save()
 

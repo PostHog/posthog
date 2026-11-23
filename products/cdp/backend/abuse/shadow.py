@@ -171,7 +171,7 @@ def _flag_payload(team: Team) -> dict[str, Any]:
 
 
 def _thresholds(payload: dict[str, Any], team_id: int) -> Thresholds:
-    if "alert_threshold" not in payload and "block_threshold" not in payload:
+    if not payload.keys() & {"alert_threshold", "block_threshold", "control_threshold"}:
         return Thresholds()
     try:
         control = {"control": float(payload["control_threshold"])} if "control_threshold" in payload else {}
@@ -191,12 +191,16 @@ def _account_cutoffs(payload: dict[str, Any], team_id: int) -> AccountCutoffs:
 
 
 def _whole_number(value: object) -> int:
-    if isinstance(value, bool) or not isinstance(value, int | float | str):
+    # Ints and strings skip float, which overflows on a huge int and rounds a long fractional string to whole.
+    if isinstance(value, bool):
         raise TypeError(f"not a number: {value!r}")
-    number = float(value)
-    if not number.is_integer():
-        raise ValueError(f"not a whole number: {value!r}")
-    return int(number)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        return int(value)
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    raise ValueError(f"not a whole number: {value!r}")
 
 
 def _account_of(team: Team) -> Account:
