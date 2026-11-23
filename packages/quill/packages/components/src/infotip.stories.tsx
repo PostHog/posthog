@@ -33,7 +33,6 @@ const meta: Meta<typeof Infotip> = {
 export default meta
 type Story = StoryObj<typeof meta>
 
-// Hover opens it. Click, tap, Enter or Space pins it, and Escape closes it.
 export const Default: Story = {}
 
 export const NextToATitle: Story = {
