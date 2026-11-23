@@ -807,6 +807,8 @@ class TestAbuseRules(SimpleTestCase):
             ("ipv6_address_in_the_query", post_to("https://api.example.com/go?to=[::1]"), False),
             ("internal_name_in_the_query", post_to("https://api.example.com/go?to=metadata.google.internal"), False),
             ("internal_tld_host", post_to("https://billing.corp/x"), False),
+            ("loopback_dns_name", post_to("http://localtest.me/x"), False),
+            ("address_in_the_host_name", post_to("https://10-0-0-1.example.com/x"), False),
             ("public_address_host", post_to("https://203.0.113.7/x"), False),
             ("userinfo_before_the_host", post_to("https://169.254.169.254@api.example.com/x"), False),
             ("backslash_in_the_authority", post_to("https://api.example.com\\\\@127.0.0.1/x"), False),
@@ -911,6 +913,18 @@ class TestAbuseRules(SimpleTestCase):
                 False,
             ),
             ("sleep", content(hog="sleep(10)\nfetch(inputs.url)"), False),
+            (
+                "replacement_with_the_input_after_each_match",
+                content(hog="fetch(inputs.url, {'body': replaceAll(inputs.text, 'a', '$`')})"),
+                False,
+            ),
+            (
+                "replace_all_called_through_a_value",
+                content(
+                    hog="let expand := replaceAll\nfetch(inputs.url, {'body': expand(inputs.text, 'a', inputs.b)})"
+                ),
+                False,
+            ),
             ("code_that_does_not_parse", content(hog="let x := (", inputs={}), False),
         ]
     )

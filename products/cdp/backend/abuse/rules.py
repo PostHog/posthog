@@ -166,11 +166,19 @@ _AMPLIFICATION_RULES = frozenset({Rule.HUGE_RANGE, Rule.REPLACE_AMPLIFICATION})
 # The VM charges a builtin's result to the memory cap only after it builds it, and `replaceAll` multiplies its input by
 # the ratio of replacement to search length. A computed or much longer replacement can pass the cap in one step.
 _MAX_REPLACEMENT_GROWTH = 8
+# JavaScript's `replaceAll` replaces these with the input before or after each match, which grows the input by its square.
+_WHOLE_INPUT_TOKENS = ("$`", "$'")
+_UNCAPPED_BUILTINS = frozenset({"replaceAll", "sleep"})
+# Public names that resolve to loopback, or to the address written in them as in `127.0.0.1.nip.io`.
+_ADDRESS_DNS_DOMAINS = frozenset(
+    {"localtest.me", "lvh.me", "vcap.me", "nip.io", "sslip.io", "xip.io", "traefik.me", "local.gd", "localhost.direct"}
+)
+_EMBEDDED_IPV4 = re.compile(r"(?<![0-9])[0-9]{1,3}(?:[.-][0-9]{1,3}){3}(?![0-9])")
 # A DNS name whose last label starts with a letter, so neither the host nor its top-level label reads as an address.
 _PUBLIC_DNS_NAME = re.compile(r"(?:[a-z0-9_](?:[a-z0-9_-]*[a-z0-9_])?\.)+[a-z](?:[a-z0-9-]*[a-z0-9])?")
 # A URL part that could name a host on its own, such as a redirect target in the query string.
 _URL_PART_SEPARATOR = re.compile(r"[^0-9a-z._:%\[\]-]+", re.IGNORECASE)
-_BRACKETED_ADDRESS = re.compile(r"\[([^\]]*)\]")
+_BRACKETED_ADDRESS = re.compile(r"\[([^\[\]]*)\]")
 
 
 def matched_rules(content: HogFunctionContent) -> tuple[Rule, ...]:
@@ -283,9 +291,14 @@ def _is_literal_public_url(url: str) -> bool:
     if parts is None or parts.scheme not in ("http", "https"):
         return False
     host = canonicalize_host(parts.hostname or "")
-    if _PUBLIC_DNS_NAME.fullmatch(host) is None or _is_internal(host):
+    if _PUBLIC_DNS_NAME.fullmatch(host) is None or _is_internal(host) or _resolves_to_its_address(host):
         return False
     return not any(_names_an_address(layer) for layer in _decoded_layers(url))
+
+
+def _resolves_to_its_address(host: str) -> bool:
+    in_address_domain = any(host == domain or host.endswith(f".{domain}") for domain in _ADDRESS_DNS_DOMAINS)
+    return in_address_domain or _EMBEDDED_IPV4.search(host) is not None
 
 
 def _plain_url_parts(url: str) -> SplitResult | None:
@@ -385,7 +398,7 @@ def _hog_template_inputs(inputs: JsonValue, inputs_schema: JsonValue) -> Iterato
             yield from (text for text in _strings(entry.get("value")) if "{" in text)
 
 
-@dataclass
+@dataclass(frozen=False)
 class _Frame:
     """The body being walked: the code itself, a function, or a lambda. A lambda that `let` does not name can be
     called from anywhere, such as a callback that runs for every element."""
@@ -406,7 +419,7 @@ class _LocalCall:
     callee: str
 
 
-@dataclass
+@dataclass(frozen=False)
 class _CallGraph:
     """Which declared functions can send a request, and which of them run again and again."""
 
@@ -436,33 +449,53 @@ class _CallGraph:
             if call.caller is not None:
                 edges.setdefault(call.caller, set()).add(call.callee)
         sends = _callers_of(sends, edges)
-        recursive = {name for name in sends if name in _reachable(name, edges)}
         return _Requests(
             calls_out=other_call or bool(literal_urls),
             only_literal_fetches=not other_call,
             literal_urls=tuple(literal_urls),
-            fans_out=fans_out or bool(repeated & sends) or bool(recursive),
+            fans_out=fans_out or bool(repeated & sends) or _has_cycle(sends, edges),
             uncapped_step=uncapped_step,
         )
 
 
 def _callers_of(names: set[str], edges: dict[str, set[str]]) -> set[str]:
     """`names` and every function that reaches one of them through calls."""
+    callers: dict[str, set[str]] = {}
+    for caller, callees in edges.items():
+        for callee in callees:
+            callers.setdefault(callee, set()).add(caller)
     reached = set(names)
-    while grown := {caller for caller, callees in edges.items() if caller not in reached and callees & reached}:
-        reached |= grown
-    return reached
-
-
-def _reachable(name: str, edges: dict[str, set[str]]) -> set[str]:
-    reached: set[str] = set()
-    pending = list(edges.get(name, ()))
+    pending = list(names)
     while pending:
-        callee = pending.pop()
-        if callee not in reached:
-            reached.add(callee)
-            pending.extend(edges.get(callee, ()))
+        for caller in callers.get(pending.pop(), ()):
+            if caller not in reached:
+                reached.add(caller)
+                pending.append(caller)
     return reached
+
+
+def _has_cycle(names: set[str], edges: dict[str, set[str]]) -> bool:
+    """Whether calls among `names` form a cycle. Every function on a cycle reaches the others, so a recursive function
+    that reaches a request has its whole cycle in `names`."""
+    done: set[str] = set()
+    for root in names:
+        if root in done:
+            continue
+        path = {root}
+        stack = [(root, iter(edges.get(root, ())))]
+        while stack:
+            name, callees = stack[-1]
+            callee = next((callee for callee in callees if callee in names and callee not in done), None)
+            if callee is None:
+                stack.pop()
+                path.discard(name)
+                done.add(name)
+            elif callee in path:
+                return True
+            else:
+                path.add(callee)
+                stack.append((callee, iter(edges.get(callee, ()))))
+    return False
 
 
 class _HogCodeVisitor(TraversingVisitor):
@@ -647,6 +680,8 @@ class _HogCodeVisitor(TraversingVisitor):
             # Passed on as a value, so it can be called any number of times.
             self._sends()
             self._fans_out = True
+        if name in _UNCAPPED_BUILTINS:
+            self._uncapped_step = True
         if name in INTERNAL_FUNCTIONS:
             self.matched.add(Rule.INTERNAL_FUNCTION)
 
@@ -686,7 +721,8 @@ def _replaces_empty_string(args: list[ast.Expr]) -> bool:
 def _bounded_replacement(args: list[ast.Expr]) -> bool:
     match args:
         case [_, ast.Constant(value=str(search)), ast.Constant(value=str(replacement))] if search:
-            return len(replacement) <= _MAX_REPLACEMENT_GROWTH * len(search)
+            grows_by_input = any(token in replacement for token in _WHOLE_INPUT_TOKENS)
+            return not grows_by_input and len(replacement) <= _MAX_REPLACEMENT_GROWTH * len(search)
     return False
 
 
