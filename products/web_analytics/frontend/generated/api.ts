@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AEOBrandApi,
     AEOBrandCreateRequestApi,
+    AEOCompetitorCandidateApi,
     AEOEngineSettingApi,
     AEOKeywordApi,
     AEOKeywordCreateRequestApi,
@@ -36,6 +37,7 @@ import type {
     AchievementsListResponseApi,
     AcknowledgeCelebrationRequestApi,
     AcknowledgeCelebrationResponseApi,
+    AeoBrandsCompetitorCandidatesParams,
     AeoBrandsListParams,
     AeoKeywordsModifiersParams,
     AeoKeywordsReportParams,
@@ -217,6 +219,40 @@ export const aeoBrandsPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedAEOBrandUpdateRequestApi),
+    })
+}
+
+export const getAeoBrandsCompetitorCandidatesUrl = (
+    projectId: string,
+    params?: AeoBrandsCompetitorCandidatesParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/aeo_brands/competitor_candidates/?${stringifiedParams}`
+        : `/api/projects/${projectId}/aeo_brands/competitor_candidates/`
+}
+
+/**
+ * Lists suggested brands that are likely competitors, from the answers of the last 7 days. A brand is a candidate when answers to non-branded prompts both name it and cite its domain. Brands that are the project's own, confirmed or ignored are left out. The list is ordered by the smaller of the two counts, highest first. Nothing is saved: confirm a candidate as a competitor or ignore it with aeo_brands_partial_update.
+ * @summary List likely AEO competitors
+ */
+export const aeoBrandsCompetitorCandidates = async (
+    projectId: string,
+    params?: AeoBrandsCompetitorCandidatesParams,
+    options?: RequestInit
+): Promise<AEOCompetitorCandidateApi[]> => {
+    return apiMutator<AEOCompetitorCandidateApi[]>(getAeoBrandsCompetitorCandidatesUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -1414,7 +1450,7 @@ export const getWebAnalyticsAchievementsOverviewUrl = (projectId: string) => {
 }
 
 /**
- * Returns the achievement track definitions (thresholds resolved for the requesting user's streak-cadence arm), the user's and team's progress, and any newly unlocked stages awaiting an in-session celebration.
+ * Returns the achievement track definitions (thresholds resolved for the requesting user's streak-cadence arm), the user's progress, and any newly unlocked stages awaiting an in-session celebration.
  * @summary Get Web analytics achievements overview
  */
 export const webAnalyticsAchievementsOverview = async (

@@ -11,19 +11,25 @@ from products.ai_observability.backend.models.review_queues import ReviewQueue
 
 from .trace_fixtures import create_trace, encode_segment
 
+TRACE = encode_segment("trace-1")
+
 
 class TestTraceViewSetResourceLevelAccess(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
-            ("the trace", "get", ""),
-            ("a node", "get", f"nodes/{encode_segment('trace-1')}/"),
-            ("its evaluations", "get", "evaluations/"),
-            ("its clusters", "get", "clusters/"),
-            ("its feedback", "get", "feedback/"),
-            ("its review", "get", "review/"),
-            ("a search", "get", "search/"),
-            ("its summary", "get", "summary/"),
-            ("an export", "post", "exports/"),
+            ("the list", "get", ""),
+            ("the list's previews", "post", "previews/"),
+            ("the list's people", "post", "people/"),
+            ("the list's sentiment", "post", "sentiment/"),
+            ("the trace", "get", f"{TRACE}/"),
+            ("a node", "get", f"{TRACE}/nodes/{TRACE}/"),
+            ("its evaluations", "get", f"{TRACE}/evaluations/"),
+            ("its clusters", "get", f"{TRACE}/clusters/"),
+            ("its feedback", "get", f"{TRACE}/feedback/"),
+            ("its review", "get", f"{TRACE}/review/"),
+            ("a search", "get", f"{TRACE}/search/"),
+            ("its summary", "get", f"{TRACE}/summary/"),
+            ("an export", "post", f"{TRACE}/exports/"),
         ]
     )
     def test_a_grant_on_one_object_does_not_open_traces(self, _name: str, method: str, path: str) -> None:
@@ -48,7 +54,7 @@ class TestTraceViewSetResourceLevelAccess(ClickhouseTestMixin, APIBaseTest):
         create_trace(self.team)
         self.client.force_login(member)
 
-        url = f"/api/projects/{self.team.id}/ai_observability/traces/{encode_segment('trace-1')}/{path}"
+        url = f"/api/projects/{self.team.id}/ai_observability/traces/{path}"
         response = getattr(self.client, method)(url)
 
         assert response.status_code == 403, response.content

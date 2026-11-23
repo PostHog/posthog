@@ -143,8 +143,6 @@ def _make_proto_person(**kwargs) -> SimpleNamespace:
         "uuid": "",
         "team_id": 0,
         "properties": b"",
-        "properties_last_updated_at": b"",
-        "properties_last_operation": b"",
         "created_at": 0,
         "version": 0,
         "is_identified": False,

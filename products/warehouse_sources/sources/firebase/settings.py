@@ -56,6 +56,12 @@ FIRESTORE_MAX_SUBCOLLECTION_DEPTH: Final[int] = 3
 # source's channel-discovery cache, which caps the same cost for the same reason.
 FIRESTORE_DISCOVERY_CACHE_TTL_SECONDS: Final[int] = 300
 
+# Discovery and incremental-field sampling probe each collection on its own. Done one request at a
+# time, a project with many collections outlasts the schema lookup's gateway timeout, and because a
+# walk that doesn't finish is never cached, every retry fails the same way. Probing several
+# collections at once keeps the walk complete, which the schema sync needs to not drop tables.
+FIRESTORE_DISCOVERY_CONCURRENCY: Final[int] = 8
+
 # Hard stop so an endpoint that keeps handing back a page token can't page forever.
 MAX_PAGES: Final[int] = 100_000
 

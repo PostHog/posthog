@@ -484,31 +484,31 @@ export interface sourceSettingsLogicActions {
     loadCdcStatusSuccess: (
         cdcStatus: {
             enabled: boolean
-            lag_bytes?: number | null | undefined
-            lag_critical_threshold_mb?: number | undefined
-            lag_warning_threshold_mb?: number | undefined
-            management_mode?: 'posthog' | 'self_managed' | undefined
-            publication_exists?: boolean | undefined
-            publication_name?: string | undefined
-            published_tables?: string[] | undefined
-            schedule_paused?: boolean | undefined
-            slot_exists?: boolean | undefined
-            slot_name?: string | undefined
+            lag_bytes?: number | null
+            lag_critical_threshold_mb?: number
+            lag_warning_threshold_mb?: number
+            management_mode?: 'posthog' | 'self_managed'
+            publication_exists?: boolean
+            publication_name?: string
+            published_tables?: string[]
+            schedule_paused?: boolean
+            slot_exists?: boolean
+            slot_name?: string
         },
         payload?: any
     ) => {
         cdcStatus: {
             enabled: boolean
-            lag_bytes?: number | null | undefined
-            lag_critical_threshold_mb?: number | undefined
-            lag_warning_threshold_mb?: number | undefined
-            management_mode?: 'posthog' | 'self_managed' | undefined
-            publication_exists?: boolean | undefined
-            publication_name?: string | undefined
-            published_tables?: string[] | undefined
-            schedule_paused?: boolean | undefined
-            slot_exists?: boolean | undefined
-            slot_name?: string | undefined
+            lag_bytes?: number | null
+            lag_critical_threshold_mb?: number
+            lag_warning_threshold_mb?: number
+            management_mode?: 'posthog' | 'self_managed'
+            publication_exists?: boolean
+            publication_name?: string
+            published_tables?: string[]
+            schedule_paused?: boolean
+            slot_exists?: boolean
+            slot_name?: string
         }
         payload?: any
     }

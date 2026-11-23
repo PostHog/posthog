@@ -1,12 +1,19 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonCheckbox, LemonCollapse, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCheckbox, LemonCollapse, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import type { PlatformAlertDestinationEventKindEnumApi } from '../generated/api.schemas'
-import { ALL_ROUTE_EVENT_KINDS, ROUTE_EVENT_KIND_OPTIONS, receiverTarget } from './platformAlertRoutingFormat'
+import {
+    ALL_ROUTE_EVENT_KINDS,
+    INCIDENT_HANDOFF_NOTICE,
+    ROUTE_EVENT_KIND_OPTIONS,
+    opensIncidents,
+    receiverTarget,
+    receiverTypeOf,
+} from './platformAlertRoutingFormat'
 import { platformAlertRoutingLogic } from './platformAlertRoutingLogic'
 import { RouteMatchersField } from './RouteMatchersField'
 
@@ -15,6 +22,8 @@ export function PlatformAlertRouteModal(): JSX.Element {
         useValues(platformAlertRoutingLogic)
     const { closeRouteModal, submitRouteForm } = useActions(platformAlertRoutingLogic)
     const customEvents = routeForm.eventKinds.length !== ALL_ROUTE_EVENT_KINDS.length
+    const receiverType = receiverTypeOf(receivers, routeForm.receiverId)
+    const pagesIncidents = opensIncidents(receiverType)
 
     return (
         <LemonModal
@@ -45,6 +54,7 @@ export function PlatformAlertRouteModal(): JSX.Element {
                 enableFormOnSubmit
                 className="flex flex-col gap-4"
             >
+                <LemonBanner type="info">{INCIDENT_HANDOFF_NOTICE}</LemonBanner>
                 <LemonField name="receiverId" label="Send to">
                     <LemonSelect
                         fullWidth
@@ -65,52 +75,61 @@ export function PlatformAlertRouteModal(): JSX.Element {
                 <LemonField name="matchers" label="When the alert's labels match">
                     <RouteMatchersField />
                 </LemonField>
-                <LemonCollapse
-                    panels={[
-                        {
-                            key: 'advanced',
-                            header: customEvents
-                                ? `Advanced options (${routeForm.eventKinds.length} of ${ALL_ROUTE_EVENT_KINDS.length} events)`
-                                : 'Advanced options',
-                            content: (
-                                <LemonField
-                                    name="eventKinds"
-                                    label="Events to send"
-                                    help="The alert changes the receiver hears about through this route."
-                                >
-                                    {({ value, onChange }) => (
-                                        <div className="flex flex-wrap gap-4">
-                                            {ROUTE_EVENT_KIND_OPTIONS.map((option) => (
-                                                <LemonCheckbox
-                                                    key={option.value}
-                                                    label={option.label}
-                                                    checked={(
-                                                        value as PlatformAlertDestinationEventKindEnumApi[]
-                                                    ).includes(option.value)}
-                                                    onChange={(checked) =>
-                                                        onChange(
-                                                            checked
-                                                                ? ALL_ROUTE_EVENT_KINDS.filter(
-                                                                      (kind) =>
-                                                                          kind === option.value || value.includes(kind)
-                                                                  )
-                                                                : value.filter(
-                                                                      (
-                                                                          kind: PlatformAlertDestinationEventKindEnumApi
-                                                                      ) => kind !== option.value
-                                                                  )
-                                                        )
-                                                    }
-                                                    data-attr={`platform-alert-route-event-${option.value}`}
-                                                />
-                                            ))}
-                                        </div>
-                                    )}
-                                </LemonField>
-                            ),
-                        },
-                    ]}
-                />
+                {pagesIncidents ? (
+                    <p className="text-secondary text-sm m-0">
+                        {receiverType === 'incident_io'
+                            ? 'incident.io opens an alert when a matching alert fires and resolves it when the alert resolves.'
+                            : 'PagerDuty opens an incident when a matching alert fires and resolves it when the alert resolves.'}
+                    </p>
+                ) : (
+                    <LemonCollapse
+                        panels={[
+                            {
+                                key: 'advanced',
+                                header: customEvents
+                                    ? `Advanced options (${routeForm.eventKinds.length} of ${ALL_ROUTE_EVENT_KINDS.length} events)`
+                                    : 'Advanced options',
+                                content: (
+                                    <LemonField
+                                        name="eventKinds"
+                                        label="Events to send"
+                                        help="The alert changes the receiver hears about through this route."
+                                    >
+                                        {({ value, onChange }) => (
+                                            <div className="flex flex-wrap gap-4">
+                                                {ROUTE_EVENT_KIND_OPTIONS.map((option) => (
+                                                    <LemonCheckbox
+                                                        key={option.value}
+                                                        label={option.label}
+                                                        checked={(
+                                                            value as PlatformAlertDestinationEventKindEnumApi[]
+                                                        ).includes(option.value)}
+                                                        onChange={(checked) =>
+                                                            onChange(
+                                                                checked
+                                                                    ? ALL_ROUTE_EVENT_KINDS.filter(
+                                                                          (kind) =>
+                                                                              kind === option.value ||
+                                                                              value.includes(kind)
+                                                                      )
+                                                                    : value.filter(
+                                                                          (
+                                                                              kind: PlatformAlertDestinationEventKindEnumApi
+                                                                          ) => kind !== option.value
+                                                                      )
+                                                            )
+                                                        }
+                                                        data-attr={`platform-alert-route-event-${option.value}`}
+                                                    />
+                                                ))}
+                                            </div>
+                                        )}
+                                    </LemonField>
+                                ),
+                            },
+                        ]}
+                    />
+                )}
             </Form>
         </LemonModal>
     )

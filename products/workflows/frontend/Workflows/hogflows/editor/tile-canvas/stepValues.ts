@@ -1,3 +1,4 @@
+import { isConditionFilterGroups } from '../../filters/conditionFilterGroups'
 import { isFunctionAction } from '../../steps/types'
 import type { HogFlowAction } from '../../types'
 
@@ -80,11 +81,35 @@ export function eventNames(events: unknown): string[] {
     })
 }
 
+/** The filters of a flat property list, or of a branch condition's AND/OR groups. */
+export function propertyFilters(properties: unknown): unknown[] {
+    if (Array.isArray(properties)) {
+        return properties
+    }
+    return isConditionFilterGroups(properties)
+        ? (asRecord(properties).values as unknown[]).flatMap((value) =>
+              isConditionFilterGroups(value) ? propertyFilters(value) : [value]
+          )
+        : []
+}
+
+/** Empty groups are left out, as the compiler skips them. */
+function propertyGroupText(group: unknown, nested: boolean): string {
+    const { type, values } = asRecord(group)
+    const parts = (values as unknown[])
+        .map((value) => (isConditionFilterGroups(value) ? propertyGroupText(value, true) : propertyFilterText(value)))
+        .filter(Boolean)
+    const text = parts.join(type === 'OR' ? ' or ' : ' and ')
+    return nested && parts.length > 1 ? `(${text})` : text
+}
+
 export function conditionText(filters: unknown): string {
     const { events, properties } = asRecord(filters)
     const parts = [
         ...eventNames(events).map((name) => `did ${name}`),
-        ...(Array.isArray(properties) ? properties : []).map(propertyFilterText),
+        ...(isConditionFilterGroups(properties)
+            ? [propertyGroupText(properties, false)].filter(Boolean)
+            : (Array.isArray(properties) ? properties : []).map(propertyFilterText)),
     ]
     return parts.length ? parts.join(' and ') : 'everyone'
 }
@@ -101,6 +126,8 @@ export interface EmailContent {
     to: string
     html?: string
     text?: string
+    /** Hog templates use their own syntax, so only Liquid ones can render as a person. */
+    liquid: boolean
 }
 
 export function emailContent(action: HogFlowAction): EmailContent | undefined {
@@ -115,5 +142,7 @@ export function emailContent(action: HogFlowAction): EmailContent | undefined {
         to: /person\.properties\.email/.test(toEmail) ? 'Their email address' : toEmail || 'Not set',
         html: asText(email.html),
         text: asText(email.text),
+        // The worker treats an input without a templating engine as Hog.
+        liquid: asRecord(asRecord(asRecord(action.config).inputs).email).templating === 'liquid',
     }
 }

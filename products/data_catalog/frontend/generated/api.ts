@@ -26,6 +26,7 @@ import type {
     DataCatalogMetricsRunCreateParams,
     DataCatalogRelationshipProposalApi,
     DataCatalogRelationshipProposalsListParams,
+    MetricAvailabilityApi,
     MetricUsageApi,
     PaginatedDataCatalogCertificationListApi,
     PaginatedDataCatalogMetricListApi,
@@ -179,6 +180,23 @@ export const dataCatalogCertificationsDeprecateCreate = async (
     return apiMutator<DataCatalogCertificationApi>(getDataCatalogCertificationsDeprecateCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getDataCatalogMetricAvailabilityRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_catalog/metric_availability/`
+}
+
+/**
+ * Whether the project has any live metric. Skips the list's per-table access checks, which build the whole HogQL schema.
+ */
+export const dataCatalogMetricAvailabilityRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<MetricAvailabilityApi> => {
+    return apiMutator<MetricAvailabilityApi>(getDataCatalogMetricAvailabilityRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -470,7 +488,7 @@ export const getDataCatalogPendingReviewRetrieveUrl = (projectId: string) => {
 }
 
 /**
- * How many items wait in each review queue, counted as the list of that queue shows them to you.
+ * How many items wait in each review queue, as its list shows them to you, up to ten minutes behind an access change.
  */
 export const dataCatalogPendingReviewRetrieve = async (
     projectId: string,

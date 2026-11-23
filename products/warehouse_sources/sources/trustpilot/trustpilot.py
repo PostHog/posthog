@@ -1,6 +1,7 @@
 import re
 import logging
 import dataclasses
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any, Literal, Optional
 
@@ -11,10 +12,12 @@ from products.warehouse_sources.sources.sdk import (
     ClientConfig,
     OAuth2AuthConfig,
     PageNumberPaginator,
+    Resource,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
     build_dependent_resource,
+    flatten_nested,
     make_tracked_session,
     rest_api_resource,
 )
@@ -246,11 +249,18 @@ def _build_auth(api_key: str, api_secret: str, requires_oauth: bool) -> ApiKeyAu
 
 
 def _client_config(
-    api_key: str, api_secret: str, requires_oauth: bool, paginator: TrustpilotPaginator | Literal["single_page"]
+    api_key: str,
+    api_secret: str,
+    requires_oauth: bool,
+    paginator: TrustpilotPaginator | Literal["single_page"],
+    send_api_key_header: bool = False,
 ) -> ClientConfig:
+    headers = {"Accept": "application/json"}
+    if send_api_key_header:
+        headers["apikey"] = api_key
     return {
         "base_url": BASE_URL,
-        "headers": {"Accept": "application/json"},
+        "headers": headers,
         "auth": _build_auth(api_key, api_secret, requires_oauth),
         "paginator": paginator,
         # capture=False: private review rows carry consumer emails, order references and
@@ -259,12 +269,15 @@ def _client_config(
     }
 
 
-def _has_conversation(row: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
-    # Reviews without a reply carry no conversation; an empty list drops them before the fan-out.
-    return row if row.get("conversationId") else []
+def _parent_filter(field_name: str) -> Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]:
+    # An empty list drops the parent row before the fan-out, so it costs no child request.
+    def _keep(row: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+        return row if row.get(field_name) else []
+
+    return _keep
 
 
-def _conversations_source(
+def _fanout_source(
     api_key: str,
     api_secret: str,
     endpoint: str,
@@ -275,20 +288,35 @@ def _conversations_source(
 ) -> SourceResponse:
     assert config.fanout is not None
     parent = TRUSTPILOT_ENDPOINTS[config.fanout.parent_name]
+    # One client serves both requests: a private parent needs the OAuth bearer, and a public
+    # child still needs its `apikey` header.
+    requires_oauth = parent.requires_oauth or config.requires_oauth
     resource = build_dependent_resource(
         endpoint_configs=TRUSTPILOT_ENDPOINTS,
         child_endpoint=endpoint,
         fanout=config.fanout,
-        client_config=_client_config(api_key, api_secret, config.requires_oauth, TrustpilotPaginator(parent.max_pages)),
+        client_config=_client_config(
+            api_key,
+            api_secret,
+            requires_oauth,
+            TrustpilotPaginator(parent.max_pages),
+            send_api_key_header=requires_oauth and not config.requires_oauth,
+        ),
         path_format_values={"business_unit_id": business_unit_id},
         team_id=team_id,
         job_id=job_id,
         db_incremental_field_last_value=None,
         parent_endpoint_extra={"data_selector": parent.response_key} if parent.response_key else None,
-        parent_data_map=_has_conversation,
-        child_endpoint_extra={"paginator": "single_page"},
+        parent_data_map=_parent_filter(config.fanout_parent_has) if config.fanout_parent_has else None,
+        child_endpoint_extra={
+            "paginator": "single_page",
+            **({"data_selector": config.response_key} if config.response_key else {}),
+        },
         page_size_param=None,
     )
+    if config.flatten_rows:
+        assert isinstance(resource, Resource)
+        resource.add_map(flatten_nested)
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
@@ -313,7 +341,7 @@ def trustpilot_source(
     business_unit_id = resolve_business_unit_id(api_key, business_unit)
 
     if config.fanout is not None:
-        return _conversations_source(api_key, api_secret, endpoint, config, business_unit_id, team_id, job_id)
+        return _fanout_source(api_key, api_secret, endpoint, config, business_unit_id, team_id, job_id)
 
     path = config.path.format(business_unit_id=business_unit_id)
 

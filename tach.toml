@@ -91,6 +91,7 @@ depends_on = [
     "products.event_definitions",
     "products.experiments",
     "products.feature_flags",
+    "products.growth",
     "products.ai_observability",
     "products.mcp_store",
     "products.notebooks",
@@ -124,6 +125,7 @@ depends_on = [
     "ee",
     "products.access_control",
     "products.aeo",
+    "products.ai_gateway",
     "products.analytics_platform",
     "products.approvals",
     "products.authorization",
@@ -299,6 +301,9 @@ depends_on = [
     # Facade-only: the admin replay of failed runs reads workflows through
     # products.workflows.backend.facade.workflows.
     "products.workflows",
+    # Facade-only: shadow abuse scoring of saved hog functions asks the model through
+    # products.ml_inference.backend.facade.api.
+    "products.ml_inference",
 ]
 layer = "modules"
 
@@ -366,6 +371,12 @@ depends_on = [
     "products.data_warehouse",
     "products.revenue_analytics",
     "products.warehouse_sources", "products.access_control",
+    # The materialization workflows and activities in backend/temporal/ call these facades.
+    "products.customer_analytics",
+    "products.data_quality",
+    "products.endpoints",
+    "products.managed_warehouse",
+    "products.notifications",
 ]
 layer = "modules"
 
@@ -728,8 +739,8 @@ depends_on = [
     # Facade-only: the recipient preferences page reads EmailTrackingConsentMode through
     # products.workflows.backend.facade.enums.
     "products.workflows",
-    # Presentation-only: the template design action wraps HTML through
-    # products.cdp.backend.presentation.hog_functions.
+    # Design helpers only: the template design action and imported templates wrap HTML through
+    # products.cdp.backend.presentation.hog_functions and products.cdp.backend.validation.
     "products.cdp",
 ]
 layer = "modules"
@@ -996,7 +1007,7 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
-# Skills imports ai_observability's shared markdown_outline + API metrics helpers —
+# Skills imports ai_observability's shared markdown_outline —
 # temporary coupling from the standalone-product extraction, slated for cleanup.
 path = "products.skills"
 depends_on = [
@@ -1022,6 +1033,7 @@ depends_on = [
     "products.feature_flags",
     "products.notebooks",
     "products.product_analytics",
+    "products.release",
     "products.security",
     "products.signals",
     "products.surveys",
@@ -1407,9 +1419,10 @@ from = [
 # is a thin PEP 562 re-export, so a change to the underlying source flows through to core. That
 # coupling can't be sealed by watching backend.facade alone, so these modules are declared
 # permanent and turbo.json keeps them in the contract-check inputs — any change to them still
-# re-runs the Django suite (IsolationChainCheck enforces that). The vendor set is exactly the
-# sources core reaches through the facade, guarded by test_ci_core_coupled_sources.py. All other
-# core coupling goes through backend.facade.
+# re-runs the Django suite (IsolationChainCheck enforces that).
+# posthog/test/repo_invariants/test_warehouse_sources_contract_inputs.py checks that every file
+# under backend/temporal/ that outside code reaches through the facade is a contract-check input;
+# it does not limit this expose list. All other core coupling goes through backend.facade.
 [[interfaces]]
 expose = [
     "backend\\.models.*",
@@ -1729,7 +1742,7 @@ from = [
 
 [[modules]]
 path = "products.apm"
-depends_on = ["posthog"]
+depends_on = ["posthog", "products.tracing"]
 layer = "modules"
 
 [[modules]]

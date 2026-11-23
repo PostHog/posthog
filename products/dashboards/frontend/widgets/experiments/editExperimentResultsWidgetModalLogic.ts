@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, defaults, kea, listeners, path, props, reducers, selectors } from 'kea'
 
+import type { ExperimentResultsWidgetConfig } from '../../generated/widget-configs.zod'
 import { isWidgetConfigValidationError } from '../../utils'
 import {
     widgetEditModalPropSelectors,
@@ -28,13 +29,11 @@ export interface editExperimentResultsWidgetModalLogicValues {
     tileName: string
     validation:
         | {
-              fieldErrors: Partial<Record<'experimentId', string>>
+              fieldErrors: ExperimentResultsWidgetFieldErrors
               success: false
           }
         | {
-              config: {
-                  experimentId?: number | null | undefined
-              }
+              config: ExperimentResultsWidgetConfig
               success: true
           }
 }
@@ -69,25 +68,21 @@ export interface editExperimentResultsWidgetModalLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         validation: (arg: any) =>
             | {
-                  fieldErrors: Partial<Record<'experimentId', string>>
+                  fieldErrors: ExperimentResultsWidgetFieldErrors
                   success: false
               }
             | {
-                  config: {
-                      experimentId?: number | null | undefined
-                  }
+                  config: ExperimentResultsWidgetConfig
                   success: true
               }
         activeFieldErrors: (
             validation:
                 | {
-                      config: {
-                          experimentId?: number | null | undefined
-                      }
+                      config: ExperimentResultsWidgetConfig
                       success: true
                   }
                 | {
-                      fieldErrors: Partial<Record<'experimentId', string>>
+                      fieldErrors: ExperimentResultsWidgetFieldErrors
                       success: false
                   },
             fieldErrors: Partial<Record<'experimentId', string>>
@@ -96,13 +91,11 @@ export interface editExperimentResultsWidgetModalLogicMeta {
             saving: boolean,
             validation:
                 | {
-                      config: {
-                          experimentId?: number | null | undefined
-                      }
+                      config: ExperimentResultsWidgetConfig
                       success: true
                   }
                 | {
-                      fieldErrors: Partial<Record<'experimentId', string>>
+                      fieldErrors: ExperimentResultsWidgetFieldErrors
                       success: false
                   }
         ) => string | undefined

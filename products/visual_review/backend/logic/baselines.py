@@ -76,16 +76,19 @@ def _verify_baseline_hashes(repo: Repo, raw_hashes: dict[str, str]) -> dict[str,
     return verified
 
 
-def _resolve_baselines_at_ref(repo: Repo, github: GitHubIntegration, run_type: str, ref: str) -> dict[str, str]:
-    """Fetch baseline content hashes from GitHub at a specific ref (branch name or SHA).
-
-    Returns a dict of identifier → content_hash (plain, not signed).
-    Returns empty dict when baseline file doesn't exist.
-    """
+def baseline_file_path(repo: Repo, run_type: str) -> str:
+    """The path of the run type's baseline file in the repository."""
     baseline_paths = repo.baseline_file_paths or {}
-    baseline_path = baseline_paths.get(run_type) or baseline_paths.get("default", ".snapshots.yml")
+    return baseline_paths.get(run_type) or baseline_paths.get("default", ".snapshots.yml")
 
-    baselines_signed, _sha = github_api._fetch_baseline_file(github, repo.repo_full_name, baseline_path, ref)
+
+def _read_baselines_at_ref(repo: Repo, github: GitHubIntegration, run_type: str, ref: str) -> dict[str, str] | None:
+    """Like `_resolve_baselines_at_ref`, but None when the baseline file does not exist at the ref."""
+    baseline_path = baseline_file_path(repo, run_type)
+
+    baselines_signed, file_sha = github_api._fetch_baseline_file(github, repo.repo_full_name, baseline_path, ref)
+    if file_sha is None:
+        return None
 
     return _verify_baseline_hashes(
         repo,
@@ -95,6 +98,15 @@ def _resolve_baselines_at_ref(repo: Repo, github: GitHubIntegration, run_type: s
             if isinstance(entry, dict) and "hash" in entry
         },
     )
+
+
+def _resolve_baselines_at_ref(repo: Repo, github: GitHubIntegration, run_type: str, ref: str) -> dict[str, str]:
+    """Fetch baseline content hashes from GitHub at a specific ref (branch name or SHA).
+
+    Returns a dict of identifier → content_hash (plain, not signed).
+    Returns empty dict when baseline file doesn't exist.
+    """
+    return _read_baselines_at_ref(repo, github, run_type, ref) or {}
 
 
 def _run_is_on_default_branch(repo: Repo, branch: str) -> bool:

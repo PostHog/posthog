@@ -1,27 +1,35 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconCalendar, IconList } from '@posthog/icons'
+import { IconCalendar, IconFlag, IconList, IconPlus } from '@posthog/icons'
 
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { escapePath } from '~/layout/panel-layout/ProjectTree/utils'
+import { SidebarPinButton } from '~/layout/today/sidebar/SidebarPinButton'
+import { sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
 import { SidebarRow } from '~/layout/today/sidebar/SidebarRow'
 import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
 import { SidebarSection } from '~/layout/today/sidebar/SidebarSection'
-import { FileSystemIconType } from '~/queries/schema/schema-general'
+import { newestByName } from '~/layout/today/todayNewestByName'
+import { todayRecentsLogic } from '~/layout/today/todayRecentsLogic'
+import { recentItemsModel } from '~/models/recentItemsModel'
+import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { releaseLogic } from './releaseLogic'
-import { ReleaseStageDot } from './ReleaseStageDot'
-import { STAGE_COLOR_VARS } from './releaseUtils'
+import { releaseSidebarEntryName, STAGE_COLOR_VARS } from './releaseUtils'
 
-const SECTION_LIMIT = 10
+const RELEASE_TYPES = ['feature_flag', 'experiment', 'early_access_feature', 'release']
+const RECENTS_LIMIT = 6
 
 export function ReleaseSidebar(): JSX.Element {
-    const { rows, decisionRows, flagCount, experimentCount, earlyAccessCount, dataLoading } = useValues(releaseLogic)
-    const { setDecisionOnly } = useActions(releaseLogic)
+    const { rows, flagCount, experimentCount, earlyAccessCount, dataLoading, releasesEnabled } = useValues(releaseLogic)
+    const { shortcutData, pinnedShortcutIds } = useValues(sidebarPinsLogic)
+    const { recents } = useValues(recentItemsModel)
+    const { releaseRecents } = useValues(todayRecentsLogic)
     const { location } = useValues(router)
     const [query, setQuery] = useState('')
     const [closed, setClosed] = useState<Record<string, boolean>>({})
@@ -29,44 +37,125 @@ export function ReleaseSidebar(): JSX.Element {
     const search = query.trim().toLowerCase()
     const matches = (label: string): boolean => !search || label.toLowerCase().includes(search)
     const toggle = (key: string): void => setClosed({ ...closed, [key]: !closed[key] })
-    const decisions = decisionRows.filter((row) => matches(row.name))
-    const others = search ? rows.filter((row) => !row.needsDecision && matches(row.name)) : []
+
+    const releaseTypes = RELEASE_TYPES.filter((type) => type !== 'release' || releasesEnabled)
+    const browse = [
+        {
+            key: 'all',
+            label: 'View all',
+            icon: <IconList />,
+            to: urls.releases(),
+            active: path === urls.releases(),
+        },
+        {
+            key: 'calendar',
+            label: 'Calendar',
+            icon: <IconCalendar />,
+            to: urls.releaseCalendar(),
+            active: path === urls.releaseCalendar(),
+        },
+    ].filter((item) => (item.key !== 'calendar' || releasesEnabled) && matches(item.label))
+
     const products = [
+        {
+            key: 'releases',
+            label: 'Releases',
+            icon: <IconFlag />,
+            to: urls.releaseList(),
+            count: dataLoading && !rows.length ? undefined : rows.length,
+            active: path === urls.releaseList(),
+        },
         {
             key: 'flags',
             label: 'Feature flags',
+            icon: iconForType('feature_flag' as FileSystemIconType),
             to: urls.featureFlags(),
-            type: 'feature_flag',
             count: flagCount,
-            prefix: '/feature-flags',
+            active: path.startsWith(urls.featureFlags()),
         },
         {
             key: 'experiments',
             label: 'Experiments',
+            icon: iconForType('experiment' as FileSystemIconType),
             to: urls.experiments(),
-            type: 'experiment',
             count: experimentCount,
-            prefix: '/experiments',
+            active: path.startsWith('/experiments'),
         },
         {
             key: 'early-access',
             label: 'Early access features',
+            icon: iconForType('early_access_feature' as FileSystemIconType),
             to: urls.earlyAccessFeatures(),
-            type: 'early_access_feature',
             count: earlyAccessCount,
-            prefix: '/early_access_features',
+            active: path.startsWith('/early_access_features'),
         },
-    ].filter((product) => matches(product.label))
+    ].filter((item) => (item.key !== 'releases' || releasesEnabled) && matches(item.label))
 
-    const releaseRow = (row: (typeof rows)[number]): JSX.Element => (
+    const releaseRowsById = new Map(rows.map((row) => [row.id, row]))
+    const entryName = (entry: FileSystemEntry): string => releaseSidebarEntryName(entry, releaseRowsById) ?? ''
+    const pinned = shortcutData.filter(
+        (entry) =>
+            !!entry.ref && releaseTypes.includes(entry.type ?? '') && !!entryName(entry) && matches(entryName(entry))
+    )
+    const releaseItems: FileSystemEntry[] = releaseRecents.flatMap((recent) => {
+        const row = releaseRowsById.get(recent.id)
+        return row
+            ? [
+                  {
+                      id: row.id,
+                      type: 'release',
+                      ref: row.id,
+                      path: escapePath(row.name),
+                      href: urls.release(row.id),
+                      last_viewed_at: new Date(recent.viewedAt).toISOString(),
+                  },
+              ]
+            : []
+    })
+    const recent = newestByName(
+        [...recents, ...releaseItems]
+            .sort(
+                (first, second) =>
+                    (Date.parse(second.last_viewed_at ?? '') || 0) - (Date.parse(first.last_viewed_at ?? '') || 0)
+            )
+            .filter(
+                (entry) =>
+                    !!entry.ref &&
+                    releaseTypes.includes(entry.type ?? '') &&
+                    matches(entryName(entry)) &&
+                    !pinnedShortcutIds.has(`${entry.type}:${entry.ref}`)
+            ),
+        entryName,
+        (entry) => entry.id,
+        RECENTS_LIMIT
+    )
+
+    const entryRow = (entry: FileSystemEntry, kind: 'pinned' | 'recent'): JSX.Element => (
         <SidebarRow
-            key={row.id}
-            value={`release:${row.id}`}
-            label={row.name}
-            icon={<ReleaseStageDot stage={row.stage} />}
-            to={urls.release(row.id)}
-            active={path === urls.release(row.id)}
-            dataAttr="release-sidebar-release"
+            key={`${kind}:${entry.id}`}
+            value={`${kind}:${entry.id}`}
+            label={entryName(entry)}
+            icon={
+                entry.type === 'release' ? (
+                    <IconFlag />
+                ) : (
+                    iconForType((entry.type ?? 'feature_flag') as FileSystemIconType)
+                )
+            }
+            to={entry.href ?? '#'}
+            active={!!entry.href && path === removeProjectIdIfPresent(entry.href)}
+            action={
+                <SidebarPinButton
+                    target={{
+                        type: entry.type ?? '',
+                        ref: entry.ref,
+                        name: entry.type === 'release' ? 'Release' : entryName(entry),
+                        href: entry.href,
+                    }}
+                    dataAttr={`release-sidebar-${kind}-pin`}
+                />
+            }
+            dataAttr={`release-sidebar-${kind}`}
         />
     )
 
@@ -83,86 +172,67 @@ export function ReleaseSidebar(): JSX.Element {
                 listClassName="flex flex-col"
             >
                 <div className="flex flex-col gap-px pb-2">
-                    {matches('Calendar') && (
+                    {browse.map((item) => (
                         <SidebarRow
-                            value="calendar"
-                            label="Calendar"
-                            icon={<IconCalendar />}
-                            to={urls.releases()}
-                            active={path === urls.releases()}
-                            dataAttr="release-sidebar-calendar"
+                            key={item.key}
+                            value={item.key}
+                            label={item.label}
+                            icon={item.icon}
+                            to={item.to}
+                            active={item.active}
+                            dataAttr={`release-sidebar-${item.key}`}
                         />
-                    )}
-                    {matches('Releases') && (
-                        <SidebarRow
-                            value="releases"
-                            label="Releases"
-                            meta={dataLoading && !rows.length ? undefined : String(rows.length)}
-                            icon={<IconList />}
-                            to={urls.releaseList()}
-                            active={path === urls.releaseList()}
-                            dataAttr="release-sidebar-list"
-                        />
-                    )}
+                    ))}
                 </div>
-                {decisions.length > 0 && (
-                    <SidebarSection
-                        label="Needs a decision"
-                        open={!closed.decisions}
-                        count={decisions.length}
-                        onToggle={() => toggle('decisions')}
-                        divider
-                        dataAttr="release-section-decisions"
-                    >
-                        {decisions.slice(0, SECTION_LIMIT).map(releaseRow)}
-                        {decisions.length > SECTION_LIMIT && (
-                            <SidebarRow
-                                value="decisions-all"
-                                label={`Show all ${decisions.length}`}
-                                to={urls.releaseList()}
-                                onClick={() => setDecisionOnly(true)}
-                                dataAttr="release-sidebar-decisions-all"
-                            />
-                        )}
-                    </SidebarSection>
-                )}
-                {others.length > 0 && (
-                    <SidebarSection
-                        label="Other releases"
-                        open
-                        count={others.length}
-                        onToggle={() => toggle('others')}
-                        divider
-                        dataAttr="release-section-others"
-                    >
-                        {others.slice(0, SECTION_LIMIT).map(releaseRow)}
-                    </SidebarSection>
-                )}
                 {products.length > 0 && (
-                    <div className="mt-auto">
-                        <SidebarSection
-                            label="Products"
-                            open={!closed.products}
-                            count={products.length}
-                            showCount={false}
-                            onToggle={() => toggle('products')}
-                            divider
-                            dataAttr="release-section-products"
-                        >
-                            {products.map((product) => (
-                                <SidebarRow
-                                    key={product.key}
-                                    value={`product:${product.key}`}
-                                    label={product.label}
-                                    meta={String(product.count)}
-                                    icon={iconForType(product.type as FileSystemIconType)}
-                                    to={product.to}
-                                    active={path.startsWith(product.prefix)}
-                                    dataAttr={`release-sidebar-${product.key}`}
-                                />
-                            ))}
-                        </SidebarSection>
+                    <div className="flex flex-col gap-px border-t border-border py-2">
+                        {products.map((item) => (
+                            <SidebarRow
+                                key={item.key}
+                                value={`product:${item.key}`}
+                                label={item.label}
+                                meta={item.count === undefined ? undefined : String(item.count)}
+                                icon={item.icon}
+                                to={item.to}
+                                active={item.active}
+                                dataAttr={`release-sidebar-${item.key}`}
+                            />
+                        ))}
                     </div>
+                )}
+                <SidebarSection
+                    label="Pinned"
+                    open={!closed.pinned}
+                    count={pinned.length}
+                    showCount={false}
+                    onToggle={() => toggle('pinned')}
+                    divider
+                    dataAttr="release-section-pinned"
+                >
+                    {pinned.length ? (
+                        pinned.map((entry) => entryRow(entry, 'pinned'))
+                    ) : (
+                        <SidebarRow
+                            value="pinned:add"
+                            label="Add a pinned item"
+                            icon={<IconPlus />}
+                            to={urls.releases()}
+                            dataAttr="release-sidebar-pinned-add"
+                        />
+                    )}
+                </SidebarSection>
+                {recent.length > 0 && (
+                    <SidebarSection
+                        label="Recents"
+                        open={!closed.recents}
+                        count={recent.length}
+                        showCount={false}
+                        onToggle={() => toggle('recents')}
+                        divider
+                        dataAttr="release-section-recents"
+                    >
+                        {recent.map((entry) => entryRow(entry, 'recent'))}
+                    </SidebarSection>
                 )}
             </SidebarSearchList>
         </div>

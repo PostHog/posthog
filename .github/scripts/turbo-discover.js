@@ -26,21 +26,26 @@
 // DEDICATED_BUCKET_PRODUCTS opt out of grouping and always run alone.
 //
 // Backend test selection: the selector's output (SELECTION_JSON) decides which
-// Django tests run and, on a legacy diff, which products stay in the matrix. One
-// verdict feeds both, so the two matrices can never disagree about whether the
-// selection is trustworthy.
+// Django tests run and, on a legacy diff or a trusted product cascade, which products
+// stay in the matrix. One verdict feeds both, so the two matrices can never disagree
+// about whether the selection is trustworthy. A product cascade is trusted by phase,
+// see TRUSTED_PRODUCT_CASCADE_PHASE.
 //
 // Input:  LEGACY_CHANGED env var ("true"/"false")
 //         SCHEMA_CHANGED env var ("true"/"false") — when set and LEGACY_CHANGED
 //         is false, schema-impact.js narrows the matrix to products that
 //         depend on the affected posthog.schema types.
 //         SELECTION_JSON — path to the backend test selector's output, empty when
-//         it did not run or failed.
+//         it did not run or failed. It runs on a legacy diff, and on a ready PR's
+//         product-only diff too.
 //         SELECTION_APPLIES ("true"/"false") — whether this run is one that selects
 //         at all; false leaves the Django matrix alone.
 //         SELECTION_DISABLED ("true"/"false") — the DISABLE_BACKEND_TEST_SELECTION
 //         kill switch.
 //         PR_DRAFT ("true"/"false") — what an untrusted selection falls back to.
+//         FULL_RUN_ALREADY_PASSED ("true"/"false") — a full run passed on an earlier head of
+//         this PR (backend-full-run-state.js), so a product cascade or a selector full-run
+//         request runs the selected subset. QUEUE_KICK_REARMED only reaches telemetry.
 //         .github/new-events-schema-targets.txt — the test paths of the events_json leg,
 //         which runs them against the native-JSON events table.
 // Output: JSON on stdout: { matrix, run_legacy, django_shards, selection }
@@ -67,10 +72,11 @@ const { loadContractSurfaces } = require('./trunk-impacted-targets')
 // sizing bounds the slowest shard at the target rather than the average, so a
 // 12-minute shard target puts a full PR run near 18 minutes end to end.
 const TARGET_WALL_SECONDS = 12 * 60
-// Per-product cost within a runner: turbo dispatch, pytest collection, Django
-// init. First product pays ~45s, subsequent ~15s; use 60s as a conservative
-// average that also absorbs the amortized portion of runner startup.
-const PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS = 60
+// Per-product cost within a runner that the junit-scaled durations do not hold:
+// turbo dispatch, pytest collection, Django init for each later product in a
+// bucket. The first product's share is in PRODUCT_JOB_BASE_OVERHEAD_SECONDS.
+// Fitted Nov 2026 from step logs of full PR runs (20-23s per later leg).
+const PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS = 20
 // Headroom on a packed bucket, covering error in the recorded durations alone.
 // A bucket runs its products sequentially, so its wall is the sum of its parts
 // and it needs no allowance for an uneven split. That allowance belongs to the
@@ -79,18 +85,18 @@ const PRODUCT_BUCKET_SAFETY_FACTOR = 1.1
 // No headroom constant for a split product: the gap between the mean shard that
 // sizing solves for and the max shard that sets the wall is derived per product
 // in productSplitShards below.
-// Fitted per-shard overhead for a split product job. Two measured parts, from
-// run 32717208712: the job base (docker stack, deps, turbo dispatch) is
-// mean(job wall - JUnit suite time), 247-413s across 12 bucket jobs (median
-// 282s, 263s over the 17 warehouse-sources shards); the session cost
-// (collection, session fixtures) is re-paid in full by every shard of a split
-// and grows with suite size (128s/shard on warehouse-sources, ~15s on small
-// products). Only large products split, so the constant carries a large
-// product's session: ~270 base + ~130 session.
-const PRODUCT_JOB_OVERHEAD_SECONDS = 400
+// Per-shard overhead for a split product job: the job base (runner start, docker
+// stack, deps, post steps) plus the session cost (collection, session fixtures)
+// that every shard of a split pays again, which grows with suite size. Fitted
+// Nov 2026 against job walls of full PR runs: a split shard ran
+// 135-200s (p50) past its share of the junit-scaled work, and ~55s more at p90.
+// The constant sits at that p90 so the slowest shards still land on the target.
+const PRODUCT_JOB_OVERHEAD_SECONDS = 260
 // The base alone, for packed buckets: their products are small, so the session
-// share is the per-product overhead below rather than a large suite's collection.
-const PRODUCT_JOB_BASE_OVERHEAD_SECONDS = 270
+// share is the per-product overhead above rather than a large suite's collection.
+// Fitted from the same runs: a packed job of 2 to 7 products ran ~175s (p50) and
+// ~230s (p90) past its junit-scaled work.
+const PRODUCT_JOB_BASE_OVERHEAD_SECONDS = 200
 // Sentinel entry the timing workflow writes into .test_durations after it scales
 // the product entries to their JUnit-measured totals (see
 // optimize_test_durations.py). Product jobs record call-only durations, which
@@ -350,6 +356,16 @@ function dropProducts(products, allProducts, names, label) {
     return remaining
 }
 
+// A product whose backend:test only echoes a message runs no test, yet a matrix
+// entry for it still pays the whole Docker stack and dependency setup.
+function testlessProducts(testTasks) {
+    return new Set(
+        testTasks
+            .filter((t) => isProductPackage(t.package) && /^echo[ \t][^;&|`$()<>\n\r]*$/.test(t.command.trim()))
+            .map((t) => packageToProduct(t.package))
+    )
+}
+
 // --- Dependent cascade (tach map) ---
 // When a product's contract changes, Turbo's graph has no edges to the
 // products that depend on it (no workspace deps, no `dependsOn`), so those
@@ -468,11 +484,11 @@ function productGraphFromTachMap(fileMap) {
 // product's behavior" — the residual after excluding those is a handful of
 // narrow wrappers reaching at most a few products each.
 //
-// `direct` stops the walk after the first hop. Test selection must stay
-// transitive, because a change in A can break C's tests through B without C
-// ever importing A. Merge-queue lane assignment asks a narrower question and
-// passes direct: true; see trunk-impacted-targets.js for why one hop is the
-// boundary there.
+// `direct` stops the walk after the first hop. A change in A can break C's
+// tests through B without C ever importing A, so the merge gate stays
+// transitive; see contractCascadeIsDirect for the runs that take one hop.
+// Merge-queue lane assignment asks a narrower question and passes direct: true;
+// see trunk-impacted-targets.js for why one hop is the boundary there.
 function tachDependents(changedProducts, moduleGraph, { direct = false } = {}) {
     const reverse = new Map()
     for (const [product, deps] of moduleGraph) {
@@ -561,9 +577,22 @@ function deletedProductPythonFiles() {
     }
 }
 
-// Products that transitively depend on `products` per the tach map, or null when
-// the map cannot be read. Callers treat null as "unknown dependents" and widen.
-function tachDependentProducts(products, allProductSet) {
+// Whether a contract change cascades to direct dependents only. On a selecting
+// PR run it does: a direct importer is the only product that can reference the
+// changed symbols, and a product further out sees only its importer's unchanged
+// code, the same exposure an isolated product's internal edit gives its
+// dependents, which retests none of them. The product cycle in the tach map
+// makes the transitive walk reach most products from any seed inside it. The
+// merge queue and master do not select, so they keep the transitive walk and
+// catch a break mediated through an intermediate product before it lands.
+function contractCascadeIsDirect({ applies, disabled }) {
+    return applies && !disabled
+}
+
+// Products that depend on `products` per the tach map, transitively unless
+// `direct`, or null when the map cannot be read. Callers treat null as
+// "unknown dependents" and widen.
+function tachDependentProducts(products, allProductSet, { direct = false } = {}) {
     const deleted = deletedProductPythonFiles()
     if (deleted === null) {
         return null
@@ -576,7 +605,7 @@ function tachDependentProducts(products, allProductSet) {
     if (tachGraph === null) {
         return null
     }
-    return tachDependents(products, tachGraph).filter((p) => allProductSet.has(p))
+    return tachDependents(products, tachGraph, { direct }).filter((p) => allProductSet.has(p))
 }
 
 // Products a schema change reaches, [] for a purely additive change, or null when
@@ -1230,7 +1259,14 @@ function emptySegments() {
 // and skipping is the cheaper of the two mistakes.
 function fallbackSelection(fallbackMode, reason, selection) {
     console.error(`Backend test selection not used (${reason}) — Django matrix mode=${fallbackMode}`)
-    return { mode: fallbackMode, narrowed: false, skip_reason: reason, ...emptySegments(), ...selectionMetrics(selection) }
+    return {
+        mode: fallbackMode,
+        narrowed: false,
+        skip_reason: reason,
+        waived_full_run_reason: '',
+        ...emptySegments(),
+        ...selectionMetrics(selection),
+    }
 }
 
 // Whether every legacy edit in the diff is Dagster Python under posthog/dags/. ci-dagster.yml runs
@@ -1252,6 +1288,10 @@ function isDagsterOnlyLegacyEdit(changedFiles, fileExists) {
     )
 }
 
+// The runLegacyReason values of a diff that edited products only. A schema or lib change
+// reaches core directly, so the events_json leg keeps the whole list for those.
+const PRODUCT_CASCADE_REASONS = new Set(['non_isolated_product', 'contract_cascade'])
+
 // Which Django tests this run should execute, and whether the product matrix may narrow.
 // Pure: every input is an argument, so each branch is unit-tested rather than inferred
 // from a workflow run.
@@ -1261,7 +1301,11 @@ function isDagsterOnlyLegacyEdit(changedFiles, fileExists) {
 //   legacyChanged  the paths filter saw an edit under posthog/ or ee/
 //   dagsterOnlyLegacyEdit  every legacy edit is Dagster Python, see isDagsterOnlyLegacyEdit
 //   runLegacy      whether the Django suite runs, and why
+//   productCascadePhase         see productCascadePhase
+//   trustedProductCascadePhase  the highest phase whose selection is used
 //   selection      the selector's parsed output, null when it did not produce one
+//   fullRunAlreadyPassed  a full run passed on an earlier head of this ready PR, see
+//                  backend-full-run-state.js
 function decideSelection({
     applies,
     disabled,
@@ -1270,12 +1314,22 @@ function decideSelection({
     dagsterOnlyLegacyEdit,
     runLegacy,
     runLegacyReason,
+    productCascadePhase = null,
+    trustedProductCascadePhase = TRUSTED_PRODUCT_CASCADE_PHASE,
     selection,
+    fullRunAlreadyPassed = false,
 }) {
     if (!applies || runLegacy === false) {
         // Nothing to narrow: either the event never selects, or the Django suite is
         // skipped outright. An empty mode leaves every consumer on its own default.
-        return { mode: '', narrowed: null, skip_reason: '', ...emptySegments(), ...selectionMetrics(null) }
+        return {
+            mode: '',
+            narrowed: null,
+            skip_reason: '',
+            waived_full_run_reason: '',
+            ...emptySegments(),
+            ...selectionMetrics(null),
+        }
     }
     const fallbackMode = draft ? 'skip' : 'full'
     if (disabled) {
@@ -1283,21 +1337,44 @@ function decideSelection({
         // distinguishable from a genuine cascade in the selection telemetry.
         return fallbackSelection(fallbackMode, 'disabled', selection)
     }
-    if (runLegacy && runLegacyReason !== 'legacy_changed') {
+    // Once a full run passed on this PR, the full matrices already covered what the trust
+    // rules and the selector's full-run patterns guard against, and the merge queue runs
+    // them again before anything lands. A missing selection, a schema or lib cascade, and
+    // an empty selection stay full: there the subset is absent, or blind to what changed.
+    const waivesFullRun = fullRunAlreadyPassed && !draft
+    let waivedFullRunReason = ''
+    if (
+        runLegacy &&
+        runLegacyReason !== 'legacy_changed' &&
+        !isTrustedProductCascade(runLegacyReason, productCascadePhase, trustedProductCascadePhase)
+    ) {
         // Legacy impact was inferred from a product, contract, or schema change rather
         // than seen as a direct edit. The diff-based selector cannot see that cascade, so
         // its subset would be incomplete. A direct legacy edit is the selector's home
         // turf and is deliberately trusted — its own FULL_RUN_PATTERNS decide when a
         // legacy change is too broad to narrow.
-        return fallbackSelection(fallbackMode, 'untrusted', selection)
+        // A product cascade with no selector subset to fall back to stays full.
+        if (!(waivesFullRun && PRODUCT_CASCADE_REASONS.has(runLegacyReason) && selection)) {
+            return fallbackSelection(fallbackMode, 'untrusted', selection)
+        }
+        waivedFullRunReason = 'untrusted'
     }
     if (!selection) {
+        return fallbackSelection(fallbackMode, 'selector_error', selection)
+    }
+    if (PRODUCT_CASCADE_REASONS.has(runLegacyReason) && selection.snob?.status !== 'ok') {
+        // A product cascade has no legacy edit for the empty_selection guard below to catch,
+        // so only the import graph shows which core tests reach the product. A failed Snob
+        // run still exits cleanly with the AST-only subset, which can be no test at all.
         return fallbackSelection(fallbackMode, 'selector_error', selection)
     }
     const fullRunReasons = selection.ast?.full_run_reasons ?? []
     if (fullRunReasons.length > 0) {
         console.error(`Selector requested a full run:\n  ${fullRunReasons.join('\n  ')}`)
-        return fallbackSelection(fallbackMode, 'full_run_requested', selection)
+        if (!waivesFullRun) {
+            return fallbackSelection(fallbackMode, 'full_run_requested', selection)
+        }
+        waivedFullRunReason = waivedFullRunReason || 'full_run_requested'
     }
     if (!(Number(selection.durations?.total_seconds) > 0)) {
         return fallbackSelection(fallbackMode, 'no_durations', selection)
@@ -1321,10 +1398,14 @@ function decideSelection({
         return fallbackSelection(fallbackMode, 'empty_selection', selection)
     }
     console.error(`Selected: ${core.length} core, ${poe.length} POE-eligible, ${temporal.length} temporal, ${compat.length} compat`)
+    if (waivedFullRunReason) {
+        console.error(`A full run already passed on this PR, so the ${waivedFullRunReason} fallback is waived`)
+    }
     return {
         mode: 'selected',
         narrowed: true,
         skip_reason: '',
+        waived_full_run_reason: waivedFullRunReason,
         core_files: core.join(' '),
         poe_files: poe.join(' '),
         temporal_files: temporal.join(' '),
@@ -1333,6 +1414,90 @@ function decideSelection({
         run_temporal: temporal.length > 0,
         segment_shards: selectedShards(selection),
         ...selectionMetrics(selection),
+    }
+}
+
+// The highest product cascade phase whose selection gates a ready PR. A cascade in a higher
+// phase still runs the full matrices, and its telemetry reports what the selection would
+// have run (would_trust_phase, shadow_*). See productCascadePhase for the phases.
+const TRUSTED_PRODUCT_CASCADE_PHASE = 1
+
+const PRODUCT_FRONTEND_FILE = /^products\/[^/]+\/frontend\//
+const PRODUCT_MODEL_OR_MIGRATION_FILE = /^products\/[^/]+\/.*\b(models|migrations)(\/|\.py$)/
+
+// Test modules pytest collects, and syrupy snapshots. Nothing else imports a test module.
+// Any other file under a test directory can reach core by a path no import edge shows: a
+// helper loaded by name (warehouse_sources' facade/testing.py loads backend/test/utils.py
+// through __getattr__), or a fixture core tests read from disk (the hogql tests read
+// products/logs/backend/test/test_logs.jsonnd).
+function isProductTestFile(file) {
+    const parts = file.split('/')
+    const name = parts.at(-1) ?? ''
+    if (parts.at(-2) === '__snapshots__') {
+        return name.endsWith('.ambr')
+    }
+    return /^test_.*\.py$/.test(name) || /_test\.py$/.test(name)
+}
+
+// How far a product cascade has to be trusted for the selector's subset to replace the
+// full matrices, or null when no phase covers it.
+// The full matrices exist because core can reach a product's internals through edges no
+// import shows: signal receivers, URL registration, Celery task names. Each phase widens
+// what the selector is trusted to see past them.
+//   1  every changed product file is a test module or a snapshot. Facade files are not here:
+//      core imports many facades inside functions, and the selector's import graph records
+//      module-level imports only, so it cannot see those callers
+//   2  an isolated product's contract cascade
+//   3  a non-isolated product change, while it touches no models or migrations
+// A changed file outside products/ that the backend can read leaves the cascade unclassified,
+// because the cascade logic cannot say what it reaches. Markdown and frontend code cannot.
+function productCascadePhase(runLegacyReason, changedFiles) {
+    if (!PRODUCT_CASCADE_REASONS.has(runLegacyReason) || !Array.isArray(changedFiles)) {
+        return null
+    }
+    const productFiles = []
+    for (const file of changedFiles) {
+        if (/\.mdx?$/.test(file) || file.startsWith('frontend/') || PRODUCT_FRONTEND_FILE.test(file)) {
+            continue
+        }
+        if (productOfFile(file) === null) {
+            return null
+        }
+        productFiles.push(file)
+    }
+    if (productFiles.length > 0 && productFiles.every(isProductTestFile)) {
+        return 1
+    }
+    if (runLegacyReason === 'contract_cascade') {
+        return 2
+    }
+    return productFiles.some((file) => PRODUCT_MODEL_OR_MIGRATION_FILE.test(file)) ? null : 3
+}
+
+// A product cascade in a trusted phase changed nothing core reaches past an import, so the
+// selector's subset covers it like a direct legacy edit.
+function isTrustedProductCascade(runLegacyReason, phase, trustedPhase) {
+    return PRODUCT_CASCADE_REASONS.has(runLegacyReason) && phase !== null && phase <= trustedPhase
+}
+
+// decideSelection, plus what an untrusted product cascade would have run had its phase been
+// trusted. The shadow fields only reach telemetry, so a phase can be measured before it gates.
+function decideSelectionWithShadow(args) {
+    const decision = decideSelection(args)
+    const phase = args.productCascadePhase ?? null
+    const shadowFields = { would_trust_phase: phase, shadow_mode: '', shadow_skip_reason: '', shadow_selection_size: null }
+    if (phase === null || decision.skip_reason !== 'untrusted') {
+        return { ...decision, ...shadowFields }
+    }
+    console.error(`Shadow selection, had product cascade phase ${phase} been trusted:`)
+    const shadow = decideSelection({ ...args, trustedProductCascadePhase: phase })
+    const djangoFiles = new Set(`${shadow.core_files} ${shadow.temporal_files}`.split(' ').filter(Boolean))
+    return {
+        ...decision,
+        ...shadowFields,
+        shadow_mode: shadow.mode,
+        shadow_skip_reason: shadow.skip_reason,
+        shadow_selection_size: shadow.mode === 'selected' ? djangoFiles.size : null,
     }
 }
 
@@ -1345,10 +1510,6 @@ function isUnderProduct(target, products) {
 function fullRunJsonTargets(targets, skippedProducts) {
     return targets.filter((target) => !isUnderProduct(target, skippedProducts))
 }
-
-// The runLegacyReason values of a diff that edited products only. A schema or lib change
-// reaches core directly, so the events_json leg keeps the whole list for those.
-const PRODUCT_CASCADE_REASONS = new Set(['non_isolated_product', 'contract_cascade'])
 
 // Which events_json paths this run executes. The leg follows the legacy tests. Null means
 // the whole list at the full-run shard count. An array is the list to run, and an empty
@@ -1573,6 +1734,8 @@ function buildMatrix(products, durations, productsScaled = false) {
 module.exports = {
     narrowedProducts,
     decideSelection,
+    decideSelectionWithShadow,
+    productCascadePhase,
     isDagsterOnlyLegacyEdit,
     decideJsonTargets,
     loadJsonTargets,
@@ -1594,6 +1757,7 @@ module.exports = {
     narrowedJsonTargetsShards,
     DJANGO_SEGMENTS,
     getIsolatedProducts,
+    testlessProducts,
     collectTestFiles,
     checkProductStaleness,
     productPrefix,
@@ -1603,6 +1767,7 @@ module.exports = {
     productGraphFromTachMap,
     loadTachModuleGraph,
     tachDependents,
+    contractCascadeIsDirect,
     getAffectedLibPackages,
     libImportName,
     productsImportingModule,
@@ -1660,6 +1825,8 @@ let mustRunProducts = null
 // The products a product-only diff reached, kept apart from a matrix that a cascade widened
 // to all products. Null when a change reaches core directly or the reach is unknown.
 let diffProducts = null
+// 'direct' or 'transitive' when a contract change cascaded to dependents, else empty.
+let dependentCascade = ''
 
 if (legacyChanged) {
     console.error('Legacy code changed — testing all products')
@@ -1699,7 +1866,12 @@ if (legacyChanged) {
             console.error(`Isolated product contracts changed: ${JSON.stringify(affectedContracts)} — Django will run`)
             runLegacy = true
             runLegacyReason = 'contract_cascade'
-            const dependents = tachDependentProducts(affectedContracts, allProductSet)
+            const direct = contractCascadeIsDirect({
+                applies: process.env.SELECTION_APPLIES === 'true',
+                disabled: process.env.SELECTION_DISABLED === 'true',
+            })
+            dependentCascade = direct ? 'direct' : 'transitive'
+            const dependents = tachDependentProducts(affectedContracts, allProductSet, { direct })
             if (dependents === null) {
                 // Fail toward over-testing, like the quarantine loaders above: without the
                 // graph we cannot know which products depend on the changed contract, and
@@ -1709,7 +1881,7 @@ if (legacyChanged) {
             } else {
                 if (dependents.length > 0) {
                     console.error(
-                        `Dependent products cascaded in via tach map: ${JSON.stringify(dependents)} (transitively depend on ${JSON.stringify(affectedContracts)})`
+                        `Dependent products cascaded in via tach map: ${JSON.stringify(dependents)} (${direct ? 'directly' : 'transitively'} depend on ${JSON.stringify(affectedContracts)})`
                     )
                 }
                 products = [...new Set([...affectedProducts, ...dependents])].sort()
@@ -1794,8 +1966,8 @@ if (legacyChanged) {
 }
 
 let undeclaredInputProductsAdded = []
+let changedFiles = null
 if (process.env.TURBO_SCM_BASE) {
-    let changedFiles
     try {
         changedFiles = listChangedFiles(process.env.TURBO_SCM_BASE, process.env.TURBO_SCM_HEAD || 'HEAD')
     } catch (e) {
@@ -1855,7 +2027,7 @@ if (process.env.TURBO_SCM_BASE) {
     products.sort()
 }
 
-const selectionDecision = decideSelection({
+const selectionDecision = decideSelectionWithShadow({
     applies: process.env.SELECTION_APPLIES === 'true',
     disabled: process.env.SELECTION_DISABLED === 'true',
     draft: process.env.PR_DRAFT === 'true',
@@ -1863,18 +2035,45 @@ const selectionDecision = decideSelection({
     dagsterOnlyLegacyEdit: isDagsterOnlyLegacyEdit(selection?.changed_files, fs.existsSync),
     runLegacy,
     runLegacyReason,
+    productCascadePhase: productCascadePhase(runLegacyReason, changedFiles),
     selection,
+    fullRunAlreadyPassed: process.env.FULL_RUN_ALREADY_PASSED === 'true',
 })
 
 // Narrow the legacy-diff matrix after every drop and lift above, so narrowing can only
 // remove products. The matrix is then packed from the narrowed list.
 const productCountBeforeNarrowing = products.length
 let productMatrixNarrowed = false
+if (diffProducts !== null && selectionDecision.mode === 'selected' && PRODUCT_CASCADE_REASONS.has(runLegacyReason)) {
+    // A trusted product cascade keeps the products the diff reached, not every product.
+    const mustRun = [...new Set([...diffProducts, ...liftedProducts])].sort()
+    console.error(`Products that must run after a trusted product cascade: ${JSON.stringify(mustRun)}`)
+    products = narrowedProducts(products, mustRun, selection)
+    productMatrixNarrowed = true
+}
+let shadowProductCount = null
+if (selectionDecision.shadow_mode === 'selected') {
+    shadowProductCount =
+        diffProducts === null
+            ? products.length
+            : narrowedProducts(products, [...new Set([...diffProducts, ...liftedProducts])], selection).length
+}
 if (mustRunProducts !== null && selectionDecision.mode === 'selected') {
     const mustRun = [...new Set([...mustRunProducts, ...liftedProducts])].sort()
     console.error(`Products that must run if the matrix is narrowed: ${JSON.stringify(mustRun)}`)
     products = narrowedProducts(products, mustRun, selection)
     productMatrixNarrowed = true
+} else if (diffProducts !== null && selectionDecision.waived_full_run_reason === 'untrusted') {
+    // A waived product cascade keeps the products the diff reached, not every product.
+    const mustRun = [...new Set([...diffProducts, ...liftedProducts])].sort()
+    console.error(`Products that must run after a waived product cascade: ${JSON.stringify(mustRun)}`)
+    products = narrowedProducts(products, mustRun, selection)
+    productMatrixNarrowed = true
+}
+
+const testless = testlessProducts(allTestTasks)
+if (products.some((p) => testless.has(p))) {
+    products = dropProducts(products, allProducts, testless, 'Products whose backend:test runs no tests')
 }
 
 console.error(`Products to test: ${JSON.stringify(products)}`)
@@ -1946,7 +2145,11 @@ const result = {
         product_matrix_narrowed: productMatrixNarrowed,
         product_count: products.length,
         product_count_full: productCountBeforeNarrowing,
+        shadow_product_count: shadowProductCount,
         undeclared_input_products: undeclaredInputProductsAdded,
+        full_run_already_passed: process.env.FULL_RUN_ALREADY_PASSED === 'true',
+        rearmed_by_queue_kick: process.env.QUEUE_KICK_REARMED === 'true',
+        dependent_cascade: dependentCascade,
         ...runContext(),
     },
 }

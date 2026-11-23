@@ -8,19 +8,22 @@ the model has nothing to personalize it with.
 
 import json
 import time
+import random
 import hashlib
 import datetime
+import itertools
 import dataclasses
 from typing import Any, Literal
 
 from django.utils import timezone
 
 import structlog
-from openai import APITimeoutError, BadRequestError, Omit, OpenAI, omit
+from openai import APIError, APITimeoutError, BadRequestError, NotGiven, Omit, OpenAI, not_given, omit
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import build_openai_client, trace_id_from_seed
+from posthog.llm.openai_flex import is_flex_recoverable
 from posthog.models import Team, User
 from posthog.ph_client import ph_scoped_capture
 
@@ -30,11 +33,13 @@ from products.signals.backend.personal_ranking.candidates import Candidate, gath
 from products.signals.backend.personal_ranking.config import (
     PersonalRankingConfig,
     ReasoningEffort,
+    ServiceTier,
     config_for_user,
     list_limit,
     read_config,
 )
 from products.signals.backend.personal_ranking.inbox_activity import InboxActivityBlock, read_inbox_activity
+from products.signals.backend.personal_ranking.precheck import fingerprint_matches, input_fingerprint, store_fingerprint
 from products.signals.backend.personal_ranking.prompt import (
     PROMPT_VERSION,
     RESPONSE_FORMAT,
@@ -58,6 +63,11 @@ logger = structlog.get_logger(__name__)
 
 # (model, effort) pairs the API rejected in this process. Later calls with that pair leave the effort out.
 _REJECTED_REASONING_EFFORTS: set[tuple[str, str]] = set()
+# (model, tier) pairs the API rejected in this process. Later calls with that pair leave the tier out.
+_REJECTED_SERVICE_TIERS: set[tuple[str, str]] = set()
+# A refused flex call retries on the default tier only when this much of `timeout_seconds` is left.
+# With less time left, the retry would most likely time out too, so the build uses the fallback list at once.
+MIN_DEFAULT_TIER_RETRY_SECONDS = 15.0
 
 AI_PRODUCT = "personal_inbox_ranking"
 # Not a person: the gateway attributes every call to the pipeline.
@@ -97,8 +107,12 @@ CHANGED_UNKNOWN = "unknown"
 _PART_HASH_CHARS = 16
 
 BuildStatus = Literal["ok", "fallback", "empty", "disabled"]
+# `hit` confirmed the list with no gather. `miss` ran the full check. `agreed` and `disagreed` are sampled hits that
+# ran the full check too, and `disagreed` means the full check found a change that the pre-check did not.
+PrecheckOutcome = Literal["hit", "miss", "agreed", "disagreed"]
+PRECHECK_OUTCOMES: tuple[PrecheckOutcome, ...] = ("hit", "miss", "agreed", "disagreed")
 # What started a build, on the build event and the trace, so cost can be split by it.
-BuildTrigger = Literal["on_demand", "tick", "first_summary"]
+BuildTrigger = Literal["on_demand", "tick", "first_summary", "inbox_load"]
 
 _MODEL_ORDER_REASON = "Kept in inbox order."
 _NEEDS_YOU_REASONS = {
@@ -114,6 +128,16 @@ class _ModelCall:
     tokens_out: int | None
     latency_ms: int
     fallback_reason: str | None
+    # The tier that the response reports.
+    served_service_tier: str | None = None
+    service_tier_fallback: bool = False
+
+
+@frozen
+class _Completion:
+    response: ChatCompletion
+    # The flex call failed with an error that `is_flex_recoverable` accepts, so the default tier gave the answer.
+    service_tier_fallback: bool
 
 
 @frozen
@@ -159,6 +183,10 @@ class PersonalRankingBuild:
     tokens_in: int | None = None
     tokens_out: int | None = None
     latency_ms: int | None = None
+    # The tier that the config asked for, and the tier that the response reports. None when no call ran.
+    service_tier: ServiceTier | None = None
+    served_service_tier: str | None = None
+    service_tier_fallback: bool = False
     # None for a dry run or a disabled build, which store nothing.
     ranking_id: str | None = None
     # The stored `input_parts`. None for a disabled build.
@@ -381,39 +409,95 @@ def record_check(team: Team, row: PersonalInboxRanking, now: datetime.datetime) 
 class InputCheck:
     unchanged: bool
     calls_model: bool
+    # None when the pre-check is off.
+    precheck: PrecheckOutcome | None = None
+
+
+def _fingerprint(
+    team: Team,
+    user: User,
+    config: PersonalRankingConfig,
+    *,
+    now: datetime.datetime,
+    limit: int,
+    summary_version: int | None,
+) -> str | None:
+    try:
+        return input_fingerprint(team, user, config, now=now, limit=limit, summary_version=summary_version)
+    except Exception:
+        logger.exception("signals.personal_ranking.precheck_failed", team_id=team.id, user_id=user.id)
+        return None
 
 
 def check_inputs(
-    team: Team, user: User, config: PersonalRankingConfig, *, now: datetime.datetime, limit: int | None = None
+    team: Team,
+    user: User,
+    config: PersonalRankingConfig,
+    *,
+    now: datetime.datetime,
+    limit: int | None = None,
+    precheck: bool = False,
 ) -> InputCheck:
-    """Compare the latest list with the current inputs. A list that still matches counts as fresh again."""
+    """Compare the latest list with the current inputs. A list that still matches counts as fresh again.
+
+    With `precheck` and the tick's `precheck_hours` above 0, a fingerprint that matches the one stored by the last
+    full check of the latest list confirms the list with no gather. Any doubt runs the full check.
+    """
     config = config_for_user(config, user.id)
+    limit = list_limit(config, limit)
     latest = latest_row(team, user)
-    candidates = gather_candidates(team, user, config, now=now, with_sources=False)
     summary_version = ready_summary_version(team, user)
+    reusable = latest if latest is not None and latest.fallback_reason not in RETRYABLE_FALLBACK_REASONS else None
+    precheck_hours = config.tick.precheck_hours if precheck else 0
+    fingerprint = None
+    sampled = False
+    if precheck_hours > 0 and reusable is not None:
+        fingerprint = _fingerprint(team, user, config, now=now, limit=limit, summary_version=summary_version)
+        if fingerprint is not None and fingerprint_matches(team, user, reusable, fingerprint):
+            if random.random() >= config.tick.precheck_sample_share:
+                record_check(team, reusable, now)
+                return InputCheck(unchanged=True, calls_model=False, precheck="hit")
+            sampled = True
+    candidates = gather_candidates(team, user, config, now=now, with_sources=False)
     current_hash = input_hash(
         candidates,
         config=config,
-        limit=list_limit(config, limit),
+        limit=limit,
         activity_summary_version=summary_version,
         focus=None,
         inbox_activity=read_inbox_activity(team, user, config, now=now),
     )
-    if (
-        latest is not None
-        and latest.input_hash == current_hash
-        and latest.fallback_reason not in RETRYABLE_FALLBACK_REASONS
-    ):
-        record_check(team, latest, now)
-        return InputCheck(unchanged=True, calls_model=False)
+    unchanged = reusable is not None and reusable.input_hash == current_hash
+    outcome: PrecheckOutcome | None = None
+    if sampled:
+        outcome = "agreed" if unchanged else "disagreed"
+    elif precheck_hours > 0:
+        outcome = "miss"
+    if outcome == "disagreed":
+        logger.warning("signals.personal_ranking.precheck_disagreed", team_id=team.id, user_id=user.id)
+    if reusable is not None and unchanged:
+        record_check(team, reusable, now)
+        if fingerprint is not None:
+            store_fingerprint(team, user, reusable, fingerprint, precheck_hours)
+        return InputCheck(unchanged=True, calls_model=False, precheck=outcome)
     return InputCheck(
         unchanged=False,
         calls_model=bool(candidates) and may_call_model(team, summary_ready=summary_version is not None),
+        precheck=outcome,
     )
 
 
+def requested_service_tier(config: PersonalRankingConfig, trigger: BuildTrigger) -> ServiceTier | None:
+    return config.on_demand_service_tier if trigger == "on_demand" else config.service_tier
+
+
 def _client(
-    team: Team, user: User, now: datetime.datetime, config: PersonalRankingConfig, trigger: BuildTrigger
+    team: Team,
+    user: User,
+    now: datetime.datetime,
+    config: PersonalRankingConfig,
+    trigger: BuildTrigger,
+    service_tier: ServiceTier | None,
 ) -> OpenAI:
     client = build_openai_client(
         "signals",
@@ -425,6 +509,7 @@ def _client(
             "prompt_version": str(PROMPT_VERSION),
             "trigger": trigger,
             "model_arm": config.model_arm,
+            **({"requested_service_tier": service_tier} if service_tier is not None else {}),
         },
         distinct_id=PIPELINE_DISTINCT_ID,
     )
@@ -433,9 +518,16 @@ def _client(
 
 
 def _create_completion(
-    client: OpenAI, config: PersonalRankingConfig, messages: list[ChatCompletionMessageParam]
-) -> ChatCompletion:
-    def create(reasoning_effort: ReasoningEffort | Omit = omit) -> ChatCompletion:
+    client: OpenAI,
+    config: PersonalRankingConfig,
+    messages: list[ChatCompletionMessageParam],
+    service_tier: ServiceTier | None,
+) -> _Completion:
+    started = time.monotonic()
+
+    def create(
+        reasoning_effort: ReasoningEffort | Omit, tier: ServiceTier | Omit, timeout: float | NotGiven
+    ) -> ChatCompletion:
         return client.chat.completions.create(
             model=config.model,
             messages=messages,
@@ -443,23 +535,56 @@ def _create_completion(
             response_format=RESPONSE_FORMAT,
             max_completion_tokens=config.max_completion_tokens,
             reasoning_effort=reasoning_effort,
+            service_tier=tier,
+            timeout=timeout,
         )
 
-    if (config.model, config.reasoning_effort) in _REJECTED_REASONING_EFFORTS:
-        return create()
-    try:
-        return create(config.reasoning_effort)
-    except BadRequestError as error:
-        if "reasoning_effort" not in str(error):
-            raise
-    # A rejected parameter fails fast, so the retry stays inside the timeout.
-    _REJECTED_REASONING_EFFORTS.add((config.model, config.reasoning_effort))
-    logger.warning(
-        "signals.personal_ranking.reasoning_effort_rejected",
-        model=config.model,
-        reasoning_effort=config.reasoning_effort,
+    reasoning_effort: ReasoningEffort | Omit = (
+        omit if (config.model, config.reasoning_effort) in _REJECTED_REASONING_EFFORTS else config.reasoning_effort
     )
-    return create()
+    tier: ServiceTier | Omit = (
+        omit if service_tier is None or (config.model, service_tier) in _REJECTED_SERVICE_TIERS else service_tier
+    )
+    timeout: float | NotGiven = not_given
+    fell_back = False
+    # Each pass drops a parameter or leaves flex, so the loop makes at most three requests.
+    while True:
+        try:
+            return _Completion(response=create(reasoning_effort, tier, timeout), service_tier_fallback=fell_back)
+        except BadRequestError as error:
+            # A rejected parameter fails fast, so the retry stays inside the timeout.
+            if not isinstance(reasoning_effort, Omit) and "reasoning_effort" in str(error):
+                _REJECTED_REASONING_EFFORTS.add((config.model, reasoning_effort))
+                logger.warning(
+                    "signals.personal_ranking.reasoning_effort_rejected",
+                    model=config.model,
+                    reasoning_effort=reasoning_effort,
+                )
+                reasoning_effort = omit
+            elif not isinstance(tier, Omit) and "service_tier" in str(error):
+                _REJECTED_SERVICE_TIERS.add((config.model, tier))
+                logger.warning("signals.personal_ranking.service_tier_rejected", model=config.model, service_tier=tier)
+                tier = omit
+            else:
+                raise
+        except APIError as error:
+            # A flex timeout used the whole timeout, so it stays a `timeout` fallback.
+            remaining = config.timeout_seconds - (time.monotonic() - started)
+            if (
+                tier != "flex"
+                or isinstance(error, APITimeoutError)
+                or not is_flex_recoverable(error)
+                or remaining < MIN_DEFAULT_TIER_RETRY_SECONDS
+            ):
+                raise
+            logger.warning(
+                "signals.personal_ranking.flex_fell_back",
+                model=config.model,
+                error_type=type(error).__name__,
+                status_code=getattr(error, "status_code", None),
+            )
+            # The retry sends no tier, so it runs on the default tier of the project.
+            tier, timeout, fell_back = omit, remaining, True
 
 
 def _call_model(
@@ -475,8 +600,11 @@ def _call_model(
     def elapsed_ms() -> int:
         return round((time.monotonic() - started) * 1000)
 
+    service_tier = requested_service_tier(config, trigger)
     try:
-        response = _create_completion(_client(team, user, now, config, trigger), config, messages)
+        completion = _create_completion(
+            _client(team, user, now, config, trigger, service_tier), config, messages, service_tier
+        )
     except APITimeoutError:
         return _ModelCall(
             content=None, tokens_in=None, tokens_out=None, latency_ms=elapsed_ms(), fallback_reason=FALLBACK_TIMEOUT
@@ -486,6 +614,7 @@ def _call_model(
         return _ModelCall(
             content=None, tokens_in=None, tokens_out=None, latency_ms=elapsed_ms(), fallback_reason=FALLBACK_LLM_ERROR
         )
+    response = completion.response
     usage = response.usage
     choice = response.choices[0] if response.choices else None
     truncated = choice is not None and choice.finish_reason == TRUNCATED_FINISH_REASON
@@ -495,6 +624,8 @@ def _call_model(
         tokens_out=usage.completion_tokens if usage is not None else None,
         latency_ms=elapsed_ms(),
         fallback_reason=FALLBACK_TRUNCATED if truncated else None,
+        served_service_tier=response.service_tier,
+        service_tier_fallback=completion.service_tier_fallback,
     )
 
 
@@ -514,6 +645,12 @@ def _capture(
         for candidate in build.candidates:
             for pool in candidate.pools:
                 pools[pool] = pools.get(pool, 0) + 1
+        needs_you_refs = {
+            candidate.ref
+            for candidate in build.candidates
+            if any(kind in _NEEDS_YOU_REASONS for kind in candidate.needs_you)
+        }
+        leading_needs_you = itertools.takewhile(lambda entry: entry.ref in needs_you_refs, build.entries)
         # The build runs in a Celery task, where the global client can drop events before it flushes.
         with ph_scoped_capture() as capture:
             capture(
@@ -537,9 +674,16 @@ def _capture(
                     "limit": build.limit,
                     "rank_top": config.rank_top,
                     "reasoning_effort": config.reasoning_effort,
+                    "service_tier": build.service_tier,
+                    "served_service_tier": build.served_service_tier,
+                    "service_tier_fallback": build.service_tier_fallback,
                     "candidate_count": len(build.candidates),
                     "ranked_by_llm_count": sum(1 for entry in build.entries if entry.ranked_by == "llm"),
                     "folded_count": len(build.folded),
+                    # Needs you means waiting on their input or claimed by them. The leading count is the run of
+                    # such reports at the top of the list, so a list that opens with them shows up here.
+                    "needs_you_candidate_count": len(needs_you_refs),
+                    "needs_you_leading_count": sum(1 for _ in leading_needs_you),
                     # The list as stored: the ranked reports by rank, then the folded reports. A later build
                     # prunes the row, so an offline comparison of rankings and outcomes reads the order here.
                     "report_ids": [
@@ -713,6 +857,9 @@ def build_personal_ranking(
         tokens_in=call.tokens_in if call is not None else None,
         tokens_out=call.tokens_out if call is not None else None,
         latency_ms=call.latency_ms if call is not None else None,
+        service_tier=requested_service_tier(config, trigger) if call is not None else None,
+        served_service_tier=call.served_service_tier if call is not None else None,
+        service_tier_fallback=call.service_tier_fallback if call is not None else False,
     )
     if dry_run:
         return build

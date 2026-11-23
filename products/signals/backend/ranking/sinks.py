@@ -17,7 +17,7 @@ from posthog.ph_client import ScopedCapture, ph_scoped_capture
 
 from products.signals.backend.artefact_schemas import RankingModelResult, RankingScore
 from products.signals.backend.models import SignalActorKind, SignalReport, SignalReportArtefact
-from products.signals.backend.ranking.cache import RANKING_CACHE_FIELDS, apply_ranking_cache, latest_edit_ats
+from products.signals.backend.ranking.cache import RANKING_CACHE_FIELDS, apply_ranking_cache
 from products.signals.backend.ranking.model_contract import classification_thresholds, head_lifts, readable_head_names
 from products.signals.backend.ranking.overrides import RankingOverrides
 from products.signals.backend.ranking.report_facts import FACTS_SCHEMA_VERSION, ReportFacts
@@ -65,9 +65,8 @@ def persist_scores(
                 for report_id, score in kept
             ]
         )
-        edit_ats = latest_edit_ats(list(reports))
         for report_id, score in kept:
-            apply_ranking_cache(reports[report_id], score, edit_ats.get(report_id))
+            apply_ranking_cache(reports[report_id], score)
         SignalReport.objects.bulk_update([reports[report_id] for report_id, _ in kept], RANKING_CACHE_FIELDS)
     override_expires_at = (
         served_override.expires_at.isoformat() if served_override and served_override.expires_at else None

@@ -1,25 +1,25 @@
 import api from 'lib/api'
 import { createSetupDetectionLogic } from 'lib/components/ProductEmptyState/setupDetectionLogic'
 import { hogql } from 'lib/utils/hogql'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { clusteringConfigLogic } from '../clusters/clusteringConfigLogic'
 import { CLUSTERING_RUNS_LOOKBACK_DAYS } from '../clusters/constants'
-import { hasRecentAIEvents } from '../utils/aiEvents'
+import { llmAnalyticsClusteringConfigList } from '../generated/api'
 
 const CLUSTERING_RUN_EVENTS = ['$ai_trace_clusters', '$ai_generation_clusters', '$ai_evaluation_clusters']
 
 /**
  * Setup detection for the clusters empty state. Three-state: a clustering run at
- * any level → has-data; AI events flowing but no run yet → waiting-for-data (runs
- * are scheduled, so the first one lags the first trace); no AI events → needs-setup.
+ * any level → has-data; opted in with no run → waiting-for-data; off → needs-setup.
  * The lookback matches the scene's own run query so both agree on "no runs".
  */
 export const clustersSetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.LLM_CLUSTERS,
     path: ['products', 'ai_observability', 'frontend', 'emptyState', 'clustersSetupLogic'],
-    cacheHasData: true,
-    revalidateCachedHasData: true,
+    recheckActionTypes: () => [clusteringConfigLogic.actionTypes.saveEnabledSuccess],
     detect: async () => {
         const response = await api.queryHogQL(
             hogql`SELECT 1 FROM events WHERE event IN ${CLUSTERING_RUN_EVENTS} AND timestamp >= now() - INTERVAL ${hogql.raw(String(CLUSTERING_RUNS_LOOKBACK_DAYS))} DAY LIMIT 1`,
@@ -29,14 +29,8 @@ export const clustersSetupLogic = createSetupDetectionLogic({
         if ((response.results?.length ?? 0) > 0) {
             return 'has-data'
         }
-        const seenAiEvents = await hasRecentAIEvents()
-        if (seenAiEvents === null) {
-            // Preserve any existing setup screen while the check cannot answer.
-            return null
-        }
-        return seenAiEvents ? 'waiting-for-data' : 'needs-setup'
+        const config = await llmAnalyticsClusteringConfigList(String(teamLogic.values.currentTeamIdStrict))
+        return config.enabled ? 'waiting-for-data' : 'needs-setup'
     },
-    // Runs are emitted about once a day, so a slow poll is enough to flip the
-    // screen; the wizard flow is what needs the needs-setup → waiting flip.
     pollIntervalMs: 30000,
 })

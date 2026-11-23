@@ -1,8 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { mswDecorator } from '~/mocks/browser'
 
 import { updateScorerDraft } from './compositeFormulaDefaults'
@@ -12,7 +10,7 @@ import { createDraft } from './scoreDefinitionModalUtils'
 const meta: Meta<typeof ScoreDefinitionForm> = {
     title: 'AI observability/Scorer form',
     component: ScoreDefinitionForm,
-    parameters: { layout: 'padded', featureFlags: [FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS] },
+    parameters: { layout: 'padded' },
     args: {
         isNew: false,
         disabled: false,
@@ -94,9 +92,6 @@ export const Categorical: Story = {
             categoricalPassingCategories: ['good'],
         },
     },
-}
-export const OfflineDisabled: Story = {
-    parameters: { featureFlags: { [FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS]: false } },
 }
 export const CategoricalNarrow: Story = { ...Categorical, decorators: Narrow.decorators }
 

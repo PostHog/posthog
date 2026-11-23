@@ -84,4 +84,53 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "tree_path": "The content path in the helpdesk tree.",
         },
     },
+    "conversation_events": {
+        "description": "Events that an integration or operator stacked in each conversation.",
+        "docs_url": "https://docs.crisp.chat/references/rest-api/v1/#list-conversation-events",
+        "columns": {
+            "session_id": "The conversation that contains the event.",
+            "text": "The event text.",
+            "data": "The event data, if any.",
+            "color": "The event color, if any.",
+            "timestamp": "The time when the event was stacked.",
+        },
+    },
+    "teams": {
+        "description": "Operator teams in the workspace.",
+        "docs_url": "https://docs.crisp.chat/references/rest-api/v1/#list-teams",
+        "columns": {
+            "team_id": "The team identifier.",
+            "name": "The team name.",
+            "operators": "The user identifiers of the team operators.",
+            "created_at": "The time when Crisp created the team.",
+            "updated_at": "The time when Crisp last updated the team.",
+        },
+    },
+    "inboxes": {
+        "description": "Inboxes in the workspace, with their members and routing conditions.",
+        "docs_url": "https://docs.crisp.chat/references/rest-api/v1/#list-website-inboxes",
+        "columns": {
+            "inbox_id": "The inbox identifier.",
+            "name": "The inbox name.",
+            "order": "The position of the inbox in the inbox list.",
+            "operators": "The user identifiers of the inbox members.",
+            "teams": "The identifiers of the teams that are inbox members.",
+            "team_operators": "The user identifiers of the operators in the member teams.",
+            "conditions": "The conditions that route conversations to the inbox.",
+            "created_at": "The time when Crisp created the inbox.",
+            "updated_at": "The time when Crisp last updated the inbox.",
+        },
+    },
+    "helpdesk_feedbacks": {
+        "description": "Reader ratings and comments on helpdesk articles, for each helpdesk locale.",
+        "docs_url": "https://docs.crisp.chat/references/rest-api/v1/#list-helpdesk-locale-feedbacks",
+        "columns": {
+            "locale": "The locale code of the rated article.",
+            "rating": "The rating: helpful or unhelpful.",
+            "comment": "The comment that the reader left, if any.",
+            "article": "The rated article, with its identifier, title, and URL.",
+            "session": "The reader that left the feedback, if known.",
+            "created_at": "The time when the reader left the feedback.",
+        },
+    },
 }

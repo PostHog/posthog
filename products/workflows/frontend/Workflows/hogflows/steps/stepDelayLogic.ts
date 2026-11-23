@@ -184,7 +184,16 @@ export interface stepDelayLogicActions {
                       filters: {
                           actions?: any[] | undefined
                           events?: any[] | undefined
-                          properties?: any[] | undefined
+                          properties?:
+                              | {
+                                    type: 'AND' | 'OR'
+                                    values: {
+                                        type: 'AND' | 'OR'
+                                        values: any[]
+                                    }[]
+                                }
+                              | any[]
+                              | undefined
                       }
                       name?: string | undefined
                   }[]
@@ -524,7 +533,16 @@ export interface stepDelayLogicActions {
                       filters: {
                           actions?: any[] | undefined
                           events?: any[] | undefined
-                          properties?: any[] | undefined
+                          properties?:
+                              | {
+                                    type: 'AND' | 'OR'
+                                    values: {
+                                        type: 'AND' | 'OR'
+                                        values: any[]
+                                    }[]
+                                }
+                              | any[]
+                              | undefined
                       }
                       name?: string | undefined
                   }[]
