@@ -1,5 +1,4 @@
 import sys
-import enum
 import math
 import uuid
 import socket
@@ -8,7 +7,6 @@ import asyncio
 import datetime as dt
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
-from string import Template
 
 from django.conf import settings
 
@@ -68,7 +66,6 @@ from products.batch_exports.backend.temporal.metrics import log_query_duration
 from products.batch_exports.backend.temporal.pipeline.query_ranges import (
     exports_feature_flag_called_events,
     is_5_min_batch_export,
-    is_covered_by_events_json_recent,
     use_distributed_events_recent_table,
     wait_for_delta_past_data_interval_end,
 )
@@ -575,59 +572,112 @@ async def compute_num_partitions(
     return max(min_partitions, min(n, max_partitions))
 
 
-class EventsSource(enum.Enum):
-    """The events table a run of the events model reads."""
-
-    # `events`, `events_recent` or `distributed_events_recent`, as the legacy query template says.
-    LEGACY = "legacy"
-    EVENTS_JSON = "events_json"
-    EVENTS_JSON_RECENT = "events_json_recent"
-
-
-def _select_events_query_template(
+async def _get_new_events_query(
+    *,
+    team_id: int,
     full_range: tuple[dt.datetime | None, dt.datetime],
     backfill_details: BackfillDetails | None,
     is_workflows: bool,
-) -> Template:
-    """The legacy query a run of the events model would use."""
+    fields: list[BatchExportField],
+    custom_schema: BatchExportSchema | None,
+    filters: list[dict[str, str | bool | float | list[str | bool | float] | None]] | None,
+    extra_query_parameters: dict[str, typing.Any],
+    s3_function: str,
+) -> tuple[str, dict[str, typing.Any], bool]:
+    """The export query on the new events tables, its parameters, and whether it reads `events_json_recent`."""
+    # The stored fields of a custom schema read the legacy tables, so a run on the native table recompiles them.
+    # TODO: Temporary. Choose the table once up front and compile for it in `resolve_batch_exports_model` instead
+    # (see `prepare_serialized_export_query`).
+    if custom_schema is not None:
+        hogql_query = custom_schema.get("hogql_query")
+        if not hogql_query:
+            raise CustomSchemaWithoutQueryError()
+        fields, extra_query_parameters = await database_sync_to_async(recompile_stored_schema)(
+            team_id, custom_schema, hogql_query
+        )
+
+    fields = with_inserted_at_field(fields)
+
+    filters_str = ""
+    if filters:
+        filters_str, extra_query_parameters = await database_sync_to_async(compose_filters_clause)(
+            filters, team_id=team_id, values=extra_query_parameters, use_new_events_schema=True
+        )
+
+    reads_recent_events = not is_workflows and use_distributed_events_recent_table(
+        is_backfill=backfill_details is not None, backfill_details=backfill_details, data_interval_start=full_range[0]
+    )
+    if reads_recent_events:
+        LOGGER.info("Using events_json_recent table for batch export")
+        query = native_recent_events_export_query(
+            fields,
+            filters_str,
+            includes_feature_flag_called=exports_feature_flag_called_events(team_id),
+            s3_function=s3_function,
+        )
+    else:
+        LOGGER.info("Using events_json table for batch export")
+        query = native_events_export_query(fields, filters_str, s3_function=s3_function)
+
+    return query, extra_query_parameters, reads_recent_events
+
+
+async def _get_legacy_events_query(
+    *,
+    team_id: int,
+    full_range: tuple[dt.datetime | None, dt.datetime],
+    backfill_details: BackfillDetails | None,
+    is_workflows: bool,
+    fields: list[BatchExportField],
+    filters: list[dict[str, str | bool | float | list[str | bool | float] | None]] | None,
+    extra_query_parameters: dict[str, typing.Any],
+    s3_function: str,
+) -> tuple[str, dict[str, typing.Any], bool]:
+    """The export query on the legacy events tables, its parameters, and whether it reads `events_recent`."""
+    parameters = dict(extra_query_parameters)
     is_backfill = backfill_details is not None
     # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
     # may not be able to handle the load from all batch exports
     if is_5_min_batch_export(full_range=full_range) and not is_backfill and not is_workflows:
         LOGGER.info("Using events_recent table for 5 min batch export")
-        return EXPORT_TO_S3_FROM_EVENTS_RECENT
+        query_template = EXPORT_TO_S3_FROM_EVENTS_RECENT
     # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
     # which is a distributed table that sits in front of the `events_recent` table
-    if not is_workflows and use_distributed_events_recent_table(
-        is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=full_range[0]
+    elif (
+        use_distributed_events_recent_table(
+            is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=full_range[0]
+        )
+        and not is_workflows
     ):
         LOGGER.info("Using distributed_events_recent table for batch export")
-        return EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT
-    if is_workflows:
+        query_template = EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT
+    elif is_workflows:
         LOGGER.info("Using workflows events query for batch export")
-        return EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS
-    if is_backfill:
+        query_template = EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS
+    elif is_backfill:
         LOGGER.info("Using events_batch_export_backfill query for batch export")
-        return EXPORT_TO_S3_FROM_EVENTS_BACKFILL
-    LOGGER.info("Using events table for batch export")
-    return EXPORT_TO_S3_FROM_EVENTS
+        query_template = EXPORT_TO_S3_FROM_EVENTS_BACKFILL
+    else:
+        LOGGER.info("Using events table for batch export")
+        query_template = EXPORT_TO_S3_FROM_EVENTS
+        parameters["lookback_days"] = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(
+            team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS
+        )
 
+    filters_str = ""
+    if filters:
+        filters_str, parameters = await database_sync_to_async(compose_filters_clause)(
+            filters, team_id=team_id, values=parameters, use_new_events_schema=False
+        )
 
-def _select_events_source(query_template: Template, range_start: dt.datetime | None) -> EventsSource:
-    """Whether a run reads one of the new events tables in place of the legacy one its query template reads.
-
-    The lookback query on `events` has no new equivalent, so it always reads the legacy table.
-    """
-    if not batch_exports_read_new_events_table():
-        return EventsSource.LEGACY
-    if query_template in (EXPORT_TO_S3_FROM_EVENTS_BACKFILL, EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS):
-        return EventsSource.EVENTS_JSON
-    if query_template in (
-        EXPORT_TO_S3_FROM_EVENTS_RECENT,
-        EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT,
-    ) and is_covered_by_events_json_recent(range_start):
-        return EventsSource.EVENTS_JSON_RECENT
-    return EventsSource.LEGACY
+    query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in with_inserted_at_field(fields))
+    query = query_template.safe_substitute(
+        fields=query_fields,
+        filters=f"AND {filters_str}" if filters_str else "",
+        s3_function=s3_function,
+    )
+    reads_recent_events = query_template in (EXPORT_TO_S3_FROM_EVENTS_RECENT, EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT)
+    return query, parameters, reads_recent_events
 
 
 async def _get_query(
@@ -700,54 +750,27 @@ async def _get_query(
         else:
             parameters["include_events"] = []
 
-        query_template = _select_events_query_template(full_range, backfill_details, is_workflows)
-        if query_template is EXPORT_TO_S3_FROM_EVENTS:
-            lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
-            parameters["lookback_days"] = lookback_days
-
-        reads_recent_events = query_template in (
-            EXPORT_TO_S3_FROM_EVENTS_RECENT,
-            EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT,
-        )
-        events_source = _select_events_source(query_template, full_range[0])
-        native_source = events_source is not EventsSource.LEGACY
-
-        # The stored fields of a custom schema read the legacy tables, so a run on the native table recompiles them.
-        # TODO: Temporary. Once `events_json_recent` serves the recent paths, choose the table once up front and
-        # compile for it in `resolve_batch_exports_model` instead (see `prepare_serialized_export_query`).
-        if native_source and custom_schema is not None:
-            hogql_query = custom_schema.get("hogql_query")
-            if not hogql_query:
-                raise CustomSchemaWithoutQueryError()
-            fields, extra_query_parameters = await database_sync_to_async(recompile_stored_schema)(
-                team_id, custom_schema, hogql_query
-            )
-
-        fields = with_inserted_at_field(fields)
-
-        filters_str = ""
-        if filters is not None and len(filters) > 0:
-            filters_str, extra_query_parameters = await database_sync_to_async(compose_filters_clause)(
-                filters, team_id=team_id, values=extra_query_parameters, use_new_events_schema=native_source
-            )
-
-        if events_source is EventsSource.EVENTS_JSON_RECENT:
-            query = native_recent_events_export_query(
-                fields,
-                filters_str,
-                is_5_min_batch_export=query_template is EXPORT_TO_S3_FROM_EVENTS_RECENT,
-                includes_feature_flag_called=exports_feature_flag_called_events(team_id),
+        if batch_exports_read_new_events_table():
+            query, extra_query_parameters, reads_recent_events = await _get_new_events_query(
+                team_id=team_id,
+                full_range=full_range,
+                backfill_details=backfill_details,
+                is_workflows=is_workflows,
+                fields=fields,
+                custom_schema=custom_schema,
+                filters=filters,
+                extra_query_parameters=extra_query_parameters,
                 s3_function=s3_function,
             )
-        elif events_source is EventsSource.EVENTS_JSON:
-            query = native_events_export_query(fields, filters_str, s3_function=s3_function)
         else:
-            query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields)
-            if filters_str:
-                filters_str = f"AND {filters_str}"
-            query = query_template.safe_substitute(
-                fields=query_fields,
-                filters=filters_str,
+            query, extra_query_parameters, reads_recent_events = await _get_legacy_events_query(
+                team_id=team_id,
+                full_range=full_range,
+                backfill_details=backfill_details,
+                is_workflows=is_workflows,
+                fields=fields,
+                filters=filters,
+                extra_query_parameters=extra_query_parameters,
                 s3_function=s3_function,
             )
 

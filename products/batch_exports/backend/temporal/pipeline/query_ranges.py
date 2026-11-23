@@ -42,19 +42,6 @@ def use_distributed_events_recent_table(
     return False
 
 
-def is_covered_by_events_json_recent(range_start: dt.datetime | None) -> bool:
-    """Whether `events_json_recent` holds every event of a range that starts at `range_start`.
-
-    A range with no start reaches back past any retention, so the table never covers it.
-    """
-    covered_since = settings.BATCH_EXPORTS_EVENTS_JSON_RECENT_SINCE
-    if covered_since is None or range_start is None:
-        return False
-    if range_start.tzinfo is None:
-        range_start = range_start.replace(tzinfo=dt.UTC)
-    return range_start >= covered_since
-
-
 def exports_feature_flag_called_events(team_id: int) -> bool:
     """Whether an export of `events_json_recent` for `team_id` includes `$feature_flag_called` events."""
     return str(team_id) in settings.BATCH_EXPORTS_FEATURE_FLAG_CALLED_TEAM_IDS

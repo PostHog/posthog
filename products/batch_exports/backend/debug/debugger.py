@@ -47,7 +47,6 @@ from products.batch_exports.backend.temporal.filters import compose_filters_clau
 from products.batch_exports.backend.temporal.pipeline.internal_stage import get_base_s3_staging_folder
 from products.batch_exports.backend.temporal.pipeline.query_ranges import (
     exports_feature_flag_called_events,
-    is_covered_by_events_json_recent,
     use_distributed_events_recent_table,
 )
 from products.batch_exports.backend.temporal.sql.events import (
@@ -448,60 +447,57 @@ class BatchExportsDebugger:
             else:
                 parameters["include_events"] = []
 
-            # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
-            # may not be able to handle the load from all batch exports
-            if (
-                isinstance(batch_export_run.parent, BatchExport)
-                and batch_export_run.parent.interval == "every 5 minutes"
-                and not is_backfill
-            ):
-                query_template = SELECT_FROM_EVENTS_VIEW_RECENT
-            # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
-            # which is a distributed table that sits in front of the `events_recent` table
-            elif use_distributed_events_recent_table(
-                is_backfill=is_backfill, backfill_details=None, data_interval_start=full_range[0]
-            ):
-                query_template = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
-            elif is_backfill:
-                query_template = SELECT_FROM_EVENTS_VIEW_BACKFILL
-            else:
-                query_template = SELECT_FROM_EVENTS_VIEW
-                lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(
-                    team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS
-                )
-                parameters["lookback_days"] = lookback_days
-
             fields = with_inserted_at_field(default_fields_for_destination(batch_export_run.parent.destination.type))
+            if batch_exports_read_new_events_table():
+                filters_str = ""
+                if filters:
+                    filters_str, extra_query_parameters = compose_filters_clause(
+                        filters, team_id=team_id, values=extra_query_parameters, use_new_events_schema=True
+                    )
 
-            reads_recent_table = query_template in (
-                SELECT_FROM_EVENTS_VIEW_RECENT,
-                SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
-            )
-            native_source = (
-                query_template is SELECT_FROM_EVENTS_VIEW_BACKFILL
-                or (reads_recent_table and is_covered_by_events_json_recent(full_range[0]))
-            ) and batch_exports_read_new_events_table()
-
-            filters_str = ""
-            if filters is not None and len(filters) > 0:
-                filters_str, extra_query_parameters = compose_filters_clause(
-                    filters, team_id=team_id, values=extra_query_parameters, use_new_events_schema=native_source
-                )
-
-            if native_source and reads_recent_table:
-                query = native_recent_events_export_query(
-                    fields,
-                    filters_str,
-                    is_5_min_batch_export=query_template is SELECT_FROM_EVENTS_VIEW_RECENT,
-                    includes_feature_flag_called=exports_feature_flag_called_events(team_id),
-                )
-            elif native_source:
-                query = native_events_export_query(fields, filters_str)
+                if use_distributed_events_recent_table(
+                    is_backfill=is_backfill, backfill_details=None, data_interval_start=full_range[0]
+                ):
+                    query = native_recent_events_export_query(
+                        fields,
+                        filters_str,
+                        includes_feature_flag_called=exports_feature_flag_called_events(team_id),
+                    )
+                else:
+                    query = native_events_export_query(fields, filters_str)
             else:
+                # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag,
+                # but may not be able to handle the load from all batch exports
+                if (
+                    isinstance(batch_export_run.parent, BatchExport)
+                    and batch_export_run.parent.interval == "every 5 minutes"
+                    and not is_backfill
+                ):
+                    query_template = SELECT_FROM_EVENTS_VIEW_RECENT
+                # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
+                # which is a distributed table that sits in front of the `events_recent` table
+                elif use_distributed_events_recent_table(
+                    is_backfill=is_backfill, backfill_details=None, data_interval_start=full_range[0]
+                ):
+                    query_template = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
+                elif is_backfill:
+                    query_template = SELECT_FROM_EVENTS_VIEW_BACKFILL
+                else:
+                    query_template = SELECT_FROM_EVENTS_VIEW
+                    parameters["lookback_days"] = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(
+                        team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS
+                    )
+
+                filters_str = ""
+                if filters:
+                    filters_str, extra_query_parameters = compose_filters_clause(
+                        filters, team_id=team_id, values=extra_query_parameters, use_new_events_schema=False
+                    )
+
                 query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields)
-                if filters_str:
-                    filters_str = f"AND {filters_str}"
-                query = query_template.safe_substitute(fields=query_fields, filters=filters_str, order="")
+                query = query_template.safe_substitute(
+                    fields=query_fields, filters=f"AND {filters_str}" if filters_str else "", order=""
+                )
 
         parameters = {**parameters, **extra_query_parameters}
 

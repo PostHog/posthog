@@ -94,7 +94,6 @@ def mock_clickhouse_client():
 
 
 @pytest.mark.parametrize("use_native_schema", [False, True])
-@pytest.mark.parametrize("events_json_recent_since", [None, TEST_DATA_INTERVAL_END - dt.timedelta(days=30)])
 @pytest.mark.parametrize("interval", ["day", "every 5 minutes"], indirect=True)
 @pytest.mark.parametrize(
     "model",
@@ -104,7 +103,7 @@ def mock_clickhouse_client():
 )
 @pytest.mark.parametrize("is_backfill", [False, True])
 @pytest.mark.parametrize("backfill_within_last_6_days", [False, True])
-@pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
+@pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END, TEST_DATA_INTERVAL_END - dt.timedelta(days=20)])
 async def test_insert_into_stage_activity_executes_the_expected_query_for_events_model(
     mock_clickhouse_client,
     interval,
@@ -116,7 +115,6 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
     is_backfill: bool,
     backfill_within_last_6_days: bool,
     use_native_schema: bool,
-    events_json_recent_since: dt.datetime | None,
 ):
     """Test that the insert_into_internal_stage_activity executes the expected ClickHouse query when the model is an events model.
 
@@ -128,14 +126,17 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
 
     if not is_backfill and backfill_within_last_6_days:
         pytest.skip("No need to test backfill within last 6 days for non-backfill")
+    is_late_run = data_interval_end != TEST_DATA_INTERVAL_END
+    if is_backfill and is_late_run:
+        pytest.skip("A backfill's table depends on its start, not on when its run ends")
 
-    expected_table = "distributed_events_recent"
-    if not is_backfill and interval == "every 5 minutes":
+    reads_recent_range = (not is_backfill and not is_late_run) or backfill_within_last_6_days
+    if use_native_schema:
+        expected_table = "events_json_recent" if reads_recent_range else "events_json"
+    elif not is_backfill and interval == "every 5 minutes":
         expected_table = "events_recent"
-    elif is_backfill and not backfill_within_last_6_days:
-        expected_table = "events_json" if use_native_schema else "events"
-    if use_native_schema and events_json_recent_since is not None and expected_table.endswith("events_recent"):
-        expected_table = "events_json_recent"
+    else:
+        expected_table = "distributed_events_recent" if reads_recent_range else "events"
 
     if backfill_within_last_6_days:
         backfill_start_at = (data_interval_end - dt.timedelta(days=3)).isoformat()
@@ -165,10 +166,7 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
         destination_default_fields=None,
     )
 
-    with override_settings(
-        CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_native_schema,
-        BATCH_EXPORTS_EVENTS_JSON_RECENT_SINCE=events_json_recent_since,
-    ):
+    with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_native_schema):
         await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
     mock_clickhouse_client.expect_select_from_table(expected_table)
     mock_clickhouse_client.expect_properties_in_log_comment(
@@ -225,11 +223,10 @@ async def test_insert_into_stage_activity_reads_native_events_for_workflows(
 @pytest.mark.parametrize("interval", ["day"], indirect=True)
 @pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
 @pytest.mark.parametrize(
-    "backfill_days_ago,expected_table,reads_native_table",
-    [(3, "distributed_events_recent", False), (10, "events_json", True)],
-    ids=["legacy-recent-table", "native-table"],
+    "reads_native_table,backfill_days_ago,expected_table",
+    [(False, 3, "distributed_events_recent"), (True, 3, "events_json_recent"), (True, 10, "events_json")],
+    ids=["legacy-recent-table", "native-recent-table", "native-table"],
 )
-@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
 async def test_insert_into_stage_activity_compiles_custom_fields_and_filters_for_the_table_it_reads(
     mock_clickhouse_client,
     interval,
@@ -240,7 +237,9 @@ async def test_insert_into_stage_activity_compiles_custom_fields_and_filters_for
     backfill_days_ago: int,
     expected_table: str,
     reads_native_table: bool,
+    settings: "Settings",
 ):
+    settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA = reads_native_table
     with patch(
         "products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team",
         return_value={RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT)},

@@ -523,12 +523,11 @@ def native_recent_events_export_query(
     fields: Sequence["BatchExportField"],
     filters: str = "",
     *,
-    is_5_min_batch_export: bool,
     includes_feature_flag_called: bool,
     order: str = "",
     s3_function: str | None = None,
 ) -> str:
-    """The export query for `events_json_recent`, which recent runs of a team on the new events schema read.
+    """The export query for `events_json_recent`, which runs on the new events schema read for the ranges it holds.
 
     The query sends the stored `properties` and `person_properties` text as it is. `filters` and any custom field
     expressions must be printed for the new events schema, as for `native_events_export_query`. They read typed JSON
@@ -542,13 +541,6 @@ def native_recent_events_export_query(
     else:
         source = EVENTS_JSON_RECENT_TABLE
         replacements = _build_temporary_property_fields("events.temporary_properties")
-    # A 5-minute run reads straight after the data interval ends, so it accepts only fully replicated rows. Other
-    # recent runs accept up to a minute of replication lag, and fail rather than read a replica that is further behind.
-    replica_settings = (
-        "max_replica_delay_for_distributed_queries=1"
-        if is_5_min_batch_export
-        else "max_replica_delay_for_distributed_queries=60,\n    fallback_to_stale_replicas_for_distributed_queries=0"
-    )
     return f"""
 {"INSERT INTO FUNCTION " + s3_function if s3_function else ""}
 SELECT {_select_fields(fields, replacements)}
@@ -568,7 +560,6 @@ FROM (
 {"" if s3_function else "FORMAT ArrowStream"}
 SETTINGS
     max_bytes_before_external_sort=50000000000,
-    {replica_settings},
     optimize_aggregation_in_order=1,
     {EVENTS_JSON_INSERT_SETTINGS},
     output_format_json_escape_forward_slashes=0

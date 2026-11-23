@@ -120,7 +120,6 @@ def _export_recent_events(
     query = native_recent_events_export_query(
         fields,
         filters_str,
-        is_5_min_batch_export=True,
         includes_feature_flag_called=includes_feature_flag_called,
     ).replace("FORMAT ArrowStream", "")
     return sync_execute(

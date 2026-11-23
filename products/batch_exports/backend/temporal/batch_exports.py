@@ -43,7 +43,6 @@ from products.batch_exports.backend.service import (
 from products.batch_exports.backend.temporal.metrics import get_export_finished_metric, get_export_started_metric
 from products.batch_exports.backend.temporal.pipeline.query_ranges import (
     exports_feature_flag_called_events,
-    is_covered_by_events_json_recent,
     use_distributed_events_recent_table,
 )
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
@@ -243,30 +242,31 @@ def select_events_query_template(
     return SELECT_FROM_EVENTS_VIEW
 
 
-def reads_native_events_table(
+def _build_new_events_records_query(
     *,
     team_id: int,
     interval_start: str | None,
-    interval_end: str,
-    use_new_events_schema: bool,
-    is_backfill: bool = False,
-    backfill_details: BackfillDetails | None = None,
-) -> bool:
-    """Whether `iter_records` reads a native events table, so its filters must be printed for the new schema."""
-    if not use_new_events_schema:
-        return False
-    query = select_events_query_template(
-        team_id=team_id,
-        interval_start=interval_start,
-        interval_end=interval_end,
-        is_backfill=is_backfill,
-        backfill_details=backfill_details,
-    )
-    if query is SELECT_FROM_EVENTS_VIEW_BACKFILL:
-        return True
-    return query in (SELECT_FROM_EVENTS_VIEW_RECENT, SELECT_FROM_DISTRIBUTED_EVENTS_RECENT) and (
-        is_covered_by_events_json_recent(dt.datetime.fromisoformat(interval_start) if interval_start else None)
-    )
+    fields: list[BatchExportField],
+    filters_str: str,
+    is_backfill: bool,
+    backfill_details: BackfillDetails | None,
+) -> str:
+    """The `iter_records` query on the new events tables, which `events_json_recent` serves for the ranges it holds."""
+    start_at = dt.datetime.fromisoformat(interval_start) if interval_start is not None else None
+    # TODO: this can be simplified once all backfill inputs are migrated
+    is_backfill = (backfill_details is not None) or is_backfill
+    order = "ORDER BY _inserted_at, event"
+
+    if use_distributed_events_recent_table(
+        is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=start_at
+    ):
+        return native_recent_events_export_query(
+            fields,
+            filters_str,
+            includes_feature_flag_called=exports_feature_flag_called_events(team_id),
+            order=order,
+        )
+    return native_events_export_query(fields, filters_str, order=order)
 
 
 def iter_records(
@@ -329,38 +329,29 @@ def iter_records(
         "include_events": events_to_include_array,
     }
 
-    query = select_events_query_template(
-        team_id=team_id,
-        interval_start=interval_start,
-        interval_end=interval_end,
-        is_backfill=is_backfill,
-        backfill_details=backfill_details,
-    )
-
-    if query is SELECT_FROM_EVENTS_VIEW:
-        base_query_parameters["lookback_days"] = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(
-            team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS
-        )
-
-    reads_native_table = reads_native_events_table(
-        team_id=team_id,
-        interval_start=interval_start,
-        interval_end=interval_end,
-        use_new_events_schema=use_new_events_schema,
-        is_backfill=is_backfill,
-        backfill_details=backfill_details,
-    )
-    if reads_native_table and query is SELECT_FROM_EVENTS_VIEW_BACKFILL:
-        query_str = native_events_export_query(select_fields, filters_str or "", order="ORDER BY _inserted_at, event")
-    elif reads_native_table:
-        query_str = native_recent_events_export_query(
-            select_fields,
-            filters_str or "",
-            is_5_min_batch_export=query is SELECT_FROM_EVENTS_VIEW_RECENT,
-            includes_feature_flag_called=exports_feature_flag_called_events(team_id),
-            order="ORDER BY _inserted_at, event",
+    if use_new_events_schema:
+        query_str = _build_new_events_records_query(
+            team_id=team_id,
+            interval_start=interval_start,
+            fields=select_fields,
+            filters_str=filters_str or "",
+            is_backfill=is_backfill,
+            backfill_details=backfill_details,
         )
     else:
+        query = select_events_query_template(
+            team_id=team_id,
+            interval_start=interval_start,
+            interval_end=interval_end,
+            is_backfill=is_backfill,
+            backfill_details=backfill_details,
+        )
+
+        if query is SELECT_FROM_EVENTS_VIEW:
+            base_query_parameters["lookback_days"] = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(
+                team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS
+            )
+
         query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in select_fields)
         if filters_str:
             filters_str = f"AND {filters_str}"
