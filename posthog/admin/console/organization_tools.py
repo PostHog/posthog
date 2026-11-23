@@ -1,14 +1,15 @@
 import re
 from typing import Any, cast
-from urllib.parse import urlencode
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from django import forms
 from django.contrib import messages
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 
 from posthog.admin.console.organization_shutdown import (
+    JOB_NOT_STARTED,
     RUN_FOLLOW_UP,
+    RUN_PAGE_PATH,
     STOP_NOTICE,
     UNDO_HINT,
     OrganizationShutdownForm,
@@ -16,18 +17,20 @@ from posthog.admin.console.organization_shutdown import (
     deactivate_organizations,
     inventory_table,
     planned_action,
+    run_id_of,
+    run_page_url,
     run_table,
     shut_down_organizations,
+    start_background_stop,
     take_inventory,
 )
 from posthog.admin.console.registry import console
 from posthog.admin.console.tools import ConsoleTool, Live, Notice, Page, Table, ToolOperation
 from posthog.models.organization import Organization
 from posthog.models.user import User
-from posthog.tasks.organization_shutdown import stop_organizations_background_work
 from posthog.utils import pluralize
 
-TOOL_URL = "/admin/console/tools/bulk-deactivate-organizations/"
+TOOL_URL = RUN_PAGE_PATH
 RUN_REFRESH_SECONDS = 3
 
 
@@ -126,14 +129,6 @@ def preview_bulk_deactivation(request: HttpRequest, form: forms.Form) -> Page:
     return Page(blocks=tuple(blocks))
 
 
-def _run_id(request: HttpRequest) -> str:
-    # The form nonce names the run, so a confirm submitted twice starts one run.
-    try:
-        return str(UUID(request.POST.get("form_nonce", "")))
-    except ValueError:
-        return str(uuid4())
-
-
 def bulk_deactivate(request: HttpRequest, form: forms.Form | None) -> HttpResponse | Page | None:
     assert form is not None
     stop_background_work = form.cleaned_data["stop_background_work"]
@@ -148,21 +143,18 @@ def bulk_deactivate(request: HttpRequest, form: forms.Form | None) -> HttpRespon
 
     if stop_background_work:
         deactivated = deactivate_organizations(organization_ids, reason)
-        run_id = _run_id(request)
-        if ShutdownRuns.start(run_id, total=len(organization_ids)):
-            stop_organizations_background_work.delay(
-                run_id,
-                [str(organization_id) for organization_id in organization_ids],
-                [str(organization_id) for organization_id in deactivated],
-                reason,
-                triggered_by,
-            )
+        run_id = run_id_of(request)
+        if not start_background_stop(
+            run_id, organization_ids, deactivated=deactivated, reason=reason, triggered_by=triggered_by
+        ):
+            messages.error(request, JOB_NOT_STARTED)
+            return HttpResponseRedirect(TOOL_URL)
         messages.success(
             request,
             f"Deactivated {pluralize(len(deactivated), 'organization')}. Their background work stops in a background "
             "job, and this page follows it.",
         )
-        return HttpResponseRedirect(f"{TOOL_URL}?{urlencode({'run': run_id})}")
+        return HttpResponseRedirect(run_page_url(run_id))
 
     results = shut_down_organizations(
         organization_ids, reason=reason, stop_background_work=False, triggered_by=triggered_by

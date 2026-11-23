@@ -8,18 +8,20 @@ import json
 from collections.abc import Callable, Collection, Sequence
 from functools import partial
 from typing import Any
-from uuid import UUID
+from urllib.parse import urlencode
+from uuid import UUID, uuid4
 
 from django import forms
-from django.core.cache import cache
+from django.core.cache import caches
 from django.db import transaction
+from django.http import HttpRequest
 from django.urls import reverse
 
 import structlog
 
 from posthog.admin.console.panels import Tone
 from posthog.admin.console.records import RECORD_TYPES
-from posthog.admin.console.tools import Cell, GroupRow, Notice, Page, Row, Table
+from posthog.admin.console.tools import Cell, GroupRow, Row, Table
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization
@@ -372,6 +374,8 @@ class ShutdownRuns:
     """
 
     TTL_SECONDS = 7 * 24 * 60 * 60
+    # The console's own alias reads from the primary, so the task never builds on a lagging replica's copy.
+    CACHE_ALIAS = "admin_console_results"
 
     @staticmethod
     def _key(run_id: str) -> str:
@@ -381,11 +385,32 @@ class ShutdownRuns:
     def start(cls, run_id: str, *, total: int) -> bool:
         """False when the run already started, for example from a confirm submitted twice."""
         state = {"total": total, "finished": False, "crashed": False, "results": []}
-        return cache.add(cls._key(run_id), json.dumps(state), cls.TTL_SECONDS)
+        return caches[cls.CACHE_ALIAS].add(cls._key(run_id), json.dumps(state), cls.TTL_SECONDS)
+
+    @classmethod
+    def forget(cls, run_id: str) -> None:
+        caches[cls.CACHE_ALIAS].delete(cls._key(run_id))
 
     @classmethod
     def record(cls, run_id: str, result: ShutdownResult) -> None:
-        cls._update(run_id, lambda state: state["results"].append(_result_json(result)))
+        """Adds an organization's result. A task that runs again after a lost worker merges its items into the
+        first pass's, because the first pass already stopped them and they no longer show as running."""
+
+        def merge(state: dict[str, Any]) -> None:
+            earlier = next(
+                (entry for entry in state["results"] if entry["organization_id"] == str(result.organization_id)),
+                None,
+            )
+            if earlier is None:
+                state["results"].append(_result_json(result))
+                return
+            stopped = {label: list(ids) for label, ids in earlier["stopped"]}
+            for work in result.stopped:
+                stopped.setdefault(work.label, []).extend(work.ids)
+            earlier["stopped"] = [[label, ids] for label, ids in stopped.items()]
+            earlier["failures"] = _result_json(result)["failures"]
+
+        cls._update(run_id, merge)
 
     @classmethod
     def finish(cls, run_id: str, *, crashed: bool = False) -> None:
@@ -394,16 +419,16 @@ class ShutdownRuns:
     @classmethod
     def _update(cls, run_id: str, change: Callable[[dict[str, Any]], object]) -> None:
         # Only the run's own task writes after the start, so a read and a write cannot race.
-        raw = cache.get(cls._key(run_id))
+        raw = caches[cls.CACHE_ALIAS].get(cls._key(run_id))
         if raw is None:
             return
         state = json.loads(raw)
         change(state)
-        cache.set(cls._key(run_id), json.dumps(state), cls.TTL_SECONDS)
+        caches[cls.CACHE_ALIAS].set(cls._key(run_id), json.dumps(state), cls.TTL_SECONDS)
 
     @classmethod
     def read(cls, run_id: str) -> ShutdownRun | None:
-        raw = cache.get(cls._key(run_id))
+        raw = caches[cls.CACHE_ALIAS].get(cls._key(run_id))
         if raw is None:
             return None
         state = json.loads(raw)
@@ -463,72 +488,6 @@ def inventory_table(inventories: Sequence[OrganizationInventory], actions: dict[
     )
 
 
-def result_page(results: Sequence[ShutdownResult], notices: Sequence[Notice] = ()) -> Page:
-    deactivated = sum(result.deactivated for result in results)
-    stopped_count = sum(len(work.ids) for result in results for work in result.stopped)
-    failures = [(result, failure) for result in results for failure in result.failures]
-    summary = (
-        f"Deactivated {pluralize(deactivated, 'organization')} and stopped {pluralize(stopped_count, 'item')} "
-        "of background work. Reactivating an organization does not restart them. Copy this list now: "
-        f"the page shows once, and the {AUDIT_EVENT} event in the audit log keeps the same IDs."
-    )
-    stopped_rows: list[Row | GroupRow] = []
-    for result in results:
-        if not result.stopped:
-            continue
-        stopped_rows.append(
-            GroupRow(
-                text=result.name,
-                detail=str(result.organization_id),
-                href=_organization_url(result.organization_id),
-            )
-        )
-        stopped_rows += [
-            Row(cells=(Cell(text=work.label), Cell(text=resource_id, mono=True)))
-            for work in result.stopped
-            for resource_id in work.ids
-        ]
-    blocks: list[Notice | Table] = [Notice(text=summary)]
-    if failures:
-        blocks.append(
-            Notice(
-                text=(
-                    f"{pluralize(len(failures), 'item')} failed. A failure can come after the change was saved, so "
-                    "check each one. Run the shutdown again to retry the ones still running, or ask the team that "
-                    "owns them."
-                ),
-                tone=Tone.WARNING,
-            )
-        )
-        blocks.append(
-            Table(
-                title="Failed",
-                columns=("Organization", "Kind", "ID", "Error"),
-                rows=tuple(
-                    Row(
-                        cells=(
-                            Cell(text=result.name),
-                            Cell(text=failure.label),
-                            Cell(text=failure.resource_id or "Could not list them", mono=bool(failure.resource_id)),
-                            Cell(text=failure.error),
-                        )
-                    )
-                    for result, failure in failures
-                ),
-            )
-        )
-    blocks.append(
-        Table(
-            title="Stopped",
-            columns=("Kind", "ID"),
-            rows=tuple(stopped_rows),
-            empty_text="Nothing was running, so nothing was stopped.",
-        )
-    )
-    blocks += notices
-    return Page(blocks=tuple(blocks))
-
-
 RUN_FOLLOW_UP = (
     "Reactivating an organization does not restart this work, and the "
     f"{AUDIT_EVENT} event in the audit log keeps every stopped ID. A failure can come after the change was "
@@ -583,3 +542,48 @@ def run_table(run: ShutdownRun) -> Table:
         rows=tuple(rows),
         empty_text="No organization is done yet.",
     )
+
+
+RUN_PAGE_PATH = "/admin/console/tools/bulk-deactivate-organizations/"
+
+
+def run_page_url(run_id: str) -> str:
+    return f"{RUN_PAGE_PATH}?{urlencode({'run': run_id})}"
+
+
+def start_background_stop(
+    run_id: str, organization_ids: Sequence[UUID], *, deactivated: set[UUID], reason: str, triggered_by: str
+) -> bool:
+    """Starts the job that stops the organizations' background work, once per run. False when the job could not be
+    queued, which leaves the run free to start again."""
+    # Deferred: the task module imports this module when it runs.
+    from posthog.tasks.organization_shutdown import stop_organizations_background_work  # noqa: PLC0415
+
+    if not ShutdownRuns.start(run_id, total=len(organization_ids)):
+        return True
+    try:
+        stop_organizations_background_work.delay(
+            run_id,
+            [str(organization_id) for organization_id in organization_ids],
+            [str(organization_id) for organization_id in deactivated],
+            reason,
+            triggered_by,
+        )
+    except Exception as error:
+        capture_exception(error)
+        ShutdownRuns.forget(run_id)
+        return False
+    return True
+
+
+JOB_NOT_STARTED = (
+    "Deactivated, but the job that stops background work could not start. Confirm the shutdown again to retry."
+)
+
+
+def run_id_of(request: HttpRequest) -> str:
+    # The form nonce names the run, so a confirm submitted twice starts one run.
+    try:
+        return str(UUID(request.POST.get("form_nonce", "")))
+    except ValueError:
+        return str(uuid4())

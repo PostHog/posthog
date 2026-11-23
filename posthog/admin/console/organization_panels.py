@@ -4,19 +4,23 @@ from typing import cast
 from django import forms
 from django.contrib import messages
 from django.db.models import Model
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 
 import structlog
 
 from posthog.admin.console.organization_shutdown import (
+    JOB_NOT_STARTED,
     STOP_NOTICE,
     UNDO_HINT,
     OrganizationShutdownForm,
+    deactivate_organizations,
     find_background_work,
     inventory_table,
     planned_action,
-    result_page,
+    run_id_of,
+    run_page_url,
     shut_down_organizations,
+    start_background_stop,
     take_inventory,
 )
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Operation, Owner, Panel, Tone
@@ -101,20 +105,24 @@ def preview_shutdown(request: HttpRequest, obj: Model, form: forms.Form) -> Page
 
 def shut_down(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | Page | None:
     assert isinstance(obj, Organization) and form is not None
-    stop_background_work = form.cleaned_data["stop_background_work"]
-    results = shut_down_organizations(
-        [obj.id],
-        reason=form.cleaned_data["resolved_reason"],
-        stop_background_work=stop_background_work,
-        triggered_by=cast(User, request.user).email,
-    )
-    if stop_background_work:
-        return result_page(results)
-    if results and results[0].deactivated:
-        messages.success(request, f"Deactivated '{obj.name}'.")
-    else:
-        messages.warning(request, f"'{obj.name}' was already inactive. Its reason did not change.")
-    return None
+    reason = form.cleaned_data["resolved_reason"]
+    triggered_by = cast(User, request.user).email
+    if not form.cleaned_data["stop_background_work"]:
+        results = shut_down_organizations(
+            [obj.id], reason=reason, stop_background_work=False, triggered_by=triggered_by
+        )
+        if any(result.deactivated for result in results):
+            messages.success(request, f"Deactivated '{obj.name}'.")
+        else:
+            messages.warning(request, f"'{obj.name}' was already inactive. Its reason did not change.")
+        return None
+    deactivated = deactivate_organizations([obj.id], reason)
+    run_id = run_id_of(request)
+    if not start_background_stop(run_id, [obj.id], deactivated=deactivated, reason=reason, triggered_by=triggered_by):
+        messages.error(request, JOB_NOT_STARTED)
+        return HttpResponse(status=502)
+    messages.success(request, f"Stopping the background work of '{obj.name}' in a background job.")
+    return HttpResponseRedirect(run_page_url(run_id))
 
 
 @console.register_panel

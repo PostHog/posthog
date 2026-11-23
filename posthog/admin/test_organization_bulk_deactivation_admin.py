@@ -11,9 +11,18 @@ from django.test import Client, SimpleTestCase
 from parameterized import parameterized
 from structlog.testing import capture_logs
 
-from posthog.admin.console.organization_shutdown import AUDIT_EVENT, PAUSE_NOTE, find_background_work
+from posthog.admin.console.organization_shutdown import (
+    AUDIT_EVENT,
+    PAUSE_NOTE,
+    ShutdownResult,
+    ShutdownRuns,
+    StopFailure,
+    StoppedWork,
+    find_background_work,
+)
 from posthog.admin.console.organization_tools import BulkDeactivateOrganizationsForm
 from posthog.models import Organization, Team, User
+from posthog.tasks.organization_shutdown import stop_organizations_background_work
 from posthog.test.temporal_schedules import RecordingTemporal
 
 from products.alerts.backend.models.alert import AlertConfiguration
@@ -252,6 +261,32 @@ class TestBulkDeactivateOrganizationsTool(BaseTest):
         assert self.organization.is_not_active_reason == COMPLIANCE_REVIEW
         assert running_work(self.team) == {}
 
+    def test_a_confirm_whose_job_could_not_start_can_be_submitted_again(self) -> None:
+        start_background_work(self.team, self.user)
+        # The console's form posts a nonce with the preview and the confirm, and the run is named after it.
+        nonce = str(uuid4())
+        preview = self.client.post(
+            TOOL_URL,
+            {
+                "organization_ids": str(self.organization.id),
+                "reason": SECURITY_VIOLATION,
+                "custom_reason": "",
+                "stop_background_work": "on",
+                "form_nonce": nonce,
+            },
+        )
+        confirm = {"confirm_token": self._confirm_token(preview), "form_nonce": nonce}
+
+        with patch.object(stop_organizations_background_work, "delay", side_effect=ConnectionError("Broker down")):
+            first = self.client.post(TOOL_URL, confirm, follow=True)
+        assert "could not start" in first.content.decode()
+        assert running_work(self.team) != {}
+
+        with temporal_boundary(RecordingTemporal()):
+            self.client.post(TOOL_URL, confirm)
+
+        assert running_work(self.team) == {}
+
     @parameterized.expand(
         [
             ("preset_reason", DESKTOP_ABUSE, "", DESKTOP_ABUSE),
@@ -345,3 +380,29 @@ class TestShutDownOrganizationOperation(BaseTest):
         assert running_work(self.team) == {}
         result = self.client.get(response["Location"]).content.decode()
         assert stopped["Destinations"] in result
+
+
+class TestShutdownRuns(SimpleTestCase):
+    def test_a_second_pass_after_a_lost_worker_adds_to_the_first_pass_of_the_organization(self) -> None:
+        organization_id = uuid4()
+        ShutdownRuns.start("run", total=1)
+
+        def result(stopped: tuple[StoppedWork, ...], failures: tuple[StopFailure, ...]) -> ShutdownResult:
+            return ShutdownResult(
+                organization_id=organization_id, name="Org", deactivated=True, stopped=stopped, failures=failures
+            )
+
+        ShutdownRuns.record(
+            "run",
+            result(
+                (StoppedWork(label="Destinations", ids=("a",)),),
+                (StopFailure(label="Batch exports", resource_id="b", error="Temporal is unavailable"),),
+            ),
+        )
+        ShutdownRuns.record("run", result((StoppedWork(label="Batch exports", ids=("b",)),), ()))
+
+        run = ShutdownRuns.read("run")
+        assert run is not None
+        assert run.results == (
+            result((StoppedWork(label="Destinations", ids=("a",)), StoppedWork(label="Batch exports", ids=("b",))), ()),
+        )
