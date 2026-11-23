@@ -1,19 +1,25 @@
 import re
 import uuid
 import random
+from io import StringIO
 from typing import Any
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
+from django.core.management import call_command
 from django.test import SimpleTestCase
 
+from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 
+from products.aeo.backend import check_brands
 from products.aeo.backend.check_brands import (
     BrandMatcher,
     brand_identity,
     catalog_identities,
     enrich_check_brands,
+    enrich_lock,
     has_stale_brands,
     has_unresolved_checks,
     resolve_stale_brands,
@@ -129,7 +135,7 @@ class TestResolveCheckBrands(BaseTest):
             team=self.team, name=name, domain=domain, source=BrandSource.MANUAL, **fields
         )
 
-    def _check(self, **fields: Any) -> AEOCitationCheck:
+    def _check(self, *, facts: bool = True, **fields: Any) -> AEOCitationCheck:
         prompts = AEOPrompt.objects.for_team(self.team.id)
         prompt = prompts.first() or prompts.create(
             team=self.team, prompt="best tool?", prompt_hash="h", prompt_source=AEOPrompt.Source.MANUAL
@@ -145,7 +151,8 @@ class TestResolveCheckBrands(BaseTest):
             model="exa-answer",
             **fields,
         )
-        write_facts([check])
+        if facts:
+            write_facts([check])
         return check
 
     def _rows(self) -> dict[str, tuple[Any, ...]]:
@@ -228,7 +235,9 @@ class TestResolveCheckBrands(BaseTest):
 
     def test_the_backfill_resolves_old_checks_and_catalogs_every_cited_domain(self) -> None:
         self._brand("acme.com", "Acme", kind=BrandKind.OWN)
+        # Recorded before the citation rows existed, which the catalog sync reads.
         old = self._check(
+            facts=False,
             answer_text="Acme or Hooli?",
             cited_urls=["https://www.hooli.com/x", "https://news.ycombinator.com/item"],
             top_cited_domains=["www.hooli.com", "news.ycombinator.com"],
@@ -253,6 +262,88 @@ class TestResolveCheckBrands(BaseTest):
         assert again.unresolved.checks == 0 and again.stale.brands == 0
         old.refresh_from_db()
         assert old.brands_resolved_at is not None
+
+    def test_a_newer_check_without_rows_is_found_and_resolved(self) -> None:
+        self._brand("acme.com", "Acme")
+        self._check(answer_text="Acme")
+        enrich_check_brands(self.team.id)
+        # A check whose rows the runner failed to write, newer than the resolved ones.
+        newer = self._check(answer_text="Acme again")
+
+        assert has_unresolved_checks(self.team.id)
+        enrich_check_brands(self.team.id)
+
+        assert not has_unresolved_checks(self.team.id)
+        assert AEOCheckBrand.objects.for_team(self.team.id).filter(citation_check=newer).count() == 1
+
+    def test_editing_a_parent_brand_leaves_a_subdomain_site_with_its_own_brand(self) -> None:
+        parent = self._brand("ycombinator.com", "Y Combinator")
+        self._brand("news.ycombinator.com", "Hacker News", kind=BrandKind.PUBLISHER)
+        self._check(
+            answer_text="Read the thread.",
+            cited_urls=["https://news.ycombinator.com/item"],
+            top_cited_domains=["news.ycombinator.com"],
+            retrieved_urls=["https://news.ycombinator.com/item"],
+        )
+        enrich_check_brands(self.team.id)
+        parent.aliases = ["YC"]
+        parent.save()
+
+        resolve_stale_brands(self.team.id)
+
+        assert self._rows() == {"news.ycombinator.com": (False, True, True, None, 1, MentionKind.CITATION)}
+
+    def test_the_backfill_command_skips_a_team_whose_pass_is_running(self) -> None:
+        self._brand("acme.com", "Acme")
+        self._check(answer_text="Acme")
+        lock = enrich_lock(self.team.id, timeout=60)
+        assert lock.acquire(blocking=False)
+        try:
+            output = StringIO()
+            call_command("backfill_aeo_check_brands", team_id=self.team.id, stdout=output)
+        finally:
+            lock.release()
+
+        assert "skipped" in output.getvalue()
+        assert has_unresolved_checks(self.team.id)
+
+    @parameterized.expand([("same_names_resume", False, 2), ("edited_again_starts_over", True, 3)])
+    def test_a_pass_stopped_by_its_time_limit_resumes_where_it_stopped(
+        self, _name: str, edit_again: bool, checks_read_after: int
+    ) -> None:
+        acme = self._brand("acme.com", "Acme Inc")
+        for text in ("Roadrunner one.", "Roadrunner two.", "Roadrunner three."):
+            self._check(answer_text=text)
+        enrich_check_brands(self.team.id)
+        acme.refresh_from_db()
+        acme.aliases = ["Roadrunner"]
+        acme.save()
+        write = check_brands.write_check_brands
+        pages: list[int] = []
+
+        def stop_after_the_first_page(*args: Any, **kwargs: Any) -> int:
+            if pages:
+                raise SoftTimeLimitExceeded()
+            pages.append(1)
+            return write(*args, **kwargs)
+
+        with (
+            patch.object(check_brands, "RESOLVE_BATCH_SIZE", 1),
+            patch.object(check_brands, "write_check_brands", side_effect=stop_after_the_first_page),
+            self.assertRaises(SoftTimeLimitExceeded),
+        ):
+            resolve_stale_brands(self.team.id)
+        assert has_stale_brands(self.team.id)
+        if edit_again:
+            acme.refresh_from_db()
+            acme.aliases = ["Roadrunner", "Acme"]
+            acme.save()
+
+        result = resolve_stale_brands(self.team.id)
+
+        assert result.checks == checks_read_after
+        assert AEOCheckBrand.objects.for_team(self.team.id).filter(brand=acme, mentioned=True).count() == 3
+        assert not has_stale_brands(self.team.id)
 
     def test_a_failed_check_is_resolved_without_rows(self) -> None:
         self._brand("acme.com", "Acme")

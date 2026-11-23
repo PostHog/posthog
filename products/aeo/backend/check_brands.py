@@ -15,7 +15,10 @@ import re
 import json
 import uuid
 import hashlib
+import datetime as dt
+import operator
 from collections.abc import Iterable, Sequence
+from functools import reduce
 from urllib.parse import urlparse
 
 from django.db import transaction
@@ -23,13 +26,15 @@ from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 import tldextract
+from redis.lock import Lock
 
 from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
+from posthog.redis import get_client
 
 from products.aeo.backend.catalog import sync_brands_from_citations
 from products.aeo.backend.facade.contracts import BRAND_DOMAIN_MAX_LENGTH, MentionKind
-from products.aeo.backend.facts import citation_rows
+from products.aeo.backend.facts import backfill_facts, citation_rows, has_checks_without_facts
 from products.aeo.backend.models import AEOBrand, AEOCheckBrand, AEOCitationCheck
 from products.aeo.backend.stored_results import bump_data_version_on_commit
 
@@ -379,12 +384,22 @@ _RESOLVE_FIELDS = (
 )
 
 
-def _pages(checks: QuerySet[AEOCitationCheck]) -> Iterable[list[AEOCitationCheck]]:
+@frozen
+class _ResumePoint:
+    """The last check a pass resolved. Pages run from the newest check down, so the pass resumes below it."""
+
+    created_at: dt.datetime
+    id: uuid.UUID
+
+
+def _pages(
+    checks: QuerySet[AEOCitationCheck], *, after: _ResumePoint | None = None
+) -> Iterable[list[AEOCitationCheck]]:
     # Keyset pages with a database limit: behind PgBouncer, iterator() would buffer the whole result.
     # They follow (created_at, id) from the newest check down, which the team's window index serves. The
     # oldest check comes last, so `has_unresolved_brands` stays true after a backfill that stopped early.
     query = checks.only(*_RESOLVE_FIELDS).order_by("-created_at", "-id")
-    last: AEOCitationCheck | None = None
+    last = after
     while page := list(
         (
             query.filter(Q(created_at__lt=last.created_at) | Q(created_at=last.created_at, id__lt=last.id))
@@ -392,7 +407,7 @@ def _pages(checks: QuerySet[AEOCitationCheck]) -> Iterable[list[AEOCitationCheck
             else query
         )[:RESOLVE_BATCH_SIZE]
     ):
-        last = page[-1]
+        last = _ResumePoint(created_at=page[-1].created_at, id=page[-1].id)
         yield page
 
 
@@ -426,31 +441,72 @@ def resolve_stale_brands(team_id: int) -> ResolveResult:
     since their rows were written, and the brands that never had any. Only those brands' rows are
     rewritten, so an edit to one brand never rewrites the rows of the others.
 
+    The pass saves its place after every page, so one that its task's time limit stops resumes there.
     A brand gets its new key only when its identity is still the one the pass matched, so an edit
-    that lands during the pass leaves the brand stale for the next one."""
+    that lands during the pass leaves the brand stale, and the next pass starts it over."""
     team_id = resolve_effective_team_id(team_id)
-    brands = list(
-        AEOBrand.objects.for_team(team_id, canonical=True).only("id", "name", "aliases", "domain", "mentions_key")
-    )
-    stale = [identity for brand in brands if (identity := identity_of(brand)).key != brand.mentions_key]
+    brands = AEOBrand.objects.for_team(team_id, canonical=True)
+    stale = [
+        (brand, identity)
+        for brand in brands.only(
+            "id",
+            "name",
+            "aliases",
+            "domain",
+            "mentions_key",
+            "mentions_resolving_key",
+            "mentions_resolved_before",
+            "mentions_resolved_before_id",
+        )
+        if (identity := identity_of(brand)).key != brand.mentions_key
+    ]
     if not stale:
         return ResolveResult(checks=0, brands=0, rows=0)
-    # Checks that were never resolved get every brand from `resolve_unresolved_checks`.
-    checks = AEOCitationCheck.objects.for_team(team_id, canonical=True).filter(brands_resolved_at__isnull=False)
-    stale_ids = {identity.brand_id for identity in stale}
-    result = _resolve(checks, BrandMatcher(stale), brand_ids=stale_ids)
-    current = {
-        brand.id: identity_of(brand).key
-        for brand in AEOBrand.objects.for_team(team_id, canonical=True)
-        .filter(id__in=stale_ids)
-        .only("id", "name", "aliases", "domain")
-    }
-    for identity in stale:
-        if current.get(identity.brand_id) == identity.key:
-            AEOBrand.objects.for_team(team_id, canonical=True).filter(id=identity.brand_id).update(
-                mentions_key=identity.key
+    groups: dict[_ResumePoint | None, list[BrandIdentity]] = {}
+    for brand, identity in stale:
+        resume = None
+        if brand.mentions_resolving_key != identity.key:
+            brands.filter(id=brand.id).update(
+                mentions_resolving_key=identity.key, mentions_resolved_before=None, mentions_resolved_before_id=None
             )
-    return ResolveResult(checks=result.checks, brands=len(stale), rows=result.rows)
+        elif brand.mentions_resolved_before and brand.mentions_resolved_before_id:
+            resume = _ResumePoint(created_at=brand.mentions_resolved_before, id=brand.mentions_resolved_before_id)
+        groups.setdefault(resume, []).append(identity)
+    # Checks that were never resolved get every brand from `resolve_unresolved_checks`.
+    resolved = AEOCitationCheck.objects.for_team(team_id, canonical=True).filter(brands_resolved_at__isnull=False)
+    read = 0
+    written = 0
+    # The whole catalog matches, so a host goes to the brand on its most specific domain, as in a full pass:
+    # news.ycombinator.com stays with its own brand when only ycombinator.com changed. Only the stale
+    # brands' rows are written.
+    matcher = BrandMatcher(catalog_identities(team_id))
+    for resume, identities in groups.items():
+        brand_ids = {identity.brand_id for identity in identities}
+        # A brand edited since the pass began no longer resolves this identity, so its place stays where it was.
+        resolving = reduce(
+            operator.or_, (Q(id=identity.brand_id, mentions_resolving_key=identity.key) for identity in identities)
+        )
+        for page in _pages(resolved, after=resume):
+            written += write_check_brands(page, matcher, brand_ids=brand_ids)
+            read += len(page)
+            brands.filter(resolving).update(
+                mentions_resolved_before=page[-1].created_at, mentions_resolved_before_id=page[-1].id
+            )
+        current = {
+            brand.id: identity_of(brand).key
+            for brand in brands.filter(resolving).only("id", "name", "aliases", "domain")
+        }
+        for identity in identities:
+            if current.get(identity.brand_id) == identity.key:
+                brands.filter(id=identity.brand_id, mentions_resolving_key=identity.key).update(
+                    mentions_key=identity.key,
+                    mentions_resolving_key=None,
+                    mentions_resolved_before=None,
+                    mentions_resolved_before_id=None,
+                )
+    if read:
+        bump_data_version_on_commit(team_id)
+    return ResolveResult(checks=read, brands=len(stale), rows=written)
 
 
 def _resolve(
@@ -473,14 +529,19 @@ def teams_with_checks() -> list[int]:
 
 
 def has_unresolved_checks(team_id: int) -> bool:
-    """Whether a check waits for its brand rows. The runner writes a check's rows with it and the backfill
-    goes from the newest check down, so the oldest check tells."""
-    oldest = (
+    """Whether any check waits for its brand rows: one recorded before the rows existed, or one whose
+    rows the runner failed to write. `aeo_check_unresolved_idx` holds only those checks."""
+    return (
         AEOCitationCheck.objects.for_team(resolve_effective_team_id(team_id), canonical=True)
-        .order_by("created_at", "id")
-        .values_list("brands_resolved_at", flat=True)[:1]
+        .filter(brands_resolved_at__isnull=True)
+        .exists()
     )
-    return list(oldest) == [None]
+
+
+def enrich_lock(team_id: int, *, timeout: int) -> Lock:
+    """The team's lock for bringing brand rows up to date. The task and the backfill command both take it,
+    so two passes never interleave their writes and leave a brand marked current over older rows."""
+    return get_client().lock(f"aeo_check_brands_enrich:{team_id}", timeout=timeout)
 
 
 def has_stale_brands(team_id: int) -> bool:
@@ -506,7 +567,12 @@ def enrich_check_brands(team_id: int, *, run_id: str | None = None) -> EnrichRes
     Before a backfill, every domain a stored answer cited gets a catalog row, so each cited brand has an
     entity to resolve to. The rows are replaced, never added to, so a repeated call writes the same rows."""
     team_id = resolve_effective_team_id(team_id)
-    added = sync_brands_from_citations(team_id).created if has_unresolved_checks(team_id) else 0
+    added = 0
+    if has_unresolved_checks(team_id):
+        # The catalog sync reads the citation rows, so checks recorded before those existed get them first.
+        if has_checks_without_facts(team_id):
+            backfill_facts(team_id)
+        added = sync_brands_from_citations(team_id).created
     stale = resolve_stale_brands(team_id)
     unresolved = resolve_unresolved_checks(team_id)
     run = resolve_run(team_id, run_id) if run_id else None

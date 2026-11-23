@@ -31,7 +31,7 @@ from posthog.scoping_audit import skip_team_scope_audit
 
 from products.aeo.backend import auto_setup, keyword_suggestions, suggestions
 from products.aeo.backend.catalog import recompute_own_citations, sync_brands_from_run
-from products.aeo.backend.check_brands import enrich_check_brands, has_stale_brands, has_unresolved_checks
+from products.aeo.backend.check_brands import enrich_check_brands, enrich_lock, has_stale_brands, has_unresolved_checks
 from products.aeo.backend.facade.contracts import (
     AEO_CITATION_TRACKING_FLAG,
     KeywordSuggestionRequest,
@@ -380,7 +380,7 @@ class EnrichAlreadyRunning(Exception):
 def enrich_aeo_check_brands_task(self: Task, team_id: int, run_id: str | None = None) -> None:
     """Resolve the brands of the team's answers: after a run, after a brand edit, and from the refresh
     when checks or brands wait for it. One pass per team at a time, so two never rewrite the same rows."""
-    lock = get_client().lock(f"aeo_check_brands_enrich:{team_id}", timeout=ENRICH_LOCK_SECONDS)
+    lock = enrich_lock(team_id, timeout=ENRICH_LOCK_SECONDS)
     if not lock.acquire(blocking=False):
         raise EnrichAlreadyRunning()
     try:

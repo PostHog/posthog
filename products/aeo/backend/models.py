@@ -293,6 +293,13 @@ class AEOCitationCheck(TeamScopedRootMixin, CreatedMetaFields, UUIDTModel):
                 include=["id"],
                 name="aeo_check_latest_idx",
             ),
+            # Finds a check that waits for its brand rows without reading the resolved ones. It holds
+            # only those checks, so it stays small once the backfill is done.
+            models.Index(
+                fields=["team_id"],
+                condition=models.Q(brands_resolved_at__isnull=True),
+                name="aeo_check_unresolved_idx",
+            ),
         ]
 
     def __str__(self) -> str:
@@ -344,6 +351,23 @@ class AEOBrand(TeamScopedRootMixin, UpdatedMetaFields, UUIDModel):
         null=True,
         blank=True,
         help_text="Hash of the name, aliases and domain that the brand's rows in `posthog_aeo_check_brand` were resolved against. Null until the first pass.",
+    )
+
+    # A pass over a long history can outlast its task. It saves how far it got, so the next pass
+    # resumes there instead of starting over, as long as the brand still goes by the same names.
+    mentions_resolving_key = models.CharField(
+        max_length=16,
+        null=True,
+        blank=True,
+        help_text="Hash of the identity a pass over the brand's history is resolving. Null when no pass is under way.",
+    )
+    mentions_resolved_before = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="The pass under way resolved every check created after this instant, and the checks at it with an id above `mentions_resolved_before_id`.",
+    )
+    mentions_resolved_before_id = models.UUIDField(
+        null=True, blank=True, help_text="Id of the last check the pass under way resolved."
     )
 
     class Meta:
