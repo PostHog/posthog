@@ -21,7 +21,7 @@ from posthog.models.integration.azure_blob import EndpointNotAllowedError, valid
 from posthog.security.pinned_aiohttp import pinned_session
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_write_only_logger
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
 from products.batch_exports.backend.facade.enums import AZURE_BLOB_SUPPORTED_COMPRESSIONS as SUPPORTED_COMPRESSIONS
 from products.batch_exports.backend.service import (
@@ -39,7 +39,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.destinations.constants import FILE_FORMAT_EXTENSIONS
-from products.batch_exports.backend.temporal.destinations.utils import EXTERNAL_LOGGER, get_manifest_key, get_object_key
+from products.batch_exports.backend.temporal.destinations.utils import get_manifest_key, get_object_key
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer as ProducerFromInternalStage
@@ -52,6 +52,7 @@ from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait
 from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
 
 NON_RETRYABLE_ERROR_TYPES = (
+    "InvalidKeyError",
     "AzureBlobIntegrationError",
     "AzureBlobIntegrationNotFoundError",
     "ClientAuthenticationError",
@@ -65,6 +66,7 @@ NON_RETRYABLE_ERROR_TYPES = (
 )
 
 LOGGER = get_write_only_logger(__name__)
+EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 
 class UnsupportedFileFormatError(Exception):

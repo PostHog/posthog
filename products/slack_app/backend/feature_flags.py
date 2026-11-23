@@ -56,6 +56,7 @@ SLACK_APP_CONNECT_TOOL_FROM_CHAT_FLAG = "slack-app-connect-tool-from-chat"
 SLACK_APP_DAILY_WORK_FOCUS_FLAG = "slack-app-daily-work-focus"
 SLACK_APP_JEV_NEEDS_REPO_FLAG = "slack-app-jev-needs-repo"
 SLACK_APP_SLACK_MCP_FLAG = "slack-app-slack-mcp"
+SLACK_APP_DAILY_SUMMARY_FLAG = "slack-app-daily-summary"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -232,6 +233,16 @@ def is_slack_app_daily_work_focus_enabled(integration: IntegrationRecord, distin
         SLACK_APP_DAILY_WORK_FOCUS_FLAG,
         integration,
         failure_log_key="slack_app_daily_work_focus_feature_flag_check_failed",
+        distinct_id=distinct_id,
+    )
+
+
+def is_slack_app_daily_summary_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
+    """The daily work focus also tells the person what moved in the channels they share with the bot."""
+    return _workspace_flag_enabled(
+        SLACK_APP_DAILY_SUMMARY_FLAG,
+        integration,
+        failure_log_key="slack_app_daily_summary_feature_flag_check_failed",
         distinct_id=distinct_id,
     )
 

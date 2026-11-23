@@ -6,7 +6,7 @@ import { LemonBanner } from '@posthog/lemon-ui'
 
 import { startEmailDomainSetup } from '../Channels/EmailDomain/emailDomainSetupLinks'
 import { isLiveOnSandboxSender } from '../Channels/sandboxSender'
-import { hasOwnSender } from './hogflows/steps/email/emailStepVariants'
+import { hasDeliverableSender } from './hogflows/steps/email/emailStepVariants'
 import { workflowLogic } from './workflowLogic'
 
 export function WorkflowSandboxSenderBanner({ id }: { id: string }): JSX.Element | null {
@@ -27,7 +27,7 @@ export function WorkflowSandboxSenderBanner({ id }: { id: string }): JSX.Element
     const restriction =
         'This live workflow has email steps on the PostHog test sender. Those steps reach only verified members of your organization, and everyone else is skipped.'
 
-    const ownSender = hasOwnSender(integrations)
+    const ownSender = hasDeliverableSender(integrations)
     // Until the senders load, the banner can't tell setup from a switch, so it offers neither.
     if (ownSender !== false) {
         return (

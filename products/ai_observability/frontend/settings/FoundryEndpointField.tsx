@@ -1,5 +1,9 @@
 import { LemonInput } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
+import { QuillFoundryEndpointField } from './QuillFoundryEndpointField'
+
 export function FoundryEndpointField({
     value,
     onChange,
@@ -11,6 +15,19 @@ export function FoundryEndpointField({
     errorMessage: string | null
     optional: boolean
 }): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return (
+            <QuillFoundryEndpointField
+                value={value}
+                onChange={onChange}
+                errorMessage={errorMessage}
+                optional={optional}
+            />
+        )
+    }
+
     return (
         <div>
             <label className="text-sm font-medium">

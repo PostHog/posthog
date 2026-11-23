@@ -19,7 +19,7 @@ from posthog.models.event.new_events_schema import events_read_table, use_new_ev
 from posthog.models.organization import Organization
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
-from posthog.ph_client import PH_US_API_KEY
+from posthog.ph_client import PH_US_API_KEY, SYNC_SEND_MAX_RETRIES, SYNC_SEND_TIMEOUT_SECONDS
 from posthog.schema_enums import AIEventType
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
@@ -38,7 +38,9 @@ def get_ph_client() -> PostHogClient:
     already-reported lookup reads. A separate literal here could drift from that key, and the lookup
     would then resolve no team, report that it cannot verify, and emit without checking.
     """
-    return PostHogClient(PH_US_API_KEY, sync_mode=True)
+    return PostHogClient(
+        PH_US_API_KEY, sync_mode=True, max_retries=SYNC_SEND_MAX_RETRIES, timeout=SYNC_SEND_TIMEOUT_SECONDS
+    )
 
 
 # Only team discovery reads this list: it must pick up customer-emitted core events, never

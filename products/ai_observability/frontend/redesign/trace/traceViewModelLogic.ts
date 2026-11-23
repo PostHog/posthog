@@ -14,6 +14,7 @@ import { traceFeedbackLogic } from './traceFeedbackLogic'
 import { steppedMatchId, toSearchBox } from './traceSearchBox'
 import { SEARCH_DEBOUNCE_MS, traceSearchLogic } from './traceSearchLogic'
 import { traceSummaryLogic } from './traceSummaryLogic'
+import type { SummaryOpenedFrom, SummaryRequest } from './traceSummaryLogic'
 import { toThread } from './traceThread'
 import { findTreeNode, firstFailingNodeId } from './traceTreeLookups'
 import { traceViewHostLogic } from './traceViewHostLogic'
@@ -33,6 +34,7 @@ import {
     TraceSearchFailure,
     TraceSearchStatus,
 } from './types'
+import type { NodeLoadTrigger } from './types'
 
 export interface TraceViewModelLogicProps {
     hostId: string
@@ -92,12 +94,10 @@ export interface traceViewModelLogicActions {
         value: true
     } // traceSummaryLogic
     loadSummary: (_?: void | undefined) => void // traceSummaryLogic
-    openSummary: (openedFrom: import('./traceSummaryLogic').SummaryOpenedFrom) => {
-        openedFrom: import('./traceSummaryLogic').SummaryOpenedFrom
+    openSummary: (openedFrom: SummaryOpenedFrom) => {
+        openedFrom: SummaryOpenedFrom
     } // traceSummaryLogic
-    requestSummary: (
-        args_0: import('./traceSummaryLogic').SummaryRequest
-    ) => import('./traceSummaryLogic').SummaryRequest // traceSummaryLogic
+    requestSummary: (args_0: SummaryRequest) => SummaryRequest // traceSummaryLogic
     publishQuery: (query: string) => {
         query: string
     } // traceViewHostLogic
@@ -116,10 +116,10 @@ export interface traceViewModelLogicActions {
     } // traceViewHostLogic
     loadNode: (
         nodeId: string,
-        trigger: import('./types').NodeLoadTrigger
+        trigger: NodeLoadTrigger
     ) => {
         nodeId: string
-        trigger: import('./types').NodeLoadTrigger
+        trigger: NodeLoadTrigger
     } // traceViewLogic
     loadRawNode: (nodeId: string) => {
         nodeId: string

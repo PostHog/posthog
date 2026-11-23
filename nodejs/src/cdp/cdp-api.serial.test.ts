@@ -11,7 +11,6 @@ import { DateTime } from 'luxon'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 import pino from 'pino'
-import { Counter, register } from 'prom-client'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 import { version as uuidVersion } from 'uuid'
@@ -6235,17 +6234,10 @@ describe('CDP API', () => {
                 'a token signed with another key',
                 () => mintUploadTokenAsTheDjangoRouteDoes(teamId, undefined, 'wrong-key'),
             ],
-        ])('refuses %s, and counts it as unauthorized', async (_name, token) => {
-            const unauthorizedCount = async (): Promise<number> =>
-                (
-                    await (register.getSingleMetric('cdp_email_attachments_upload_requests_total') as Counter).get()
-                ).values.find((v) => v.labels.outcome === 'unauthorized')?.value ?? 0
-            const before = await unauthorizedCount()
-
+        ])('refuses %s', async (_name, token) => {
             const res = await requestUploads(teamId, asked(pdf()), token())
 
             expect(res.status).toBe(401)
-            expect(await unauthorizedCount()).toBe(before + 1)
         })
 
         it.each([

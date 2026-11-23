@@ -18,6 +18,7 @@ from anthropic import APIStatusError
 from parameterized import parameterized
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
+from posthog.clickhouse.client.execute_async import QueryNotFoundError
 from posthog.constants import AvailableFeature
 from posthog.models import Team
 from posthog.models.organization import OrganizationMembership
@@ -1028,6 +1029,66 @@ class TestWidgetData(APIBaseTest):
         fetch_page.assert_not_called()
         assert result.frame["includedRowCount"] == 42
         assert result.frame["truncated"] is False
+
+    @parameterized.expand(
+        [(86, 0, 100, 86, None), (86, 0, 25, 25, 25), (86, 50, 100, 36, None), (301, 0, 500, 300, None)]
+    )
+    def test_frame_reads_direct_sql_rows_beyond_the_preview(
+        self, row_count: int, offset: int, limit: int, included: int, next_offset: int | None
+    ) -> None:
+        run = self._run()
+        rows = [[index, "point"] for index in range(row_count)]
+        run.node_type = NotebookNodeRun.NodeType.HOGQL
+        run.envelope = {
+            "types": [["lat", "float64"], ["label", "string"]],
+            "first_page": rows[:50],
+            "row_count": 50,
+            "has_more": True,
+            "delivery": "direct",
+        }
+        run.save(update_fields=["node_type", "envelope"])
+        self._mapping()
+
+        with patch(
+            "products.notebooks.backend.sql_v2_direct.get_query_status",
+            return_value=SimpleNamespace(complete=True, error=False, results={"results": rows}),
+        ):
+            result = read_widget_frame(
+                notebook=self.notebook,
+                node_id=self.NODE_ID,
+                frame_name=self.INPUT_NAME,
+                authorize_run=lambda _run: None,
+                user=self.user,
+                offset=offset,
+                limit=limit,
+            )
+
+        assert result.frame["rows"] == rows[offset : offset + included]
+        assert result.frame["totalRowCount"] == min(row_count, 300)
+        assert result.frame["includedRowCount"] == included
+        assert result.frame["nextOffset"] == next_offset
+        assert result.frame["truncated"] is (next_offset is not None or row_count >= 300)
+
+    def test_frame_rejects_expired_direct_sql_rows_instead_of_serving_a_partial_preview(self) -> None:
+        run = self._run()
+        run.node_type = NotebookNodeRun.NodeType.HOGQL
+        run.envelope.update({"delivery": "direct", "has_more": True})
+        run.save(update_fields=["node_type", "envelope"])
+        self._mapping()
+
+        with (
+            patch("products.notebooks.backend.sql_v2_direct.get_query_status", side_effect=QueryNotFoundError()),
+            self.assertRaises(WidgetConflictError) as error,
+        ):
+            read_widget_frame(
+                notebook=self.notebook,
+                node_id=self.NODE_ID,
+                frame_name=self.INPUT_NAME,
+                authorize_run=lambda _run: None,
+                user=self.user,
+            )
+
+        assert error.exception.code == "frame_page_unavailable"
 
     def test_frame_rejects_schema_drift(self) -> None:
         self._run()

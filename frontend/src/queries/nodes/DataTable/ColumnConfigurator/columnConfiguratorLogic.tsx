@@ -41,8 +41,8 @@ export interface ColumnConfiguratorLogicProps {
 export interface columnConfiguratorLogicValues {
     columns: string[]
     context: {
-        eventDefinitionId?: string | undefined
-        groupTypeIndex?: GroupTypeIndex | undefined
+        eventDefinitionId?: string
+        groupTypeIndex?: GroupTypeIndex
         type: 'event_definition' | 'groups' | 'team_columns'
     }
     modalVisible: boolean
@@ -119,8 +119,8 @@ export interface columnConfiguratorLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         context: (arg: any) => {
-            eventDefinitionId?: string | undefined
-            groupTypeIndex?: GroupTypeIndex | undefined
+            eventDefinitionId?: string
+            groupTypeIndex?: GroupTypeIndex
             type: 'event_definition' | 'groups' | 'team_columns'
         }
     }
