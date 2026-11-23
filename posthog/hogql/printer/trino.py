@@ -1694,6 +1694,13 @@ class TrinoPrinter(PostgresPrinter):
                 self._is_dynamic_property(arg) for arg in node.args
             ):
                 return ast.BooleanType()
+            if node.name.lower() != "nullif" and any(self._is_dynamic_property(arg) for arg in node.args):
+                read_types = [
+                    ast.StringType(nullable=True) if self._is_dynamic_property(arg) else self._resolve_type(arg)
+                    for arg in node.args
+                ]
+                if all(isinstance(read_type, ast.StringType) for read_type in read_types):
+                    return ast.StringType(nullable=all(read_type.nullable for read_type in read_types if read_type))
             argument_types = [self._resolve_type(arg) for arg in node.args]
             if any(isinstance(arg_type, ast.StringType) for arg_type in argument_types) and any(
                 self._is_numeric(arg) for arg in node.args
