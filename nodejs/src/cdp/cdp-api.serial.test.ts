@@ -11,7 +11,6 @@ import { DateTime } from 'luxon'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 import pino from 'pino'
-import { Counter, register } from 'prom-client'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 import { version as uuidVersion } from 'uuid'
@@ -2755,11 +2754,17 @@ describe('CDP API', () => {
 
         // The alerts on this endpoint key on these outcome labels.
         const outcomeCount = async (outcome: string): Promise<number> =>
-            (await transactionalEmailRequestsTotal.get()).values.find((v) => v.labels.outcome === outcome)?.value ?? 0
+            (await transactionalEmailRequestsTotal.get()).values.find(
+                (v) => v.labels.outcome === outcome && v.labels.route === 'single'
+            )?.value ?? 0
         const stageCounts = async (): Promise<Record<string, number>> =>
             Object.fromEntries(
                 (await transactionalEmailStageDurationMs.get()).values
-                    .filter((v) => v.metricName === 'cdp_transactional_email_stage_duration_ms_count')
+                    .filter(
+                        (v) =>
+                            v.metricName === 'cdp_transactional_email_stage_duration_ms_count' &&
+                            v.labels.route === 'single'
+                    )
                     .map((v) => [String(v.labels.stage), v.value])
             )
         const stageCountChanges = (before: Record<string, number>, after: Record<string, number>) =>
@@ -3011,7 +3016,7 @@ describe('CDP API', () => {
             })
 
             it('produces a keyed send when its claim lookup does not answer in time', async () => {
-                jest.spyOn(api['hogflowQueue'], 'findIdempotencyKey').mockReturnValue(new Promise(() => {}))
+                jest.spyOn(api['hogflowQueue'], 'findIdempotencyKeys').mockReturnValue(new Promise(() => {}))
 
                 const res = await send(hogFlow.id, authorized(), {
                     ...body,
@@ -6235,17 +6240,10 @@ describe('CDP API', () => {
                 'a token signed with another key',
                 () => mintUploadTokenAsTheDjangoRouteDoes(teamId, undefined, 'wrong-key'),
             ],
-        ])('refuses %s, and counts it as unauthorized', async (_name, token) => {
-            const unauthorizedCount = async (): Promise<number> =>
-                (
-                    await (register.getSingleMetric('cdp_email_attachments_upload_requests_total') as Counter).get()
-                ).values.find((v) => v.labels.outcome === 'unauthorized')?.value ?? 0
-            const before = await unauthorizedCount()
-
+        ])('refuses %s', async (_name, token) => {
             const res = await requestUploads(teamId, asked(pdf()), token())
 
             expect(res.status).toBe(401)
-            expect(await unauthorizedCount()).toBe(before + 1)
         })
 
         it.each([

@@ -1150,6 +1150,36 @@ export const SampleReportPage: Story = {
     parameters: { pageUrl: `${urls.todayReport('sample-pr')}?sample=1` },
 }
 
+const PERSONAL_REASONS: Record<string, string> = {
+    'report-1': 'You fixed the last two sign-up validation bugs.',
+    'report-3':
+        'You changed the summarize prompt last week, and the cost rose right after that change, so you can best check whether the new prompt causes it.',
+}
+
+export const HomeWithPersonalRanking: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/signals/reports/': ({ request }) => {
+                    const limit = Number(new URL(request.url).searchParams.get('limit') ?? ALL_REPORTS.length)
+                    return [
+                        200,
+                        {
+                            results: ALL_REPORTS.slice(0, limit).map((report) => ({
+                                ...report,
+                                personal_tier: PERSONAL_REASONS[report.id] ? 'top' : null,
+                                personal_reason: PERSONAL_REASONS[report.id] ?? null,
+                            })),
+                            count: OPEN_REPORT_COUNT,
+                            ranker: 'personal',
+                        },
+                    ]
+                },
+            },
+        }),
+    ],
+}
+
 export const HomeWithReportsOnly: Story = {
     decorators: [
         mswDecorator({
@@ -1854,4 +1884,46 @@ export const HomeWhileSelfDrivingReviews: Story = {
             },
         }),
     ],
+}
+
+const PHONE_PARAMETERS = {
+    featureFlags: [
+        FEATURE_FLAGS.TODAY_RAIL_NAV,
+        FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS,
+        FEATURE_FLAGS.RELEASES_AREA,
+        FEATURE_FLAGS.MONITOR_AREA,
+        FEATURE_FLAGS.DATA_AREA,
+    ],
+    testOptions: { viewport: { width: 390, height: 844 } },
+}
+
+async function openPhoneMoreSheet(canvasElement: HTMLElement): Promise<HTMLElement> {
+    const more = await waitFor(() => {
+        const button = canvasElement.querySelector<HTMLElement>('[data-attr="help-menu-button"]')
+        if (!button) {
+            throw new Error('More tab not rendered yet')
+        }
+        return button
+    })
+    await userEvent.click(more)
+    return await within(document.body).findByText('Edit tabs')
+}
+
+export const PhoneTabBar: Story = { decorators: [keepNumbers([])], parameters: PHONE_PARAMETERS }
+
+export const PhoneMoreSheet: Story = {
+    decorators: [keepNumbers([])],
+    parameters: PHONE_PARAMETERS,
+    play: async ({ canvasElement }) => {
+        await openPhoneMoreSheet(canvasElement)
+    },
+}
+
+export const PhoneEditTabs: Story = {
+    decorators: [keepNumbers([])],
+    parameters: PHONE_PARAMETERS,
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await openPhoneMoreSheet(canvasElement))
+        await within(document.body).findByText(/Choose up to/)
+    },
 }

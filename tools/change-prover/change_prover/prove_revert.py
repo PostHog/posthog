@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from change_prover.core import identity, revert
+from change_prover.core.policy import Refused
 from change_prover.prove import PAGE_SIZE, Git, GitHub, IdentifyRequest, Proof, issuer_pins
 
 
@@ -41,19 +42,22 @@ def identify(request: IdentifyRequest, github: GitHub, now: datetime) -> RevertI
     pr = identity.pick_any_pull_request(github.pull_requests(head, base_branch))
     if pr is None:
         return None
-    identity.check_head_repository(pr, request.repository)
-    # A push by anyone but the author would let a writer put a revert onto another author's PR,
-    # such as a bot's, and borrow that author's standing with stamphog.
-    identity.check_pusher(pr, github.pusher_id(pr["head"]["ref"], head))
-    compared = github.get(f"compare/{base_branch}...{head}?per_page={PAGE_SIZE}")
-    merge_base = compared["merge_base_commit"]["sha"]
-    reverted = revert.reverted_commit(revert.listed_messages(compared))
-    if reverted is None:
-        return RevertIdentified(pr["number"], merge_base, None)
-    revert.check_in_merge_base(github.find(f"compare/{reverted}...{merge_base}?per_page=1"))
-    pulls = github.get(f"commits/{reverted}/pulls?per_page={PAGE_SIZE}")
-    revert.check_merge_window(revert.merge_time(pulls, reverted, base_branch), now)
-    return RevertIdentified(pr["number"], merge_base, reverted)
+    try:
+        identity.check_head_repository(pr, request.repository)
+        # A push by anyone but the author would let a writer put a revert onto another author's PR,
+        # such as a bot's, and borrow that author's standing with stamphog.
+        identity.check_pusher(pr, github.pusher_id(pr["head"]["ref"], head))
+        compared = github.get(f"compare/{base_branch}...{head}?per_page={PAGE_SIZE}")
+        merge_base = compared["merge_base_commit"]["sha"]
+        reverted = revert.reverted_commit(revert.listed_messages(compared))
+        if reverted is None:
+            return RevertIdentified(pr["number"], merge_base, None)
+        revert.check_in_merge_base(github.find(f"compare/{reverted}...{merge_base}?per_page=1"))
+        pulls = github.get(f"commits/{reverted}/pulls?per_page={PAGE_SIZE}")
+        revert.check_merge_window(revert.merge_time(pulls, reverted, base_branch), now)
+        return RevertIdentified(pr["number"], merge_base, reverted)
+    except Refused as refusal:
+        raise Refused(str(refusal), pr=pr["number"]) from refusal
 
 
 def prove(request: RevertProveRequest, git: Git) -> Proof:

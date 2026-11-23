@@ -136,7 +136,8 @@ class GainsightPxSource(ResumableSource[GainsightPxSourceConfig, GainsightPxResu
                 "access under **Administration → REST API** in Gainsight PX, then pick the region your "
                 "subscription is hosted in.\n\n"
                 "Event tables (page views, sessions, engagement views, feature and segment matches, "
-                "custom events, identify events and survey responses) can sync incrementally on the "
+                "custom events, identify events, form submits, email events, lead events and survey "
+                "responses) can sync incrementally on the "
                 "event `date`. The other tables sync as full refresh because "
                 'Gainsight PX doesn\'t expose an "updated since" filter for them.'
             ),

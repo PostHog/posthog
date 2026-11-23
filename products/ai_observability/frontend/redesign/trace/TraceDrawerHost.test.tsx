@@ -338,6 +338,26 @@ describe('TraceDrawerHost', () => {
         await waitFor(() => expect(router.values.searchParams.trace).toBe('a'))
     })
 
+    it('steps through the tree with j and k, but not with a modal open, and its legend names the trace keys', async () => {
+        useTraceMocks(answerTrace('a'))
+        setUp(drawerUrl(ROW_A))
+        const view = renderHost([ROW_A, ROW_B])
+        await view.findByText('span-1')
+        expect(attr(view.container, 'trace-view-tree-key-legend').textContent).toContain('traces')
+
+        const modal = render(
+            <LemonModal isOpen onClose={() => {}} title="Edit dataset item">
+                <LemonButton>Save</LemonButton>
+            </LemonModal>
+        )
+        fireEvent.keyDown(modal.getByText('Save'), { key: 'j' })
+        modal.unmount()
+        expect(router.values.searchParams.step).toBeUndefined()
+
+        fireEvent.keyDown(document.body, { key: 'k' })
+        await waitFor(() => expect(router.values.searchParams.step).toBe('span-1'))
+    })
+
     it('reads no node when it closes on a step other than the default', async () => {
         useTraceMocks(answerTrace('a'))
         setUp(combineUrl(LIST_PATH, { trace: 'a', ts: ROW_A.timestamp ?? undefined, step: 'span-1' }).url)

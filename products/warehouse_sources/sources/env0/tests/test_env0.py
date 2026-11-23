@@ -295,6 +295,106 @@ class TestFanOutShaping:
         assert result.paths[-len(expected_child_paths) :] == expected_child_paths
         assert result.rows == expected_rows
 
+    def test_modules_strip_the_author(self) -> None:
+        result = _driver().run(
+            "modules",
+            [
+                ScriptedResponse(json=[{"id": "org-1"}]),
+                ScriptedResponse(
+                    json=[
+                        {
+                            "id": "mod-1",
+                            "moduleName": "network",
+                            "moduleProvider": "aws",
+                            "authorId": "u-1",
+                            "author": {"user_id": "u-1", "identities": [{"access_token": "fake-token"}]},
+                        }
+                    ]
+                ),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": "mod-1", "moduleName": "network", "moduleProvider": "aws", "authorId": "u-1"}]
+        assert result.requests[1].path == "/modules"
+        assert result.requests[1].param("organizationId") == "org-1"
+
+    @pytest.mark.parametrize(
+        "endpoint, child_responses, expected_child_paths, expected_rows",
+        [
+            (
+                "module_versions",
+                [
+                    # The first module was deleted after the modules list was read.
+                    ScriptedResponse(status=404, json={"message": "not found"}),
+                    ScriptedResponse(json=[{"version": "1.2.0", "gitTag": "v1.2.0", "createdAt": "2026-06-01"}]),
+                ],
+                ["/modules/mod-1/versions", "/modules/mod-2/versions"],
+                [{"version": "1.2.0", "gitTag": "v1.2.0", "createdAt": "2026-06-01", "module_id": "mod-2"}],
+            ),
+            (
+                "module_test_runs",
+                [
+                    ScriptedResponse(
+                        json=[
+                            {
+                                "deploymentLogId": "dep-1",
+                                "status": "SUCCESS",
+                                "startedByUser": {"user_id": "u-1", "identities": [{"access_token": "fake-token"}]},
+                                "customEnv0EnvironmentVariables": {"oidcToken": "fake-oidc"},
+                            }
+                        ]
+                    ),
+                    ScriptedResponse(json=[{"deploymentLogId": "dep-2", "status": "FAILURE"}]),
+                ],
+                ["/module/mod-1/tests", "/module/mod-2/tests"],
+                [
+                    {"deploymentLogId": "dep-1", "status": "SUCCESS", "module_id": "mod-1"},
+                    {"deploymentLogId": "dep-2", "status": "FAILURE", "module_id": "mod-2"},
+                ],
+            ),
+        ],
+    )
+    def test_module_fan_out_shaping(
+        self,
+        endpoint: str,
+        child_responses: list[ScriptedResponse],
+        expected_child_paths: list[str],
+        expected_rows: list[dict],
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            [
+                ScriptedResponse(json=[{"id": "org-1"}]),
+                ScriptedResponse(json=[{"id": "mod-1"}, {"id": "mod-2"}]),
+                *child_responses,
+            ],
+        )
+
+        assert result.raised is None
+        assert result.requests[1].path == "/modules"
+        assert result.requests[1].param("organizationId") == "org-1"
+        assert result.paths[-len(expected_child_paths) :] == expected_child_paths
+        assert result.rows == expected_rows
+
+    def test_module_test_runs_walk_offset_pages_to_a_short_page(self) -> None:
+        full_page = [{"deploymentLogId": f"dep-{i}", "status": "SUCCESS"} for i in range(100)]
+        result = _driver().run(
+            "module_test_runs",
+            [
+                ScriptedResponse(json=[{"id": "org-1"}]),
+                ScriptedResponse(json=[{"id": "mod-1"}]),
+                ScriptedResponse(json=full_page),
+                ScriptedResponse(json=[{"deploymentLogId": "dep-100", "status": "FAILURE"}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert len(result.rows) == 101
+        first_page, second_page = result.requests[2:]
+        assert (first_page.param("limit"), first_page.param("offset")) == ("100", "0")
+        assert (second_page.param("limit"), second_page.param("offset")) == ("100", "100")
+
     def test_project_budget_summaries_request_one_project_at_a_time(self) -> None:
         result = _driver().run(
             "project_budget_summaries",
