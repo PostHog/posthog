@@ -37,7 +37,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.security.oob_domains import matched_oob_domain
 
 logger = logging.getLogger(__name__)
-_DMARC_VERSION = re.compile(r"[vV]\s*=\s*DMARC1\s*(;|\Z)")
+_DMARC_RECORD = re.compile(r"[vV]\s*=\s*DMARC1(\W|\Z)")
 _DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_domains=True)
 
 # Maps _domainconnect TXT record values (provider endpoints) to display names.
@@ -421,7 +421,7 @@ def organizational_domain(domain: str) -> str:
 def _no_dmarc_record_at(domain: str) -> bool:
     try:
         answers = dns.resolver.resolve(f"_dmarc.{domain}", "TXT", lifetime=5)
-        return not any(_DMARC_VERSION.match(_txt_value(rdata)) for rdata in answers)
+        return not any(_DMARC_RECORD.match(_txt_value(rdata)) for rdata in answers)
     except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
         return True
     except Exception:

@@ -31,7 +31,8 @@ LOOKUP_TIMEOUT_SECONDS = 3
 MAX_AUTHORITATIVE_NAMESERVERS = 2
 MAX_PARALLEL_LOOKUPS = 8
 ABSENT_ERRORS = (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer)
-_DMARC_VERSION = re.compile(r"[vV]\s*=\s*DMARC1\s*(;|\Z)")
+_DMARC_RECORD = re.compile(r"\s*[vV]\s*=\s*DMARC1(\W|\Z)")
+_DMARC_VERSION = re.compile(r"[vV][ \t]*=[ \t]*DMARC1[ \t]*(;|\Z)")
 _DMARC_REQUEST = r"none|quarantine|reject"
 _DMARC_TEXT = re.compile(r"[\t\x20-\x7e]*")
 _DMARC_TAG_NAME = re.compile(r"[a-z][a-z0-9_]*", re.IGNORECASE)
@@ -182,7 +183,7 @@ def _resolve(resolver: dns.resolver.Resolver, lookup: _Lookup) -> list[str] | No
 
 def _normalized_answer(rdata: dns.rdata.Rdata) -> str | None:
     if isinstance(rdata, TXT):
-        return b"".join(rdata.strings).decode("utf-8", errors="replace").strip()
+        return b"".join(rdata.strings).decode("utf-8", errors="replace").strip(" \t")
     if isinstance(rdata, CNAME):
         return _normalized_hostname(rdata.target.to_text())
     if isinstance(rdata, MX):
@@ -198,7 +199,7 @@ def _is_published(record: EmailDomainStatusRecord, answers: list[str]) -> bool:
     if record.kind == Kind.DMARC:
         policies = _dmarc_policies(answers)
         return len(policies) == 1 and _policy_in_force(policies[0]) is not None
-    answers = [answer.strip('"') for answer in answers]
+    answers = [answer.strip().strip('"') for answer in answers]
     match record.kind, record.type:
         case Kind.SPF | Kind.MAIL_FROM_SPF, _:
             # A second SPF record at the same name makes SPF fail for all mail from it (RFC 7208, 4.5).
@@ -215,7 +216,7 @@ def _is_published(record: EmailDomainStatusRecord, answers: list[str]) -> bool:
 
 
 def _dmarc_policies(answers: list[str]) -> tuple[str, ...]:
-    return tuple(answer for answer in answers if _DMARC_VERSION.match(answer))
+    return tuple(answer for answer in answers if _DMARC_RECORD.match(answer))
 
 
 def _policy_in_force(policy: str) -> str | None:
@@ -226,7 +227,8 @@ def _policy_in_force(policy: str) -> str | None:
     tags = [(name.strip(" \t").lower(), value.strip(" \t")) for name, _, value in fields]
     names = ["v", *(name for name, _ in tags)]
     if (
-        not _DMARC_TEXT.fullmatch(policy)
+        not _DMARC_VERSION.match(policy)
+        or not _DMARC_TEXT.fullmatch(policy)
         or not all(separator for _, separator, _ in fields)
         or not all(_DMARC_TAG_NAME.fullmatch(name) for name, _ in tags)
         or len(names) != len(set(names))
