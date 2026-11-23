@@ -37,6 +37,7 @@ from posthog.dags.data_deletion_requests import (
     PersonRemovalContext,
     PropertyRemovalTarget,
     _cleaned_select_list,
+    _event_removal_placements,
     _holds_rows,
     _json_drop_keys_expr,
     _presence_params,
@@ -83,6 +84,8 @@ from posthog.models.data_deletion_request import (
 from posthog.models.deletion_targets import (
     EVENTS,
     EVENTS_JSON,
+    EXPERIMENT_EXPOSURES,
+    EXPERIMENT_METRIC_EVENTS,
     FLAG_EVALUATIONS,
     PERSONAL_DATA_TARGETS,
     DeletionTarget,
@@ -4305,3 +4308,23 @@ def test_json_drop_keys_expr_changes_only_the_member_that_holds_the_key(keys: li
     before = json.loads(stored)
     after = json.loads(rewritten)
     assert {key: after.get(key) for key in before} == {**before, **changed}
+
+
+def test_event_removal_resolves_no_placement_for_a_target_of_derived_rows() -> None:
+    # Resolving a placement probes the target's cluster. Event removal never reads or sweeps a target
+    # of derived rows, so probing its cluster would only make the request fail while that cluster is
+    # down. The target has to be left out before the resolution, not filtered from its result.
+    ctx = DeletionRequestContext(
+        request_id="derived",
+        team_id=1,
+        start_time=datetime(2026, 1, 1, tzinfo=UTC),
+        end_time=datetime(2026, 1, 2, tzinfo=UTC),
+        events=["$pageview"],
+    )
+
+    with patch("posthog.dags.data_deletion_requests.resolve_placements", return_value=[]) as resolve:
+        _event_removal_placements(Mock(), ctx)
+
+    targets = resolve.call_args.args[1]
+    assert EXPERIMENT_EXPOSURES not in targets and EXPERIMENT_METRIC_EVENTS not in targets
+    assert EVENTS in targets and FLAG_EVALUATIONS in targets
