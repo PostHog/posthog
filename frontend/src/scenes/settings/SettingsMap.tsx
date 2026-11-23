@@ -1,4 +1,5 @@
 import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
+import { EvalSuggestionsSettings } from '@posthog/products-ai-observability/frontend/settings/EvalSuggestionsSettings'
 import { LLMProviderKeysSettings } from '@posthog/products-ai-observability/frontend/settings/LLMProviderKeysSettings'
 import { ParserRecipesSettings } from '@posthog/products-ai-observability/frontend/settings/ParserRecipesSettings'
 import { AIFeaturesSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/ai_features/AIFeaturesSettings'
@@ -734,6 +735,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                     "Add recipes that normalize provider message shapes the built-in recipes don't cover. They apply when rendering traces.",
                 component: <ParserRecipesSettings />,
                 keywords: ['parser', 'recipe', 'normalize', 'trace', 'provider', 'custom parsing', 'content'],
+            },
+            {
+                id: 'ai-observability-eval-suggestions',
+                title: 'Suggested evals',
+                description: 'Up to 3 eval ideas a week at the top of the evaluations page, based on your traces.',
+                component: <EvalSuggestionsSettings />,
+                flag: 'LLM_ANALYTICS_EVAL_SUGGESTIONS',
+                keywords: ['suggestions', 'suggested evals', 'evaluations', 'evals', 'turn off'],
             },
         ],
     },

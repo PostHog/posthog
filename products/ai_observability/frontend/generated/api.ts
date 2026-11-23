@@ -64,6 +64,7 @@ import type {
     EvalSuggestionDismissApi,
     EvalSuggestionEstimateApi,
     EvalSuggestionListApi,
+    EvalSuggestionSettingsApi,
     EvaluationApi,
     EvaluationBackfillApi,
     EvaluationBackfillEstimateApi,
@@ -146,6 +147,7 @@ import type {
     ParserRecipeApi,
     PatchedClusteringJobApi,
     PatchedDatasetUpdateApi,
+    PatchedEvalSuggestionSettingsApi,
     PatchedEvaluationApi,
     PatchedEvaluationDirectoryApi,
     PatchedEvaluationReportUpdateApi,
@@ -2222,6 +2224,43 @@ export const evaluationSuggestionsDismissCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(evalSuggestionDismissApi),
+    })
+}
+
+export const getEvaluationSuggestionsSettingsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/evaluation_suggestions/settings/`
+}
+
+/**
+ * Whether the project gets suggestions.
+ */
+export const evaluationSuggestionsSettingsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<EvalSuggestionSettingsApi> => {
+    return apiMutator<EvalSuggestionSettingsApi>(getEvaluationSuggestionsSettingsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEvaluationSuggestionsSettingsPartialUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/evaluation_suggestions/settings/`
+}
+
+/**
+ * Turn suggestions off or back on for the project.
+ */
+export const evaluationSuggestionsSettingsPartialUpdate = async (
+    projectId: string,
+    patchedEvalSuggestionSettingsApi?: PatchedEvalSuggestionSettingsApi,
+    options?: RequestInit
+): Promise<EvalSuggestionSettingsApi> => {
+    return apiMutator<EvalSuggestionSettingsApi>(getEvaluationSuggestionsSettingsPartialUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedEvalSuggestionSettingsApi),
     })
 }
 
