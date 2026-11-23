@@ -19,6 +19,10 @@ DOCS_SOURCE_EXTENSIONS = (".md", ".mdx")
 MIN_QUOTE_CHARACTERS = 12
 DIFF_LINE_MARKER_PATTERN = re.compile(r"^[+\- ]", re.MULTILINE)
 CODE_FENCE = "`" * 3
+FRONTMATTER_FENCE = "---"
+IMPORT_PREFIX = "import "
+HEADING_PATTERN = re.compile(r"#{1,6}\s")
+SELF_CLOSING_COMPONENT_PATTERN = re.compile(r"<[A-Z][\w.]*(?:\s[^<>]*)?/>")
 SOURCE_DIFF_ATTACHMENT_NAME = "knowledge-writer-source.diff"
 HARNESS_FOLDER = ".posthog"
 WRITER_QUOTES_PATH = ".git/writer-quotes.json"
@@ -887,17 +891,55 @@ def is_quoted(quote: str, normalized_text: str) -> bool:
 
 def added_page_lines(changed_files: list[dict]) -> list[str]:
     added_lines = (
-        line[1:].strip()
+        line
         for changed_file in changed_files
         if changed_file["filename"].endswith(DOCS_SOURCE_EXTENSIONS) and isinstance(changed_file.get("patch"), str)
-        for line in changed_file["patch"].split("\n")
-        if line.startswith("+")
+        for line in added_body_lines(changed_file["patch"])
     )
     return list(dict.fromkeys(line for line in added_lines if is_groundable_line(line)))
 
 
+def added_body_lines(patch: str) -> list[str]:
+    patch_lines = patch.split("\n")
+    body_start = frontmatter_line_count(patch_lines)
+    return [line[1:].strip() for line in patch_lines[body_start:] if line.startswith("+")]
+
+
+def frontmatter_line_count(patch_lines: list[str]) -> int:
+    header = HUNK_HEADER_PATTERN.match(patch_lines[0])
+    if header is None or int(header["head_start"]) > 1:
+        return 0
+    hunk_end = next(
+        (index for index, line in enumerate(patch_lines[1:], start=1) if HUNK_HEADER_PATTERN.match(line)),
+        len(patch_lines),
+    )
+    head_side_indexes = [index for index in range(1, hunk_end) if patch_lines[index].startswith(("+", " "))]
+    if not head_side_indexes or patch_lines[head_side_indexes[0]][1:].strip() != FRONTMATTER_FENCE:
+        return 0
+    closing_fence_index = next(
+        (index for index in head_side_indexes[1:] if patch_lines[index][1:].strip() == FRONTMATTER_FENCE),
+        None,
+    )
+    if closing_fence_index is not None:
+        return closing_fence_index + 1
+    is_whole_file_hunk = int(header["base_start"]) == 0
+    return 0 if is_whole_file_hunk else hunk_end
+
+
 def is_groundable_line(line: str) -> bool:
-    return not line.startswith(CODE_FENCE) and any(character.isalnum() for character in line)
+    return (
+        not line.startswith(CODE_FENCE)
+        and not is_page_structure(line)
+        and any(character.isalnum() for character in line)
+    )
+
+
+def is_page_structure(line: str) -> bool:
+    return (
+        line.startswith(IMPORT_PREFIX)
+        or HEADING_PATTERN.match(line) is not None
+        or SELF_CLOSING_COMPONENT_PATTERN.fullmatch(line) is not None
+    )
 
 
 def ancestor_directories(path: str) -> list[str]:
