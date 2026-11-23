@@ -3156,7 +3156,7 @@ Note: Official OpenAPI 3.0.1 (2.8 MB, 173 paths) is served at api-reference.chec
 
 ## Chess.com — gaps
 
-Today (2): `games`, `ratings`
+Today (6): `games`, `ratings`, `players`, `tournaments`, `team_matches`, `leaderboards`
 
 Diffed against: <https://www.chess.com/news/view/published-data-api>
 
@@ -3166,13 +3166,15 @@ Note: Read the source settings and implementation, which import monthly game arc
 
 Re-audited 2026-11-19 against: <https://www.chess.com/news/view/published-data-api>
 
-- [ ] `Player profile (GET /pub/player/{username})` — joins the configured username to player_id, title, country, join date and status (high)
-- [ ] `Player tournaments (GET /pub/player/{username}/tournaments)` — tournament history with placement for each configured player (medium)
-- [ ] `Player team matches (GET /pub/player/{username}/matches)` — club match participation and results (low)
+- [x] `Player profile (GET /pub/player/{username})` — joins the configured username to player_id, title, country, join date and status (high)
+- [x] `Player tournaments (GET /pub/player/{username}/tournaments)` — tournament history with placement for each configured player (medium)
+- [x] `Player team matches (GET /pub/player/{username}/matches)` — club match participation and results (low)
 - [ ] `Player clubs (GET /pub/player/{username}/clubs)` — club memberships with join dates (low)
-- [ ] `Leaderboards (GET /pub/leaderboards)` — top players per game type, a daily snapshot (low)
+- [x] `Leaderboards (GET /pub/leaderboards)` — top players per game type, a daily snapshot (low)
 
 Note (2026-11-19): The docs page now loads with a browser-style user agent and lists every route as an example URL. Our source is per configured player, so only player-scoped routes are listed first. is-online and games/to-move are ephemeral and were left out. Country, club, titled-player, streamer and daily puzzle routes are global directories, not tied to the configured players.
+
+Note (2026-11-22): Built `players`, `tournaments`, `team_matches` and `leaderboards` (full refresh; the routes have no time filter). Like the other tables, they store opaque keys for players, tournaments, matches and clubs, and no username, name, link or `player_id`. Player clubs is still open.
 
 ## Churnkey — adequate
 
@@ -3421,16 +3423,16 @@ Note: The official Swagger specification was parsed for all GET operations, incl
 
 ## CleverTap — gaps
 
-Today (2): `events`, `profiles`
+Today (6): `campaign_reports`, `campaigns`, `content_blocks`, `events`, `message_reports`, `profiles`
 
 Diffed against: <https://developer.clevertap.com/llms.txt>
 
-- [ ] `Message reports (POST /1/message/report.json)` — Messages sent by CleverTap with channel and status over a date range, the core delivery log for engagement analysis (high)
-- [ ] `Campaigns (POST /1/targets/list.json)` — Campaign IDs, names, schedule and status for campaigns created through the API, to resolve campaign IDs in message reports (medium)
-- [ ] `Campaign report (POST /1/targets/result.json)` — Delivery, click and conversion metrics per completed campaign, fan-out over campaign IDs (medium)
+- [x] `Message reports (POST /1/message/report.json)` — Messages sent by CleverTap with channel and status over a date range, the core delivery log for engagement analysis (high)
+- [x] `Campaigns (POST /1/targets/list.json)` — Campaign IDs, names, schedule and status for campaigns created through the API, to resolve campaign IDs in message reports (medium)
+- [x] `Campaign report (POST /1/targets/result.json)` — Delivery, click and conversion metrics per completed campaign, fan-out over campaign IDs (medium)
 - [ ] `Catalogs (GET /v2/catalogs)` — Product catalogs in the account, parent list for catalog products (low)
 - [ ] `Catalog products (GET /v2/catalogs/{catalogId}/products)` — Products per catalog with attributes, fan-out under catalogs (low)
-- [ ] `Content blocks (GET /v1/contentBlock/list)` — Reusable content blocks with creator and dates (low)
+- [x] `Content blocks (GET /v1/contentBlock/list)` — Reusable content blocks with creator and dates (low)
 
 Note: Read the docs index llms.txt and the .md page for each API reference entry. We sync events and user profiles today. Excluded upload, delete, demerge, subscribe, wallet and coupon per-user calls, remote config variables, external trigger, and pre-signed URL routes. Count and trend report endpoints (real-time counts, top property counts, trends) were left out as aggregate queries without a stable row grain. Campaign list only returns campaigns created via the API, within a date range. Region-specific hosts and account ID plus passcode headers apply.
 
