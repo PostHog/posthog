@@ -35,7 +35,8 @@
          "posthog_integration"."sensitive_config",
          "posthog_integration"."errors",
          "posthog_integration"."created_at",
-         "posthog_integration"."created_by_id"
+         "posthog_integration"."created_by_id",
+         "posthog_integration"."row_version"
   FROM "posthog_integration"
   WHERE (("posthog_integration"."kind" = 'vercel'
           AND (("posthog_integration"."config" -> 'auth_type') IS NULL
@@ -291,7 +292,8 @@
          "posthog_integration"."sensitive_config",
          "posthog_integration"."errors",
          "posthog_integration"."created_at",
-         "posthog_integration"."created_by_id"
+         "posthog_integration"."created_by_id",
+         "posthog_integration"."row_version"
   FROM "posthog_integration"
   WHERE (("posthog_integration"."kind" = 'vercel'
           AND (("posthog_integration"."config" -> 'auth_type') IS NULL
@@ -463,7 +465,8 @@
          "posthog_integration"."sensitive_config",
          "posthog_integration"."errors",
          "posthog_integration"."created_at",
-         "posthog_integration"."created_by_id"
+         "posthog_integration"."created_by_id",
+         "posthog_integration"."row_version"
   FROM "posthog_integration"
   WHERE (("posthog_integration"."kind" = 'vercel'
           AND (("posthog_integration"."config" -> 'auth_type') IS NULL
@@ -897,7 +900,8 @@
          "posthog_integration"."sensitive_config",
          "posthog_integration"."errors",
          "posthog_integration"."created_at",
-         "posthog_integration"."created_by_id"
+         "posthog_integration"."created_by_id",
+         "posthog_integration"."row_version"
   FROM "posthog_integration"
   WHERE (("posthog_integration"."kind" = 'vercel'
           AND (("posthog_integration"."config" -> 'auth_type') IS NULL
@@ -1135,7 +1139,8 @@
          "posthog_integration"."sensitive_config",
          "posthog_integration"."errors",
          "posthog_integration"."created_at",
-         "posthog_integration"."created_by_id"
+         "posthog_integration"."created_by_id",
+         "posthog_integration"."row_version"
   FROM "posthog_integration"
   WHERE (("posthog_integration"."kind" = 'vercel'
           AND (("posthog_integration"."config" -> 'auth_type') IS NULL
