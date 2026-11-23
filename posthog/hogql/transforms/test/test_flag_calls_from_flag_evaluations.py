@@ -797,19 +797,9 @@ class TestSwapFlagCallsWithPromotedPersonsFilter(BaseTest):
 
         assert "flag_evaluations" not in swap.source.to_hogql()
 
-    @parameterized.expand(
-        [
-            ("a_column_of_the_enclosing_query", f"{_PROMOTED_SOURCE} AND person_id = e.person_id", "{joined}"),
-            (
-                "a_cte_of_an_outer_query",
-                f"SELECT person_id FROM flag_called_people WHERE {FLAG_CALLED}",
-                f"WITH flag_called_people AS (SELECT person_id, event FROM events WHERE {UNQUALIFIED}) "
-                "SELECT * FROM ({joined}) AS q",
-            ),
-        ]
-    )
-    def test_refuses_when_the_moved_filter_reads(self, _name: str, source: str, enclosing: str):
-        query = enclosing.format(joined=_PROMOTED_OUTER.format(alias=" AS p", name="p", source=source))
+    def test_refuses_when_the_moved_filter_reads_a_name_from_the_enclosing_query(self):
+        correlated = f"{_PROMOTED_SOURCE} AND person_id = e.person_id"
+        query = _PROMOTED_OUTER.format(alias=" AS p", name="p", source=correlated)
 
         with pytest.raises(QueryError, match="a name in it would read a different column there"):
             _swap_flag_evaluations_query(self.team, query, only_in_flag_evaluations=True)

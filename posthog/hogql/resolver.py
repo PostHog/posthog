@@ -323,7 +323,6 @@ def resolve_types(
     else:
         resolver = resolver_factory(context, dialect, scopes)
     resolver.join_sources = join_sources
-    resolver.resolver_factory = resolver_factory
     return resolver.visit(node)
 
 
@@ -522,7 +521,6 @@ class Resolver(CloningVisitor):
         self.context = context
         self.dialect = dialect
         self.join_sources: JoinSources | None = None
-        self.resolver_factory: ResolverFactory | None = None
         self.database = context.database
         self.cte_counter = 0
         self._scope_table_names: dict[int, dict[str, str]] = {}
@@ -1512,10 +1510,6 @@ class Resolver(CloningVisitor):
             join_sources: JoinSources | None = None,
             scopes: list[ast.SelectQueryType] | None = None,
         ) -> ast.SelectQuery | ast.SelectSetQuery:
-            if scopes is not None:
-                # The swap gives `scopes` to resolve a moved persons filter as the lazy-table pass does. That pass
-                # uses a new resolver, which holds none of the CTEs and views in progress of this one.
-                return resolve_types(query, self.context, self.dialect, scopes, resolver_factory=self.resolver_factory)
             # The swap catches a resolution error and keeps the original body. A visit that raises leaves its scope
             # and CTEs on this resolver, so this function restores them.
             outer_scopes, ctes, view_depth, cte_counter, outer_join_sources = (
@@ -1532,6 +1526,11 @@ class Resolver(CloningVisitor):
             # The swap's check reads `join_sources` for the joins of this body. A trial tree is not part of the
             # enclosing query, so the enclosing query's record does not get its joins.
             self.join_sources = join_sources
+            # The swap gives `scopes` to resolve a moved persons filter as the lazy-table pass does. That pass uses
+            # a new resolver, which holds none of the CTEs of this one.
+            if scopes is not None:
+                self.scopes[:] = scopes
+                self.ctes = {}
             try:
                 resolved = self.visit(self._copy(query))
             finally:

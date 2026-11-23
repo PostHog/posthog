@@ -1283,15 +1283,10 @@ def _swap_keeps_bindings(
 
     `PersonsTable` moves a join's `persons.id IN (...)` predicate out of the tree into a table attribute while the
     resolver runs. The collector resolves that moved copy with `resolve`, so its names count too. A moved copy that
-    it cannot resolve makes the check fail.
+    it cannot resolve counts as its own text, so the check fails only when the swap changed it.
     """
-    original_bindings = _bindings(original, resolve)
-    swapped_bindings = _bindings(swapped, resolve)
-    if original_bindings is None or swapped_bindings is None:
-        return False
-    return Counter(swapped_bindings) == Counter(original_bindings) + Counter(
-        {_ADDED_FLAG_KEY_READ: flag_key_predicates}
-    )
+    expected = Counter(_bindings(original, resolve)) + Counter({_ADDED_FLAG_KEY_READ: flag_key_predicates})
+    return Counter(_bindings(swapped, resolve)) == expected
 
 
 def _posthog_events_qualifiers_read_scans(node: ast.AST, resolve: Resolve[ast.Expr]) -> bool:
@@ -1304,8 +1299,6 @@ def _posthog_events_qualifiers_read_scans(node: ast.AST, resolve: Resolve[ast.Ex
     """
     moved = _MovedFilterVisitor(resolve)
     moved.visit(node)
-    if moved.unchecked_filter:
-        return False
     finder = _SwappedPosthogEventsScopeFinder()
     for tree in (node, *moved.resolved_filters):
         finder.visit(tree)
@@ -1373,21 +1366,23 @@ _Binding = tuple[str, str | int, tuple[str, ...]]
 _ADDED_FLAG_KEY_READ: _Binding = ("field", "flag_key", ("scan",))
 
 
-def _bindings(node: ast.AST, resolve: Resolve[ast.Expr]) -> list[_Binding] | None:
-    """The bindings of `node`, or None when a moved persons filter in it cannot be checked."""
+def _bindings(node: ast.AST, resolve: Resolve[ast.Expr]) -> list[_Binding]:
     collector = _BindingCollector(resolve)
     collector.visit(node)
-    return None if collector.unchecked_filter else collector.bindings
+    return collector.bindings
 
 
 class _MovedFilterVisitor(SyntaxVisitor):
     """Visits the persons filter that `PersonsTable` moves out of a join constraint while the resolver runs.
 
-    The moved predicate is `id IN (...)`. It holds no types until the printer's lazy-table pass, which puts it in the
-    WHERE of the persons subquery, a SELECT from raw_persons. There it reads the columns of raw_persons and the CTEs
-    that the SELECT of the join declares, and no other name of the enclosing queries. This resolves a clone of it in
-    such a SELECT. A predicate that does not resolve there makes `unchecked_filter` true, because the check cannot
-    show that the filter binds alike.
+    The moved predicate is `id IN (<values>)`, so the right-hand side is what binds names. It holds no types until the
+    printer's lazy-table pass, which resolves it inside the persons subquery. A subquery there reads the CTEs that the
+    SELECT of the join declares, and no other name of the enclosing queries. This resolves a clone of the right-hand
+    side in that scope and visits it.
+
+    A right-hand side can fail to resolve in that scope, for example when it reads a column of the persons subquery.
+    The swap changes what such a side reads only when it changes its text. `_BindingCollector` counts the text, so
+    `_swap_keeps_bindings` fails when the swap changed it. The other checks run after that one and skip the side.
     """
 
     def __init__(self, resolve: Resolve[ast.Expr], ctes: dict[str, ast.CTE] | None = None) -> None:
@@ -1395,7 +1390,6 @@ class _MovedFilterVisitor(SyntaxVisitor):
         self.resolve = resolve
         # The CTEs that the SELECT being visited declares.
         self.ctes = ctes or {}
-        self.unchecked_filter = False
         self.resolved_filters: list[ast.Expr] = []
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
@@ -1418,18 +1412,18 @@ class _MovedFilterVisitor(SyntaxVisitor):
     def _visit_moved_filter(self, moved: ast.Expr | None) -> None:
         if moved is None:
             return
-        persons_subquery: ast.Expr = ast.SelectQuery(
-            select=[ast.Constant(value=1)],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["raw_persons"])),
-            where=clone_expr(moved),
-        )
-        try:
-            resolved = self.resolve(persons_subquery, scopes=[ast.SelectQueryType(ctes=self.ctes)])
-        except BaseHogQLError:
-            self.unchecked_filter = True
-            return
-        self.resolved_filters.append(resolved)
-        self.visit(resolved)
+        for predicate in top_level_conjuncts(moved):
+            value = cast(ast.CompareOperation, predicate).right
+            try:
+                resolved = self.resolve(clone_expr(value), scopes=[ast.SelectQueryType(ctes=self.ctes)])
+            except BaseHogQLError:
+                self._visit_unresolved(value)
+                continue
+            self.resolved_filters.append(resolved)
+            self.visit(resolved)
+
+    def _visit_unresolved(self, value: ast.Expr) -> None:
+        pass
 
 
 class _BindingCollector(_MovedFilterVisitor):
@@ -1450,13 +1444,15 @@ class _BindingCollector(_MovedFilterVisitor):
         # flag call, so it counts as a read of the scan.
         inner = _BindingCollector(self.resolve, self.ctes)
         inner.visit(node.expr)
-        self.unchecked_filter = self.unchecked_filter or inner.unchecked_filter
         targets = sorted({target for _, _, target in inner.bindings})
         if targets == [("scan",)] or (not targets and node.alias in ELEMENT_STAND_INS):
             target: tuple[str, ...] = ("scan",)
         else:
             target = ("expression", *("/".join(read) for read in targets))
         self.bindings.append(("field", node.alias, target))
+
+    def _visit_unresolved(self, value: ast.Expr) -> None:
+        self.bindings.append(("moved filter", repr(value), ()))
 
     def visit_join_expr(self, node: ast.JoinExpr) -> None:
         self.bindings.append(("table", "", _target(node.type)))
@@ -1529,8 +1525,6 @@ def _swap_reads_properties_alike(
     """
     original_reads = _property_reads(original, context, resolve)
     swapped_reads = _property_reads(swapped, context, resolve)
-    if original_reads is None or swapped_reads is None:
-        return False
     if not original_reads and not swapped_reads:
         return True
     if context.team_id is None:
@@ -1550,11 +1544,10 @@ def _swap_reads_properties_alike(
 _PropertyRead = tuple[str, str, ast.FieldType]
 
 
-def _property_reads(node: ast.AST, context: HogQLContext, resolve: Resolve[ast.Expr]) -> list[_PropertyRead] | None:
-    """The property reads in `node`, or None when a moved persons filter in it cannot be checked."""
+def _property_reads(node: ast.AST, context: HogQLContext, resolve: Resolve[ast.Expr]) -> list[_PropertyRead]:
     collector = _PropertyReadCollector(context, resolve)
     collector.visit(node)
-    return None if collector.unchecked_filter else collector.reads
+    return collector.reads
 
 
 @frozen
