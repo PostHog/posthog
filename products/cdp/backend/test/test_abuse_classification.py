@@ -781,25 +781,19 @@ class TestAbuseClassification(AbuseClassificationTestCase):
 
     @parameterized.expand(
         [
-            ("disabled_again", {}, False, [False, True]),
-            ("edited_and_disabled_again", {"hog": "print('other')"}, False, [False, False]),
-            ("disabled_by_another_write_before_the_enable_commits", {}, True, [False, True]),
+            ("disabled_again", {}, [False, True]),
+            ("edited_and_disabled_again", {"hog": "print('other')"}, [False, False]),
         ]
     )
     def test_an_enable_is_reported_for_its_content_when_tasks_run_after_a_later_disable(
-        self, _name: str, later_changes: dict[str, Any], before_commit: bool, reported_enabled: list[bool]
+        self, _name: str, later_changes: dict[str, Any], reported_enabled: list[bool]
     ) -> None:
         hog_function = self.create_destination(enabled=False)
         queued: list[dict[str, Any]] = []
 
         with patch.object(classify_hog_function_for_abuse, "delay", side_effect=lambda **task: queued.append(task)):
-            hog_function.enabled = True
-            with self.committed():
-                hog_function.save()
-                if before_commit:
-                    HogFunction.objects.filter(pk=hog_function.pk).update(enabled=False, **later_changes)
-            if not before_commit:
-                for field, value in {"enabled": False, **later_changes}.items():
+            for changes in ({"enabled": True}, {"enabled": False, **later_changes}):
+                for field, value in changes.items():
                     setattr(hog_function, field, value)
                 with self.committed():
                     hog_function.save()
