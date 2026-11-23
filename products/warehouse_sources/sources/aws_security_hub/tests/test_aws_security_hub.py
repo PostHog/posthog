@@ -812,7 +812,7 @@ def test_trends_keep_their_window_across_a_resume(endpoint: str) -> None:
 
     with time_machine.travel(dt.datetime(2025, 6, 1, 12, tzinfo=dt.UTC), tick=False):
         with scripted_network([last_page]) as network:
-            assert validate_credentials(config(), VERSION, endpoint) == (True, None)
+            assert validate_credentials(config(), CREDENTIALS, VERSION, endpoint) == (True, None)
     probe = network.requests_log[0].json()
     assert (probe["StartTime"], probe["EndTime"]) == ("2025-05-31T12:00:00Z", "2025-06-01T12:00:00Z")
 
