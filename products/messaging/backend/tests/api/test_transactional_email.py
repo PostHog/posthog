@@ -859,7 +859,7 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
-    @parameterized.expand([("template",), ("send_email",)])
+    @parameterized.expand([("template",), ("send_email",), ("send_email_key_scoped",)])
     def test_a_send_over_the_burst_limit_is_refused_while_the_throttle_reader_lags(
         self, mock_post, _flag, _capture, route
     ):
