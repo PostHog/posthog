@@ -3,6 +3,7 @@ import { within } from '@testing-library/dom'
 import { BindLogic } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { MarketingAnalyticsFilters } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/MarketingAnalyticsFilters'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
@@ -11,6 +12,7 @@ import { mswDecorator } from '~/mocks/browser'
 import { Mocks } from '~/mocks/utils'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import {
+    MarketingAnalyticsConversionAction,
     MarketingAnalyticsRecommendation,
     MarketingAnalyticsRecommendationResolutionState,
     MarketingAnalyticsRecommendationCpa,
@@ -283,6 +285,54 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
     }),
 ]
 
+const PURCHASE = 'customers/1234567890/conversionActions/10'
+const SIGNUP = 'customers/1234567890/conversionActions/20'
+const OLD_FORM = 'customers/1234567890/conversionActions/30'
+const REMOVED_ACCOUNT_ACTION = 'customers/5550001111/conversionActions/40'
+
+function conversionAction(
+    overrides: Pick<MarketingAnalyticsConversionAction, 'action' | 'name' | 'account' | 'campaignTable'> &
+        Partial<MarketingAnalyticsConversionAction>
+): MarketingAnalyticsConversionAction {
+    return { primaryConversions: 0, allConversions: 0, recent: true, ...overrides }
+}
+
+const CONVERSION_ACTIONS = {
+    results: [
+        conversionAction({
+            action: PURCHASE,
+            name: 'Purchase',
+            account: 'Google Ads account 123-456-7890',
+            campaignTable: 'example.campaign',
+            primaryConversions: 182,
+            allConversions: 182,
+        }),
+        conversionAction({
+            action: SIGNUP,
+            name: 'Newsletter signup',
+            account: 'Google Ads account 123-456-7890',
+            campaignTable: 'example.campaign',
+            allConversions: 1240,
+        }),
+        conversionAction({
+            action: OLD_FORM,
+            name: 'Contact form (old site)',
+            account: 'Google Ads account 123-456-7890',
+            campaignTable: 'example.campaign',
+            recent: false,
+        }),
+        conversionAction({
+            action: 'customers/9876543210/conversionActions/50',
+            name: 'Demo booked',
+            account: 'Google Ads account 987-654-3210',
+            campaignTable: 'example_eu.campaign',
+            primaryConversions: 41,
+            allConversions: 41,
+        }),
+    ],
+    unmatchedSavedActions: [REMOVED_ACCOUNT_ACTION],
+}
+
 const MOCKS: Mocks = {
     delete: { '/api/projects/:team_id/query/:query_id/': [204] },
     get: {
@@ -306,6 +356,10 @@ const MOCKS: Mocks = {
         '/api/environments/:team_id/query/MarketingAnalyticsRecommendationsQuery/': () => [
             200,
             { results: RESULTS, disclaimer: DISCLAIMER },
+        ],
+        '/api/environments/:team_id/query/MarketingAnalyticsConversionActionsQuery/': () => [
+            200,
+            { results: CONVERSION_ACTIONS.results, unmatchedSavedActions: [] },
         ],
     },
 }
@@ -365,6 +419,41 @@ export const ModalInstructions: Story = {
         const modal = within(canvasElement.ownerDocument.body)
         await userEvent.click(await modal.findByText('Spend without conversions', { selector: 'button *' }))
         await userEvent.click(await modal.findByText('View instructions'))
+    },
+}
+
+export const ConversionActionsInModal: Story = {
+    parameters: {
+        featureFlags: [
+            FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS,
+            FEATURE_FLAGS.MARKETING_ANALYTICS_RECOMMENDATIONS,
+            FEATURE_FLAGS.MARKETING_ANALYTICS_RECOMMENDATION_CONVERSION_ACTIONS,
+        ],
+        msw: {
+            mocks: {
+                ...MOCKS,
+                post: {
+                    ...MOCKS.post,
+                    '/api/environments/:team_id/query/MarketingAnalyticsConversionActionsQuery/': () => [
+                        200,
+                        CONVERSION_ACTIONS,
+                    ],
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const body = within(canvasElement.ownerDocument.body)
+        await userEvent.click(await body.findByText('Got it'))
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...teamLogic.values.currentTeam!,
+            marketing_analytics_config: {
+                recommendation_conversion_actions: [SIGNUP, OLD_FORM, REMOVED_ACCOUNT_ACTION],
+            },
+        })
+        await userEvent.click(await canvas.findByText('3 conversion actions', { selector: 'button *' }))
+        await body.findByText('Not reported by any synced account')
     },
 }
 

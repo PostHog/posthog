@@ -2,6 +2,9 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger, Separator } from '
 
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
+
+import { ConversionActionsSettings } from 'products/marketing_analytics/frontend/recommendations/ConversionActionsSettings'
 
 import { LegacyOAuthReconnectBanner } from '../LegacyOAuthReconnectBanner'
 import { AttributionSettings } from './AttributionSettings'
@@ -18,6 +21,12 @@ export function QuillMarketingAnalyticsSettings({ hideBaseCurrency }: { hideBase
             <ConversionGoalsConfiguration />
             <Separator />
             <AttributionSettings />
+            <FlaggedFeature flag={FEATURE_FLAGS.MARKETING_ANALYTICS_RECOMMENDATION_CONVERSION_ACTIONS}>
+                <>
+                    <Separator />
+                    <ConversionActionsSettings />
+                </>
+            </FlaggedFeature>
             {!hideBaseCurrency && (
                 <>
                     <Separator />
