@@ -4904,7 +4904,7 @@ Note (2026-11-19): Parsed every GET path in the official eSignature v2.1 Swagger
 
 ## Dodo Payments — gaps
 
-Today (30): `addons`, `balance_ledger_entries`, `brands`, `credit_entitlement_balances`, `credit_entitlement_grants`, `credit_entitlement_ledger`, `credit_entitlements`, `customer_emails`, `customer_wallet_ledger_entries`, `customer_wallets`, `customers`, `discount_customers`, `discounts`, `disputes`, `entitlement_grants`, `entitlements`, `events`, `license_key_instances`, `license_keys`, `meters`, `moderation_usage`, `payment_line_items`, `payments`, `payout_breakup_details`, `payouts`, `product_collections`, `products`, `refunds`, `subscription_usage_history`, `subscriptions`
+Today (34): `addons`, `balance_ledger_entries`, `blocklisted_customers`, `brands`, `credit_entitlement_balances`, `credit_entitlement_grants`, `credit_entitlement_ledger`, `credit_entitlements`, `customer_emails`, `customer_wallet_ledger_entries`, `customer_wallets`, `customers`, `discount_customers`, `discounts`, `disputes`, `entitlement_grants`, `entitlements`, `events`, `invoice_events`, `invoices`, `license_key_instances`, `license_keys`, `meters`, `moderation_usage`, `payment_line_items`, `payments`, `payout_breakup_details`, `payouts`, `product_collections`, `products`, `refunds`, `subscription_credit_usage`, `subscription_usage_history`, `subscriptions`
 
 Diffed against: <https://raw.githubusercontent.com/dodopayments/dodopayments-python/main/api.md>
 
@@ -4925,11 +4925,11 @@ Note: Extracted every GET path from the official Python SDK operation index and 
 
 Re-audited 2026-11-19 against: <https://raw.githubusercontent.com/dodopayments/dodopayments-python/main/src/dodopayments/resources/invoices/invoices.py>
 
-- [ ] `Invoices (GET /billing/invoices)` — invoice-level status, amounts and due dates for billing-invoice subscriptions; filterable by created_at, customer and subscription (high)
-- [ ] `Invoice events (GET /billing/invoices/{invoice_id}/events)` — invoice lifecycle history (sent, paid, voided, retried) for collections analysis (medium)
+- [x] `Invoices (GET /billing/invoices)` — invoice-level status, amounts and due dates for billing-invoice subscriptions; filterable by created_at, customer and subscription (high)
+- [x] `Invoice events (GET /billing/invoices/{invoice_id}/events)` — invoice lifecycle history (sent, paid, voided, retried) for collections analysis (medium)
 - [ ] `Customer credit entitlements (GET /customers/{customer_id}/credit-entitlements)` — credit entitlements attached to each customer on the customers table (low)
-- [ ] `Subscription credit usage (GET /subscriptions/{subscription_id}/credit-usage)` — credit consumption per subscription (low)
-- [ ] `Blocklisted customers (GET /blocklist/customers)` — fraud blocklist entries to flag customers (low)
+- [x] `Subscription credit usage (GET /subscriptions/{subscription_id}/credit-usage)` — credit consumption per subscription (low)
+- [x] `Blocklisted customers (GET /blocklist/customers)` — fraud blocklist entries to flag customers (low)
 - [ ] `Product short links (GET /products/short_links)` — checkout short links per product (low)
 - [ ] `Product localized prices (GET /products/{product_id}/localized-prices)` — per-currency prices for products we sync (low)
 
