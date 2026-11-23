@@ -2,6 +2,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, Final, Optional
+from uuid import UUID
 
 from django.db import models, transaction
 from django.db.models.signals import post_delete, post_save
@@ -12,6 +13,7 @@ import structlog
 
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
+from posthog.models.organization import Organization
 from posthog.models.tagged_items_relation import Taggable
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
@@ -411,6 +413,24 @@ def hog_flow_deleted(sender, instance: HogFlow, **kwargs):
     # post_delete fires inside the delete transaction, so publish only after commit; otherwise a
     # worker could re-read the still-live row and cache it as active for another TTL.
     transaction.on_commit(lambda: _reload_batch_on_workers(team_id, [hog_flow_id]))
+
+
+@receiver(post_save, sender=Organization)
+def reload_hog_flows_on_organization_active_change(sender, instance: Organization, created: bool, **kwargs) -> None:
+    # Workers leave out the workflows of a deactivated organization, so they reload them when staff flip it.
+    if created or not instance._is_active_changed:
+        return
+    organization_id = instance.pk
+    transaction.on_commit(lambda: _reload_deferred_on_workers(_active_hog_flow_ids_by_team(organization_id)))
+
+
+def _active_hog_flow_ids_by_team(organization_id: UUID) -> dict[int, set[str]]:
+    by_team: dict[int, set[str]] = {}
+    for team_id, hog_flow_id in HogFlow.objects.filter(
+        team__organization_id=organization_id, status=HogFlow.State.ACTIVE
+    ).values_list("team_id", "id"):
+        by_team.setdefault(team_id, set()).add(str(hog_flow_id))
+    return by_team
 
 
 def action_saved_for_hog_flows(event: ActionSaved) -> None:

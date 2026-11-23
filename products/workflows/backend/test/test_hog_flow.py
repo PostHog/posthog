@@ -80,6 +80,23 @@ class TestHogFlow(TestCase):
         mock_reload.assert_called_once_with(team_id=self.team.id, hog_flow_ids=[str(hog_flow.id)])
 
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
+    def test_flipping_the_organization_active_state_reloads_its_active_workflows(self, mock_reload):
+        active = HogFlow.objects.create(name="Active", team=self.team, status=HogFlow.State.ACTIVE)
+        HogFlow.objects.create(name="Draft", team=self.team)
+
+        for change in ({"is_active": False}, {"name": "Renamed"}, {"is_active": True}):
+            mock_reload.reset_mock()
+            with self.captureOnCommitCallbacks(execute=True):
+                for field, value in change.items():
+                    setattr(self.org, field, value)
+                self.org.save()
+
+            if "is_active" in change:
+                mock_reload.assert_called_once_with(team_id=self.team.id, hog_flow_ids=[str(active.id)])
+            else:
+                mock_reload.assert_not_called()
+
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_deferred_saves_reload_once_after_the_commit(self, mock_reload):
         with self.captureOnCommitCallbacks(execute=True):
             with defer_hog_flow_reloads():

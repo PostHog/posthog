@@ -3,6 +3,7 @@ from collections.abc import Iterable
 from datetime import timedelta
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Optional
+from uuid import UUID
 
 from django.conf import settings
 from django.db import models, transaction
@@ -18,6 +19,7 @@ from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.organization import Organization
 from posthog.models.signals import mutable_receiver
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
@@ -382,6 +384,33 @@ def hog_function_saved(sender, instance: HogFunction, created, **kwargs):
 
     if instance.type is None or instance.type in TYPES_THAT_RELOAD_PLUGIN_SERVER:
         reload_hog_functions_on_workers(team_id=instance.team_id, hog_function_ids=[str(instance.id)])
+
+
+@receiver(post_save, sender=Organization)
+def reload_hog_functions_on_organization_active_change(sender, instance: Organization, created: bool, **kwargs) -> None:
+    # Workers leave out the functions of a deactivated organization, so they reload them when staff flip it.
+    if created or not instance._is_active_changed:
+        return
+    organization_id = instance.pk
+    transaction.on_commit(lambda: _reload_organization_hog_functions(organization_id))
+
+
+def _reload_organization_hog_functions(organization_id: UUID) -> None:
+    by_team: dict[int, list[str]] = {}
+    for team_id, hog_function_id in HogFunction.objects.filter(
+        team__organization_id=organization_id,
+        enabled=True,
+        deleted=False,
+        type__in=TYPES_THAT_RELOAD_PLUGIN_SERVER,
+    ).values_list("team_id", "id"):
+        by_team.setdefault(team_id, []).append(str(hog_function_id))
+    for team_id, hog_function_ids in by_team.items():
+        try:
+            reload_hog_functions_on_workers(team_id=team_id, hog_function_ids=hog_function_ids)
+        except Exception:
+            # The organization change has committed. Workers also expire their cache on a timer, so a lost
+            # reload only delays the change.
+            logger.exception("hog_function_organization_reload_failed", team_id=team_id)
 
 
 def action_saved(event: ActionSaved) -> None:

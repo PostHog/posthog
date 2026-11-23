@@ -281,6 +281,23 @@ class TestHogFunction(TestCase):
         assert to_dict(item.filters)["bytecode"] is None
         assert "static cohort" in to_dict(item.filters)["bytecode_error"]
 
+    @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
+    def test_flipping_the_organization_active_state_reloads_its_enabled_functions(self, mock_reload: Mock) -> None:
+        enabled = HogFunction.objects.create(name="Enabled", team=self.team, type="destination", enabled=True)
+        HogFunction.objects.create(name="Disabled", team=self.team, type="destination", enabled=False)
+
+        for change in ({"is_active": False}, {"name": "Renamed"}, {"is_active": True}):
+            mock_reload.reset_mock()
+            with self.captureOnCommitCallbacks(execute=True):
+                for field, value in change.items():
+                    setattr(self.org, field, value)
+                self.org.save()
+
+            if "is_active" in change:
+                mock_reload.assert_called_once_with(team_id=self.team.id, hog_function_ids=[str(enabled.id)])
+            else:
+                mock_reload.assert_not_called()
+
 
 class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
     def setUp(self):
