@@ -16,6 +16,7 @@ import pytest
 
 import pyarrow as pa
 import deltalake
+from temporalio.exceptions import ApplicationError
 
 from products.data_modeling.backend.temporal.activities.materialize_view import (
     UTF8_REPAIR_MAX_BYTES,
@@ -229,11 +230,6 @@ REPLACED = ["ok", "caf\ufffd", None, "\ufffd\ufffd ok"]
             [[("k\ufffd", "v")], [("k", "v\ufffd")]],
             id="map_key_and_value",
         ),
-        pytest.param(
-            _strings([b"ok"] * 70_000 + [b"\xff"]),
-            ["ok"] * 70_000 + ["\ufffd"],
-            id="invalid_value_after_many_valid_ones",
-        ),
         pytest.param(_strings([b"caf\xc3\xa9", None]), ["café", None], id="valid_utf8_is_untouched"),
     ],
 )
@@ -262,12 +258,25 @@ def test_repairing_one_invalid_value_decodes_only_a_bounded_slice() -> None:
     assert peak < 8 * UTF8_REPAIR_MAX_BYTES
 
 
-def test_a_key_column_that_is_not_valid_utf8_fails_instead_of_being_replaced() -> None:
-    batch = pa.RecordBatch.from_arrays(
-        [_strings([b"k\xff", b"k\xfe"]), _strings([b"ok", b"\xff"])], names=["c", "label"]
-    )
+@pytest.mark.parametrize(
+    "column,key_columns,error,match",
+    [
+        pytest.param(_strings([b"k\xff", b"k\xfe"]), ("c",), InvalidUtf8KeyError, 'Key column "c"', id="key_column"),
+        pytest.param(
+            pa.DictionaryArray.from_arrays(pa.array([0, 0], pa.int32()), _strings([b"k\xff"])),
+            (),
+            ApplicationError,
+            'Column "c" .* still has invalid UTF-8',
+            id="type_the_repair_does_not_rebuild",
+        ),
+    ],
+)
+def test_a_string_that_cannot_be_replaced_fails_instead_of_being_stored(
+    column: pa.Array, key_columns: tuple[str, ...], error: type[ApplicationError], match: str
+) -> None:
+    batch = pa.RecordBatch.from_arrays([column, _strings([b"ok", b"\xff"])], names=["c", "label"])
 
-    with pytest.raises(InvalidUtf8KeyError, match='Key column "c"') as raised:
-        _replace_invalid_utf8(batch, key_columns=("c",))
+    with pytest.raises(error, match=match) as raised:
+        _replace_invalid_utf8(batch, key_columns=key_columns)
 
     assert raised.value.non_retryable is True

@@ -33,6 +33,7 @@ from products.data_modeling.backend.temporal.activities.incremental_write import
 from products.data_modeling.backend.temporal.activities.materialize_view import (
     FAILED_UPDATE_REASON_PREFIX,
     InvalidUtf8KeyError,
+    _build_model_table_uri,
     get_aws_storage_options,
 )
 from products.data_modeling.backend.temporal.workflows.materialize_view import NON_RETRYABLE_ERRORS
@@ -437,19 +438,43 @@ class TestIncrementalMaterialization:
         table = deltalake.DeltaTable(result.table_uri, storage_options=get_aws_storage_options()).to_pyarrow_table()
         assert sorted(tuple(row.values()) for row in table.to_pylist()) == expected
 
+    @pytest.mark.parametrize("seeded", [pytest.param(False, id="full_refresh"), pytest.param(True, id="incremental")])
     async def test_a_unique_key_that_is_not_valid_utf8_fails_before_writing(
-        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag, seeded: bool
     ):
         await _configure(asaved_query, {**CONFIG, "unique_key": ["c"]})
+        column_types = [("day", "DateTime64(6, 'UTC')"), ("c", "String")]
 
         with _settings(bucket_name):
+            table_uri = _build_model_table_uri(ateam.pk, asaved_query.id.hex, asaved_query.storage_name)
+            if seeded:
+                await _run(
+                    activity_environment,
+                    ateam,
+                    anode,
+                    ajob,
+                    adag,
+                    _day_batch(DAY1, c=pa.array(["k"])),
+                    column_types=column_types,
+                )
+                seeded_version = deltalake.DeltaTable(table_uri, storage_options=get_aws_storage_options()).version()
+
             with pytest.raises(InvalidUtf8KeyError, match='Key column "c"'):
                 await _run(
-                    activity_environment, ateam, anode, ajob, adag, _day_batch(DAY1, c=_not_utf8(b"k\xff", b"k\xfe"))
+                    activity_environment,
+                    ateam,
+                    anode,
+                    ajob,
+                    adag,
+                    _day_batch(DAY2, c=_not_utf8(b"k\xff", b"k\xfe")),
+                    column_types=column_types,
                 )
 
-        await database_sync_to_async(ajob.refresh_from_db)()
-        assert ajob.rows_materialized in (0, None)
+            if seeded:
+                table = deltalake.DeltaTable(table_uri, storage_options=get_aws_storage_options())
+                assert table.version() == seeded_version
+            else:
+                assert not deltalake.DeltaTable.is_deltatable(table_uri, storage_options=get_aws_storage_options())
 
     async def test_a_rebuild_after_a_failed_update_is_not_labelled_a_first_run(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag

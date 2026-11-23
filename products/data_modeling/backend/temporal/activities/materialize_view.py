@@ -644,20 +644,23 @@ def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
 
 # A slice that holds invalid UTF-8 is halved until its strings fit in this many bytes, and only
 # then decoded in Python. The decode holds the slice as bytes and as str objects at once, so this
-# bounds that memory however long the strings are.
+# bounds that memory. A single value is decoded whole, so its memory scales with one value that
+# ClickHouse already returned.
 UTF8_REPAIR_MAX_BYTES = 1024 * 1024
 
 
-def _is_valid(array: pa.Array | pa.RecordBatch) -> bool:
+def _is_valid_utf8(array: pa.Array | pa.RecordBatch) -> bool:
     try:
         array.validate(full=True)
-    except pa.ArrowInvalid:
+    except pa.ArrowInvalid as error:
+        if "Invalid UTF8 sequence" not in str(error):
+            raise
         return False
     return True
 
 
 def _collect_repaired_strings(array: pa.Array, pieces: list[pa.Array]) -> None:
-    if _is_valid(array):
+    if _is_valid_utf8(array):
         pieces.append(array)
         return
     string_bytes = pc.sum(pc.binary_length(typing.cast(pa.StringArray, array))).as_py() or 0
@@ -680,7 +683,7 @@ def _replace_invalid_utf8_in_strings(array: pa.Array) -> pa.Array:
 
 
 def _utf8_repaired(array: pa.Array) -> pa.Array:
-    if _is_valid(array):
+    if _is_valid_utf8(array):
         return array
 
     arrow_type = array.type
@@ -730,7 +733,7 @@ class InvalidUtf8KeyError(NonReportableApplicationError):
     def __init__(self, column: str) -> None:
         super().__init__(
             f'Key column "{column}" has text that is not valid UTF-8, so a materialized table cannot use it as a '
-            f"key. Wrap the column in hex() in the query to key on its hex form.",
+            f"key. To key on its hex form, write hex({column}) AS {column} in the query.",
             type="InvalidUtf8KeyError",
             non_retryable=True,
         )
@@ -749,14 +752,24 @@ def _replace_invalid_utf8(batch: pa.RecordBatch, key_columns: Collection[str] = 
     keys into the same string, which would merge two rows on a unique key, or move an incremental
     watermark past rows that the next run must still read.
     """
-    if _is_valid(batch):
+    if _is_valid_utf8(batch):
         return batch
     for column in key_columns:
-        if column in batch.schema.names and not _is_valid(batch.column(column)):
+        if column in batch.schema.names and not _is_valid_utf8(batch.column(column)):
             raise InvalidUtf8KeyError(column)
-    return pa.RecordBatch.from_arrays(
-        [_utf8_repaired(batch.column(index)) for index in range(batch.num_columns)], schema=batch.schema
-    )
+    repaired: list[pa.Array] = []
+    for field, array in zip(batch.schema, batch.columns):
+        repaired_array = _utf8_repaired(array)
+        # The repair returns a type it does not rebuild, such as a dictionary of strings, unchanged.
+        # Writing it would store a file that Delta readers refuse.
+        if not _is_valid_utf8(repaired_array):
+            raise ApplicationError(
+                f'Column "{field.name}" of type {field.type} still has invalid UTF-8 after the repair.',
+                type="UnrepairedUtf8Error",
+                non_retryable=True,
+            )
+        repaired.append(repaired_array)
+    return pa.RecordBatch.from_arrays(repaired, schema=batch.schema)
 
 
 def _key_columns(plan: WritePlan) -> frozenset[str]:
@@ -1424,11 +1437,12 @@ async def _materialize_incrementally(
     # Staged per attempt, never cleared: a retry resumes past the watermark the failed attempt
     # already saved, so its staged rows are that window's only record (see PersonPropertyRowSink).
     batch_index = 0
+    key_columns = _key_columns(plan)
 
     try:
         async for batch, ch_types in hogql_table(hogql_query, objects.team, logger, window=window):
             batch = _transform_unsupported_decimals(batch)
-            batch = _replace_invalid_utf8(batch, key_columns=_key_columns(plan))
+            batch = _replace_invalid_utf8(batch, key_columns=key_columns)
             batch = _transform_date_and_datetimes(batch, ch_types)
             batch = _transform_unsigned_integers(batch)
             batch = _force_nullable(batch)
