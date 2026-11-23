@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { waitForCondition } from 'kea-waitfor'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -350,6 +351,7 @@ export interface experimentMetricsLogicValues {
     refreshEligibilityTick: number
     resultConfigurationNotice: 'previous' | 'unknown' | null
     resultsQueryTo: string | null
+    resultsQueryToLoading: boolean
     secondaryMetricsResults: CachedNewExperimentQueryResponse[]
     secondaryMetricsResultsErrors: (unknown | null)[]
     totalMetricsCount: number
@@ -410,6 +412,10 @@ export interface experimentMetricsLogicMeta {
     key: ExperimentIdType
     __keaTypeGenInternalSelectorTypes: {
         resultConfigurationNotice: (currentRecalculation: RecalculationPayload | null) => 'previous' | 'unknown' | null
+        resultsQueryToLoading: (
+            recalculationLoading: boolean,
+            currentRecalculation: RecalculationPayload | null
+        ) => boolean
         isRecalculating: (
             recalculationLoading: boolean,
             currentRecalculation: RecalculationPayload | null,
@@ -588,6 +594,13 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     .map((result) => result.configuration_status)
                 return statuses.includes('previous') ? 'previous' : statuses.includes('unknown') ? 'unknown' : null
             },
+        ],
+        // True while the logic waits for its first run, fetched as the latest or created as a first run. Until then
+        // `resultsQueryTo` is null because nothing has loaded, not because there is no run.
+        resultsQueryToLoading: [
+            (s) => [s.recalculationLoading, s.currentRecalculation],
+            (recalculationLoading: boolean, currentRecalculation: RecalculationPayload | null): boolean =>
+                recalculationLoading && !currentRecalculation,
         ],
         // True while a recalculation is being fetched or is still running.
         isRecalculating: [
@@ -1291,3 +1304,12 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         )
     }),
 ])
+
+/** Resolves on the first action that can turn `resultsQueryToLoading` false, so keep both on the same actions. */
+export function resultsQueryToLoaded(logic: ReturnType<typeof experimentMetricsLogic.build>): Promise<unknown> {
+    return waitForCondition(
+        ({ type, payload }) =>
+            type === logic.actionTypes.setCurrentRecalculation ||
+            (type === logic.actionTypes.setRecalculationLoading && !payload.loading)
+    )
+}

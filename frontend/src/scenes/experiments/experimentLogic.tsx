@@ -112,7 +112,7 @@ import {
 
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
 import type { ExperimentHoldoutType, ExperimentIdType } from '../../types'
-import { experimentMetricsLogic } from './experimentMetricsLogic'
+import { experimentMetricsLogic, resultsQueryToLoaded } from './experimentMetricsLogic'
 import { featureFlagVariantProperty, getExposureSource, resolvedExposureEvent } from './exposureContract'
 import { holdoutsLogic } from './holdoutsLogic'
 import {
@@ -386,6 +386,7 @@ export interface experimentLogicValues {
     exposureCriteria: ExperimentExposureCriteria | undefined
     exposures: any
     exposuresAsOf: string | null
+    exposuresAsOfPending: boolean
     exposuresLoading: boolean
     formMode: FormModes
     freezeExposureLoading: boolean
@@ -820,6 +821,9 @@ export interface experimentLogicActions {
     setExposuresAsOf: (asOf: string | null) => {
         asOf: string | null
     }
+    setExposuresAsOfPending: () => {
+        value: true
+    }
     setFreezeExposureLoading: (loading: boolean) => {
         loading: boolean
     }
@@ -1195,6 +1199,7 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentVariantNotes: (variantNotes: Record<string, string>) => ({ variantNotes }),
         setExposureCriteria: (exposureCriteria: ExperimentExposureCriteria) => ({ exposureCriteria }),
         setExposuresAsOf: (asOf: string | null) => ({ asOf }),
+        setExposuresAsOfPending: true,
         createExperimentDashboard: true,
         setIsCreatingExperimentDashboard: (isCreating: boolean) => ({ isCreating }),
         setUnmodifiedExperiment: (experiment: Experiment) => ({ experiment }),
@@ -1282,6 +1287,17 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 setExposuresAsOf: (_, { asOf }) => asOf,
                 loadExposuresFailure: () => null,
+            },
+        ],
+        /**
+         * True while an exposure load waits for the latest run to learn its window. That load reads the window when
+         * the run lands, so a reload sent on the same run would replace it.
+         */
+        exposuresAsOfPending: [
+            false,
+            {
+                setExposuresAsOfPending: () => true,
+                setExposuresAsOf: () => false,
             },
         ],
         // A health finding is reported at most once per load, the unit of `experiment viewed`. A load
@@ -2782,7 +2798,22 @@ export const experimentLogic = kea<experimentLogicType>([
                      * End the exposures at the window of the metrics on screen. Without a recalculation run, the
                      * backend evaluates the window at now.
                      */
-                    const asOf = experimentMetricsLogic.findMounted({ experiment })?.values.resultsQueryTo ?? null
+                    const metricsLogic = experimentMetricsLogic({ experiment })
+                    // A page load runs this before any component mounts the metrics logic, so the mount here starts
+                    // the fetch of the latest run. Without the wait, the first query ends at now and the next one at
+                    // the run's window. Those are two cache entries with different answers.
+                    const unmountMetricsLogic = metricsLogic.mount()
+                    let asOf: string | null
+                    try {
+                        if (metricsLogic.values.resultsQueryToLoading) {
+                            actions.setExposuresAsOfPending()
+                            await resultsQueryToLoaded(metricsLogic)
+                            breakpoint()
+                        }
+                        asOf = metricsLogic.values.resultsQueryTo
+                    } finally {
+                        unmountMetricsLogic()
+                    }
                     actions.setExposuresAsOf(asOf)
                     const query = setLatestVersionsOnQuery({
                         kind: NodeKind.ExperimentExposureQuery,
