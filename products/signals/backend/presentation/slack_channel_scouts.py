@@ -113,10 +113,11 @@ class SlackChannelScoutViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # environment would name tables the scout's run cannot see.
         return self.team.parent_team or self.team
 
-    def _assert_can_read_sources(self, team: Team) -> None:
+    def _source_access(self, team: Team) -> UserAccessControl:
         access = UserAccessControl(user=cast(User, self.request.user), team=team)
         if not access.check_access_level_for_resource("external_data_source", "viewer"):
             raise exceptions.PermissionDenied("Reading Slack channels requires access to data warehouse sources.")
+        return access
 
     @extend_schema(
         responses={200: SlackScoutChannelSourcesSerializer},
@@ -126,8 +127,10 @@ class SlackChannelScoutViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(detail=False, methods=["get"], required_scopes=["external_data_source:read"])
     def channels(self, request: Request, **kwargs: Any) -> Response:
         team = self._canonical_team()
-        self._assert_can_read_sources(team)
-        return Response(SlackScoutChannelSourcesSerializer({"sources": list_slack_channel_sources(team.id)}).data)
+        access = self._source_access(team)
+        return Response(
+            SlackScoutChannelSourcesSerializer({"sources": list_slack_channel_sources(team.id, access)}).data
+        )
 
     @validated_request(
         SlackChannelScoutCreateSerializer,
@@ -148,12 +151,13 @@ class SlackChannelScoutViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def create(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         team = self._canonical_team()
         user = cast(User, request.user)
-        self._assert_can_read_sources(team)
+        access = self._source_access(team)
         validated = request.validated_data
         source_id = str(validated["source_id"])
         try:
             definition = plan_slack_channel_scout(
                 team_id=team.id,
+                user_access_control=access,
                 source_id=source_id,
                 channel_ids=validated["channel_ids"],
                 steer=validated.get("steer", ""),

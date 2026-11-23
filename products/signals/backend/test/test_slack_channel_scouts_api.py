@@ -3,8 +3,12 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import SignalScoutConfig
 from products.skills.backend.models.skills import LLMSkill
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
@@ -106,3 +110,32 @@ class TestSlackChannelScoutsAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert not SignalScoutConfig.objects.filter(team=self.team, source_product="slack").exists()
+
+    def test_a_source_the_member_is_denied_is_hidden_and_cannot_be_read_by_a_scout(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        allowed = self._slack_source(self.team, {"C01": "bugs"})
+        denied = self._slack_source(self.team, {"C02": "hr-private"})
+        member = User.objects.create_and_join(self.organization, "member@example.com", "password")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="external_data_source",
+            resource_id=str(denied.id),
+            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+            access_level="none",
+        )
+        self.client.force_login(member)
+
+        listed = self.client.get(self._url("channels/"))
+        created = self.client.post(
+            self._url(),
+            {"display_name": "HR", "source_id": str(denied.id), "channel_ids": ["C02"]},
+            format="json",
+        )
+
+        assert listed.status_code == status.HTTP_200_OK, listed.json()
+        assert [source["id"] for source in listed.json()["sources"]] == [str(allowed.id)]
+        assert created.status_code == status.HTTP_400_BAD_REQUEST, created.json()
+        assert not SignalScoutConfig.objects.filter(team=self.team, source_id=str(denied.id)).exists()

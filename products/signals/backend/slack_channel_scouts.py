@@ -10,6 +10,7 @@ instruction. The config records the warehouse source the scout reads as its `(so
 
 from posthog.dataclasses import frozen
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.enums import SignalSourceProduct
 from products.signals.backend.models import SignalScoutConfig
 from products.warehouse_sources.backend.facade import api as warehouse_facade
@@ -47,25 +48,38 @@ class SlackScoutDefinition:
     precheck_query: str
 
 
-def list_slack_channel_sources(team_id: int) -> list[SlackChannelSource]:
-    """The team's Slack warehouse sources, each with the channels it syncs, ordered by channel name."""
+def list_slack_channel_sources(team_id: int, user_access_control: UserAccessControl) -> list[SlackChannelSource]:
+    """The Slack warehouse sources this caller may view, each with the channels it syncs, ordered by channel name.
+
+    A source or table that an access rule hides from the caller is left out, so neither its channel names nor its
+    table names reach the caller or a scout they create.
+    """
+    slack_sources = [
+        source
+        for source in warehouse_facade.list_sources(team_id)
+        if source.source_type == ExternalDataSourceType.SLACK
+    ]
+    if not slack_sources:
+        return []
+    denied_source_ids = set(
+        user_access_control.denied_object_ids(
+            "external_data_source", [(str(source.id), source.team_id, None) for source in slack_sources], "viewer"
+        )
+    )
     sources = sorted(
-        (
-            source
-            for source in warehouse_facade.list_sources(team_id)
-            if source.source_type == ExternalDataSourceType.SLACK
-        ),
+        (source for source in slack_sources if str(source.id) not in denied_source_ids),
         key=lambda source: source.created_at,
     )
     if not sources:
         return []
     # Only a table that is still queryable counts as synced, so a deleted schema or table never reaches the prompt.
     queryable_tables = warehouse_facade.all_queryable_table_keys(team_id)
+    denied_table_ids = warehouse_facade.denied_table_ids(team_id, user_access_control)
     result: list[SlackChannelSource] = []
     for source in sources:
         channels = []
         for schema in warehouse_facade.list_schemas_for_source(source.id, team_id):
-            if not schema.should_sync or schema.name in _FIXED_SLACK_TABLES:
+            if not schema.should_sync or schema.name in _FIXED_SLACK_TABLES or schema.table_id in denied_table_ids:
                 continue
             table = queryable_tables.get(schema.table_id) if schema.table_id else None
             channels.append(
@@ -150,8 +164,10 @@ message, `user` is the Slack user id of the author, and `thread_ts` groups the r
 
 
 def plan_slack_channel_scout(
-    *, team_id: int, source_id: str, channel_ids: list[str], steer: str
+    *, team_id: int, user_access_control: UserAccessControl, source_id: str, channel_ids: list[str], steer: str
 ) -> SlackScoutDefinition:
-    """The scout text and pre-check for the picked channels of one of the team's Slack sources."""
-    channels = select_slack_channels(list_slack_channel_sources(team_id), source_id=source_id, channel_ids=channel_ids)
+    """The scout text and pre-check for the picked channels of one of the team's Slack sources the caller may view."""
+    channels = select_slack_channels(
+        list_slack_channel_sources(team_id, user_access_control), source_id=source_id, channel_ids=channel_ids
+    )
     return build_slack_scout_definition(channels=channels, steer=steer)
