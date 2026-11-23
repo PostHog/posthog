@@ -21,7 +21,7 @@ _Entry = TraceMetricsRows | Literal["too_heavy"]
 _ENTRY = TypeAdapter[_Entry](cast(Any, _Entry))
 
 
-def metrics_cache_key(team: Team, user: User, selection: TraceSelection) -> str:
+def metrics_cache_key(team: Team, user: User, selection: TraceSelection, size: BucketSize) -> str:
     # A relative range ends at now, so refreshes within a minute share one read. Keying on the bucket instead would
     # serve a window that ended up to a bucket earlier than the one asked for.
     window = selection.window
@@ -32,7 +32,11 @@ def metrics_cache_key(team: Team, user: User, selection: TraceSelection) -> str:
         ),
     )
     selection_hash = hashlib.sha256(repr(by_minute).encode()).hexdigest()
-    return f"ai_observability:trace_metrics:{team.pk}:{selection_hash}:{requester_fingerprint(team.pk, user)}"
+    # A test account filter can read a warehouse table that only some people may read, and a cache hit skips that
+    # access check, so each person reads only the entries their own reads wrote.
+    requester = f"{user.pk}:{requester_fingerprint(team.pk, user)}"
+    # Two windows within the same minutes can straddle the span that switches hourly buckets to daily ones.
+    return f"ai_observability:trace_metrics:{team.pk}:{selection_hash}:{size.value}:{requester}"
 
 
 def _read(key: str) -> _Entry | None:
@@ -52,7 +56,7 @@ def _write(key: str, entry: _Entry) -> None:
 def cached_trace_metrics(team: Team, user: User, selection: TraceSelection, size: BucketSize) -> TraceMetricsRows:
     """Reads the metrics through a short cache. A range too long to compute is cached the same way, so a repeat visit
     gets the refusal without running the read again. Raises `TraceMetricsTooHeavyError` for that range."""
-    key = metrics_cache_key(team, user, selection)
+    key = metrics_cache_key(team, user, selection, size)
     cached = _read(key)
     if cached == _TOO_HEAVY:
         raise TraceMetricsTooHeavyError()

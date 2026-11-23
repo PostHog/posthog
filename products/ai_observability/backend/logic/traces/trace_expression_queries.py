@@ -29,11 +29,17 @@ def _field(*chain: str) -> ast.Field:
     return ast.Field(chain=list(chain))
 
 
+def _finite(value: ast.Expr) -> ast.Call:
+    # An SDK can send "Infinity" as a latency or a cost, and one such event would make the whole trace's sum or max
+    # infinite, so it reads as missing instead.
+    return ast.Call(name="if", args=[ast.Call(name="isFinite", args=[value]), value, ast.Constant(value=None)])
+
+
 # On ai_events a trace's person is named by its distinct id, which the trace view and the list resolve to a person.
 AI_EVENTS_COLUMNS = TraceColumns(
     event=_field("event"),
     timestamp=_field("timestamp"),
-    latency=_field("latency"),
+    latency=_finite(_field("latency")),
     parent_id=_field("parent_id"),
     trace_id=_field("trace_id"),
     is_error=ast.Call(name="if", args=[_field("is_error"), ast.Constant(value="true"), ast.Constant(value="false")]),
@@ -42,13 +48,13 @@ AI_EVENTS_COLUMNS = TraceColumns(
     session_id=_field("session_id"),
     properties=_field("properties"),
     ingestion_source=_field("properties", "$ai_ingestion_source"),
-    total_cost=_field("total_cost_usd"),
+    total_cost=_finite(_field("total_cost_usd")),
 )
 
 EVENTS_COLUMNS = TraceColumns(
     event=_field("event"),
     timestamp=_field("timestamp"),
-    latency=ast.Call(name="toFloat", args=[_field("properties", "$ai_latency")]),
+    latency=_finite(ast.Call(name="toFloat", args=[_field("properties", "$ai_latency")])),
     parent_id=_field("properties", "$ai_parent_id"),
     trace_id=_field("properties", "$ai_trace_id"),
     is_error=_field("properties", "$ai_is_error"),
@@ -57,7 +63,7 @@ EVENTS_COLUMNS = TraceColumns(
     session_id=_field("properties", "$ai_session_id"),
     properties=_field("properties"),
     ingestion_source=_field("properties", "$ai_ingestion_source"),
-    total_cost=ast.Call(name="toFloat", args=[_field("properties", "$ai_total_cost_usd")]),
+    total_cost=_finite(ast.Call(name="toFloat", args=[_field("properties", "$ai_total_cost_usd")])),
 )
 
 Aggregate = Callable[[str, list[ast.Expr]], ast.Expr]

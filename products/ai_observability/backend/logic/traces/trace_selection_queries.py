@@ -258,7 +258,9 @@ def _reads_beyond_posthog_tables(prop: Mapping[str, Any]) -> bool:
     )
 
 
-def _database(team: Team, selection: TraceSelection) -> Database | None:
+def selection_database(team: Team, selection: TraceSelection) -> Database | None:
+    """The catalog of PostHog's own tables, which skips loading every warehouse table, when no filter of the selection
+    reads beyond them. None when one does, so the read loads the full catalog."""
     test_account_filters = (team.test_account_filters or []) if filters_test_accounts(team, selection) else []
     filters = [prop.model_dump() for prop in selection.properties] + list(test_account_filters)
     if any(_reads_beyond_posthog_tables(prop) for prop in filters):
@@ -280,7 +282,7 @@ def load_selection_page(
             context=HogQLContext(
                 team_id=team.pk,
                 user=user,
-                database=_database(team, selection),
+                database=selection_database(team, selection),
                 property_type_overrides=EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES,
             ),
             settings=HogQLGlobalSettings(max_execution_time=_SELECTION_QUERY_SECONDS, timeout_overflow_mode="throw"),

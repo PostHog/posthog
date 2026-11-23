@@ -8,6 +8,8 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 
+from posthog.models import User
+
 from products.ai_observability.backend.facade import api, contracts
 from products.ai_observability.backend.logic.traces.trace_metrics import NO_TRACES, MetricKey, PeriodTotals
 from products.ai_observability.backend.logic.traces.trace_metrics_queries import (
@@ -78,6 +80,14 @@ class TestLoadTraceMetrics(BaseTest):
 
         assert read.call_count == 1
 
+    def test_load_trace_metrics_refuses_a_range_with_too_many_buckets_without_reading(self) -> None:
+        selection = selection_between(datetime(5000, 1, 1, tzinfo=UTC), datetime(8000, 1, 1, tzinfo=UTC))
+
+        with patch(READ) as read, pytest.raises(TraceMetricsTooHeavyError):
+            api.load_trace_metrics(self.team, self.user, selection)
+
+        assert read.call_count == 0
+
     def test_cache_key_is_the_window_to_the_minute(self) -> None:
         start, end = DAY + timedelta(minutes=7), DAY + timedelta(hours=3, minutes=7)
         base = selection_between(start, end)
@@ -86,6 +96,9 @@ class TestLoadTraceMetrics(BaseTest):
             selection_between(start + timedelta(minutes=1), end + timedelta(minutes=1)),
             selection_between(start, end, filter_test_accounts=True),
             replace(base, include_support_traces=True),
+            # The same minutes, but one span takes hourly buckets and the other daily ones.
+            selection_between(start, start + timedelta(hours=48)),
+            selection_between(start, start + timedelta(hours=48, seconds=20)),
         ]
 
         with patch(READ, return_value=rows_with({})) as read:
@@ -101,6 +114,16 @@ class TestLoadTraceMetrics(BaseTest):
             api.load_trace_metrics(self.team, self.user, selection)
             hide_event_property(self.team, self.user, "secret")
             api.load_trace_metrics(self.team, self.user, selection)
+
+        assert read.call_count == 2
+
+    def test_cache_key_separates_people_with_the_same_property_restrictions(self) -> None:
+        selection = selection_between(DAY, DAY + timedelta(hours=3))
+        colleague = User.objects.create_and_join(self.organization, "colleague@example.com", "password")
+
+        with patch(READ, return_value=rows_with({})) as read:
+            api.load_trace_metrics(self.team, self.user, selection)
+            api.load_trace_metrics(self.team, colleague, selection)
 
         assert read.call_count == 2
 
