@@ -541,7 +541,7 @@ export function scheduleDateFromStoredISO(isoString: string, timezone: string): 
 // Returns the first cron match after now, or on or after `fromDay` when that day is later, or null for an invalid cron.
 // `fromDay` is a browser-local Dayjs whose wall clock shows project time, so `.tz(timezone, true)` reinterprets it.
 // Searching from a previously computed run would skip the first match after a second cron edit.
-export function nextCronRunDate(cron: string, timezone: string, fromDay: Dayjs | null = null): Dayjs | null {
+export function nextCronRunDate(cron: string, timezone: string, fromDay: Dayjs | null): Dayjs | null {
     const now = new Date()
     // Step back 1 ms so that a match at exactly midnight of the picked day counts.
     const dayStart = fromDay?.startOf('day').tz(timezone, true).subtract(1, 'millisecond').toDate()
@@ -3229,7 +3229,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             null as Dayjs | null,
             {
                 setSchedulePickedDay: (_, { day }) => day,
-                // Clearing the marker resets the form
+                // A null marker means the form was reset or the picker was cleared, so drop the picked day
                 setScheduleDateMarker: (state, { dateMarker }) => (dateMarker ? state : null),
             },
         ],
