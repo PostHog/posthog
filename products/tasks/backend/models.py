@@ -3402,7 +3402,7 @@ class TaskRun(models.Model):
         ttl_days: int | None = DEFAULT_LOG_TTL_DAYS,
         lock_attempts: int = 3,
         batch_id: str | None = None,
-        sent_by_run_sandbox: Callable[[], bool] | None = None,
+        sent_by_run_sandbox: bool = False,
     ):
         """Append log entries to S3 storage.
 
@@ -3488,46 +3488,49 @@ class TaskRun(models.Model):
 
         self.state = TaskRun.mutate_state_atomic(self.id, _mutator)
 
-    def _capture_memory_reads(self, entries: list[dict], sent_by_run_sandbox: Callable[[], bool] | None) -> None:
-        latest_timestamp = django_timezone.now() + MAX_MEMORY_READ_CLOCK_SKEW
-        reads: dict[tuple[str, str, str], tuple[dict[str, Any], datetime | None]] = {}
-        for entry in entries:
-            notification = entry.get("notification")
-            if not isinstance(notification, dict) or notification.get("method") != MEMORY_READ_METHOD:
-                continue
-            params = notification.get("params")
-            if not isinstance(params, dict):
-                continue
-            slug, file, tool, tool_call_id = (params.get(key) for key in ("slug", "file", "tool", "toolCallId"))
-            if not (
-                isinstance(slug, str)
-                and isinstance(file, str)
-                and isinstance(tool, str)
-                and isinstance(tool_call_id, str)
-            ):
-                continue
-            agent_id = params.get("agentId")
-            properties = {
-                "slug": slug[:MAX_MEMORY_READ_FIELD_CHARS],
-                "file": file[:MAX_MEMORY_READ_FIELD_CHARS],
-                "tool": tool[:MAX_MEMORY_READ_FIELD_CHARS],
-                "agent_id": agent_id[:MAX_MEMORY_READ_FIELD_CHARS] if isinstance(agent_id, str) else None,
-            }
-            timestamp = _parse_entry_timestamp(entry.get("timestamp"))
-            if timestamp is not None and not self.created_at <= timestamp <= latest_timestamp:
-                timestamp = None
-            reads.setdefault((tool_call_id, slug, file), (properties, timestamp))
-            if len(reads) >= MAX_MEMORY_READS_PER_APPEND:
-                break
-        if not reads or sent_by_run_sandbox is None or not sent_by_run_sandbox():
+    def _capture_memory_reads(self, entries: list[dict], sent_by_run_sandbox: bool) -> None:
+        if not sent_by_run_sandbox:
             return
-        for (tool_call_id, slug, file), (properties, timestamp) in reads.items():
-            self.capture_event(
-                "agent_memory_read",
-                properties,
-                event_uuid=str(uuid.uuid5(self.id, f"{tool_call_id}:{slug}:{file}")),
-                timestamp=timestamp,
-            )
+        try:
+            latest_timestamp = django_timezone.now() + MAX_MEMORY_READ_CLOCK_SKEW
+            reads: dict[tuple[str, str, str], tuple[dict[str, Any], datetime | None]] = {}
+            for entry in entries:
+                notification = entry.get("notification")
+                if not isinstance(notification, dict) or notification.get("method") != MEMORY_READ_METHOD:
+                    continue
+                params = notification.get("params")
+                if not isinstance(params, dict):
+                    continue
+                slug, file, tool, tool_call_id = (params.get(key) for key in ("slug", "file", "tool", "toolCallId"))
+                if not (
+                    isinstance(slug, str)
+                    and isinstance(file, str)
+                    and isinstance(tool, str)
+                    and isinstance(tool_call_id, str)
+                ):
+                    continue
+                agent_id = params.get("agentId")
+                properties = {
+                    "slug": slug[:MAX_MEMORY_READ_FIELD_CHARS],
+                    "file": file[:MAX_MEMORY_READ_FIELD_CHARS],
+                    "tool": tool[:MAX_MEMORY_READ_FIELD_CHARS],
+                    "agent_id": agent_id[:MAX_MEMORY_READ_FIELD_CHARS] if isinstance(agent_id, str) else None,
+                }
+                timestamp = _parse_entry_timestamp(entry.get("timestamp"))
+                if timestamp is not None and not self.created_at <= timestamp <= latest_timestamp:
+                    timestamp = None
+                reads.setdefault((tool_call_id, slug, file), (properties, timestamp))
+                if len(reads) >= MAX_MEMORY_READS_PER_APPEND:
+                    break
+            for (tool_call_id, slug, file), (properties, timestamp) in reads.items():
+                self.capture_event(
+                    "agent_memory_read",
+                    properties,
+                    event_uuid=str(uuid.uuid5(self.id, f"{tool_call_id}:{slug}:{file}")),
+                    timestamp=timestamp,
+                )
+        except Exception as e:
+            logger.warning("task_run.capture_memory_reads_failed", task_run_id=str(self.id), error=str(e))
 
     def _mirror_logs_to_posthog_logs(self, entries: list[dict]) -> None:
         """Mirror persisted entries into the PostHog Logs product via stdout (dogfooding).

@@ -4276,7 +4276,7 @@ def append_task_run_log(
     team_id: int,
     *,
     entries: list[dict],
-    sent_by_run_sandbox: Callable[[], bool] | None = None,
+    sent_by_run_sandbox: bool = False,
 ) -> contracts.TaskRunDetailDTO | None:
     """Append log entries to a run's S3 log and heartbeat its workflow.
 

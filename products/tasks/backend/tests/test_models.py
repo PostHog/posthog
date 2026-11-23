@@ -2333,7 +2333,7 @@ class TestTaskRun(TestCase):
         self.assertEqual(log_entries[0]["message"], "First log entry")
 
     def _append_memory_read_twice(
-        self, *, sent_by_run_sandbox: Callable[[], bool] | None, entry_age: timedelta = timedelta(0)
+        self, *, sent_by_run_sandbox: bool, entry_age: timedelta = timedelta(0)
     ) -> tuple[datetime, list[dict[str, Any]]]:
         run = TaskRun.objects.create(task=self.task, team=self.team)
         timestamp = run.created_at - entry_age
@@ -2360,7 +2360,7 @@ class TestTaskRun(TestCase):
         return timestamp, captured
 
     def test_append_log_captures_a_memory_read_with_a_retry_stable_uuid(self):
-        timestamp, (first, retry) = self._append_memory_read_twice(sent_by_run_sandbox=lambda: True)
+        timestamp, (first, retry) = self._append_memory_read_twice(sent_by_run_sandbox=True)
 
         self.assertEqual(first["uuid"], retry["uuid"])
         self.assertEqual(first["timestamp"], timestamp)
@@ -2371,16 +2371,13 @@ class TestTaskRun(TestCase):
             {"slug": "-tmp-workspace", "file": "feedback_test_runner.md", "tool": "Bash", "agent_id": "agent_1"},
         )
 
-    @parameterized.expand([("another_caller", lambda: False), ("no_request", None)])
-    def test_append_log_ignores_memory_reads_not_sent_by_the_run_sandbox(self, _name, sent_by_run_sandbox):
-        _, captured = self._append_memory_read_twice(sent_by_run_sandbox=sent_by_run_sandbox)
+    def test_append_log_ignores_memory_reads_not_sent_by_the_run_sandbox(self):
+        _, captured = self._append_memory_read_twice(sent_by_run_sandbox=False)
 
         self.assertEqual(captured, [])
 
     def test_append_log_drops_a_memory_read_timestamp_from_before_the_run(self):
-        _, (first, _retry) = self._append_memory_read_twice(
-            sent_by_run_sandbox=lambda: True, entry_age=timedelta(days=1)
-        )
+        _, (first, _retry) = self._append_memory_read_twice(sent_by_run_sandbox=True, entry_age=timedelta(days=1))
 
         self.assertNotIn("timestamp", first)
 
