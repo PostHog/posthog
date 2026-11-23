@@ -619,6 +619,11 @@ def flag_version_conflict_message(sent_version: int, current_version: int) -> st
 _GROUP_PROPERTIES = jsonb_array_or_empty("grp->'properties'")
 
 
+def _flag_id_key_pattern(flag_id: int) -> str:
+    # validation reads a flag reference as an integer, so "007" and "7" name the same flag
+    return f"^0*{flag_id}$"
+
+
 def find_dependent_flags(flag_to_check: FeatureFlag) -> list[FeatureFlag]:
     """Find all active flags that depend on the given flag via flag-type filter properties."""
     return list(
@@ -632,11 +637,11 @@ def find_dependent_flags(flag_to_check: FeatureFlag) -> list[FeatureFlag]:
                         SELECT 1 FROM jsonb_array_elements({jsonb_array_or_empty("filters->'groups'")}) AS grp
                         CROSS JOIN jsonb_array_elements({_GROUP_PROPERTIES}) AS prop
                         WHERE prop->>'type' = 'flag'
-                        AND prop->>'key' = %s
+                        AND prop->>'key' ~ %s
                     )
                     """
             ],
-            params=[str(flag_to_check.id)],
+            params=[_flag_id_key_pattern(flag_to_check.id)],
         )
         .order_by("key")
     )
@@ -711,7 +716,7 @@ def find_dependent_flags_batch(
 
     # Build OR conditions for each flag ID we're checking
     # We need to find any flag that depends on ANY of these flags
-    or_conditions = " OR ".join(["prop->>'key' = %s" for _ in flag_ids])
+    or_conditions = " OR ".join(["prop->>'key' ~ %s" for _ in flag_ids])
 
     dependent_flags = list(
         # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
@@ -728,14 +733,13 @@ def find_dependent_flags_batch(
                     )
                     """
             ],
-            params=[str(fid) for fid in flag_ids],
+            params=[_flag_id_key_pattern(fid) for fid in flag_ids],
         )
         .order_by("key")
     )
 
     # Build the result mapping by checking which flags each dependent flag depends on
     result: dict[int, list[FeatureFlag]] = {fid: [] for fid in flag_ids}
-    flag_id_strs = {str(fid) for fid in flag_ids}
 
     for dep_flag in dependent_flags:
         try:
@@ -748,8 +752,8 @@ def find_dependent_flags_batch(
             continue
         for located in _iter_flag_filter_properties(conditions):
             prop = located.prop
-            if prop.get("type") == "flag" and prop.get("key") in flag_id_strs:
-                dep_flag_id = int(prop["key"])
+            if prop.get("type") == "flag" and safe_int(prop.get("key")) in result:
+                dep_flag_id = safe_int(prop.get("key"))
                 if dep_flag_id in result and dep_flag not in result[dep_flag_id]:
                     result[dep_flag_id].append(dep_flag)
 

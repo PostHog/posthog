@@ -291,6 +291,25 @@ class TestFeatureFlagDependencyRuntime(APIBaseTest):
         assert response.json()["detail"].startswith("Circular dependency detected")
         assert "hidden_cycle_flag" not in str(response.json())
 
+    def test_runtime_change_finds_a_dependent_with_a_zero_padded_reference(self) -> None:
+        target = self._flag("target", "all")
+        dependent = self._flag("zero_padded_dependent", "server")
+        dependent.filters = {
+            "groups": [
+                {
+                    "properties": [{"key": f"0{target.id}", "type": "flag", "value": "true"}],
+                    "rollout_percentage": 100,
+                }
+            ]
+        }
+        dependent.save()
+
+        response = self._patch(target, {"evaluation_runtime": "client"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "evaluation_runtime"
+        assert "1 flag(s)" in response.json()["detail"]
+
     def test_readable_dependency_shows_its_runtime_to_a_member(self) -> None:
         from posthog.models.organization import OrganizationMembership
 
