@@ -40,6 +40,7 @@ from structlog.testing import capture_logs
 from posthog.api.current_alias_usage import (
     CURRENT_ALIAS_USED_EVENT,
     FLAT_ROUTE_USED_EVENT,
+    TOKEN_ON_PROJECT_PATH_USED_EVENT,
     CurrentAliasScope,
     current_alias_scope,
 )
@@ -3887,6 +3888,32 @@ class TestCurrentAliasUsage(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         events = self._alias_events(capture, FLAT_ROUTE_USED_EVENT)
         assert [(event["properties"]["route"], event["properties"]["project_from"]) for event in events] == expected
+
+    @parameterized.expand(
+        [
+            ("token_for_the_path_project", "path_project", [True]),
+            ("token_for_another_project", "other_project", [False]),
+            ("no_token", None, []),
+        ]
+    )
+    def test_reports_tokens_on_routes_that_name_a_project(
+        self, _name: str, token_project: str | None, expected: list[bool]
+    ) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        project_tokens = {"path_project": self.team.api_token, "other_project": other_team.api_token}
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(user=self.user, secure_value=hash_key_value(key), scopes=["*"])
+        self.client.logout()
+        query = {"token": project_tokens[token_project]} if token_project else {}
+
+        with patch("posthog.event_usage.posthoganalytics.capture") as capture:
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/feature_flags/", query, HTTP_AUTHORIZATION=f"Bearer {key}"
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        events = self._alias_events(capture, TOKEN_ON_PROJECT_PATH_USED_EVENT)
+        assert [event["properties"]["token_matches_path"] for event in events] == expected
 
     def test_recording_failure_does_not_fail_the_request(self) -> None:
         token = generate_random_token_personal()

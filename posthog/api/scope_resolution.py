@@ -1,5 +1,6 @@
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from enum import StrEnum
+from typing import Any
 
 from django.http import HttpRequest
 
@@ -21,6 +22,8 @@ logger = structlog.get_logger(__name__)
 CURRENT_ALIAS = "@current"
 _SCOPE_RESOLUTION_ATTR = "_posthog_scope_resolution"
 _FLAT_ROUTE_ATTR = "_posthog_flat_route"
+_TOKEN_ON_PROJECT_PATH_ATTR = "_posthog_token_on_project_path"
+_PATH_PROJECT_KWARGS = ("team_id", "project_id")
 
 
 class ScopeSource(StrEnum):
@@ -51,13 +54,49 @@ def record_scope_resolution(request: Request, *, token_team: Callable[[], Team |
 
 
 def _token_decides(request: Request, token_team: Callable[[], Team | None]) -> bool:
+    return _team_from_token(request, token_team) is not None
+
+
+def _team_from_token(request: Request, token_team: Callable[[], Team | None]) -> Team | None:
     # The token lookup can parse the request body, so a request that failed authentication skips it.
     if not request.user.is_authenticated:
-        return False
+        return None
     try:
-        return token_team() is not None
+        return token_team()
     except AuthenticationFailed:
-        return False
+        return None
+
+
+@frozen
+class TokenOnProjectPath:
+    # False when the token names another project than the path. The routing code then uses the token's project.
+    token_matches_path: bool
+
+
+def record_token_on_project_path(
+    request: Request, *, token_team: Callable[[], Team | None], path_kwargs: Mapping[str, Any]
+) -> None:
+    """Store on the HttpRequest whether a token decided the project of a route whose path names one."""
+    # Analytics must never fail the request it observes.
+    try:
+        path_ids = {
+            int(value) for name, value in path_kwargs.items() if name in _PATH_PROJECT_KWARGS and str(value).isdigit()
+        }
+        if not path_ids:
+            return
+        team = _team_from_token(request, token_team)
+        if team is None:
+            return
+        # An environment route names the team and a project route names the project, and both ids identify the
+        # token's own project, so either one counts as a match.
+        matches = bool(path_ids & {team.id, team.project_id})
+        setattr(request._request, _TOKEN_ON_PROJECT_PATH_ATTR, TokenOnProjectPath(token_matches_path=matches))
+    except Exception:
+        logger.warning("token_on_project_path_record_failed", exc_info=True)
+
+
+def token_on_project_path(request: HttpRequest) -> TokenOnProjectPath | None:
+    return getattr(request, _TOKEN_ON_PROJECT_PATH_ATTR, None)
 
 
 def note_flat_route(request: Request) -> None:

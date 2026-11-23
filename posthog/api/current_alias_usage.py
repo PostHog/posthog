@@ -1,4 +1,5 @@
 import hashlib
+from collections.abc import Mapping
 from enum import StrEnum
 
 from django.conf import settings
@@ -8,7 +9,7 @@ from django.http import HttpRequest
 import structlog
 import posthoganalytics
 
-from posthog.api.scope_resolution import CURRENT_ALIAS, is_flat_route, scope_resolution
+from posthog.api.scope_resolution import CURRENT_ALIAS, is_flat_route, scope_resolution, token_on_project_path
 from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.dataclasses import frozen
@@ -24,6 +25,8 @@ CURRENT_ALIAS_REQUESTS_METRIC = "api.current_alias.requests"
 CURRENT_ALIAS_USED_EVENT = "api current alias used"
 FLAT_ROUTE_REQUESTS_METRIC = "api.flat_route.requests"
 FLAT_ROUTE_USED_EVENT = "api flat route used"
+TOKEN_ON_PROJECT_PATH_REQUESTS_METRIC = "api.token_on_project_path.requests"
+TOKEN_ON_PROJECT_PATH_USED_EVENT = "api token on project path used"
 # One event per caller and route each day identifies who to contact; the metric keeps the volume.
 ATTRIBUTION_DEDUPE_SECONDS = 24 * 60 * 60
 # Session calls come from PostHog's own web app, which is fixed in code, so they get no event.
@@ -58,6 +61,11 @@ _CURRENT_ALIAS_REPORT = _UsageReport(
 _FLAT_ROUTE_REPORT = _UsageReport(
     metric=FLAT_ROUTE_REQUESTS_METRIC, event=FLAT_ROUTE_USED_EVENT, dedupe_prefix="flat_route_use"
 )
+_TOKEN_ON_PROJECT_PATH_REPORT = _UsageReport(
+    metric=TOKEN_ON_PROJECT_PATH_REQUESTS_METRIC,
+    event=TOKEN_ON_PROJECT_PATH_USED_EVENT,
+    dedupe_prefix="token_on_project_path_use",
+)
 
 
 def current_alias_scope(path: str) -> CurrentAliasScope | None:
@@ -68,16 +76,28 @@ def current_alias_scope(path: str) -> CurrentAliasScope | None:
 
 
 def record_scope_usage(request: HttpRequest, *, route: str, status_class: str) -> None:
-    """Report a request that names its scope as `@current`, or reaches a route that takes the project from the user."""
+    """Report a request that names its scope as `@current`, reaches a route that takes the project from the user,
+    or names its project in the path and also carries a token that decides it."""
+    extra_attributes: dict[str, bool] = {}
     if scope := current_alias_scope(request.path):
         report = _CURRENT_ALIAS_REPORT
     elif is_flat_route(request):
         report, scope = _FLAT_ROUTE_REPORT, CurrentAliasScope.PROJECT
+    elif token_on_path := token_on_project_path(request):
+        report, scope = _TOKEN_ON_PROJECT_PATH_REPORT, CurrentAliasScope.PROJECT
+        extra_attributes["token_matches_path"] = token_on_path.token_matches_path
     else:
         return
     # Analytics must never fail the request it observes.
     try:
-        _record(request, report=report, scope=scope, route=route, status_class=status_class)
+        _record(
+            request,
+            report=report,
+            scope=scope,
+            route=route,
+            status_class=status_class,
+            extra_attributes=extra_attributes,
+        )
     except Exception:
         logger.warning("scope_usage_record_failed", exc_info=True)
 
@@ -92,7 +112,13 @@ def _oauth_application_id() -> str | None:
 
 
 def _record(
-    request: HttpRequest, *, report: _UsageReport, scope: CurrentAliasScope, route: str, status_class: str
+    request: HttpRequest,
+    *,
+    report: _UsageReport,
+    scope: CurrentAliasScope,
+    route: str,
+    status_class: str,
+    extra_attributes: Mapping[str, bool],
 ) -> None:
     user = request.user
     # The authenticator's tag can be missing when the middleware reads it, so an Authorization header alone marks a
@@ -124,6 +150,7 @@ def _record(
                 "project_from": project_from,
                 "credential_pins_scope": credential_pins_scope,
                 "status_class": status_class,
+                **extra_attributes,
             },
         )
 
@@ -147,6 +174,7 @@ def _record(
         oauth_application_id,
         project_from,
         credential_pins_scope,
+        tuple(sorted(extra_attributes.items())),
     )
     dedupe_key = f"{report.dedupe_prefix}:" + hashlib.sha256(repr(dedupe_parts).encode()).hexdigest()
     if not dedupe_cache.add(dedupe_key, True, timeout=ATTRIBUTION_DEDUPE_SECONDS):
@@ -183,6 +211,7 @@ def _record(
             "oauth_application_id": oauth_application_id,
             "origin": sanitize_header_value(request.headers.get("Origin")),
             "team_id": team_id,
+            **extra_attributes,
         },
         groups=groups,
     )
