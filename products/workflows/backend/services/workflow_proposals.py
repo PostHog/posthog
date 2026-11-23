@@ -161,6 +161,8 @@ def resolve_proposal(
 DEFAULT_CONVERSION_WINDOW = timedelta(days=90)
 # The worker starts a run's window at its first execution, which can come after the hour the run was queued.
 QUEUE_DELAY_ALLOWANCE = timedelta(hours=1)
+# Metrics expire after 90 days, so a longer window leaves too few settled runs to compare versions.
+MAX_MEASURABLE_CONVERSION_WINDOW = timedelta(days=30)
 
 # How far past the applied version the after side will look for versions that kept the change.
 OUTCOME_VERSION_LIMIT = 20
@@ -435,10 +437,46 @@ def outcome_from_totals(totals: Mapping[str, float], version: int, target: str =
     }
 
 
-def aims_at_conversion_without_goal(evidence: Any, conversion: Optional[Mapping]) -> bool:
+def _has_goal(conversion: Optional[Mapping]) -> bool:
+    return bool(conversion and (conversion.get("filters") or conversion.get("events")))
+
+
+def _conversion_window(conversion: Optional[Mapping]) -> timedelta:
+    window = (conversion or {}).get("window")
+    minutes = duration_minutes(window) if isinstance(window, str) else None
+    return timedelta(minutes=minutes) if minutes else DEFAULT_CONVERSION_WINDOW
+
+
+def conversion_evidence_error(
+    *, hog_flow_id: UUID, evidence: Mapping, changes: Mapping, live: Optional[Mapping], base_version: int, now: datetime
+) -> Optional[str]:
+    """Why a suggestion aimed at conversion could not be measured, or None when it can be.
+
+    The window is refused rather than cut to size, so the producer's numbers and PostHog's cover the same runs."""
     if target_metric_in(evidence) != TARGET_CONVERSION_METRIC:
-        return False
-    return not (conversion and (conversion.get("filters") or conversion.get("events")))
+        return None
+    if "conversion" in changes:
+        return "A suggestion aimed at conversion cannot change the conversion goal, or the two versions would measure different things."
+    base = conversions_by_version(hog_flow_id, live, [base_version])[base_version]
+    if not _has_goal(live) or not _has_goal(base):
+        return "This workflow version has no conversion goal, so its conversion rate cannot be measured."
+    if max(_conversion_window(live), _conversion_window(base)) > MAX_MEASURABLE_CONVERSION_WINDOW:
+        return (
+            f"The conversion window is longer than {MAX_MEASURABLE_CONVERSION_WINDOW.days} days, so too few runs "
+            "finish it before their metrics expire. A workflow with no window set uses "
+            f"{DEFAULT_CONVERSION_WINDOW.days} days."
+        )
+    bounds = absolute_window(evidence.get("window"), now)
+    settled = runs_settled_before(base, now)
+    if settled <= CONVERSION_BY_START_RECORDED_SINCE:
+        return "No measured run has finished its conversion window yet, so aim at another metric for now."
+    if bounds is None or bounds.start < CONVERSION_BY_START_RECORDED_SINCE or bounds.end > settled:
+        return (
+            "Conversion needs a `window` in UTC as `start/end`, starting at or after "
+            f"{CONVERSION_BY_START_RECORDED_SINCE:%Y-%m-%dT%H:%M:%SZ} and ending at or before {settled:%Y-%m-%dT%H:%M:%SZ}, "
+            "when the latest runs finished their conversion window."
+        )
+    return None
 
 
 def _start_of_hour(moment: datetime) -> datetime:
@@ -451,10 +489,7 @@ def runs_settled_before(conversion: Optional[Mapping], now: datetime) -> datetim
     `conversion_by_start` sits at the top of the UTC hour and `triggered` keeps its own time inside
     that hour, so only an hour boundary cuts both at the same runs.
     """
-    window = (conversion or {}).get("window")
-    minutes = duration_minutes(window) if isinstance(window, str) else None
-    window_length = timedelta(minutes=minutes) if minutes else DEFAULT_CONVERSION_WINDOW
-    return _start_of_hour(now - window_length - QUEUE_DELAY_ALLOWANCE)
+    return _start_of_hour(now - _conversion_window(conversion) - QUEUE_DELAY_ALLOWANCE)
 
 
 def _settled_run_totals(
@@ -472,6 +507,9 @@ def _settled_run_totals(
     now = timezone.now()
     versions_by_end: dict[datetime, list[int]] = defaultdict(list)
     for version, conversion in conversions.items():
+        # A version with no goal starts runs that can never convert, which would read as 0%.
+        if not _has_goal(conversion):
+            continue
         settled = runs_settled_before(conversion, now)
         versions_by_end[min(_start_of_hour(before), settled) if before else settled].append(version)
     totals: dict[int, dict[str, int]] = {}
@@ -495,10 +533,11 @@ def conversions_by_version(
     hog_flow_id: UUID, live: Optional[Mapping], versions: Sequence[int]
 ) -> dict[int, Optional[Mapping]]:
     """The conversion goal each version ran with, since a later publish can change the window."""
-    published = {
-        revision.version: revision.content.get("conversion")
-        for revision in HogFlowRevision.objects.filter(hog_flow_id=hog_flow_id, version__in=versions)
-    }
+    published = dict(
+        HogFlowRevision.objects.filter(hog_flow_id=hog_flow_id, version__in=versions).values_list(
+            "version", "content__conversion"
+        )
+    )
     return {version: published.get(version, live) for version in versions}
 
 
@@ -787,7 +826,7 @@ def version_outcome(
     before: Optional[datetime] = None,
     step_id: Optional[str] = None,
     target: str = TARGET_OPEN_METRIC,
-    conversions: Optional[Mapping[int, Optional[Mapping]]] = None,
+    live_conversion: Optional[Mapping] = None,
 ) -> Optional[dict]:
     read = [version for version in versions if version is not None]
     if not read:
@@ -796,7 +835,7 @@ def version_outcome(
         _settled_run_totals(
             team_id=team_id,
             hog_flow_id=hog_flow_id,
-            conversions={version: (conversions or {}).get(version) for version in read},
+            conversions=conversions_by_version(hog_flow_id, live_conversion, read),
             after=after,
             before=before,
         )

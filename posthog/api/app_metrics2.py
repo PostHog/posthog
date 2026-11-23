@@ -338,7 +338,7 @@ def fetch_app_metric_totals_by_source(
         FROM app_metrics2
         WHERE team_id = %(team_id)s
         AND app_source = %(app_source)s
-        {"AND app_source_id IN %(app_source_ids)s" if app_source_ids else ""}
+        {"AND app_source_id IN %(app_source_ids)s" if app_source_ids is not None else ""}
         {f"AND {bound_expr} >= toDateTime64(%(after)s, 6)" if after else ""}
         {f"AND {bound_expr} {before_op} toDateTime64(%(before)s, 6)" if before else ""}
         AND metric_name IN %(name)s

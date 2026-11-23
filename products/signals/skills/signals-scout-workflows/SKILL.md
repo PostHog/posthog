@@ -102,10 +102,11 @@ Per-version reads are what make this checkable: `workflows-version-stats` with `
 Read `workflows-version-stats` with `version=<n>`, `breakdown_by=name` and no `instance_id`, because a conversion belongs to the run rather than to a step.
 Divide `conversion_by_start` by `triggered`, and never use `conversion`: that one is filed when the conversion happens, while `conversion_by_start` is filed under the hour the run started, so only it compares the same runs as `triggered`.
 
-- A run can still convert until the workflow's `conversion.window` closes, so `before` must be at least that long ago, on a UTC hour. PostHog only counts runs past their window and tells the person when your numbers differ.
-- Skip conversion when that window is longer than 30 days. Metrics expire after 90, so there is too little settled data to compare versions.
-- A version with a large `triggered` and zero `conversion_by_start` may predate this metric, so treat it as unreadable, as with opens below.
-- A run that was in flight when a new version went live counts its start under the old version and its conversion under the version that sent its email. Do not read a small move right after a publish as a result.
+- A run can still convert until the workflow's `conversion.window` closes. Read whole UTC days, and end the last one at least that window plus 2 hours ago. A window that reaches later is refused.
+- Start no earlier than `2026-11-13T00:00:00Z`, when this metric began. An earlier start is refused. If no whole day fits between that start and the last settled day, skip conversion for now.
+- Skip conversion when that window is longer than 30 days, or when the goal names no window, which means 90 days. Metrics expire after 90, so there is too little settled data to compare versions.
+- A version with conversions and no `triggered` has no readable rate, because some triggers do not count run starts per version. Read the email metrics instead.
+- A run that was in flight when a new version went live can count its start and its conversion under different versions. Do not read a small move right after a publish as a result.
 
 **Zero opens on healthy sends is a measurement gap, not a bad subject line.** Engagement splits by version only for sends made after the versioned tracking code shipped, and you cannot check that date from here.
 So treat it as unreadable rather than bad: write `noise:<workflow>:<step>` to the scratchpad with the counts you saw and move on.
@@ -145,7 +146,7 @@ File a suggestion through `workflows-suggest` when, and only when, all of these 
 Send the version you read as `base_version`, and in `actions` only the steps you change, each carrying its `id` and only the fields you change: a new subject line is `{"id": "<step>", "config": {"inputs": {"email": {"value": {"subject": "..."}}}}}` and nothing more.
 Everything you leave out stays as it is, in the step and in the rest of the workflow, so a step someone edits while your suggestion waits is not reverted by approving it.
 Approving is refused only when someone moved one of the very fields you change, and to something other than what you proposed, and then the suggestion is genuinely stale.
-Carry evidence that a person can judge without re-deriving it: the metric, its current value, the target, the window, `n` (the tracked sends behind the rate), the click rate over that same denominator, and the counter-metrics with their own denominators.
+Carry evidence that a person can judge without re-deriving it: the metric, its current value, the target, the window, `n` (the tracked sends behind the rate, or the settled runs for conversion), the click rate over that same denominator, and the counter-metrics with their own denominators.
 A subject line that lifts opens without lifting clicks moved attention, not behaviour, and whoever reads the outcome later should be able to see that.
 A rate without `n` is refused at create, and rightly.
 
@@ -155,7 +156,7 @@ The evidence panel already shows the rate, `n`, the window and the counter-metri
 Never name your own mechanics: not the scout, not your review target or sample floor, not the scratchpad, not tool names.
 "Opens are 8% on 210 sends. The subject does not say what the email offers. Naming the offer lets people see why to open it." is the whole rationale.
 
-A suggestion aimed at conversion sends `"metric": "conversion_by_start"`, with `n` as the settled runs behind the rate and `window` ending at or before the settle point. Still name the email step in `step_id`, so the guardrails read that step.
+A suggestion aimed at conversion sends `"metric": "conversion_by_start"`, with `n` as the settled runs behind the rate and `window` as the interval you read. Never change `conversion` in the same suggestion, because the two versions would then measure different goals. Still name the email step in `step_id`, so the guardrails read that step.
 
 The panel reads your evidence back by name, and the API refuses anything it cannot read, so send these keys:
 

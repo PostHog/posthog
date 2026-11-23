@@ -1,6 +1,8 @@
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import {
+    CONVERSION_METRIC,
+    CONVERSION_RATE_LABEL,
     MIN_EVIDENCE_SAMPLE,
     describeWindow,
     evidenceDisagrees,
@@ -33,7 +35,13 @@ export function WorkflowSuggestionEvidence({ evidence }: { evidence: Record<stri
                         {sampleLabel(measured.target.metric)} (v{measured.version}, {describeWindow(measured.window)})
                         {target ? `, target ${target}` : ''}
                     </span>
-                    <Tooltip title="PostHog read this step's metrics itself when the suggestion was filed.">
+                    <Tooltip
+                        title={
+                            measured.target.metric === CONVERSION_RATE_LABEL
+                                ? "PostHog read this workflow's metrics itself when the suggestion was filed."
+                                : "PostHog read this step's metrics itself when the suggestion was filed."
+                        }
+                    >
                         <LemonTag type="success">Measured by PostHog</LemonTag>
                     </Tooltip>
                     {measured.target.below_minimum_sample && (
@@ -73,7 +81,7 @@ export function WorkflowSuggestionEvidence({ evidence }: { evidence: Record<stri
         <div className="flex flex-col gap-1 text-sm">
             <span className="flex items-center gap-2 flex-wrap">
                 <span>
-                    {metric}: {current ?? 'no data'}
+                    {metric === CONVERSION_METRIC ? CONVERSION_RATE_LABEL : metric}: {current ?? 'no data'}
                     {target ? `, target ${target}` : ''}
                     {window ? ` over ${window}` : ''}
                     {sample !== null ? ` (${sample} observations)` : ''}
