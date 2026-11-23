@@ -473,7 +473,7 @@ class SelectViewType(BaseTableType):
         return UnknownType()
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class CTETableType(BaseTableType):
     name: str
     select_query_type: SelectQueryType | SelectSetQueryType
@@ -490,6 +490,8 @@ class CTETableType(BaseTableType):
 
     def resolve_column_constant_type(self, name: str, context: HogQLContext) -> ConstantType:
         field = self.resolve_database_table(context).get_field(name)
+        if isinstance(field, UnknownDatabaseField):
+            return self.select_query_type.resolve_column_constant_type(name, context)
         if isinstance(field, DatabaseField):
             return field.get_constant_type()
         return UnknownType()
@@ -701,7 +703,7 @@ class ExpressionFieldType(Type):
         return UnknownType()
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class FieldType(Type):
     name: str
     table_type: TableOrSelectType
@@ -724,7 +726,9 @@ class FieldType(Type):
         return True
 
     def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
-        if not isinstance(self.table_type, BaseTableType):
+        if not isinstance(self.table_type, BaseTableType) or isinstance(
+            self.table_type, (CTETableType, CTETableAliasType)
+        ):
             return self.table_type.resolve_column_constant_type(self.name, context)
 
         table: Table = self.table_type.resolve_database_table(context)

@@ -32,6 +32,8 @@ from products.data_modeling.backend.temporal.activities.incremental_write import
 )
 from products.data_modeling.backend.temporal.activities.materialize_view import (
     FAILED_UPDATE_REASON_PREFIX,
+    InvalidUtf8KeyError,
+    _build_model_table_uri,
     get_aws_storage_options,
 )
 from products.data_modeling.backend.temporal.workflows.materialize_view import NON_RETRYABLE_ERRORS
@@ -58,8 +60,14 @@ def _batch(days: list[datetime | None], counts: list[int], *, value_column: str 
 
 
 def _day_batch(day: datetime, **columns: pa.Array) -> pa.RecordBatch:
-    arrays = cast(Collection[pa.Array], [pa.array([day], type=pa.timestamp("us", tz="UTC")), *columns.values()])
+    rows = len(next(iter(columns.values())))
+    days = pa.array([day] * rows, type=pa.timestamp("us", tz="UTC"))
+    arrays = cast(Collection[pa.Array], [days, *columns.values()])
     return pa.RecordBatch.from_arrays(arrays, names=["day", *columns])
+
+
+def _not_utf8(*values: bytes) -> pa.Array:
+    return pa.array(list(values), pa.binary()).view(pa.string())
 
 
 def _rows(table_uri: str) -> list[tuple[Any, Any]]:
@@ -393,6 +401,13 @@ class TestIncrementalMaterialization:
                 [(DAY1, [Decimal("12.5")]), (DAY2, [Decimal("7.25")])],
                 id="decimal256_in_an_array",
             ),
+            pytest.param(
+                [("c", "String")],
+                _day_batch(DAY1, c=_not_utf8(b"caf\xc3")),
+                _day_batch(DAY2, c=_not_utf8(b"\xffok")),
+                [(DAY1, "caf\ufffd"), (DAY2, "\ufffdok")],
+                id="string_that_is_not_valid_utf8",
+            ),
         ],
     )
     async def test_a_column_delta_cannot_store_as_sent_stays_incremental_across_runs(
@@ -422,6 +437,44 @@ class TestIncrementalMaterialization:
 
         table = deltalake.DeltaTable(result.table_uri, storage_options=get_aws_storage_options()).to_pyarrow_table()
         assert sorted(tuple(row.values()) for row in table.to_pylist()) == expected
+
+    @pytest.mark.parametrize("seeded", [pytest.param(False, id="full_refresh"), pytest.param(True, id="incremental")])
+    async def test_a_unique_key_that_is_not_valid_utf8_fails_before_writing(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag, seeded: bool
+    ):
+        await _configure(asaved_query, {**CONFIG, "unique_key": ["c"]})
+        column_types = [("day", "DateTime64(6, 'UTC')"), ("c", "String")]
+
+        with _settings(bucket_name):
+            table_uri = _build_model_table_uri(ateam.pk, asaved_query.id.hex, asaved_query.storage_name)
+            if seeded:
+                await _run(
+                    activity_environment,
+                    ateam,
+                    anode,
+                    ajob,
+                    adag,
+                    _day_batch(DAY1, c=pa.array(["k"])),
+                    column_types=column_types,
+                )
+                seeded_version = deltalake.DeltaTable(table_uri, storage_options=get_aws_storage_options()).version()
+
+            with pytest.raises(InvalidUtf8KeyError, match='Key column "c"'):
+                await _run(
+                    activity_environment,
+                    ateam,
+                    anode,
+                    ajob,
+                    adag,
+                    _day_batch(DAY2, c=_not_utf8(b"k\xff", b"k\xfe")),
+                    column_types=column_types,
+                )
+
+            if seeded:
+                table = deltalake.DeltaTable(table_uri, storage_options=get_aws_storage_options())
+                assert table.version() == seeded_version
+            else:
+                assert not deltalake.DeltaTable.is_deltatable(table_uri, storage_options=get_aws_storage_options())
 
     async def test_a_rebuild_after_a_failed_update_is_not_labelled_a_first_run(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
