@@ -279,7 +279,7 @@ class LazyJoinType(BaseTableType):
         return self.get_child(self.field, context).resolve_constant_type(context)
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class LazyTableType(BaseTableType):
     table: LazyTable
     # The right-hand side of each `id IN (...)` predicate that the resolver moved from the join constraint into
