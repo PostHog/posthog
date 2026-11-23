@@ -4,6 +4,7 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import BaseHogQLError, CompilationBudgetExceededError
+from posthog.hogql.printer import print_prepared_ast
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import TraversingVisitor
 
@@ -14,12 +15,13 @@ from products.data_modeling.backend.logic.incremental_filter import parse_model_
 
 DOES_NOT_RESOLVE = "Its query would not run after the rename."
 READS_ANOTHER_TABLE = "After the rename, a name in its query would refer to a different table or CTE."
+DOES_NOT_RUN = "Its query does not run, so the rename cannot be checked against it."
 
 
 @frozen
 class QueryBindings:
     """What a query reads, as the resolver binds it: each table reference and field in the text the user wrote,
-    in order, and the names of the output columns."""
+    in order, and the name of each output column."""
 
     references: tuple[str, ...]
     columns: tuple[str, ...]
@@ -38,7 +40,9 @@ def _describe(type: ast.Type | None, view_names: Mapping[str, str], union_views:
     if isinstance(type, ast.CTETableType):
         return f"cte {type.name}"
     if isinstance(type, ast.TableAliasType):
-        return f"{type.alias} as {_describe(type.table_type, view_names, union_views)}"
+        # An unaliased read of a materialized model is aliased after the name it was read by.
+        alias = view_names.get(type.alias, type.alias)
+        return f"{alias} as {_describe(type.table_type, view_names, union_views)}"
     if isinstance(type, ast.TableType | ast.LazyTableType):
         return f"table {type.table.to_printed_hogql()}"
     if isinstance(type, ast.SelectQueryAliasType):
@@ -92,11 +96,25 @@ def query_bindings(
     collector = _BindingCollector()
     collector.visit(resolved)
     references = tuple(_describe(type, view_names or {}, collector.union_views) for type in collector.types)
-    first = resolved.type
-    while isinstance(first, ast.SelectSetQueryType):
-        first = first.types[0]
-    columns = tuple(first.columns) if isinstance(first, ast.SelectQueryType) else ()
+    first = resolved
+    while isinstance(first, ast.SelectSetQuery):
+        first = first.initial_select_query
+    columns = (
+        tuple(_output_name(column, context) for column in first.select) if isinstance(first, ast.SelectQuery) else ()
+    )
     return QueryBindings(references=references, columns=columns)
+
+
+def _output_name(column: ast.Expr, context: HogQLContext) -> str:
+    # An unaliased expression is named after its text, so renaming a table it reads renames the column. The
+    # resolver leaves some of these, such as arithmetic, out of a query's columns.
+    if isinstance(column, ast.Alias):
+        return column.alias
+    if isinstance(column.type, ast.FieldAliasType):
+        return column.type.alias
+    if isinstance(column.type, ast.FieldType | ast.ExpressionFieldType):
+        return column.type.name
+    return print_prepared_ast(node=column, context=context, dialect="hogql")
 
 
 def binding_change(
@@ -104,7 +122,13 @@ def binding_change(
 ) -> str | None:
     """Why `after_query` against the renamed database does not read what the query read before, or None."""
     try:
-        after = query_bindings(team, after_query, renamed_database, {new_name: old_name})
+        after = query_bindings(
+            team,
+            after_query,
+            renamed_database,
+            # A table alias joins a dotted name with `__`. The exact name comes last so it wins when both match.
+            {new_name.replace(".", "__"): old_name.replace(".", "__"), new_name: old_name},
+        )
     except CompilationBudgetExceededError:
         raise
     except BaseHogQLError:

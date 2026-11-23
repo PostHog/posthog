@@ -27,11 +27,17 @@ from products.data_modeling.backend.facade.contracts import (
     ModelRenameTooLargeError,
 )
 from products.data_modeling.backend.logic.incremental import carry_definition_fingerprint
-from products.data_modeling.backend.logic.model_bindings import QueryBindings, binding_change, query_bindings
+from products.data_modeling.backend.logic.model_bindings import (
+    DOES_NOT_RUN,
+    QueryBindings,
+    binding_change,
+    query_bindings,
+)
 from products.data_modeling.backend.logic.model_references import (
     PARSE_CHECK_FAILED,
     Chain,
     ModelReferenceRewriteError,
+    binds_to_model,
     model_spellings,
     rename_model_references,
     renamed_chain,
@@ -131,29 +137,58 @@ def _renamed_join(join: DataWarehouseJoin, spellings: set[Chain], new_chain: lis
     )
 
 
-def _readers_hiding_the_new_name(
+def _renamed_join_destinations(
+    renamed: DataWarehouseSavedQuery, joins: list[ModelRenameJoin], renamed_database: Database | None
+) -> list[ModelRenameBlocked]:
+    """A changed side of a join must bind to the renamed model after the rename. Another model can be stored
+    under the new spelling, such as `models.<new name>`, and the join would then read that model."""
+    blocked: list[ModelRenameBlocked] = []
+    for join in joins:
+        for before, after in [
+            (join.source_table_name_before, join.source_table_name_after),
+            (join.joining_table_name_before, join.joining_table_name_after),
+        ]:
+            if before == after:
+                continue
+            if renamed_database is None or not binds_to_model(after.split("."), renamed, renamed_database):
+                blocked.append(
+                    ModelRenameBlocked(
+                        saved_query_id=renamed.id,
+                        name=renamed.name,
+                        reason=(
+                            f"After the rename, its join {join.field_name} would read {after}, "
+                            "which is a different table."
+                        ),
+                    )
+                )
+    return blocked
+
+
+def _readers_hiding_a_name(
     live_queries: QuerySet[DataWarehouseSavedQuery],
     database: Database,
     renamed: DataWarehouseSavedQuery,
     dependents: list[DataWarehouseSavedQuery],
-    name: str,
+    names: set[str],
 ) -> list[ModelRenameBlocked]:
-    """The models that read a rewritten model, directly or through others, with a CTE called `name` in scope there.
+    """The models that read a rewritten model, directly or through others, with a CTE named one of `names` in
+    scope there.
 
-    A model's expanded body sees the CTEs in scope where it is read, so such a CTE would stand in for the
-    renamed model inside the rewritten body. The binding check sees only a query's own references, not those.
+    A model's expanded body sees the CTEs in scope where it is read. A CTE with the old name stands in for the
+    model in the body before the rename, and one with the new name stands in after it. The binding check sees
+    only a query's own references, not those.
     """
     budget = compilation_budget.get()
     # Every model is parsed once, into the readers of each table name it reads.
-    readers_of: dict[Chain, list[tuple[DataWarehouseSavedQuery, frozenset[str]]]] = {}
+    readers_of: dict[Chain, list[tuple[DataWarehouseSavedQuery, str | None]]] = {}
     for model in live_queries:
         text = (model.query or {}).get("query")
         if not is_authored_model(model) or not isinstance(text, str):
             continue
         if budget is not None:
             budget.check_time()
-        for chain, ctes in table_reads(text):
-            readers_of.setdefault(chain, []).append((model, ctes))
+        for table_read in table_reads(text, names):
+            readers_of.setdefault(table_read.chain, []).append((model, table_read.watched_cte))
 
     reached = {renamed.pk, *(dependent.pk for dependent in dependents)}
     frontier = list(dependents)
@@ -163,17 +198,26 @@ def _readers_hiding_the_new_name(
             budget.check_time()
         read = frontier.pop()
         for spelling in model_spellings(read, database):
-            for reader, ctes in readers_of.get(spelling, []):
-                if name in ctes and reader.pk not in blocked:
+            for reader, cte in readers_of.get(spelling, []):
+                if cte is not None and reader.pk not in blocked:
                     blocked[reader.pk] = ModelRenameBlocked(
                         saved_query_id=reader.id,
                         name=reader.name,
-                        reason=f"It defines a CTE named {name}, which would hide the renamed view.",
+                        reason=f"It defines a CTE named {cte}, so the rename would change what a view it reads returns.",
                     )
                 if reader.pk not in reached:
                     reached.add(reader.pk)
                     frontier.append(reader)
     return list(blocked.values())
+
+
+def _renamed_catalog(
+    database: Database, old_name: str, new_name: str, rewritten_queries: dict[str, str]
+) -> Database | None:
+    try:
+        return database.with_model_renamed(old_name, new_name, rewritten_queries)
+    except KeyError:
+        return None
 
 
 def _compute(team: Team, saved_query_id: uuid.UUID, new_name: str, *, lock: bool) -> _ComputedRename:
@@ -229,30 +273,50 @@ def _compute_within_budget(team: Team, saved_query_id: uuid.UUID, new_name: str,
         # The splice proves only that the text changed where it meant to. Resolving each query before and after
         # proves every name still binds to the same table. All the "before" resolutions run first, on the catalog
         # they share, so a part of it built on first use is built once and carried into the renamed copy.
-        current: dict[uuid.UUID, QueryBindings | None] = {}
+        current: dict[uuid.UUID, QueryBindings] = {}
+        failed_expanded: list[_Rewrite] = []
         for rewrite in spliced:
             try:
                 current[rewrite.dependent.pk] = query_bindings(team, rewrite.before, database)
             except CompilationBudgetExceededError:
                 raise
             except BaseHogQLError:
-                # It does not run today, so there is nothing to preserve.
-                current[rewrite.dependent.pk] = None
-        try:
-            # Every rewrite is checked as if all of them landed: a rename applies only when none is blocked.
-            renamed_database: Database | None = database.with_model_renamed(
-                renamed.name, new_name, {rewrite.dependent.name: rewrite.after for rewrite in spliced}
-            )
-        except KeyError:
-            renamed_database = None
+                failed_expanded.append(rewrite)
+        # A materialized model serves its stored rows even when its body no longer runs, so its readers still
+        # work. They are checked against the catalog that serves those rows.
+        serving: dict[uuid.UUID, QueryBindings | None] = {}
+        serving_database: Database | None = None
+        if failed_expanded:
+            serving_database = Database.create_for(team=team, bypass_warehouse_access_control=True)
+            for rewrite in failed_expanded:
+                try:
+                    serving[rewrite.dependent.pk] = query_bindings(team, rewrite.before, serving_database)
+                except CompilationBudgetExceededError:
+                    raise
+                except BaseHogQLError:
+                    serving[rewrite.dependent.pk] = None
+        rewritten_queries = {rewrite.dependent.name: rewrite.after for rewrite in spliced}
+        # Every rewrite is checked as if all of them landed: a rename applies only when none is blocked.
+        renamed_database = _renamed_catalog(database, renamed.name, new_name, rewritten_queries)
+        renamed_serving_database = (
+            _renamed_catalog(serving_database, renamed.name, new_name, rewritten_queries)
+            if serving_database is not None
+            else None
+        )
         for rewrite in spliced:
-            bindings = current[rewrite.dependent.pk]
-            if renamed_database is None:
-                reason: str | None = PARSE_CHECK_FAILED
-            elif bindings is None:
-                reason = None
+            pk = rewrite.dependent.pk
+            reason: str | None
+            if pk in current:
+                check: QueryBindings | None = current[pk]
+                against = renamed_database
             else:
-                reason = binding_change(team, bindings, rewrite.after, renamed_database, renamed.name, new_name)
+                check, against = serving[pk], renamed_serving_database
+            if against is None:
+                reason = PARSE_CHECK_FAILED
+            elif check is None:
+                reason = DOES_NOT_RUN
+            else:
+                reason = binding_change(team, check, rewrite.after, against, renamed.name, new_name)
             if reason is None:
                 rewrites.append(rewrite)
             else:
@@ -261,13 +325,21 @@ def _compute_within_budget(team: Team, saved_query_id: uuid.UUID, new_name: str,
                 )
 
     if rewrites:
+        # The CTE names that can stand in for the model: each spelling, before and after the rename.
+        hiding_names = {new_chain[0]}
+        for spelling in spellings:
+            hiding_names |= {".".join(spelling), ".".join(renamed_chain(spelling, new_chain))}
         already_blocked = {entry.saved_query_id for entry in blocked}
         blocked.extend(
             entry
-            for entry in _readers_hiding_the_new_name(
-                live_queries, database, renamed, [rewrite.dependent for rewrite in rewrites], new_chain[0]
+            for entry in _readers_hiding_a_name(
+                live_queries, database, renamed, [rewrite.dependent for rewrite in rewrites], hiding_names
             )
             if entry.saved_query_id not in already_blocked
+        )
+    if renamed_joins:
+        blocked.extend(
+            _renamed_join_destinations(renamed, renamed_joins, _renamed_catalog(database, renamed.name, new_name, {}))
         )
 
     join_fingerprint = [

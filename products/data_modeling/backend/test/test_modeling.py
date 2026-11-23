@@ -12,14 +12,16 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver import resolve_types
 
 from products.data_modeling.backend.facade.contracts import ModelRenameBlocked, ModelRenameJoin, ModelRenameRefusedError
-from products.data_modeling.backend.logic.model_bindings import DOES_NOT_RESOLVE, READS_ANOTHER_TABLE
+from products.data_modeling.backend.logic.model_bindings import DOES_NOT_RESOLVE, DOES_NOT_RUN, READS_ANOTHER_TABLE
 from products.data_modeling.backend.logic.model_references import (
     DOES_NOT_PARSE,
     PARSE_CHECK_FAILED,
     ModelReferenceRewriteError,
+    TableRead,
     _qualifier_binding,
     model_spellings,
     rename_model_references,
+    table_reads,
 )
 from products.data_modeling.backend.logic.model_rename import apply_model_rename, plan_model_rename
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -367,6 +369,25 @@ class TestRenameModelReferences(BaseTest):
                 "select 1 from revenue pivot (sum(revenue.id) for revenue.id in (1))",
                 "select 1 from moved.income pivot (sum(moved.income.id) for moved.income.id in (1))",
             ),
+            # The resolver matches an exclusion's qualifier to the scope name of a table, which joins its chain with `__`.
+            (
+                "qualified_exclusions",
+                "revenue",
+                "select * exclude(`revenue` . id, costs.id, id) from revenue join costs on revenue.id = costs.id",
+                "select * exclude(moved__income.id, costs.id, id) from moved.income join costs on moved.income.id = costs.id",
+            ),
+            (
+                "a_nested_model_exclusion",
+                "marts.fees",
+                "select * exclude(marts__fees.id, marts.fees.id) from marts.fees",
+                "select * exclude(moved__income.id, marts.fees.id) from moved.income",
+            ),
+            (
+                "an_exclusion_of_an_aliased_read_stays",
+                "revenue",
+                "select * exclude(revenue.id) from revenue as r",
+                "select * exclude(revenue.id) from moved.income as r",
+            ),
         ]
     )
     def test_rename_model_references(self, _case: str, model: str, query: str, expected: str | None):
@@ -436,6 +457,19 @@ class TestRenameModelReferences(BaseTest):
                 "The rename would change its output column toString(revenue.id) to toString(income.id). "
                 "Give that column an alias first.",
             ),
+            (
+                "unaliased_arithmetic_over_the_joined_model",
+                "income",
+                "select revenue.id + 1 from costs join revenue on 1 = 1",
+                "The rename would change its output column plus(revenue.id, 1) to plus(income.id, 1). "
+                "Give that column an alias first.",
+            ),
+            (
+                "aliased_arithmetic_over_the_joined_model",
+                "income",
+                "select revenue.id + 1 as next_id from costs join revenue on 1 = 1",
+                None,
+            ),
             ("a_plain_read", "income", "select revenue.id from revenue", None),
             ("a_cte_with_another_name", "income", "with other as (select 2 as id) select id from revenue", None),
         ]
@@ -459,10 +493,14 @@ class TestRenameModelReferences(BaseTest):
             ("union_body", "src", "select 1 as id union all select 2 as id", "select id from src"),
             ("stored_under_models", "models.src", "select 1 as id", "select id from models.src"),
             ("another_model_stored_under_its_models_name", "src", "select 1 as id", "select id from src"),
+            ("qualified_exclusion", "src", "select 1 as id, 2 as amount", "select * exclude(src.id) from src"),
         ]
     )
     def test_plan_rewrites_a_plain_read_of_any_kind_of_model(self, case: str, name: str, body: str, query: str):
-        columns = {"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}}
+        columns = {
+            column: {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}
+            for column in ("id", "amount")
+        }
         renamed = DataWarehouseSavedQuery.objects.create(
             team=self.team, name=name, query={"query": body}, columns=columns
         )
@@ -488,6 +526,41 @@ class TestRenameModelReferences(BaseTest):
         assert plan.blocked == ()
         rewrites = {entry.saved_query_id: entry.after for entry in plan.rewrites}
         assert rewrites == {dependent.id: query.replace("src", "target")}
+
+    @parameterized.expand(
+        [
+            ("a_cte_with_the_new_name", "with target as (select 999 as id) select id from src", READS_ANOTHER_TABLE),
+            ("a_plain_read", "select id from src", None),
+            ("a_query_that_does_not_run", "select missing_column from src", DOES_NOT_RUN),
+        ]
+    )
+    def test_plan_checks_a_reader_of_a_materialized_model_whose_body_no_longer_runs(
+        self, _case: str, query: str, reason: str | None
+    ):
+        renamed = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="src",
+            query={"query": "select id from a_table_that_was_deleted"},
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+            is_materialized=True,
+        )
+        renamed.table = DataWarehouseTable.objects.create(
+            name="src",
+            format="Parquet",
+            team=self.team,
+            credential=DataWarehouseCredential.objects.create(access_key="k", access_secret="s", team=self.team),
+            url_pattern=f"https://bucket.s3/{renamed.folder_path}/*",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True}},
+        )
+        renamed.save()
+        dependent = DataWarehouseSavedQuery.objects.create(team=self.team, name="dependent", query={"query": query})
+
+        plan = plan_model_rename(self.team, renamed.id, "target")
+
+        assert [entry.reason for entry in plan.blocked if entry.saved_query_id == dependent.id] == (
+            [reason] if reason is not None else []
+        )
+        assert [entry.saved_query_id for entry in plan.rewrites] == ([] if reason is not None else [dependent.id])
 
     @parameterized.expand([("middle",), ("models.middle",)])
     def test_plan_rewrites_a_model_that_reads_the_renamed_model_directly_and_through_another(self, middle_name: str):
@@ -518,7 +591,13 @@ class TestRenameModelReferences(BaseTest):
             (
                 "cte_around_the_read",
                 "with target as (select 999 as id) select id from middle",
-                "It defines a CTE named target, which would hide the renamed view.",
+                "It defines a CTE named target, so the rename would change what a view it reads returns.",
+            ),
+            # Before the rename this CTE stands in for `source` inside `middle`. After it, `middle` reads `target`.
+            (
+                "cte_with_the_old_name_around_the_read",
+                "with source as (select 999 as id) select id from middle",
+                "It defines a CTE named source, so the rename would change what a view it reads returns.",
             ),
             ("reads_something_else", "with target as (select 999 as id) select id from other", None),
             (
@@ -650,7 +729,7 @@ class TestRenameModelReferences(BaseTest):
             (
                 "stored_under_models",
                 "models.shared",
-                "select s.details.id as id from models.shared as s",
+                "select s.id as id from models.shared as s",
                 "models.income",
             ),
         ]
@@ -681,6 +760,55 @@ class TestRenameModelReferences(BaseTest):
         assert join.source_table_name == (moved_to or stored_as)
         stored = (dependent.query or {})["query"]
         assert self._resolves(stored), stored
+
+    def test_plan_blocks_a_join_that_would_read_another_model(self):
+        renamed = DataWarehouseSavedQuery.objects.get(team=self.team, name="shared")
+        # The bare name `shared` is a synced table, so the join names the model as `models.shared`. After the
+        # rename that spelling becomes `models.income`, which this other model is stored as.
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="models.income",
+            query={"query": "select 2 as id"},
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="models.shared",
+            source_table_key="id",
+            joining_table_name="costs",
+            joining_table_key="id",
+            field_name="details",
+        )
+
+        plan = plan_model_rename(self.team, renamed.id, "income")
+
+        assert plan.blocked == (
+            ModelRenameBlocked(
+                saved_query_id=renamed.id,
+                name="shared",
+                reason="After the rename, its join details would read models.income, which is a different table.",
+            ),
+        )
+
+    @parameterized.expand(
+        [
+            ("watched_cte_in_scope", "with target as (select 1 as id) select id from middle", "target"),
+            (
+                "only_other_ctes_in_scope",
+                "with a as (select 1 as id), b as (select 2 as id) select id from middle",
+                None,
+            ),
+            (
+                "cte_in_a_sibling_subquery",
+                "select id from middle where id in (with target as (select 1) select 1)",
+                None,
+            ),
+        ]
+    )
+    def test_table_reads_reports_only_a_watched_cte_in_scope(self, _case: str, query: str, watched: str | None):
+        reads = [read for read in table_reads(query, {"target", "source"}) if read.chain == ("middle",)]
+
+        assert reads == [TableRead(chain=("middle",), watched_cte=watched)]
 
     def test_a_long_field_chain_looks_up_no_deeper_than_the_names_in_scope(self):
         class CountingScope(dict):

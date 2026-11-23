@@ -10,6 +10,8 @@ from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import TraversingVisitor, clear_locations
 
+from posthog.dataclasses import frozen
+
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 MODELS_ROOT = "models"
@@ -22,10 +24,29 @@ Chain = tuple[str, ...]
 TargetFor = Callable[[Chain], list[str] | None]
 
 _SEGMENT = r"""(?:`(?:[^`\\]|\\.)*`|"(?:[^"\\]|\\.)*"|[^\s.`"]+)"""
+# An entry of an EXCLUDE list. Its unquoted segments stop at the commas and parentheses around it.
+_EXCLUSION_SEGMENT = r"""(?:`(?:[^`\\]|\\.)*`|"(?:[^"\\]|\\.)*"|[^\s.`"(),]+)"""
+_EXCLUSION = re.compile(rf"\s*({_EXCLUSION_SEGMENT}(?:\s*\.\s*{_EXCLUSION_SEGMENT})*)\s*[,)]")
+_EXCLUDE_LIST = re.compile(r"\bexclude\s*\(", re.IGNORECASE)
 
 
 class ModelReferenceRewriteError(Exception):
     """The query cannot be rewritten with proof that nothing else changed."""
+
+
+@frozen
+class TableRead:
+    """A table the query reads by name, and a watched CTE name in scope where it is read, if any."""
+
+    chain: Chain
+    watched_cte: str | None
+
+
+@frozen
+class _Edit:
+    start: int
+    end: int
+    text: str
 
 
 def _qualifier_binding(field_chain: list[str], scope: dict[str, list[str] | None]) -> tuple[int, list[str]] | None:
@@ -66,19 +87,22 @@ class _ModelReferenceFinder(TraversingVisitor):
     qualifier is a reference only when it binds to an unaliased read of the model in that `SELECT`.
     """
 
-    def __init__(self, target_for: TargetFor) -> None:
+    def __init__(self, target_for: TargetFor, watched_ctes: Collection[str] | None = None) -> None:
         super().__init__()
         self.target_for = target_for
+        # Reads are recorded only when there are CTE names to watch for.
+        self.watched_ctes = watched_ctes
         self.cte_scopes: list[set[str]] = []
         # Per open SELECT: the resolver's scope key of each table it reads, and the replacement when that
         # table is an unaliased read of the model.
         self.table_scopes: list[dict[str, list[str] | None]] = []
-        self.qualified_fields: list[list[ast.Field]] = []
+        self.qualified_fields: list[list[ast.Field | ast.ColumnsExpr]] = []
         self.lambda_arguments: list[str] = []
         # Each reference is the field, the number of leading segments to replace, and the replacement.
         self.references: list[tuple[ast.Field, int, list[str]]] = []
-        # Each table read by name, with the CTE names in scope where it is read.
-        self.reads: list[tuple[Chain, frozenset[str]]] = []
+        # Each excluded column whose qualifier names the model: the expression, the entry's index, the replacement.
+        self.exclusions: list[tuple[ast.ColumnsExpr, int, list[str]]] = []
+        self.reads: list[TableRead] = []
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         # The resolver registers a CTE only after resolving its definition, so a definition reads the
@@ -112,9 +136,20 @@ class _ModelReferenceFinder(TraversingVisitor):
             scope = self.table_scopes.pop()
             fields = self.qualified_fields.pop()
         for field in fields:
+            if isinstance(field, ast.ColumnsExpr):
+                self._match_exclusions(field, scope)
+                continue
             binding = _qualifier_binding([str(part) for part in field.chain], scope)
             if binding is not None:
                 self.references.append((field, *binding))
+
+    def _match_exclusions(self, node: ast.ColumnsExpr, scope: dict[str, list[str] | None]) -> None:
+        # The resolver matches an exclusion's qualifier only to the scope name of a table, exactly.
+        for index, name in enumerate(node.exclude or []):
+            qualifier, dot, _ = str(name).rpartition(".")
+            target = scope.get(qualifier) if dot else None
+            if target is not None:
+                self.exclusions.append((node, index, target))
 
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
         # The parser puts a leading WITH on the first branch, and the resolver lets the later branches read it.
@@ -176,6 +211,11 @@ class _ModelReferenceFinder(TraversingVisitor):
         finally:
             del self.lambda_arguments[depth:]
 
+    def visit_columns_expr(self, node: ast.ColumnsExpr) -> None:
+        if node.exclude and self.qualified_fields:
+            self.qualified_fields[-1].append(node)
+        super().visit_columns_expr(node)
+
     def visit_field(self, node: ast.Field) -> None:
         # Inside a lambda, its argument wins over a table of the same name.
         if self.qualified_fields and len(node.chain) > 1 and str(node.chain[0]) not in self.lambda_arguments:
@@ -190,19 +230,45 @@ class _ModelReferenceFinder(TraversingVisitor):
         target = self.target_for(tuple(chain))
         if target is not None:
             self.references.append((table, len(raw_chain), target))
-            self.reads.append((tuple(chain), frozenset().union(*self.cte_scopes)))
+            if self.watched_ctes is not None:
+                watched = next(
+                    (name for name in self.watched_ctes if any(name in scope for scope in self.cte_scopes)), None
+                )
+                self.reads.append(TableRead(chain=tuple(chain), watched_cte=watched))
         return target
 
 
-def _splice(text: str, field: ast.Field, length: int, target: list[str]) -> str:
+def _field_edit(text: str, field: ast.Field, length: int, target: list[str]) -> _Edit:
     if field.start is None or field.end is None:
         raise ModelReferenceRewriteError(PARSE_CHECK_FAILED)
-    source = text[field.start : field.end]
-    leading = re.match(rf"{_SEGMENT}(?:\s*\.\s*{_SEGMENT}){{{length - 1}}}", source)
+    leading = re.match(rf"{_SEGMENT}(?:\s*\.\s*{_SEGMENT}){{{length - 1}}}", text[field.start : field.end])
     if leading is None:
         raise ModelReferenceRewriteError(PARSE_CHECK_FAILED)
     replacement = ".".join(escape_hogql_identifier(part) for part in target)
-    return f"{text[: field.start]}{replacement}{source[leading.end() :]}{text[field.end :]}"
+    return _Edit(start=field.start, end=field.start + leading.end(), text=replacement)
+
+
+def _exclusion_edits(text: str, node: ast.ColumnsExpr, targets: dict[int, list[str]]) -> list[_Edit]:
+    """The parser keeps excluded columns as strings without positions, so each entry is found in the expression's
+    text. A wrong match changes the parse, which the proof in `_rewrite` rejects."""
+    if node.start is None or node.end is None:
+        raise ModelReferenceRewriteError(PARSE_CHECK_FAILED)
+    opening = _EXCLUDE_LIST.search(text, node.start, node.end)
+    if opening is None:
+        raise ModelReferenceRewriteError(PARSE_CHECK_FAILED)
+    edits: list[_Edit] = []
+    position = opening.end()
+    for index, name in enumerate(node.exclude or []):
+        entry = _EXCLUSION.match(text, position, node.end)
+        if entry is None:
+            raise ModelReferenceRewriteError(PARSE_CHECK_FAILED)
+        target = targets.get(index)
+        if target is not None:
+            column = str(name).rpartition(".")[2]
+            replacement = f"{escape_hogql_identifier('__'.join(target))}.{escape_hogql_identifier(column)}"
+            edits.append(_Edit(start=entry.start(1), end=entry.end(1), text=replacement))
+        position = entry.end()
+    return edits
 
 
 def _rewrite(query: str, target_for: TargetFor) -> str:
@@ -213,13 +279,26 @@ def _rewrite(query: str, target_for: TargetFor) -> str:
 
     finder = _ModelReferenceFinder(target_for)
     finder.visit(select)
-    if not finder.references:
+    if not finder.references and not finder.exclusions:
         return query
 
-    result = query
-    for field, length, target in sorted(finder.references, key=lambda ref: ref[0].start or 0, reverse=True):
-        result = _splice(result, field, length, target)
+    edits: list[_Edit] = []
+    for field, length, target in finder.references:
+        edits.append(_field_edit(query, field, length, target))
         field.chain = [*target, *field.chain[length:]]
+    excluded: dict[int, tuple[ast.ColumnsExpr, dict[int, list[str]]]] = {}
+    for node, index, target in finder.exclusions:
+        excluded.setdefault(id(node), (node, {}))[1][index] = target
+    for node, targets in excluded.values():
+        edits.extend(_exclusion_edits(query, node, targets))
+        node.exclude = [
+            f"{'__'.join(targets[index])}.{str(name).rpartition('.')[2]}" if index in targets else name
+            for index, name in enumerate(node.exclude or [])
+        ]
+
+    result = query
+    for edit in sorted(edits, key=lambda edit: edit.start, reverse=True):
+        result = f"{result[: edit.start]}{edit.text}{result[edit.end :]}"
 
     # The splice edits text. The parse of the result must equal the original parse with only the
     # found chains replaced, or the splice changed something else.
@@ -237,18 +316,21 @@ def model_spellings(saved_query: DataWarehouseSavedQuery, database: Database) ->
 
     A synced table can hold the bare name, and then only `models.<name>` is the model.
     """
-    spellings: set[Chain] = set()
-    for chain in (saved_query.name_chain, models_namespace_chain(saved_query)):
-        if chain is None:
-            continue
-        try:
-            table = database.get_table_node(chain).table
-        except BaseHogQLError:
-            continue
-        bound_id = table.id if isinstance(table, SavedQuery) else getattr(table, "saved_query_id", None)
-        if bound_id == str(saved_query.id):
-            spellings.add(tuple(chain))
-    return spellings
+    return {
+        tuple(chain)
+        for chain in (saved_query.name_chain, models_namespace_chain(saved_query))
+        if chain is not None and binds_to_model(chain, saved_query, database)
+    }
+
+
+def binds_to_model(chain: Collection[str], saved_query: DataWarehouseSavedQuery, database: Database) -> bool:
+    """Whether the table name `chain` binds to this model, as a view or as its materialized table."""
+    try:
+        table = database.get_table_node(list(chain)).table
+    except BaseHogQLError:
+        return False
+    bound_id = table.id if isinstance(table, SavedQuery) else getattr(table, "saved_query_id", None)
+    return bound_id == str(saved_query.id)
 
 
 def rename_model_references(query: str, spellings: Collection[Chain], new_chain: list[str]) -> str:
@@ -272,15 +354,17 @@ def renamed_chain(chain: Chain, new_chain: list[str]) -> list[str]:
     return [MODELS_ROOT, *new_chain]
 
 
-def table_reads(query: str) -> list[tuple[Chain, frozenset[str]]]:
-    """Each table the query reads by name, with the CTE names in scope at that read. Empty when it does not parse.
+def table_reads(query: str, watched_ctes: Collection[str]) -> list[TableRead]:
+    """Each table the query reads by name, and which of `watched_ctes` names a CTE in scope at that read.
+    Empty when it does not parse.
 
-    A read model's expanded body sees exactly those CTEs, so one of them can stand in for a name in that body.
+    A read model's expanded body sees the CTEs in scope at the read, so one of them can stand in for a name in
+    that body.
     """
     try:
         select = parse_select(query)
     except BaseHogQLError:
         return []
-    finder = _ModelReferenceFinder(lambda chain: [])
+    finder = _ModelReferenceFinder(lambda chain: [], watched_ctes)
     finder.visit(select)
     return finder.reads
