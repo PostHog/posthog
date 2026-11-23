@@ -7,6 +7,7 @@ from products.growth.dags import (
     identity_matching,
     oauth,
     product_push_campaigns,
+    provisioned_personal_api_keys,
     sdk_versions_rollup,
     team_production_event_activation,
 )
@@ -23,6 +24,8 @@ jobs = [
     sdk_versions_rollup.sdk_versions_daily_rollup.job,
     # Manual-run only: growth names the organizations, product, and window per run.
     custom_product_push_campaigns.custom_product_push_campaigns_job,
+    # Manual-run only: a one-off backfill that defaults to a dry run.
+    provisioned_personal_api_keys.tag_provisioned_personal_api_keys_job,
 ]
 schedules = [
     oauth.oauth_clear_expired_oauth_tokens_schedule,
