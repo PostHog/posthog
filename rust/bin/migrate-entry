@@ -119,8 +119,29 @@ rebuild_invalid_concurrent_indexes() {
         | awk '{ print $NF }' | sort -u | paste -sd, -)
     [ -n "$names" ] || return 0
 
+    # sqlx migrate read the URL first, and libpq refuses some options that sqlx accepts. psql gets the libpq
+    # names of sqlx's ssl options, and no statement-cache-capacity, which only sqlx reads.
+    local url
+    url=$(printf '%s' "$database_url" | sed -E \
+        -e 's/([?&])ssl-mode=/\1sslmode=/g' \
+        -e 's/([?&])ssl-(root-cert|ca)=/\1sslrootcert=/g' \
+        -e 's/([?&])ssl-cert=/\1sslcert=/g' \
+        -e 's/([?&])ssl-key=/\1sslkey=/g' \
+        -e 's/([?&])statement-cache-capacity=[^&]*(&|$)/\1/g' \
+        -e 's/[?&]$//')
+
+    # libpq can print parts of a URL it cannot read, the password included, in its error. A first connection
+    # checks the URL, and its error reaches the log without quoted values and without the URL.
+    local connect_error
+    if ! connect_error=$(psql "$url" -X -q -t -c 'SELECT 1' 2>&1 >/dev/null); then
+        connect_error=$(printf '%s' "${connect_error//"$url"/<url>}" | head -1 \
+            | sed -E 's/"[^"]*"/<redacted>/g; s#[a-z]+://[^ ]*#<url>#g; s/["\\]//g')
+        log_json "error" "Repairing invalid indexes could not connect: $connect_error" "failed" "$db_type"
+        return 1
+    fi
+
     log_json "info" "Repairing invalid indexes" "running" "$db_type"
-    psql "$database_url" -X -q -e -v ON_ERROR_STOP=1 -v names="{$names}" <<'SQL'
+    psql "$url" -X -q -e -v ON_ERROR_STOP=1 -v names="{$names}" <<'SQL'
 SELECT pg_try_advisory_lock(hashtext('migrate-entry rebuild_invalid_concurrent_indexes')) AS locked \gset
 \if :locked
 \else
