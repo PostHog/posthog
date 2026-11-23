@@ -135,6 +135,7 @@ def _stage_kwargs() -> dict:
 async def _run_full_review_pr_workflow(
     *,
     publish: bool,
+    fetched_head_sha: str = "sha1",
     already_published: bool = False,
     acting_user_id: int | None = 3,
     owner_user_id: int | None = 3,
@@ -241,7 +242,8 @@ async def _run_full_review_pr_workflow(
         _saw_mode("fetch", input.review_mode)
         return ReviewMeta(
             report_id="rep-1",
-            head_sha="sha1",
+            head_sha=fetched_head_sha,
+            skip_verdict_review=input.refused_head_sha is not None and input.refused_head_sha != fetched_head_sha,
             branch="feat",
             repository="o/r",
             run_index=run_index,
@@ -649,9 +651,13 @@ async def _run_full_review_pr_workflow(
 
 
 @pytest.mark.asyncio
-async def test_a_human_verdict_reviews_the_standard_head_with_push_reviews_off() -> None:
+@pytest.mark.parametrize("fetched_head_sha, reviews", [("sha1", True), ("newer", False)])
+async def test_a_human_verdict_reviews_only_the_refused_head_with_push_reviews_off(
+    fetched_head_sha: str, reviews: bool
+) -> None:
     recorded = await _run_full_review_pr_workflow(
         publish=True,
+        fetched_head_sha=fetched_head_sha,
         trigger_source="automatic",
         trigger_action=HUMAN_REVIEW_VERDICT,
         review_mode="full",
@@ -660,7 +666,7 @@ async def test_a_human_verdict_reviews_the_standard_head_with_push_reviews_off()
         gate_skips=True,
     )
     assert not recorded["gate"]
-    assert recorded["review"]
+    assert bool(recorded["review"]) is reviews
 
 
 @pytest.mark.asyncio
