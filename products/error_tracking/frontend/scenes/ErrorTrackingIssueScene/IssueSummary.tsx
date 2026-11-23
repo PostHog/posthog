@@ -10,6 +10,7 @@ import { AIAccessRequest } from 'scenes/settings/organization/AIAccessRequest'
 import { urls } from 'scenes/urls'
 
 import type { ErrorTrackingStoredIssueSummaryApi } from '../../generated/api.schemas'
+import { errorTrackingEditAccessDisabledReason } from '../../utils'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { IssuePaneSectionHeader } from './IssuePaneSectionHeader'
 import { IssuePaneSectionName } from './IssuePaneSectionName'
@@ -23,6 +24,8 @@ export interface IssueSummarySectionProps {
     open: boolean
     canManageAiSettings: boolean
     loading: boolean
+    // Set when the person may not start a summary, which needs editor access to error tracking.
+    summarizeDisabledReason?: string | null
     onToggle: () => void
     onRetry: () => void
     onSummarize: () => void
@@ -136,6 +139,7 @@ export function IssueSummarySection({
     open,
     canManageAiSettings,
     loading,
+    summarizeDisabledReason,
     onToggle,
     onRetry,
     onSummarize,
@@ -178,6 +182,7 @@ export function IssueSummarySection({
                             type="secondary"
                             onClick={onSummarize}
                             loading={loading}
+                            disabledReason={summarizeDisabledReason}
                             data-attr={
                                 view === 'not_generated'
                                     ? 'error-tracking-issue-summary-summarize'
@@ -279,6 +284,7 @@ export function IssueSummary(): JSX.Element | null {
             open={summaryOpen}
             canManageAiSettings={!!isAdminOrOwner}
             loading={summaryResponseLoading}
+            summarizeDisabledReason={errorTrackingEditAccessDisabledReason()}
             onToggle={() => setSummaryOpen(!summaryOpen)}
             onRetry={loadSummary}
             onSummarize={summarize}

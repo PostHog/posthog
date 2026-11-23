@@ -150,6 +150,40 @@ describe('issueSummaryLogic', () => {
         )
     })
 
+    it('offers the summarize button again when a check after in_progress finds no summary', async () => {
+        retrieve.mockResolvedValue(NOT_GENERATED)
+        summarize.mockRejectedValue(refusal(409, 'in_progress'))
+        jest.spyOn(console, 'error').mockImplementation(() => {})
+        logic = issueSummaryLogic({ issueId: ISSUE_ID, firstSeen: null })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSummarySuccess'])
+        logic.actions.summarize()
+        await expectLogic(logic).toDispatchActions(['summarizeSuccess']).toMatchValues({ view: 'in_progress' })
+
+        logic.actions.loadSummary()
+
+        await expectLogic(logic).toDispatchActions(['loadSummarySuccess']).toMatchValues({ view: 'not_generated' })
+    })
+
+    it('keeps the refusal on screen while a retry runs', async () => {
+        retrieve.mockResolvedValue(NOT_GENERATED)
+        jest.spyOn(console, 'error').mockImplementation(() => {})
+        summarize.mockRejectedValueOnce(refusal(429, 'rate_limited'))
+        let resolveRetry: (response: ErrorTrackingIssueSummaryResponseApi) => void = () => {}
+        summarize.mockReturnValueOnce(new Promise((resolve) => (resolveRetry = resolve)))
+        logic = issueSummaryLogic({ issueId: ISSUE_ID, firstSeen: null })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSummarySuccess'])
+        logic.actions.summarize()
+        await expectLogic(logic).toDispatchActions(['summarizeSuccess']).toMatchValues({ view: 'rate_limited' })
+
+        logic.actions.summarize()
+        expect(logic.values).toMatchObject({ view: 'rate_limited', summaryResponseLoading: true })
+
+        resolveRetry(READY)
+        await expectLogic(logic).toDispatchActions(['summarizeSuccess']).toMatchValues({ view: 'ready' })
+    })
+
     it('shows nothing when the first read fails, and recovers on retry', async () => {
         retrieve.mockRejectedValueOnce(new Error('500')).mockResolvedValue(READY)
         jest.spyOn(console, 'error').mockImplementation(() => {})

@@ -263,6 +263,13 @@ def get_issue_summary(team_id: int, issue_id: UUID | str) -> ErrorTrackingIssueS
     return ErrorTrackingIssueSummary.objects.for_team(team_id).filter(issue_id=issue_id).first()
 
 
+def _shown_summary(team_id: int, issue_id: UUID | str) -> ErrorTrackingIssueSummary | None:
+    # A read shows no summary for a row that fails the output check, so generation must write over that row. If it
+    # kept the row, each summarize request would return it and fail again.
+    stored = get_issue_summary(team_id, issue_id)
+    return stored if stored is not None and not unsafe_summary_fields(stored.content) else None
+
+
 def read_issue_summary(team_id: int, issue_id: UUID | str, user: User) -> IssueSummaryState:
     """The stored summary, or the reason none is shown. Never starts generation."""
     if not issue_summaries_enabled(team_id):
@@ -437,7 +444,7 @@ def _get_or_generate(
     team_id: int, issue_id: UUID | str, generation: _SummaryGeneration, timings: IssueSummaryTimings
 ) -> IssueSummaryResult:
     # Generation sees only the first event, so any stored summary already covers it.
-    if (stored := get_issue_summary(team_id, issue_id)) is not None:
+    if (stored := _shown_summary(team_id, issue_id)) is not None:
         return IssueSummaryResult(outcome=IssueSummaryOutcome.FRESH, summary=stored)
     claim = f"{LOCK_CLAIM_PREFIX}{uuid4().hex}"
     if (held := _claim_generation(team_id, issue_id, claim)) is not None:
@@ -452,7 +459,7 @@ def _generate_claimed(
     team_id: int, issue_id: UUID | str, generation: _SummaryGeneration, timings: IssueSummaryTimings
 ) -> IssueSummaryResult:
     # Another worker can finish between the first read and the claim.
-    if (stored := get_issue_summary(team_id, issue_id)) is not None:
+    if (stored := _shown_summary(team_id, issue_id)) is not None:
         return IssueSummaryResult(outcome=IssueSummaryOutcome.FRESH, summary=stored)
 
     budget_key, budget = generation.budget_key, generation.budget
@@ -672,7 +679,7 @@ def _summary_inputs(
             "fingerprint", flat=True
         )
     )
-    # A new issue holds only its first event, so it hashes as one occurrence.
+    # Both paths read only the first event, so the hash counts one occurrence.
     occurrences = to_number(impact.get("occurrences")) if impact is not None else 1
     return IssueSummaryInputs(
         prompt=prompt,

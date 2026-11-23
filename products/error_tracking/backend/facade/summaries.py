@@ -31,7 +31,8 @@ def _to_summary(summary: ErrorTrackingIssueSummary) -> contracts.ErrorTrackingIs
 def read_issue_summary(team_id: int, issue_id: UUID | str, *, user: User) -> contracts.IssueSummaryRead:
     """The stored summary, or the reason `user` sees none. Never starts generation.
 
-    The output check runs again here because a row stored before the check existed stays, and nothing replaces it.
+    The output check runs again here because a row stored before the check existed stays until a summarize request
+    writes over it.
     """
     state = issue_summaries.read_issue_summary(team_id, issue_id, user)
     if state.summary is not None and issue_summaries.unsafe_summary_fields(state.summary.content):

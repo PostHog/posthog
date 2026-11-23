@@ -155,10 +155,13 @@ export const issueSummaryLogic = kea<issueSummaryLogicType>([
         summaryResponse: [
             null as ErrorTrackingIssueSummaryResponseApi | null,
             {
-                loadSummary: async (): Promise<ErrorTrackingIssueSummaryResponseApi | null> => {
+                loadSummary: async (_, breakpoint): Promise<ErrorTrackingIssueSummaryResponseApi | null> => {
                     try {
                         return await errorTrackingIssuesSummaryRetrieve(getCurrentTeamId().toString(), props.issueId)
                     } catch (error) {
+                        // Reading `values` after the issue page unmounts throws. The breakpoint stops here instead,
+                        // and the loader drops a breakpoint quietly.
+                        breakpoint()
                         // The section shows its own retry line, so a failed read must not also raise the loader toast.
                         console.error('Failed to load the issue summary:', error)
                         actions.markLoadFailed()
@@ -166,10 +169,11 @@ export const issueSummaryLogic = kea<issueSummaryLogicType>([
                     }
                 },
                 // Each call can use AI credits, so only a person's click dispatches this.
-                summarize: async (): Promise<ErrorTrackingIssueSummaryResponseApi | null> => {
+                summarize: async (_, breakpoint): Promise<ErrorTrackingIssueSummaryResponseApi | null> => {
                     try {
                         return await errorTrackingIssuesSummarizeCreate(getCurrentTeamId().toString(), props.issueId)
                     } catch (error) {
+                        breakpoint()
                         // The section shows each refusal itself, so a refusal must not also raise the loader toast.
                         console.error('Failed to summarize the issue:', error)
                         actions.markSummarizeRefused(summarizeRefusal(error))
@@ -192,7 +196,6 @@ export const issueSummaryLogic = kea<issueSummaryLogicType>([
             null as IssueSummarizeRefusal | null,
             {
                 loadSummary: () => null,
-                summarize: () => null,
                 markSummarizeRefused: (_, { refusal }) => refusal,
             },
         ],

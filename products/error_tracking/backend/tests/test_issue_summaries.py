@@ -593,6 +593,11 @@ class TestIssueSummaryGeneration(BaseTest):
 
         assert self._read() == IssueSummaryRead(status=IssueSummaryStatus.NOT_GENERATED, summary=None, reason=None)
 
+        summarized = summaries_facade.summarize_issue(self.team.id, self.issue.id, user=self.user)
+        assert summarized.summary is not None
+        assert summarized.summary.suggested_next_step == SUMMARY_REPLY["suggested_next_step"]
+        assert self._read().status == IssueSummaryStatus.READY
+
     def _restrict_event_property(self, name: str) -> None:
         self.organization.available_product_features = [
             {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
@@ -628,6 +633,7 @@ class TestIssueSummaryGeneration(BaseTest):
         assert read.status == expected
         if expected == IssueSummaryStatus.UNAVAILABLE:
             assert read.reason == IssueSummaryUnavailableReason.RESTRICTED
+            assert self._generate_on_demand() == IssueSummaryOutcome.RESTRICTED
         assert self._read(other).status == IssueSummaryStatus.READY
         assert self._read(outsider).reason == IssueSummaryUnavailableReason.RESTRICTED
 
@@ -716,6 +722,10 @@ class TestIssueSummaryFirstEventInputs(ClickhouseTestMixin, BaseTest):
         ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint="fp-1")
         ErrorTrackingIssueFingerprintV2.objects.filter(issue=issue).update(first_seen=first_seen)
         sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=self.team.pk)
+
+        assert build_issue_summary_inputs_from_first_event(self.team, issue.id) == IssueSummaryOutcome.NO_EXCEPTION
+
+        self._exception(issue, first_seen + timedelta(milliseconds=500), release="2.0.0", function="checkout")
         self._exception(issue, first_seen, release="1.0.0", function="addToCart")
         self._exception(issue, NOW - timedelta(hours=1), release="2.0.0", function="checkout")
         flush_persons_and_events()
