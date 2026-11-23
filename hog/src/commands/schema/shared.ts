@@ -62,8 +62,8 @@ function goNextSteps(file: string, sdk: GoSdk): string[] {
 interface LanguageSdks {
     // The first choice is the default.
     choices: readonly SchemaSdk[]
-    // Whether posthog.json names the default. TypeScript always did. Go names an SDK only once one is
-    // chosen, so an entry written before the choice existed stays as it is.
+    // Whether posthog.json names the default. TypeScript always did. Go never writes its default, because a
+    // hog released before the Go choice rejects every posthog.json whose Go entry names an SDK.
     recordsDefault: boolean
     // The error for a PostHog that predates a choice. The default has none: such a PostHog generates it
     // anyway, so hog never asks for it.

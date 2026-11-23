@@ -115,7 +115,7 @@ describe('hog schema', () => {
 
     test.each([
         ['no --sdk and nothing saved', [], undefined, '', undefined, []],
-        ['--sdk posthog-go', ['--sdk', 'posthog-go'], undefined, '', 'posthog-go', []],
+        ['--sdk posthog-go', ['--sdk', 'posthog-go'], undefined, '', undefined, []],
         ['--sdk posthog-go-v2', ['--sdk', 'posthog-go-v2'], undefined, '?sdk=posthog-go-v2', 'posthog-go-v2', []],
         ['a saved posthog-go-v2 entry', [], 'posthog-go-v2', '?sdk=posthog-go-v2', 'posthog-go-v2', []],
         [
@@ -123,7 +123,7 @@ describe('hog schema', () => {
             ['--sdk', 'posthog-go'],
             'posthog-go-v2',
             '',
-            'posthog-go',
+            undefined,
             [],
         ],
         [
@@ -134,7 +134,7 @@ describe('hog schema', () => {
             'posthog-go-v2',
             ['posthog-go-v2', ''],
         ],
-        ['a person who picks posthog-go', [], undefined, '', 'posthog-go', ['posthog-go', '']],
+        ['a person who picks posthog-go', [], undefined, '', undefined, ['posthog-go', '']],
     ])('pull for Go with %s asks PostHog for the right module', async (_name, flags, saved, query, stored, answers) => {
         const config = { languages: { golang: { output_path: 'typed.go', schema_hash: 'hash-old', sdk: saved } } }
         const person = answers.length > 0

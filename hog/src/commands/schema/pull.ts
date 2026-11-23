@@ -222,14 +222,16 @@ async function moduleSdk(
     if (!sdks) {
         return undefined
     }
+    const defaultSdk = sdks.choices[0]
+    let sdk: SchemaSdk | undefined
     if (flag) {
-        return flag
+        sdk = flag
+    } else if (saved?.sdk !== undefined) {
+        sdk = effectiveSdk(language, saved.sdk)
+    } else if (saved || !ctx.prompts || !sdks.prompt) {
+        sdk = defaultSdk
+    } else {
+        sdk = await ctx.prompts.select(sdks.prompt.message, sdks.prompt.options)
     }
-    if (saved?.sdk !== undefined) {
-        return effectiveSdk(language, saved.sdk)
-    }
-    if (saved || !ctx.prompts || !sdks.prompt) {
-        return sdks.recordsDefault ? sdks.choices[0] : undefined
-    }
-    return ctx.prompts.select(sdks.prompt.message, sdks.prompt.options)
+    return sdks.recordsDefault || sdk !== defaultSdk ? sdk : undefined
 }
