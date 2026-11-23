@@ -3,6 +3,8 @@ import datetime as dt
 from dataclasses import dataclass
 from uuid import UUID
 
+from django.conf import settings
+
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -150,7 +152,10 @@ async def get_clickhouse_event_counts(inputs: GetEventCountsInputs) -> list[Even
         "include_events": inputs.include_events,
         "exclude_events": inputs.exclude_events,
     }
-    async with Heartbeater(), get_client() as client:
+    # Both count queries read a recent events table, which the batch exports cluster stores, as the export does.
+    clickhouse_url = settings.CLICKHOUSE_BATCH_EXPORTS_HTTP_URL
+    cluster = settings.CLICKHOUSE_BATCH_EXPORTS_CLUSTER if clickhouse_url else None
+    async with Heartbeater(), get_client(clickhouse_url=clickhouse_url, cluster=cluster) as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 

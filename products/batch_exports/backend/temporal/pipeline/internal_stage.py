@@ -678,7 +678,10 @@ async def _get_legacy_events_query(
         filters=f"AND {filters_str}" if filters_str else "",
         s3_function=s3_function,
     )
-    reads_recent_events = query_template in (EXPORT_TO_S3_FROM_EVENTS_RECENT, EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT)
+    reads_recent_events = query_template in (
+        EXPORT_TO_S3_FROM_EVENTS_RECENT,
+        EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT,
+    )
     return query, parameters, reads_recent_events
 
 

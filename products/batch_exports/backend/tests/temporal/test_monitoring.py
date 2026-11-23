@@ -1,3 +1,4 @@
+import re
 import uuid
 import datetime as dt
 
@@ -7,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 
 import pytest_asyncio
+from aioresponses import aioresponses
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -17,6 +19,7 @@ from products.batch_exports.backend.temporal.monitoring import (
     BatchExportMonitoringInputs,
     BatchExportMonitoringWorkflow,
     EventCount,
+    GetEventCountsInputs,
     _log_warning_for_missing_batch_export_runs,
     _log_warning_for_missing_events,
     datetime_to_str,
@@ -338,6 +341,41 @@ async def test_monitoring_workflow_when_missing_events(
 
         # check that the warning was logged
         mock_log_warning.assert_called_once_with(batch_export.id, expected_missing_events)
+
+
+@pytest.mark.parametrize(
+    "batch_exports_url,expected_url",
+    [
+        ("http://batch-exports.example.com:8123/", "http://batch-exports.example.com:8123/"),
+        (None, "http://offline.example.com:8123/"),
+    ],
+    ids=["batch-exports-host", "no-batch-exports-host"],
+)
+async def test_get_clickhouse_event_counts_reads_the_host_that_stores_recent_events(
+    activity_environment, ateam, settings, batch_exports_url: str | None, expected_url: str
+):
+    settings.CLICKHOUSE_OFFLINE_HTTP_URL = "http://offline.example.com:8123/"
+    settings.CLICKHOUSE_EVENTS_OFFLINE_HOST = None
+    settings.CLICKHOUSE_BATCH_EXPORTS_HTTP_URL = batch_exports_url
+    settings.CLICKHOUSE_PASSWORD_FILE = None
+    inputs = GetEventCountsInputs(
+        team_id=ateam.pk,
+        interval="every 5 minutes",
+        overall_interval_start="2026-01-01 00:00:00",
+        overall_interval_end="2026-01-01 00:05:00",
+        exclude_events=[],
+        include_events=[],
+    )
+
+    with aioresponses() as responses:
+        responses.get(expected_url + "ping", body="Ok.")
+        responses.get(
+            re.compile(r"^" + re.escape(expected_url) + r"\?"), body="2026-01-01 00:00:00\t2026-01-01 00:05:00\t3\n"
+        )
+
+        counts = await activity_environment.run(get_clickhouse_event_counts, inputs)
+
+    assert counts == [EventCount(interval_start="2026-01-01 00:00:00", interval_end="2026-01-01 00:05:00", count=3)]
 
 
 def test_log_warning_for_missing_batch_export_runs():
