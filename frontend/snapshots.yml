@@ -9062,6 +9062,10 @@ snapshots:
         hash: v1.k794b7964.47be8216c034a7a0aa6bcfbc07b6c5b14505f559b5a1e3d15ad8a09a59fa910e.pOtn4Yt_TOaMMULdYibVBMM3k6_-fNTUoBHtm2w_ZVk
     products-workflows-reputation--shared-sending-domain--light:
         hash: v1.k794b7964.6e7bd1a4461ca7e948c49b928b94d55a0d92a8ab4099fae94cab8ef8d6ed3709.iIDLjeGUYQD4c8JCsST7fLo9Ub1BGKgUh6DPx-FWOug
+    products-workflows-reputation--with-infrastructure-health--dark:
+        hash: v1.k794b7964.9e87d51b28468b63f1b0f7b701281ef1c2ae6fc1a3ebf1f8aa97046027470edd.-KVmVwhIcDhSBzzVB4cAVWMwwZPCz12FSM2Mi2aGmi8
+    products-workflows-reputation--with-infrastructure-health--light:
+        hash: v1.k794b7964.c3866be4167f796e2654fc79ddf3126f9fb8c6660dbbf586d438540f385e4ed9.2SI51PM4yEbalQYc3XG3OjxSBsGUqZslX9dvYHv92gU
     products-workflows-send-calendar--busy-week--dark:
         hash: v1.k794b7964.1edf0999ab5e390b86d0a8d48ab5821c5cb291b35eba58eb4000587652ba79af.4plcEAYl06VvPXCtAKWYvMcbQLWV-U1_khdj3SHu5Ho
     products-workflows-send-calendar--busy-week--light:
@@ -10751,9 +10755,9 @@ snapshots:
     scenes-app-application-observability-live-refresh--paused--light:
         hash: v1.k794b7964.71995b193479c2fc694fcf246a70dc55dce1528a6625a7ec3613011f9cab719b.jWnOVZvtW7YZt85eMmiCYu3yfV3c94Pvhitkwp3gQwM
     scenes-app-application-observability-service--service-page--dark:
-        hash: v1.k794b7964.b5f2e60c5c77507ddba369bc34d275bf0c80882ec9aef4d40b12cabc0b8c32dd.45BnXIO2h7pdzyvOTe5vrtz7brtSPEWYXj_CMKpsqOo
+        hash: v1.k794b7964.ee8f6213d1856f1bf40ee6048a3856156e3d07f5d9e8e1b554e599f7fc26f61d.KflOU_OUhk3t0LfA3w5Tb7WSkv0GH7K63kc76aZlMzs
     scenes-app-application-observability-service--service-page--light:
-        hash: v1.k794b7964.e3a7a9ed049c2cb08bc327061be4363a1ec4692670a0e2a118a171dd9f57cb30.YAEDcPKlpFGnWcMIXGe6DLTI-HSXCnYZQlmyTCsL7vs
+        hash: v1.k794b7964.139b10befc5470d361af149f11fc419f00d5f25cbfb5db6d2a7bf1db90cbedcf.zhVZsJMljrU3t5EEnpp3MiNHKeAY4cq5gBlwaO6mPYE
     scenes-app-batchexports--backfills-empty--dark:
         hash: v1.k794b7964.8addbab5dc9322002703f43982a0f950666fd19066808134206cf88a4d3fca23.rQn27PGaf9lf989r2DJBj1BYEWNECVUB8h3wcMgQo5c
     scenes-app-batchexports--backfills-empty--light:
@@ -11035,13 +11039,13 @@ snapshots:
     scenes-app-customer-analytics-dashboard--b-2-c-mode--light:
         hash: v1.k794b7964.ff25e11868464e00df352180254dbe0a1017cd1d8c7c4f4c7d6995068e80e2dc.m0XFOZVPCdSaCLaPQ6XTePvkZJ1I11QI2KARZi9QpWs
     scenes-app-customer-analytics-dashboard--customer-tasks--dark:
-        hash: v1.k794b7964.9380089dadd38c212ac554255d1a11cc2deaa7197d49f6c532dc605039bb7b64.yhr5sRJvxJh0pmIjb3cIUsK_W9EVVJYMB5IX0qwDMnE
+        hash: v1.k794b7964.779338014a269d75c9d09833d0382a6b839986e15e5a829226f010ed61af7ca3.D8CRUrCa6z8dOgqDnZNvjqzIpbXNk8IRm3lPLnPwYx4
     scenes-app-customer-analytics-dashboard--customer-tasks--light:
-        hash: v1.k794b7964.f9dca8dbf88d7c960301dd95db91966e02be4d9df5f7378dda0b331f77e52fdb.isOceWjpgKBgXFpeFbcazFF98eptte9x2QQmDKmtBP8
+        hash: v1.k794b7964.6d5903b3b8d24ee4e2bfd49f240980333c95fbe7d1f892f0891fb7cf5324e20f.wXMwkkvHXkr4giA42b0J3Azr-LnpbyqUbNNjodz86EQ
     scenes-app-customer-analytics-dashboard--customer-tasks-assignee-roles--dark:
-        hash: v1.k794b7964.b9d7329bb49b4dde0e252e7079613b0e13f7a72bf586dbb53d4de94da9a0fbe3.YQB66a27LE6uxn9to0dLOAhOgXYSIl_nYM_6sPj78Cw
+        hash: v1.k794b7964.549145f1a42722103235503b3a3b1f226f2f4e8f8a15c53d9652ac46f0636492.wQC29ShtP5IXjXkbLLqb0bHPVkZQzwEsPgKFxG94jAM
     scenes-app-customer-analytics-dashboard--customer-tasks-assignee-roles--light:
-        hash: v1.k794b7964.5c4d2683941e468b8d48c40f269b67faabc6b41d064c0b58afbd576cf2f10a01.pUDiVcY-h4rlRsYHuymT4qKf3EC77gdMRk35kQLxCOw
+        hash: v1.k794b7964.15af2d787636dedde177937915cb144860adc7dc7b312cfaf5d72135ea021488.0DrZgwkYRZCR4sFZBhIo5JG1xcW2M5nbZiZvDKK-aJQ
     scenes-app-customer-analytics-dashboard--feature-request-details--dark:
         hash: v1.k794b7964.d87f1abf2d12f5814dd652ba1c760a15d00f6fa2f6927f9aaa662dacbd91a83c.8qn3xLm6N1ZugTMoofH8kEhupFhydr4UcG0Wlko4SLY
     scenes-app-customer-analytics-dashboard--feature-request-details--light:

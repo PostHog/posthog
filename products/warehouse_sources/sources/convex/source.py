@@ -58,7 +58,7 @@ class ConvexSource(ResumableSource[ConvexSourceConfig, ConvexResumeConfig], Curs
             releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Convex deployment URL and deploy key to sync your Convex tables into PostHog.
 
-You can find your deployment URL and deploy key in your [Convex Dashboard](https://dashboard.convex.dev/) under **Settings** > **URL & Deploy Key**.
+In your [Convex Dashboard](https://dashboard.convex.dev/), open your production deployment's **Settings** page and copy the deployment URL. Under **Deploy keys**, click **Generate a deploy key** and turn on the `deployment:data:view` permission so PostHog can read your tables.
 
 **Note:** This integration requires the [Convex Professional plan](https://www.convex.dev/plans) for streaming export access.
 """,
@@ -129,7 +129,10 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error": "Authentication failed. Check your Convex deploy key.",
-            "403 Client Error": "Access denied. Check your Convex deploy key.",
+            "403 Client Error": (
+                "Your Convex deploy key can't read your data. Generate a deploy key with the "
+                "deployment:data:view permission, then update this source's credentials."
+            ),
             # Convex answers a read with a 404 when the table discovery listed is gone at read time
             # (deleted on the source, or a component table streaming export doesn't serve). The next
             # run reissues the identical request, so every retry replays the same 404. Cloudflare

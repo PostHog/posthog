@@ -1468,21 +1468,25 @@ class NativeAlertLifecycle:
     """
 
     check_interval_minutes: int
+    # True when every destination of the kind's alerts is an `AlertDestination` row, which delivery sends
+    # to alone. False when the source keeps HogFunction destinations, which `remove_destinations` removes.
+    platform_destinations: bool
     # Each cadence a create may choose, with the calendar unit it repeats on, since a month is not a fixed
     # number of minutes. None for a kind with one fixed cadence.
     check_intervals: Mapping[int, str | None] | None = None
     # The most alerts of the kind a team can have, or None for no cap.
     max_per_team: int | None = None
-    # Removes the HogFunction destinations of any deleted alert the platform owns. None for a kind
-    # whose destinations are `AlertDestination` rows, which go with the configuration.
+    # Removes the HogFunction destinations of any deleted alert the platform owns. Required when
+    # `platform_destinations` is False. A kind with rows needs none: its rows go with the configuration,
+    # and the platform retires the HogFunctions they link to.
     remove_destinations: NativeAlertRemoveDestinations | None = None
     # False for a kind whose alerts without a source row the platform deletes but does not create
     # yet. The API then neither publishes nor accepts a create of the kind.
     creates: bool = True
 
-    @property
-    def platform_destinations(self) -> bool:
-        return self.remove_destinations is None
+    def __post_init__(self) -> None:
+        if not self.platform_destinations and self.remove_destinations is None:
+            raise ValueError("A kind whose destinations are HogFunctions needs `remove_destinations`.")
 
 
 @frozen
@@ -1909,6 +1913,17 @@ class AlertDelivery:
     template: str | None = None  # "slack" | "discord" | "webhook" | "teams" | "pagerduty"
     status: str = "accepted"
     at: str  # ISO-8601 timestamp
+
+
+class LinkedHogFunctionRetirer(Protocol):
+    """Switches off and soft-deletes the named HogFunctions of one alert, which `AlertDestination` rows
+    linked to when a person customized them. `alert_id` is the alert's public id. The product that owns
+    HogFunctions registers it.
+
+    It runs in the caller's transaction, so a delete that fails keeps them.
+    """
+
+    def __call__(self, *, team_id: int, alert_id: UUID, hog_function_ids: Collection[UUID]) -> None: ...
 
 
 class LiveHogFunctionLookup(Protocol):

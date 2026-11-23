@@ -4616,11 +4616,6 @@
                     "csv": false
                 },
                 {
-                    "param": "max_anomaly_rate",
-                    "key": "max_anomaly_rate",
-                    "csv": false
-                },
-                {
                     "param": "offset",
                     "key": "offset",
                     "csv": false
@@ -4638,6 +4633,11 @@
                 {
                     "param": "search",
                     "key": "search",
+                    "csv": false
+                },
+                {
+                    "param": "viewed_within_days",
+                    "key": "viewed_within_days",
                     "csv": false
                 }
             ],
@@ -13686,6 +13686,10 @@
                 {
                     "param": "status",
                     "key": "status"
+                },
+                {
+                    "param": "tags",
+                    "key": "tags"
                 }
             ],
             "injectBody": {},
@@ -13773,6 +13777,11 @@
                     "param": "statuses",
                     "key": "statuses",
                     "csv": false
+                },
+                {
+                    "param": "tags",
+                    "key": "tags",
+                    "csv": false
                 }
             ],
             "body": null,
@@ -13826,6 +13835,10 @@
                 {
                     "param": "status",
                     "key": "status"
+                },
+                {
+                    "param": "tags",
+                    "key": "tags"
                 },
                 {
                     "param": "name",

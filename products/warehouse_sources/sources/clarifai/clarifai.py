@@ -1,4 +1,5 @@
 import re
+from collections.abc import Iterable
 from typing import Any, cast
 from urllib.parse import urlsplit
 
@@ -18,6 +19,8 @@ from products.warehouse_sources.sources.clarifai.settings import (
 from products.warehouse_sources.sources.sdk import (
     UNKNOWN_RESOURCE_PREFIX,
     ClientConfig,
+    DependentEndpointConfig,
+    EndpointResource,
     PaginatorConfig,
     Resource,
     RESTAPIConfig,
@@ -26,9 +29,11 @@ from products.warehouse_sources.sources.sdk import (
     SourceResponse,
     UnknownResourceError,
     ValidateDatabaseHostMixin,
+    build_chained_resource,
     build_dependent_resource,
     frozen,
     make_tracked_session,
+    rename_parent_fields,
     rest_api_resource,
 )
 
@@ -86,7 +91,8 @@ class ClarifaiClient(ValidateDatabaseHostMixin):
                 )
         self.config = config
         self.team_id = team_id
-        self.base_url = f"{host}/{api_version}/users/{config.user_id}/apps/{config.app_id}/"
+        self.user_base_url = f"{host}/{api_version}/users/{config.user_id}/"
+        self.base_url = f"{self.user_base_url}apps/{config.app_id}/"
 
     @staticmethod
     def check_response(response: Response, **kwargs: object) -> Response:
@@ -114,12 +120,12 @@ class ClarifaiClient(ValidateDatabaseHostMixin):
             )
         raise ValueError("Clarifai returned an unsuccessful response. Check the API status and try again.")
 
-    def client_config(self, *, probe: bool = False) -> ClientConfig:
+    def client_config(self, *, probe: bool = False, user_level: bool = False) -> ClientConfig:
         session = make_tracked_session(redact_values=(self.config.personal_access_token,), allow_redirects=False)
         # Clarifai reports API failures in the JSON status, including responses with HTTP 200.
         session.hooks["response"].append(self.check_response)
         return {
-            "base_url": self.base_url,
+            "base_url": self.user_base_url if user_level else self.base_url,
             "auth": {
                 "type": "api_key",
                 "name": "Authorization",
@@ -144,13 +150,13 @@ class ClarifaiClient(ValidateDatabaseHostMixin):
 
     def resource_config(self, endpoint: str, *, probe: bool = False) -> RESTAPIConfig:
         config = self.endpoint_config(endpoint)
-        if config.fanout is not None:
-            if not probe:
-                raise ValueError(f"{endpoint} fans out over {config.fanout.parent_name} and has no flat resource.")
-            # A child list needs a parent ID, so the probe checks the parent list instead.
+        if config.fanout is not None and not probe:
+            raise ValueError(f"{endpoint} fans out over {config.fanout.parent_name} and has no flat resource.")
+        # A child list needs a parent ID, so the probe checks the top-level list instead.
+        while config.fanout is not None:
             config = self.endpoint_config(config.fanout.parent_name)
         return {
-            "client": self.client_config(probe=probe),
+            "client": self.client_config(probe=probe, user_level=config.user_level),
             "resources": [
                 {
                     "name": config.name,
@@ -171,6 +177,58 @@ class ClarifaiClient(ValidateDatabaseHostMixin):
             return []
         return row
 
+    def _list_resource(self, config: ClarifaiEndpointConfig, params: dict[str, Any]) -> EndpointResource:
+        return {
+            "name": config.name,
+            "table_name": config.name,
+            "write_disposition": "replace",
+            "endpoint": {
+                "path": config.path,
+                "data_selector": config.data_selector,
+                "params": {"per_page": config.page_size, **config.params, **params},
+            },
+            "table_format": "delta",
+        }
+
+    def chained_resource(self, config: ClarifaiEndpointConfig, job_id: str) -> Iterable[Any]:
+        fanout = cast(DependentEndpointConfig, config.fanout)
+        middle = self.endpoint_config(fanout.parent_name)
+        middle_fanout = cast(DependentEndpointConfig, middle.fanout)
+        root = self.endpoint_config(middle_fanout.parent_name)
+
+        def resolve(parent: str, field_name: str) -> dict[str, str]:
+            return {"type": "resolve", "resource": parent, "field": field_name}
+
+        root_resource = self._list_resource(root, {})
+        root_resource["data_map"] = self.own_app_rows
+        middle_resource = self._list_resource(
+            middle, {middle_fanout.resolve_param: resolve(root.name, middle_fanout.resolve_field)}
+        )
+        middle_resource["include_from_parent"] = middle_fanout.include_from_parent
+        middle_resource["data_map"] = rename_parent_fields(root.name, middle_fanout.parent_field_renames)
+        # The middle rows carry the grandparent ID under its renamed column, which also binds the child path.
+        grandparent_field = middle_fanout.parent_field_renames.get(
+            middle_fanout.resolve_field, middle_fanout.resolve_field
+        )
+        child_resource = self._list_resource(
+            config,
+            {
+                middle_fanout.resolve_param: resolve(middle.name, grandparent_field),
+                fanout.resolve_param: resolve(middle.name, fanout.resolve_field),
+            },
+        )
+        child_resource["include_from_parent"] = fanout.include_from_parent
+
+        return build_chained_resource(
+            resources=[root_resource, middle_resource, child_resource],
+            child_name=config.name,
+            parent_name=middle.name,
+            parent_field_renames=fanout.parent_field_renames,
+            client_config=self.client_config(),
+            team_id=self.team_id,
+            job_id=job_id,
+        )
+
     def source(
         self,
         endpoint: str,
@@ -181,8 +239,17 @@ class ClarifaiClient(ValidateDatabaseHostMixin):
         resume = manager.load_state() if manager.can_resume() else None
 
         resource: Resource
-        if config.fanout is not None:
-            parent = self.endpoint_config(config.fanout.parent_name)
+        parent = self.endpoint_config(config.fanout.parent_name) if config.fanout is not None else None
+        if parent is not None and parent.fanout is not None:
+            # A two-level chain keeps no resume state, so an interrupted run starts again.
+            return SourceResponse(
+                name=endpoint,
+                items=lambda: self.chained_resource(config, job_id),
+                primary_keys=config.primary_keys,
+                sort_mode=None,
+                supports_resume=False,
+            )
+        if config.fanout is not None and parent is not None:
 
             def save_fanout_state(state: dict[str, Any] | None) -> None:
                 if state:
