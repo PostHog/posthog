@@ -4173,8 +4173,7 @@ class TestOAuthAPI(APIBaseTest):
         with time_machine.travel(
             timezone.now() + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False
         ):
-            with patch("posthog.api.oauth.views.render_template", return_value=HttpResponse("")) as mock_render:
-                stale_response = self.client.get(url)
+            stale_response = self.client.get(url)
 
             session = self.client.session
             session[settings.SESSION_LAST_REAUTH_AT_KEY] = time.time()
@@ -4182,7 +4181,7 @@ class TestOAuthAPI(APIBaseTest):
             reloaded_response = self.client.get(url)
 
         self.assertEqual(stale_response.status_code, status.HTTP_200_OK)
-        self.assertIs(mock_render.call_args.kwargs["context"]["oauth_reauthentication_required"], True)
+        self.assertIs(stale_response.context["posthog_app_context"]["oauth_reauthentication_required"], True)
 
         self.assertEqual(reloaded_response.status_code, status.HTTP_302_FOUND)
         query = parse_qs(urlparse(reloaded_response["Location"]).query)

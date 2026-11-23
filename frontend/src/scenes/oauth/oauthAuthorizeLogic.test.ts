@@ -558,6 +558,8 @@ describe('oauthAuthorizeLogic', () => {
                 "Confirm it's you to connect Example app"
             )
 
+            await expectLogic(logic).toNotHaveDispatchedActions(['loadAllTeams'])
+
             await expectLogic(logic, () => apiStatusLogic.actions.resolveSensitiveAction('success'))
                 .toDispatchActions(['continueAfterReauthentication'])
                 .toMatchValues({ isContinuingAfterReauthentication: true, reauthenticationDismissed: false })

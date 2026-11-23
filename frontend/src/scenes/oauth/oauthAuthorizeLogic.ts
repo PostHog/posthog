@@ -1100,7 +1100,8 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 })
             }
             actions.loadOAuthApplication()
-            if (!emaIssuerConsent) {
+            // The sign-in-again page reloads before it needs any project.
+            if (!emaIssuerConsent && !values.reauthenticationRequired) {
                 actions.loadAllTeams()
             }
 
