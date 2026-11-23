@@ -5605,8 +5605,10 @@ describe('CDP API', () => {
 
             it('refuses a whole batch of a marketing email when the team is over its email quota, without waiting on its recipients', async () => {
                 await setTeamQuotaLimited(hub, team, 'workflow_emails', true)
-                stallSuppressionReads()
+                const read = stallSuppressionReads()
                 api['refusalDeadline'] = () => new Promise<void>(() => {})
+                // An address no other test sends to, so no cached verdict answers before the held read.
+                const fresh = recipient(`ada-${new UUIDT().toString()}@example.com`)
                 try {
                     const marketingFlow = await insertHogFlow(transactionalFlow('api', 'active', 'marketing'))
 
@@ -5615,7 +5617,8 @@ describe('CDP API', () => {
                         .set({
                             Authorization: `Bearer ${mintToken(team.id, marketingFlow.id, { claims: { kind: 'template_batch' } })}`,
                         })
-                        .send({ variables: body.variables, recipients: [recipient('ada@example.com')] })
+                        .send({ variables: body.variables, recipients: [fresh] })
+                    await read.reached
 
                     expect(res.status).toEqual(429)
                     expect(res.body).toEqual({ error: 'quota_limited' })
