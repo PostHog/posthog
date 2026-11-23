@@ -12,14 +12,14 @@ This product decides which PRs are reviewed, runs the engine in a sandbox, and p
 A repository either reviews every PR or waits for its trigger label, depending on its review mode.
 The engine returns one of five verdicts, and `post_verdict` puts it on the PR.
 
-| Verdict  | Where it lands                             | Trigger label in label mode |
-| -------- | ------------------------------------------ | --------------------------- |
-| APPROVED | A real GitHub review by `stamphog[bot]`    | Kept                        |
-| REFUSED  | A GitHub comment review by `stamphog[bot]` | Removed                     |
-| ESCALATE | A GitHub comment review by `stamphog[bot]` | Removed                     |
-| WAIT     | A GitHub comment review by `stamphog[bot]` | Kept, retries               |
-| ERROR    | A GitHub comment review by `stamphog[bot]` | Kept, retries               |
-| Gated    | A GitHub comment review by `stamphog[bot]` | Removed                     |
+| Verdict  | Where it lands                             | Trigger label |
+| -------- | ------------------------------------------ | ------------- |
+| APPROVED | A real GitHub review by `stamphog[bot]`    | Kept          |
+| REFUSED  | A GitHub comment review by `stamphog[bot]` | Removed       |
+| ESCALATE | A GitHub comment review by `stamphog[bot]` | Removed       |
+| WAIT     | A GitHub comment review by `stamphog[bot]` | Kept, retries |
+| ERROR    | A GitHub comment review by `stamphog[bot]` | Kept, retries |
+| Gated    | A GitHub comment review by `stamphog[bot]` | Removed       |
 
 Gated means a deterministic gate denied the PR before any review, such as the deny-list or the size ceiling.
 The engine reports it as `REFUSED`; the product stores the run as gated with the verdict `WAIT`, and still removes the trigger label because a human has to take it from here.
@@ -30,11 +30,13 @@ Every other verdict is posted once per run as a comment review on the same surfa
 A run that produced no verdict posts a short failure notice the same way, unless a newer run already holds the same head.
 The engine reports `APPROVED` and `REFUSED`, and the API exposes them lowercase as `approved` and `refused`.
 
-The trigger label only exists in label-triggered mode, and of the verdicts only a substantive non-approval removes it.
-So the label can be re-applied once the feedback is addressed.
+Of the verdicts only a substantive non-approval removes the trigger label, in both modes.
+So the label can be added again once the feedback is addressed.
 A verdict that says nothing about the PR keeps the label, and the next push retries.
 A label can request at most one review per PR every 10 minutes.
 A label added inside that window starts nothing, so stamphog removes it again and says in its status comment when a relabel will work.
+In all-PRs mode every push is reviewed, and adding the label asks for another review of the same commit under the rules of a direct request (below), with no 10-minute window.
+When it starts nothing, stamphog removes the label again and says why in its status comment.
 `WAIT` means a reviewer bot still had a review in flight, or a check named in the policy's `attestations`, such as `Migration risk`, had not reported yet.
 Stamphog checks again every two minutes for up to an hour, and reviews the PR again once that check has reported.
 `ERROR` means the run failed before it could judge the PR, because the LLM backend was unreachable or the reviewer hit a non-retryable analysis failure such as its turn limit.
@@ -65,7 +67,7 @@ The silent trigger skips the review mode and nothing else, so the same PRs are r
 A silent run never answers a visible request: adding the trigger label or asking for a review while a silent run is in flight supersedes it with a normal review.
 A visible request always gets its own run.
 When the latest run of the head already withheld a refusal or an escalation, that run first reads the PR's review inputs from GitHub again, without a sandbox or an LLM call.
-If nothing changed (reviews, comments, review threads and their resolution, the base, the merge base, the `Migration risk` check, the default-branch policy, the author's teams and history, external review evidence), it completes with the stored verdict and posts it as a normal review would, with the trigger label removed in label mode.
+If nothing changed (reviews, comments, review threads and their resolution, the base, the merge base, the `Migration risk` check, the default-branch policy, the author's teams and history, external review evidence), it completes with the stored verdict and posts it as a normal review would, with the trigger label removed.
 If anything changed, or the check fails, the same run reviews the PR normally.
 A stored WAIT is never reused, and an approval is never posted this way, because a silent approval was already posted.
 The `stamphog_review_timings` event marks a reused verdict with `stamphog_verdict_reused`.
@@ -75,7 +77,7 @@ The `stamphog_review_timings` event marks a reused verdict with `stamphog_verdic
 1. Install the Stamphog GitHub App on your GitHub organization.
 2. Open Stamphog in the PostHog app and connect GitHub. The callback records the repositories you can reach with your own GitHub account. It adds none of them yet.
 3. Add each repository you want reviewed from the **Add a repository** search (`POST code_review/approvals/repositories/add_repository`). Adding a repository turns its reviews on in label-triggered mode. The search lists the repositories you can add, from `GET repo_configs/available_repositories`.
-4. Expand the repository's row to change the **review mode**: "Label-triggered" (the default) reviews only PRs carrying the trigger label, "All PRs" reviews every pull request. Set the trigger label name next to the mode.
+4. Expand the repository's row to change the **review mode**: "Label-triggered" (the default) reviews only PRs carrying the trigger label, "All PRs" reviews every pull request, and the trigger label there asks for another review of the same commit. Set the trigger label name next to the mode.
 5. Turn on **Include in the digest** if you want the daily Slack digest of merged PRs. The project needs a connected Slack integration first, or the digest run stops silently before posting.
 
 The repositories you can add are the ones a project member reached with their own GitHub account, not every repository the installation can reach.

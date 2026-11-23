@@ -3335,17 +3335,12 @@ def _refused_engine_output() -> str:
     return json.dumps(payload)
 
 
-@pytest.mark.parametrize(
-    "review_mode,expect_strip",
-    [(ReviewMode.LABEL, True), (ReviewMode.ALL, False)],
-    ids=["label_mode_strips_trigger_label", "all_mode_leaves_labels_alone"],
-)
+@pytest.mark.parametrize("review_mode", [ReviewMode.LABEL, ReviewMode.ALL], ids=["label_mode", "all_mode"])
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_refused_verdict_strips_trigger_label_only_in_label_mode(
-    team, stamphog_chain: StamphogChain, handoff: MagicMock, review_mode: ReviewMode, expect_strip: bool
+def test_refused_verdict_strips_trigger_label(
+    team, stamphog_chain: StamphogChain, handoff: MagicMock, review_mode: ReviewMode
 ) -> None:
-    # Action parity: in label-triggered mode a refusal removes the trigger label so the author
-    # explicitly re-requests the next review; in ALL mode labels are never touched.
+    # A refusal removes the trigger label in both modes, so the author requests the next review by adding it.
     repo_config = _repo_config(team.id)
     repo_config.review_mode = review_mode
     repo_config.save()
@@ -3366,11 +3361,11 @@ def test_refused_verdict_strips_trigger_label_only_in_label_mode(
 
     run.refresh_from_db()
     assert run.verdict == ReviewVerdict.REFUSED
-    label_removals = [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "remove_label"]
-    if expect_strip:
-        assert label_removals == [{"kind": "remove_label", "repo": REPO, "number": 101, "label": "stamphog"}]
-    else:
-        assert label_removals == []
+    writes = stamphog_chain.recorder.github_writes
+    label_removals = [w for w in writes if w["kind"] == "remove_label"]
+    assert label_removals == [{"kind": "remove_label", "repo": REPO, "number": 101, "label": "stamphog"}]
+    (review,) = [w for w in writes if w["kind"] == "comment_review"]
+    assert "Add the `stamphog` label to request another review once you have addressed this." in review["body"]["body"]
 
     # Neither mode hands off to ReviewHog: this PR has a human author who reads the refusal, so a
     # second unrequested bot review is not stamphog's call to make. Only self-driving runs hand off
@@ -3379,12 +3374,12 @@ def test_refused_verdict_strips_trigger_label_only_in_label_mode(
 
 
 @pytest.mark.parametrize(
-    "review_mode,inbox_review,expect_handoff",
+    "review_mode,inbox_review,expect_handoff,expect_strip",
     [
-        (ReviewMode.ALL, {"trigger": "inbox"}, True),
-        (ReviewMode.LABEL, {"trigger": "inbox"}, True),
-        (ReviewMode.ALL, None, False),
-        (ReviewMode.LABEL, None, False),
+        (ReviewMode.ALL, {"trigger": "inbox"}, True, False),
+        (ReviewMode.LABEL, {"trigger": "inbox"}, True, True),
+        (ReviewMode.ALL, None, False, True),
+        (ReviewMode.LABEL, None, False, True),
     ],
     ids=[
         "self_driving_in_all_mode_hands_off",
@@ -3401,6 +3396,7 @@ def test_refused_verdict_hands_off_to_reviewhog_only_when_self_driving(
     review_mode: ReviewMode,
     inbox_review: dict | None,
     expect_handoff: bool,
+    expect_strip: bool,
 ) -> None:
     # A self-driving PR has no author to read the refusal, so ReviewHog's deeper review is the next
     # step; a human PR's author decides that for themselves. Inbox provenance outranks the repo's
@@ -3431,6 +3427,7 @@ def test_refused_verdict_hands_off_to_reviewhog_only_when_self_driving(
     assert run.verdict == ReviewVerdict.REFUSED
     requests = [(r.repository, r.pr_number, r.head_sha) for r in _external_review_requests(handoff)]
     assert requests == ([(REPO, 101, head_sha)] if expect_handoff else [])
+    assert bool([w for w in stamphog_chain.recorder.github_writes if w["kind"] == "remove_label"]) is expect_strip
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -3921,14 +3918,14 @@ def _path_denied_engine_output(deny_categories: list[str]) -> str:
 @pytest.mark.parametrize(
     "engine_output, trigger, expect_hint",
     [
-        pytest.param(_refused_engine_output(), "label", "Re-add the `stamphog` label", id="reviewer-refusal"),
+        pytest.param(_refused_engine_output(), "label", "Add the `stamphog` label", id="reviewer-refusal"),
         # A re-review of the same files refuses again, so the review must not invite one.
         pytest.param(
             _path_denied_engine_output(["infra_cicd", "migrations"]), "label", "gives the same result", id="path-deny"
         ),
         # The Migration risk check lifts this deny with the files unchanged.
         pytest.param(
-            _path_denied_engine_output(["migrations"]), "label", "Re-add the `stamphog` label", id="migrations-only"
+            _path_denied_engine_output(["migrations"]), "label", "Add the `stamphog` label", id="migrations-only"
         ),
         # A label on an admitted bot's PR starts no review, so the review must not ask for one.
         pytest.param(_refused_engine_output(), "bot_admission", None, id="admitted-bot"),
