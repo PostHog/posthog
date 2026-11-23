@@ -181,7 +181,7 @@ from products.feature_flags.backend.models.evaluation_context import normalize_c
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
 from products.feature_flags.backend.models.team_feature_flag_policy_config import team_requires_flag_tags
 from products.feature_flags.backend.realtime_targeting import is_realtime_cohort_flag_targeting_enabled
-from products.feature_flags.backend.reserved_variant_keys import is_reserved_variant_key
+from products.feature_flags.backend.reserved_variant_keys import is_reserved_variant_key, reserved_variant_key_message
 from products.feature_flags.backend.rollback_reason import RollbackReason, RollbackReasonContext
 from products.feature_flags.backend.session_recording_links import (
     REPLAY_GATE_DELETE_ERROR,
@@ -2351,12 +2351,9 @@ class FeatureFlagSerializer(
             )
         reserved_variant_key = _reserved_variant_key(filters, stored=stored_filters)
         if reserved_variant_key is not None:
-            message = (
-                "Variant keys can't be empty. Enter a key for each variant."
-                if reserved_variant_key == ""
-                else f"The variant key {reserved_variant_key} is reserved. Choose another key."
+            raise serializers.ValidationError(
+                reserved_variant_key_message(reserved_variant_key), code="reserved_variant_key"
             )
-            raise serializers.ValidationError(message, code="reserved_variant_key")
 
         if self._v2_limits is not None:
             # An admitted v2 document passes through untouched (no v1 merge or normalization): a

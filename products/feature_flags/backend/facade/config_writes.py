@@ -32,6 +32,8 @@ from django.conf import settings
 
 import structlog
 
+from posthog.hogql.constants import FEATURE_FLAG_VARIANT_SENTINELS
+
 from posthog.dataclasses import frozen
 from posthog.ph_client import feature_enabled_or_false
 
@@ -45,7 +47,7 @@ from products.feature_flags.backend.facade.config_validation import (
 )
 from products.feature_flags.backend.facade.rule_warnings import review_config
 from products.feature_flags.backend.facade.warnings import ManagementWarning
-from products.feature_flags.backend.reserved_variant_keys import is_reserved_variant_key
+from products.feature_flags.backend.reserved_variant_keys import RESERVED_NEW_VARIANT_KEYS, is_reserved_variant_key
 
 logger = structlog.get_logger(__name__)
 
@@ -53,7 +55,11 @@ logger = structlog.get_logger(__name__)
 V2_WRITES_FLAG = "feature-flag-rules-v2-writes"
 V2_CREATION_FLAG = "feature-flag-rules-v2-creation"
 
-_RESERVED_STRING_VALUES_TEXT = '$false, $true or "null"'
+_RESERVED_STRING_VALUES = [
+    *(f'"{key}"' for key in sorted(RESERVED_NEW_VARIANT_KEYS) if key),
+    *sorted(FEATURE_FLAG_VARIANT_SENTINELS),
+]
+_RESERVED_STRING_VALUES_TEXT = f"{', '.join(_RESERVED_STRING_VALUES[:-1])} or {_RESERVED_STRING_VALUES[-1]}"
 
 
 def _flag_enabled(key: str, team_id: int) -> bool:

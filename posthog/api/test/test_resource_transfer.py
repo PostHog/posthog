@@ -18,6 +18,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
+from products.feature_flags.backend.models import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
 
@@ -303,6 +304,24 @@ class TestResourceTransferTransfer(APIBaseTest):
         data = response.json()
         assert data["count"] >= 1
         assert any(r["kind"] == "Insight" for r in data["created_resources"])
+
+    def test_transfer_refuses_a_flag_with_a_reserved_variant_key(self) -> None:
+        variants = [{"key": "control", "rollout_percentage": 50}, {"key": "false", "rollout_percentage": 50}]
+        flag = FeatureFlag.objects.create(team=self.team, key="split", filters={"multivariate": {"variants": variants}})
+
+        response = self.client.post(
+            self._transfer_url(),
+            {
+                "source_team_id": self.team.pk,
+                "destination_team_id": self.dest_team.pk,
+                "resource_kind": "FeatureFlag",
+                "resource_id": str(flag.pk),
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"] == "The variant key false is reserved. Choose another key."
+        assert not FeatureFlag.objects.filter(team=self.dest_team).exists()
 
     def test_transfer_with_substitution_uses_existing_resource(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
