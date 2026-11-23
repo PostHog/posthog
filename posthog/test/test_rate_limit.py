@@ -1226,7 +1226,7 @@ class TestReserveUnits(BaseTest):
     def test_a_reservation_counts_the_units_a_lagging_reader_has_not_seen(self):
         with (
             override_settings(CACHES=self._lagging_reader_caches()),
-            patch.object(_PSAKThrottleForTest, "rate", "5/minute"),
+            patch.object(_PSAKThrottleForTest, "rate", "5/hour"),
         ):
             try:
                 self._reserve([_PSAKThrottleForTest], 3)

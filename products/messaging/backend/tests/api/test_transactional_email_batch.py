@@ -595,17 +595,24 @@ class TestTransactionalEmailBatch(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("key_burst", TransactionalEmailBurstThrottle),
-            ("key_sustained", TransactionalEmailSustainedThrottle),
-            ("team_burst", TransactionalEmailTeamBurstThrottle),
-            ("team_sustained", TransactionalEmailTeamSustainedThrottle),
+            (f"{name}_{layout}", throttle, layout == "shared_prefix")
+            for name, throttle in [
+                ("key_burst", TransactionalEmailBurstThrottle),
+                ("key_sustained", TransactionalEmailSustainedThrottle),
+                ("team_burst", TransactionalEmailTeamBurstThrottle),
+                ("team_sustained", TransactionalEmailTeamSustainedThrottle),
+            ]
+            for layout in ("shared_prefix", "own_history_prefix")
         ]
     )
     def test_a_batch_spends_one_send_per_recipient_and_a_refused_one_spends_one(
-        self, mock_post, _flag, _capture, _name, throttle
+        self, mock_post, _flag, _capture, _name, throttle, shared_history_prefix
     ):
+        caches_under_test = lagging_reader_caches(
+            unique_key_prefix("test-batch-throttle"), shared_history_prefix=shared_history_prefix
+        )
         with (
-            override_settings(CACHES=lagging_reader_caches(unique_key_prefix("test-batch-throttle"))),
+            override_settings(CACHES=caches_under_test),
             self._enforce_rate_limits(),
             patch.object(throttle, "rate", "5/minute"),
         ):
