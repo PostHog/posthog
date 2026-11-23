@@ -21,4 +21,9 @@ echo "Applying ClickHouse migrations up to $LAST_BASE_MIGRATION (in $BASE) as th
 python manage.py migrate_clickhouse --upto "$((10#$LAST_BASE_MIGRATION))"
 
 echo "Applying newer ClickHouse migrations as the migrations user…"
-CLICKHOUSE_MIGRATIONS_USER=migrations CLICKHOUSE_MIGRATIONS_PASSWORD=migrationspass python manage.py migrate_clickhouse
+if ! CLICKHOUSE_MIGRATIONS_USER=migrations CLICKHOUSE_MIGRATIONS_PASSWORD=migrationspass python manage.py migrate_clickhouse; then
+    echo "A migration newer than $LAST_BASE_MIGRATION failed as the migrations user, which has the prod grants." >&2
+    echo "On 'Code: 497 Not enough privileges', prod refuses it too (e.g. DROP TABLE on a protected table)." >&2
+    echo "Get the privilege granted in posthog-cloud-infra first. Its sync then updates docker/clickhouse/users-dev.xml." >&2
+    exit 1
+fi
