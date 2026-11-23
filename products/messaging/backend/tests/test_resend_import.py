@@ -1048,7 +1048,7 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         assert run.progress["contacts"]["counts"] == {**counts, "repeats_merged": 2, "invalid_skipped": 1}
         notes = run.progress["contacts"]["items"][0]["notes"]
         assert {
-            "2 contacts had the same email as another contact, apart from capital letters or spaces, so they were "
+            "2 contacts had the same email as another contact, ignoring capital letters and spaces, so they were "
             "merged with that contact.",
             "1 contact had no valid email, so it was skipped.",
         } <= set(notes)

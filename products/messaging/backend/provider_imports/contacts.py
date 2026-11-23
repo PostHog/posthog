@@ -192,7 +192,7 @@ def save_contact_lists(
     notes = _notes(everyone, result)
     if merged := everyone.repeats_merged:
         notes.append(
-            f"{_contacts(merged)} had the same email as another contact, apart from capital letters or spaces, so "
+            f"{_contacts(merged)} had the same email as another contact, ignoring capital letters and spaces, so "
             f"{_they(merged)} merged with that contact."
         )
     if invalid := everyone.invalid_skipped:
