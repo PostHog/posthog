@@ -21,14 +21,14 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                                 language: 'bash',
                                 file: 'Expo',
                                 code: dedent`
-                                    npx expo install posthog-react-native@4 expo-file-system expo-application expo-device expo-localization @posthog/react-native-plugin@2
+                                    npx expo install posthog-react-native@4 expo-file-system expo-application expo-device expo-localization @posthog/react-native-plugin@3
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'yarn',
                                 code: dedent`
-                                    yarn add posthog-react-native@4 @react-native-async-storage/async-storage react-native-device-info react-native-localize @posthog/react-native-plugin@2
+                                    yarn add posthog-react-native@4 @react-native-async-storage/async-storage react-native-device-info react-native-localize @posthog/react-native-plugin@3
 
                                     # for iOS
                                     cd ios && pod install
@@ -38,7 +38,7 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                                 language: 'bash',
                                 file: 'npm',
                                 code: dedent`
-                                    npm i -s posthog-react-native@4 @react-native-async-storage/async-storage react-native-device-info react-native-localize @posthog/react-native-plugin@2
+                                    npm i -s posthog-react-native@4 @react-native-async-storage/async-storage react-native-device-info react-native-localize @posthog/react-native-plugin@3
 
                                     # for iOS
                                     cd ios && pod install
@@ -49,7 +49,7 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                     <CalloutBox type="fyi" title="Plugin renamed in 4.47.0+">
                         <Markdown>
                             {dedent`
-                                \`@posthog/react-native-plugin\` (\`>= 2.0.1\`) is the renamed \`posthog-react-native-session-replay\` plugin — it was renamed in \`posthog-react-native\` 4.47.0+ and now also powers [native error tracking](https://posthog.com/docs/error-tracking/installation/react-native). If you're on a \`posthog-react-native\` version earlier than 4.47.0, install \`posthog-react-native-session-replay\` instead.
+                                \`@posthog/react-native-plugin\` (\`>= 2.0.1\`) is the renamed \`posthog-react-native-session-replay\` plugin. It was renamed in \`posthog-react-native\` 4.47.0+ and now also powers [native error tracking](https://posthog.com/docs/error-tracking/installation/react-native). If you're on a \`posthog-react-native\` version earlier than 4.47.0, install \`posthog-react-native-session-replay\` instead. Don't install it alongside \`@posthog/react-native-plugin\` 3.0: its pod still installs \`posthog-ios\` 3.x, and the Xcode build fails with \`Redefinition of module 'PostHog'\`.
                             `}
                         </Markdown>
                     </CalloutBox>
@@ -170,8 +170,10 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                     </Markdown>
                     <CalloutBox type="fyi" title="Requirements">
                         <Markdown>
-                            Requires Android API 26+ and iOS 13+. Expo Go is not supported - use a development build.
-                            Session replay is only supported on Android and iOS platforms.
+                            Requires React Native 0.75+, Android API 26+, iOS 15+, and Xcode 26+. On React Native 0.75
+                            and 0.76, including Expo SDK 52, Android builds also need Kotlin 2.0 or later. Expo Go is
+                            not supported - use a development build. Session replay is only supported on Android and iOS
+                            platforms.
                         </Markdown>
                     </CalloutBox>
                 </>
