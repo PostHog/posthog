@@ -1602,7 +1602,7 @@ async fn every_warm_of_a_partition_gets_a_fill_and_tracking_ends_with_it() {
     let writer_group = format!("writer_{topic}");
     let producers = Arc::new(fenced_producers(1));
     let cache = Arc::new(PartitionedCache::new(1 << 20));
-    let fill = personhog_leader::warming::FillConfig {
+    let fill = personhog_leader::cache_fill::FillConfig {
         lookback: Duration::from_secs(3600),
         chunk_offsets: 4,
         target_fraction: 0.9,

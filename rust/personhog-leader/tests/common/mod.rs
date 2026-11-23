@@ -30,13 +30,13 @@ use personhog_coordination::types::{ChangelogConfig, ChangelogTarget};
 use personhog_leader::coordination::{Capture, ChangelogCaptures};
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::client::DefaultClientContext;
-use rdkafka::consumer::BaseConsumer;
+use rdkafka::consumer::{BaseConsumer, CommitMode, Consumer};
 use rdkafka::error::KafkaError;
 use rdkafka::message::BorrowedMessage;
 use rdkafka::mocking::MockCluster;
-use rdkafka::producer::{DefaultProducerContext, FutureProducer};
+use rdkafka::producer::{DefaultProducerContext, FutureProducer, FutureRecord};
 use rdkafka::types::RDKafkaErrorCode;
-use rdkafka::ClientConfig;
+use rdkafka::{ClientConfig, Offset, TopicPartitionList};
 
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use personhog_common::partitioning::partition_for_person;
@@ -46,10 +46,12 @@ use personhog_leader::inflight::InflightTracker;
 use personhog_leader::pg::{LifecycleTables, PgFallback};
 use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
 use personhog_leader::service::{PersonHogLeaderService, PropertySizeLimits};
-use personhog_leader::warming::WarmClientPools;
+use personhog_leader::warming::{WarmClientPools, WarmingConfig};
 use personhog_leader::warnings::WarningsProducer;
 use personhog_proto::personhog::leader::v1::person_hog_leader_client::PersonHogLeaderClient;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
+use personhog_proto::personhog::types::v1::Person;
+use prost::Message as ProtoMessage;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
@@ -949,7 +951,7 @@ pub fn test_handoff_handler_with_fill(
     topic: &str,
     fenced: Arc<personhog_leader::fencing::FencedChangelogProducers>,
     cache: Arc<PartitionedCache>,
-    fill: Option<personhog_leader::warming::FillConfig>,
+    fill: Option<personhog_leader::cache_fill::FillConfig>,
     writer_group: &str,
 ) -> personhog_leader::coordination::LeaderHandoffHandler {
     handoff_handler_over(
@@ -1052,4 +1054,98 @@ pub fn served_captures(topic: &str, partitions: u32) -> ChangelogCaptures {
             })
             .collect(),
     )
+}
+
+/// Build a Person proto with deterministic fields — enough that the
+/// warming pipeline's decode + JSON-parse + cache-write round-trip
+/// covers every code path.
+pub fn make_person(team_id: i64, person_id: i64) -> Person {
+    Person {
+        id: person_id,
+        uuid: format!("00000000-0000-0000-0000-{person_id:012}"),
+        team_id,
+        properties: serde_json::to_vec(&serde_json::json!({
+            "email": format!("p{person_id}@example.com"),
+        }))
+        .unwrap(),
+        created_at: 1700000000,
+        version: 1,
+        is_identified: false,
+        is_user_id: None,
+        last_seen_at: None,
+        is_deleted: false,
+    }
+}
+
+/// Produce a Person to a specific partition. Uses the mock cluster's
+/// producer; the warming consumer must point at the same broker.
+pub async fn produce_person_to_partition(
+    producer: &FutureProducer<common_kafka::kafka_producer::KafkaContext>,
+    partition: i32,
+    person: &Person,
+) {
+    let key = format!("{}:{}", person.team_id, person.id);
+    let payload = person.encode_to_vec();
+    let record = FutureRecord::to(CHANGELOG_TOPIC)
+        .key(&key)
+        .partition(partition)
+        .payload(&payload);
+    producer
+        .send(record, Duration::from_secs(5))
+        .await
+        .expect("produce should succeed");
+}
+
+/// Produce a malformed message (raw bytes that don't decode as a Person
+/// proto) to exercise the fail-loud decode branch.
+pub async fn produce_garbage_to_partition(
+    producer: &FutureProducer<common_kafka::kafka_producer::KafkaContext>,
+    partition: i32,
+) {
+    let key = "garbage";
+    // Payload that isn't valid Person proto: a long byte string of 0xFFs
+    // — prost's varint decoder rejects these immediately.
+    let payload = vec![0xFFu8; 32];
+    let record = FutureRecord::to(CHANGELOG_TOPIC)
+        .key(key)
+        .partition(partition)
+        .payload(&payload);
+    producer
+        .send(record, Duration::from_secs(5))
+        .await
+        .expect("produce should succeed");
+}
+
+pub fn warming_config_for(
+    pod_name: &str,
+    cluster: &MockCluster<'static, DefaultProducerContext>,
+) -> (WarmingConfig, WarmClientPools) {
+    let cfg = test_warming_config(pod_name, &cluster.bootstrap_servers());
+    let pools = WarmClientPools::new(&cfg.kafka, pod_name, &cfg.writer_consumer_group);
+    (cfg, pools)
+}
+
+/// Commit a specific offset for the writer's consumer group on a given
+/// partition. Mirrors what the writer pod would do after persisting
+/// records up through that offset to PG. The warming pipeline reads
+/// this committed offset to bound the range it needs to repopulate.
+pub fn commit_writer_offset_at(
+    cluster: &MockCluster<'static, DefaultProducerContext>,
+    writer_group: &str,
+    partition: i32,
+    offset: i64,
+) {
+    let consumer: BaseConsumer = ClientConfig::new()
+        .set("bootstrap.servers", cluster.bootstrap_servers())
+        .set("group.id", writer_group)
+        .set("enable.auto.commit", "false")
+        .create()
+        .expect("failed to create writer-group consumer");
+
+    let mut tpl = TopicPartitionList::new();
+    tpl.add_partition_offset(CHANGELOG_TOPIC, partition, Offset::Offset(offset))
+        .expect("tpl add_partition_offset");
+    consumer
+        .commit(&tpl, CommitMode::Sync)
+        .expect("writer-group commit");
 }

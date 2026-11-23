@@ -206,7 +206,7 @@ broker can't park the runtime thread.
 
 #### Cache fill after a warm
 
-With `CACHE_FILL_LOOKBACK_SECS` above zero, a newly warmed partition refills its cache in the background from the changelog below the warm's start offset, newest records first (`run_fills` in `src/warming.rs`).
+With `CACHE_FILL_LOOKBACK_SECS` above zero, a newly warmed partition refills its cache in the background from the changelog below the warm's start offset, newest records first (`run_fills` in `src/cache_fill.rs`).
 It inserts only a person the partition has not put since the warm began.
 
 One task fills up to `CACHE_FILL_CONCURRENCY` partitions at a time (default 8), on one consumer per changelog cluster.

@@ -14,6 +14,7 @@ use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
 use crate::cache::{DirtyIndex, PartitionedCache};
+use crate::cache_fill::{run_fills, FillConfig, FillRequest, Fills};
 use crate::emitted::EmittedVersions;
 use crate::fence::{drop_partition_fences, rebuild_partition_fences, FenceMap};
 #[cfg(test)]
@@ -24,9 +25,7 @@ use crate::fencing::{
 };
 use crate::inflight::InflightTracker;
 use crate::pg::PgFallback;
-use crate::warming::{
-    run_fills, warm_from_sources, FillConfig, FillRequest, Fills, WarmClientPools, WarmingConfig,
-};
+use crate::warming::{warm_from_sources, WarmClientPools, WarmingConfig};
 
 /// The config a partition was acquired under.
 pub struct Capture {

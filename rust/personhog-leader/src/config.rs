@@ -450,8 +450,8 @@ const MIN_MESSAGE_TIMEOUT: Duration = Duration::from_millis(250);
 const MAX_BROKER_TXN_TIMEOUT: Duration = Duration::from_secs(900);
 
 impl Config {
-    pub fn cache_fill(&self) -> Option<crate::warming::FillConfig> {
-        (self.cache_fill_lookback_secs > 0).then(|| crate::warming::FillConfig {
+    pub fn cache_fill(&self) -> Option<crate::cache_fill::FillConfig> {
+        (self.cache_fill_lookback_secs > 0).then(|| crate::cache_fill::FillConfig {
             lookback: Duration::from_secs(self.cache_fill_lookback_secs),
             chunk_offsets: self.cache_fill_chunk_offsets.max(1),
             // Above 1.0 the fill would evict the entries it had just restored.
