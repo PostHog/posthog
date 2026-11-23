@@ -280,7 +280,6 @@ def seed_deal_account_relationship(context: CustomPromptSandboxContext) -> dict[
         source_table_name=DEALS_TABLE,
         target_table_name=ACCOUNTS_TABLE,
         field_name=DEALS_ACCOUNT_RELATIONSHIP_FIELD,
-        confidence=0.97,
         reasoning=DEALS_ACCOUNT_RELATIONSHIP_REASONING,
         source_key="account_id",
         target_key="account_id",

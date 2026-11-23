@@ -2242,6 +2242,12 @@ class MarketingAnalyticsRecommendationCpaBenchmarkSource(StrEnum):
     ACCOUNT = "account"
 
 
+class MarketingAnalyticsRecommendationDetectedChange(StrEnum):
+    NEGATIVE_KEYWORD = "negative_keyword"
+    BRAND_NEGATIVE = "brand_negative"
+    KEYWORD_ADDED = "keyword_added"
+
+
 class MarketingAnalyticsRecommendationIdentitySourceType(StrEnum):
     GOOGLE_ADS = "google_ads"
 

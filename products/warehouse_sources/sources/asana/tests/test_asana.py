@@ -210,6 +210,93 @@ class TestFanOut:
         # Asana 400s GET /portfolios for a non-service-account token without an explicit owner.
         assert all(request.param("owner") == "me" for request in result.requests if "/portfolios" in request.path)
 
+    @pytest.mark.parametrize(
+        "endpoint, edge_path",
+        [
+            ("task_dependencies", "dependencies"),
+            ("task_dependents", "dependents"),
+        ],
+    )
+    def test_task_dependency_edges_carry_the_task_gid(self, endpoint: str, edge_path: str) -> None:
+        next_uri = f"{ASANA_BASE_URL}/tasks/T1/{edge_path}?offset=tok2"
+        result = _driver().run(
+            endpoint,
+            [
+                _page([{"gid": "W1"}]),
+                _page([{"gid": "P1"}]),
+                _page([{"gid": "T1"}, {"gid": "T2"}]),
+                _page([{"gid": "D1"}], next_uri=next_uri),
+                _page([{"gid": "D2"}]),
+                _page([{"gid": "D1"}]),
+            ],
+        )
+
+        assert result.raised is None
+        # The same task linked to two tasks — only the composite key keeps both rows.
+        assert [(row["task_gid"], row["gid"]) for row in result.rows] == [("T1", "D1"), ("T1", "D2"), ("T2", "D1")]
+        assert not any("_tasks_gid" in row for row in result.rows)
+        assert result.paths[3:] == [
+            f"/api/1.0/tasks/T1/{edge_path}",
+            f"/api/1.0/tasks/T1/{edge_path}",
+            f"/api/1.0/tasks/T2/{edge_path}",
+        ]
+        assert result.urls[4] == next_uri
+
+    def test_goal_relationships_are_requested_per_supported_goal(self) -> None:
+        result = _driver().run(
+            "goal_relationships",
+            [
+                _page([{"gid": "W1"}]),
+                _page([{"gid": "G1"}, {"gid": "G2"}]),
+                _page([{"gid": "r1"}, {"gid": "r2"}]),
+                _page([]),
+            ],
+        )
+
+        assert result.raised is None
+        assert [row["gid"] for row in result.rows] == ["r1", "r2"]
+        # The endpoint rejects a request without `supported_goal`.
+        relationship_requests = [request for request in result.requests if "/goal_relationships" in request.path]
+        assert [request.param("supported_goal") for request in relationship_requests] == ["G1", "G2"]
+        assert all(request.param("limit") == "100" for request in relationship_requests)
+
+    @pytest.mark.parametrize(
+        "workspaces, expected_requests",
+        [
+            ([], []),
+            ([{"gid": "W1"}], [("W1", "false"), ("W1", "true")]),
+            ([{"gid": "W1"}, {"gid": "W2"}], [("W1", "false"), ("W1", "true"), ("W2", "false"), ("W2", "true")]),
+        ],
+    )
+    def test_time_tracking_categories_request_active_and_archived(
+        self, workspaces: list[dict[str, Any]], expected_requests: list[tuple[str, str]]
+    ) -> None:
+        category_pages = [_page([{"gid": f"c{i}"}]) for i in range(len(expected_requests))]
+        result = _driver().run("time_tracking_categories", [_page(workspaces), *category_pages])
+
+        assert result.raised is None
+        assert [row["gid"] for row in result.rows] == [f"c{i}" for i in range(len(expected_requests))]
+        # Without `is_archived=true` Asana leaves out archived categories that old entries still carry.
+        category_requests = [request for request in result.requests if "/time_tracking_categories" in request.path]
+        assert [(r.param("workspace"), r.param("is_archived")) for r in category_requests] == expected_requests
+
+    def test_allocations_are_requested_per_project(self) -> None:
+        result = _driver().run(
+            "allocations",
+            [
+                _page([{"gid": "W1"}]),
+                _page([{"gid": "P1"}, {"gid": "P2"}]),
+                _page([{"gid": "a1"}]),
+                _page([{"gid": "a2"}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert [row["gid"] for row in result.rows] == ["a1", "a2"]
+        allocation_requests = [request for request in result.requests if "/allocations" in request.path]
+        # Asana rejects an unfiltered /allocations; `parent` is the project filter.
+        assert [request.param("parent") for request in allocation_requests] == ["P1", "P2"]
+
     def test_project_level_chain_yields_grandchild_rows(self) -> None:
         result = _driver().run(
             "tasks",

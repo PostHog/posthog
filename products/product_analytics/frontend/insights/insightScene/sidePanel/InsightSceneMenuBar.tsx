@@ -22,6 +22,7 @@ import { Button } from '@posthog/quill'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { metalyticsLogic } from 'lib/components/Metalytics/metalyticsLogic'
+import { openSaveAsCohortDialog } from 'lib/components/openSaveAsCohortDialog'
 import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
 import { SceneMenuBarAddToNotebook } from 'lib/components/Scenes/SceneMenuBarAddToNotebook'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
@@ -74,7 +75,6 @@ import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
 import { urlForSubscriptions } from 'products/subscriptions/frontend/components/Subscriptions/utils'
 
 import { insightModalsLogic } from '../insightModalsLogic'
-import { openSaveAsCohortDialog } from './insightSidePanelDialogs'
 
 const RESOURCE_TYPE = 'insight'
 
@@ -256,7 +256,10 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                                         <SceneMenuBarItem
                                             opensFloatingUi
                                             onClick={() =>
-                                                openSaveAsCohortDialog(createStaticCohort, hogQL!, hogQLVariables)
+                                                openSaveAsCohortDialog(createStaticCohort, {
+                                                    query: hogQL!,
+                                                    variables: hogQLVariables,
+                                                })
                                             }
                                             data-attr={`${RESOURCE_TYPE}-menubar-create-cohort`}
                                         >

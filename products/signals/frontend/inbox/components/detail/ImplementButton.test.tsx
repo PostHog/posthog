@@ -106,7 +106,7 @@ describe('ImplementButton', () => {
                     action_type: 'implementation_button_clicked',
                     surface: 'detail_pane',
                     button_action: 'implement',
-                    button_position: 'body',
+                    button_position: 'header',
                 }),
                 undefined,
             ],
@@ -388,7 +388,6 @@ describe('ImplementButton', () => {
         render(
             <ImplementButton
                 report={report}
-                position="header"
                 reportTaskToOpen={detail.values.reportTaskToOpen}
                 implementationDisabledReason={detail.values.implementationDisabledReason}
             />
@@ -496,7 +495,7 @@ describe('ImplementButton', () => {
                     action_type: 'implementation_button_clicked',
                     surface: 'detail_pane',
                     button_action: 'implement',
-                    button_position: 'body',
+                    button_position: 'header',
                 }),
                 undefined,
             ],

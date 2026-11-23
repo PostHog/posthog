@@ -209,13 +209,13 @@ describe('tagRuleModalLogic', () => {
             await expectLogic(issueTagDefinitionsLogic, () => {
                 issueTagDefinitionsLogic.mount()
             }).toFinishAllListeners()
-            options.actions.setIssueTag({ key: enabledRule.key, applied: true })
+            options.actions.setIssueTagState(enabledRule.key, 'has')
 
             const logic = tagRuleModalLogic()
             logic.mount()
             const list = rulesLogic({ ruleType: ErrorTrackingRuleType.Tag })
             await expectLogic(list, () => list.actions.loadRules()).toFinishAllListeners()
-            expect(options.values.issueTag).toEqual({ key: enabledRule.key, applied: true })
+            expect(options.values.issueTags).toEqual({ has: [enabledRule.key], hasNot: [] })
 
             if (deletedFrom === 'the rule modal') {
                 logic.actions.openModal(enabledRule)
@@ -226,7 +226,7 @@ describe('tagRuleModalLogic', () => {
                 await expectLogic(list, () => list.actions.deleteSelectedRules()).toFinishAllListeners()
             }
 
-            expect(options.values.issueTag).toBeNull()
+            expect(options.values.issueTags).toBeNull()
         }
     )
 
@@ -252,7 +252,7 @@ describe('tagRuleModalLogic', () => {
         await expectLogic(issueTagDefinitionsLogic, () => {
             issueTagDefinitionsLogic.mount()
         }).toFinishAllListeners()
-        options.actions.setIssueTag({ key: deletedRule.key, applied: true })
+        options.actions.setIssueTagState(deletedRule.key, 'has')
         tagRuleModalLogic.mount()
         const list = rulesLogic({ ruleType: ErrorTrackingRuleType.Tag })
         await expectLogic(list, () => list.actions.loadRules()).toFinishAllListeners()
@@ -262,7 +262,7 @@ describe('tagRuleModalLogic', () => {
         await expectLogic(list, () => list.actions.deleteSelectedRules()).toFinishAllListeners()
 
         expect(list.values.rules.map((rule) => rule.id)).toEqual([failingRule.id])
-        expect(options.values.issueTag).toBeNull()
+        expect(options.values.issueTags).toBeNull()
     })
 
     // Cancel clears the selection while the deletes run. Reading the selection after them treats every delete as failed.

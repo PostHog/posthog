@@ -979,7 +979,7 @@ export const IssueTagColorEnumApi = {
 } as const
 
 export interface ErrorTrackingIssueTagReadApi {
-    /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+    /** Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, or in `issueTags.hasNot` to keep the issues that do not. */
     key: string
     /** Short name of the tag. */
     label: string
@@ -1226,7 +1226,7 @@ export interface PatchedErrorTrackingIssueTagWriteApi {
 }
 
 export interface ErrorTrackingIssueTagCorrectionApi {
-    /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+    /** Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, or in `issueTags.hasNot` to keep the issues that do not. */
     key: string
     /** Short name of the tag. */
     label: string
@@ -1285,7 +1285,7 @@ export interface ErrorTrackingIssueExistsResponseApi {
 }
 
 export interface ErrorTrackingIssueTagDefinitionApi {
-    /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+    /** Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, or in `issueTags.hasNot` to keep the issues that do not. */
     key: string
     /** Short name of the tag. */
     label: string

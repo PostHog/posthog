@@ -420,7 +420,6 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
             joining_table_name=target.name,
             joining_table_key="id",
             field_name="customer",
-            confidence=0.9,
             reasoning="Reviewed join",
         )
         self._accept_relationship(proposal)
@@ -428,14 +427,14 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
 
         with connection.execute_wrapper(_fail_queries_for_table(RelationshipProposal._meta.db_table)):
             response = execute_hogql_query(
-                "SELECT source_column, target_table, target_column, confidence, reasoning "
+                "SELECT source_column, target_table, target_column, reasoning "
                 "FROM system.information_schema.relationships "
                 "WHERE source_table = 'fail_soft_orders' AND target_table = 'fail_soft_customers'",
                 team=self.team,
                 context=context,
             )
 
-        assert response.results == [("id", "fail_soft_customers", "id", None, None)]
+        assert response.results == [("id", "fail_soft_customers", "id", None)]
 
     @parameterized.expand(
         [
@@ -447,7 +446,7 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
     )
     def test_editing_accepted_join_drops_stale_provenance(self, _name: str, edit: dict) -> None:
         # The created join is editable with warehouse_view:write alone; approval rights are not
-        # required. If it diverges from the reviewed snapshot, its confidence/reasoning must drop so
+        # required. If it diverges from the reviewed snapshot, its reasoning must drop so
         # an unreviewed join can't masquerade as reviewed.
         source = self._create_warehouse_table("prov_orders")
         self._create_warehouse_table("prov_customers")
@@ -459,25 +458,21 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
             joining_table_name="prov_customers",
             joining_table_key="id",
             field_name="customer",
-            confidence=0.9,
             reasoning="Reviewed join",
         )
         self._accept_relationship(proposal)
         proposal.refresh_from_db()
 
-        query = (
-            "SELECT confidence, reasoning FROM system.information_schema.relationships "
-            "WHERE source_table = 'prov_orders'"
-        )
+        query = "SELECT reasoning FROM system.information_schema.relationships WHERE source_table = 'prov_orders'"
         before = execute_hogql_query(query, team=self.team, context=self._context())
-        assert (0.9, "Reviewed join") in before.results
+        assert ("Reviewed join",) in before.results
 
         assert proposal.created_join_id is not None
         DataWarehouseJoin.objects.filter(pk=proposal.created_join_id).update(**edit)
 
         after = execute_hogql_query(query, team=self.team, context=self._context())
         assert after.results, "the active join should still be discoverable after an edit"
-        assert all(row == (None, None) for row in after.results)
+        assert all(row == (None,) for row in after.results)
 
     def _propose_catalog_relationship(self, source_name: str, target_name: str) -> RelationshipProposal:
         source = self._create_warehouse_table(source_name)
@@ -490,7 +485,6 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
             joining_table_name=target.name,
             joining_table_key="id",
             field_name="customer",
-            confidence=0.8,
             reasoning="Keys overlap",
         )
 
@@ -498,14 +492,12 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
         proposal = self._propose_catalog_relationship("catalog_orders", "catalog_customers")
 
         queue = execute_hogql_query(
-            "SELECT id, source_table, source_column, target_table, target_column, confidence, reasoning "
+            "SELECT id, source_table, source_column, target_table, target_column, reasoning "
             "FROM system.information_schema.relationship_proposals WHERE source_table = 'catalog_orders'",
             team=self.team,
             context=self._context(),
         )
-        assert queue.results == [
-            (str(proposal.id), "catalog_orders", "id", "catalog_customers", "id", 0.8, "Keys overlap")
-        ]
+        assert queue.results == [(str(proposal.id), "catalog_orders", "id", "catalog_customers", "id", "Keys overlap")]
 
         # A pending proposal is not a usable join, so it must never appear in the joins table.
         joins = execute_hogql_query(
@@ -530,7 +522,6 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
             field_name="customer",
             configuration={"experiments_optimized": True},
             evidence={"match_rate": 0.97, "sample": ["c_1", "c_2"]},
-            confidence=0.9,
             reasoning="97% match",
         )
 
@@ -605,7 +596,6 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
             joining_table_name=target.name,
             joining_table_key="id",
             field_name="customer",
-            confidence=0.9,
             reasoning="Sensitive review context",
         )
         self._accept_relationship(proposal)
@@ -619,13 +609,13 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
             context=context,
         )
         relationship_context = execute_hogql_query(
-            "SELECT confidence, reasoning FROM system.information_schema.relationships "
+            "SELECT reasoning FROM system.information_schema.relationships "
             "WHERE source_table = 'catalog_access_orders' AND target_table = 'catalog_access_customers'",
             team=self.team,
             context=context,
         )
         assert certifications.results == [(None,)]
-        assert relationship_context.results == [(None, None)]
+        assert relationship_context.results == [(None,)]
 
     @parameterized.expand([("source", "orders"), ("target", "customers")])
     def test_accepted_context_hidden_when_endpoint_table_is_denied(self, _name: str, denied_table_name: str) -> None:
@@ -639,7 +629,6 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
             joining_table_name=target.name,
             joining_table_key="id",
             field_name="customer",
-            confidence=0.7,
             reasoning="Must not leak",
         )
         self._accept_relationship(proposal)
@@ -660,19 +649,17 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
             joining_table_name="persons",
             joining_table_key="id",
             field_name="reviewed_person",
-            confidence=0.9,
             reasoning="97% key match",
         )
         self._accept_relationship(proposal)
 
         response = execute_hogql_query(
-            "SELECT confidence, reasoning FROM system.information_schema.relationships "
+            "SELECT reasoning FROM system.information_schema.relationships "
             "WHERE source_table = 'events' AND relationship_kind = 'lazy_join' AND reasoning IS NOT NULL",
             team=self.team,
             context=self._context(),
         )
-        assert [row[1] for row in response.results] == ["97% key match"]
-        assert response.results[0][0] == 0.9
+        assert response.results == [("97% key match",)]
 
     def test_replacement_join_does_not_inherit_deleted_join_provenance(self) -> None:
         proposal = propose_relationship(
@@ -683,7 +670,6 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
             joining_table_name="persons",
             joining_table_key="id",
             field_name="reviewed_person",
-            confidence=0.9,
             reasoning="Original review",
         )
         accepted = self._accept_relationship(proposal)
@@ -700,7 +686,7 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
         )
 
         response = execute_hogql_query(
-            "SELECT confidence, reasoning FROM system.information_schema.relationships "
+            "SELECT reasoning FROM system.information_schema.relationships "
             "WHERE source_table = 'events' AND source_column = 'distinct_id' AND target_table = 'persons' "
             "AND relationship_kind = 'lazy_join' AND reasoning IS NOT NULL",
             team=self.team,
