@@ -47,6 +47,10 @@ Retrieving one run also returns the reviewer's reasoning, the same text stamphog
 A project member can also ask for a review directly, by creating a review run (`POST code_review/approvals/runs/`, or the `code-review-approvals-runs-create` MCP tool), and then poll the run for its verdict.
 The request replaces the trigger label, so it works in label mode.
 Every other rule still applies: drafts, closed PRs, bot-authored PRs, PRs from outside the repository, and PRs whose author lacks write access are refused.
+A request for a commit that auto-approval already reviewed returns that review, with one exception.
+After a refusal, a request reviews the same commit again when people changed what the reviewer reads: they edited the title or description, answered in the discussion or a review, or resolved or reopened a review thread.
+Comments from bots don't count, and evidence that a review of the commit already saw starts no new review.
+A commit gets at most three of these reviews. After that, push a change to get another review.
 A bot-authored PR is reviewed only when the repository names that bot under `bot_authors` in its policy, and then only when a pinned attestation vouches for every file in it.
 
 A repository can also let a clean PostHog Review run start a review, with the `review_on_clean_external_review` switch on the repo config API (off by default, `manager` level to change, reset when a placeholder row binds).
