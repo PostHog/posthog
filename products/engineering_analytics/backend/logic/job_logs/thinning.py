@@ -1,26 +1,16 @@
-"""Thin a GitHub Actions job log down to its failure-relevant lines.
+"""Thin a CI job log down to its failure-relevant lines.
 
-A failed job's log is mostly noise (dependency downloads, hundreds of passing migrations) around a
-small failure region. We keep that region — lines matching a high-precision failure marker plus
-context — and a short tail fallback; everything else collapses to a ``... N lines omitted ...``
-marker, turning multi-MB logs into a few hundred lines without losing the cause.
-
-Pure transform, decoupled from fetch/emit: all-jobs ingestion can later thin *non-failure* logs by
-passing a different ``ThinningConfig``. (A structured alternative — the check-run annotations API or
-JUnit XML — is a cleaner future upgrade but depends on per-workflow instrumentation we don't control.)
-
-Markers are exact, case-sensitive substrings, deliberately high-precision: bare ``error`` / ``failed``
-are NOT markers — real logs are full of them (``errortracking`` migrations, ``0 failed`` summaries)
-and they would defeat the thinning.
+The kept lines are those near a failure marker, plus a short tail. Every other stretch collapses
+to a ``... N lines omitted ...`` marker.
 """
 
 import dataclasses
 
-# Failure anchors. First two are GitHub's own ::error / ::warning annotations; the rest are framework
-# fallbacks for steps that emit no annotation. Substring match, case-sensitive.
+# Exact, case-sensitive substrings. Bare ``error`` and ``failed`` are not markers, because logs
+# are full of them (``errortracking`` migrations, ``0 failed`` summaries) and nothing would be thinned.
 DEFAULT_FAILURE_MARKERS: tuple[str, ...] = (
-    "##[error]",  # GitHub step failure — emitted on every failed step
-    "##[warning]",  # GitHub warning annotation — non-fatal but worth surfacing
+    "##[error]",  # GitHub emits this on every failed step
+    "##[warning]",
     "Traceback (most recent call last)",  # Python
     "AssertionError",  # Python / JS
     "FAILED ",  # pytest per-test failure line
@@ -33,15 +23,12 @@ DEFAULT_FAILURE_MARKERS: tuple[str, ...] = (
 
 @dataclasses.dataclass(frozen=True)
 class ThinningConfig:
-    """Knobs for :func:`thin_log`. Defaults target failure logs; other log types pass their own."""
-
     markers: tuple[str, ...] = DEFAULT_FAILURE_MARKERS
-    leading_context: int = 15  # lines kept before a marker (the cause usually precedes the marker)
-    trailing_context: int = 10  # lines kept after a marker (a traceback's frames follow it)
-    # Fallback for the rare marker-less log; the summary itself is already caught by the ##[error]
-    # window (Actions appends cleanup steps after the test step, so the literal tail is mostly noise).
+    leading_context: int = 15  # the cause usually precedes the marker
+    trailing_context: int = 10  # a traceback's frames follow the marker
+    # The fallback for a log with no marker.
     tail_lines: int = 50
-    max_lines: int = 400  # hard cap on kept lines; logs at or under this pass through untouched
+    max_lines: int = 400  # a log at or under this passes through untouched
 
 
 FAILURE_THINNING = ThinningConfig()
@@ -49,10 +36,8 @@ FAILURE_THINNING = ThinningConfig()
 
 @dataclasses.dataclass(frozen=True)
 class ThinnedLine:
-    """One line of a thinned log. ``original_line_number`` is the line's 1-based position in the full
-    pre-thinning log; None for a synthetic ``... N lines omitted ...`` marker. The number is the only
-    durable anchor back to the original — the full log isn't stored and GitHub expires it.
-    """
+    """``original_line_number`` is the line's 1-based position in the full log, or None for an
+    omission marker. It is the only anchor back to the full log, which is not stored."""
 
     text: str
     original_line_number: int | None
@@ -63,12 +48,6 @@ def _matches_marker(line: str, markers: tuple[str, ...]) -> bool:
 
 
 def thin_log_lines(text: str, config: ThinningConfig = FAILURE_THINNING) -> list[ThinnedLine]:
-    """Return the failure-relevant slice of ``text`` as lines, each tagged with its 1-based position in
-    the full log (None for an omission marker). Pure; no I/O.
-
-    Logs at or under ``config.max_lines`` pass through untouched (every line kept, numbered) so small
-    failures keep full fidelity; larger logs collapse the noise to ``... N lines omitted ...`` markers.
-    """
     lines = text.splitlines()
     total = len(lines)
     if total <= config.max_lines:
@@ -84,7 +63,7 @@ def thin_log_lines(text: str, config: ThinningConfig = FAILURE_THINNING) -> list
 
     selected = sorted(keep)
     if len(selected) > config.max_lines:
-        # Bias to the end: the final summary matters more than the first of many failures.
+        # Keep the end, because the final summary matters more than the first of many failures.
         selected = selected[-config.max_lines :]
 
     out: list[ThinnedLine] = []
@@ -100,5 +79,4 @@ def thin_log_lines(text: str, config: ThinningConfig = FAILURE_THINNING) -> list
 
 
 def thin_log(text: str, config: ThinningConfig = FAILURE_THINNING) -> str:
-    """Text rendering of :func:`thin_log_lines` — kept lines joined, omission markers inline."""
     return "\n".join(line.text for line in thin_log_lines(text, config))

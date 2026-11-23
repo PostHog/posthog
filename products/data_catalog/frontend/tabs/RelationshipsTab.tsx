@@ -102,12 +102,6 @@ export function RelationshipsTab(): JSX.Element {
             sorter: (a, b) => compareText(a.fieldName, b.fieldName),
         },
         {
-            title: 'Confidence',
-            key: 'confidence',
-            render: (_, row) => (row.confidence != null ? `${Math.round(row.confidence * 100)}%` : ''),
-            sorter: (a, b) => (a.confidence ?? -1) - (b.confidence ?? -1),
-        },
-        {
             title: 'Status',
             key: 'status',
             render: (_, row) => (

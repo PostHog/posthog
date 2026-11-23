@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { IconEllipsis, IconExternal, IconWarning } from '@posthog/icons'
 import {
+    Button,
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
@@ -15,10 +16,13 @@ import { navSwitchLogic } from 'lib/components/NavSwitch/navSwitchLogic'
 import { urls } from 'scenes/urls'
 
 import { todayMenuLinkItem } from './todayMenuLinkItem'
+import { TodayMoreMenuSupportItem } from './TodayMoreMenuSupportItem'
 import { TodayNavSwitchMenuItem } from './TodayNavSwitchMenuItem'
+import { TODAY_PANES } from './todayRailItems'
 import { SEVERITY_TEXT_CLASS } from './todayRailSeverity'
 import { todayRailStatusLogic } from './todayRailStatusLogic'
 import { TodayRailTile } from './TodayRailTile'
+import { TodayRailPane, railPaneHref, todayShellLogic } from './todayShellLogic'
 import { TodayTabBarTab } from './TodayTabBarTab'
 import { todayTourLogic } from './todayTourLogic'
 
@@ -26,7 +30,13 @@ import { todayTourLogic } from './todayTourLogic'
  * The "More" menu, on the rail or in the phone layout's tab bar. The help menu shortcut opens it too.
  * Its `data-attr`s are pinned: they match the classic help menu, so autocapture data stays continuous.
  */
-export function TodayMoreMenu({ placement = 'rail' }: { placement?: 'rail' | 'tab-bar' }): JSX.Element {
+export function TodayMoreMenu({
+    placement = 'rail',
+    overflowPanes = [],
+}: {
+    placement?: 'rail' | 'tab-bar'
+    overflowPanes?: TodayRailPane[]
+}): JSX.Element {
     const { isHelpMenuOpen } = useValues(helpMenuLogic)
     const { setHelpMenuOpen } = useActions(helpMenuLogic)
     const { statusPageUrl } = useValues(posthogStatusLogic)
@@ -34,6 +44,9 @@ export function TodayMoreMenu({ placement = 'rail' }: { placement?: 'rail' | 'ta
         useValues(todayRailStatusLogic)
     const { switchAvailable } = useValues(navSwitchLogic)
     const { tourActive } = useValues(todayTourLogic)
+    const { activePane, effectivePhaiView, featureFlags } = useValues(todayShellLogic)
+    const { clickRailPane } = useActions(todayShellLogic)
+    const overflowActive = overflowPanes.includes(activePane)
     const Tile = placement === 'tab-bar' ? TodayTabBarTab : TodayRailTile
 
     return (
@@ -50,7 +63,7 @@ export function TodayMoreMenu({ placement = 'rail' }: { placement?: 'rail' | 'ta
                                 <IconWarning className={SEVERITY_TEXT_CLASS[statusSeverity]} />
                             )
                         }
-                        active={isHelpMenuOpen}
+                        active={isHelpMenuOpen || overflowActive}
                         dataAttr="help-menu-button"
                         severity={moreSeverity}
                         aria-label={moreLabel}
@@ -58,6 +71,31 @@ export function TodayMoreMenu({ placement = 'rail' }: { placement?: 'rail' | 'ta
                 }
             />
             <DropdownMenuContent side={placement === 'tab-bar' ? 'top' : 'right'} align="end" className="w-56">
+                {overflowPanes.length > 0 && (
+                    <>
+                        {overflowPanes.map((pane) => {
+                            const href = railPaneHref(pane, effectivePhaiView, featureFlags)
+                            return (
+                                <DropdownMenuItem
+                                    key={pane}
+                                    render={href ? todayMenuLinkItem(href) : <Button size="row" left />}
+                                    onClick={(event) => {
+                                        event.preventDefault()
+                                        clickRailPane(pane)
+                                    }}
+                                    aria-current={activePane === pane ? 'page' : undefined}
+                                    data-attr={`today-rail-${pane}`}
+                                >
+                                    {TODAY_PANES[pane].icon}
+                                    {TODAY_PANES[pane].label}
+                                </DropdownMenuItem>
+                            )
+                        })}
+                        <DropdownMenuSeparator />
+                    </>
+                )}
+                <TodayMoreMenuSupportItem />
+                <DropdownMenuSeparator />
                 <DropdownMenuItem
                     render={todayMenuLinkItem(statusPageUrl, { external: true })}
                     description={

@@ -279,6 +279,10 @@ class TestSignalSpend(BaseTest):
         implementation_kind: str | None = None,
         mode: str = "background",
     ) -> TaskRun:
+        if task is not None:
+            task.runs.filter(status__in=[TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS]).update(
+                status=TaskRun.Status.COMPLETED
+            )
         task = task or Task.objects.create(
             team=self.team,
             title="Example research",
@@ -743,8 +747,7 @@ class TestSignalSpend(BaseTest):
         assert all(query["sql"].startswith("SELECT") and "FOR UPDATE" not in query["sql"] for query in queries)
         self._refresh_task_spend(team_id=self.team.id, run_id=str(run.id))
         begin_report_spend(team_id=self.team.id, report_id=str(report.id), signal_id=driver)
-        with self.assertRaises(ValueError):
-            record_llm_spend(token_cost_microusd=100, team_id=self.team.id, signal_id=driver, stage="grouping")
+        record_llm_spend(token_cost_microusd=100, team_id=self.team.id, signal_id=driver, stage="grouping")
         complete_signal_pipeline(team_id=self.team.id, signal_id=driver)
         assert (
             list(SignalSpend.objects.for_team(self.team.id).filter(signal_id=driver).order_by("id").values()) == before
@@ -1093,6 +1096,41 @@ class TestSignalSpendGenerations(NonAtomicBaseTest):
         )()
         assert receipt.accounting_failed is True
         assert receipt.llm_failed_stages == ["actionability"]
+
+    @parameterized.expand([("priced", True), ("unpriced", False)])
+    async def test_generation_on_finalized_spend_keeps_response_and_totals(self, _name: str, use_gateway: bool) -> None:
+        driver = str(uuid4())
+
+        def finalize() -> SignalSpend:
+            record_llm_spend(token_cost_microusd=100_000, team_id=self.team.id, signal_id=driver, stage="grouping")
+            complete_signal_pipeline(team_id=self.team.id, signal_id=driver)
+            return SignalSpend.objects.for_team(self.team.id).get(signal_id=driver)
+
+        before = await database_sync_to_async(finalize)()
+        assert before.finalized_at is not None
+        response = Mock(_request_id="generation-1")
+        generate = AsyncMock(return_value=response)
+        with patch(
+            "products.signals.backend.llm_spend.fetch_gateway_cost",
+            new=AsyncMock(return_value=GatewayRequestCost(model="model", provider="provider", cost_microusd=12_345)),
+        ):
+            priced = await generate_with_spend(
+                generate(),
+                gateway=AIGatewayConfig(url="https://gateway.example.com/v1", api_key="test-key")
+                if use_gateway
+                else None,
+                team_id=self.team.id,
+                signal_id=driver,
+                stage="query_generation",
+            )
+        assert priced.response is response
+        generate.assert_awaited_once()
+        after = await database_sync_to_async(lambda: SignalSpend.objects.for_team(self.team.id).get(signal_id=driver))()
+        assert (after.spend, after.finalized_at, after.llm_failed_stages) == (
+            before.spend,
+            before.finalized_at,
+            before.llm_failed_stages,
+        )
 
     @parameterized.expand(
         [(gateway, failure) for gateway in (True, False) for failure in ("timeout", "transport", "cancelled")]

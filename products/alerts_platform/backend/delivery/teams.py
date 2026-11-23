@@ -53,16 +53,16 @@ def card_for(message: AlertMessage) -> dict[str, Any]:
     headline = escape_markdown(message.title)
     body: list[dict[str, Any]] = [{"type": "TextBlock", "text": headline, "weight": "Bolder", "wrap": True}]
     context = escape_markdown(" | ".join(message.context))
-    if message.details:
+    details = message.all_details
+    if details:
         # An error message can carry a whole query, so it is a detail that overflows. Each detail
         # gets an equal share, so clipping the error cannot drop the failure count after it.
-        share = (TEXT_BUDGET_BYTES - _wire_size(headline) - _wire_size(context)) // len(message.details)
+        share = (TEXT_BUDGET_BYTES - _wire_size(headline) - _wire_size(context)) // len(details)
         body.append(
             {
                 "type": "FactSet",
                 "facts": [
-                    {"title": detail.label, "value": _clip(escape_markdown(detail.value), share)}
-                    for detail in message.details
+                    {"title": detail.label, "value": _clip(escape_markdown(detail.value), share)} for detail in details
                 ],
             }
         )
@@ -90,6 +90,12 @@ def card_for(message: AlertMessage) -> dict[str, Any]:
 class TeamsTransport(WebhookUrlTransport):
     provider = PROVIDER
     display_name = "Microsoft Teams"
+    # 401 is a bad `sig` and 404 a deleted flow. Teams answers both a card it rejects and a flow its
+    # owner turned off with 400, and only the error code in the body tells them apart. A rejected card
+    # is PostHog's to fix, so it stays a reported, retried failure.
+    owner_refusals = {400: b"workflowtriggerisnotenabled", 401: None, 403: None, 404: None}
+    # An uncompressed answer, so the refusal check can read the error code.
+    headers = {"Accept-Encoding": "identity"}
 
     def check_url(self, url: str) -> None:
         if not is_microsoft_teams_webhook_url(url):

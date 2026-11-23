@@ -11,6 +11,8 @@ _SOURCE_MODULE = "products.warehouse_sources.sources.anthropic.source"
 _CHECK_ANALYTICS_ACCESS = f"{_SOURCE_MODULE}.check_analytics_access"
 _CHECK_RBAC_GROUP_ACCESS = f"{_SOURCE_MODULE}.check_rbac_group_access"
 _CHECK_RBAC_ROLE_ACCESS = f"{_SOURCE_MODULE}.check_rbac_role_access"
+_CHECK_SPEND_LIMIT_ACCESS = f"{_SOURCE_MODULE}.check_spend_limit_access"
+_CHECK_USAGE_COST_ACCESS = f"{_SOURCE_MODULE}.check_analytics_usage_cost_access"
 
 
 class TestAnthropicSchemas:
@@ -110,20 +112,32 @@ class TestAnalyticsEndpointPermissions:
         assert permissions == {"users": None, "cost_report": None}
         probe.assert_not_called()
 
+    @patch(_CHECK_USAGE_COST_ACCESS, return_value="needs an Admin API key")
+    @patch(_CHECK_SPEND_LIMIT_ACCESS, return_value="needs read:spend_limits")
     @patch(_CHECK_RBAC_ROLE_ACCESS, return_value="needs read:members")
     @patch(_CHECK_RBAC_GROUP_ACCESS, return_value="needs read:rbac_groups")
     @patch(_CHECK_ANALYTICS_ACCESS, return_value="needs read:analytics")
-    def test_each_family_reports_its_own_scope(self, _analytics, _groups, _roles) -> None:
+    def test_each_family_reports_its_own_scope(self, _analytics, _groups, _roles, _spend, _usage_cost) -> None:
         # The three families take different credentials, so a table must carry its own family's
         # reason. Reporting one family's result against another tells the customer to fix the wrong
         # key.
         permissions = AnthropicSource().get_endpoint_permissions(
             MagicMock(api_key="sk-ant-admin-test"),
             team_id=1,
-            endpoints=["analytics_summaries", "rbac_groups", "rbac_group_members", "rbac_role_permissions", "users"],
+            endpoints=[
+                "analytics_summaries",
+                "rbac_groups",
+                "rbac_group_members",
+                "rbac_role_permissions",
+                "spend_limits_effective",
+                "analytics_cost",
+                "users",
+            ],
         )
         assert permissions == {
             "analytics_summaries": "needs read:analytics",
+            "spend_limits_effective": "needs read:spend_limits",
+            "analytics_cost": "needs an Admin API key",
             "rbac_groups": "needs read:rbac_groups",
             "rbac_group_members": "needs read:rbac_groups",
             "rbac_role_permissions": "needs read:members",

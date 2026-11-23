@@ -18,6 +18,10 @@ REQUEST_TIMEOUT_SECONDS = 60
 # tightly than a background sync request.
 VALIDATION_TIMEOUT_SECONDS = 30
 
+# Caps how many near-miss sites one error names, so an account with many verified paths on one host
+# doesn't produce an unreadable message.
+MAX_SUGGESTED_SITES = 3
+
 
 class BingWebmasterToolsError(Exception):
     """API-level failure carrying the ApiFault ``Message`` (e.g. InvalidApiKey, NotAuthorized).
@@ -151,6 +155,34 @@ def verified_sites_for_host(filter_url: str, verified: list[str]) -> list[str]:
     return [url for url in verified if urlparse(url).netloc.lower() == host]
 
 
+def _loose_host(url: str) -> str:
+    """Host without scheme, port or a leading ``www.``, so near-misses such as ``https://www.example.com``
+    against ``http://example.com/`` or ``https://example.com/blog/`` compare equal."""
+    stripped = url.strip()
+    host = (urlparse(stripped if "://" in stripped else f"//{stripped}").hostname or "").lower()
+    return host.removeprefix("www.")
+
+
+def _quoted(urls: list[str]) -> str:
+    return " and ".join(repr(url) for url in urls[:MAX_SUGGESTED_SITES])
+
+
+def _missing_site_hint(entry: str, sites: list[dict[str, Any]], verified: list[str]) -> str | None:
+    """Point a filter entry that matched no verified site at what the account actually lists: the
+    same site still awaiting ownership verification, or verified sites on the same host."""
+    unverified = [url for site in sites if not site.get("IsVerified") and isinstance(url := site.get("Url"), str)]
+    host = _loose_host(entry)
+    awaiting = [url for url in unverified if _site_key(url) == _site_key(entry)]
+    if not awaiting and host:
+        candidates = verified_sites_for_host(entry, verified) or [url for url in verified if _loose_host(url) == host]
+        if candidates:
+            return f"For '{entry}', your account has {_quoted(candidates)}."
+        awaiting = [url for url in unverified if _loose_host(url) == host]
+    if awaiting:
+        return f"Bing hasn't verified {_quoted(awaiting)} on your account yet. Verify ownership in Bing Webmaster Tools first."
+    return None
+
+
 def parse_site_urls(raw: str | None) -> list[str]:
     """Parse the optional site filter field: one URL per line, blanks skipped, duplicates dropped."""
     if not raw:
@@ -198,17 +230,10 @@ def select_site_urls(sites: list[dict[str, Any]], site_url_filters: list[str]) -
             # resolve to one registered URL; syncing it twice would seed duplicate primary keys.
             selected.append(matched)
     if missing:
-        ambiguous = {entry: candidates for entry in missing if (candidates := verified_sites_for_host(entry, verified))}
-        hint = ""
-        if ambiguous:
-            pairs = "; ".join(
-                f"'{entered}' matches {' and '.join(repr(url) for url in candidates)}"
-                for entered, candidates in ambiguous.items()
-            )
-            hint = f"Bing lists sites with their full URL, and {pairs}. "
+        hints = " ".join(hint for entry in missing if (hint := _missing_site_hint(entry, sites, verified)))
         raise ValueError(
             f"These site URLs are not verified sites on the connected account: {', '.join(missing)}. "
-            f"{hint}"
+            f"{hints + ' ' if hints else ''}"
             "Enter each site exactly as Bing Webmaster Tools lists it, or clear the field to sync "
             "every verified site."
         )

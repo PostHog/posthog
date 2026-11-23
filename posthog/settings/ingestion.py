@@ -1,10 +1,15 @@
 import os
+import re
 from typing import Literal
 from uuid import UUID
+
+import structlog
 
 from posthog.settings.base_variables import DEBUG, TEST
 from posthog.settings.utils import get_from_env, get_list, get_set
 from posthog.utils import str_to_bool
+
+logger = structlog.get_logger(__name__)
 
 INGESTION_LAG_METRIC_TEAM_IDS = get_list(os.getenv("INGESTION_LAG_METRIC_TEAM_IDS", ""))
 
@@ -52,8 +57,9 @@ REPLAY_CAPTURE_ENDPOINT = os.getenv("REPLAY_CAPTURE_ENDPOINT", "/s/")
 CAPTURE_INTERNAL_URL = os.getenv("CAPTURE_INTERNAL_URL", "http://localhost:8010")
 CAPTURE_REPLAY_INTERNAL_URL = os.getenv("CAPTURE_REPLAY_INTERNAL_URL", "http://localhost:8010")
 # The AI lane is a different capture deployment (capture-ai), not just a different path:
-# `/i/v1/ai/events` is mounted only on CaptureMode::Ai, and capture-analytics refuses
-# AI-lane event names. In the clusters this is capture-ai.capture-ai.svc.cluster.local.
+# `/i/v1/ai/events` is mounted only on CaptureMode::Ai. capture-analytics accepts `$ai_*`
+# events only temporarily and routes them to the AI topic, so send them here.
+# In the clusters this is capture-ai.capture-ai.svc.cluster.local.
 CAPTURE_AI_INTERNAL_URL = os.getenv("CAPTURE_AI_INTERNAL_URL", "http://localhost:8010")
 
 # Internal OTLP/HTTP endpoint for first-party log emission into Logs (the `capture-logs` service,
@@ -74,6 +80,11 @@ OTLP_LOGS_INGEST_TOKEN = os.getenv("OTLP_LOGS_INGEST_TOKEN", "")
 OTEL_METRICS_EXPORT_URL = os.getenv("OTEL_METRICS_EXPORT_URL", "")
 OTEL_METRICS_EXPORT_TOKEN = os.getenv("OTEL_METRICS_EXPORT_TOKEN", "")
 OTEL_METRICS_EXPORT_INTERVAL_MS = get_from_env("OTEL_METRICS_EXPORT_INTERVAL_MS", type_cast=int, default=60_000)
+
+# Internal OTLP/HTTP base URL that metrics recording rules write their results to (the `capture-logs`
+# service, path `/i/v1/metrics`). Each rule writes with its own team's project token as the Bearer, so
+# the result lands in that team's metrics. Empty = recording rules are not evaluated.
+METRICS_RECORDING_RULES_INGEST_URL = os.getenv("METRICS_RECORDING_RULES_INGEST_URL", "")
 
 # The names and defaults match the Node producer (nodejs/src/logs/config.ts), so one env set configures both runtimes.
 LOGS_INTERNAL_PRODUCER_URL = os.getenv("LOGS_INTERNAL_PRODUCER_URL", "")
@@ -97,6 +108,9 @@ NEW_ANALYTICS_CAPTURE_ENDPOINT = os.getenv("NEW_CAPTURE_ENDPOINT", "/i/v0/e/")
 CAPTURE_V1_INTERNAL_ENDPOINT = os.getenv("CAPTURE_V1_INTERNAL_ENDPOINT", "/i/v1/analytics/events")
 CAPTURE_V1_AI_INTERNAL_ENDPOINT = os.getenv("CAPTURE_V1_AI_INTERNAL_ENDPOINT", "/i/v1/ai/events")
 CAPTURE_V1_INTERNAL_MAX_ATTEMPTS = get_from_env("CAPTURE_V1_INTERNAL_MAX_ATTEMPTS", type_cast=int, default=4)
+CAPTURE_V1_INTERNAL_TRANSPORT_RETRIES = get_from_env(
+    "CAPTURE_V1_INTERNAL_TRANSPORT_RETRIES", type_cast=int, default=0 if TEST else 3
+)
 CAPTURE_V1_INTERNAL_RETRY_AFTER_CAP_SECONDS = get_from_env(
     "CAPTURE_V1_INTERNAL_RETRY_AFTER_CAP_SECONDS", type_cast=float, default=5.0
 )
@@ -176,3 +190,41 @@ AI_RESEARCH_REPLAY_KMS_KEY_ARN = os.getenv("AI_RESEARCH_REPLAY_KMS_KEY_ARN", "")
 AI_RESEARCH_V4_KEY_TABLE = os.getenv("AI_RESEARCH_V4_KEY_TABLE", "")
 AI_RESEARCH_V4_AWS_REGION = os.getenv("AI_RESEARCH_V4_AWS_REGION", "us-east-1")
 AI_RESEARCH_V4_DYNAMODB_ENDPOINT = os.getenv("AI_RESEARCH_V4_DYNAMODB_ENDPOINT", "")
+
+# Also the shortest retention a row can have: the `ai_events` view raises anything lower to this.
+AI_EVENTS_DEFAULT_RETENTION_DAYS = 30
+# `ai_events` partitions by the month a row expires in, so events that arrive together spread over one partition
+# per distinct retention. A few tiers keep the partitions each insert touches few, however many teams are listed.
+_AI_EVENTS_RETENTION_DAYS_TIERS = (AI_EVENTS_DEFAULT_RETENTION_DAYS, 60, 90, 180, 365)
+
+
+def parse_ai_events_retention_days_by_team(raw: str) -> dict[int, int]:
+    retention_days_by_team: dict[int, int] = {}
+    if not raw.strip():
+        return retention_days_by_team
+    for entry in raw.split(","):
+        match = re.fullmatch(r" *([0-9]+):([0-9]+) *", entry)
+        if (
+            match is None
+            or int(match[2]) not in _AI_EVENTS_RETENTION_DAYS_TIERS
+            or int(match[1]) in retention_days_by_team
+        ):
+            # The ingestion parser skips the same entries, so both sides agree on what a malformed value means.
+            logger.error(
+                "AI_EVENTS_RETENTION_DAYS_BY_TEAM has an invalid entry, skipping it",
+                entry=entry,
+                expected=f"team_id:days, days one of {_AI_EVENTS_RETENTION_DAYS_TIERS}, each team once",
+            )
+            continue
+        retention_days_by_team[int(match[1])] = int(match[2])
+    return retention_days_by_team
+
+
+# Teams whose new `ai_events` rows are kept longer than the default, as comma-separated `team_id:days` pairs. The AI
+# ingestion pipeline reads the same variable to stamp the rows, so every deployment that reads `ai_events` needs the
+# value ingestion has: a web or worker process without it treats those teams as having the default retention.
+# Never lower or remove a team's value here until the rows ingestion stamped with the higher one have expired: they
+# live on, and a reader that believes the lower value grades a long session on its tail without any signal.
+AI_EVENTS_RETENTION_DAYS_BY_TEAM = parse_ai_events_retention_days_by_team(
+    os.getenv("AI_EVENTS_RETENTION_DAYS_BY_TEAM", "")
+)

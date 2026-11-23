@@ -2,8 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
-import { urls } from 'scenes/urls'
-
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
@@ -14,7 +12,7 @@ import { TransactionalEmailResults } from './TransactionalEmailResults'
 import { TransactionalEmailStatsTable } from './TransactionalEmailStatsTable'
 
 export function TransactionalEmailMetrics(): JSX.Element {
-    const { templateStats, templateStatsLoading, domainStats, domainStatsLoading, statsFailed } =
+    const { templateStats, templateStatsLinks, templateStatsLoading, domainStats, domainStatsLoading, statsFailed } =
         useValues(transactionalEmailMetricsLogic)
     const { loadTemplateStats, loadDomainStats, loadStatsOverTime } = useActions(transactionalEmailMetricsLogic)
     const emptyState = statsFailed ? "The numbers couldn't load" : 'No transactional emails were sent in this period'
@@ -37,20 +35,24 @@ export function TransactionalEmailMetrics(): JSX.Element {
                     The numbers couldn't load. Check your connection and try again.
                 </LemonBanner>
             )}
-            <SceneSection title="All transactional emails" actions={<TransactionalEmailMetricsDateRange />}>
+            <SceneSection
+                title="All transactional emails"
+                description="Delivered means the recipient's mail server accepted the email, even if it then put it in spam. Mail providers don't tell senders which emails they put in spam, so spam complaints count only the complaints mail providers pass on, such as when a recipient reports an email as spam. To see where your emails land, send a test to an inbox at each provider."
+                actions={<TransactionalEmailMetricsDateRange />}
+            >
                 <TransactionalEmailMetricTiles />
             </SceneSection>
             <SceneDivider />
             <SceneSection
                 title="By email"
-                description="Delivered and bounced are shares of what was sent. Marked as spam, opened and clicked are shares of what was delivered."
+                description="Delivered and bounced are shares of what was sent. Spam complaints, opened and clicked are shares of what was delivered."
             >
                 <TransactionalEmailStatsTable
                     id="by_email"
                     rows={templateStats}
                     loading={templateStatsLoading}
                     groupTitle="Email"
-                    linkFor={(row) => (row.label ? urls.transactionalTemplate(row.key) : null)}
+                    linkFor={(row) => templateStatsLinks[row.key] ?? null}
                     emptyState={emptyState}
                     dataAttr="transactional-email-metrics-by-email"
                 />

@@ -1,4 +1,15 @@
-import { IconApps, IconChat, IconGear, IconHome, IconPeople, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
+import {
+    IconApps,
+    IconChat,
+    IconDatabase,
+    IconFlag,
+    IconGear,
+    IconHome,
+    IconPeople,
+    IconPulse,
+    IconSidebarClose,
+    IconSidebarOpen,
+} from '@posthog/icons'
 
 import { IconAnalyticsBars } from 'lib/lemon-ui/icons'
 import { isMac } from 'lib/utils/dom'
@@ -25,7 +36,10 @@ export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
         action: TodayNewChatButton,
     },
     analytics: { label: 'Analytics', title: 'Analytics', icon: <IconAnalyticsBars />, action: TodayNewAnalyticsButton },
+    monitor: { label: 'Monitor', title: 'Monitor', icon: <IconPulse /> },
     people: { label: 'People', title: 'People', icon: <IconPeople />, action: TodayNewPeopleButton },
+    release: { label: 'Release', title: 'Release', icon: <IconFlag /> },
+    data: { label: 'Data', title: 'Data', icon: <IconDatabase /> },
     products: { label: 'Products', title: 'Products', icon: <IconApps /> },
     settings: { label: 'Settings', title: 'Settings', icon: <IconGear /> },
 }

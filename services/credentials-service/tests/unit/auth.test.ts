@@ -21,7 +21,10 @@ const KEYS: SigningKeys = {
 }
 
 function verifier(keys: SigningKeys = KEYS): JwtVerifier {
-    return new JwtVerifier({ entries: () => Object.entries(keys) } as SigningKeyLoader)
+    return new JwtVerifier({
+        entries: () => Object.entries(keys),
+        allowedSecrets: () => null,
+    } as unknown as SigningKeyLoader)
 }
 
 async function mint(opts: {
@@ -148,6 +151,17 @@ describe('jwt verification', () => {
         expect(identity.deployment).toBe(DW)
     })
 
+    it('carries the allowlist of the deployment whose key verified the token', async () => {
+        const allowed = new Set(['GOOGLE_ADS_APP_CLIENT_SECRET'])
+        const keys = {
+            entries: () => Object.entries(KEYS),
+            allowedSecrets: (deployment: string) => (deployment === DW ? allowed : null),
+        } as unknown as SigningKeyLoader
+
+        expect((await new JwtVerifier(keys).verify(await mint({ key: DW_KEY_NEW }))).allowedKeys).toBe(allowed)
+        expect((await new JwtVerifier(keys).verify(await mint({ key: DJANGO_KEY }))).allowedKeys).toBeNull()
+    })
+
     it('deduplicates a repeated key rather than resolving it twice', async () => {
         const token = await mint({ key: DW_KEY_NEW, keys: ['A_KEY', 'A_KEY'] })
         expect((await verifier().verify(token)).requestedKeys).toEqual(['A_KEY'])
@@ -210,6 +224,48 @@ describe('signing key registry', () => {
         )
 
         await expect(keys.load()).rejects.toThrow(/both name the deployment foo-bar/)
+        expect(keys.isLoaded).toBe(false)
+    })
+
+    it('loads each deployment allowlist with its signing key', () => {
+        const keys = new SigningKeyLoader('test')
+        keys.loadFrom({
+            __CALLER_KEY_POSTHOG_DJANGO: DJANGO_KEY,
+            __CALLER_KEY_TEMPORAL_WORKER_DATA_WAREHOUSE: DW_KEY_NEW,
+            __ALLOWED_SECRETS_TEMPORAL_WORKER_DATA_WAREHOUSE: 'GOOGLE_ADS_APP_CLIENT_ID, GOOGLE_ADS_APP_CLIENT_SECRET',
+        })
+
+        expect([...(keys.allowedSecrets(DW) ?? [])]).toEqual([
+            'GOOGLE_ADS_APP_CLIENT_ID',
+            'GOOGLE_ADS_APP_CLIENT_SECRET',
+        ])
+        expect(keys.allowedSecrets(DJANGO)).toBeNull()
+        expect(keys.allowedSecrets('constructor')).toBeNull()
+    })
+
+    it('treats an empty allowlist as allowing nothing', () => {
+        const keys = new SigningKeyLoader('test')
+        keys.loadFrom({ __CALLER_KEY_POSTHOG_DJANGO: DJANGO_KEY, __ALLOWED_SECRETS_POSTHOG_DJANGO: '' })
+
+        expect(keys.allowedSecrets(DJANGO)?.size).toBe(0)
+    })
+
+    it.each([
+        // A typo in the entry name would leave the real deployment with no limit.
+        [
+            'an allowlist for a deployment with no key',
+            { __ALLOWED_SECRETS_POSTHOG_DJANGOO: 'A_KEY' },
+            /names no deployment/,
+        ],
+        ['an allowlist that names a reserved entry', { __ALLOWED_SECRETS_POSTHOG_DJANGO: '__PROVIDER_X' }, /reserved/],
+        [
+            'two allowlists for one deployment',
+            { __ALLOWED_SECRETS_POSTHOG_DJANGO: 'A', '__ALLOWED_SECRETS_POSTHOG-DJANGO': 'B' },
+            /both name the deployment/,
+        ],
+    ])('refuses to load %s', (_label, extra: Record<string, string>, error) => {
+        const keys = new SigningKeyLoader('test')
+        expect(() => keys.loadFrom({ __CALLER_KEY_POSTHOG_DJANGO: DJANGO_KEY, ...extra })).toThrow(error)
         expect(keys.isLoaded).toBe(false)
     })
 

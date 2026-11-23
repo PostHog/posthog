@@ -1,10 +1,9 @@
 """Read one GitHub Actions job's log and report what its steps did with caches and migrations.
 
 The job is looked up in the caller's own source on every call, so a reader who cannot read that
-source never reaches the log or a cached answer. The log comes from GitHub with the credential of
-that same source only: its personal access token, or the GitHub integration it is linked to. A source
-with neither gives no log, because any other credential of the team belongs to a source this reader
-may not be allowed to use.
+source never reaches the log or a cached answer. The log is fetched with the credential of that same
+source only, because any other credential of the team belongs to a source this reader may not be
+allowed to use.
 """
 
 from dataclasses import asdict, field, replace
@@ -30,18 +29,16 @@ from products.warehouse_sources.backend.facade import api as warehouse_sources
 logger = structlog.get_logger(__name__)
 
 _EGRESS_SOURCE = "job_logs"
-# A person is waiting on the page, so the fetch must not hold the request as long as a worker may. The
-# read timeout bounds one read of the response, and the deadline bounds the whole download.
+# The fetch runs inside a web request. The read timeout bounds one read of the response, and the
+# deadline bounds the whole download.
 _FETCH_READ_TIMEOUT_SECONDS = 10
 _FETCH_DEADLINE_SECONDS = 20
-# The log is held in a web worker's memory, and many requests can run at once. A log cut to this size
-# can lose step markers, and the parser then reports for the job as a whole.
+# The log is held in a web worker's memory, and many requests can run at once.
 _MAX_LOG_BYTES = 4 * 1024 * 1024
 # The download goes on past the kept size to reach the end of the log, where the cleanup steps are.
 _MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024
-# A completed job's log never changes.
 _CACHE_SECONDS = 7 * 24 * 60 * 60
-# An answer from part of a log can miss outcomes, and a later read can get more of the log.
+# A later read can get more of a truncated log.
 _TRUNCATED_CACHE_SECONDS = 5 * 60
 # Part of the cache key. Raise it when the parser's rules or the cached shape change.
 _CACHE_VERSION = 2

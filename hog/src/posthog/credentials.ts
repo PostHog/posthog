@@ -38,7 +38,7 @@ export const PERSONAL_API_KEY_ENV_VAR = 'HOG_PERSONAL_API_KEY'
 
 export const PROJECT_SETTINGS_HINT = 'Put the project ID in posthog.json as "projectId", or set HOG_PROJECT_ID'
 export const CI_CREDENTIALS_HINT =
-    'Run `hog ci setup` on your machine, so the job trades its CI provider\'s OIDC token for a PostHog token and stores no key. Otherwise, set HOG_PERSONAL_API_KEY in the job, and put the project ID and the host in posthog.json as "projectId" and "host". The key never goes in posthog.json.'
+    'Run `hog ci setup` on your machine so the job exchanges its CI provider\'s OIDC token for a PostHog token and stores no key. Or set `HOG_PERSONAL_API_KEY` in the job, and put the project ID and host in `posthog.json` as `"projectId"` and `"host"`. Never put the key in `posthog.json`.'
 
 // The host only counts when it comes from the same source as the key, so a stray host cannot
 // redirect a key from somewhere else. The project ID only picks a project the key can already reach,
@@ -215,8 +215,7 @@ export async function resolveCredentials(runtime: Runtime, options: CredentialOp
         }
     }
 
-    const workloadProvider = detectWorkloadProvider(runtime.env, options.workloadProviders)
-    const workloadProjectId = workloadProvider && (envProjectId(runtime) ?? options.configProjectId)
+    const { provider: workloadProvider, projectId: workloadProjectId } = workloadJob(runtime, options)
     if (!options.envOnly && workloadProvider && workloadProjectId) {
         const key = await exchangeWorkloadToken(runtime, {
             host: workloadHost(options),
@@ -281,6 +280,19 @@ export async function resolveCredentials(runtime: Runtime, options: CredentialOp
         "hog couldn't find PostHog credentials.",
         notAuthenticatedHint(workloadProvider, workloadProjectId)
     )
+}
+
+function workloadJob(
+    runtime: Runtime,
+    options: CredentialOptions
+): { provider: WorkloadProvider | undefined; projectId: ProjectId | undefined } {
+    const provider = detectWorkloadProvider(runtime.env, options.workloadProviders)
+    return { provider, projectId: provider && (envProjectId(runtime) ?? options.configProjectId) }
+}
+
+export function workloadExchangeHost(runtime: Runtime, options: CredentialOptions): Host | undefined {
+    const { provider, projectId } = workloadJob(runtime, options)
+    return provider && projectId ? workloadHost(options) : undefined
 }
 
 // posthog.json comes with the repository, so a host in it outside PostHog Cloud could send a job's token

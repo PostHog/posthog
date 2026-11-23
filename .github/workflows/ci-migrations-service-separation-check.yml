@@ -52,9 +52,10 @@ jobs:
               if: steps.skip-label.outputs.skip != 'true'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
-                  # Django migrations are not listed. The Node deploy hook (nodejs/src/schema-check/)
-                  # holds each Node rollout until the Django migrations its image needs are applied,
-                  # which also covers a migration and its Node reader in one PR or one stack.
+                  # Django migrations are not listed, and sqlx migrations are only checked against
+                  # Rust services. The Node deploy hook (nodejs/src/schema-check/) holds each Node
+                  # rollout until the Django and sqlx migrations its image needs are applied, which
+                  # also covers a migration and its Node reader in one PR or one stack.
                   filters: |
                       clickhouse_migrations:
                           - 'posthog/clickhouse/migrations/*.py'
@@ -89,12 +90,6 @@ jobs:
                       has_error=true
                   fi
 
-                  # Check nodejs + sqlx migrations
-                  if [ "$SQLX_MIGRATIONS_CHANGED" == "true" ] && [ "$NODEJS_CHANGED" == "true" ]; then
-                      error_messages="${error_messages}❌ Found both sqlx migration and nodejs changes\n"
-                      has_error=true
-                  fi
-
                   # Check rust services + sqlx migrations
                   if [ "$SQLX_MIGRATIONS_CHANGED" == "true" ] && [ "$RUST_SERVICES_CHANGED" == "true" ]; then
                       error_messages="${error_messages}❌ Found both sqlx migration and rust service changes\n"
@@ -112,12 +107,14 @@ jobs:
             - name: Fail if conflicting changes detected
               if: steps.check.outputs.error == 'true'
               run: |
-                  echo "::error::This PR contains both ClickHouse or sqlx migration files and service changes. These must be separated into different PRs."
+                  echo "::error::This PR contains ClickHouse migrations with nodejs changes, or sqlx migrations with Rust service changes. These must be separated into different PRs."
                   echo ""
-                  echo "Why? ClickHouse and sqlx migrations are not orchestrated with service deployments."
-                  echo "If you merge service code that depends on new schema alongside the migration, your"
-                  echo "service may deploy before the migration runs, causing failures."
-                  echo "Django migrations are not part of this check: the Node deploy hook waits for them."
+                  echo "Why? ClickHouse migrations are not orchestrated with Node deployments, and sqlx"
+                  echo "migrations are not orchestrated with Rust service deployments. If you merge service"
+                  echo "code that depends on new schema alongside the migration, your service may deploy"
+                  echo "before the migration runs, causing failures."
+                  echo "Django migrations, and sqlx migrations with nodejs changes, are not part of this check:"
+                  echo "the Node deploy hook waits for them."
                   echo ""
                   echo "Solution: Split into two PRs, and do not stack them:"
                   echo "  1. First PR: Migration changes only (merge and wait for it to deploy)"

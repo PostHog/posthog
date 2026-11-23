@@ -22,6 +22,15 @@ export const NAV_PANEL_CARD_TYPE = {
     PRODUCT_PUSH: 'product_push',
 } as const
 
+/** Where an ad-slot card renders, sent as `placement` on its events. */
+// pinned: analytics property values. Renaming them breaks dashboards.
+export const NAV_PANEL_PLACEMENT = {
+    SIDEBAR: 'sidebar',
+    TODAY_HOME: 'today_home',
+} as const
+
+export type NavPanelPlacement = (typeof NAV_PANEL_PLACEMENT)[keyof typeof NAV_PANEL_PLACEMENT]
+
 export interface BroadcastPayload {
     /** Slug identifying this broadcast, e.g. 'managed-warehouse-beta'. Keys dismissal state. */
     broadcast: string
@@ -35,6 +44,11 @@ export interface BroadcastPayload {
      * promote one, so its impressions can be compared against the product push for that product.
      */
     productKey?: string
+}
+
+export function broadcastDismissKey(broadcast: BroadcastPayload): string {
+    // pinned: persisted dismissal key. Renaming it brings back every dismissed broadcast.
+    return `broadcast-${broadcast.broadcast}`
 }
 
 export function isBroadcastPayload(value: unknown): value is BroadcastPayload {

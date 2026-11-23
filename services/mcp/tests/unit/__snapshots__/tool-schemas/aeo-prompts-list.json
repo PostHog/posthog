@@ -23,6 +23,25 @@
             ],
             "description": "Only list prompts whose current text names the brand (true) or does not (false). Omit to list both. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand."
         },
+        "days": {
+            "default": 30,
+            "description": "The window needs_improvement reads, in days ending now. Default 30, at most 90. Ignored unless needs_improvement is true.",
+            "maximum": 90,
+            "minimum": 1,
+            "type": "number"
+        },
+        "engine": {
+            "anyOf": [
+                {
+                    "maxLength": 64,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "With needs_improvement, only read the answers of this engine, for example 'claude-web-search'. Ignored unless needs_improvement is true."
+        },
         "include_archived": {
             "default": false,
             "description": "Also list archived prompts. Archived prompts are left out by default.",
@@ -35,7 +54,7 @@
         },
         "needs_improvement": {
             "default": false,
-            "description": "Only list prompts that the engines answered in the last 30 days without citing a target domain. Prompts with no answered check in that window are left out.",
+            "description": "Only list prompts that the engines answered in the last 'days' days without citing a target domain. Prompts with no answered check in that window are left out.",
             "type": "boolean"
         },
         "offset": {

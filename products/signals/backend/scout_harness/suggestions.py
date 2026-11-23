@@ -52,11 +52,8 @@ from products.signals.backend.models import (
     SignalScoutSuggestionSet,
     SignalSourceConfig,
 )
-from products.signals.backend.scout_harness.lazy_seed import (
-    CanonicalSkillParseError,
-    canonical_operational_scout_names,
-    discover_canonical_skills,
-)
+from products.signals.backend.scout_harness.lazy_seed import CanonicalSkillParseError, discover_canonical_skills
+from products.signals.backend.scout_harness.operational import operational_config_q
 from products.signals.backend.scout_harness.prompt import SCOUT_PROJECT_SCAN_GUIDANCE
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.team_limits import read_flag_payload, withheld_skills_for_team
@@ -312,7 +309,7 @@ def set_up_team_q() -> Q:
     user_scout_teams = (
         SignalScoutConfig.all_teams.filter(enabled=True)
         .exclude(managed_by=SignalScoutConfig.ManagedBy.BACKGROUND)
-        .exclude(skill_name__in=canonical_operational_scout_names())
+        .exclude(operational_config_q())
         .values("team_id")
     )
     return (
@@ -827,6 +824,18 @@ def fleet_context(team_id: int) -> FleetContext:
     )
 
 
+def local_skill_guidance(skill_name: str) -> str:
+    """Where a cloud task reads a built-in PostHog skill. Built-in skills are installed in the
+    sandbox, not stored as rows in the team's skills store, so `skill-get` answers 404 for them
+    on any project that has not been seeded with them."""
+    return (
+        f"{skill_name} is a built-in PostHog skill installed in this sandbox as a local skill: pick it from "
+        f"your available skills, or read its `SKILL.md` from the installed skills directory. It is not a row in "
+        f"this project's skills store, so do not fetch it with `skill-get`: a 404 from `skill-get` for it is "
+        f"expected and does not mean the skill is unavailable."
+    )
+
+
 def build_suggestions_prompt(fleet: FleetContext) -> str:
     schema = json.dumps(ScoutSuggestionBatch.model_json_schema(), indent=2)
     enabled_lines = "\n".join(f"- {name}" for name in fleet.enabled_skill_names) or "- (none yet)"
@@ -835,7 +844,7 @@ def build_suggestions_prompt(fleet: FleetContext) -> str:
     )
     return f"""You are preparing the "Suggested for this project" list for the PostHog scouts tab. Nobody is in the chat with you: work headlessly and end your turn with the JSON object described at the bottom.
 
-First, {SCOUT_PROJECT_SCAN_GUIDANCE} Use the read-data, insight, dashboard, and signals-scout MCP tools (config list for the fleet, recent runs and reports for what the scouts already surface). Read the authoring-scouts skill from the PostHog MCP (`skill-get`) before drafting any custom scout; if it is unavailable, write the draft in the same shape as the canonical scout bodies.
+First, {SCOUT_PROJECT_SCAN_GUIDANCE} Use the read-data, insight, dashboard, and signals-scout MCP tools (config list for the fleet, recent runs and reports for what the scouts already surface). Read the authoring-scouts skill before drafting any custom scout. {local_skill_guidance("authoring-scouts")} The canonical `signals-scout-*` skills are installed the same way, so read a local copy when you want an example scout body. Only if no local copy of authoring-scouts is installed, write the draft to cover the sections the custom draft rule below lists.
 
 Scouts currently enabled on this project:
 {enabled_lines}

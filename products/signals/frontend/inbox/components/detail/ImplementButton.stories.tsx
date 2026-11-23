@@ -17,10 +17,41 @@ export default meta
 
 type Story = StoryObj<typeof ImplementButton>
 
-const report = makeReport({ title: 'Exceptions spiked after the 18 June deploy' })
+const report = makeReport({ title: 'Exceptions spiked after the 18 June deploy', repo_slug: 'example/app' })
 
 export const Default: Story = {
     render: () => <ImplementButton report={report} />,
+}
+
+export const NoRepository: Story = {
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/integrations/': {
+                    results: [{ id: 1, kind: 'github', display_name: 'Example' }],
+                    next: null,
+                },
+                '/api/projects/:id/integrations/1/github_repos/': {
+                    repositories: [{ id: 1, name: 'app', full_name: 'example/app', permissions: { push: true } }],
+                    has_more: false,
+                },
+                '/api/projects/:id/tasks/@me/config/': { ai_run_preferences: {}, resolved_ai_run_defaults: null },
+            },
+        }),
+    ],
+    render: () => <ImplementButton report={{ ...report, repo_slug: null }} />,
+    play: async ({ canvasElement }) => {
+        const button = await within(canvasElement).findByText('Select repository')
+        await waitFor(() => {
+            const access = reportGithubAccessLogic({ report: { ...report, repo_slug: null } }).values
+            if (access.loading || access.disabledReason || !access.repositoryIntegrationId) {
+                throw new Error('GitHub access has not resolved')
+            }
+        })
+        await userEvent.click(button)
+        await within(document.body).findByText('Select a repository to implement this report')
+    },
 }
 
 export const Choices: Story = {

@@ -2,8 +2,6 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -23,10 +21,6 @@ describe('notebookDataframeHintLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS], {
-            [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true,
-        })
         userLogic.mount()
         logic = notebookDataframeHintLogic({ shortId: 'abc123' })
         logic.mount()

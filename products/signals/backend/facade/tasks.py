@@ -6,6 +6,7 @@ Importing this module loads the signals task module. Import it only from code th
 
 from products.signals.backend.tasks import (
     enqueue_signals_rated_usage,
+    expire_dangling_report_pointers_task,
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
     reconcile_report_inbox_state_cache,
@@ -16,11 +17,13 @@ from products.signals.backend.tasks import (
     sweep_implementation_dispatches,
     sweep_monitoring_research_requests,
     sweep_monitoring_tracker_issues,
+    sweep_stuck_research_reports,
     sync_pending_signals_refund_credits,
 )
 
 __all__ = [
     "enqueue_signals_rated_usage",
+    "expire_dangling_report_pointers_task",
     "pause_inactive_signal_scouts",
     "prune_expired_scratchpad_entries_task",
     "reconcile_report_inbox_state_cache",
@@ -31,5 +34,6 @@ __all__ = [
     "sweep_implementation_dispatches",
     "sweep_monitoring_research_requests",
     "sweep_monitoring_tracker_issues",
+    "sweep_stuck_research_reports",
     "sync_pending_signals_refund_credits",
 ]

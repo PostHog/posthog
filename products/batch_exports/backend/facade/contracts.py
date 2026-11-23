@@ -34,6 +34,11 @@ class InvalidBatchExportFilters(ValueError):
     """Raised when event filters are not a list of filters a batch export can apply."""
 
 
+class InvalidKeyError(ValueError):
+    def __init__(self, err: str) -> None:
+        super().__init__(f"An invalid key was provided: {err}")
+
+
 class InvalidDestinationConfigError(ValueError):
     """Raised when a destination config does not match the workflow inputs of its destination type.
 

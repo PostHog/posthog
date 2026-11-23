@@ -5,6 +5,7 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { imageSizeError } from 'lib/components/ImageSize/imageSizeUtils'
 import { getInsightId } from 'lib/insights/getInsightId'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -13,6 +14,9 @@ import { userLogic } from 'scenes/userLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { AvailableFeature, InsightShortId, OrganizationType, SharingConfigurationType } from '~/types'
+import type { PreflightStatus } from '~/types'
+
+import type { ImageSizeApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 export interface SharingLogicProps {
     dashboardId?: number
@@ -77,6 +81,7 @@ export interface sharingLogicValues {
     }
     isSharingSettingsSubmitting: boolean
     isSharingSettingsValid: boolean
+    linkSize: ImageSizeApi
     params: any
     shareLink: string
     sharingAllowed: boolean
@@ -175,6 +180,9 @@ export interface sharingLogicActions {
     ) => {
         sharingConfiguration: SharingConfigurationType | null
         payload?: boolean
+    }
+    setLinkSize: (size: ImageSizeApi) => {
+        size: ImageSizeApi
     }
     setPasswordRequired: (password_required: boolean) => boolean
     setPasswordRequiredFailure: (
@@ -291,19 +299,19 @@ export interface sharingLogicActions {
 export interface sharingLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        siteUrl: (preflight: null | import('~/types').PreflightStatus) => string | undefined
+        siteUrl: (preflight: PreflightStatus | null) => string | undefined
         whitelabelAvailable: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean
         ) => boolean
         accessControlAvailable: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean
         ) => boolean
         canManagePublicSharing: (
             isAdminOrOwner: boolean | null,
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean
         ) => boolean
         sharingAllowed: (currentOrganization: OrganizationType | null) => boolean
-        params: (arg: any) => any
+        params: (arg: any, linkSize: ImageSizeApi) => any
         shareLink: (
             siteUrl: string | undefined,
             sharingConfiguration: SharingConfigurationType | null,
@@ -316,7 +324,8 @@ export interface sharingLogicMeta {
         ) => string
         iframeProperties: (
             embedLink: string,
-            iframeKey: number
+            iframeKey: number,
+            linkSize: ImageSizeApi
         ) => {
             allowFullScreen: true
             frameBorder: number
@@ -355,10 +364,12 @@ export const sharingLogic = kea<sharingLogicType>([
     connect(() => [preflightLogic, userLogic, dashboardsModel, organizationLogic]),
 
     actions({
+        setLinkSize: (size: ImageSizeApi) => ({ size }),
         togglePreview: true,
         reloadIframe: true,
     }),
     reducers({
+        linkSize: [{} as ImageSizeApi, { setLinkSize: (_, { size }) => size }],
         showPreview: [true, { togglePreview: (state) => !state }],
         iframeKey: [0, { reloadIframe: (state) => state + 1 }],
     }),
@@ -469,9 +480,11 @@ export const sharingLogic = kea<sharingLogicType>([
         ],
 
         params: [
-            () => [(_, props) => props.additionalParams],
-            (additionalParams = {}) => ({
+            (s) => [(_, props) => props.additionalParams, s.linkSize],
+            (additionalParams = {}, size: ImageSizeApi) => ({
                 ...additionalParams,
+                ...(!imageSizeError(size) && size.width != null ? { width: size.width } : {}),
+                ...(!imageSizeError(size) && size.height != null ? { height: size.height } : {}),
             }),
         ],
 
@@ -488,10 +501,10 @@ export const sharingLogic = kea<sharingLogicType>([
         ],
 
         iframeProperties: [
-            (s) => [s.embedLink, s.iframeKey],
-            (embedLink: string, iframeKey: number) => ({
-                width: defaultIframeConfig.width,
-                height: defaultIframeConfig.height,
+            (s) => [s.embedLink, s.iframeKey, s.linkSize],
+            (embedLink: string, iframeKey: number, size: ImageSizeApi) => ({
+                width: !imageSizeError(size) && size.width ? String(size.width) : defaultIframeConfig.width,
+                height: !imageSizeError(size) && size.height ? String(size.height) : defaultIframeConfig.height,
                 frameBorder: 0,
                 // React prop casing; embedCode lowercases keys, so the HTML snippet still reads "allowfullscreen"
                 allowFullScreen: true,

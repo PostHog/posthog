@@ -236,4 +236,29 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             items="Products selected in the bundle, with their quantities.",
         ),
     },
+    "customer_entitlements": {
+        "description": "Access to an entitlement feature that a customer holds, usually granted by an active subscription.",
+        "docs_url": "https://developer.rechargepayments.com/2021-11/customer_entitlements",
+        "columns": _columns(
+            customer_id="ID of the customer the entitlement belongs to.",
+            entitlement_feature_id="ID of the entitlement feature that the entitlement grants.",
+            granted_by_id="ID of the entity that granted the entitlement, such as a purchase item or an API token.",
+            granted_by_type="How the entitlement was granted (e.g. purchase_item, api, user, store_owner).",
+            expires_at="Time at which the entitlement expires. Null if it does not expire.",
+            deleted_at="Time at which the entitlement was deleted. Null if it was not deleted.",
+        ),
+    },
+    "metafields": {
+        "description": "A custom key-value field attached to an address, store, customer, subscription, order or charge.",
+        "docs_url": "https://developer.rechargepayments.com/2021-11/metafields",
+        "columns": _columns(
+            owner_resource="Type of the object the metafield is attached to (address, store, customer, subscription, order or charge).",
+            owner_id="ID of the object the metafield is attached to.",
+            namespace="Category that groups related metafields.",
+            key="Name of the metafield.",
+            value="Content of the metafield.",
+            value_type="Type of the value (string, integer or json_string).",
+            description="Description of the metafield.",
+        ),
+    },
 }

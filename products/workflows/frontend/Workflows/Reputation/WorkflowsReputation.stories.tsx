@@ -98,12 +98,14 @@ const baseResponse: TeamEmailReputationResponseApi = {
         max_tier: 4,
         emails_per_day: 50000,
         max_batch_audience: 25000,
+        rate_limited_max_batch_audience: 70000,
         emails_sent_last_day: 18400,
         enforced: true,
     },
     email_sending_suspended: false,
     email_sending_suspended_at: null,
     email_sending_suspension_reason: '',
+    infrastructure: null,
 }
 
 const meta: Meta<typeof WorkflowsReputation> = {
@@ -149,5 +151,31 @@ export const SharedSendingDomain: StoryFn = () => {
 export const DomainWithheldFromCaller: StoryFn = () => {
     // A domain a project the viewer cannot open also sends from: excluded rather than blended in.
     useStorybookMocks(mockReputation({ ...baseResponse, isps: [], isp_withheld_domains: ['mail.example.com'] }))
+    return <WorkflowsReputation />
+}
+
+export const HighBounceRate: StoryFn = () => {
+    useStorybookMocks(
+        mockReputation({
+            ...baseResponse,
+            reputation: { bounce_rate: 0.072, complaint_rate: 0.0001, emails_sent: 115025 },
+        })
+    )
+    return <WorkflowsReputation />
+}
+HighBounceRate.parameters = { testOptions: { snapshotBrowsers: [] } }
+
+export const WithInfrastructureHealth: StoryFn = () => {
+    useStorybookMocks(
+        mockReputation({
+            ...baseResponse,
+            infrastructure: {
+                emails_sent_at_least: 4_000_000,
+                delivery_rate: 0.991,
+                bounce_rate: 0.0028,
+                complaint_rate: 0.0003,
+            },
+        })
+    )
     return <WorkflowsReputation />
 }

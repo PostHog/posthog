@@ -36,9 +36,11 @@ import {
     groupChecksBySubject,
 } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
+import { CATALOG_PAGE_SIZE, itemsOnPage, pageCountFor } from './catalogPagination'
 import {
     CatalogTableRow,
     DEFAULT_TABLES_FILTERS,
+    DEFAULT_TABLES_SORT,
     TABLES_FILTER_PARAM,
     TABLES_SEARCH_PARAM,
     ProposalDecision,
@@ -67,7 +69,7 @@ import {
 } from './generated/api'
 import type { DataCatalogCertificationApi } from './generated/api.schemas'
 
-export const TABLES_PAGE_SIZE = 20
+export const TABLES_PAGE_SIZE = CATALOG_PAGE_SIZE
 
 export type TablesBulkAction = ProposalDecision | 'certify'
 
@@ -145,7 +147,7 @@ export interface catalogTablesLogicValues {
     selectedProposalRows: CatalogTableRow[]
     selectedRowKeys: string[]
     selectedRows: CatalogTableRow[]
-    sort: TablesSort | null
+    sort: TablesSort
     visibleMaterializedViewIds: string[]
     visibleRows: CatalogTableRow[]
 }
@@ -169,6 +171,9 @@ export interface catalogTablesLogicActions {
     ) => {
         force?: boolean
         shallow?: boolean
+    } // databaseTableListLogic
+    refreshDatabaseSchema: () => {
+        value: true
     } // databaseTableListLogic
     loadRunHistory: (viewIds: string[]) => {
         viewIds: string[]
@@ -289,7 +294,7 @@ export interface catalogTablesLogicMeta {
         filtersActive: (filters: TablesFilters) => boolean
         searchedRows: (rows: CatalogTableRow[], filters: TablesFilters, search: string) => CatalogTableRow[]
         scopeCounts: (searchedRows: CatalogTableRow[]) => Record<TableScope, number>
-        filteredRows: (searchedRows: CatalogTableRow[], scope: TableScope, sort: TablesSort | null) => CatalogTableRow[]
+        filteredRows: (searchedRows: CatalogTableRow[], scope: TableScope, sort: TablesSort) => CatalogTableRow[]
         pageCount: (filteredRows: CatalogTableRow[]) => number
         currentPage: (page: number, pageCount: number) => number
         visibleRows: (filteredRows: CatalogTableRow[], currentPage: number) => CatalogTableRow[]
@@ -325,7 +330,7 @@ export const catalogTablesLogic = kea<catalogTablesLogicType>([
         ],
         actions: [
             databaseTableListLogic,
-            ['loadDatabase'],
+            ['loadDatabase', 'refreshDatabaseSchema'],
             certificationsLogic,
             ['loadCertificationsSuccess'],
             viewsTabLogic,
@@ -380,7 +385,7 @@ export const catalogTablesLogic = kea<catalogTablesLogicType>([
             },
         ],
         sort: [
-            null as TablesSort | null,
+            DEFAULT_TABLES_SORT,
             {
                 toggleSort: (state, { column }) => nextTablesSort(state, column),
             },
@@ -523,7 +528,7 @@ export const catalogTablesLogic = kea<catalogTablesLogicType>([
         ],
         filteredRows: [
             (s) => [s.searchedRows, s.scope, s.sort],
-            (searchedRows: CatalogTableRow[], scope: TableScope, sort: TablesSort | null): CatalogTableRow[] =>
+            (searchedRows: CatalogTableRow[], scope: TableScope, sort: TablesSort): CatalogTableRow[] =>
                 sortCatalogTableRows(
                     scope === 'attention' ? searchedRows.filter(rowNeedsAttention) : searchedRows,
                     sort
@@ -531,7 +536,7 @@ export const catalogTablesLogic = kea<catalogTablesLogicType>([
         ],
         pageCount: [
             (s) => [s.filteredRows],
-            (filteredRows: CatalogTableRow[]): number => Math.max(1, Math.ceil(filteredRows.length / TABLES_PAGE_SIZE)),
+            (filteredRows: CatalogTableRow[]): number => pageCountFor(filteredRows.length, TABLES_PAGE_SIZE),
         ],
         currentPage: [
             (s) => [s.page, s.pageCount],
@@ -539,10 +544,8 @@ export const catalogTablesLogic = kea<catalogTablesLogicType>([
         ],
         visibleRows: [
             (s) => [s.filteredRows, s.currentPage],
-            (filteredRows: CatalogTableRow[], currentPage: number): CatalogTableRow[] => {
-                const start = (currentPage - 1) * TABLES_PAGE_SIZE
-                return filteredRows.slice(start, start + TABLES_PAGE_SIZE)
-            },
+            (filteredRows: CatalogTableRow[], currentPage: number): CatalogTableRow[] =>
+                itemsOnPage(filteredRows, currentPage, TABLES_PAGE_SIZE),
         ],
         selectedRows: [
             (s) => [s.rows, s.selectedRowKeys],
@@ -578,7 +581,7 @@ export const catalogTablesLogic = kea<catalogTablesLogicType>([
             const keptIds = new Set(kept.map((certification) => certification.id))
             const added = [...updatedById.values()].filter((certification) => !keptIds.has(certification.id))
             actions.loadCertificationsSuccess([...added, ...kept])
-            actions.loadDatabase({ force: true })
+            actions.refreshDatabaseSchema()
         }
         const runSequentially = async (
             rows: CatalogTableRow[],
@@ -718,7 +721,7 @@ export const catalogTablesLogic = kea<catalogTablesLogicType>([
     })),
     afterMount(({ actions, values }) => {
         if (!values.database) {
-            actions.loadDatabase()
+            actions.loadDatabase({ shallow: true })
         }
         actions.loadPosthogTableSubjectIds()
     }),

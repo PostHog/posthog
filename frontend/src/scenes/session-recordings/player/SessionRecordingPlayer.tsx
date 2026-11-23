@@ -7,8 +7,9 @@ import { useEffect, useRef } from 'react'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@posthog/quill'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { playerUsesWatchLayout } from 'scenes/session-recordings/playlist/replayLayout'
+import { isFeedReplayLayout, playerUsesWatchLayout } from 'scenes/session-recordings/playlist/replayLayout'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -28,6 +29,7 @@ import {
 } from './sessionRecordingPlayerLogic'
 import { useLinkedIssuesAvailable } from './sidebar/useLinkedIssuesAvailable'
 import { debugTabKeys } from './watch/DebugTabBar'
+import { FeedDebugPanel } from './watch/FeedDebugPanel'
 import { WATCH_PANEL_COLLAPSED_SIZE, WatchPanel } from './watch/WatchPanel'
 
 export { createPlaybackSpeedKey } from './PurePlayer'
@@ -102,12 +104,14 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         accessToken,
         onRecordingDeleted,
         playNextRecording,
+        keepFullScreenAcrossRecordings,
         skipToFirstMatchingEvent,
         exposureSkipExperimentId,
         watchLayout,
     } = props
 
-    const playerRef = useRef<HTMLDivElement>(null)
+    const ownPlayerRef = useRef<HTMLDivElement>(null)
+    const playerRef = props.playerRef ?? ownPlayerRef
 
     const logicProps: SessionRecordingPlayerLogicProps = {
         sessionRecordingId,
@@ -125,6 +129,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         accessToken,
         onRecordingDeleted,
         playNextRecording,
+        keepFullScreenAcrossRecordings,
         skipToFirstMatchingEvent,
         exposureSkipExperimentId,
         watchLayout,
@@ -166,7 +171,8 @@ function SessionRecordingPlayerInternal({
     const debugReplayAction = showDebugReplayButton && logicProps.playerKey !== 'modal' ? <DebugReplayButton /> : null
 
     if (playerUsesWatchLayout(replayLayout, logicProps)) {
-        const rightDock = debugMode && watchDebugDock === 'right' && !isFullScreen
+        const feed = isFeedReplayLayout(replayLayout)
+        const rightDock = debugMode && !feed && watchDebugDock === 'right' && !isFullScreen
         return (
             <div
                 className={clsx('SessionRecordingPlayerWrapper SessionRecordingPlayerWrapper--watch', {
@@ -193,10 +199,22 @@ function SessionRecordingPlayerInternal({
                         )}
                     >
                         <PurePlayer noMeta={noMeta} noBorder={noBorder} />
+                        {/* Fullscreen shows the player panel alone, so debug moves inside it. */}
+                        {debugMode && isFullScreen && (
+                            <FloatingContainerContext.Provider value={playerRef.current}>
+                                <div data-not-quill className="contents">
+                                    <PlayerSidebar
+                                        tabs={debugTabKeys(linkedIssuesAvailable)}
+                                        stacking={SessionRecordingSidebarStacking.Horizontal}
+                                    />
+                                </div>
+                            </FloatingContainerContext.Provider>
+                        )}
                     </ResizablePanel>
                     <ResizableHandle withHandle data-attr="watch-panel-resize-handle" />
                     <WatchPanelResizablePanel />
                 </ResizablePanelGroup>
+                {feed && debugMode && !isFullScreen && <FeedDebugPanel />}
                 {rightDock && (
                     <PlayerSidebar
                         tabs={debugTabKeys(linkedIssuesAvailable)}

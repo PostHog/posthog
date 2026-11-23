@@ -13,6 +13,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
+    lift_nested,
     make_tracked_session,
     rest_api_resource,
     validate_via_probe,
@@ -104,12 +105,7 @@ class LastIdPaginator(BasePaginator):
 
 def _flatten(field_name: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
     def _map(row: dict[str, Any]) -> dict[str, Any]:
-        nested = row.get(field_name)
-        if not isinstance(nested, dict):
-            return row
-        flat = {k: v for k, v in row.items() if k != field_name}
-        flat.update(nested)
-        return flat
+        return lift_nested(row, field_name, on_clash="nested")
 
     return _map
 

@@ -3,6 +3,7 @@ use std::str::from_utf8;
 
 use chrono::{DateTime, TimeZone, Utc};
 use metrics::counter;
+use personhog_common::query_tag;
 use personhog_proto::personhog::types::v1::Person;
 use sqlx::postgres::PgPool;
 use tracing::error;
@@ -45,36 +46,26 @@ impl PgStore {
 
         // Most columns take the record's value outright — the record is the
         // leader's authoritative snapshot and the version guard orders
-        // records — but three merge against the existing row instead. The
-        // meta columns coalesce because changelog records carry no meta
-        // (the leader does not maintain those columns; ingestion's direct
-        // writer does), so assignment would erase real values. last_seen_at
-        // takes GREATEST — which ignores NULL — because records may predate
+        // records — but last_seen_at merges against the existing row instead.
+        // It takes GREATEST, which ignores NULL, because records may predate
         // the field, and the column's invariant is that it only advances.
+        // uuid stays out of SET because a key column there makes ON CONFLICT
+        // lock FOR UPDATE, which blocks foreign-key checks on the person.
         let upsert_sql = format!(
             "INSERT INTO {table} (
-                id, team_id, uuid, properties, properties_last_updated_at,
-                properties_last_operation, created_at, version, is_identified,
+                id, team_id, uuid, properties, created_at, version, is_identified,
                 last_seen_at, is_deleted
             )
             SELECT id, team_id, uuid, properties::jsonb,
-                   properties_last_updated_at::jsonb, properties_last_operation::jsonb,
                    created_at, version, is_identified, last_seen_at, is_deleted
             FROM UNNEST(
-                $1::bigint[], $2::int[], $3::uuid[],
-                $4::text[], $5::text[], $6::text[],
-                $7::timestamptz[], $8::bigint[], $9::bool[], $10::timestamptz[],
-                $11::bool[]
-            ) AS u(id, team_id, uuid, properties, properties_last_updated_at,
-                   properties_last_operation, created_at, version, is_identified, last_seen_at,
-                   is_deleted)
+                $1::bigint[], $2::int[], $3::uuid[], $4::text[],
+                $5::timestamptz[], $6::bigint[], $7::bool[], $8::timestamptz[],
+                $9::bool[]
+            ) AS u(id, team_id, uuid, properties, created_at, version, is_identified,
+                   last_seen_at, is_deleted)
             ON CONFLICT (team_id, id) DO UPDATE SET
-                uuid = EXCLUDED.uuid,
                 properties = EXCLUDED.properties,
-                properties_last_updated_at =
-                    COALESCE(EXCLUDED.properties_last_updated_at, {table}.properties_last_updated_at),
-                properties_last_operation =
-                    COALESCE(EXCLUDED.properties_last_operation, {table}.properties_last_operation),
                 created_at = EXCLUDED.created_at,
                 version = EXCLUDED.version,
                 is_identified = EXCLUDED.is_identified,
@@ -84,7 +75,10 @@ impl PgStore {
             table = table_name
         );
 
-        Self { pool, upsert_sql }
+        Self {
+            pool,
+            upsert_sql: query_tag!("upsert_persons", upsert_sql),
+        }
     }
 }
 
@@ -139,10 +133,6 @@ fn push_person<'a>(arrays: &mut PreparedArrays<'a>, p: &'a Person) -> Result<(),
         .map_err(|_| unbindable("team_id", "exceeds the column's integer range".to_string()))?;
     let properties =
         bytes_to_json_str(&p.properties, "{}").map_err(|e| unbindable("properties", e))?;
-    let properties_last_updated_at = bytes_to_optional_json_str(&p.properties_last_updated_at)
-        .map_err(|e| unbindable("properties_last_updated_at", e))?;
-    let properties_last_operation = bytes_to_optional_json_str(&p.properties_last_operation)
-        .map_err(|e| unbindable("properties_last_operation", e))?;
     let created_at = epoch_ms_to_datetime(p.created_at)
         .ok_or_else(|| unbindable("created_at", format!("epoch {} out of range", p.created_at)))?;
     let last_seen_at = match p.last_seen_at {
@@ -158,8 +148,6 @@ fn push_person<'a>(arrays: &mut PreparedArrays<'a>, p: &'a Person) -> Result<(),
         team_id,
         uuid,
         properties,
-        properties_last_updated_at,
-        properties_last_operation,
         created_at,
         Some(p.version),
         p.is_identified,
@@ -185,8 +173,6 @@ async fn run_upsert(
         .bind(&arrays.team_ids)
         .bind(&arrays.uuids)
         .bind(&arrays.properties)
-        .bind(&arrays.properties_last_updated_at)
-        .bind(&arrays.properties_last_operation)
         .bind(&arrays.created_at)
         .bind(&arrays.versions)
         .bind(&arrays.is_identified)
@@ -263,8 +249,6 @@ struct PreparedArrays<'a> {
     team_ids: Vec<i32>,
     uuids: Vec<Uuid>,
     properties: Vec<&'a str>,
-    properties_last_updated_at: Vec<Option<&'a str>>,
-    properties_last_operation: Vec<Option<&'a str>>,
     created_at: Vec<DateTime<Utc>>,
     versions: Vec<Option<i64>>,
     is_identified: Vec<bool>,
@@ -279,8 +263,6 @@ impl<'a> PreparedArrays<'a> {
             team_ids: Vec::with_capacity(cap),
             uuids: Vec::with_capacity(cap),
             properties: Vec::with_capacity(cap),
-            properties_last_updated_at: Vec::with_capacity(cap),
-            properties_last_operation: Vec::with_capacity(cap),
             created_at: Vec::with_capacity(cap),
             versions: Vec::with_capacity(cap),
             is_identified: Vec::with_capacity(cap),
@@ -296,8 +278,6 @@ impl<'a> PreparedArrays<'a> {
         team_id: i32,
         uuid: Uuid,
         properties: &'a str,
-        properties_last_updated_at: Option<&'a str>,
-        properties_last_operation: Option<&'a str>,
         created_at: DateTime<Utc>,
         version: Option<i64>,
         is_identified: bool,
@@ -308,10 +288,6 @@ impl<'a> PreparedArrays<'a> {
         self.team_ids.push(team_id);
         self.uuids.push(uuid);
         self.properties.push(properties);
-        self.properties_last_updated_at
-            .push(properties_last_updated_at);
-        self.properties_last_operation
-            .push(properties_last_operation);
         self.created_at.push(created_at);
         self.versions.push(version);
         self.is_identified.push(is_identified);
@@ -330,15 +306,6 @@ fn bytes_to_json_str<'a>(bytes: &'a [u8], default: &'static str) -> Result<&'a s
         return Ok(default);
     }
     from_utf8(bytes).map_err(|e| format!("non-UTF-8 JSON bytes: {e}"))
-}
-
-fn bytes_to_optional_json_str(bytes: &[u8]) -> Result<Option<&str>, String> {
-    if bytes.is_empty() {
-        return Ok(None);
-    }
-    from_utf8(bytes)
-        .map(Some)
-        .map_err(|e| format!("non-UTF-8 JSON bytes: {e}"))
 }
 
 fn epoch_ms_to_datetime(epoch_ms: i64) -> Option<DateTime<Utc>> {
@@ -380,17 +347,6 @@ mod tests {
     #[test]
     fn bytes_to_json_str_rejects_invalid_utf8() {
         assert!(bytes_to_json_str(&[0xff, 0xfe], "{}").is_err());
-    }
-
-    #[test]
-    fn bytes_to_optional_json_str_empty_returns_none() {
-        assert!(bytes_to_optional_json_str(b"").unwrap().is_none());
-    }
-
-    #[test]
-    fn bytes_to_optional_json_str_valid() {
-        let s = bytes_to_optional_json_str(b"{\"key\":\"val\"}").unwrap();
-        assert_eq!(s.unwrap(), "{\"key\":\"val\"}");
     }
 
     #[test]

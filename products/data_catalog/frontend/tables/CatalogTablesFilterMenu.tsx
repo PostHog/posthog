@@ -12,7 +12,13 @@ import { TodayRecentRadioSubmenu } from '~/layout/today/TodayRecentRadioSubmenu'
 
 import { ISSUE_KIND_ORDER, ISSUE_LABELS } from 'products/data_modeling/frontend/overviewIssueCopy'
 
-import { ChecksFilter, DEFAULT_TABLES_FILTERS, KIND_LABELS, TablesFilters, TrustFilter } from '../catalogTableRows'
+import {
+    CHECKS_FILTER_OPTIONS,
+    DEFAULT_TABLES_FILTERS,
+    KIND_LABELS,
+    TablesFilters,
+    TrustFilter,
+} from '../catalogTableRows'
 import { catalogTablesLogic } from '../catalogTablesLogic'
 
 const KIND_OPTIONS: { value: TablesFilters['kind']; label: string }[] = [
@@ -35,12 +41,6 @@ const TRUST_OPTIONS: { value: TrustFilter; label: string }[] = [
     { value: 'proposed', label: 'Proposed' },
     { value: 'deprecated', label: 'Deprecated' },
     { value: 'none', label: 'No trust mark' },
-]
-
-const CHECKS_OPTIONS: { value: ChecksFilter; label: string }[] = [
-    { value: 'any', label: 'Any' },
-    { value: 'with', label: 'With checks' },
-    { value: 'without', label: 'Without checks' },
 ]
 
 export function CatalogTablesFilterMenu(): JSX.Element {
@@ -77,7 +77,7 @@ export function CatalogTablesFilterMenu(): JSX.Element {
                 />
                 <TodayRecentRadioSubmenu
                     label="Checks"
-                    options={CHECKS_OPTIONS}
+                    options={CHECKS_FILTER_OPTIONS}
                     value={filters.checks}
                     defaultValue={DEFAULT_TABLES_FILTERS.checks}
                     onChange={(checks) => setFilters({ checks })}

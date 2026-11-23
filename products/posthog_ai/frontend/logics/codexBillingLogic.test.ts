@@ -61,7 +61,7 @@ describe('codexBillingLogic', () => {
     })
 
     describe('codexModelAccessForRun', () => {
-        const FLAG = FEATURE_FLAGS.POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD
+        const FLAG = FEATURE_FLAGS.PHAI_SANDBOX_MODE
 
         it.each([
             ['the flag is off', false, RuntimeAdapterEnumApi.Codex, 'connected', null],
@@ -78,6 +78,13 @@ describe('codexBillingLogic', () => {
                 RuntimeAdapterEnumApi.Codex,
                 'connected',
                 ModelAccessEnumApi.OwnSubscription,
+            ],
+            [
+                'the account needs a new sign-in',
+                true,
+                RuntimeAdapterEnumApi.Codex,
+                'reauth_required',
+                ModelAccessEnumApi.PosthogGateway,
             ],
             [
                 'the account was disconnected',
@@ -117,7 +124,7 @@ describe('codexBillingLogic', () => {
     })
 
     it('leaves a resume billing off while the connection loads with the plan saved', async () => {
-        const FLAG = FEATURE_FLAGS.POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD
+        const FLAG = FEATURE_FLAGS.PHAI_SANDBOX_MODE
         logic.actions.setPreferredCodexModelAccess(ModelAccessEnumApi.OwnSubscription)
         logic.unmount()
         featureFlagLogic.actions.setFeatureFlags([FLAG], { [FLAG]: true })

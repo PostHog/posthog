@@ -667,13 +667,6 @@ export const OrganizationsProjectsDefaultReleaseConditionsUpdateBody = /* @__PUR
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Projects for the current organization.
- */
-export const OrganizationsProjectsDeleteSecretTokenBackupPartialUpdateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
-
-/**
  * Manage experiment configuration for this project.
  */
 export const OrganizationsProjectsExperimentsConfigPartialUpdateBody = /* @__PURE__ */ zod
@@ -691,13 +684,6 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
  * Projects for the current organization.
  */
 export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
-
-/**
- * Projects for the current organization.
- */
-export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
@@ -852,17 +838,12 @@ export const FileSystemLinkCreateBody = /* @__PURE__ */ zod.object({
     shortcut: zod.boolean().nullish(),
 })
 
-export const fileSystemMoveCreateBodyTypeMax = 100
-
-export const fileSystemMoveCreateBodyRefMax = 100
-
 export const FileSystemMoveCreateBody = /* @__PURE__ */ zod.object({
-    path: zod.string(),
-    type: zod.string().max(fileSystemMoveCreateBodyTypeMax).optional(),
-    ref: zod.string().max(fileSystemMoveCreateBodyRefMax).nullish(),
-    href: zod.string().nullish(),
-    meta: zod.unknown().optional(),
-    shortcut: zod.boolean().nullish(),
+    new_path: zod
+        .string()
+        .describe(
+            "Full new path for the entry, including its own name as the last segment, such as 'Experiments\/Q4\/Weekly signups'. Missing parent folders are created. Escape a '\/' inside a name as '\\\/'."
+        ),
 })
 
 /**

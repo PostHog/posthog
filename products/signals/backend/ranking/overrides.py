@@ -9,13 +9,18 @@ the served pointer, and `hold_auto_promotion` only stops the publish from moving
 The parser is fail-safe. An absent, expired or invalid payload, or a failed flag lookup, gives
 `NO_OVERRIDES`, and the sweep and the dag then run as they do with no flag. An invalid payload is
 ignored as a whole and is never partly applied.
+
+The automatic promotion interval is not an override either, because it stays in place with no
+expiry. The training dag reads it from the `inbox-ranking-auto-promotion` flag payload through
+`read_auto_promotion_interval`, which falls back to `INBOX_RANKING_AUTO_PROMOTE_INTERVAL_DAYS` on
+the same fail-safe terms.
 """
 
 import re
 import json
 import datetime
 from collections.abc import Mapping
-from typing import Any
+from typing import Annotated, Any, Literal
 
 import pydantic
 import structlog
@@ -26,7 +31,8 @@ from posthog.dataclasses import frozen
 logger = structlog.get_logger(__name__)
 
 RANKING_OVERRIDES_FLAG = "inbox-ranking-overrides"
-# The flag is evaluated once per pass or run for this id, so an override applies to every report.
+AUTO_PROMOTION_FLAG = "inbox-ranking-auto-promotion"
+# Both flags are evaluated once per pass or run for this id, so a value applies to every report.
 RANKING_OVERRIDES_DISTINCT_ID = "internal_inbox_ranking_overrides"
 
 # A forgotten override must not change serving for longer than this.
@@ -126,3 +132,53 @@ def read_ranking_overrides(now: datetime.datetime) -> RankingOverrides:
             logger.warning("inbox_ranking_override_invalid", reason="the payload is not valid JSON")
             return NO_OVERRIDES
     return parse_overrides(payload, now=now)
+
+
+class _AutoPromotionPayload(pydantic.BaseModel):
+    model_config = pydantic.ConfigDict(extra="forbid")
+
+    # Strict, so that `true` or `"3"` is refused and not read as 1 or 3.
+    interval_days: Annotated[int, pydantic.Field(strict=True, ge=0)]
+
+
+@frozen
+class AutoPromotionInterval:
+    days: int
+    source: Literal["flag", "setting"]
+
+
+def parse_auto_promotion_interval(payload: Any) -> int | None:
+    """The `interval_days` a payload sets, or None when it is empty or invalid."""
+    if payload is None or payload == {}:
+        return None
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except ValueError:
+            logger.warning("inbox_ranking_auto_promotion_invalid", reason="the payload is not valid JSON")
+            return None
+    if not isinstance(payload, Mapping):
+        logger.warning("inbox_ranking_auto_promotion_invalid", reason="the payload is not a JSON object")
+        return None
+    try:
+        return _AutoPromotionPayload.model_validate(payload).interval_days
+    except pydantic.ValidationError as error:
+        logger.warning("inbox_ranking_auto_promotion_invalid", reason=str(error))
+        return None
+
+
+def read_auto_promotion_interval(setting_days: int) -> AutoPromotionInterval:
+    """The interval the automatic promotion step waits, from the flag payload or else `setting_days`.
+
+    Blocks on the flag lookup. A disabled flag, an invalid payload or a failed lookup gives the
+    setting, so the step never runs on a value nobody set.
+    """
+    try:
+        payload = posthoganalytics.get_feature_flag_payload(AUTO_PROMOTION_FLAG, RANKING_OVERRIDES_DISTINCT_ID)
+    except Exception as error:
+        logger.warning("inbox_ranking_auto_promotion_lookup_failed", error=repr(error))
+        payload = None
+    days = parse_auto_promotion_interval(payload)
+    if days is None:
+        return AutoPromotionInterval(days=setting_days, source="setting")
+    return AutoPromotionInterval(days=days, source="flag")

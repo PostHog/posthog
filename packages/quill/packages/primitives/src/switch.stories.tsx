@@ -82,6 +82,15 @@ export const Disabled: Story = {
     },
 } satisfies Story
 
+export const DisabledReason: Story = {
+    render: () => (
+        <div className="flex flex-col gap-3">
+            <Switch defaultChecked>Session replay</Switch>
+            <Switch disabledReason="Only admins can change this">Autocapture</Switch>
+        </div>
+    ),
+} satisfies Story
+
 export const Invalid: Story = {
     render: () => {
         return (

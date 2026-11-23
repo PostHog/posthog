@@ -12,7 +12,6 @@ from posthog.admin.authorization import DELETION_AUTHORIZED_GROUP
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Panel, ReasonForm, Tone
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
-from posthog.admin.console.team_panels import DEV_EXPERIENCE
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Detail, log_activity
@@ -27,7 +26,8 @@ class ProjectOverviewPanel(Panel):
     record = "project"
     key = "overview"
     title = "Overview"
-    owner = DEV_EXPERIENCE
+    owner = None
+    order = 10
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, Project)
@@ -199,7 +199,8 @@ class ProjectDeletionPanel(Panel):
     record = "project"
     key = "deletion"
     title = "Deletion"
-    owner = DEV_EXPERIENCE
+    owner = None
+    order = 10
     danger = True
 
     def facts(self, obj: Model) -> list[Fact]:
@@ -251,3 +252,10 @@ class ProjectDeletionPanel(Panel):
                 )
             ]
         return []
+
+
+# The panel, not the form: each deletion operation is offered only in one deletion state, so its form would 404.
+for old in ("trigger-deletion", "delete-now"):
+    console.register_moved_action(
+        old_path=f"admin/posthog/project/<int:pk>/{old}/", record="project", target="#panel-deletion"
+    )
