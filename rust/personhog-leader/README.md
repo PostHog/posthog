@@ -206,12 +206,14 @@ broker can't park the runtime thread.
 
 #### Cache fill after a warm
 
-With `CACHE_FILL_LOOKBACK_SECS` above zero, a newly warmed partition
-refills its cache in the background from the changelog below the warm's
-start offset, newest records first (`fill_source` in `src/warming.rs`).
-It inserts only a person the partition has not put since the warm began,
-and stops at the lookback bound, at 90% of the cache budget, or when the
-partition is released.
+With `CACHE_FILL_LOOKBACK_SECS` above zero, a newly warmed partition refills its cache in the background from the changelog below the warm's start offset, newest records first (`run_fills` in `src/warming.rs`).
+It inserts only a person the partition has not put since the warm began.
+
+One task fills up to `CACHE_FILL_CONCURRENCY` partitions at a time (default 8), on one consumer per changelog cluster.
+In each round the consumer reads one chunk of `CACHE_FILL_CHUNK_OFFSETS` offsets of every partition it is filling on that cluster, and pauses a partition once its chunk is read.
+The next round reads the chunk below it.
+A partition's fill ends at the lookback bound, when its cache holds `CACHE_FILL_TARGET_FRACTION` of its capacity (default 0.7), when put tracking passes its key bound, or when the partition is released or warmed again.
+A read failure ends only the fills whose chunk was not read whole, and those partitions serve without a fill.
 
 #### vNode ownership
 

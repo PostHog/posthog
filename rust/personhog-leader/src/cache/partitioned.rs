@@ -110,6 +110,12 @@ impl PartitionedCache {
             .map(|cache| Arc::clone(&cache))
     }
 
+    pub fn is_serving(&self, partition: u32, build: &Arc<PersonCache>) -> bool {
+        self.partitions
+            .get(&partition)
+            .is_some_and(|serving| Arc::ptr_eq(&serving, build))
+    }
+
     /// Insert one record into a partition cache under construction.
     pub fn warm_put(&self, partition: u32, key: PersonCacheKey, person: CachedPerson) {
         self.warming

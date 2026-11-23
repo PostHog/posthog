@@ -13,8 +13,8 @@ use personhog_leader::cache::{
     CacheLookup, DirtyIndex, PartitionedCache, PersonCache, PersonCacheKey,
 };
 use personhog_leader::warming::{
-    fill_source, lookback_offset, warm_from_sources, FillConfig, FillEnd, WarmClientPools,
-    WarmingConfig,
+    fill_next_chunks, lookback_offset, run_fills, warm_from_sources, FillConfig, FillEnd,
+    FillRequest, FillStats, Fills, PartitionFill, WarmClientPools, WarmingConfig,
 };
 use personhog_proto::personhog::types::v1::Person;
 use prost::Message as ProtoMessage;
@@ -126,8 +126,47 @@ fn serving(cache: &PartitionedCache) -> Arc<PersonCache> {
 const FILL: FillConfig = FillConfig {
     lookback: Duration::from_secs(3600),
     chunk_offsets: 2,
-    room_fraction: 0.9,
+    target_fraction: 0.9,
+    concurrency: 4,
 };
+
+async fn fill_to_end(
+    cfg: &WarmingConfig,
+    fill: &FillConfig,
+    pools: &WarmClientPools,
+    fills: &mut [PartitionFill],
+) {
+    let cluster = pools.on(None);
+    while fills.iter().any(|filling| filling.stats().is_none()) {
+        fill_next_chunks(cfg, fill, &cluster.warming, fills).await;
+    }
+}
+
+async fn fill_source(
+    cfg: &WarmingConfig,
+    fill: &FillConfig,
+    pools: &WarmClientPools,
+    cache: &Arc<PersonCache>,
+    source: &WarmSource,
+    lower: i64,
+    upper: i64,
+) -> personhog_coordination::error::Result<FillStats> {
+    let mut fills = [PartitionFill::new(
+        source.partition,
+        Arc::clone(cache),
+        source.clone(),
+        lower,
+        upper,
+    )];
+    fill_to_end(cfg, fill, pools, &mut fills).await;
+    let stats = fills[0].stats().expect("the fill has ended");
+    if stats.end == FillEnd::Failed {
+        return Err(personhog_coordination::error::Error::invalid_state(
+            "the fill's read failed".to_string(),
+        ));
+    }
+    Ok(stats)
+}
 
 /// Six applied records on partition 0, then a warm that finds nothing left to read.
 async fn warmed_over_applied_history(
@@ -346,7 +385,7 @@ async fn a_chunk_larger_than_the_caches_room_keeps_its_newest_persons_and_ends_t
     let fill = FillConfig {
         chunk_offsets: 4,
         // Room for three of the chunk's four records.
-        room_fraction: 35_000.0 / (1 << 20) as f64,
+        target_fraction: 35_000.0 / (1 << 20) as f64,
         ..FILL
     };
 
@@ -375,7 +414,7 @@ async fn a_fill_stops_inside_a_chunk_once_the_cache_has_no_room() {
     let source = WarmSource::live(CHANGELOG_TOPIC, None, 0);
     let fill = FillConfig {
         chunk_offsets: 1000,
-        room_fraction: 0.01,
+        target_fraction: 0.01,
         ..FILL
     };
 
@@ -449,7 +488,7 @@ async fn a_fill_stops_when_the_cache_has_no_room_or_tracks_no_puts() {
     let full = PartitionedCache::new(1 << 20);
     let (_cluster, cfg, pools, upper) = warmed_over_applied_history(&full).await;
     let no_room = FillConfig {
-        room_fraction: 0.0,
+        target_fraction: 0.0,
         ..FILL
     };
     let stats = fill_source(&cfg, &no_room, &pools, &serving(&full), &source, 0, upper)
@@ -524,6 +563,249 @@ async fn a_fill_over_many_chunks_reads_every_record_once() {
         (stats.records, stats.inserted),
         (PERSONS as u64, PERSONS as u64)
     );
+}
+
+#[tokio::test]
+async fn a_fill_of_several_partitions_reads_every_record_of_each_once() {
+    let (cluster, producer) = create_mock_kafka().await;
+    let persons_per_partition = [40_i64, 15, 3];
+    for (partition, persons) in persons_per_partition.iter().enumerate() {
+        for person in 1..=*persons {
+            let person_id = partition as i64 * 100 + person;
+            produce_person_to_partition(&producer, partition as i32, &make_person(1, person_id))
+                .await;
+        }
+    }
+    let (cfg, pools) = warming_config_for("several", &cluster);
+    let cache = PartitionedCache::new(8 << 20);
+    let mut fills = Vec::new();
+    for (partition, persons) in persons_per_partition.iter().enumerate() {
+        let partition = partition as u32;
+        cache.begin_warm_partition(partition);
+        cache.track_puts(partition);
+        cache.publish_warmed_partition(partition);
+        fills.push(PartitionFill::new(
+            partition,
+            cache.serving_cache(partition).expect("published"),
+            WarmSource::live(CHANGELOG_TOPIC, None, partition),
+            0,
+            *persons,
+        ));
+    }
+    let fill = FillConfig {
+        chunk_offsets: 7,
+        ..FILL
+    };
+
+    fill_to_end(&cfg, &fill, &pools, &mut fills).await;
+
+    let filled: Vec<(u64, u64, FillEnd)> = fills
+        .iter()
+        .map(|filling| filling.stats().expect("the fill has ended"))
+        .map(|stats| (stats.records, stats.inserted, stats.end))
+        .collect();
+    assert_eq!(
+        filled,
+        vec![
+            (40, 40, FillEnd::Bound),
+            (15, 15, FillEnd::Bound),
+            (3, 3, FillEnd::Bound)
+        ]
+    );
+}
+
+#[tokio::test]
+async fn the_fill_task_fills_every_queued_partition_that_still_serves() {
+    let topic = common::owned_broker_topic(3).await;
+    let producer = common::create_kafka_producer_on(&topic.bootstrap_servers()).await;
+    for partition in 0..3 {
+        let payload = make_person(1, partition as i64).encode_to_vec();
+        let key = format!("1:{partition}");
+        producer
+            .send(
+                FutureRecord::to(&topic.topic)
+                    .key(&key)
+                    .partition(partition)
+                    .payload(&payload),
+                Duration::from_secs(5),
+            )
+            .await
+            .expect("produce should succeed");
+    }
+    let cfg = test_warming_config("task", &topic.bootstrap_servers());
+    let pools = WarmClientPools::new(&cfg.kafka, "task", &cfg.writer_consumer_group);
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
+    let (requests, queued) = tokio::sync::mpsc::unbounded_channel();
+    for partition in 0..3 {
+        cache.begin_warm_partition(partition);
+        cache.track_puts(partition);
+        cache.publish_warmed_partition(partition);
+        let request = FillRequest {
+            partition,
+            cache: cache.serving_cache(partition).expect("published"),
+            source: WarmSource::live(&topic.topic, None, partition),
+            upper: 1,
+        };
+        assert!(requests.send(request).is_ok());
+    }
+    let released = cache.serving_cache(1).expect("published");
+    cache.drop_partition(1);
+    drop(requests);
+    // One slot, so the last partition has to wait for the first to end.
+    let one_at_a_time = FillConfig {
+        concurrency: 1,
+        ..FILL
+    };
+
+    let fills = Fills::new(cfg, one_at_a_time, Arc::new(pools), Arc::clone(&cache));
+    tokio::time::timeout(Duration::from_secs(30), run_fills(fills, queued))
+        .await
+        .expect("the fill task should end once its queue is closed and drained");
+
+    assert_eq!(
+        (
+            version_of(&cache, 0, 0),
+            released.usage_bytes(),
+            version_of(&cache, 2, 2)
+        ),
+        (Some(1), 0, Some(1))
+    );
+}
+
+#[tokio::test]
+async fn a_release_ends_a_fill_between_its_chunks() {
+    let topic = common::owned_broker_topic(1).await;
+    let producer = common::create_kafka_producer_on(&topic.bootstrap_servers()).await;
+    for person_id in 1..=3 {
+        let payload = make_person(1, person_id).encode_to_vec();
+        let key = format!("1:{person_id}");
+        producer
+            .send(
+                FutureRecord::to(&topic.topic)
+                    .key(&key)
+                    .partition(0)
+                    .payload(&payload),
+                Duration::from_secs(5),
+            )
+            .await
+            .expect("produce should succeed");
+    }
+    let cfg = test_warming_config("release", &topic.bootstrap_servers());
+    let pools = WarmClientPools::new(&cfg.kafka, "release", &cfg.writer_consumer_group);
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
+    cache.begin_warm_partition(0);
+    cache.track_puts(0);
+    cache.publish_warmed_partition(0);
+    let build = serving(&cache);
+    let a_chunk_per_person = FillConfig {
+        chunk_offsets: 1,
+        ..FILL
+    };
+    let mut fills = Fills::new(cfg, a_chunk_per_person, Arc::new(pools), Arc::clone(&cache));
+    fills.queue(FillRequest {
+        partition: 0,
+        cache: Arc::clone(&build),
+        source: WarmSource::live(&topic.topic, None, 0),
+        upper: 3,
+    });
+
+    fills.round().await;
+    cache.drop_partition(0);
+    fills.round().await;
+
+    let filled = |person_id| {
+        let key = PersonCacheKey {
+            team_id: 1,
+            person_id,
+        };
+        build.get(&key).is_some()
+    };
+    assert_eq!(
+        (filled(3), filled(2), fills.is_idle()),
+        (true, false, true),
+        "only the chunk read before the release is filled, and the fill is over"
+    );
+}
+
+#[tokio::test]
+async fn a_fill_whose_read_stalls_ends_without_ending_the_others() {
+    let (cluster, producer) = create_mock_kafka().await;
+    for partition in 0..2 {
+        for person in 1..=3 {
+            let person_id = partition as i64 * 100 + person;
+            produce_person_to_partition(&producer, partition, &make_person(1, person_id)).await;
+        }
+    }
+    let (mut cfg, pools) = warming_config_for("stall", &cluster);
+    pools.on(None).warming.warm_up(1).await;
+    cfg.recv_timeout = Duration::from_secs(2);
+    let cache = PartitionedCache::new(1 << 20);
+    let mut fills = Vec::new();
+    // Partition 0's range ends past its log, so its read can never finish.
+    for (partition, upper) in [(0, 5), (1, 3)] {
+        cache.begin_warm_partition(partition);
+        cache.track_puts(partition);
+        cache.publish_warmed_partition(partition);
+        fills.push(PartitionFill::new(
+            partition,
+            cache.serving_cache(partition).expect("published"),
+            WarmSource::live(CHANGELOG_TOPIC, None, partition),
+            0,
+            upper,
+        ));
+    }
+    let one_chunk = FillConfig {
+        chunk_offsets: 100,
+        ..FILL
+    };
+
+    fill_to_end(&cfg, &one_chunk, &pools, &mut fills).await;
+
+    let ended: Vec<(u64, FillEnd)> = fills
+        .iter()
+        .map(|filling| filling.stats().expect("the fill has ended"))
+        .map(|stats| (stats.inserted, stats.end))
+        .collect();
+    assert_eq!(ended, vec![(0, FillEnd::Failed), (3, FillEnd::Bound)]);
+}
+
+#[tokio::test]
+async fn a_fill_inserts_nothing_from_a_chunk_it_cannot_decode_and_the_others_go_on() {
+    let (cluster, producer) = create_mock_kafka().await;
+    // The person before the bad record must not be filled: the chunk was not read whole.
+    produce_person_to_partition(&producer, 0, &make_person(1, 1)).await;
+    produce_garbage_to_partition(&producer, 0).await;
+    for person_id in 101..=103 {
+        produce_person_to_partition(&producer, 1, &make_person(1, person_id)).await;
+    }
+    let (cfg, pools) = warming_config_for("undecodable", &cluster);
+    let cache = PartitionedCache::new(1 << 20);
+    let mut fills = Vec::new();
+    for (partition, upper) in [(0, 2), (1, 3)] {
+        cache.begin_warm_partition(partition);
+        cache.track_puts(partition);
+        cache.publish_warmed_partition(partition);
+        fills.push(PartitionFill::new(
+            partition,
+            cache.serving_cache(partition).expect("published"),
+            WarmSource::live(CHANGELOG_TOPIC, None, partition),
+            0,
+            upper,
+        ));
+    }
+    let one_chunk = FillConfig {
+        chunk_offsets: 100,
+        ..FILL
+    };
+
+    fill_to_end(&cfg, &one_chunk, &pools, &mut fills).await;
+
+    let ended: Vec<(u64, FillEnd)> = fills
+        .iter()
+        .map(|filling| filling.stats().expect("the fill has ended"))
+        .map(|stats| (stats.inserted, stats.end))
+        .collect();
+    assert_eq!(ended, vec![(0, FillEnd::Failed), (3, FillEnd::Bound)]);
 }
 
 #[tokio::test]

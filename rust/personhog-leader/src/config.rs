@@ -168,6 +168,14 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub cache_fill_chunk_offsets: i64,
 
+    /// A partition's fill stops once its cache holds this fraction of its capacity.
+    #[envconfig(default = "0.7")]
+    pub cache_fill_target_fraction: f64,
+
+    /// Partitions the fill reads at a time, on one consumer.
+    #[envconfig(default = "8")]
+    pub cache_fill_concurrency: usize,
+
     /// Per-message receive timeout while consuming the warming range. If
     /// hit, warming aborts with the offsets seen so far so the partition
     /// can be retried fresh.
@@ -446,7 +454,9 @@ impl Config {
         (self.cache_fill_lookback_secs > 0).then(|| crate::warming::FillConfig {
             lookback: Duration::from_secs(self.cache_fill_lookback_secs),
             chunk_offsets: self.cache_fill_chunk_offsets.max(1),
-            room_fraction: crate::warming::FILL_ROOM_FRACTION,
+            // Above 1.0 the fill would evict the entries it had just restored.
+            target_fraction: self.cache_fill_target_fraction.clamp(0.0, 1.0),
+            concurrency: self.cache_fill_concurrency,
         })
     }
 

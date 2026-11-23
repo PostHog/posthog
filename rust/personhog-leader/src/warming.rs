@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
@@ -11,6 +11,7 @@ use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::error::KafkaError;
 use rdkafka::message::Message;
 use rdkafka::{ClientConfig, Offset, TopicPartitionList};
+use tokio::sync::mpsc;
 use tokio::time::{sleep, timeout};
 
 use personhog_common::partitioning::partition_for_person;
@@ -255,6 +256,20 @@ impl ConsumerPool {
                 code = format!("{code:?}"),
                 reason,
                 "client in a fatal state; dropping instead of pooling it"
+            );
+            return;
+        }
+        // librdkafka keeps an application pause across `unassign` and a later `assign`. A
+        // paused partition left on a pooled client would stall its next read of that
+        // partition, a handoff warm included.
+        let resumed = consumer
+            .assignment()
+            .and_then(|assigned| consumer.resume(&assigned));
+        if let Err(e) = resumed {
+            tracing::warn!(
+                pool = self.label,
+                error = %e,
+                "resume failed; dropping client instead of pooling it"
             );
             return;
         }
@@ -570,15 +585,18 @@ async fn warm_source(
 
     let span_start = Instant::now();
     let mut consumed: u64 = 0;
-    consume_range(
+    let range = OffsetRange {
+        leader_partition: partition,
+        topic: Arc::clone(&source.topic),
+        partition: partition_i32,
+        start: start_offset,
+        end: hwm,
+    };
+    consume_ranges(
         cfg,
         &consumer,
-        &source.topic,
-        partition_i32,
-        partition,
-        start_offset,
-        hwm,
-        |offset, cached| {
+        std::slice::from_ref(&range),
+        |_range, offset, cached| {
             // An old partition also holds keys that now belong elsewhere.
             if let Some(keep) = &source.keep {
                 if partition_for_person(cached.team_id, cached.id, keep.modulus) != keep.target {
@@ -605,7 +623,9 @@ async fn warm_source(
             cache.warm_put(partition, key, cached);
         },
     )
-    .await?;
+    .await
+    .into_iter()
+    .collect::<CoordResult<()>>()?;
 
     record_warm_span("consume", span_start);
 
@@ -617,28 +637,119 @@ async fn warm_source(
     Ok((consumed, start_offset))
 }
 
-/// Deliver every record in `[start, end)`, oldest first; `end` must not pass the log's end.
-#[allow(clippy::too_many_arguments)]
-async fn consume_range(
-    cfg: &WarmingConfig,
-    consumer: &StreamConsumer,
-    topic: &str,
-    partition_i32: i32,
-    partition: u32,
+/// One partition's offsets to read, `[start, end)`. `end` must not pass the log's end.
+struct OffsetRange {
+    leader_partition: u32,
+    topic: Arc<str>,
+    partition: i32,
     start: i64,
     end: i64,
-    mut on_record: impl FnMut(i64, CachedPerson),
-) -> CoordResult<()> {
+}
+
+impl std::fmt::Display for OffsetRange {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "partition {} ({}[{}])",
+            self.leader_partition, self.topic, self.partition
+        )
+    }
+}
+
+struct RangeReads<'a> {
+    consumer: &'a StreamConsumer,
+    ranges: &'a [OffsetRange],
+    open: Vec<bool>,
+    remaining: usize,
+    last_offsets: Vec<i64>,
+    failures: Vec<Option<String>>,
+}
+
+impl RangeReads<'_> {
+    fn close(&mut self, index: usize) -> Result<(), String> {
+        self.open[index] = false;
+        self.remaining -= 1;
+        if self.remaining == 0 {
+            return Ok(());
+        }
+        let range = &self.ranges[index];
+        let mut partition = TopicPartitionList::new();
+        partition.add_partition(&range.topic, range.partition);
+        self.consumer
+            .pause(&partition)
+            .map_err(|e| format!("warm pause: {e}"))
+    }
+
+    fn unread(&self) -> String {
+        let unread: Vec<String> = self
+            .ranges
+            .iter()
+            .zip(&self.last_offsets)
+            .zip(&self.open)
+            .filter(|(_, open)| **open)
+            .map(|((range, last_offset), _)| {
+                format!("{range} last_offset={last_offset}, end={}", range.end)
+            })
+            .collect();
+        unread.join("; ")
+    }
+}
+
+fn decode_person(payload: &[u8], offset: i64) -> Result<CachedPerson, String> {
+    let person = <Person as ProtoMessage>::decode(payload)
+        .map_err(|e| format!("warm decode failed at offset {offset}: {e}"))?;
+    CachedPerson::try_from(person)
+        .map_err(|e| format!("warm properties decode failed at offset {offset}: {e}"))
+}
+
+/// A record that cannot be decoded fails its own range. A client failure, a stall included,
+/// fails the ranges not yet read to their end, and the client is then unfit for the pool.
+async fn consume_ranges(
+    cfg: &WarmingConfig,
+    consumer: &StreamConsumer,
+    ranges: &[OffsetRange],
+    on_record: impl FnMut(usize, i64, CachedPerson),
+) -> Vec<CoordResult<()>> {
+    let mut reads = RangeReads {
+        consumer,
+        ranges,
+        open: vec![true; ranges.len()],
+        remaining: ranges.len(),
+        last_offsets: vec![-1; ranges.len()],
+        failures: vec![None; ranges.len()],
+    };
+    if let Err(reason) = read_ranges(cfg, &mut reads, on_record).await {
+        for (failure, open) in reads.failures.iter_mut().zip(&reads.open) {
+            if *open {
+                *failure = Some(reason.clone());
+            }
+        }
+    }
+    reads
+        .failures
+        .into_iter()
+        .map(|failure| failure.map_or(Ok(()), |reason| Err(CoordError::invalid_state(reason))))
+        .collect()
+}
+
+async fn read_ranges(
+    cfg: &WarmingConfig,
+    reads: &mut RangeReads<'_>,
+    mut on_record: impl FnMut(usize, i64, CachedPerson),
+) -> Result<(), String> {
+    let consumer = reads.consumer;
+    let ranges = reads.ranges;
     let mut assign_tpl = TopicPartitionList::new();
-    assign_tpl
-        .add_partition_offset(topic, partition_i32, Offset::Offset(start))
-        .map_err(|e| CoordError::invalid_state(format!("tpl add_partition_offset: {e}")))?;
+    for range in ranges {
+        assign_tpl
+            .add_partition_offset(&range.topic, range.partition, Offset::Offset(range.start))
+            .map_err(|e| format!("tpl add_partition_offset: {e}"))?;
+    }
     consumer
         .assign(&assign_tpl)
-        .map_err(|e| CoordError::invalid_state(format!("consumer assign: {e}")))?;
+        .map_err(|e| format!("consumer assign: {e}"))?;
 
     let mut consumed: u64 = 0;
-    let mut last_offset: i64 = -1;
 
     // A transactionally-produced range can end in control records
     // (commit/abort markers) that `recv` never delivers, so reaching the
@@ -649,10 +760,7 @@ async fn consume_range(
     let poll_slice = Duration::from_millis(100).min(cfg.recv_timeout);
     let mut quiet_since = Instant::now();
 
-    // `return` inside this block exits the block, not the function: a
-    // failure propagates through `?` below and the guard cleans up.
-    let consume_result: CoordResult<()> = async {
-        loop {
+    while reads.remaining > 0 {
         let msg = match timeout(poll_slice, consumer.recv()).await {
             Ok(Ok(m)) => m,
             // A non-fatal consumer error means librdkafka is handling it:
@@ -679,18 +787,19 @@ async fn consume_range(
             // code survives in the counter label and the warn line.
             Ok(Err(KafkaError::MessageConsumption(code))) => {
                 if let Some((fatal_code, reason)) = consumer.client().fatal_error() {
-                    return Err(CoordError::invalid_state(format!(
+                    return Err(format!(
                         "warm consumer entered a fatal state ({fatal_code:?}): {reason}"
-                    )));
+                    ));
                 }
                 // An error is not progress: the stall budget keeps
                 // running, so errors arriving faster than the quiet arm
                 // can observe still end the warm on time.
                 if quiet_since.elapsed() >= cfg.recv_timeout {
-                    return Err(CoordError::invalid_state(format!(
+                    return Err(format!(
                         "warm stalled on repeated consumer errors (last: {code:?}); \
-                         consumed {consumed} msgs, last_offset={last_offset}, end={end}",
-                    )));
+                         consumed {consumed} msgs, unread: {}",
+                        reads.unread(),
+                    ));
                 }
                 counter!(
                     // Debug renders the bare variant ("BrokerTransportFailure");
@@ -701,7 +810,8 @@ async fn consume_range(
                 )
                 .increment(1);
                 tracing::warn!(
-                    partition,
+                    partitions = ?ranges.iter().map(|range| range.leader_partition).collect::<Vec<_>>(),
+                    unread = reads.unread(),
                     error = %code,
                     "non-fatal consumer error during warm; riding it out"
                 );
@@ -711,45 +821,64 @@ async fn consume_range(
                 continue;
             }
             Ok(Err(e)) => {
-                return Err(CoordError::invalid_state(format!("warm recv: {e}")));
+                return Err(format!("warm recv: {e}"));
             }
             Err(_) => {
-                let position_reached = consumer
+                let positions = consumer
                     .position()
-                    .map_err(|e| CoordError::invalid_state(format!("warm position: {e}")))?
-                    .find_partition(topic, partition_i32)
-                    .is_some_and(|elem| matches!(elem.offset(), Offset::Offset(p) if p >= end));
-                if position_reached {
-                    break;
+                    .map_err(|e| format!("warm position: {e}"))?;
+                for (index, range) in ranges.iter().enumerate() {
+                    let reached = positions
+                        .find_partition(&range.topic, range.partition)
+                        .is_some_and(
+                            |elem| matches!(elem.offset(), Offset::Offset(p) if p >= range.end),
+                        );
+                    if reads.open[index] && reached {
+                        reads.close(index)?;
+                    }
                 }
-                if quiet_since.elapsed() >= cfg.recv_timeout {
-                    return Err(CoordError::invalid_state(format!(
-                        "warm timeout; consumed {consumed} msgs, last_offset={last_offset}, end={end}",
-                    )));
+                if reads.remaining > 0 && quiet_since.elapsed() >= cfg.recv_timeout {
+                    return Err(format!(
+                        "warm timeout; consumed {consumed} msgs, unread: {}",
+                        reads.unread(),
+                    ));
                 }
                 continue;
             }
         };
+        let read = ranges
+            .iter()
+            .position(|range| range.partition == msg.partition() && *range.topic == *msg.topic());
+        // Only a record of a range still being read is progress.
+        let Some(index) = read.filter(|index| reads.open[*index]) else {
+            continue;
+        };
         quiet_since = Instant::now();
+        let range = &ranges[index];
 
         let offset = msg.offset();
         // A range whose tail holds no records delivers the one after it.
-        if offset >= end {
-            break;
+        if offset >= range.end {
+            reads.close(index)?;
+            continue;
         }
-        last_offset = offset;
+        reads.last_offsets[index] = offset;
 
         if let Some(payload) = msg.payload() {
-            let person = <Person as ProtoMessage>::decode(payload).map_err(|e| {
-                CoordError::invalid_state(format!("warm decode failed at offset {offset}: {e}"))
-            })?;
-            let cached = CachedPerson::try_from(person).map_err(|e| {
-                CoordError::invalid_state(format!(
-                    "warm properties decode failed at offset {offset}: {e}"
-                ))
-            })?;
-            consumed += 1;
-            on_record(offset, cached);
+            match decode_person(payload, offset) {
+                Ok(cached) => {
+                    consumed += 1;
+                    on_record(index, offset, cached);
+                    // `recv` is ready at once while records are queued, so without a
+                    // yield a long read holds its worker from the requests behind it.
+                    tokio::task::coop::consume_budget().await;
+                }
+                Err(reason) => {
+                    reads.failures[index] = Some(format!("{range}: {reason}"));
+                    reads.close(index)?;
+                    continue;
+                }
+            }
         } else {
             // The writer never produces null-payload (tombstone) records
             // to `personhog_updates` today. If one ever appears it would
@@ -759,21 +888,18 @@ async fn consume_range(
             // notices if this assumption ever stops holding.
             counter!("personhog_leader_warm_tombstones_skipped_total").increment(1);
             tracing::warn!(
-                partition,
+                partition = range.leader_partition,
                 offset,
                 "skipped null-payload (tombstone) record; the writer is not expected to produce these"
             );
         }
 
         // end is exclusive — it's one past the last offset present.
-        if offset + 1 >= end {
-            break;
+        if offset + 1 >= range.end {
+            reads.close(index)?;
         }
-        }
-        Ok(())
     }
-    .await;
-    consume_result
+    Ok(())
 }
 
 /// Every source is sealed or fenced, so each replay runs to a known end.
@@ -847,9 +973,6 @@ pub async fn warm_from_sources(
     Ok(live_start)
 }
 
-/// A fill leaves this much of the budget to the traffic that follows it.
-pub const FILL_ROOM_FRACTION: f64 = 0.9;
-
 /// How far back a fill reads, and in what steps.
 #[derive(Debug, Clone, Copy)]
 pub struct FillConfig {
@@ -857,7 +980,8 @@ pub struct FillConfig {
     /// Offsets per backward step; a transactional topic spends about half on markers.
     pub chunk_offsets: i64,
     /// The fill stops once the cache holds this fraction of its budget.
-    pub room_fraction: f64,
+    pub target_fraction: f64,
+    pub concurrency: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -867,6 +991,7 @@ pub enum FillEnd {
     Budget,
     /// Put tracking passed its bound.
     Stopped,
+    Failed,
 }
 
 impl FillEnd {
@@ -875,6 +1000,7 @@ impl FillEnd {
             Self::Bound => "bound",
             Self::Budget => "budget",
             Self::Stopped => "stopped",
+            Self::Failed => "error",
         }
     }
 }
@@ -922,139 +1048,355 @@ pub async fn lookback_offset(
     Ok(offset.map_or(upper, |offset| offset.min(upper)))
 }
 
-/// Refill a serving partition's cache from `[lower, upper)`, newest first, marking nothing.
-pub async fn fill_source(
+/// One partition's fill from `[lower, upper)`, a chunk at a time, newest first, marking nothing.
+pub struct PartitionFill {
+    partition: u32,
+    cache: Arc<PersonCache>,
+    source: WarmSource,
+    lower: i64,
+    chunk_end: i64,
+    started: Instant,
+    records: u64,
+    inserted: u64,
+    end: Option<FillEnd>,
+}
+
+impl PartitionFill {
+    pub fn new(
+        partition: u32,
+        cache: Arc<PersonCache>,
+        source: WarmSource,
+        lower: i64,
+        upper: i64,
+    ) -> Self {
+        Self {
+            partition,
+            cache,
+            source,
+            lower,
+            chunk_end: upper,
+            started: Instant::now(),
+            records: 0,
+            inserted: 0,
+            end: (upper <= lower).then_some(FillEnd::Bound),
+        }
+    }
+
+    pub fn stats(&self) -> Option<FillStats> {
+        self.end.map(|end| FillStats {
+            records: self.records,
+            inserted: self.inserted,
+            end,
+        })
+    }
+
+    fn fail(&mut self, error: &CoordError) {
+        tracing::warn!(
+            partition = self.partition,
+            error = %error,
+            "cache fill failed; the partition serves without it"
+        );
+        self.end = Some(FillEnd::Failed);
+    }
+
+    fn finish(&self, end: &'static str) {
+        end_fill(&self.cache, end);
+        histogram!("personhog_leader_cache_fill_duration_ms")
+            .record(self.started.elapsed().as_secs_f64() * 1000.0);
+        tracing::info!(
+            partition = self.partition,
+            records = self.records,
+            inserted = self.inserted,
+            end,
+            elapsed_ms = self.started.elapsed().as_millis() as u64,
+            "cache fill finished"
+        );
+    }
+}
+
+fn end_fill(cache: &PersonCache, end: &'static str) {
+    cache.stop_tracking_puts();
+    counter!("personhog_leader_cache_fills_total", "end" => end).increment(1);
+}
+
+struct Chunk {
+    fill_index: usize,
+    start: i64,
+    room: usize,
+    /// Each person's newest record in the chunk, least recently written first.
+    latest: LruCache<PersonCacheKey, CachedPerson>,
+    buffered: usize,
+    overflowed: bool,
+}
+
+/// Every fill must be on the pool's cluster.
+pub async fn fill_next_chunks(
     cfg: &WarmingConfig,
     fill: &FillConfig,
-    pools: &WarmClientPools,
-    cache: &PersonCache,
-    source: &WarmSource,
-    lower: i64,
-    upper: i64,
-) -> CoordResult<FillStats> {
-    let partition_i32 = i32::try_from(source.partition).map_err(|_| {
-        CoordError::invalid_state(format!("partition {} exceeds i32::MAX", source.partition))
-    })?;
-    let pools = pools.on(source.cluster.as_ref());
-
-    let mut stats = FillStats {
-        records: 0,
-        inserted: 0,
-        end: FillEnd::Bound,
-    };
-    let mut chunk_end = upper;
-    while chunk_end > lower {
-        let room = cache.free_room(fill.room_fraction);
-        if room == 0 {
-            stats.end = FillEnd::Budget;
-            break;
+    pool: &ConsumerPool,
+    fills: &mut [PartitionFill],
+) {
+    let mut chunks = Vec::new();
+    let mut ranges = Vec::new();
+    for (index, filling) in fills.iter_mut().enumerate() {
+        if filling.end.is_some() {
+            continue;
         }
-        let chunk_start = lower.max(chunk_end - fill.chunk_offsets);
-        // Each person's newest record in the chunk, least recently written first.
-        let mut latest: LruCache<PersonCacheKey, CachedPerson> = LruCache::unbounded();
-        let mut buffered = 0usize;
-        let mut overflowed = false;
-        let consumer = pools.warming.checkout()?;
-        consume_range(
-            cfg,
-            &consumer,
-            &source.topic,
-            partition_i32,
-            source.partition,
-            chunk_start,
-            chunk_end,
-            |_offset, cached| {
-                stats.records += 1;
-                counter!("personhog_leader_cache_fill_records_total").increment(1);
-                let key = PersonCacheKey {
-                    team_id: cached.team_id,
-                    person_id: cached.id,
-                };
-                if cache.was_put(&key) {
-                    return;
-                }
-                buffered += cached.properties.len();
-                if let Some(replaced) = latest.put(key, cached) {
-                    buffered -= replaced.properties.len();
-                }
-                // A chunk holding more than the cache has room for keeps its newest persons.
-                while buffered > room {
-                    let Some((_, dropped)) = latest.pop_lru() else {
-                        break;
-                    };
-                    buffered -= dropped.properties.len();
-                    overflowed = true;
-                }
-            },
-        )
-        .await?;
-        pools.warming.give_back(consumer);
+        let room = filling.cache.free_room(fill.target_fraction);
+        if room == 0 {
+            filling.end = Some(FillEnd::Budget);
+            continue;
+        }
+        let Ok(partition) = i32::try_from(filling.source.partition) else {
+            filling.fail(&CoordError::invalid_state(format!(
+                "partition {} exceeds i32::MAX",
+                filling.source.partition
+            )));
+            continue;
+        };
+        let start = filling.lower.max(filling.chunk_end - fill.chunk_offsets);
+        ranges.push(OffsetRange {
+            leader_partition: filling.partition,
+            topic: Arc::clone(&filling.source.topic),
+            partition,
+            start,
+            end: filling.chunk_end,
+        });
+        chunks.push(Chunk {
+            fill_index: index,
+            start,
+            room,
+            latest: LruCache::unbounded(),
+            buffered: 0,
+            overflowed: false,
+        });
+    }
+    if chunks.is_empty() {
+        return;
+    }
 
-        while let Some((key, person)) = latest.pop_mru() {
-            if cache.free_room(fill.room_fraction) == 0 {
-                stats.end = FillEnd::Budget;
-                return Ok(stats);
+    let consumer = match pool.checkout() {
+        Ok(consumer) => consumer,
+        Err(e) => {
+            for chunk in &chunks {
+                fills[chunk.fill_index].fail(&e);
             }
-            match cache.fill(key, person) {
+            return;
+        }
+    };
+    let reads = consume_ranges(cfg, &consumer, &ranges, |index, _offset, cached| {
+        let chunk = &mut chunks[index];
+        let filling = &mut fills[chunk.fill_index];
+        filling.records += 1;
+        counter!("personhog_leader_cache_fill_records_total").increment(1);
+        let key = PersonCacheKey {
+            team_id: cached.team_id,
+            person_id: cached.id,
+        };
+        if filling.cache.was_put(&key) {
+            return;
+        }
+        chunk.buffered += cached.properties.len();
+        if let Some(replaced) = chunk.latest.put(key, cached) {
+            chunk.buffered -= replaced.properties.len();
+        }
+        // A chunk holding more than the cache has room for keeps its newest persons.
+        while chunk.buffered > chunk.room {
+            let Some((_, dropped)) = chunk.latest.pop_lru() else {
+                break;
+            };
+            chunk.buffered -= dropped.properties.len();
+            chunk.overflowed = true;
+        }
+    })
+    .await;
+    // Given back before the inserts, because handoff warms draw on the same pool.
+    if reads.iter().all(Result::is_ok) {
+        pool.give_back(consumer);
+    } else {
+        drop(consumer);
+    }
+
+    for (mut chunk, read) in chunks.into_iter().zip(reads) {
+        let filling = &mut fills[chunk.fill_index];
+        // A chunk that was not read whole may lack a person's newest record, so none of it
+        // is inserted.
+        if let Err(e) = read {
+            filling.fail(&e);
+            continue;
+        }
+        while let Some((key, person)) = chunk.latest.pop_mru() {
+            if filling.cache.free_room(fill.target_fraction) == 0 {
+                filling.end = Some(FillEnd::Budget);
+                break;
+            }
+            match filling.cache.fill(key, person) {
                 FillOutcome::Inserted => {
-                    stats.inserted += 1;
+                    filling.inserted += 1;
                     counter!("personhog_leader_cache_fill_inserted_total").increment(1);
                 }
                 FillOutcome::Skipped => {}
                 FillOutcome::NotTracking => {
-                    stats.end = FillEnd::Stopped;
-                    return Ok(stats);
+                    filling.end = Some(FillEnd::Stopped);
+                    break;
                 }
             }
             // Encoding a chunk is CPU work; requests on this worker must not wait for all of it.
             tokio::task::yield_now().await;
         }
-        // A dropped person never reached the guard, so an older record of theirs must not be read.
-        if overflowed {
-            stats.end = FillEnd::Budget;
-            break;
+        if filling.end.is_some() {
+            continue;
         }
-        chunk_end = chunk_start;
+        // A dropped person never reached the guard, so an older record of theirs must not be read.
+        if chunk.overflowed {
+            filling.end = Some(FillEnd::Budget);
+            continue;
+        }
+        filling.chunk_end = chunk.start;
+        if filling.chunk_end <= filling.lower {
+            filling.end = Some(FillEnd::Bound);
+        }
     }
-    Ok(stats)
 }
 
-/// Run one partition's fill and record how it ended. `upper` is where its warm started.
-pub async fn run_fill(
-    cfg: &WarmingConfig,
-    fill: &FillConfig,
-    pools: &WarmClientPools,
-    cache: &PersonCache,
-    source: &WarmSource,
-    upper: i64,
-) {
-    let partition = source.partition;
-    let started = Instant::now();
-    let since_ms = chrono::Utc::now().timestamp_millis() - fill.lookback.as_millis() as i64;
-    let filled = async {
-        let lower = lookback_offset(cfg, pools, source, since_ms, upper).await?;
-        fill_source(cfg, fill, pools, cache, source, lower, upper).await
-    }
-    .await;
-    cache.stop_tracking_puts();
-    let (records, inserted, end) = match filled {
-        Ok(stats) => (stats.records, stats.inserted, stats.end.label()),
-        Err(e) => {
-            tracing::warn!(partition, error = %e, "cache fill failed; the partition serves without it");
-            (0, 0, "error")
+pub struct FillRequest {
+    pub partition: u32,
+    pub cache: Arc<PersonCache>,
+    pub source: WarmSource,
+    pub upper: i64,
+}
+
+pub struct Fills {
+    cfg: WarmingConfig,
+    fill: FillConfig,
+    pools: Arc<WarmClientPools>,
+    cache: Arc<PartitionedCache>,
+    waiting: VecDeque<FillRequest>,
+    active: Vec<PartitionFill>,
+}
+
+impl Fills {
+    pub fn new(
+        cfg: WarmingConfig,
+        fill: FillConfig,
+        pools: Arc<WarmClientPools>,
+        cache: Arc<PartitionedCache>,
+    ) -> Self {
+        Self {
+            cfg,
+            fill,
+            pools,
+            cache,
+            waiting: VecDeque::new(),
+            active: Vec::new(),
         }
-    };
-    counter!("personhog_leader_cache_fills_total", "end" => end).increment(1);
-    histogram!("personhog_leader_cache_fill_duration_ms")
-        .record(started.elapsed().as_secs_f64() * 1000.0);
-    tracing::info!(
-        partition,
-        records,
-        inserted,
-        end,
-        elapsed_ms = started.elapsed().as_millis() as u64,
-        "cache fill finished"
-    );
+    }
+
+    pub fn queue(&mut self, request: FillRequest) {
+        self.waiting.push_back(request);
+    }
+
+    pub fn is_idle(&self) -> bool {
+        self.waiting.is_empty() && self.active.is_empty()
+    }
+
+    pub async fn round(&mut self) {
+        self.waiting.retain(|request| {
+            let serving = self.cache.is_serving(request.partition, &request.cache);
+            if !serving {
+                tracing::info!(
+                    partition = request.partition,
+                    "cache fill skipped; its build no longer serves"
+                );
+                end_fill(&request.cache, "released");
+            }
+            serving
+        });
+        self.active.retain(|filling| {
+            let serving = self.cache.is_serving(filling.partition, &filling.cache);
+            if !serving {
+                filling.finish("released");
+            }
+            serving
+        });
+
+        // With no slot the loop would admit nothing, and `run_fills` would spin on the
+        // waiting requests.
+        let slots = self.fill.concurrency.max(1);
+        while self.active.len() < slots {
+            let Some(request) = self.waiting.pop_front() else {
+                break;
+            };
+            let begun = self.begin(request).await;
+            self.active.extend(begun);
+        }
+        let Some(first) = self.active.first() else {
+            return;
+        };
+
+        // A consumer reads one cluster. The fills on other clusters move to the front, so
+        // that the next round is theirs.
+        let cluster = first.source.cluster.clone();
+        let (mut round, rest): (Vec<_>, Vec<_>) = self
+            .active
+            .drain(..)
+            .partition(|filling| filling.source.cluster == cluster);
+        self.active = rest;
+        let pools = self.pools.on(cluster.as_ref());
+        fill_next_chunks(&self.cfg, &self.fill, &pools.warming, &mut round).await;
+        for filling in round {
+            match filling.end {
+                Some(end) => filling.finish(end.label()),
+                None => self.active.push(filling),
+            }
+        }
+    }
+
+    async fn begin(&self, request: FillRequest) -> Option<PartitionFill> {
+        let since_ms =
+            chrono::Utc::now().timestamp_millis() - self.fill.lookback.as_millis() as i64;
+        let lookup = lookback_offset(
+            &self.cfg,
+            &self.pools,
+            &request.source,
+            since_ms,
+            request.upper,
+        )
+        .await;
+        match lookup {
+            Ok(lower) => Some(PartitionFill::new(
+                request.partition,
+                request.cache,
+                request.source,
+                lower,
+                request.upper,
+            )),
+            Err(e) => {
+                tracing::warn!(
+                    partition = request.partition,
+                    error = %e,
+                    "cache fill failed; the partition serves without it"
+                );
+                end_fill(&request.cache, FillEnd::Failed.label());
+                None
+            }
+        }
+    }
+}
+
+pub async fn run_fills(mut fills: Fills, mut requests: mpsc::UnboundedReceiver<FillRequest>) {
+    loop {
+        if fills.is_idle() {
+            let Some(request) = requests.recv().await else {
+                return;
+            };
+            fills.queue(request);
+        }
+        while let Ok(request) = requests.try_recv() {
+            fills.queue(request);
+        }
+        fills.round().await;
+    }
 }
 
 #[cfg(test)]

@@ -1605,7 +1605,8 @@ async fn every_warm_of_a_partition_gets_a_fill_and_tracking_ends_with_it() {
     let fill = personhog_leader::warming::FillConfig {
         lookback: Duration::from_secs(3600),
         chunk_offsets: 4,
-        room_fraction: 0.9,
+        target_fraction: 0.9,
+        concurrency: 4,
     };
     let handler = common::test_handoff_handler_with_fill(
         &topic,

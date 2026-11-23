@@ -10,7 +10,8 @@ use personhog_coordination::changelog::{warm_sources, LiveChangelog};
 use personhog_coordination::error::{Error, Result};
 use personhog_coordination::pod::HandoffHandler;
 use personhog_coordination::types::{ChangelogConfig, ClusterEndpoint};
-use tracing::{error, info};
+use tokio::sync::mpsc;
+use tracing::{error, info, warn};
 
 use crate::cache::{DirtyIndex, PartitionedCache};
 use crate::emitted::EmittedVersions;
@@ -23,7 +24,9 @@ use crate::fencing::{
 };
 use crate::inflight::InflightTracker;
 use crate::pg::PgFallback;
-use crate::warming::{run_fill, warm_from_sources, FillConfig, WarmClientPools, WarmingConfig};
+use crate::warming::{
+    run_fills, warm_from_sources, FillConfig, FillRequest, Fills, WarmClientPools, WarmingConfig,
+};
 
 /// The config a partition was acquired under.
 pub struct Capture {
@@ -115,11 +118,7 @@ pub struct LeaderHandoffHandler {
     freshly_fenced: Arc<dashmap::DashSet<u32>>,
     captures: ChangelogCaptures,
     changelog: LiveChangelog,
-    fill: Option<FillConfig>,
-    /// Each partition's fill, stopped when the partition is released.
-    fills: Arc<DashMap<u32, tokio::task::AbortHandle>>,
-    /// One fill at a time, so fills never crowd out serving.
-    fill_slot: Arc<tokio::sync::Semaphore>,
+    fill_requests: Option<mpsc::UnboundedSender<FillRequest>>,
 }
 
 impl LeaderHandoffHandler {
@@ -152,14 +151,23 @@ impl LeaderHandoffHandler {
             freshly_fenced: Arc::new(dashmap::DashSet::new()),
             captures,
             changelog,
-            fill: None,
-            fills: Arc::new(DashMap::new()),
-            fill_slot: Arc::new(tokio::sync::Semaphore::new(1)),
+            fill_requests: None,
         }
     }
 
+    /// Spawns the fill task, so call it inside a tokio runtime.
     pub fn with_fill(mut self, fill: Option<FillConfig>) -> Self {
-        self.fill = fill;
+        self.fill_requests = fill.map(|fill| {
+            let (requests, queued) = mpsc::unbounded_channel();
+            let fills = Fills::new(
+                self.warming.clone(),
+                fill,
+                Arc::clone(&self.pools),
+                Arc::clone(&self.cache),
+            );
+            tokio::spawn(run_fills(fills, queued));
+            requests
+        });
         self
     }
 
@@ -170,19 +178,25 @@ impl LeaderHandoffHandler {
         source: personhog_coordination::changelog::WarmSource,
         upper: i64,
     ) {
-        let (Some(fill), Some(cache)) = (self.fill, self.cache.serving_cache(partition)) else {
+        let (Some(requests), Some(cache)) =
+            (&self.fill_requests, self.cache.serving_cache(partition))
+        else {
             return;
         };
-        let pools = Arc::clone(&self.pools);
-        let warming = self.warming.clone();
-        let slot = Arc::clone(&self.fill_slot);
-        let task = tokio::spawn(async move {
-            let Ok(_permit) = slot.acquire().await else {
-                return;
-            };
-            run_fill(&warming, &fill, &pools, &cache, &source, upper).await;
-        });
-        self.fills.insert(partition, task.abort_handle());
+        let request = FillRequest {
+            partition,
+            cache,
+            source,
+            upper,
+        };
+        // Only the fill task ends put tracking, so end it here when the task is gone.
+        if let Err(mpsc::error::SendError(request)) = requests.send(request) {
+            warn!(
+                partition,
+                "cache fill task has ended; the partition serves without a fill"
+            );
+            request.cache.stop_tracking_puts();
+        }
     }
 
     /// The capture, else the live config: a preconnect runs before the capture.
@@ -394,7 +408,7 @@ impl HandoffHandler for LeaderHandoffHandler {
             &self.dirty_index,
             partition,
             &sources,
-            self.fill.is_some(),
+            self.fill_requests.is_some(),
         )
         .await?;
         // This pod may still carry a fence from a previous ownership of
@@ -452,9 +466,6 @@ impl HandoffHandler for LeaderHandoffHandler {
     // growing SHUTDOWN_FENCE_BOUND.
     async fn release_partition(&self, partition: u32) -> Result<()> {
         info!(partition, "releasing partition");
-        if let Some((_, fill)) = self.fills.remove(&partition) {
-            fill.abort();
-        }
         self.fenced.release(partition);
         self.inflight.unfence(partition);
         self.cache.drop_partition(partition);
