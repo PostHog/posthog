@@ -295,10 +295,21 @@ class _JoinByTypeFinder(TraversingVisitor):
         super().visit_join_expr(node)
 
 
+def _set_query_branch_types(set_type: ast.SelectSetQueryType) -> list[ast.SelectQueryType]:
+    branches: list[ast.SelectQueryType] = []
+    for branch in set_type.types:
+        if isinstance(branch, ast.SelectSetQueryType):
+            branches.extend(_set_query_branch_types(branch))
+        else:
+            branches.append(branch)
+    return branches
+
+
 class _SelectQueryIndex(TraversingVisitor):
     def __init__(self) -> None:
         super().__init__()
         self.by_type: dict[int, ast.SelectQuery] = {}
+        self.aliased_expressions: dict[int, ast.Expr] = {}
 
     def visit(self, node: ast.AST | None) -> None:
         if isinstance(node, ast.Type):
@@ -309,6 +320,11 @@ class _SelectQueryIndex(TraversingVisitor):
         if node.type is not None:
             self.by_type[id(node.type)] = node
         super().visit_select_query(node)
+
+    def visit_alias(self, node: ast.Alias) -> None:
+        if node.type is not None:
+            self.aliased_expressions[id(node.type)] = node.expr
+        super().visit_alias(node)
 
 
 _FIRST_ARGUMENT_TYPE_AGGREGATES = frozenset(
@@ -1811,24 +1827,37 @@ class TrinoPrinter(PostgresPrinter):
         return projected is not None and isinstance(self._resolve_type(projected), ast.BooleanType)
 
     def _projected_expression(self, select_type: ast.SelectQueryType, name: str) -> ast.Expr | None:
+        query = self._select_query_node(select_type)
+        position = self._projection_position(query, name) if query is not None else None
+        if query is None or position is None:
+            return None
+        projection = query.select[position]
+        return projection.expr if isinstance(projection, ast.Alias) else projection
+
+    def _projection_position(self, query: ast.SelectQuery, name: str) -> int | None:
+        for position, projection in enumerate(query.select):
+            if isinstance(projection, ast.Alias) and projection.alias == name:
+                return position
+            if isinstance(projection, ast.Field) and projection.chain and projection.chain[-1] == name:
+                return position
+        return None
+
+    def _select_query_node(self, select_type: ast.SelectQueryType) -> ast.SelectQuery | None:
+        index = self._select_query_index()
+        query = index.by_type.get(id(select_type)) if index is not None else None
+        return query if query is not None and query.type is select_type else None
+
+    def _select_query_index(self) -> _SelectQueryIndex | None:
         if not self.stack:
             return None
         root = self.stack[0]
-        cached = self.__dict__.get("_select_query_index")
+        cached = self.__dict__.get("_select_query_index_cache")
         if cached is None or cached[0] is not root:
             index = _SelectQueryIndex()
             index.visit(root)
-            cached = (root, index.by_type)
-            self.__dict__["_select_query_index"] = cached
-        query = cached[1].get(id(select_type))
-        if query is None or query.type is not select_type:
-            return None
-        for projection in query.select:
-            if isinstance(projection, ast.Alias) and projection.alias == name:
-                return projection.expr
-            if isinstance(projection, ast.Field) and projection.chain and projection.chain[-1] == name:
-                return projection
-        return None
+            cached = (root, index)
+            self.__dict__["_select_query_index_cache"] = cached
+        return cached[1]
 
     def _is_text_backed_warehouse_column(self, field_type: ast.FieldType) -> bool:
         # Curated source schemas type some JSON text columns as arrays, but the synced column is text.
@@ -2142,6 +2171,15 @@ class TrinoPrinter(PostgresPrinter):
         return parts[0] if len(parts) == 1 else f"concat({', '.join(parts)})"
 
     def _known_decimal_scale(self, node: ast.Expr) -> int | None:
+        cache: dict[int, tuple[ast.Expr, int | None]] = self.__dict__.setdefault("_decimal_scales", {})
+        cached = cache.get(id(node))
+        if cached is not None and cached[0] is node:
+            return cached[1]
+        scale = self._known_decimal_scale_uncached(node)
+        cache[id(node)] = (node, scale)
+        return scale
+
+    def _known_decimal_scale_uncached(self, node: ast.Expr) -> int | None:
         if isinstance(node, ast.Alias):
             return self._known_decimal_scale(node.expr)
         if isinstance(node, ast.Constant):
@@ -2170,7 +2208,7 @@ class TrinoPrinter(PostgresPrinter):
         if name in {"multiplydecimal", "dividedecimal"} and len(node.args) in {2, 3}:
             if len(node.args) == 3:
                 return constant_integer(node.args[2])
-            return self._max_decimal_scale(node.args if name == "multiplydecimal" else node.args[:1])
+            return self._max_decimal_scale(node.args)
         if name == "if" and len(node.args) == 3:
             return self._max_decimal_scale(node.args[1:])
         if name == "multiif" and len(node.args) % 2 == 1:
@@ -2189,36 +2227,37 @@ class TrinoPrinter(PostgresPrinter):
     def _field_decimal_scale(self, node: ast.Field) -> int | None:
         field_type = node.type
         if isinstance(field_type, ast.FieldAliasType):
-            aliased = self._enclosing_alias_expression(field_type.alias)
+            index = self._select_query_index()
+            aliased = index.aliased_expressions.get(id(field_type)) if index is not None else None
             return self._known_decimal_scale(aliased) if aliased is not None else None
         if not isinstance(field_type, ast.FieldType):
             return None
-        projected = self._derived_column_expression(field_type)
+        projected = self._derived_column_expressions(field_type)
         if projected is not None:
-            return self._known_decimal_scale(projected)
+            return self._max_decimal_scale(projected)
         database_field = field_type.resolve_database_field(self.context)
         return database_field.scale if isinstance(database_field, DecimalDatabaseField) else None
 
-    def _enclosing_alias_expression(self, alias: str) -> ast.Expr | None:
-        for frame in reversed(self.stack):
-            if not isinstance(frame, ast.SelectQuery):
-                continue
-            for projection in frame.select:
-                if isinstance(projection, ast.Alias) and projection.alias == alias:
-                    return projection.expr
-        return None
-
-    def _derived_column_expression(self, field_type: ast.FieldType) -> ast.Expr | None:
+    def _derived_column_expressions(self, field_type: ast.FieldType) -> list[ast.Expr] | None:
         table_type: ast.Type = field_type.table_type
         if isinstance(table_type, ast.CTETableAliasType):
             table_type = table_type.cte_table_type
         if isinstance(table_type, (ast.CTETableType, ast.SelectQueryAliasType)):
             table_type = table_type.select_query_type
-        while isinstance(table_type, ast.SelectSetQueryType) and table_type.types:
-            table_type = table_type.types[0]
-        if not isinstance(table_type, ast.SelectQueryType):
+        if isinstance(table_type, ast.SelectQueryType):
+            projected = self._projected_expression(table_type, field_type.name)
+            return [projected] if projected is not None else None
+        if not isinstance(table_type, ast.SelectSetQueryType):
             return None
-        return self._projected_expression(table_type, field_type.name)
+        branches = [self._select_query_node(branch) for branch in _set_query_branch_types(table_type)]
+        if not branches or any(branch is None for branch in branches):
+            return None
+        queries = [branch for branch in branches if branch is not None]
+        position = self._projection_position(queries[0], field_type.name)
+        if position is None or any(len(query.select) <= position for query in queries):
+            return None
+        projections = [query.select[position] for query in queries]
+        return [projection.expr if isinstance(projection, ast.Alias) else projection for projection in projections]
 
     def _visit_multiply_decimal(self, node: ast.Call) -> str:
         if len(node.args) not in {2, 3}:

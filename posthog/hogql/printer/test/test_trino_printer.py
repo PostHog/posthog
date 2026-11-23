@@ -740,12 +740,24 @@ def _context_with_decimal_ledger() -> HogQLContext:
     )
 
 
+def _shared_projection_chain(depth: int) -> str:
+    layers = ["c0 AS (SELECT amount AS x FROM ledger)"] + [
+        f"c{level} AS (SELECT coalesce(x, x) AS x FROM c{level - 1})" for level in range(1, depth + 1)
+    ]
+    return f"WITH {', '.join(layers)} SELECT multiplyDecimal(x, toDecimal(1, 2)) FROM c{depth}"
+
+
 @pytest.mark.parametrize(
     ("query", "scale"),
     [
         ("SELECT multiplyDecimal(amount, rate) FROM ledger", 8),
         ("SELECT multiplyDecimal(toDecimal(-1.0, 4), multiplyDecimal(amount, rate)) FROM ledger", 8),
-        ("SELECT multiplyDecimal(divideDecimal(amount, rate), amount) FROM ledger", 2),
+        ("SELECT multiplyDecimal(divideDecimal(amount, rate), amount) FROM ledger", 8),
+        (
+            "SELECT multiplyDecimal(v, 1) FROM (SELECT amount AS v FROM ledger UNION ALL SELECT rate AS v FROM ledger)",
+            8,
+        ),
+        (_shared_projection_chain(32), 2),
         ("SELECT multiplyDecimal(coalesce(amount, toDecimal(1, 4)), amount) FROM ledger", 4),
         ("SELECT multiplyDecimal(if(id > 0, amount, NULL), amount) FROM ledger", 2),
         ("SELECT multiplyDecimal(a, b) FROM (SELECT amount AS a, rate AS b FROM ledger)", 8),
