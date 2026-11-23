@@ -730,13 +730,10 @@ class TrinoLambdaSubqueryLowerer(CloningVisitor):
         value = _membership_value(self.visit(node.left), node.right, self.context)
         self.pending_sets.append(ast.JoinExpr(table=self._set_query(node.right, lambda_set), alias=lambda_set.alias))
         membership = ast.Call(
-            name="if",
+            name="coalesce",
             args=[
-                ast.Call(name="isNull", args=[value]),
+                ast.Call(name="has", args=[ast.Field(chain=[lambda_set.alias, lambda_set.items_column]), value]),
                 ast.Field(chain=[lambda_set.alias, lambda_set.has_null_column]),
-                ast.Call(
-                    name="has", args=[ast.Field(chain=[lambda_set.alias, lambda_set.items_column]), clone_expr(value)]
-                ),
             ],
         )
         return ast.Not(expr=membership) if negated else membership

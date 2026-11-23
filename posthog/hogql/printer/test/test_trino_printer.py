@@ -3427,6 +3427,18 @@ def test_removes_noop_sample_one_for_trino() -> None:
     assert "SAMPLE" not in sql
 
 
+def test_nested_lambda_subquery_memberships_grow_linearly() -> None:
+    membership = "x"
+    for _ in range(15):
+        membership = f"({membership} IN (SELECT true))"
+
+    sql, _ = prepare_and_print_ast(
+        parse_select(f"SELECT arrayMap(x -> {membership}, [true])"), _context_with_trino_table(), "trino"
+    )
+
+    assert len(sql) < 20_000
+
+
 @pytest.mark.parametrize(
     ("query", "feature_code"),
     [
