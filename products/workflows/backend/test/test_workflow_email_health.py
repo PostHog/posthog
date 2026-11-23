@@ -1,4 +1,5 @@
 import os
+import uuid
 import importlib
 from datetime import datetime, timedelta
 from typing import TypedDict
@@ -20,8 +21,13 @@ from posthog.models.organization import OrganizationMembership
 from posthog.settings import ses as ses_settings
 from posthog.test.fixtures import create_app_metric2
 
+from products.workflows.backend.facade.contracts import TransactionalEmailContent
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
+from products.workflows.backend.services.transactional_email_workflows import (
+    code_email_actions,
+    transactional_email_actions,
+)
 from products.workflows.backend.services.workflow_email_health import (
     PAUSED_BY_STAFF,
     StaffPausedError,
@@ -350,6 +356,22 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
                 [("needs attention", True, False)],
             ),
             (
+                "code_send_workflow",
+                ["code_send"],
+                {"sent": 300, "hard_bounces": 60},
+                [],
+                [],
+                [("needs attention", True, False)],
+            ),
+            (
+                "template_send_workflow",
+                ["template_send"],
+                {"sent": 300, "hard_bounces": 60},
+                [],
+                [],
+                [("needs attention", True, False)],
+            ),
+            (
                 "transactional_breach_beside_a_quiet_sibling",
                 ["transactional"],
                 {"sent": 300, "hard_bounces": 60},
@@ -427,12 +449,32 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
                 "config": {"template_id": "template-email", "message_category_type": "transactional"},
             },
         }
-        self.flow.actions = [
-            {"id": f"step_{index}", **other_steps[category]}
-            if category in other_steps
-            else {"id": f"step_{index}", "type": "function_email", "config": {"message_category_type": category}}
-            for index, category in enumerate(categories)
-        ]
+        code_send_workflows = {
+            "code_send": lambda: code_email_actions("password-reset"),
+            "template_send": lambda: transactional_email_actions(
+                TransactionalEmailContent(
+                    message_template_id=uuid.uuid4(),
+                    name="Password reset",
+                    subject="Reset your password",
+                    preheader="",
+                    html="<p>Reset</p>",
+                    text="Reset",
+                    from_integration_id=None,
+                    message_category_id=None,
+                ),
+                from_integration_id=1,
+            ),
+        }
+        self.flow.actions = (
+            code_send_workflows[categories[0]]()
+            if categories[0] in code_send_workflows
+            else [
+                {"id": f"step_{index}", **other_steps[category]}
+                if category in other_steps
+                else {"id": f"step_{index}", "type": "function_email", "config": {"message_category_type": category}}
+                for index, category in enumerate(categories)
+            ]
+        )
         self.flow.save()
         sibling = HogFlow.objects.create(name="Second blast", team=self.team)
         names = {str(self.flow.id): "own", str(sibling.id): "sibling"}

@@ -76,7 +76,9 @@ Where it would be paused, the sweep sends its admins the warning email instead, 
 While enforcement is off, these breaches log as `mode="dry_run"` with `transactional=true`.
 Its warning email says it is not paused automatically and that staff can pause it by hand.
 Like an exempt workflow, it is judged on its own sends only, and its sends and feedback stay out of the project totals.
+Transactional email sent from code, by template or by key, runs a workflow built with one transactional email step, so this rule covers it.
 A workflow with one email step that is not transactional, such as a marketing step, is judged like any other.
+That includes a code-sent workflow whose email step someone switched to marketing in the editor.
 Its `function_email` steps follow the quota check's rule.
 Any other function step that runs the `template-email` template, whatever its category, makes the workflow pausable.
 The exempt list wins over this rule: an exempt workflow stays in dry run and gets no warning, transactional or not.
@@ -90,4 +92,5 @@ Optionally add the pause metric name to `WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_
 - A workflow below every volume gate is auto-paused only through its project's hard bounce check; the team's tier caps bound its blast radius, and staff can pause it by hand.
 - Workflow completion does not confirm an email send. Test responses expose the email provider outcome separately; a skipped send retains its reason, and provider acceptance does not confirm inbox delivery.
 - Skipped sends log at error level in the run and record an `email_paused` metric; the run itself continues past the email step, so downstream steps still execute.
+- A workflow with both transactional and marketing email steps stays pausable, and a pause holds every email step in it, the transactional ones too.
 - Sends from the PostHog test sender (the `email_sandbox` step) never count toward a workflow's rates and are never paused by the detector. They record no ordinary email metrics, and the PostHog test sender has its own controls (see [email sending tiers](workflows-email-sending-tiers.md#posthog-test-sender)).
