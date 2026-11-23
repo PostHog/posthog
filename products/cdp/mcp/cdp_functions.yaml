@@ -162,8 +162,8 @@ tools:
                     types this is TypeScript. Required if no template_id is provided.
             enabled:
                 description: >
-                    Omit this, or set it to false, when type is destination, null, or omitted. Creating a destination with
-                    enabled=true is rejected. Test it with cdp-functions-invocations-create, then enable it with
+                    Omit this, or set it to false, when type is destination, null, or omitted. Creating a destination
+                    with enabled=true is rejected. Test it with cdp-functions-invocations-create, then enable it with
                     cdp-functions-partial-update. Other types, like internal_destination, can be created enabled.
             execution_order:
                 description: >
