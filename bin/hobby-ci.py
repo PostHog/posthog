@@ -145,6 +145,33 @@ class HobbyTester:
             "fi"
         )
 
+    @staticmethod
+    def _node_image_exists_command(tag):
+        """Return a shell command that succeeds when GHCR has a posthog-node image with this tag.
+
+        It uses curl, not `docker manifest inspect`, because a fresh droplet runs it before the
+        installer installs Docker. A missing docker command would look the same as a missing tag.
+        """
+        repository = f"posthog/{HOBBY_NODE_IMAGE_NAME}"
+        # The fresh install puts this command in a YAML list as a plain value, where a colon
+        # followed by a space starts a mapping. So no header has a space after its colon.
+        accept = ",".join(
+            [
+                "application/vnd.oci.image.index.v1+json",
+                "application/vnd.docker.distribution.manifest.list.v2+json",
+                "application/vnd.oci.image.manifest.v1+json",
+                "application/vnd.docker.distribution.manifest.v2+json",
+            ]
+        )
+        token = (
+            f"$(curl -sf 'https://ghcr.io/token?scope=repository:{repository}:pull' "
+            '| sed -n \'s/.*"token":"\\([^"]*\\)".*/\\1/p\')'
+        )
+        return (
+            f'curl -sf -o /dev/null -H "Accept:{accept}" -H "Authorization:Bearer {token}" '
+            f"https://ghcr.io/v2/{repository}/manifests/{tag}"
+        )
+
     def _get_node_image_fallback_script(self):
         """Return bash script to resolve the posthog-node image tag.
 
@@ -159,8 +186,7 @@ class HobbyTester:
         else:
             tag = "$CURRENT_COMMIT"
         return (
-            f"if docker manifest inspect ghcr.io/posthog/posthog-node:{tag} "
-            "> /dev/null 2>&1; then "
+            f"if {self._node_image_exists_command(tag)}; then "
             f"echo posthog-node image found on GHCR with tag {tag}; "
             f"export POSTHOG_NODE_TAG={tag}; "
             "else "
@@ -1017,7 +1043,7 @@ runcmd:
         pr_tag = f"pr-{self.pr_number}" if self.pr_number and self.pr_number != "unknown" else None
         candidate_tag = pr_tag or new_sha
         print(f"🔍 Checking if node image exists with tag: {candidate_tag}...")
-        check_node_cmd = f"docker manifest inspect ghcr.io/posthog/posthog-node:{candidate_tag} > /dev/null 2>&1"
+        check_node_cmd = self._node_image_exists_command(candidate_tag)
         result = self.run_ssh_command(check_node_cmd, timeout=30)
         if result["exit_code"] == 0:
             node_tag = candidate_tag
@@ -1039,6 +1065,21 @@ runcmd:
         if result["exit_code"] != 0:
             raise RuntimeError(f"Failed to update POSTHOG_NODE_TAG: {result['stderr']}")
         print(f"✅ Updated POSTHOG_NODE_TAG to {node_tag}")
+
+        # Render docker-compose.yml again from the checkout, the way bin/upgrade-hobby does. A reused
+        # preview otherwise keeps the services and image paths of the commit it was installed from.
+        print("📝 Rendering docker-compose.yml from the checkout...")
+        render_compose_cmd = (
+            "cd /hobby && cp posthog/docker-compose.hobby.yml docker-compose.yml.tmpl && "
+            "(set -a && . ./.env && set +a && "
+            "bash posthog/bin/helpers/render-hobby-compose.sh < docker-compose.yml.tmpl > docker-compose.yml.new) && "
+            "mv docker-compose.yml.new docker-compose.yml"
+        )
+        result = self.run_ssh_command(render_compose_cmd, timeout=30)
+        if result["exit_code"] != 0:
+            print(f"⚠️ Failed to render docker-compose.yml, keeping the existing one: {result['stderr']}")
+        else:
+            print("✅ docker-compose.yml rendered")
 
         # Update the baked-in image tags in docker-compose.yml.
         # The hobby-installer substitutes $POSTHOG_APP_TAG and $POSTHOG_NODE_TAG literally
