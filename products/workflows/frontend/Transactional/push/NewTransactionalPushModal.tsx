@@ -7,6 +7,7 @@ import { CyclotronJobInputIntegrationMulti } from 'lib/components/CyclotronJob/i
 import { CyclotronJobInputSchemaType } from '~/types'
 
 import { newTransactionalPushLogic } from './newTransactionalPushLogic'
+import { PushChannelsSetupWarning } from './PushChannelsSetupWarning'
 
 const CHANNELS_SCHEMA: CyclotronJobInputSchemaType = {
     key: 'channels',
@@ -68,6 +69,7 @@ export function NewTransactionalPushModal(): JSX.Element {
                         value={draft.channels}
                         onChange={(channels) => setDraft({ channels })}
                     />
+                    <PushChannelsSetupWarning channels={draft.channels} />
                 </div>
                 <div className="flex flex-col gap-1">
                     <LemonLabel

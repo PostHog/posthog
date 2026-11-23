@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import { PaginatedResponse } from 'lib/api'
+import { isFeatureFlagGatedError } from 'lib/api-error'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
@@ -44,6 +45,7 @@ export interface warehouseAlertsLogicValues {
     alerts: PlatformAlertConfigurationApi[] | null
     alertsFailed: boolean
     alertsLoading: boolean
+    alertsUnavailable: boolean
     deletingAlertId: string | null
     targetLabels: Record<string, string>
     targetOptions: WarehouseAlertTargetOption[]
@@ -72,6 +74,9 @@ export interface warehouseAlertsLogicActions {
     ) => {
         alerts: PlatformAlertConfigurationApi[]
         payload?: any
+    }
+    setAlertsUnavailable: (alertsUnavailable: boolean) => {
+        alertsUnavailable: boolean
     }
     setDeletingAlertId: (deletingAlertId: string | null) => {
         deletingAlertId: string | null
@@ -116,8 +121,9 @@ export const warehouseAlertsLogic = kea<warehouseAlertsLogicType>([
     actions({
         deleteAlert: (alert: PlatformAlertConfigurationApi) => ({ alert }),
         setDeletingAlertId: (deletingAlertId: string | null) => ({ deletingAlertId }),
+        setAlertsUnavailable: (alertsUnavailable: boolean) => ({ alertsUnavailable }),
     }),
-    loaders(({ props, values }) => ({
+    loaders(({ actions, props, values }) => ({
         alerts: [
             null as PlatformAlertConfigurationApi[] | null,
             {
@@ -126,11 +132,23 @@ export const warehouseAlertsLogic = kea<warehouseAlertsLogicType>([
                     const results: PlatformAlertConfigurationApi[] = []
                     let offset = 0
                     while (true) {
-                        const page = await platformAlertsList(projectId, {
-                            source_kind: props.kind,
-                            limit: PAGE_SIZE,
-                            offset,
-                        })
+                        let page
+                        try {
+                            page = await platformAlertsList(projectId, {
+                                source_kind: props.kind,
+                                limit: PAGE_SIZE,
+                                offset,
+                            })
+                        } catch (error) {
+                            // The browser can show this section while the server keeps the kind's flag off,
+                            // for example on flags left over from another project. That is not a failure.
+                            if (isFeatureFlagGatedError(error)) {
+                                breakpoint()
+                                actions.setAlertsUnavailable(true)
+                                return []
+                            }
+                            throw error
+                        }
                         breakpoint()
                         results.push(...page.results)
                         offset += page.results.length
@@ -150,6 +168,13 @@ export const warehouseAlertsLogic = kea<warehouseAlertsLogicType>([
                 loadAlerts: () => false,
                 loadAlertsSuccess: () => false,
                 loadAlertsFailure: () => true,
+            },
+        ],
+        alertsUnavailable: [
+            false,
+            {
+                loadAlerts: () => false,
+                setAlertsUnavailable: (_, { alertsUnavailable }) => alertsUnavailable,
             },
         ],
         deletingAlertId: [

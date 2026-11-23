@@ -49722,6 +49722,7 @@ export namespace Schemas {
      * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
      * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
      * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
+     * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters
      */
     export type ExperimentHealthValueKeyEnum = typeof ExperimentHealthValueKeyEnum[keyof typeof ExperimentHealthValueKeyEnum];
 
@@ -49785,6 +49786,7 @@ export namespace Schemas {
       OtherRunningExperimentCount: 'other_running_experiment_count',
       AssignedOutsideCount: 'assigned_outside_count',
       OtherDraftExperimentCount: 'other_draft_experiment_count',
+      FiltersTestAccounts: 'filters_test_accounts',
     } as const;
 
     /**
@@ -49869,7 +49871,8 @@ export namespace Schemas {
        * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
        * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
        * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
-       * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived */
+       * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
+       * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters */
       value: ExperimentHealthValueKeyEnum;
       /** The value that the key must reach. Below it, the check reports no finding. */
       threshold: number;
@@ -49935,7 +49938,8 @@ export namespace Schemas {
        * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
        * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
        * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
-       * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived */
+       * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
+       * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters */
       value: ExperimentHealthValueKeyEnum;
       /** The threshold, in the unit that the suffix of the key gives. */
       threshold: number;
@@ -50026,6 +50030,34 @@ export namespace Schemas {
          * @nullable
          */
       aggregation_group_type_index: number | null;
+      /**
+         * The key of the variant that the condition set serves to every user it matches, its variant override. Null when the flag's split picks the variant, or when the override names no variant of the flag, which the flag service ignores.
+         * @nullable
+         */
+      variant: string | null;
+      /**
+         * Whether the condition set can serve anyone. False when its rollout is 0%, or when an earlier set without filters ends the flag's evaluation before it, so its rollout and variant override apply to nobody. Null when the flag buckets by device ID, because a request without a device ID skips the earlier sets that need the bucketing hash and can reach this set anyway.
+         * @nullable
+         */
+      reachable: boolean | null;
+    }
+
+    export interface ExperimentHealthExposureSetup {
+      /**
+         * The event that the exposure criteria count. Null when they count the flag's calls or an action.
+         * @nullable
+         */
+      event: string | null;
+      /**
+         * The name of the action that the exposure criteria count. Null when they count an event.
+         * @nullable
+         */
+      action: string | null;
+      /**
+         * The event, or the name of the action, that has to follow a user's flag call before the user counts as exposed. Null without one.
+         * @nullable
+         */
+      activation: string | null;
     }
 
     export interface ExperimentHealthSetup {
@@ -50053,6 +50085,8 @@ export namespace Schemas {
       evaluation_contexts: string[];
       /** The flag's 'Persist flag across authentication steps' setting. */
       ensure_experience_continuity: boolean;
+      /** What the exposure criteria count as an exposure. Null when they can't be read, or when the exposures come from a data warehouse table. */
+      exposure: ExperimentHealthExposureSetup | null;
     }
 
     export interface ExperimentHealth {
@@ -65503,11 +65537,11 @@ export namespace Schemas {
       last_error: string | null;
       /** A breakdown of what the step did. Only counts above zero appear. */
       counts: ImportStepCount[];
-      /** The objects the step handled, with anything to review. */
+      /** The objects the step handled, with anything to review. Always empty in the list of runs; get the run for them. */
       items: ImportStepItem[];
       /** How many more warnings there were than `warnings` holds. */
       warnings_omitted: number;
-      /** How many more objects there were than `items` holds. */
+      /** How many more objects there were than `items` holds. In the list of runs, this counts every object. */
       items_omitted: number;
     }
 
@@ -86165,9 +86199,6 @@ export namespace Schemas {
       properties?: TaggerConditionPropertiesItem[];
     }
 
-    /**
-     * Nested serializer for model configuration.
-     */
     export interface TaggerModelConfiguration {
       /** LLM provider to use for this tagger.
        *
@@ -86187,30 +86218,29 @@ export namespace Schemas {
          */
       model: string;
       /**
-         * Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned.
+         * LLM provider key UUID pinned for this tagger, or null when none is pinned.
          * @nullable
          */
-      provider_key_id?: string | null;
+      provider_key_id: string | null;
       /** @nullable */
       readonly provider_key_name: string | null;
     }
 
     export interface Tagger {
       readonly id: string;
-      /** @maxLength 400 */
-      name: string;
-      description?: string;
-      enabled?: boolean;
-      tagger_type?: TaggerTypeEnum;
+      readonly name: string;
+      readonly description: string;
+      readonly enabled: boolean;
+      readonly tagger_type: TaggerTypeEnum;
       /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-      tagger_config: TaggerConfig;
-      /** Conditions that scope when the tagger runs */
-      conditions?: TaggerCondition[];
-      model_configuration?: TaggerModelConfiguration | null;
+      readonly tagger_config: TaggerConfig;
+      /** Conditions that scoped when the tagger ran */
+      readonly conditions: readonly TaggerCondition[];
+      readonly model_configuration: TaggerModelConfiguration | null;
       readonly created_at: string;
       readonly updated_at: string;
       readonly created_by: UserBasic;
-      deleted?: boolean;
+      readonly deleted: boolean;
       /**
          * The evaluation that replaced this tagger when it was migrated. Null until then.
          * @nullable
@@ -99469,45 +99499,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
-    }
-
-    export interface TaggerModelConfigurationWrite {
-      /** LLM provider to use for this tagger.
-       *
-       * * `openai` - Openai
-       * * `anthropic` - Anthropic
-       * * `gemini` - Gemini
-       * * `openrouter` - Openrouter
-       * * `fireworks` - Fireworks
-       * * `azure_openai` - Azure OpenAI
-       * * `together_ai` - Together AI
-       * * `minimax` - MiniMax
-       * * `openai_compatible` - OpenAI-compatible */
-      provider: LLMCompletionProviderEnum;
-      /**
-         * Provider model identifier to use for this tagger.
-         * @maxLength 100
-         */
-      model: string;
-      /**
-         * Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned.
-         * @nullable
-         */
-      provider_key_id?: string | null;
-    }
-
-    export interface PatchedTaggerUpdate {
-      /** @maxLength 400 */
-      name?: string;
-      description?: string;
-      enabled?: boolean;
-      tagger_type?: TaggerTypeEnum;
-      /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-      tagger_config?: TaggerConfig;
-      /** Conditions that scope when the tagger runs */
-      conditions?: TaggerCondition[];
-      model_configuration?: TaggerModelConfigurationWrite | null;
-      deleted?: boolean;
     }
 
     export interface PatchedTaskRunSetOutputRequest {
@@ -123430,20 +123421,6 @@ export namespace Schemas {
       people: number;
     }
 
-    export interface TaggerUpdate {
-      /** @maxLength 400 */
-      name: string;
-      description?: string;
-      enabled?: boolean;
-      tagger_type?: TaggerTypeEnum;
-      /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-      tagger_config: TaggerConfig;
-      /** Conditions that scope when the tagger runs */
-      conditions?: TaggerCondition[];
-      model_configuration?: TaggerModelConfigurationWrite | null;
-      deleted?: boolean;
-    }
-
     /**
      * Response shape for one task in the requester's activity feed (one row per task).
      */
@@ -126588,65 +126565,6 @@ export namespace Schemas {
     export interface TestHogResponse {
       results: TestHogResultItem[];
       /** Optional message, e.g. when no recent events were found. */
-      message?: string;
-    }
-
-    export interface TestHogTaggerTag {
-      /**
-         * Tag identifier to allow in Hog test results.
-         * @maxLength 100
-         */
-      name: string;
-      /**
-         * Optional description for the tag.
-         * @maxLength 500
-         */
-      description?: string;
-    }
-
-    export interface TestHogTaggerRequest {
-      /**
-         * Hog source code to test. Return a tag name string, a list of tag name strings, or null.
-         * @minLength 1
-         */
-      source: string;
-      /**
-         * Number of recent $ai_generation events to test against (1-10, default 5).
-         * @minimum 1
-         * @maximum 10
-         */
-      sample_count?: number;
-      /** Optional tag whitelist. Returned tags outside this list are filtered out. */
-      tags?: TestHogTaggerTag[];
-    }
-
-    export interface TestHogTaggerResultItem {
-      /** UUID of the sampled $ai_generation event. */
-      event_uuid: string;
-      /**
-         * Trace ID if available.
-         * @nullable
-         */
-      trace_id?: string | null;
-      /** First 200 characters of the generation input. */
-      input_preview: string;
-      /** First 200 characters of the generation output. */
-      output_preview: string;
-      /** Tag names returned by the Hog code. */
-      tags: string[];
-      /** Text written to stdout by the Hog code. */
-      reasoning: string;
-      /**
-         * Error message if the Hog code failed.
-         * @nullable
-         */
-      error?: string | null;
-    }
-
-    export interface TestHogTaggerResponse {
-      /** Per-event Hog tagger test results. */
-      results: TestHogTaggerResultItem[];
-      /** Optional message, for example when no recent AI events were found. */
       message?: string;
     }
 
