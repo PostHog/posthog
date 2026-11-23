@@ -119,11 +119,14 @@ export function carryTile({
         window.addEventListener('click', swallowEvent, { capture: true, once: true })
         window.setTimeout(() => window.removeEventListener('click', swallowEvent, { capture: true }), 0)
         if (awaitingHeldRelease) {
-            // Letting go of the held press keeps the tile moving, so react-grid-layout must not see this release.
             awaitingHeldRelease = false
-            swallowEvent(event)
-            onHeldRelease?.(event)
-            return
+            // A press released where it started is a click, which keeps the tile moving, so react-grid-layout must
+            // not see this release. A press released after a drag falls through and ends the gesture like a drop.
+            if (travelledLikeClick({ x: clientX, y: clientY }, event.clientX, event.clientY)) {
+                swallowEvent(event)
+                onHeldRelease?.(event)
+                return
+            }
         }
         // This release has to reach react-grid-layout to end the drag. Only the click that follows is swallowed.
         stop()

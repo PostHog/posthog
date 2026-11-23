@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import type { MutableRefObject, RefObject } from 'react'
 
-import { type TileCarry, type TilePickUp, carryTile, getTilePickUp, travelledLikeClick } from './carryTile'
+import { type TileCarry, type TilePickUp, carryTile, getTilePickUp } from './carryTile'
 
 export type TileCarryInput = 'drag' | 'click' | 'canceled'
 export type TileCarryKind = 'move' | 'resize'
@@ -72,12 +72,10 @@ export function useCarryTile({
                 clientX,
                 clientY,
                 held: input === 'drag',
-                onHeldRelease: (event) => {
-                    // A resize starts on the press, so a press released in place is a click on the resize handle.
-                    if (
-                        kind === 'resize' &&
-                        travelledLikeClick({ x: clientX, y: clientY }, event.clientX, event.clientY)
-                    ) {
+                onHeldRelease: () => {
+                    // A resize starts on the press, so a held resize that continues after its release was a click
+                    // on the resize handle.
+                    if (kind === 'resize') {
                         input = 'click'
                         tileCarryInputRef.current = input
                     }

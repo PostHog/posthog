@@ -102,7 +102,7 @@ describe('carryTile', () => {
         expect(clickOn(body).defaultPrevented).toBe(false)
     })
 
-    it('keeps a held drag going after its release, until the next click', () => {
+    it('keeps a held press released in place going, until the next click', () => {
         const { grid, meta, body } = renderGrid()
         const presses: number[] = []
         listen(meta, 'mousedown', (event) => presses.push(event.buttons))
@@ -111,7 +111,7 @@ describe('carryTile', () => {
         const onDrop = jest.fn()
 
         startCarry({ target: meta, grid, clientX: 10, clientY: 10, held: true, onDrop, onCancel: jest.fn() })
-        body.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 100 }))
+        body.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 11, clientY: 10 }))
 
         expect(presses).toEqual([])
         expect(releases).toEqual([])
@@ -122,6 +122,33 @@ describe('carryTile', () => {
 
         expect(releases).toEqual([300])
         expect(onDrop).toHaveBeenCalledTimes(1)
+    })
+
+    it('ends a held drag on its own release', () => {
+        const { grid, meta, body } = renderGrid()
+        const releases: number[] = []
+        listen(document, 'mouseup', (event) => releases.push(event.clientX))
+        const onDrop = jest.fn()
+        const onHeldRelease = jest.fn()
+
+        startCarry({
+            target: meta,
+            grid,
+            clientX: 10,
+            clientY: 10,
+            held: true,
+            onHeldRelease,
+            onDrop,
+            onCancel: jest.fn(),
+        })
+        body.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 100, clientY: 10 }))
+        const nextPress = new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 })
+        body.dispatchEvent(nextPress)
+
+        expect(releases).toEqual([100])
+        expect(onDrop).toHaveBeenCalledTimes(1)
+        expect(onHeldRelease).not.toHaveBeenCalled()
+        expect(nextPress.defaultPrevented).toBe(false)
     })
 
     it('replays the last pointer position on scroll until the tile is dropped', () => {
