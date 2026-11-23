@@ -1,0 +1,397 @@
+[
+    {
+        "name": "astral key order",
+        "value": {"\uff21":1,"\ud83d\ude00":2,"a":3,"\ue000":4,"\u00e9":5},
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "{\"a\":3,\"\u00e9\":5,\"\ud83d\ude00\":2,\"\ue000\":4,\"\uff21\":1}",
+        "digest": "98dd8dde79d80805039aae941f82a8d8a5780e77bc932b2a28923af2940f9782"
+    },
+    {
+        "name": "astral keys nested",
+        "value": {"x":{"\ud83d\ude00":[],"\uffff":null}},
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "{\"x\":{\"\ud83d\ude00\":[],\"\uffff\":null}}",
+        "digest": "d0e7b2b5bce704a6a63fdca8498ee1727303bd57a7fa6ea74d2668674d96098c"
+    },
+    {
+        "name": "control characters",
+        "value": "\u0000\u0001\b\t\n\u000b\f\r\u001e\u001f \"\\/\u007f\u0080\u2028\u2029",
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "\"\\u0000\\u0001\\b\\t\\n\\u000b\\f\\r\\u001e\\u001f \\\"\\\\/\u007f\u0080\u2028\u2029\"",
+        "digest": "11edd8e9700b92b332c37e353c6f480664339df5e1f060748248f376ad017fb2"
+    },
+    {
+        "name": "control characters in key",
+        "value": {"\n":1,"\u0000":2,"\t":3},
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "{\"\\u0000\":2,\"\\t\":3,\"\\n\":1}",
+        "digest": "c30d71d23f5a1c0423c2a82355cbf2af6a1b5da822c1dd12fb7572c5a6cd72da"
+    },
+    {
+        "name": "lone high surrogate",
+        "value": "\ud800",
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "\"\\ud800\"",
+        "digest": "e8cd362a83c10eb11d679e0d157f1345327432fdfe01b9e0f6cd12c7119ac5f2"
+    },
+    {
+        "name": "lone surrogates in string and keys",
+        "value": {"\udbff":"a\udfffb","\ud800":"\ud83d","z":"\ude00\ud83d"},
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "{\"z\":\"\\ude00\\ud83d\",\"\\ud800\":\"\\ud83d\",\"\\udbff\":\"a\\udfffb\"}",
+        "digest": "464ff74cf54b042f4dd6d1e5109216dddfdaa6ffc5eea70b22fc29f64e1bc403"
+    },
+    {
+        "name": "one point zero",
+        "value": 1.0,
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "1",
+        "digest": "8565b2125f10c3c0b7aefd16b5415868a05b475571ac0f57ed7251fe20549308"
+    },
+    {
+        "name": "negative zero integer",
+        "value": -0,
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "0",
+        "digest": "3d058d1b959a85656525a2e7e6f0752e5e8c6a6e78fcf9abf30fc8b8565337c5"
+    },
+    {
+        "name": "negative zero float",
+        "value": -0.0,
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "0",
+        "digest": "3d058d1b959a85656525a2e7e6f0752e5e8c6a6e78fcf9abf30fc8b8565337c5"
+    },
+    {
+        "name": "1e21",
+        "value": 1e21,
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "1e+21",
+        "digest": "5ec576450c5c500b5428d72e49e3431d2da1a8677b720c93590f905f6b862162"
+    },
+    {
+        "name": "1e20",
+        "value": 1e20,
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "100000000000000000000",
+        "digest": "3cdace558aa8baba589719fa0b810162ba0b07ccceb281956f278a3c7a54e5ad"
+    },
+    {
+        "name": "1e-7",
+        "value": 1e-7,
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "1e-7",
+        "digest": "12f5082fcf5a54442306a87a0e12790637b5d257b473afed52c6e16b3387cdc3"
+    },
+    {
+        "name": "0.000001",
+        "value": 0.000001,
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "0.000001",
+        "digest": "3d7f96e4b7b8b4d7ee8d5b9fd0b6697bf6832228fd314c2eb9a9bf567c0a2113"
+    },
+    {
+        "name": "2^53 + 1 written as a float rounds to 2^53",
+        "value": 9007199254740993.0,
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "9007199254740992",
+        "digest": "fb2de6d19f388e201b9d39ec827eb24e1b97996180718f47f785ade914e14357"
+    },
+    {
+        "name": "mixed numbers",
+        "value": [-1.5,123.456,1.5e300,-2.5e-8,100,0.1,1E2,12345678901234567168],
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "[-1.5,123.456,1.5e+300,-2.5e-8,100,0.1,100,12345678901234567000]",
+        "digest": "dfc6d27a05f47986296cb516c5b00096dc7a1649f5778e546252fa67044147c9"
+    },
+    {
+        "name": "null value kept",
+        "value": {"a":null},
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "{\"a\":null}",
+        "digest": "f3791b9fdebaf59469a618f1a6005f6b1d034fbecd091d78c83a137a0003acbf"
+    },
+    {
+        "name": "missing key",
+        "value": {},
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "{}",
+        "digest": "ce6510e80ebb24fdb86e4b76f0219c7dc87a362a29ac1e65c25c81c997229d4f"
+    },
+    {
+        "name": "nested empty containers",
+        "value": {"a":{},"b":[],"c":"","d":[{},[[]],""]},
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "{\"a\":{},\"b\":[],\"c\":\"\",\"d\":[{},[[]],\"\"]}",
+        "digest": "37537794d26cb2624ea37c042e4b571d0d4d73f8a5e3d1a311a4bdf22ce84096"
+    },
+    {
+        "name": "unicode",
+        "value": {"name":"caf\u00e9 \u2615 \u65e5\u672c\u8a9e \ud83d\ude00","\u00fc":"\u00fc"},
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "{\"name\":\"caf\u00e9 \u2615 \u65e5\u672c\u8a9e \ud83d\ude00\",\"\u00fc\":\"\u00fc\"}",
+        "digest": "6ebfb240396c05631f3a279f19ec24f20e4f90c7037a04a3087de6a315da315f"
+    },
+    {
+        "name": "array order and scalars",
+        "value": [3,1,2,true,false,null,"x"],
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "[3,1,2,true,false,null,\"x\"]",
+        "digest": "230120e95186e18d2e27a22b6e1b362a2b6d3b97e0485bf05aa5ea7e257762c2"
+    },
+    {
+        "name": "salt is short binary",
+        "value": {"k":"v"},
+        "salt_b64": "AP9/",
+        "canonical": "{\"k\":\"v\"}",
+        "digest": "587f70082ed74e30732f3a07e66094a5ec56c4ee03e60e0129a9a7a81be7e91c"
+    },
+    {
+        "name": "salt changes digest (salt a)",
+        "value": {"k":"v"},
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "{\"k\":\"v\"}",
+        "digest": "20c9de4669676b8622e44bfc36491d6d75b2e58131e1a52d741c242d65715193"
+    },
+    {
+        "name": "salt changes digest (salt b)",
+        "value": {"k":"v"},
+        "salt_b64": "dGVzdC1zYWx0LWItMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "{\"k\":\"v\"}",
+        "digest": "770b5cb10d11e684643626ad08cb276e178075a3c31de920a04fa8a33ed136ee"
+    },
+    {
+        "name": "rfc 8785 0000000000000000",
+        "value": 0,
+        "ieee_hex": "0000000000000000",
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "0",
+        "digest": "3d058d1b959a85656525a2e7e6f0752e5e8c6a6e78fcf9abf30fc8b8565337c5"
+    },
+    {
+        "name": "rfc 8785 8000000000000000",
+        "value": -0,
+        "ieee_hex": "8000000000000000",
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "0",
+        "digest": "3d058d1b959a85656525a2e7e6f0752e5e8c6a6e78fcf9abf30fc8b8565337c5"
+    },
+    {
+        "name": "rfc 8785 0000000000000001",
+        "value": 5e-324,
+        "ieee_hex": "0000000000000001",
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "5e-324",
+        "digest": "345a8443a401772afd11e2666f5001b6138a56a6f72162ebe8983f88a3ae3e4b"
+    },
+    {
+        "name": "rfc 8785 8000000000000001",
+        "value": -5e-324,
+        "ieee_hex": "8000000000000001",
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "-5e-324",
+        "digest": "c097475029f0d978292f5c816458fc27e6e889e49be4813a4088acc4edfe8084"
+    },
+    {
+        "name": "rfc 8785 7fefffffffffffff",
+        "value": 1.7976931348623157e+308,
+        "ieee_hex": "7fefffffffffffff",
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "1.7976931348623157e+308",
+        "digest": "ce93447f854fdfcb1426cd10b7d4e34e80cd78779d7d0e5cb7ab54af47f4b29b"
+    },
+    {
+        "name": "rfc 8785 ffefffffffffffff",
+        "value": -1.7976931348623157e+308,
+        "ieee_hex": "ffefffffffffffff",
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "-1.7976931348623157e+308",
+        "digest": "61f0af554cbbb7b0e78933d4b2366e6254213748ca9c02616ba916412d29ebc1"
+    },
+    {
+        "name": "rfc 8785 4340000000000000",
+        "value": 9007199254740992,
+        "ieee_hex": "4340000000000000",
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "9007199254740992",
+        "digest": "fb2de6d19f388e201b9d39ec827eb24e1b97996180718f47f785ade914e14357"
+    },
+    {
+        "name": "rfc 8785 c340000000000000",
+        "value": -9007199254740992,
+        "ieee_hex": "c340000000000000",
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "-9007199254740992",
+        "digest": "53f21bb5a7e8c41d4a161a6edbcb0b5cee122d8c22a70e29428e7aa46020a579"
+    },
+    {
+        "name": "rfc 8785 4430000000000000",
+        "value": 295147905179352825856,
+        "ieee_hex": "4430000000000000",
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "295147905179352830000",
+        "digest": "41ee2d121b47877f93adbfff4334565ca5466f9fdb42c500007938f3c011529a"
+    },
+    {
+        "name": "rfc 8785 44b52d02c7e14af5",
+        "value": 9.999999999999997e+22,
+        "ieee_hex": "44b52d02c7e14af5",
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "9.999999999999997e+22",
+        "digest": "23a862ad50bbf35bbfe341c321cfcb914ef9f6854593d55af9ae91c4b8545f07"
+    },
+    {
+        "name": "rfc 8785 44b52d02c7e14af6",
+        "value": 1e+23,
+        "ieee_hex": "44b52d02c7e14af6",
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "1e+23",
+        "digest": "97ae8163a847351893ae6b71371bb81684ef9ddf7a45f5ef9a531b0318244b48"
+    },
+    {
+        "name": "rfc 8785 44b52d02c7e14af7",
+        "value": 1.0000000000000001e+23,
+        "ieee_hex": "44b52d02c7e14af7",
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "1.0000000000000001e+23",
+        "digest": "ce26c0bd38d691ff1e8eaf98b31a5c422a00c8672781f955df96d052fcf2db21"
+    },
+    {
+        "name": "rfc 8785 444b1ae4d6e2ef4e",
+        "value": 999999999999999737856,
+        "ieee_hex": "444b1ae4d6e2ef4e",
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "999999999999999700000",
+        "digest": "cd477d739195945f081f46ceb8083c33a0fff5e56cb1cdf368f524e2167828db"
+    },
+    {
+        "name": "rfc 8785 444b1ae4d6e2ef4f",
+        "value": 999999999999999868928,
+        "ieee_hex": "444b1ae4d6e2ef4f",
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "999999999999999900000",
+        "digest": "7716d5f4ae8d272f4bf07bddd629ec4eadfb7f67aadeb08b10f4849f597a91ed"
+    },
+    {
+        "name": "rfc 8785 444b1ae4d6e2ef50",
+        "value": 1e+21,
+        "ieee_hex": "444b1ae4d6e2ef50",
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "1e+21",
+        "digest": "5ec576450c5c500b5428d72e49e3431d2da1a8677b720c93590f905f6b862162"
+    },
+    {
+        "name": "rfc 8785 3eb0c6f7a0b5ed8c",
+        "value": 9.999999999999997e-7,
+        "ieee_hex": "3eb0c6f7a0b5ed8c",
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "9.999999999999997e-7",
+        "digest": "6164a833b3b6f887f0817da3740d99c7eb7e01ff23810a2178bc9af07efdb8f8"
+    },
+    {
+        "name": "rfc 8785 3eb0c6f7a0b5ed8d",
+        "value": 0.000001,
+        "ieee_hex": "3eb0c6f7a0b5ed8d",
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "0.000001",
+        "digest": "3d7f96e4b7b8b4d7ee8d5b9fd0b6697bf6832228fd314c2eb9a9bf567c0a2113"
+    },
+    {
+        "name": "rfc 8785 41b3de4355555553",
+        "value": 333333333.3333332,
+        "ieee_hex": "41b3de4355555553",
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "333333333.3333332",
+        "digest": "8a749c267faca382bfeaf291ff26475e3b246191415da86cc67da975177e8951"
+    },
+    {
+        "name": "rfc 8785 41b3de4355555554",
+        "value": 333333333.33333325,
+        "ieee_hex": "41b3de4355555554",
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "333333333.33333325",
+        "digest": "93906f044b506024fc3acbb20e3254403772750a895a81517bfa53ad71d5531e"
+    },
+    {
+        "name": "rfc 8785 41b3de4355555555",
+        "value": 333333333.3333333,
+        "ieee_hex": "41b3de4355555555",
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "333333333.3333333",
+        "digest": "292df1e62fb75411088bc7c57f81c25f60c2ad138b79212f513496d4eefc24a8"
+    },
+    {
+        "name": "rfc 8785 41b3de4355555556",
+        "value": 333333333.3333334,
+        "ieee_hex": "41b3de4355555556",
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "333333333.3333334",
+        "digest": "898424fbbc8b39b12999b71c4623cae673e51c4535decd47c0238a4d5a0e7daf"
+    },
+    {
+        "name": "rfc 8785 41b3de4355555557",
+        "value": 333333333.33333343,
+        "ieee_hex": "41b3de4355555557",
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "333333333.33333343",
+        "digest": "11a06dca1ace06c4d5368018d097d282d68e578f6100dc6ca8bf33b8944e643f"
+    },
+    {
+        "name": "rfc 8785 becbf647612f3696",
+        "value": -0.0000033333333333333333,
+        "ieee_hex": "becbf647612f3696",
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "-0.0000033333333333333333",
+        "digest": "d62afcf62f52ad7863dd7d7e796a84c1a2903964a0d372037c34afc4ea6599ed"
+    },
+    {
+        "name": "rfc 8785 43143ff3c1cb0959",
+        "value": 1424953923781206.2,
+        "ieee_hex": "43143ff3c1cb0959",
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "1424953923781206.2",
+        "digest": "940a2fd0fc6f47be8530810328a99a46a3d33162df67b9a93d932d0945b751c8"
+    },
+    {
+        "name": "parts minimal",
+        "parts": {"config":{},"errors":"","external_id":null,"sensitive_config":{},"unreadable_keys":[]},
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "{\"config\":{},\"errors\":\"\",\"external_id\":null,\"sensitive_config\":{},\"unreadable_keys\":[],\"v\":1}",
+        "digest": "df4c4b98b769dd9fe279ad2b0273537beedc191b559257cd366b0f9474cb5493"
+    },
+    {
+        "name": "parts empty external id",
+        "parts": {"config":{},"errors":"","external_id":"","sensitive_config":{},"unreadable_keys":[]},
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "{\"config\":{},\"errors\":\"\",\"external_id\":\"\",\"sensitive_config\":{},\"unreadable_keys\":[],\"v\":1}",
+        "digest": "6874896db3b1f02b3798ae93d9c6f6fa7867bf2f4a11c274acb29d41f8f7a1f2"
+    },
+    {
+        "name": "parts full",
+        "parts": {"config":{"team":"Example","scopes":["read","write"],"expires_in":3600,"refreshed_at":1.0,"meta":{"region":null,"tags":[]}},"errors":"token_refresh_failed","external_id":"T0EXAMPLE","sensitive_config":{"access_token":"fake-access-token","refresh_token":""},"unreadable_keys":["z","a","\uff21","\ud83d\ude00","\u00e9"]},
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "{\"config\":{\"expires_in\":3600,\"meta\":{\"region\":null,\"tags\":[]},\"refreshed_at\":1,\"scopes\":[\"read\",\"write\"],\"team\":\"Example\"},\"errors\":\"token_refresh_failed\",\"external_id\":\"T0EXAMPLE\",\"sensitive_config\":{\"access_token\":\"fake-access-token\",\"refresh_token\":\"\"},\"unreadable_keys\":[\"a\",\"z\",\"\u00e9\",\"\ud83d\ude00\",\"\uff21\"],\"v\":1}",
+        "digest": "39e2319d7747e67c9e75f22fd952c07676994677710d18000cc830f4f2a4a0f1"
+    },
+    {
+        "name": "parts unicode and astral keys",
+        "parts": {"config":{"\uff21":"full width","\ud83d\ude00":"emoji","name":"caf\u00e9"},"errors":"","external_id":"\u65e5\u672c","sensitive_config":{"\ud800":"lone"},"unreadable_keys":["\ud800","b"]},
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "{\"config\":{\"name\":\"caf\u00e9\",\"\ud83d\ude00\":\"emoji\",\"\uff21\":\"full width\"},\"errors\":\"\",\"external_id\":\"\u65e5\u672c\",\"sensitive_config\":{\"\\ud800\":\"lone\"},\"unreadable_keys\":[\"b\",\"\\ud800\"],\"v\":1}",
+        "digest": "04428b925c6a04de837c4b1ab00465d8748e11952570513da6c241b820740878"
+    },
+    {
+        "name": "parts salt a",
+        "parts": {"config":{"a":1},"errors":"","external_id":"x","sensitive_config":{"s":"t"},"unreadable_keys":[]},
+        "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "{\"config\":{\"a\":1},\"errors\":\"\",\"external_id\":\"x\",\"sensitive_config\":{\"s\":\"t\"},\"unreadable_keys\":[],\"v\":1}",
+        "digest": "02f2620b1a9b1969d67f291a759b5ea41e0424839f6b75a61cc7b91e17b00d1c"
+    },
+    {
+        "name": "parts salt b",
+        "parts": {"config":{"a":1},"errors":"","external_id":"x","sensitive_config":{"s":"t"},"unreadable_keys":[]},
+        "salt_b64": "dGVzdC1zYWx0LWItMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
+        "canonical": "{\"config\":{\"a\":1},\"errors\":\"\",\"external_id\":\"x\",\"sensitive_config\":{\"s\":\"t\"},\"unreadable_keys\":[],\"v\":1}",
+        "digest": "017d1b4dbf9ff374e96e024329903f27aec18c57204cd4fddb4a3a7ae3642e61"
+    }
+]

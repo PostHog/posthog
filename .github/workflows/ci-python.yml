@@ -71,6 +71,7 @@ jobs:
             mypy_cache_key: ${{ steps.filter.outputs.mypy_cache_key || 'false' }}
             schema_python: ${{ steps.filter.outputs.schema_python || 'true' }}
             warehouse_sources: ${{ steps.filter.outputs.warehouse_sources || 'true' }}
+            credentials_digest: ${{ steps.filter.outputs.credentials_digest || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -198,6 +199,10 @@ jobs:
                         - 'tools/pr-approval-agent/**'
                         - 'products/stamphog/packages/pr-approval-agent/**'
                         - 'tools/query-performance-ai/**'
+                        # Non-Python inputs of the content digest cross-check below
+                        - 'services/credentials-service/src/crypto/canonical.ts'
+                        - 'services/credentials-service/src/integrations/digest.ts'
+                        - 'services/credentials-service/tests/fixtures/content-digest-vectors.json'
                         # Stamphog policy files validated by the pr-approval-agent suite
                         - '.stamphog/**'
                         - '**/AGENT_APPROVALS.md'
@@ -295,6 +300,21 @@ jobs:
                         - .github/actions/setup-uv/**
                         - tools/warehouse_sources_vendor_selection.py
                         - tools/test_warehouse_sources_vendor_selection.py
+                      # The Python content digest must match the TypeScript reference, and both
+                      # suites read one shared vector file. Backend CI's import-graph selection
+                      # runs test_canonical.py for Python edits, but it cannot see the TypeScript
+                      # module or the JSON fixture, so this group covers them.
+                      credentials_digest:
+                        - 'posthog/integrations/mirror/**'
+                        - 'posthog/dataclasses.py'
+                        - 'services/credentials-service/src/crypto/canonical.ts'
+                        - 'services/credentials-service/src/integrations/digest.ts'
+                        - 'services/credentials-service/tests/fixtures/content-digest-vectors.json'
+                        - 'pyproject.toml'
+                        - 'uv.lock'
+                        - 'pytest.ini'
+                        - 'conftest.py'
+                        - .github/workflows/ci-python.yml
 
     code-quality:
         needs: changes
@@ -317,6 +337,7 @@ jobs:
             RUN_QUERY_PERF: ${{ needs.changes.outputs.query_perf }}
             RUN_STAMPHOG: ${{ needs.changes.outputs.stamphog }}
             RUN_BIN_SCRIPTS: ${{ needs.changes.outputs.bin_scripts }}
+            RUN_CREDENTIALS_DIGEST: ${{ needs.changes.outputs.credentials_digest }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -536,6 +557,12 @@ jobs:
                         [ "$RUN_BIN_SCRIPTS" = "true" ] || { echo "bin/ unchanged — skipping"; exit 0; }
                         pytest bin/test/test_granian_shared_socket.py bin/test/test_granian_preload.py -v --junitxml=junit-granian-shared-socket.xml
 
+                  - name: Run content digest cross-check tests
+                    shell: bash
+                    run: |
+                        [ "$RUN_CREDENTIALS_DIGEST" = "true" ] || { echo "content digest inputs unchanged — skipping"; exit 0; }
+                        pytest posthog/integrations/mirror/test/test_canonical.py -v --junitxml=junit-content-digest.xml
+
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: always()
@@ -549,6 +576,7 @@ jobs:
                       junit-owners.xml
                       junit-query-performance-ai.xml
                       junit-pr-approval-agent-*.xml
+                      junit-content-digest.xml
 
             - name: Upload test results for dependency detection
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
