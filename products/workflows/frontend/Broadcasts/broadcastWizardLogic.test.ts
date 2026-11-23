@@ -1418,7 +1418,7 @@ describe('broadcastWizardLogic', () => {
         expect(createDraft).not.toHaveBeenCalled()
     })
 
-    it('saves a new broadcast draft from the sender that can send when the project default stopped', async () => {
+    it('saves the next draft edit with the sender that can send when the project default stopped', async () => {
         logic.unmount()
         let createdDrafts = 0
         useMocks({
