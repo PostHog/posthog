@@ -146,9 +146,9 @@ if [ -f .env ]; then
             echo "$key=$(openssl rand -hex 32)" >> .env
         fi
     done
-    # A Fernet key, which must be exactly 32 characters.
+    # A Fernet key: exactly 32 characters, read as bytes, so 24 random bytes in base64 rather than hex.
     if ! grep -qE "^CDP_SEALED_STATE_KEYS=.+" .env; then
-        echo "CDP_SEALED_STATE_KEYS=$(openssl rand -hex 16)" >> .env
+        echo "CDP_SEALED_STATE_KEYS=$(openssl rand -base64 24)" >> .env
     fi
 else
     # Optional AI provider keys. PostHog's AI features (the Max assistant, SQL/regex assist)
@@ -174,7 +174,7 @@ else
     POSTHOG_SECRET=$(head -c 28 /dev/urandom | sha224sum -b | head -c 56)
     ENCRYPTION_SALT_KEYS=$(openssl rand -hex 16)
     # Encrypts login codes and reset links while they wait on the intake topic.
-    CDP_SEALED_STATE_KEYS=$(openssl rand -hex 16)
+    CDP_SEALED_STATE_KEYS=$(openssl rand -base64 24)
     # Dedicated browserless token so a compromise of the rendering container can't yield
     # Django's SECRET_KEY (the compose file falls back to POSTHOG_SECRET when unset, for
     # installs whose .env predates this variable).

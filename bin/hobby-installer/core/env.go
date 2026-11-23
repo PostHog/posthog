@@ -61,7 +61,7 @@ func NewEnvConfig(domain, version string) (*EnvConfig, error) {
 		return nil, fmt.Errorf("failed to generate encryption key: %w", err)
 	}
 
-	sealKey, err := GenerateEncryptionKey()
+	sealKey, err := GenerateSealKey()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate CDP seal key: %w", err)
 	}
@@ -189,11 +189,14 @@ func UpdateEnvForUpgrade(version string) error {
 	existing := LoadExistingEnv()
 
 	// Both are Fernet keys, which must be exactly 32 characters, so neither uses GenerateSecret.
-	for _, key := range []string{"ENCRYPTION_SALT_KEYS", "CDP_SEALED_STATE_KEYS"} {
+	for key, generate := range map[string]func() (string, error){
+		"ENCRYPTION_SALT_KEYS":  GenerateEncryptionKey,
+		"CDP_SEALED_STATE_KEYS": GenerateSealKey,
+	} {
 		if existing[key] != "" {
 			continue
 		}
-		value, err := GenerateEncryptionKey()
+		value, err := generate()
 		if err != nil {
 			return err
 		}
