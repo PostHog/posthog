@@ -2207,17 +2207,17 @@ Note: Source directory has no dynamic table discovery — bland_ai.py exposes a 
 
 Re-audited 2026-11-19 against: <https://docs.bland.ai/llms.txt>
 
-- [ ] `Contacts (GET /v1/contacts)` — CRM contacts with per-agent memories, the people behind the calls and SMS threads we sync (high)
-- [ ] `Outcomes (GET /v1/dispositions)` — outcome definitions that classify call results, for reporting call outcomes (medium)
-- [ ] `Triage issues (GET /v1/triage/issues)` — flagged call issues from the Triage monitor, a quality and incident view over calls (medium)
-- [ ] `Alarm events (GET /v1/alarms/history; GET /v1/alarms)` — alarm configurations and the events they fired, for monitoring agent health (medium)
+- [x] `Contacts (GET /v1/contacts)` — CRM contacts with per-agent memories, the people behind the calls and SMS threads we sync (high)
+- [x] `Outcomes (GET /v1/dispositions)` — outcome definitions that classify call results, for reporting call outcomes (medium)
+- [x] `Triage issues (GET /v1/triage/issues)` — flagged call issues from the Triage monitor, a quality and incident view over calls (medium)
+- [x] `Alarm events (GET /v1/alarms/history; GET /v1/alarms)` — alarm configurations and the events they fired, for monitoring agent health (medium)
 - [ ] `Organization members (GET /v1/orgs/{org_id}/members)` — team member lookup for audit logs and ownership (low)
 - [ ] `Custom tools (GET /v1/tools)` — tool inventory that agents and pathways call (low)
 - [ ] `Guard rails (GET /v1/guard_rails)` — guard rail rules applied to agent conversations (low)
 - [ ] `Block rules (GET /v1/blocked_numbers)` — blocked caller rules on inbound numbers (low)
 - [ ] `Prompts (GET /v1/prompts)` — saved prompt library (low)
 
-Note (2026-11-19): Listed the GET pages in llms.txt, then read each candidate page as .md for params and the HTML page for the exact path (the .md omits it). Contacts uses page paging, dispositions use page and limit, triage issues use keyset paging. The v2 agents API (api-v2) was not diffed. SIP, voice cloning, memory and vectors, evals templates and billing were left out as config or private data.
+Note (2026-11-19): Listed the GET pages in llms.txt, then read each candidate page as .md for params and the HTML page for the exact path (the .md omits it). Contacts uses offset and limit, dispositions use page and limit, triage issues use keyset paging. The v2 agents API (api-v2) was not diffed. SIP, voice cloning, memory and vectors, evals templates and billing were left out as config or private data.
 
 ## Blogger — adequate
 
