@@ -4,8 +4,8 @@ from prometheus_client import Counter, Histogram
 
 IMPORT_CONTACTS = Counter(
     "messaging_provider_import_contacts_total",
-    "Contacts an import's contacts step handled, by outcome: imported (the person exists), skipped (left out before "
-    "sending, such as an invalid address or no matching person) or failed (sent, but no person appeared).",
+    "Contacts an import's contacts step handled, by outcome: imported (PostHog accepted it), skipped (left out before "
+    "sending, such as an invalid address or no matching person) or failed (never reached PostHog).",
     labelnames=["provider", "step", "outcome"],
 )
 IMPORT_CHUNK_DURATION = Histogram(

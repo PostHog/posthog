@@ -294,6 +294,7 @@ class TestProviderImportRuns(BaseTest):
         run = self._start(["suppressions", "opt_outs"])
         for step, step_status in zip(run.steps, step_statuses):
             run.progress[step]["status"] = step_status
+        run.progress["suppressions"].update(processed=6, imported=3, counts={"failed": 1, "already_present": 2})
         run.save()
 
         with patch("products.messaging.backend.provider_imports.runs.report_user_action") as report:
@@ -309,7 +310,8 @@ class TestProviderImportRuns(BaseTest):
         assert (user, event) == (self.user, "workflows import run")
         assert properties["stage"] == expected_run_status
         assert properties.get("error_class") == error_class
-        assert set(properties["counts"]["suppressions"]) == {"imported", "skipped", "failed"}
+        assert properties["counts"]["suppressions"] == {"imported": 3, "skipped": 2, "failed": 1}
+        assert report.call_args.kwargs["organization"] == self.organization
 
     @time_machine.travel("2026-03-02T12:00:00Z", tick=False)
     def test_reading_an_expired_run_fails_it_and_its_unfinished_steps(

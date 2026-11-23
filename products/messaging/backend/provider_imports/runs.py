@@ -238,7 +238,6 @@ def record_people_import(team_id: int, run_id: UUID, step: str, outcome: Mapping
         if run.status not in ACTIVE_IMPORT_STATUSES:
             return
         progress = run.progress.setdefault(step, _new_step_progress())
-        # Temporal can run this again after it saved, and the counter adds each contact once.
         already_recorded = "people_import" in progress
         progress["people_import"] = dict(outcome)
         not_sent = 0
@@ -267,6 +266,7 @@ def record_people_import(team_id: int, run_id: UUID, step: str, outcome: Mapping
             )
         run.save(update_fields=["progress"])
     if already_recorded:
+        # Temporal ran this again after it saved, and the counter adds each contact once.
         return
     for outcome_name, count in _step_outcomes(progress).items():
         IMPORT_CONTACTS.labels(provider=run.provider, step=step, outcome=outcome_name).inc(count)
@@ -551,7 +551,7 @@ def _mark_completed(progress: dict[str, Any]) -> None:
 
 
 def _step_outcomes(progress: Mapping[str, Any]) -> dict[str, int]:
-    """How many records a step imported, skipped and failed. A contacts step counts people, not contacts sent."""
+    """How many records a step imported, skipped and failed. A contacts step counts what capture accepted."""
     people_import = progress.get("people_import", {})
     counts = progress.get("counts", {})
     if people_import:
@@ -572,10 +572,11 @@ def _step_outcomes(progress: Mapping[str, Any]) -> dict[str, int]:
         # The contacts were stored, but sending them never reported back.
         to_send = counts.get("people_to_send", 0)
         return {"imported": 0, "skipped": max(progress.get("processed", 0) - to_send, 0), "failed": to_send}
+    imported, failed = progress.get("imported", 0), counts.get("failed", 0)
     return {
-        "imported": progress.get("imported", 0),
-        "skipped": max(progress.get("processed", 0) - progress.get("imported", 0), 0),
-        "failed": 0,
+        "imported": imported,
+        "skipped": max(progress.get("processed", 0) - imported - failed, 0),
+        "failed": failed,
     }
 
 
@@ -607,9 +608,10 @@ def _report_finished(run: ProviderImportRun) -> None:
                 STEP_NOT_FINISHED_CLASS,
             )
         user = User.objects.filter(id=run.created_by_id).first()
-        if user is None:
+        if user is None or not user.distinct_id:
             report_team_action(team, "workflows import run", properties)
         else:
-            report_user_action(user, "workflows import run", properties, team=team)
+            # The starter may have switched to another organization since.
+            report_user_action(user, "workflows import run", properties, team=team, organization=team.organization)
     except Exception:
         logger.exception("Failed to report the provider import outcome")
