@@ -113,6 +113,7 @@ from ..logic.traces.trace_metrics import (
     MetricKey,
     bucket_size_for,
     bucket_starts,
+    has_too_many_buckets,
     previous_window,
     tiles_of,
 )
@@ -256,6 +257,8 @@ def load_trace_metrics(team: Team, user: User, selection: TraceSelection) -> Cal
         window=TraceWindow(start=selection.window.start.astimezone(zone), end=selection.window.end.astimezone(zone)),
     )
     size = bucket_size_for(zoned.window)
+    if has_too_many_buckets(zoned.window, size):
+        raise TraceMetricsTooHeavyError()
     rows = cached_trace_metrics(team, user, zoned, size)
     return lambda: _to_trace_metrics(zoned.window, size, rows, metrics_insight_queries(team, zoned, size))
 
