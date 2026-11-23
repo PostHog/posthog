@@ -527,21 +527,49 @@ class TestVercelIntegration(TestCase):
         assert user.is_email_verified is expect_login
         assert (request.session.get(SESSION_KEY) == str(user.pk)) is expect_login
 
-    @parameterized.expand([("verified_claim", True), ("unverified_claim", False)])
-    @patch("ee.vercel.integration.report_user_signed_up")
-    def test_sso_login_verifies_a_new_users_email_only_from_a_verified_claim(
-        self, _name: str, claim_email_verified: bool, mock_report: Mock
+    @parameterized.expand(
+        [
+            ("verified_claim", True, False, None),
+            ("unverified_claim", False, False, "reason=vercel_sso"),
+            ("missing_claim", None, False, "reason=vercel_sso"),
+            ("unverified_claim_and_send_fails", False, True, "reason=vercel_sso&email_sent=false"),
+        ]
+    )
+    @patch("posthog.api.email_verification.send_email_verification_code")
+    def test_sso_logs_in_a_new_user_only_from_a_verified_claim(
+        self,
+        _name: str,
+        claim_email_verified: bool | None,
+        send_fails: bool,
+        verify_email_query: str | None,
+        mock_send_email: Mock,
     ) -> None:
+        if send_fails:
+            mock_send_email.side_effect = Exception("email provider unavailable")
         claims = self._create_user_claims("vercel_new_user")
         claims.user_email = "new-sso-user@example.com"
         claims.user_email_verified = claim_email_verified
+        code = f"new_user_code_{_name}"
+        VercelIntegration.set_cached_claims(code, claims, timeout=300)
         request = RequestFactory().get("/")
         SessionMiddleware(lambda request: HttpResponse()).process_request(request)
 
-        user = VercelIntegration._authenticate_and_login_user(request, claims, None)
+        redirect_url = VercelIntegration.authenticate_sso(request, SSOParams(mode="sso", code=code, state="state"))
 
-        assert user.email == "new-sso-user@example.com"
-        assert user.is_email_verified is claim_email_verified
+        user = User.objects.get(email="new-sso-user@example.com")
+        self.installation.refresh_from_db()
+        assert self.installation.config["user_mappings"]["vercel_new_user"] == user.pk
+        assert OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
+        if verify_email_query is None:
+            assert redirect_url == VercelIntegration.SSO_DEFAULT_REDIRECT
+            assert request.session.get(SESSION_KEY) == str(user.pk)
+            assert user.is_email_verified is True
+            mock_send_email.assert_not_called()
+        else:
+            assert redirect_url == f"/verify_email/{user.uuid}?{verify_email_query}"
+            assert SESSION_KEY not in request.session
+            assert user.is_email_verified is False
+            assert mock_send_email.call_args.args[0] == user.pk
 
     @parameterized.expand(
         [

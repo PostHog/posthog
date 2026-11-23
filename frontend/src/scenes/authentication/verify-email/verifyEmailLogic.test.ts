@@ -25,16 +25,19 @@ describe('verifyEmailLogic', () => {
         logic.unmount()
     })
 
-    it('reads the deep-link reason the login redirect sent', async () => {
-        router.actions.push('/verify_email/abc-123', { reason: 'stripe_deep_link' })
+    it.each([['stripe_deep_link'], ['partner_deep_link'], ['vercel_sso']])(
+        'reads the reason the login redirect sent: %s',
+        async (reason) => {
+            router.actions.push('/verify_email/abc-123', { reason })
 
-        await expectLogic(logic).toMatchValues({
-            view: 'pending',
-            uuid: 'abc-123',
-            reason: 'stripe_deep_link',
-            verificationEmailSent: true,
-        })
-    })
+            await expectLogic(logic).toMatchValues({
+                view: 'pending',
+                uuid: 'abc-123',
+                reason,
+                verificationEmailSent: true,
+            })
+        }
+    )
 
     it('reports the verify email step once the deep link opens', async () => {
         router.actions.push('/verify_email/abc-123')

@@ -35,6 +35,7 @@ const DEEP_LINK_NOTICE: Record<VerifyEmailReason, string> = {
     stripe_deep_link:
         "Stripe sent you to PostHog to set up analytics. Verify your email and we'll open your new project.",
     partner_deep_link: "Your sign-in link needs a verified email. Verify it and we'll take you where you were going.",
+    vercel_sso: "Vercel didn't confirm your email address. Verify it to finish signing in to PostHog.",
 }
 
 function NotSeeingIt(): JSX.Element {

@@ -36,7 +36,7 @@ const meta: Meta<StoryArgs> = {
         reason: {
             control: 'select',
             name: 'Deep link reason',
-            options: [undefined, 'stripe_deep_link', 'partner_deep_link'],
+            options: [undefined, 'stripe_deep_link', 'partner_deep_link', 'vercel_sso'],
         },
         verificationEmailSent: {
             control: 'boolean',
