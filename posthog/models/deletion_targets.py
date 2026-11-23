@@ -264,8 +264,11 @@ FLAG_EVALUATIONS = DeletionTarget(
 # was built from. The person, team and queued-uuid sweeps match on the ``timestamp``, ``uuid`` and
 # ``inserted_at`` aliases both tables declare, and the squash rewrites person_id. Event removal and
 # property removal skip both tables (``derived_from_events``). A row can keep a value derived from a
-# removed property, for example a breakdown value, until its TTL drops it.
-# docs/internal/clickhouse-deletion-coverage.md records that bound.
+# removed property, for example a breakdown value, until its TTL drops it. A row built with the
+# experiments-precompute-person-resolution flag off stores no distinct_id, so the squash cannot
+# rewrite it, and it keeps the person_id of its build until it expires. Turning the flag on for a
+# team builds its rows again with the distinct_id. docs/internal/clickhouse-deletion-coverage.md
+# records both bounds.
 EXPERIMENT_EXPOSURES = DeletionTarget(
     data_table=SHARDED_EXPERIMENT_EXPOSURES_TABLE(),
     read_table=DISTRIBUTED_EXPERIMENT_EXPOSURES_TABLE(),
