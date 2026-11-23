@@ -158,21 +158,20 @@ class TestGranianPreload(unittest.TestCase):
 
     @parameterized.expand(
         [
-            ("thread_left_running", THREAD_LEFT_RUNNING, False),
-            ("stream_socket_left_open", STREAM_SOCKET_LEFT_OPEN, False),
-            ("datagram_socket_left_open", DATAGRAM_SOCKET_LEFT_OPEN, True),
-            ("thread_starting_library_imported", THREAD_STARTING_LIBRARY_IMPORTED, True),
+            ("thread_left_running", THREAD_LEFT_RUNNING, False, set()),
+            ("stream_socket_left_open", STREAM_SOCKET_LEFT_OPEN, False, set()),
+            ("datagram_socket_left_open", DATAGRAM_SOCKET_LEFT_OPEN, True, set()),
+            ("thread_starting_library_imported", THREAD_STARTING_LIBRARY_IMPORTED, True, {"2"}),
         ]
     )
     def test_workers_fork_from_the_parent_only_when_the_import_leaves_it_safe_to_fork(
-        self, _name: str, import_side_effect: str, preloaded: bool
+        self, _name: str, import_side_effect: str, preloaded: bool, words_from_import: set[str]
     ) -> None:
         importer_by_worker, server_pid, _, stderr, extra_words = self.serve("asgi", "false", APP + import_side_effect)
 
         self.assertEqual([imported_by == server_pid for imported_by in importer_by_worker.values()], [preloaded] * 2)
         self.assertEqual("so each worker imports the app itself" in stderr, not preloaded)
-        if import_side_effect == THREAD_STARTING_LIBRARY_IMPORTED:
-            self.assertEqual(extra_words, {"2"})
+        self.assertEqual(extra_words, words_from_import)
 
 
 if __name__ == "__main__":
