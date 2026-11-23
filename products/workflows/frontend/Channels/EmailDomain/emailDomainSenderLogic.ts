@@ -241,9 +241,10 @@ export const emailDomainSenderLogic = kea<emailDomainSenderLogicType>([
                     if (!integrationId || !domain || !recipient) {
                         return null
                     }
+                    let testSendResult: HogflowTestResult
                     try {
                         // nosemgrep: prefer-codegen-api-namespaced-workflows -- the generated hogFlowsInvocationsCreate returns void, and this reads the test result
-                        return await api.hogFlows.createTestInvocation(
+                        testSendResult = await api.hogFlows.createTestInvocation(
                             'new',
                             buildTestEmailInvocation({ integrationId, teamId: currentTeamId, domain, recipient })
                         )
@@ -252,6 +253,8 @@ export const emailDomainSenderLogic = kea<emailDomainSenderLogicType>([
                         lemonToast.error('Could not send the test email. Try again in a moment.')
                         return null
                     }
+                    captureTestEmailResult(testSendResult)
+                    return testSendResult
                 },
             },
         ],
@@ -366,9 +369,6 @@ export const emailDomainSenderLogic = kea<emailDomainSenderLogicType>([
             lemonToast.success('Sender name saved')
         },
         sendTestEmailSuccess: ({ testSendResult }) => {
-            if (testSendResult) {
-                captureTestEmailResult(testSendResult)
-            }
             if (testSendResult?.status === 'success' && testSendResult.emailSendResult?.status === 'accepted') {
                 lemonToast.success(`The email provider accepted your test email to ${values.user?.email}.`)
             } else if (testSendResult?.emailSendResult?.status === 'skipped') {

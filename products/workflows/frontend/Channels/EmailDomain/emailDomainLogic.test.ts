@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
 import posthog from 'posthog-js'
 
+import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -44,6 +45,9 @@ describe('emailDomainLogic', () => {
             is_ai_data_processing_approved: on,
         })
     }
+
+    const testEmailResults = (capture: jest.SpyInstance): unknown[][] =>
+        capture.mock.calls.filter(([event]) => event === 'email domain test email result')
 
     const mountAndLoad = async (id = '42'): Promise<void> => {
         logic = emailDomainLogic({ id })
@@ -147,8 +151,29 @@ describe('emailDomainLogic', () => {
             false,
             'missing_recipient',
         ],
+        [
+            {
+                status: 'skipped',
+                reason: 'Skipping send: me@acme.com is on the suppression list and no cc address can receive the email instead',
+            },
+            false,
+            'suppressed_recipient',
+        ],
+        [
+            {
+                status: 'skipped',
+                reason: 'Skipping send: our email provider paused sending for this project. Check the Reputation tab to see what to fix.',
+            },
+            false,
+            'sending_suspended',
+        ],
         [{ status: 'skipped', reason: 'The recipient has no reachable mail servers.' }, false, 'other'],
         [{ status: 'failed', reason: 'The provider refused the message.' }, false, 'other'],
+        [
+            { status: 'failed', reason: 'The selected email integration is not configured correctly' },
+            false,
+            'sender_misconfigured',
+        ],
         [
             { status: 'failed', reason: 'The selected email integration domain is not verified' },
             false,
@@ -200,10 +225,9 @@ describe('emailDomainLogic', () => {
             sender.actions.sendTestEmail()
             await jest.advanceTimersByTimeAsync(0)
             expect(sender.values.testEmailSent).toBe(sent)
-            expect(capture).toHaveBeenCalledWith('email domain test email result', {
-                status: emailSendResult?.status ?? 'failed',
-                reason,
-            })
+            expect(testEmailResults(capture)).toEqual([
+                ['email domain test email result', { status: emailSendResult?.status ?? 'failed', reason }],
+            ])
             if (emailSendResult?.status === 'skipped') {
                 expect(warning).toHaveBeenCalledWith(emailSendResult.reason)
             } else if (!sent) {
@@ -232,10 +256,27 @@ describe('emailDomainLogic', () => {
         const sender = emailDomainSenderLogic({ id: '42' })
         sender.actions.sendTestEmail()
         await jest.advanceTimersByTimeAsync(0)
-        expect(capture).toHaveBeenCalledWith('email domain test email result', {
-            status: 'failed',
-            reason: 'request_failed',
-        })
+        expect(testEmailResults(capture)).toEqual([
+            ['email domain test email result', { status: 'failed', reason: 'request_failed' }],
+        ])
+        capture.mockRestore()
+    })
+
+    it('records the test send result when the page closes before the provider answers', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        let answer: (result: HogflowTestResult) => void = () => {}
+        const invocation = jest
+            .spyOn(api.hogFlows, 'createTestInvocation')
+            .mockReturnValue(new Promise((resolve) => (answer = resolve)))
+        await mountAndLoad()
+        emailDomainSenderLogic({ id: '42' }).actions.sendTestEmail()
+        logic.unmount()
+        answer({ status: 'success', nextActionId: 'exit_node', emailSendResult: { status: 'accepted' } })
+        await jest.advanceTimersByTimeAsync(0)
+        expect(testEmailResults(capture)).toEqual([
+            ['email domain test email result', { status: 'accepted', reason: null }],
+        ])
+        invocation.mockRestore()
         capture.mockRestore()
     })
 })
