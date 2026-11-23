@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+import httpx
+import anthropic
 from parameterized import parameterized
 
 from posthog.llm.system_one import ChoiceAnswer, SystemOneNotConfigured, SystemOneRequestFailed, SystemOneResult
@@ -309,6 +311,42 @@ class TestDataSuggestions(SimpleTestCase):
         assert result is None
         assert "secret_signup_event" not in str(logger.warning.call_args)
         assert "exc_info" not in logger.warning.call_args.kwargs
+
+    @parameterized.expand(
+        [
+            ("gateway credit refusal", 402, {"X-PostHog-Denial": "credit_bucket_exhausted:ai_credits"}, False),
+            ("provider billing block", 402, {}, True),
+            ("server error", 500, {}, True),
+        ]
+    )
+    @patch("products.workflows.backend.services.data_suggestions.llm.capture_exception")
+    @patch("products.workflows.backend.services.data_suggestions.llm.MaxChatAnthropic")
+    def test_a_failed_call_reaches_error_tracking_unless_the_gateway_refused_it_for_credits(
+        self,
+        _name: str,
+        status: int,
+        headers: dict[str, str],
+        captured: bool,
+        chat: MagicMock,
+        capture_exception: MagicMock,
+    ) -> None:
+        response = httpx.Response(status, headers=headers, request=httpx.Request("POST", "https://gateway.test"))
+        chat.return_value.invoke.side_effect = anthropic.APIStatusError("refused", response=response, body=None)
+
+        result = invoke_structured(
+            team=MagicMock(id=1),
+            user=MagicMock(distinct_id="user-1"),
+            model="claude-test",
+            effort="low",
+            feature="test",
+            schema=PlannedWorkflow,
+            system="",
+            human="",
+            excluded_values=frozenset(),
+        )
+
+        assert result is None
+        assert capture_exception.called is captured
 
     def test_plan_schema_only_offers_connected_channels_and_project_events(self) -> None:
         schema = strict_schema(PlannedWorkflow, frozenset({"sms", "push"}), {"wait_event": ["trial_started", "sms"]})
