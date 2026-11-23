@@ -93,6 +93,8 @@ UNSENT_STATUSES = frozenset({"save", "paused", "schedule"})
 CATEGORY_KEY_MAX_LENGTH = 64
 EMAILS_PER_PAGE = 10
 MAX_LIST_RESTARTS = 3
+# Bounds a worker's memory on a huge list. Past it, a restart counts the contacts it reads again twice, but skips none.
+MAX_REMEMBERED_CONTACTS = 100_000
 # Contacts who can't get a campaign from this audience in Mailchimp, by the count each adds to.
 LEFT_STATUSES = {
     "unsubscribed": "unsubscribed",
@@ -433,8 +435,9 @@ def _read_targets(
             moved_on = end > offset
             offset = max(offset, end)
             more = moved_on and offset < page.total
-            items = [item for key, item in zip(keys, page.items) if key not in read]
-            read.update(keys)
+            last_read = set(previous_page)
+            items = [item for key, item in zip(keys, page.items) if key not in read and key not in last_read]
+            read.update(keys[: max(MAX_REMEMBERED_CONTACTS - len(read), 0)])
             previous_page = keys
             yield ImportPage(
                 processed=len(items),
@@ -464,7 +467,6 @@ def _moved_past_overlap(
 
 
 def _item_key(item: Mapping[str, Any]) -> bytes:
-    # A list is remembered whole while it's read, so each contact keeps only a digest.
     return hashlib.sha256(json.dumps(item, sort_keys=True, default=str).encode()).digest()
 
 

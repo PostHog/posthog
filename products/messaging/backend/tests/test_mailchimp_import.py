@@ -266,6 +266,19 @@ class TestMailchimpImport(BaseTest):
         # Contacts read again after a restart count once. The other audience has one unsubscribed contact.
         assert progress["counts"]["unsubscribed"] == len(imported) + 1
 
+    def test_contacts_past_the_remembered_limit_import_once(self) -> None:
+        self._patch(f"{CLIENT}.PAGE_SIZE", 100)
+        self._patch("products.messaging.backend.provider_imports.mailchimp.MAX_REMEMBERED_CONTACTS", 50)
+        emails = {f"person{number:04}@example.com" for number in range(250)}
+        self.mailchimp.data["lists"][0]["members"] = [
+            {"email_address": email, "status": "unsubscribed"} for email in sorted(emails)
+        ]
+
+        run = self._run(["audiences"])
+
+        assert emails <= set(self._opt_outs())
+        assert run.progress["audiences"]["counts"]["unsubscribed"] == len(emails) + 1
+
     def test_changed_contacts_moving_behind_unread_ones_hide_no_one(self) -> None:
         self._patch(f"{CLIENT}.PAGE_SIZE", 100)
         audience = self.mailchimp.data["lists"][0]
