@@ -128,6 +128,8 @@ SECTOR_INDUSTRIES = frozenset({"Finance", "Banking", "Insurance", "Capital Marke
 # Account.Company_LinkedIn__c is a URL(255) field. Salesforce rejects the whole record for a longer value.
 LINKEDIN_URL_MAX_LENGTH = 255
 
+HARMONIC_DESCRIPTION_MAX_LENGTH = 2500  # Half the 5,000-character Salesforce field, for two-unit UTF-16 text
+
 LINKEDIN_COUNT_FIELDS = ("LinkedIn_Engineer_Count__c", "LinkedIn_Rolecount__c")
 
 
@@ -200,6 +202,19 @@ def _linkedin_headcounts(company: dict[str, Any]) -> dict[str, int | float]:
     return {"LinkedIn_Engineer_Count__c": engineering, "LinkedIn_Rolecount__c": total}
 
 
+def account_description(description: object) -> str | None:
+    if not isinstance(description, str):
+        return None
+    return description.strip()[:HARMONIC_DESCRIPTION_MAX_LENGTH] or None
+
+
+def _description_on_queried_domain(company: dict[str, Any], queried_domain: str) -> str | None:
+    # A filled Description is never refreshed or cleared, so it takes text only from a record on the queried domain.
+    if website_domain(company) != queried_domain:
+        return None
+    return account_description(company.get("description"))
+
+
 def overwritten_account_fields(company: dict[str, Any]) -> dict[str, Any]:
     """The canonical Account fields that always take Harmonic's value."""
     fields = {
@@ -220,6 +235,7 @@ def fill_only_account_fields(company: dict[str, Any], *, queried_domain: str) ->
         "NumberOfEmployees": harmonic_headcount(company),
         "Industry": account_industry(company),
         "Company_LinkedIn__c": _linkedin_url(company, queried_domain),
+        "Description": _description_on_queried_domain(company, queried_domain),
         **_linkedin_headcounts(company),
     }
     return {field: value for field, value in fields.items() if value is not None}

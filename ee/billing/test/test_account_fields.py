@@ -23,6 +23,7 @@ def _company(**overrides: Any) -> dict[str, Any]:
     company: dict[str, Any] = {
         "name": "Example Corp",
         "headcount": 120,
+        "description": "Builds analytics tools.",
         "website": {"url": "https://example.com", "domain": "example.com"},
         "socials": {"linkedin": {"url": "https://www.linkedin.example/company/example-corp"}},
         "tractionMetrics": {
@@ -91,6 +92,9 @@ class TestCanonicalAccountFields(SimpleTestCase):
             ("industry_empty", "Industry", None, True, "Software"),
             ("industry_outside_picklist", "Industry", "Software Development", False, None),
             ("industry_in_picklist", "Industry", "Retail", False, None),
+            ("description_none", "Description", None, True, "Builds analytics tools."),
+            ("description_empty_string", "Description", "", True, "Builds analytics tools."),
+            ("description_occupied", "Description", "Text that a seller wrote.", False, None),
         ]
     )
     def test_fill_rule_follows_the_current_value(
@@ -102,7 +106,7 @@ class TestCanonicalAccountFields(SimpleTestCase):
         else:
             assert field not in fields
 
-    @parameterized.expand([("NumberOfEmployees",), ("Company_LinkedIn__c",), ("Industry",)])
+    @parameterized.expand([("NumberOfEmployees",), ("Company_LinkedIn__c",), ("Industry",), ("Description",)])
     def test_field_not_read_is_unknown_not_empty(self, field: str) -> None:
         assert field not in _fields(_company(), {})
 
@@ -193,9 +197,16 @@ class TestCanonicalAccountFields(SimpleTestCase):
             ("no_domain", {}, False),
         ]
     )
-    def test_linkedin_url_needs_the_queried_domain(self, _name: str, website: dict[str, Any], written: bool) -> None:
-        fields = _fields(_company(website=website), {"Company_LinkedIn__c": None})
+    def test_linkedin_url_and_description_need_the_queried_domain(
+        self, _name: str, website: dict[str, Any], written: bool
+    ) -> None:
+        fields = _fields(_company(website=website), {"Company_LinkedIn__c": None, "Description": None})
         assert ("Company_LinkedIn__c" in fields) is written
+        assert ("Description" in fields) is written
+
+    @parameterized.expand([("blank", "   "), ("missing", None)])
+    def test_description_without_text_is_not_filled(self, _name: str, description: str | None) -> None:
+        assert "Description" not in _fields(_company(description=description), {"Description": None})
 
     @parameterized.expand([("at_limit", 255, True), ("over_limit", 256, False)])
     def test_linkedin_url_length_limit(self, _name: str, length: int, written: bool) -> None:

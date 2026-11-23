@@ -1083,6 +1083,36 @@ class TestSpecificDomainEnrichment(SimpleTestCase):
 
     @pytest.mark.asyncio
     @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
+    async def test_specific_domain_fills_description_only_on_the_account_with_harmonics_domain(self) -> None:
+        harmonic_response = {**load_harmonic_fixture(), "description": "Builds analytics tools."}
+        mock_accounts = [
+            {"Id": "001PARENT", "Name": "Parent", "Domain__c": "example.com"},
+            {"Id": "001SUBDOMAIN", "Name": "App", "Domain__c": "app.example.com"},
+        ]
+        empty = dict.fromkeys(ACCOUNT_FILL_FIELDS)
+
+        with (
+            mock_harmonic_client() as mock_client,
+            patch(
+                "ee.billing.salesforce_enrichment.enrichment.get_salesforce_accounts_by_domain",
+                return_value=mock_accounts,
+            ),
+            patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client") as mock_get_sf,
+            patch("ee.billing.salesforce_enrichment.enrichment.bulk_update_salesforce_accounts") as mock_bulk_update,
+        ):
+            mock_client.enrich_companies_batch = AsyncMock(return_value=[harmonic_response])
+            mock_get_sf.return_value.query_all.return_value = {
+                "records": [{"Id": "001PARENT", **empty}, {"Id": "001SUBDOMAIN", **empty}]
+            }
+
+            await enrich_accounts_async(specific_domain="example.com")
+
+        records = {record["Id"]: record for record in mock_bulk_update.call_args[0][1]}
+        assert records["001PARENT"]["Description"] == "Builds analytics tools."
+        assert "Description" not in records["001SUBDOMAIN"]
+
+    @pytest.mark.asyncio
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     async def test_specific_domain_writes_the_icp_fit_fields_to_every_matching_account(self) -> None:
         mock_accounts = [
             {"Id": "001ACCOUNT1", "Name": "Company A", "Domain__c": "example.com"},

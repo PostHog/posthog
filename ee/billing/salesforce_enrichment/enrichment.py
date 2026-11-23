@@ -27,13 +27,12 @@ from products.growth.backend.enrichment.fit_score import (
 from products.growth.backend.enrichment.harmonic_adapter import normalize_graphql_company
 from products.growth.backend.enrichment.icp_lists import CuratedLists, load_active_lists
 
-from .account_fields import fill_only_account_fields, overwritten_account_fields, unoccupied_fields
+from .account_fields import account_description, fill_only_account_fields, overwritten_account_fields, unoccupied_fields
 from .constants import (
     ACCOUNT_FILL_FIELDS,
     DEFAULT_CHUNK_SIZE,
     HARMONIC_ACCOUNT_ENRICHMENT_QUERY,
     HARMONIC_BATCH_SIZE,
-    HARMONIC_DESCRIPTION_MAX_LENGTH,
     METRIC_PERIODS,
     PERSONAL_EMAIL_DOMAINS,
     SALESFORCE_ACCOUNTS_QUERY,
@@ -264,12 +263,6 @@ def _extract_primary_tag(tags: list, tags_v2: list) -> str | None:
     return None
 
 
-def _account_description(description: object) -> str | None:
-    if not isinstance(description, str):
-        return None
-    return description.strip()[:HARMONIC_DESCRIPTION_MAX_LENGTH] or None
-
-
 def _harmonic_mirror_fields(harmonic_data: dict[str, Any]) -> dict[str, Any]:
     """Every Account field that only this job writes, with None where Harmonic has no value."""
     funding = harmonic_data.get("funding", {})
@@ -284,7 +277,7 @@ def _harmonic_mirror_fields(harmonic_data: dict[str, Any]) -> dict[str, Any]:
         # Company Info
         "harmonic_company_name__c": company_info.get("name"),
         "harmonic_company_type__c": company_info.get("type"),
-        "harmonic_description__c": _account_description(company_info.get("description")),
+        "harmonic_description__c": account_description(company_info.get("description")),
         "harmonic_industry__c": _extract_primary_tag(tags, tags_v2),
         "harmonic_last_update__c": timezone.now().strftime("%Y-%m-%d"),
         # Funding Info
@@ -998,8 +991,12 @@ async def _enrich_specific_domain_debug(
             if update_records:
                 sf = get_salesforce_client()
                 if not rejected_sub_entity:
-                    fill_fields = fill_only_account_fields(harmonic_result, queried_domain=domain)
-                    fill_fields_by_account = {record["Id"]: fill_fields for record in update_records}
+                    fill_fields_by_account = {
+                        account["Id"]: fill_only_account_fields(
+                            harmonic_result, queried_domain=_extract_domain(account["Domain__c"]) or ""
+                        )
+                        for account in accounts
+                    }
                     await asyncio.to_thread(add_unoccupied_fill_fields, sf, update_records, fill_fields_by_account)
                 bulk_update_salesforce_accounts(sf, update_records)
                 salesforce_updated = True
