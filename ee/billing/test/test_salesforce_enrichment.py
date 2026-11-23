@@ -315,6 +315,28 @@ class TestHarmonicDataTransformation(SimpleTestCase):
         for key, value in salesforce_data.items():
             assert value is not None, f"Field {key} should not be None"
 
+    @parameterized.expand(
+        [
+            ("plain", "Builds analytics tools.", "Builds analytics tools."),
+            ("surrounding_whitespace", "  Builds analytics tools.  ", "Builds analytics tools."),
+            ("two_unit_characters_over_the_field_limit", "\U0001f600" * 2501, "\U0001f600" * 2500),
+            ("blank", "   ", "left out"),
+            ("missing", None, "left out"),
+        ]
+    )
+    def test_prepare_salesforce_update_writes_a_usable_description(
+        self, _name: str, description: str | None, expected: str
+    ) -> None:
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
+        harmonic_data["description"] = description
+        transformed_data = transform_harmonic_data(harmonic_data)
+        assert transformed_data is not None
+
+        salesforce_data = prepare_salesforce_update_data("001TEST", transformed_data)
+
+        assert salesforce_data is not None
+        assert salesforce_data.get("harmonic_description__c", "left out") == expected
+
     @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     def test_mirror_clearing_data_covers_every_stamped_field_and_no_canonical_field(self) -> None:
         transformed_data = transform_harmonic_data(load_harmonic_fixture())

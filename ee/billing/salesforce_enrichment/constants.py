@@ -7,6 +7,7 @@ HARMONIC_BASE_URL: str = "https://api.harmonic.ai"
 YC_INVESTOR_NAME: str = "y combinator"
 HARMONIC_REQUEST_TIMEOUT_SECONDS: int = 30
 HARMONIC_BATCH_SIZE: int = 100
+HARMONIC_DESCRIPTION_MAX_LENGTH: int = 2500  # Half the 5,000-character Salesforce field, for two-unit UTF-16 text
 HARMONIC_DOMAIN_VARIATIONS: list[str] = ["", "www."]  # Try exact domain first, then with www prefix
 SALESFORCE_UPDATE_BATCH_SIZE: int = 200  # Max records per sObject Collections API call
 DEFAULT_CHUNK_SIZE: int = 5000
