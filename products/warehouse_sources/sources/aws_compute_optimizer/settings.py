@@ -141,6 +141,8 @@ AWS_SESSION_ACTIONS = (
     "compute-optimizer:GetEnrollmentStatus",
     "compute-optimizer:GetIdleRecommendations",
     "compute-optimizer:GetLambdaFunctionRecommendations",
+    "compute-optimizer:GetLicenseRecommendations",
+    "compute-optimizer:GetRDSDatabaseRecommendationProjectedMetrics",
     "compute-optimizer:GetRDSDatabaseRecommendations",
     "compute-optimizer:GetRecommendationSummaries",
     "ec2:DescribeInstances",
