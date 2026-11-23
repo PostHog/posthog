@@ -46,6 +46,8 @@ import type {
     _TracingImpactResponseApi,
     _TracingLatencyHeatmapRequestApi,
     _TracingLatencyHeatmapResponseApi,
+    _TracingLatencyPercentilesRequestApi,
+    _TracingLatencyPercentilesResponseApi,
     _TracingQueryRequestApi,
     _TracingQueryResponseApi,
     _TracingServiceNamesResponseApi,
@@ -491,6 +493,23 @@ export const tracingSpansLatencyHeatmapCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_tracingLatencyHeatmapRequestApi),
+    })
+}
+
+export const getTracingSpansLatencyPercentilesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tracing/spans/latency_percentiles/`
+}
+
+export const tracingSpansLatencyPercentilesCreate = async (
+    projectId: string,
+    _tracingLatencyPercentilesRequestApi: _TracingLatencyPercentilesRequestApi,
+    options?: RequestInit
+): Promise<_TracingLatencyPercentilesResponseApi> => {
+    return apiMutator<_TracingLatencyPercentilesResponseApi>(getTracingSpansLatencyPercentilesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_tracingLatencyPercentilesRequestApi),
     })
 }
 
