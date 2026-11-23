@@ -1,6 +1,7 @@
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.util.where_clause_extractor import is_nondeterministic_function
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.dataclasses import frozen
@@ -55,13 +56,18 @@ class _TruncatedTimestamp:
     returns_date: bool
 
 
-class _FieldFinder(TraversingVisitor):
+class _NonConstantFinder(TraversingVisitor):
     def __init__(self) -> None:
         super().__init__()
         self.found = False
 
     def visit_field(self, node: ast.Field) -> None:
         self.found = True
+
+    def visit_call(self, node: ast.Call) -> None:
+        if is_nondeterministic_function(node.name):
+            self.found = True
+        super().visit_call(node)
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         self.found = True
@@ -141,7 +147,7 @@ class TrinoEventsTimestampRangeAdder(TraversingVisitor):
 
     def _is_time_constant(self, *exprs: ast.Expr) -> bool:
         for expr in exprs:
-            finder = _FieldFinder()
+            finder = _NonConstantFinder()
             finder.visit(expr)
             if finder.found or expr.type is None:
                 return False

@@ -3695,6 +3695,7 @@ def test_keeps_union_when_a_branch_is_not_a_constant_row(query: str) -> None:
         ("SELECT count() FROM (SELECT toDate(timestamp) AS day FROM events WHERE day = '2026-01-31')", 1, 2),
         ("WITH '2026-02-01' AS cutoff SELECT count() FROM events WHERE toDate(timestamp) >= cutoff", 1, 1),
         ("SELECT count() FROM events WHERE toDate(timestamp) >= toDate(event)", None, 0),
+        ("SELECT count() FROM events WHERE toDate(timestamp) >= toDate(now() - toIntervalDay(rand() % 9000))", None, 0),
     ],
 )
 def test_truncated_events_timestamp_filter_adds_a_prunable_range_without_dropping_rows(
