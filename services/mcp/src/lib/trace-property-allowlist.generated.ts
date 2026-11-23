@@ -119,7 +119,6 @@ export const AI_TAXONOMY_EVENT_PROPERTIES = [
     '$ai_tool_call_count',
     '$ai_tool_error_count',
     '$ai_tool_errors',
-    '$ai_tool_intent',
     '$ai_tool_result_count',
     '$ai_tool_results',
     '$ai_tools',

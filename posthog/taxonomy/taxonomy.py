@@ -2795,7 +2795,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$ai_tool_error_count": {
             "label": "AI Tool Error Count (LLM)",
-            "description": "How many of the tool results sent to the LLM in this generation were errors.",
+            "description": "How many of the tool results sent to the LLM in this generation were errors. A result counts as an error when the SDK flagged it, or when its text starts with Error, Exception or Traceback. Failures that end the run before another generation are not counted.",
             "examples": ["1"],
         },
         "$ai_tool_results": {
@@ -2805,18 +2805,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$ai_tool_errors": {
             "label": "AI Tool Errors (LLM)",
-            "description": "The names of the tools whose results sent to the LLM in this generation were errors.",
+            "description": "The names of the tools whose results sent to the LLM in this generation were errors. A result counts as an error when the SDK flagged it, or when its text starts with Error, Exception or Traceback. Failures that end the run before another generation are not counted.",
             "examples": ["search_docs"],
         },
         "$ai_tools_unknown": {
             "label": "AI Unknown Tools Called (LLM)",
-            "description": "Tools the LLM called in this generation that are not in the tools it was given. Usually a capability the agent is missing.",
+            "description": "Tools the LLM called in this generation that are not in the tools it was given.",
             "examples": ["send_email"],
-        },
-        "$ai_tool_intent": {
-            "label": "AI Tool Call Intent (LLM)",
-            "description": "The text the LLM wrote alongside its tool calls in this generation, which usually says why it called them.",
-            "examples": ["Let me look up that invoice."],
         },
         "$ai_is_error": {
             "label": "AI Is Error (LLM)",

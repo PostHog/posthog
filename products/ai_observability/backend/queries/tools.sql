@@ -16,14 +16,13 @@ SELECT
     countIf(tupleElement(item, 2) = 'error') AS failures,
     countIf(tupleElement(item, 2) = 'result') AS results,
     countIf(tupleElement(item, 2) = 'call' AND has(splitByChar(',', ifNull(properties.$ai_tools_unknown, '')), tupleElement(item, 1))) AS undefined_calls,
-    argMaxIf(properties.$ai_tool_intent, timestamp, tupleElement(item, 2) = 'call' AND notEmpty(ifNull(properties.$ai_tool_intent, ''))) AS latest_intent,
     countDistinctIf(properties.$ai_trace_id, tupleElement(item, 2) = 'call' AND properties.$ai_trace_id != '') AS traces,
     uniqIf(distinct_id, tupleElement(item, 2) = 'call') AS users,
     countDistinctIf(properties.$ai_session_id, tupleElement(item, 2) = 'call' AND properties.$ai_session_id != '') AS sessions,
     uniqIf(toDate(timestamp), tupleElement(item, 2) = 'call') AS days_seen,
     if(total_calls > 0, round(countIf(tupleElement(item, 2) = 'call' AND position(properties.$ai_tools_called, ',') = 0) * 100 / total_calls), NULL) AS single_pct,
-    min(timestamp) AS first_seen,
-    max(timestamp) AS last_seen
+    if(total_calls > 0, minIf(timestamp, tupleElement(item, 2) = 'call'), NULL) AS first_seen,
+    if(total_calls > 0, maxIf(timestamp, tupleElement(item, 2) = 'call'), NULL) AS last_seen
 FROM events
 ARRAY JOIN arrayConcat(
     arrayMap(x -> tuple(x, 'call'), splitByChar(',', ifNull(properties.$ai_tools_called, ''))),
@@ -31,7 +30,7 @@ ARRAY JOIN arrayConcat(
     arrayMap(x -> tuple(x, 'error'), splitByChar(',', ifNull(properties.$ai_tool_errors, '')))
 ) AS item
 WHERE event = '$ai_generation'
-    AND (properties.$ai_tools_called != '' OR properties.$ai_tool_results != '')
+    AND (notEmpty(ifNull(properties.$ai_tools_called, '')) OR notEmpty(ifNull(properties.$ai_tool_results, '')))
     AND tupleElement(item, 1) != ''
     AND {filters}
 GROUP BY tool

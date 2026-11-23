@@ -2,4 +2,4 @@
 npm/hog: patch
 ---
 
-feat(aio): show tool failure rate, undefined calls and intent on tools tab
+feat(aio): show tool failure rates and unknown tools called on tools tab
