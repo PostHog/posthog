@@ -1,0 +1,104 @@
+# Weekly report on the skills that the MCP `learn` command serves to customers' agents.
+#
+# The skills lint checks a pull request. This report checks the served skills over time: a served
+# skill that names a skill `learn` does not serve, tools behind a flag the served list does not
+# declare, size and growth, and the share of commits by bot accounts. It posts the counts to Slack
+# and writes the full report to the run summary. It is not a required check.
+
+name: Served skills upkeep
+
+on:
+    schedule:
+        - cron: '17 9 * * 1'
+    workflow_dispatch:
+    pull_request:
+        paths:
+            - '.github/workflows/ci-served-skills-upkeep.yml'
+            - 'products/posthog_ai/scripts/build_skills/upkeep.py'
+
+env:
+    SLACK_CHANNEL: 'C0C27FSAW2G' # #team-context-and-mcp
+    HISTORY_DAYS: 90
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+    report:
+        name: Report on served skills
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        steps:
+            # The bot-commit share reads the commit log, so this checkout takes the history without
+            # file contents, and only the paths the report reads.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 0
+                  filter: blob:none
+                  sparse-checkout: |
+                      /.github/actions/setup-uv/
+                      /products/__init__.py
+                      /products/posthog_ai/__init__.py
+                      /products/posthog_ai/scripts/build_skills/
+                      /products/*/skills/
+                      /products/*/product.yaml
+                      /services/mcp/schema/
+                      /services/mcp/src/skills/served-skills.json
+                  sparse-checkout-cone-mode: false
+
+            - name: Find the commit to compare sizes with
+              id: before
+              run: echo "sha=$(git rev-list -1 --before="$HISTORY_DAYS days ago" HEAD)" >> "$GITHUB_OUTPUT"
+
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ steps.before.outputs.sha }}
+                  path: skills-before
+                  sparse-checkout: /products/*/skills/
+                  sparse-checkout-cone-mode: false
+
+            - name: Install uv
+              uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
+
+            - name: Write the report
+              id: report
+              run: |
+                  uv run --no-project --python 3.12 \
+                      --with jinja2==3.1.6 --with pydantic==2.12.5 --with pyyaml==6.0.3 \
+                      python -m products.posthog_ai.scripts.build_skills \
+                      --report --before-root skills-before --summary-file summary.json >> "$GITHUB_STEP_SUMMARY"
+                  {
+                      echo "served=$(jq -r .served summary.json)"
+                      echo "pointers=$(jq -r .pointers summary.json)"
+                      echo "flag_mismatches=$(jq -r .flag_mismatches summary.json)"
+                  } >> "$GITHUB_OUTPUT"
+
+            # A pull request run has an author who reads the run summary, so only the weekly run posts.
+            - name: Post the counts to Slack
+              if: github.event_name == 'schedule'
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      text: "Served skills upkeep: ${{ steps.report.outputs.pointers }} pointers to unserved skills, ${{ steps.report.outputs.flag_mismatches }} flag mismatches"
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: "*Served skills upkeep.* `learn` serves ${{ steps.report.outputs.served }} product skills. ${{ steps.report.outputs.pointers }} places where a served skill names a skill `learn` does not serve. ${{ steps.report.outputs.flag_mismatches }} served skills with tools behind a flag the list does not declare. The report also has sizes, growth and bot commits."
+                        - type: "actions"
+                          elements:
+                            - type: "button"
+                              text:
+                                type: "plain_text"
+                                text: "View report"
+                              url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
