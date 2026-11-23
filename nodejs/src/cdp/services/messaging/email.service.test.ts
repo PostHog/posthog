@@ -1946,12 +1946,12 @@ describe('EmailService', () => {
                         return clicked.status === 302 ? `tracked ${clicked.headers.location}` : `unusable ${href}`
                     })
                 )
-                for (const [, src] of html.matchAll(/<img\b[^>]*\bsrc="([^"]*)"/g)) {
-                    if (src.startsWith(sesEndpoint)) {
-                        await supertest(sesEndpoint).get(new URL(src).pathname)
-                    }
+                const images = [...html.matchAll(/<img\b[^>]*\bsrc="([^"]*)"/g)].map(([, src]) => src)
+                for (const src of images) {
+                    await supertest(sesEndpoint).get(new URL(src).pathname)
                 }
                 expect(delivered).toEqual(links)
+                expect(images).toEqual(opens ? [`${sesEndpoint}/I0/open.gif`] : [])
                 expect(fakeSes.opened).toBe(opens ? 1 : 0)
                 expect(
                     result.capturedPostHogEvents
@@ -4303,9 +4303,8 @@ describe('EmailService', () => {
                     const sentHtml = ses.sent[0].html
                     if (expectTracked) {
                         // SES sends tag each anchor and let SES report the click, instead of
-                        // rewriting the href to a redirect URL. The open pixel is unchanged.
+                        // rewriting the href to a redirect URL.
                         expect(sentHtml).toContain('ses:tags="phl:')
-                        expect(sentHtml).toContain('ph_id=')
                     } else {
                         expect(sentHtml).toEqual(trackableHtml)
                     }
@@ -4319,7 +4318,6 @@ describe('EmailService', () => {
                 expect(result.error).toBeUndefined()
                 const sentHtml = ses.sent[0].html
                 expect(sentHtml).toContain('ses:tags="phl:')
-                expect(sentHtml).toContain('ph_id=')
             })
 
             it('the step-level toggle wins over consent: tracking_enabled false is untracked even for opted-in recipients', async () => {

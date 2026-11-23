@@ -103,7 +103,6 @@ import { EmailTrackingService } from './services/messaging/email-tracking.servic
 import { EmailValidationService } from './services/messaging/email-validation.service'
 import { utmTagsFor } from './services/messaging/helpers/email-html'
 import { sesHtmlMaxBytes } from './services/messaging/helpers/ses-html-max-bytes'
-import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { UTM_VALUE_LIMIT_CHARS, utmValueOverLimit } from './services/messaging/helpers/utm'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import {
@@ -341,7 +340,6 @@ export class CdpApi {
     private hogflowQueue: IdempotentJobQueue
     private emailTrackingService: EmailTrackingService
     private sandboxFeedbackService: SandboxFeedbackService
-    private emailTrackingCodeSigner: EmailTrackingCodeSigner
     private fingerprintSigner: EncryptedFields
     private recipientTokensService: RecipientTokensService
     private batchExportHogFunctionService: BatchExportHogFunctionService
@@ -407,10 +405,6 @@ export class CdpApi {
         // shared keys come last, so a claim signed with them before this change still replays.
         this.fingerprintSigner = new EncryptedFields(
             [config.CDP_SEALED_STATE_KEYS, config.ENCRYPTION_SALT_KEYS].filter(Boolean).join(',')
-        )
-        this.emailTrackingCodeSigner = new EmailTrackingCodeSigner(
-            config.ENCRYPTION_SALT_KEYS,
-            config.CDP_EMAIL_TRACKING_URL
         )
         this.emailTrackingService = services.emailTrackingService
         this.sandboxFeedbackService = new SandboxFeedbackService(
@@ -1681,7 +1675,6 @@ export class CdpApi {
         return sesHtmlMaxBytes(html, {
             utmTags,
             invocation: rendered,
-            signer: this.emailTrackingCodeSigner,
             preheader: typeof preheader === 'string' ? preheader : undefined,
         })
     }
