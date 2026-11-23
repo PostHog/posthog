@@ -54,6 +54,7 @@ import type { PaginatedResponse } from '../../../../../frontend/src/lib/api'
 import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { ProductIntentProperties } from '../../../../../frontend/src/lib/utils/product-intents'
 import type { ExternalDataSource, PreflightStatus } from '../../../../../frontend/src/types'
+import type { UserType } from '../../../../../frontend/src/types'
 import {
     getDefaultExpandedSchemaKeys,
     groupTablesBySchema,
@@ -651,6 +652,7 @@ export interface sourceWizardLogicValues {
     preflight: PreflightStatus | null // preflightLogic
     dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null // sourceManagementLogic
     currentTeamId: number | null // teamLogic
+    user: UserType | null // userLogic
     availableSources: any
     breadcrumbs: Breadcrumb[]
     canGoBack: boolean
