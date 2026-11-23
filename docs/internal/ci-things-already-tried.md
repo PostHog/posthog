@@ -819,6 +819,25 @@ Import a model from `posthog.schema` inside the method that uses it. Take the en
 
 _Also asked as:_ remove pydantic, use dataclasses for the schema, the schema import is slow, why is `posthog.schema` so big
 
+### Preload the app in the granian parent on the cloud web pools
+
+**Verdict: landed for hobby, rejected for cloud** · Nov 2026 · [#132122](https://github.com/PostHog/posthog/pull/132122)
+
+`bin/granian_preload.py` imports the ASGI app once in the granian parent and forks the workers from it. The workers share the memory of the app until they write to it. Hobby installs set `POSTHOG_GRANIAN_PRELOAD`. A cloud dev pool with this setting used about a third of its memory when idle.
+
+Cloud did not keep it. A fork copies only the thread that calls `fork()`, and the parent was not a safe process to fork:
+
+- The app import started native threads. OpenBLAS starts one thread for each CPU, the jemalloc copies in polars and pyarrow start background threads, duckdb starts one thread for each CPU, and polars starts a cleaner thread.
+- A polars call in a forked worker hangs forever when the parent used polars before the fork. The worker waits for threads that it does not have.
+- The import left a Redis connection open, and every worker inherited the socket.
+- Dev and hobby traffic cannot show these failures. Production load would be the first test.
+
+The launcher now forks only from a parent with one thread and no stream socket that the import opened. Otherwise it starts again without the preload and logs why. Settings in `QUIET_LIBRARY_THREADS` stop OpenBLAS and jemalloc from starting threads, and stand-in modules delay duckdb and polars until a worker uses them. `importlib.util.LazyLoader` cannot do this: the import system reads `__spec__` from a module in `sys.modules`, and that read loads the library.
+
+Try cloud again with this check in place. Run preloaded and normal pods side by side under the same traffic, and compare hangs, errors and memory over days. Memory grows in each worker as it writes to the pages that it shares with the parent, so the saving under load is smaller than the idle saving.
+
+_Also asked as:_ granian preload, preload_app, fork the workers from a loaded parent, share Django memory between workers, copy-on-write workers, POSTHOG_GRANIAN_PRELOAD in production
+
 ## Database migrations
 
 ### Switch the Person model to the partitioned table with a Django setting

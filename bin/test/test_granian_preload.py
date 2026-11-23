@@ -60,21 +60,40 @@ def get(port: int) -> str | None:
         conn.close()
 
 
+# What an app can leave behind at import, and whether the workers can still fork from the parent.
+THREAD_LEFT_RUNNING = """
+import threading, time
+threading.Thread(target=time.sleep, args=(600,), daemon=True).start()
+"""
+STREAM_SOCKET_LEFT_OPEN = """
+import socket
+KEPT = socket.socketpair()
+"""
+DATAGRAM_SOCKET_LEFT_OPEN = """
+import socket
+KEPT = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+"""
+# polars starts a thread when it loads, so the launcher defers it until a worker uses it.
+THREAD_STARTING_LIBRARY_IMPORTED = """
+import polars
+
+_body = body
+
+
+def body():
+    return _body() + f" {polars.DataFrame({'a': [1, 2]}).height}".encode()
+"""
+
+
 @unittest.skipUnless(sys.platform == "linux", "hobby runs granian on Linux")
 class TestGranianPreload(unittest.TestCase):
-    @parameterized.expand(
-        [
-            ("asgi", "false", True, 2),
-            ("wsgi", "false", False, 2),
-            ("asgi", "true", True, 1),
-            ("wsgi", "true", False, 1),
-        ]
-    )
-    def test_workers_share_the_parent_import_under_asgi_and_one_socket_on_request(
-        self, interface: str, shared_socket: str, preloaded: bool, listen_sockets: int
-    ) -> None:
+    def serve(self, interface: str, shared_socket: str, app: str) -> tuple[dict[int, int], int, int, str]:
+        """
+        Start the launcher, ask until both workers answered, and return which process imported
+        the app that each worker runs, the launcher pid, the listen socket count and stderr.
+        """
         with TemporaryDirectory() as tmp:
-            Path(tmp, "app.py").write_text(APP)
+            Path(tmp, "app.py").write_text(app)
             port = free_port()
             env = {key: value for key, value in os.environ.items() if not key.startswith("GRANIAN_")}
             env.update(
@@ -86,27 +105,29 @@ class TestGranianPreload(unittest.TestCase):
                 GRANIAN_LOG_LEVEL="error",
                 POSTHOG_GRANIAN_SHARED_SOCKET=shared_socket,
             )
-            server = subprocess.Popen(
-                [sys.executable, str(LAUNCHER), f"app:{interface}_app"], cwd=tmp, env=env, start_new_session=True
-            )
+            stderr_path = Path(tmp, "stderr")
+            with stderr_path.open("w") as stderr:
+                server = subprocess.Popen(
+                    [sys.executable, str(LAUNCHER), f"app:{interface}_app"],
+                    cwd=tmp,
+                    env=env,
+                    stderr=stderr,
+                    start_new_session=True,
+                )
             try:
-                deadline = time.monotonic() + 30
+                deadline = time.monotonic() + 60
                 importer_by_worker: dict[int, int] = {}
                 # A worker opens its own listen socket when it starts, so count the sockets only
                 # after both workers have answered.
                 while len(importer_by_worker) < 2:
                     if server.poll() is not None or time.monotonic() > deadline:
-                        self.fail("granian did not start both workers")
+                        self.fail(f"granian did not start both workers: {stderr_path.read_text()}")
                     if (body := get(port)) is None:
                         time.sleep(0.2)
                         continue
-                    imported_by, served_by = (int(pid) for pid in body.split())
+                    imported_by, served_by = (int(pid) for pid in body.split()[:2])
                     importer_by_worker[served_by] = imported_by
-                self.assertNotIn(server.pid, importer_by_worker)
-                self.assertEqual(
-                    [imported_by == server.pid for imported_by in importer_by_worker.values()], [preloaded] * 2
-                )
-                self.assertEqual(count_listen_sockets(port), listen_sockets)
+                return importer_by_worker, server.pid, count_listen_sockets(port), stderr_path.read_text()
             finally:
                 server.terminate()
                 try:
@@ -114,6 +135,39 @@ class TestGranianPreload(unittest.TestCase):
                 except subprocess.TimeoutExpired:
                     os.killpg(server.pid, signal.SIGKILL)
                     server.wait()
+
+    @parameterized.expand(
+        [
+            ("asgi", "false", True, 2),
+            ("wsgi", "false", False, 2),
+            ("asgi", "true", True, 1),
+            ("wsgi", "true", False, 1),
+        ]
+    )
+    def test_workers_share_the_parent_import_under_asgi_and_one_socket_on_request(
+        self, interface: str, shared_socket: str, preloaded: bool, listen_sockets: int
+    ) -> None:
+        importer_by_worker, server_pid, sockets, _ = self.serve(interface, shared_socket, APP)
+
+        self.assertNotIn(server_pid, importer_by_worker)
+        self.assertEqual([imported_by == server_pid for imported_by in importer_by_worker.values()], [preloaded] * 2)
+        self.assertEqual(sockets, listen_sockets)
+
+    @parameterized.expand(
+        [
+            ("thread_left_running", THREAD_LEFT_RUNNING, False),
+            ("stream_socket_left_open", STREAM_SOCKET_LEFT_OPEN, False),
+            ("datagram_socket_left_open", DATAGRAM_SOCKET_LEFT_OPEN, True),
+            ("thread_starting_library_imported", THREAD_STARTING_LIBRARY_IMPORTED, True),
+        ]
+    )
+    def test_workers_fork_from_the_parent_only_when_the_import_leaves_it_safe_to_fork(
+        self, _name: str, import_side_effect: str, preloaded: bool
+    ) -> None:
+        importer_by_worker, server_pid, _, stderr = self.serve("asgi", "false", APP + import_side_effect)
+
+        self.assertEqual([imported_by == server_pid for imported_by in importer_by_worker.values()], [preloaded] * 2)
+        self.assertEqual("so each worker imports the app itself" in stderr, not preloaded)
 
 
 if __name__ == "__main__":

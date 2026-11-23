@@ -181,6 +181,17 @@ def get_async_client(redis_url: Optional[str] = None):
         return client
 
 
+def disconnect_clients() -> None:
+    """
+    Close the connections of the synchronous clients that get_client cached.
+
+    The clients stay cached and open a new connection for their next command.
+    bin/granian_preload.py calls this before granian forks its workers, so that no worker inherits a socket.
+    """
+    for client in _client_map.values():
+        client.connection_pool.disconnect()
+
+
 def TEST_clear_clients():
     global _client_map
     for key in list(_client_map.keys()):
