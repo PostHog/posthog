@@ -383,6 +383,8 @@ export type CyclotronJobInvocation = {
     cancelRequestedAt?: DateTime
     // A Fernet token that holds the content fields of a transactional send while it is stored. See sealInvocation.
     sealed?: string
+    // The total size of a sealed send's attachment files, kept in plaintext for the file_bytes column. See sealInvocation.
+    sealedFileBytes?: number
     // The stored token could not be opened, so the state holds only its plaintext fields and must not run.
     stateUnreadable?: true
 }

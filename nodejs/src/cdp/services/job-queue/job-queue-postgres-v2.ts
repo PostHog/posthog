@@ -420,9 +420,8 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
                 const job = this.pendingJobOf(invocation)
                 if (job) {
                     try {
-                        await this.resultWrites.schedule(
-                            job.defer({ scheduledAt, state: encodeStateColumns(this.sanitizer.seal(invocation)).state })
-                        )
+                        const { state, fileBytes } = encodeStateColumns(this.sanitizer.seal(invocation))
+                        await this.resultWrites.schedule(job.defer({ scheduledAt, state, fileBytes }))
                     } finally {
                         this.forgetPendingJob(job, 'parked')
                     }

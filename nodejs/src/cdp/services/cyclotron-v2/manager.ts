@@ -472,6 +472,7 @@ export class CyclotronV2Manager {
                  person_id = EXCLUDED.person_id,
                  action_id = EXCLUDED.action_id,
                  dequeue_seq = EXCLUDED.dequeue_seq,
+                 file_bytes = EXCLUDED.file_bytes,
                  cancel_requested_at = NULL
                WHERE cyclotron_jobs.status IN ('completed', 'failed', 'canceled')
                  AND NOT ${CANCELED_BEFORE_CLAIM}
@@ -705,7 +706,7 @@ export class CyclotronV2Manager {
             `INSERT INTO cyclotron_jobs
              (id, team_id, function_id, queue_name, status, priority, scheduled, created,
               lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
-              parent_run_id, state, distinct_id, person_id, action_id, dequeue_seq)
+              parent_run_id, state, distinct_id, person_id, action_id, dequeue_seq, file_bytes)
              SELECT
                 unnest($1::uuid[]),
                 unnest($2::int[]),
@@ -725,7 +726,8 @@ export class CyclotronV2Manager {
                 unnest($9::text[]),
                 unnest($10::text[]),
                 unnest($11::text[]),
-                unnest($13::bigint[])
+                unnest($13::bigint[]),
+                unnest($14::bigint[])
              ${conflictClause}`,
             [
                 ids,
@@ -741,6 +743,7 @@ export class CyclotronV2Manager {
                 jobs.map((job) => job.actionId ?? null),
                 now,
                 dequeueSeqs,
+                jobs.map((job) => job.fileBytes ?? null),
             ]
         )
     }

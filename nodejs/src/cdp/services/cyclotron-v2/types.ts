@@ -35,6 +35,8 @@ export const CyclotronV2JobInitSchema = z.object({
     // where only vacuum reclaims the space. Files and blobs go to object storage, never into
     // this column or a new cyclotron table. See "Keep rows small" in ./README.md.
     state: z.instanceof(Buffer).nullish(),
+    // The total size of an email job's attachment files, so the email worker can dequeue them apart from plain sends.
+    fileBytes: z.number().int().nonnegative().nullish(),
     distinctId: z.string().nullish(),
     personId: z.string().nullish(),
     actionId: z.string().nullish(),
@@ -63,6 +65,7 @@ export type CyclotronV2IdempotentClaim = { outcome: CyclotronV2IdempotentOutcome
 export const CyclotronV2RescheduleOptionsSchema = z.object({
     scheduledAt: z.date().optional(),
     state: z.instanceof(Buffer).nullish(),
+    fileBytes: z.number().int().nonnegative().nullish(),
     distinctId: z.string().nullish(),
     personId: z.string().nullish(),
     actionId: z.string().nullish(),
@@ -71,6 +74,8 @@ export const CyclotronV2RescheduleOptionsSchema = z.object({
 })
 
 export type CyclotronV2RescheduleOptions = z.infer<typeof CyclotronV2RescheduleOptionsSchema>
+
+export type CyclotronV2DeferOptions = { scheduledAt: Date; state?: Buffer; fileBytes?: number | null }
 
 /**
  * Atomic enqueue-and-check-in primitive for fan-out workflows.
@@ -118,7 +123,7 @@ export interface CyclotronV2DequeuedJob {
     ack(): Promise<void>
     fail(): Promise<void>
     reschedule(options?: CyclotronV2RescheduleOptions): Promise<void>
-    defer(options: { scheduledAt: Date; state?: Buffer }): Promise<void>
+    defer(options: CyclotronV2DeferOptions): Promise<void>
     cancel(): Promise<void>
     heartbeat(): Promise<void>
     stillOwned(): Promise<boolean>

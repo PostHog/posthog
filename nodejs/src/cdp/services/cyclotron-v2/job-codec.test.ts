@@ -63,6 +63,7 @@ const cases = [
             distinctId: 'user-42',
             personId: 'p-7',
             actionId: 'action_email',
+            fileBytes: null,
         },
     },
     {
@@ -80,6 +81,7 @@ const cases = [
             distinctId: null,
             personId: null,
             actionId: null,
+            fileBytes: null,
         },
     },
 ]

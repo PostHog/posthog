@@ -408,6 +408,66 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         }
     )
 
+    describe('the size of the files a send carries', () => {
+        const invoice = {
+            filename: 'invoice.pdf',
+            contentType: 'application/pdf',
+            sizeBytes: 700,
+            sha256: 'a'.repeat(64),
+        }
+        const logo = { filename: 'logo.png', contentType: 'image/png', sizeBytes: 300, sha256: 'b'.repeat(64) }
+        const withFiles = (
+            invocation: Partial<CyclotronJobInvocation> = {},
+            attachments = [invoice, logo]
+        ): Partial<CyclotronJobInvocation> => ({
+            ...invocation,
+            state: { ...baseInvocation.state, send: { attachments } },
+        })
+
+        const fileBytesOn = async (id: string): Promise<string | null> => {
+            const { rows } = await db.query('SELECT file_bytes::text FROM cyclotron_jobs WHERE id = $1', [id])
+            return rows[0].file_bytes
+        }
+
+        it.each([
+            ['a send with files', withFiles(), '1000'],
+            [
+                'a send with files due in an hour',
+                withFiles({ queueScheduledAt: DateTime.now().plus({ hours: 1 }) }),
+                '1000',
+            ],
+            ['a send whose only file is empty', withFiles({}, [{ ...invoice, sizeBytes: 0 }]), '0'],
+            ['a send without files', {}, null],
+        ])('is stored on the row of %s when it is queued', async (_name, invocation, stored) => {
+            const queue = await startQueue()
+
+            const id = await enqueue(queue, { queue: 'email', ...invocation })
+
+            expect(await fileBytesOn(id)).toBe(stored)
+        })
+
+        it('is stored on the row of a workflow that moves to the email queue to send files', async () => {
+            const queue = await startQueue()
+            const id = await enqueue(queue)
+            const [claimed] = await (await consume(queue, queueName)).claimed()
+
+            await queue.queueInvocationResults([movedToEmail({ ...claimed, ...withFiles() })])
+
+            expect(await fileBytesOn(id)).toBe('1000')
+        })
+
+        it('is stored on the row of a send with files when it is deferred after an older writer left it out', async () => {
+            const queue = await startQueue()
+            const id = await enqueue(queue, { queue: 'email', ...withFiles() })
+            await db.query('UPDATE cyclotron_jobs SET file_bytes = NULL WHERE id = $1', [id])
+            const [claimed] = await (await consume(queue, 'email')).claimed()
+
+            await queue.deferInvocations([deferred(claimed)])
+
+            expect(await fileBytesOn(id)).toBe('1000')
+        })
+    })
+
     it('queues a one-insert batch whole or not at all, whatever the insert size', async () => {
         const queue = await startQueue(undefined, 2)
         const taken = await enqueue(queue)

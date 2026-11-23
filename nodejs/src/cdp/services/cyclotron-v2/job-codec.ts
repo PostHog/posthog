@@ -1,5 +1,6 @@
 import { get, omit, set } from 'lodash'
 
+import { EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
@@ -41,10 +42,12 @@ export function sealInvocation(invocation: CyclotronJobInvocation, sealer: State
         return invocation
     }
     const content: SealedContent = { teamId: invocation.teamId, id: invocation.id, fields }
+    const fileBytes = fileBytesOf(invocation)
     return {
         // lodash reads each element of one array argument as a deep path, which its types do not express.
         ...omit(invocation, SEALED_PATHS as unknown as string[]),
         sealed: sealer.encrypt(JSON.stringify(content)),
+        ...(fileBytes !== null && { sealedFileBytes: fileBytes }),
     } as CyclotronJobInvocation
 }
 
@@ -102,6 +105,7 @@ function serializeState(invocation: CyclotronJobInvocation): Buffer {
 
 export type EncodedStateColumns = {
     state: Buffer
+    fileBytes: number | null
     distinctId: string | null
     personId: string | null
     actionId: string | null
@@ -110,6 +114,7 @@ export type EncodedStateColumns = {
 export function encodeStateColumns(invocation: CyclotronJobInvocation): EncodedStateColumns {
     return {
         state: serializeState(invocation),
+        fileBytes: fileBytesOf(invocation) ?? invocation.sealedFileBytes ?? null,
         distinctId: extractDistinctId(invocation),
         personId: extractPersonId(invocation),
         actionId: extractActionId(invocation),
@@ -128,6 +133,16 @@ export function encodeJob(invocation: CyclotronJobInvocation): CyclotronV2JobIni
         ...encodeStateColumns(invocation),
     }
 }
+
+export function fileBytesOf(invocation: CyclotronJobInvocation): number | null {
+    const sent = (invocation.state as { send?: { attachments?: readonly EmailAttachmentMetadata[] } } | null)?.send
+    const queued = invocation.queueParameters?.type === 'email' ? invocation.queueParameters.attachments : undefined
+    const files = sent?.attachments ?? queued
+    return files?.length ? declaredFileBytes(files) : null
+}
+
+export const declaredFileBytes = (files: readonly EmailAttachmentMetadata[]): number =>
+    files.reduce((total, file) => total + file.sizeBytes, 0)
 
 type LookupColumnSource = {
     person?: { id?: string }

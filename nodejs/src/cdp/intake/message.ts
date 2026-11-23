@@ -71,6 +71,8 @@ const IntakeJobSchema = z.looseObject({
     distinctId: pgIndexedText.nullable(),
     personId: pgIndexedText.nullable(),
     actionId: pgIndexedText.nullable(),
+    // Optional, so a consumer still reads a message from a producer that does not set it.
+    fileBytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).nullish(),
     // The same JSON the cyclotron row stores as bytes, kept as an object so the message stays readable.
     state: IntakeJobStateSchema.nullable(),
 })
@@ -132,6 +134,7 @@ export function encodeIntakeMessage({ kind, fingerprint, reply, shadow, job }: I
             distinctId: job.distinctId ?? null,
             personId: job.personId ?? null,
             actionId: job.actionId ?? null,
+            fileBytes: job.fileBytes ?? null,
             state: job.state ? parseJSON(job.state.toString('utf-8')) : null,
         },
     }
@@ -192,5 +195,6 @@ export function intakeJobInit({ teamId, job }: IntakeMessage): CyclotronV2JobIni
         distinctId: job.distinctId,
         personId: job.personId,
         actionId: job.actionId,
+        fileBytes: job.fileBytes ?? null,
     }
 }

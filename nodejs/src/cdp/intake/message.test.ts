@@ -56,7 +56,11 @@ const validWireMessage = {
 
 describe('intake message', () => {
     it('carries the job state as JSON, keyed and headed by the run, and decodes to the same job', () => {
-        const encoded = encodeIntakeMessage({ kind: 'transactional-email', fingerprint: 'abc123', job: job() })
+        const encoded = encodeIntakeMessage({
+            kind: 'transactional-email',
+            fingerprint: 'abc123',
+            job: job({ fileBytes: 1000 }),
+        })
 
         expect(encoded).toEqual({
             status: 'encoded',
@@ -74,7 +78,10 @@ describe('intake message', () => {
         if (encoded.status !== 'encoded') {
             throw new Error('expected an encoded message')
         }
-        expect(parseJSON(encoded.message.value.toString())).toEqual(validWireMessage)
+        expect(parseJSON(encoded.message.value.toString())).toEqual({
+            ...validWireMessage,
+            job: { ...validWireMessage.job, fileBytes: 1000 },
+        })
 
         const decoded = decodeIntakeMessage(encoded.message.value)
         if (decoded.status !== 'decoded') {
@@ -83,7 +90,7 @@ describe('intake message', () => {
         expect(decoded.message.fingerprint).toBe('abc123')
         expect(decoded.message.job.state?.state?.acceptedAt).toBe('2026-11-11T10:00:00.000Z')
         const { state, ...rest } = intakeJobInit(decoded.message)
-        const { state: originalState, ...originalRest } = job()
+        const { state: originalState, ...originalRest } = job({ fileBytes: 1000 })
         expect(rest).toEqual(originalRest)
         expect(parseJSON(state!.toString())).toEqual(parseJSON(originalState!.toString()))
     })
@@ -181,6 +188,11 @@ describe('intake message', () => {
             'schema_invalid',
         ],
         [
+            'a file size that is not a whole number of bytes',
+            wireValue({ ...validWireMessage, job: { ...validWireMessage.job, fileBytes: 10.5 } }),
+            'schema_invalid',
+        ],
+        [
             'a text column holding a NUL character',
             wireValue({ ...validWireMessage, job: { ...validWireMessage.job, distinctId: 'person\u0000-1' } }),
             'schema_invalid',
@@ -193,5 +205,19 @@ describe('intake message', () => {
         const decoded = decodeIntakeMessage(wireValue({ ...validWireMessage, lane: 'bulk' }))
 
         expect(decoded).toMatchObject({ status: 'decoded', message: { teamId: 7 } })
+    })
+
+    it.each([
+        ['a send from a producer that does not write the file size, as one without files', undefined, null],
+        ['a send whose only file is empty', 0, 0],
+    ])('reads the file size of %s', (_case, fileBytes, read) => {
+        const decoded = decodeIntakeMessage(
+            wireValue({ ...validWireMessage, job: { ...validWireMessage.job, fileBytes } })
+        )
+        if (decoded.status !== 'decoded') {
+            throw new Error(`expected a decoded message, got ${decoded.status}`)
+        }
+
+        expect(intakeJobInit(decoded.message).fileBytes).toBe(read)
     })
 })

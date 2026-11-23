@@ -67,12 +67,18 @@ describe('insertIntakeBatch', () => {
     const deadLetters = (): Recorded['message'][] =>
         recorded.filter(({ output }) => output === CDP_INTAKE_DLQ_OUTPUT).map(({ message }) => message)
 
-    const storedJobs = async (ids: string[]): Promise<{ id: string; state: Record<string, any> }[]> => {
-        const result = await pool.query<{ id: string; state: Buffer }>(
-            'SELECT id, state FROM cyclotron_jobs WHERE id = ANY($1::uuid[]) ORDER BY id',
+    const storedJobs = async (
+        ids: string[]
+    ): Promise<{ id: string; state: Record<string, any>; fileBytes: string | null }[]> => {
+        const result = await pool.query<{ id: string; state: Buffer; file_bytes: string | null }>(
+            'SELECT id, state, file_bytes::text FROM cyclotron_jobs WHERE id = ANY($1::uuid[]) ORDER BY id',
             [ids]
         )
-        return result.rows.map((row) => ({ id: row.id, state: parseJSON(row.state.toString()) }))
+        return result.rows.map((row) => ({
+            id: row.id,
+            state: parseJSON(row.state.toString()),
+            fileBytes: row.file_bytes,
+        }))
     }
 
     const kafkaMessage = (value: Buffer, timestamp?: number): Message =>
@@ -194,7 +200,7 @@ describe('insertIntakeBatch', () => {
         ])
     })
 
-    it('carries an encrypted send from the producer to Postgres, and still writes its recipient', async () => {
+    it('carries an encrypted send from the producer to Postgres, and still writes its recipient and file size', async () => {
         const code = 'fake-login-code-482913'
         const sealing = createInvocationSanitizer({
             CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
@@ -225,6 +231,17 @@ describe('insertIntakeBatch', () => {
                     properties: { to: 'ada@example.com' },
                 },
                 variables: { code },
+                send: {
+                    attachments: [
+                        {
+                            filename: 'invoice.pdf',
+                            contentType: 'application/pdf',
+                            sizeBytes: 700,
+                            sha256: 'a'.repeat(64),
+                        },
+                        { filename: 'logo.png', contentType: 'image/png', sizeBytes: 300, sha256: 'b'.repeat(64) },
+                    ],
+                },
                 actionStepCount: 0,
             },
         } as CyclotronJobInvocation
@@ -239,6 +256,7 @@ describe('insertIntakeBatch', () => {
         const [job] = await storedJobs([run.id])
         expect(JSON.stringify(job.state)).not.toContain(code)
         expect(job.state.sealed).toEqual(expect.any(String))
+        expect(job.fileBytes).toBe('1000')
         expect(emailStatuses()).toEqual([expect.objectContaining({ message_id: run.id, recipient: 'ada@example.com' })])
     })
 

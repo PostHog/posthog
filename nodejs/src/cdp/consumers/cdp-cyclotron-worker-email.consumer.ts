@@ -5,6 +5,7 @@ import { canSendEmail } from '~/cdp/services/hogflows/hogflow-utils'
 import { logger } from '~/common/utils/logger'
 import { PluginsServerConfig } from '~/types'
 
+import { fileBytesOf } from '../services/cyclotron-v2/job-codec'
 import { CONSUMER_STOP_DEADLINE_MS, reportResultWriteFailure } from '../services/job-queue/job-queue-postgres-v2'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { LONGEST_WAIT_FOR_ROOM_MS } from '../services/messaging/attachment-horizon'
@@ -15,7 +16,6 @@ import {
     callsSettledWithin,
     deferralDelayMs,
     exceedsLargestSend,
-    fileBytesOf,
     firstDueAt,
     inFlightLimitsFor,
 } from '../services/messaging/in-flight-registry'

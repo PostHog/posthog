@@ -20,6 +20,7 @@ import {
     CYCLOTRON_TRANSITION_CHURN_RATE_PER_HOUR,
     CYCLOTRON_TRANSITION_CHURN_THRESHOLD,
     CyclotronV2BulkCreateAndCheckInInput,
+    CyclotronV2DeferOptions,
     CyclotronV2DequeuedJob,
     CyclotronV2JobInit,
     CyclotronV2JobInitSchema,
@@ -724,6 +725,10 @@ export class CyclotronV2Worker {
                     params.push(options.state ?? null)
                     setClauses.push(`state = $${params.length}`)
                 }
+                if (options?.fileBytes !== undefined) {
+                    params.push(options.fileBytes ?? null)
+                    setClauses.push(`file_bytes = $${params.length}`)
+                }
                 if (options?.distinctId !== undefined) {
                     params.push(options.distinctId ?? null)
                     setClauses.push(`distinct_id = $${params.length}`)
@@ -767,7 +772,7 @@ export class CyclotronV2Worker {
                 )
             }),
 
-            defer: releaseWrite('defer', async (db, { scheduledAt, state }: { scheduledAt: Date; state?: Buffer }) => {
+            defer: releaseWrite('defer', async (db, { scheduledAt, state, fileBytes }: CyclotronV2DeferOptions) => {
                 const dequeueSeq = row.queue_name === 'email' ? await reserveEmailDequeueSeqOnce(db) : null
                 return db.query(
                     `UPDATE cyclotron_jobs
@@ -775,9 +780,10 @@ export class CyclotronV2Worker {
                          last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
                          scheduled = CASE WHEN cancel_requested_at IS NOT NULL THEN LEAST($3::timestamptz, NOW()) ELSE $3::timestamptz END,
                          dequeue_seq = COALESCE($4, dequeue_seq),
-                         state = COALESCE($5, state)
+                         state = COALESCE($5, state),
+                         file_bytes = COALESCE($6, file_bytes)
                      WHERE id = $1 AND lock_id = $2`,
-                    [row.id, lockId, scheduledAt, dequeueSeq, state ?? null]
+                    [row.id, lockId, scheduledAt, dequeueSeq, state ?? null, fileBytes ?? null]
                 )
             }),
 
