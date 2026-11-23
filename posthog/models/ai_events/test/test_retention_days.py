@@ -20,12 +20,13 @@ from posthog.models.ai_events.sql import RETENTION_DAYS_FROM_KAFKA_HEADERS_SQL
     ],
 )
 def test_retention_days_from_kafka_headers(header_names, header_values, expected):
-    [[retention_days]] = sync_execute(
+    [[retention_days, retention_days_type]] = sync_execute(
         f"""
-        SELECT {RETENTION_DAYS_FROM_KAFKA_HEADERS_SQL}
-        FROM (SELECT %(names)s::Array(String) AS `_headers.name`, %(values)s::Array(String) AS `_headers.value`)
+        SELECT retention_days, toTypeName(retention_days)
+        FROM (SELECT {RETENTION_DAYS_FROM_KAFKA_HEADERS_SQL} AS retention_days
+        FROM (SELECT %(names)s::Array(String) AS `_headers.name`, %(values)s::Array(String) AS `_headers.value`))
         """,
         {"names": header_names, "values": header_values},
     )
 
-    assert retention_days == expected
+    assert (retention_days, retention_days_type) == (expected, "Int16")

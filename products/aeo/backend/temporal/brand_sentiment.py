@@ -13,8 +13,8 @@ import uuid
 import asyncio
 import datetime as dt
 import dataclasses
-from collections.abc import Callable, Sequence
-from typing import Any
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.db import transaction
@@ -45,6 +45,9 @@ from products.aeo.backend.sentiment import (
     sentence_sentiment,
 )
 from products.aeo.backend.stored_results import bump_data_version_on_commit
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 logger = structlog.get_logger(__name__)
 
@@ -302,4 +305,4 @@ def start_brand_sentiment_workflow(team_id: int, run_id: str) -> None:
 
 
 WORKFLOWS = [AEOBrandSentimentWorkflow]
-ACTIVITIES: list[Callable[..., object]] = [classify_aeo_brand_sentiment]
+ACTIVITIES: list[ActivityDefinition] = [classify_aeo_brand_sentiment]

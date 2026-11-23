@@ -10,7 +10,12 @@ from datetime import datetime, timedelta
 from typing import Any
 
 RENOVATE_BOT_USER_ID = 29139614
-ALLOWED_AUTHOR_IDS = frozenset({RENOVATE_BOT_USER_ID})
+SDK_UPGRADER_BOT_USER_ID = 248546023
+NPM_LANE, PYTHON_SDK_LANE = "npm", "python_sdk"
+# The proof each author may get. Renovate's npm updates wait out the release age. The SDK upgrader
+# bumps PostHog's own Python SDK right after a release, and its other updates get no proof.
+AUTHOR_LANES = {RENOVATE_BOT_USER_ID: NPM_LANE, SDK_UPGRADER_BOT_USER_ID: PYTHON_SDK_LANE}
+ALLOWED_AUTHOR_IDS = frozenset(AUTHOR_LANES)
 MINIMUM_RELEASE_AGE = timedelta(days=7)
 MINIMUM_RELEASE_AGE_MINUTES = MINIMUM_RELEASE_AGE // timedelta(minutes=1)
 RELEASE_AGE_LOOKUPS = 50
@@ -36,6 +41,11 @@ VERSION_LINE = re.compile(rb"""(?P<name>[ \t]+(['"]?)[A-Za-z0-9@/._-]+\2: )[~^]?
 # A package name with `*` wildcards. pnpm reads more pattern syntax, such as a leading `!`, and that is refused.
 PACKAGE_PATTERN = re.compile(r"(@[A-Za-z0-9._~*-]+/)?[A-Za-z0-9._~*-]+")
 SAFE_PATH = re.compile(r"^[A-Za-z0-9._@-]+(/[A-Za-z0-9._@-]+)*$")
+PYTHON_DEPENDENCY_FILE = re.compile(r"pyproject\.toml|uv\.lock|requirements[A-Za-z0-9_.-]*\.txt")
+LANE_FILES = {
+    NPM_LANE: "a manifest, a lockfile or a workspace file",
+    PYTHON_SDK_LANE: "a pyproject.toml, a uv.lock or a requirements file",
+}
 PNPM_VERSION = re.compile(r"^pnpm@((\d+)\.\d+\.\d+)$")
 
 
@@ -87,8 +97,23 @@ def load_manifest(text: bytes) -> dict[str, Any]:
     return manifest
 
 
-def eligible_paths(changes: Iterable[ChangedFile]) -> list[str]:
-    """The changed paths, when every one is a modified package.json, pnpm-lock.yaml or pnpm-workspace.yaml."""
+def is_lane_file(lane: str, path: str) -> bool:
+    name = path.rpartition("/")[2]
+    if lane == PYTHON_SDK_LANE:
+        return PYTHON_DEPENDENCY_FILE.fullmatch(name) is not None
+    return name in (MANIFEST, LOCKFILE, WORKSPACE_FILE)
+
+
+def lane_for(paths: Iterable[str]) -> str:
+    """The proof for the dependency files a pull request changes. The proof then refuses any other file."""
+    lanes = {lane for path in paths for lane in LANE_FILES if is_lane_file(lane, path)}
+    if len(lanes) > 1:
+        raise Refused("the pull request changes npm and Python dependency files")
+    return lanes.pop() if lanes else NPM_LANE
+
+
+def eligible_paths(changes: Iterable[ChangedFile], lane: str) -> list[str]:
+    """The changed paths, when every one is a modified dependency file of ``lane``."""
     paths = []
     for change in changes:
         path = change.path
@@ -96,8 +121,8 @@ def eligible_paths(changes: Iterable[ChangedFile]) -> list[str]:
             raise Refused(f"{path} is not a modification")
         if not SAFE_PATH.match(path) or ".." in path.split("/"):
             raise Refused(f"{path} has a name this proof does not accept")
-        if path.rpartition("/")[2] not in (MANIFEST, LOCKFILE, WORKSPACE_FILE):
-            raise Refused(f"{path} is not a manifest, a lockfile or a workspace file")
+        if not is_lane_file(lane, path):
+            raise Refused(f"{path} is not {LANE_FILES[lane]}")
         paths.append(path)
     if not paths:
         raise Refused("the pull request changes no files")

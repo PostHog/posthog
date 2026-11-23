@@ -665,21 +665,27 @@ describe('hog error-tracking upload', () => {
         expect(result.stdout).toContain('evil\\x1b]52;c;cGF5\\x07')
     })
 
-    test.each(['<!DOCTYPE plist', ' <?xml version="1.0"', '  <!-- a comment'])(
-        'an Info.plist starting with the unterminated markup %p fails to parse',
-        async (plist) => {
-            const folder = project({ 'Info.plist': plist })
+    test.each([
+        ['unterminated markup', '<!DOCTYPE plist'],
+        ['an unterminated declaration', ' <?xml version="1.0"'],
+        ['an unterminated comment', '  <!-- a comment'],
+        [
+            'an entity only Object.prototype has',
+            '<plist><dict><key>CFBundleName</key><string>&constructor;</string></dict></plist>',
+        ],
+        ['the toString entity', '<plist><dict><key>CFBundleName</key><string>&toString;</string></dict></plist>'],
+    ])('an Info.plist with %s fails to parse', async (_name, plist) => {
+        const folder = project({ 'Info.plist': plist })
 
-            const result = await runHog(['et', 'release', '--info-plist', 'Info.plist'], {
-                env: { ...TEST_CREDENTIALS, CLAUDECODE: '1' },
-                cwd: folder,
-                useDisk: true,
-            })
+        const result = await runHog(['et', 'release', '--info-plist', 'Info.plist'], {
+            env: { ...TEST_CREDENTIALS, CLAUDECODE: '1' },
+            cwd: folder,
+            useDisk: true,
+        })
 
-            expect(result.exitCode).toBe(EXIT_FAILURE)
-            expect(result.error()).toMatchObject({ code: 'invalid_info_plist' })
-        }
-    )
+        expect(result.exitCode).toBe(EXIT_FAILURE)
+        expect(result.error()).toMatchObject({ code: 'invalid_info_plist' })
+    })
 
     test.each([
         ['a key without access', ['0192f0a0-0000-7000-8000-000000000001'], 403, 'access_denied'],

@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema
 from pydantic.alias_generators import to_camel
 
 from posthog.dataclasses import frozen
+from posthog.enums import LabeledStrEnum
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 
@@ -67,15 +68,22 @@ class TraceGit(Contract):
     repo: str | None = Field(description="The repository as owner/name, or null when the branch's event has none.")
 
 
-class Trace(Contract):
+class TraceOverview(Contract):
     id: str
     name: str | None
     created_at: datetime
     session_id: str | None
-    person: TracePerson | None
     totals: TraceNodeStats
     has_error: bool
     error_count: int
+    totals_partial: bool = Field(
+        description="Whether the totals, error count and tools were computed from the trace's earliest events only, "
+        "because the trace has more events than were read."
+    )
+
+
+class Trace(TraceOverview):
+    person: TracePerson | None
     tree: list[TraceNode]
     timeline: list[TraceTimelineRow]
     total_ms: float
@@ -137,11 +145,13 @@ class TraceToolCallPart(Contract):
     kind: Literal["toolCall"]
     name: str = Field(description="The name of the called tool, or an empty string when the event has none.")
     args: Any = Field(
-        description="The call's arguments, parsed from JSON text when they parse. Otherwise the text as captured."
+        description="The call's arguments, parsed from JSON text when they parse, with JSON text inside them parsed "
+        "too. Otherwise the text as captured."
     )
     result: Any | None = Field(
         description="The content of the tool message that answers this call, parsed from JSON text when no number "
-        "loses precision in a browser. Null when no tool message answers the call."
+        "loses precision in a browser, with JSON text inside it parsed the same way. Null when no tool message "
+        "answers the call."
     )
 
 
@@ -188,8 +198,8 @@ class TraceMessagesSide(Contract):
 class TraceJsonSide(Contract):
     kind: Literal["json"]
     value: Any = Field(
-        description="The side's value as captured, for a side that is not a conversation or that could not be "
-        "normalized."
+        description="The side's value for a side that is not a conversation, with JSON text in it parsed when no "
+        "number loses precision in a browser. The value as captured when the side could not be normalized."
     )
 
 
@@ -505,6 +515,102 @@ class TraceReviewStatus(Contract):
         description="The review queue the trace waits in, or null when it waits in none the user may see. Saving a review "
         "normally takes the trace out of its queue."
     )
+
+
+class TraceListItem(TraceOverview):
+    default_node_id: str | None = Field(
+        description="The step the trace opens on. Null when the totals are partial, because the opening step may be "
+        "among the events not read."
+    )
+    first_error: str | None = Field(
+        description="The error text of the trace's earliest failed step that carries one, cut at 200 characters. "
+        "Null when no failed step carries error text."
+    )
+    tools_called: list[str] = Field(
+        description="The tools the trace's steps called, each once, in the order first called."
+    )
+    is_support_trace: bool = Field(description="Whether a support agent ran the trace while impersonating the user.")
+    review: TraceReviewStatus | None = Field(
+        description="The trace's review and review queue, or null when it has neither that the user may see."
+    )
+
+
+class TraceListCounts(Contract):
+    total: int = Field(description="How many traces the selection holds, ignoring its quick filter.")
+    errors: int = Field(description="How many of them have an error.")
+    feedback: int = Field(description="How many of them have user feedback.")
+
+
+class TraceList(Contract):
+    items: list[TraceListItem] = Field(description="A page of traces, newest first.")
+    counts: TraceListCounts | None = Field(description="The selection's counts, on the first page only.")
+    next_cursor: str | None = Field(description="The cursor of the next page, or null on the last one.")
+
+
+class TracePreviewMissingReason(LabeledStrEnum):
+    TOO_LARGE = "too_large"
+    TIMED_OUT = "timed_out"
+
+
+class TracePreview(Contract):
+    trace_id: str = Field(description="The trace the preview belongs to.")
+    input: str | None = Field(
+        description="The user's message the trace answered, cut at 200 characters. Null when there is nothing to "
+        "show, or when it could not be read and `inputMissingReason` says why."
+    )
+    output: str | None = Field(
+        description="The trace's answer, cut at 200 characters. Null when there is nothing to show, or when it could "
+        "not be read and `outputMissingReason` says why."
+    )
+    input_missing_reason: TracePreviewMissingReason | None = Field(
+        description="Why `input` is null: `too_large` when the message is too large to preview, `timed_out` when the "
+        "page ran out of time before reading it. Set only when `input` is null. Null with a null `input` means there "
+        "is nothing to show."
+    )
+    output_missing_reason: TracePreviewMissingReason | None = Field(
+        description="Why `output` is null: `too_large` when the answer is too large to preview, `timed_out` when the "
+        "page ran out of time before reading it. Set only when `output` is null. Null with a null `output` means "
+        "there is nothing to show."
+    )
+
+
+class TracePreviewList(Contract):
+    items: list[TracePreview] = Field(
+        description="One preview per requested trace, in the order requested. A trace that is not found previews as "
+        "nulls."
+    )
+
+
+class TracePersonItem(Contract):
+    trace_id: str = Field(description="The trace the person belongs to.")
+    person: TracePerson | None = Field(
+        description="The person the trace ran for, labeled by the project's display name properties or else by "
+        "their distinct id. Null when the trace is not found or carries no distinct id."
+    )
+
+
+class TracePeopleList(Contract):
+    items: list[TracePersonItem] = Field(description="One item per requested trace, in the order requested.")
+
+
+TraceSentimentLabel = Literal["positive", "neutral", "negative"]
+
+
+class TraceSentiment(Contract):
+    label: TraceSentimentLabel = Field(
+        description="The trace's sentiment, from the average of its latest sentiment result per generation. Neutral "
+        "when neither positive nor negative beats neutral by a clear margin."
+    )
+    score: float = Field(description="The average score of the label, from 0 to 1.")
+
+
+class TraceSentimentItem(Contract):
+    trace_id: str = Field(description="The trace the sentiment belongs to.")
+    sentiment: TraceSentiment | None = Field(description="Null when the trace is not found or has no sentiment result.")
+
+
+class TraceSentimentList(Contract):
+    items: list[TraceSentimentItem] = Field(description="One item per requested trace, in the order requested.")
 
 
 class TraceSearchMatch(Contract):

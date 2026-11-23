@@ -233,6 +233,57 @@ class TestOrbSource:
             ("p_2", "2026-10-03T00:00:00Z"),
         ]
 
+    def test_subscription_usage_flattens_one_row_per_window(self) -> None:
+        window_1 = {"quantity": 3.5, "timeframe_start": "2026-10-01T00:00:00Z", "timeframe_end": "2026-10-02T00:00:00Z"}
+        window_2 = {"quantity": 7.0, "timeframe_start": "2026-10-01T00:00:00Z", "timeframe_end": "2026-10-03T00:00:00Z"}
+        result = self._driver().run(
+            "SubscriptionUsage",
+            [
+                self._page([{"id": "sub_1"}, {"id": "sub_gone"}, {"id": "sub_2"}]),
+                ScriptedResponse(
+                    json={
+                        "data": [
+                            {
+                                "billable_metric": {"id": "bm_api", "name": "API calls"},
+                                "view_mode": "cumulative",
+                                "usage": [window_1, window_2],
+                            },
+                            {
+                                "billable_metric": {"id": "bm_idle", "name": "Idle"},
+                                "view_mode": "cumulative",
+                                "usage": [],
+                            },
+                        ]
+                    }
+                ),
+                ScriptedResponse(status=404, json={"title": "Not found"}),
+                ScriptedResponse(
+                    json={"data": [{"billable_metric": {"id": "bm_api"}, "view_mode": "periodic", "usage": [window_1]}]}
+                ),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v1/subscriptions",
+            "/v1/subscriptions/sub_1/usage",
+            "/v1/subscriptions/sub_gone/usage",
+            "/v1/subscriptions/sub_2/usage",
+        ]
+        assert result.params("limit") == ["100", None, None, None]
+        api_calls = {"billable_metric_id": "bm_api", "billable_metric_name": "API calls", "view_mode": "cumulative"}
+        assert result.rows == [
+            {**window_1, **api_calls, "subscription_id": "sub_1"},
+            {**window_2, **api_calls, "subscription_id": "sub_1"},
+            {
+                **window_1,
+                "billable_metric_id": "bm_api",
+                "billable_metric_name": None,
+                "view_mode": "periodic",
+                "subscription_id": "sub_2",
+            },
+        ]
+
     def test_fanout_resume_skips_completed_customers(self) -> None:
         result = self._driver().run(
             "CreditLedgerEntries",

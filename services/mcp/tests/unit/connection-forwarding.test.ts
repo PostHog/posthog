@@ -16,6 +16,7 @@ const TARGET = {
     organization_name: 'EU Org',
     region: 'EU',
     base_url: 'https://eu.posthog.com',
+    granted_scopes: [] as string[],
 }
 
 const FORWARD_PATH = '/api/projects/7/posthog_connections/99/forward/'
@@ -44,10 +45,13 @@ function createContext(request: ReturnType<typeof vi.fn>): Context {
 }
 
 /** Routes every connection endpoint; `forward` echoes back what the target "returned". */
-function createRequestMock(forwardResponse: { status: number; data: unknown }): ReturnType<typeof vi.fn> {
+function createRequestMock(
+    forwardResponse: { status: number; data: unknown },
+    target: Record<string, unknown> = TARGET
+): ReturnType<typeof vi.fn> {
     return vi.fn(async (opts: { method: string; path: string; body?: Record<string, unknown> }) => {
         if (opts.path === TARGET_PATH) {
-            return TARGET
+            return target
         }
         if (opts.path === FORWARD_PATH) {
             return forwardResponse
@@ -344,6 +348,54 @@ describe('posthog connection forwarding', () => {
             const result: any = await tool.handler(createContext(request), {
                 connection_id: '99',
                 tool: AI_CONSENT_TOOL,
+                arguments: { query: 'x' },
+            })
+
+            expect(result.result).toEqual({ ok: true })
+        })
+
+        it('refuses a tool that needs scopes the connection was not granted, without forwarding it', async () => {
+            // The target answers such a call with a 403 that the server captures as an exception, one
+            // error tracking issue per tool and scope. A refusal here names the scopes to reconnect with.
+            const request = createRequestMock(
+                { status: 200, data: {} },
+                { ...TARGET, granted_scopes: ['inbox:read', 'task:read', 'action:read'] }
+            )
+            const tool = createConnectionCallTool(() => fakeTool('read-data-schema'))
+
+            const error: any = await tool
+                .handler(createContext(request), {
+                    connection_id: '99',
+                    tool: 'read-data-schema',
+                    arguments: { query: 'x' },
+                })
+                .catch((e) => e)
+
+            expect(error).toBeInstanceOf(ExecCommandError)
+            expect(error.reason).toBe('missing_scope')
+            expect(error.message).toContain('event_definition:read, property_definition:read')
+            expect(error.message).not.toContain('action:read')
+            expect(request).not.toHaveBeenCalledWith(expect.objectContaining({ path: FORWARD_PATH }))
+        })
+
+        it.each([
+            [
+                'grants every scope the tool needs',
+                ['action:read', 'event_definition:write', 'property_definition:read'],
+            ],
+            ['has scopes that are not known', []],
+            ['predates reporting its scopes', undefined],
+        ])('forwards a tool when the connection %s', async (_case, grantedScopes) => {
+            // Guards the other direction: an unknown grant must keep the old path, where the target decides.
+            const request = createRequestMock(
+                { status: 200, data: { ok: true } },
+                { ...TARGET, granted_scopes: grantedScopes }
+            )
+            const tool = createConnectionCallTool(() => fakeTool('read-data-schema'))
+
+            const result: any = await tool.handler(createContext(request), {
+                connection_id: '99',
+                tool: 'read-data-schema',
                 arguments: { query: 'x' },
             })
 

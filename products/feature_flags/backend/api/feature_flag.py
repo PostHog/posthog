@@ -69,7 +69,6 @@ from posthog.auth import (
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
-    TeamSecretTokenAuthentication,
     WorkloadAccessTokenAuthentication,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -89,7 +88,7 @@ from posthog.models.person.point_in_time_properties import (
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.models.property import Property
-from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes, is_service_auth
+from posthog.permissions import get_authenticator_scopes, is_service_auth
 from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
@@ -6621,10 +6620,8 @@ class FeatureFlagViewSet(
         detail=True,
         required_scopes=["feature_flag:read"],
         authentication_classes=[
-            TeamSecretTokenAuthentication,
             ProjectSecretAPIKeyAuthentication,
         ],
-        permission_classes=[TeamSecretTokenPermission],
         throttle_classes=[RemoteConfigThrottle, RemoteConfigProjectSecretApiKeyTeamThrottle],
     )
     @ip_restrictions_exempt_for_secret_keys
@@ -6654,8 +6651,8 @@ class FeatureFlagViewSet(
             return Response(status=status.HTTP_404_NOT_FOUND)
 
         # Remote config usage is tracked for telemetry only (never billed), and only genuine SDK
-        # fetches (legacy team secret token or feature-flag-scoped PSAK, both phs_…) count. Session
-        # and personal-key requests are the app's own preview/decrypt feature, not customer usage,
+        # fetches (feature-flag-scoped PSAK, phs_…) count. Session and personal-key requests are
+        # the app's own preview/decrypt feature, not customer usage,
         # and a session-authenticated GET would otherwise let a cross-site request inflate the team's
         # usage numbers.
         should_count = is_service_auth(request)

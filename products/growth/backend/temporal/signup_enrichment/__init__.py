@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from products.growth.backend.temporal.signup_enrichment.harmonic_status_poll import (
     HarmonicEnrichmentStatusPollWorkflow,
@@ -22,6 +22,9 @@ from products.growth.backend.temporal.signup_enrichment.workflow import (
     enrich_signup_organization_activity,
 )
 
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
+
 WORKFLOWS = [
     SignupEnrichmentWorkflow,
     SignupEnrichmentRecheckWorkflow,
@@ -30,7 +33,7 @@ WORKFLOWS = [
     WizardStampRescoreWorkflow,
 ]
 
-ACTIVITIES: list[Callable[..., object]] = [
+ACTIVITIES: list[ActivityDefinition] = [
     enrich_signup_organization_activity,
     select_reenrichment_candidates_activity,
     reenrich_organization_activity,

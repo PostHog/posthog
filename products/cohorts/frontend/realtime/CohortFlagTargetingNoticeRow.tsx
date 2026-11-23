@@ -2,8 +2,11 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { LemonButton, Link } from '@posthog/lemon-ui'
+import { Button, Spinner as QuillSpinner } from '@posthog/quill'
 
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { urls } from 'scenes/urls'
 
 import { cohortRealtimeReadinessLogic } from './cohortRealtimeReadinessLogic'
@@ -15,17 +18,33 @@ export function CohortFlagTargetingNoticeRow({ cohortId }: { cohortId: number })
     const logic = cohortRealtimeReadinessLogic({ cohortId })
     const { cohort, realtimeSwitchLoading } = useValues(logic)
     const { turnOnRealtime } = useActions(logic)
+    const quillSurface = useQuillSurface()
     const realtime = cohort?.realtime
     if (!cohort || !realtime) {
         return null
     }
 
     // A new tab, because leaving the flag editor would discard its unsaved conditions.
-    const name = (
+    const name = quillSurface ? (
+        <Button
+            variant="link"
+            size="inline"
+            nativeButton={false}
+            render={<LinkPrimitive to={urls.cohort(cohortId)} target="_blank" />}
+        >
+            {cohort.name}
+        </Button>
+    ) : (
         <Link to={urls.cohort(cohortId)} target="_blank">
             {cohort.name}
         </Link>
     )
+
+    const turnOn = (): void => {
+        // pinned: analytics event name and properties, because insights that count clicks read them
+        posthog.capture('cohort realtime turn on clicked', { location: 'flag_editor' })
+        turnOnRealtime()
+    }
 
     switch (realtime.state) {
         case 'off':
@@ -48,20 +67,28 @@ export function CohortFlagTargetingNoticeRow({ cohortId }: { cohortId: number })
                             PostHog prepares the cohort from past events. This usually takes under 30 minutes. You can
                             save once it's ready.
                         </span>
-                        <LemonButton
-                            type="secondary"
-                            size="xsmall"
-                            loading={realtimeSwitchLoading}
-                            aria-label={`Turn on realtime for ${cohort.name}`}
-                            onClick={() => {
-                                // pinned: analytics event name and properties, because insights that count clicks read them
-                                posthog.capture('cohort realtime turn on clicked', { location: 'flag_editor' })
-                                turnOnRealtime()
-                            }}
-                            data-attr="cohort-realtime-turn-on-flag-editor"
-                        >
-                            Turn on realtime
-                        </LemonButton>
+                        {quillSurface ? (
+                            <Button
+                                variant="outline"
+                                loading={realtimeSwitchLoading}
+                                aria-label={`Turn on realtime for ${cohort.name}`}
+                                onClick={turnOn}
+                                data-attr="cohort-realtime-turn-on-flag-editor"
+                            >
+                                Turn on realtime
+                            </Button>
+                        ) : (
+                            <LemonButton
+                                type="secondary"
+                                size="xsmall"
+                                loading={realtimeSwitchLoading}
+                                aria-label={`Turn on realtime for ${cohort.name}`}
+                                onClick={turnOn}
+                                data-attr="cohort-realtime-turn-on-flag-editor"
+                            >
+                                Turn on realtime
+                            </LemonButton>
+                        )}
                     </div>
                     <RealtimeCohortsUsage location="flag_editor" />
                 </div>
@@ -70,7 +97,11 @@ export function CohortFlagTargetingNoticeRow({ cohortId }: { cohortId: number })
         case 'rebuilding':
             return (
                 <div className="flex items-start gap-2">
-                    <Spinner size="small" className="shrink-0 mt-0.5" />
+                    {quillSurface ? (
+                        <QuillSpinner className="shrink-0 mt-0.5" />
+                    ) : (
+                        <Spinner size="small" className="shrink-0 mt-0.5" />
+                    )}
                     {realtime.state === 'rebuilding' ? (
                         <span>
                             The criteria of {name} changed, so PostHog is preparing it again from past events. You can

@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, defaults, kea, listeners, path, props, reducers, selectors } from 'kea'
 
+import type { CanvasAppWidgetConfig } from '../../generated/widget-configs.zod'
 import { isWidgetConfigValidationError } from '../../utils'
 import {
     widgetEditModalPropSelectors,
@@ -71,7 +72,7 @@ export interface editCanvasAppWidgetModalLogicMeta {
                       success: false
                   }
                 | {
-                      config: import('../../generated/widget-configs.zod').CanvasAppWidgetConfig
+                      config: CanvasAppWidgetConfig
                       success: true
                   },
             fieldErrors: Partial<Record<'canvasId', string>>
@@ -84,7 +85,7 @@ export interface editCanvasAppWidgetModalLogicMeta {
                       success: false
                   }
                 | {
-                      config: import('../../generated/widget-configs.zod').CanvasAppWidgetConfig
+                      config: CanvasAppWidgetConfig
                       success: true
                   }
         ) => string | undefined

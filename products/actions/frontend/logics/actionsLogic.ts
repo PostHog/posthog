@@ -77,16 +77,16 @@ export interface actionsLogicActions {
     pinActionSuccess: (
         actionsResponse: {
             count: number
-            next?: string | null | undefined
-            previous?: string | null | undefined
+            next?: string | null
+            previous?: string | null
             results: ActionType[]
         },
         payload?: ActionType
     ) => {
         actionsResponse: {
             count: number
-            next?: string | null | undefined
-            previous?: string | null | undefined
+            next?: string | null
+            previous?: string | null
             results: ActionType[]
         }
         payload?: ActionType
@@ -111,16 +111,16 @@ export interface actionsLogicActions {
     unpinActionSuccess: (
         actionsResponse: {
             count: number
-            next?: string | null | undefined
-            previous?: string | null | undefined
+            next?: string | null
+            previous?: string | null
             results: ActionType[]
         },
         payload?: ActionType
     ) => {
         actionsResponse: {
             count: number
-            next?: string | null | undefined
-            previous?: string | null | undefined
+            next?: string | null
+            previous?: string | null
             results: ActionType[]
         }
         payload?: ActionType

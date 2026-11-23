@@ -680,6 +680,8 @@ jobs:
 
                       billing:
                         - 'ee/billing/**'
+                        - 'posthog/entitlements/**'
+                        - 'posthog/temporal/entitlement_reactions/**'
                         - 'products/billing_alerts/**'
                         - 'posthog/temporal/quota_limiting/**'
                         - 'posthog/temporal/salesforce_enrichment/**'
@@ -1814,11 +1816,6 @@ jobs:
               shell: bash
               run: bash .github/scripts/ordered-image-release.sh tag
 
-            - name: Warn when ordered image alias tag is unavailable
-              if: ${{ steps.ordered-release.outputs.tag == '' }}
-              shell: bash
-              run: echo "::warning title=Ordered image alias tag unavailable::Ordered image alias publication was skipped because no ordered release tag was generated."
-
             - name: Install ordered image copy client
               if: ${{ steps.ordered-release.outputs.tag != '' }}
               timeout-minutes: 1
@@ -1850,12 +1847,10 @@ jobs:
               run: bash .github/scripts/ordered-image-release.sh publish
 
             - name: Fail when the ordered image alias is missing
-              if: ${{ steps.ordered-release.outputs.tag == '' || steps.publish-alias.outputs.outcome != 'present-at-expected-digest' }}
               env:
-                  OUTCOME: ${{ steps.publish-alias.outputs.outcome || 'not published' }}
-              run: |
-                  echo "::error title=Ordered image alias missing::Kargo only creates freight from the ordered alias, so Kargo-delivered apps stay on the previous image (outcome: ${OUTCOME})."
-                  exit 1
+                  ORDERED_ALIAS: ${{ steps.ordered-release.outputs.tag }}
+                  OUTCOME: ${{ steps.publish-alias.outputs.outcome }}
+              run: bash .github/scripts/ordered-image-release.sh require "$ORDERED_ALIAS" "$OUTCOME"
 
     shared_image_channels:
         name: Publish eligible shared-image channels

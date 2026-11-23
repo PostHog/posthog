@@ -84,7 +84,14 @@ from ..oauth import (
     select_token_endpoint_auth_method,
 )
 from ..policy import GatewayCaller, PolicyContext, ResolvedPolicy, is_policy_state_allowed
-from ..proxy import proxy_mcp_request, record_tool_call_audit, resolve_call_decision, validate_installation_auth
+from ..proxy import (
+    borrowed_refusal_detail,
+    is_posthog_installation,
+    proxy_mcp_request,
+    record_tool_call_audit,
+    resolve_call_decision,
+    validate_installation_auth,
+)
 from ..tasks import sync_installation_tools_task
 from ..tools import ToolCallError, ToolsFetchError, call_upstream_tool, sync_installation_tools
 
@@ -1241,6 +1248,9 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     status=403,
                 )
 
+        if borrowed_refusal_detail(installation, borrowed=installation.user_id != request.user.id) is not None:
+            # The call is refused further on, so the owner's token is not refreshed on this caller's behalf.
+            return None
         ok, error_response = validate_installation_auth(installation)
         if not ok and error_response is not None:
             return error_response
@@ -1329,6 +1339,9 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+        borrowed = installation.user_id != request.user.id
+        refusal_detail = borrowed_refusal_detail(installation, borrowed=borrowed)
+
         gateway_server = installation.gateway_server
         policy_context = (
             PolicyContext(
@@ -1351,9 +1364,11 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 GatewayCaller(kind="member", user_id=request.user.id),
                 cast(User, request.user).email or "",
                 tool_name,
-                decision,
+                "blocked" if refusal_detail is not None else decision,
             )
 
+        if refusal_detail is not None:
+            return Response({"detail": refusal_detail, "reason": "disabled"}, status=status.HTTP_403_FORBIDDEN)
         if block_reason is not None:
             return Response(
                 {"detail": _BLOCKED_CALL_DETAIL[block_reason].format(tool_name=tool_name), "reason": block_reason},
@@ -1361,7 +1376,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             )
 
         try:
-            result = call_upstream_tool(installation, tool_name, arguments)
+            result = call_upstream_tool(installation, tool_name, arguments, borrowed=borrowed)
         except (ToolCallError, ToolsFetchError) as exc:
             logger.warning(
                 "mcp_store call_tool failed",
@@ -2140,6 +2155,8 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             # advertise a connection the call path would immediately reject.
             ok, _error = validate_installation_auth(installation)
             if not ok:
+                continue
+            if installation.user_id != user.id and is_posthog_installation(installation):
                 continue
 
             states = resolve_member_tool_states(

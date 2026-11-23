@@ -1,7 +1,7 @@
 import time
 import dataclasses
 from collections.abc import Iterable, Iterator
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from typing import Any, Optional
 
 from products.warehouse_sources.sources.pingdom.settings import PINGDOM_ENDPOINTS, PingdomEndpointConfig
@@ -20,6 +20,7 @@ from products.warehouse_sources.sources.sdk import (
     frozen,
     make_tracked_session,
     rest_api_resource,
+    to_epoch,
     validate_via_probe,
 )
 
@@ -47,11 +48,8 @@ def _to_epoch(value: Any) -> Optional[int]:
         return value
     if isinstance(value, float):
         return int(value)
-    if isinstance(value, datetime):
-        dt = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
-        return int(dt.timestamp())
-    if isinstance(value, date):
-        return int(datetime.combine(value, datetime.min.time(), tzinfo=UTC).timestamp())
+    if isinstance(value, datetime | date):
+        return to_epoch(value)
     try:
         return int(value)
     except (TypeError, ValueError):

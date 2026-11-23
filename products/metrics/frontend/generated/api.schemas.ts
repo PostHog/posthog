@@ -37,11 +37,32 @@ export interface _MetricAttributeValuesResponseApi {
     results: _MetricAttributeValueApi[]
 }
 
+/**
+ * * `key` - key
+ * * `value` - value
+ */
+export type MatchedOnEnumApi = (typeof MatchedOnEnumApi)[keyof typeof MatchedOnEnumApi]
+
+export const MatchedOnEnumApi = {
+    Key: 'key',
+    Value: 'value',
+} as const
+
 export interface _MetricAttributeKeyApi {
     /** Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name'). */
     name: string
     /** Number of distinct values for this attribute in recent data. */
     value_count: number
+    /** Set to 'value' when the key matched through one of its values. Absent when its name matched.
+     *
+     * * `key` - key
+     * * `value` - value */
+    matchedOn?: MatchedOnEnumApi
+    /**
+     * One value that matched the search; only set when matchedOn is 'value'.
+     * @nullable
+     */
+    matchedValue?: string | null
 }
 
 export interface _MetricAttributeKeysResponseApi {
@@ -1573,6 +1594,10 @@ export type MetricsAttributesRetrieveParams = {
      * @maxLength 255
      */
     search?: string
+    /**
+     * Also list keys whose values contain the search term, on searches of 4 or more characters. Value matches come after key matches and carry matchedOn='value' with the matching matchedValue.
+     */
+    search_values?: boolean
 }
 
 export type MetricsDashboardTemplatesListParams = {

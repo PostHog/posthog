@@ -49,6 +49,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.web
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.naming import normalize_repository
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import (
+    COLLABORATOR_ONLY_ENDPOINTS,
     ENDPOINT_REQUIRED_PERMISSION,
     GITHUB_ENDPOINTS,
     GRANT_DENIAL_PREFIX,
@@ -820,7 +821,12 @@ def _is_endpoint_permission_denial(message: str) -> bool:
     return any(marker in lowered for marker in _PERMISSION_DENIED_MARKERS)
 
 
-def _grant_hint(required_permission: str | None) -> str:
+def _grant_hint(required_permission: str | None, endpoint: str | None = None) -> str:
+    if endpoint is not None and endpoint in COLLABORATOR_ONLY_ENDPOINTS:
+        return (
+            " GitHub limits this table to admins and collaborators of the repository. To sync it, connect "
+            "with a personal access token from an account with one of those roles."
+        )
     names = GRANT_NAMES.get(required_permission) if required_permission is not None else None
     if names is None:
         # No mapped grant, so the denial may be an account access-level gate (collaborators needs
@@ -983,6 +989,7 @@ def _fetch_page(
     skip_on_not_found: bool = False,
     repository: str | None = None,
     required_permission: str | None = None,
+    endpoint: str | None = None,
 ) -> requests.Response:
     # One gated + recorded GET through the shared egress client. The App path bills the shared
     # per-installation budget at BATCH (deferrable bulk); the PAT path (installation_id None) skips the
@@ -1057,7 +1064,7 @@ def _fetch_page(
         # get_non_retryable_errors keys GRANT_DENIAL_PREFIX and the permission markers to None, so
         # curated copy never replaces it. The URL stays in the log line rather than in what the
         # user reads.
-        grant_hint = _grant_hint(required_permission)
+        grant_hint = _grant_hint(required_permission, endpoint)
         logger.error(
             f"Github API error: status=403, body={response.text}, grant_hint={grant_hint.strip()}, url={page_url}"
         )
@@ -1666,6 +1673,7 @@ def get_rows(
                 skip_on_not_found=skip_on_not_found,
                 repository=repository,
                 required_permission=ENDPOINT_REQUIRED_PERMISSION.get(endpoint),
+                endpoint=endpoint,
             )
         except GithubEmptyRepositoryError:
             logger.debug(f"Github: repository has no commits (empty repository), syncing zero rows: url={url}")

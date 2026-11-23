@@ -16,7 +16,7 @@ Everything is built from existing machinery:
 ## Agent access
 
 Every API operation of this product has an MCP tool in `mcp/tools.yaml`, so agents can do what the app does.
-`backend/test/test_mcp_tools.py` fails when an operation has no entry. Add one with `pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product aeo`, or record why it stays off with `enabled: false` and a `disabled_reason`.
+`posthog/test/repo_invariants/test_aeo_mcp_tools.py` fails when an operation has no entry. Add one with `pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product aeo`, or record why it stays off with `enabled: false` and a `disabled_reason`.
 Enable a tool for a new route only after the route is deployed, so MCP never serves a tool that returns 404.
 
 ## Setup

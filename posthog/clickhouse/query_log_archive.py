@@ -77,6 +77,7 @@ _V3_PROFILE_EVENTS = (
 # T64 suits the counters, whose values sit far below the UInt64 range.
 _V3_T64 = "CODEC(T64, Default)"
 _V3_TTL_3_MONTHS = "TTL toDateTime(initial_query_start_time) + toIntervalMonth(3)"
+_V3_TTL_1_MONTH = "TTL toDateTime(initial_query_start_time) + toIntervalMonth(1)"
 
 
 def _v3_max(inner_type: str) -> str:
@@ -186,6 +187,11 @@ _V3_PHYSICAL_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("lc_plan_fingerprint", _v3_max("String"), ""),
     ("lc_estimated_rows", _v3_max("Int64"), ""),
     ("lc_estimated_bytes", _v3_max("Int64"), ""),
+    # The initial query's log_comment without its timings and query keys (lc_query keeps query). A
+    # log_comment that is not a JSON object is stored as {}. Read a new log_comment key from this column
+    # instead of adding an lc_* column, unless the key must be kept for longer than the TTL. Keep the
+    # column and its MV expression the same as in posthog-cloud-infra, which manages the cloud clusters.
+    ("log_comment", _v3_max("String"), _V3_TTL_1_MONTH),
 )
 
 # Read-time aliases that keep the column names of the earlier generations, so existing readers of
@@ -418,7 +424,12 @@ SELECT
     lc.dagster.job_name AS lc_dagster__job_name,
     lc.dagster.run_id AS lc_dagster__run_id,
     lc.dagster.tags.owner AS lc_dagster__owner,
-    {log_comment_trailing_fields}
+    {log_comment_trailing_fields},
+    if(
+        ql.is_initial_query AND notEmpty(ql.log_comment),
+        concat('{{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.1 NOT IN ('timings', 'query'), JSONExtractKeysAndValuesRaw(ql.log_comment))), ','), '}}'),
+        ''
+    ) AS log_comment
 FROM system.query_log AS ql
 WHERE ql.type != 'QueryStart'
 """.format(

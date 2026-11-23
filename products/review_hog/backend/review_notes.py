@@ -18,13 +18,24 @@ def comment_commands_enabled(team_id: int) -> bool:
     )
 
 
+def _review_trigger(comment_commands_on: bool) -> str:
+    return "Comment `@posthog review`" if comment_commands_on else "Start a review in PostHog Review"
+
+
 def draft_review_notice(comment_commands_on: bool) -> str:
-    """The note an automatic review of a draft ends with: the push gate skips the draft's later pushes."""
-    trigger = "Comment `@posthog review`" if comment_commands_on else "Start a review in PostHog Review"
+    """The note an automatic review of a draft with findings ends with: draft pushes get no automatic review."""
     return (
         "This is the only automatic review while this pull request is a draft. "
-        f"{trigger} to review new changes sooner. "
+        f"{_review_trigger(comment_commands_on)} to review new changes sooner. "
         "Otherwise, a review of the new changes runs when you mark it ready for review."
+    )
+
+
+def last_review_notice(comment_commands_on: bool) -> str:
+    """The note an automatic review with findings ends with when the repository does not review later pushes."""
+    return (
+        "This is the last automatic review of this pull request. "
+        f"{_review_trigger(comment_commands_on)} to review new changes."
     )
 
 
