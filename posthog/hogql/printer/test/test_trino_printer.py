@@ -2160,6 +2160,19 @@ def test_percentage_limit_rounds_up(percentage: int, offset: int, expected: list
             "arrayFilter(x -> x NOT IN (SELECT v FROM excluded WHERE v = 'z'), items) FROM rows",
             [(["a", "d"], ["b"], ["a", "b", "d"])],
         ),
+        ("SELECT arrayFilter(x -> x NOT IN (SELECT 2 WHERE false), [NULL, 1])", [([None, 1],)]),
+        ("SELECT arrayFilter(x -> x IN (SELECT 1), ['1', '2'])", [(["1"],)]),
+        ("SELECT arrayFilter(x -> x IN (SELECT arrayFilter(x -> x > 1, [1, 2])), [[2], [3]])", [([[2]],)]),
+        (
+            "WITH rows AS (SELECT 1 AS k, 1 AS v UNION ALL SELECT 1, 2) "
+            "SELECT k, arrayFilter(x -> x IN (SELECT 1), groupArray(v)) FROM rows GROUP BY k",
+            [(1, [1])],
+        ),
+        (
+            "WITH rows AS (SELECT 1 AS v UNION ALL SELECT 1) "
+            "SELECT arrayFilter(x -> x IN (SELECT v FROM rows LIMIT 1 BY v), [1, 2])",
+            [([1],)],
+        ),
         # ClickHouse lets a projection name a part of itself, and inlining the projection must not redefine that name.
         (
             "WITH rows AS (SELECT 1 AS id UNION ALL SELECT 2) "
@@ -3415,6 +3428,10 @@ def test_removes_noop_sample_one_for_trino() -> None:
         (
             "SELECT arrayFilter(x -> x IN (SELECT user_id FROM users WHERE id = x), [user_id]) FROM users",
             "TRINO_LAMBDA_SUBQUERY_CORRELATED",
+        ),
+        (
+            "SELECT arrayFilter(x -> x IN (SELECT 1), groupArray(user_id)) FROM users",
+            "TRINO_LAMBDA_SUBQUERY_IN_GLOBAL_AGGREGATE",
         ),
         (
             "SELECT * FROM users PIVOT(uniq(user_id) FOR created_at IN ('2026-01-01'))",
