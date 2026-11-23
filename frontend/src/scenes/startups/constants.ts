@@ -1,4 +1,4 @@
-import freeEmailDomains from 'free-email-domains'
+import freeEmailDomains from 'free-email-domains/domains.json'
 
 // Free and disposable email provider domains from the free-email-domains npm package
 // (https://github.com/Kikobeats/free-email-domains). Keep the pinned package version in sync

@@ -1,0 +1,51 @@
+id: cyclotron-breaking-point
+version: 3
+clock: real
+profile: synthetic
+seed: 7
+setup:
+    teams: 80
+drive:
+    for: 14m
+    traffic:
+        - name: event_email
+        - name: event_webhook
+        - name: transactional_email
+    ramp:
+        - scale: 10
+          for: 2m
+        - scale: 20
+          for: 2m
+        - scale: 40
+          for: 2m
+        - scale: 80
+          for: 2m
+        - scale: 160
+          for: 2m
+        - scale: 240
+          for: 2m
+        - scale: 320
+          for: 2m
+    stopOnBreak: true
+convergeWithin: 15m
+invariants:
+    - name: at_least_once
+    - name: duplicate_sends
+    - name: refused_at_intake
+    - name: resident_backlog_intact
+gates:
+    duplicate_sends: 0
+    refused_at_intake: 0
+bars:
+    - name: writer_cpu_under
+      params:
+          percent: 70
+    - name: pickup_p99_under
+      params:
+          seconds: 5
+          queues:
+              - hogflow
+              - email
+measure:
+    - name: delivery_latency_ms
+    - name: step_claims_per_second

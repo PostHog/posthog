@@ -32,10 +32,37 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "creativeId": "Identifier of the creative linked to this ad.",
         },
     },
+    "Creatives": {
+        "description": ENDPOINTS["Creatives"].description,
+        "docs_url": f"{REFERENCE_URL}/creative/2026-07marketing-solutionsadvertisers-creatives",
+        "columns": {
+            "id": "Creative identifier.",
+            "advertiserId": "Identifier of the advertiser that owns the creative.",
+            "name": "Name of the creative.",
+            "description": "Description of the creative.",
+            "author": "Login of the person who created the creative.",
+            "status": "Status of the creative.",
+            "format": "Format of the creative, which decides the attributes block that is set.",
+            "datasetId": "Identifier of the data set linked to the creative.",
+        },
+    },
     "Audiences": {
         "description": ENDPOINTS["Audiences"].description,
         "docs_url": f"{REFERENCE_URL}/audience/2026-07marketing-solutionsaudiencessearch",
         "columns": {"id": "Audience identifier."},
+    },
+    "AudienceSegments": {
+        "description": ENDPOINTS["AudienceSegments"].description,
+        "docs_url": f"{REFERENCE_URL}/audience/2026-07marketing-solutionsaudience-segmentssearch",
+        "columns": {
+            "id": "Audience segment identifier.",
+            "type": "Type of segment, such as InMarket, Prospecting, ContactList, Location, Behavioral, Retargeting, or Lookalike.",
+            "advertiserId": "Identifier of the advertiser associated with the segment.",
+            "name": "Name of the segment.",
+            "description": "Description of the segment.",
+            "createdAt": "Time the segment was created, in UTC.",
+            "updatedAt": "Time the segment was last updated, in UTC.",
+        },
     },
     "CampaignStats": {
         "description": ENDPOINTS["CampaignStats"].description,

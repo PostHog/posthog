@@ -194,11 +194,12 @@ def _fan_out_rows(
                     raise
                 result = {}
             parent_arn = result.get(fan_out.response_arn_field) or identity
-            parent_name = result.get(fan_out.response_name_field)
-            rows = [
-                {fan_out.arn_column: parent_arn, fan_out.name_column: parent_name, **normalize_row(item)}
-                for item in result.get(endpoint.result_key) or []
-            ]
+            parent_columns = {
+                fan_out.arn_column: parent_arn,
+                fan_out.name_column: result.get(fan_out.response_name_field),
+                **{column: result.get(field) for field, column in fan_out.extra_columns},
+            }
+            rows = [{**parent_columns, **normalize_row(item)} for item in result.get(endpoint.result_key) or []]
             child_token = _next_token(result, seen)
             if child_token is not None:
                 state = replace(state, child_token=child_token)

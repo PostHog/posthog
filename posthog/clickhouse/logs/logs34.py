@@ -301,7 +301,7 @@ SETTINGS
 # Migrations before 0361 pass `internal_source=False`, because the column does not exist yet on a
 # database that upgrades through them. 0361 adds it to every table and then rebuilds each view.
 _INTERNAL_SOURCE_TYPE = "    `internal_source` LowCardinality(String)"
-# Migrations before 0392 pass `auth_type=False` for the same reason.
+# Migrations before 0394 pass `auth_type=False` for the same reason.
 _AUTH_TYPE_TYPE = "    `auth_type` LowCardinality(String)"
 
 

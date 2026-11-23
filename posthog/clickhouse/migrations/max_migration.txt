@@ -1,1 +1,1 @@
-0392_logs34_auth_type
+0394_logs34_auth_type

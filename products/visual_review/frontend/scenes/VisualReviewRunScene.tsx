@@ -495,7 +495,7 @@ export function VisualReviewRunScene(): JSX.Element {
             {isReportingOnly && (
                 <LemonBanner type="info" className="mb-4">
                     Tracking-only run, so there's nothing to approve. Default-branch pushes and merge-queue runs record
-                    visual changes for history and report them to GitHub as a non-blocking status.
+                    visual changes for history. A merge-queue run that finds a change nobody approved stops the merge.
                 </LemonBanner>
             )}
 
@@ -510,21 +510,33 @@ export function VisualReviewRunScene(): JSX.Element {
                 </LemonBanner>
             )}
 
-            {!isReportingOnly && allChangesResolved && reviewApproved === 0 && !ciRetriggerUnavailableReason && (
-                <LemonBanner
-                    type="info"
-                    className="mb-4"
-                    action={{
-                        children: 'Re-trigger CI',
-                        loading: isRecomputing,
-                        onClick: recomputeRun,
-                        'data-attr': 'visual-review-recompute-run',
-                    }}
-                >
-                    All changes are resolved by tolerating or quarantining — re-trigger to update the commit status and
-                    pass the gate. (No baseline commit needed; approved changes are shipped via Finalize run.)
+            {run.stale_approval_count > 0 && (
+                <LemonBanner type="warning" className="mb-4">
+                    The baseline of {run.stale_approval_count} approved{' '}
+                    {run.stale_approval_count === 1 ? 'snapshot' : 'snapshots'} changed after the approval. Update the
+                    branch from the default branch to get a new run, then review it.
                 </LemonBanner>
             )}
+
+            {!isReportingOnly &&
+                run.gate !== 'commit_status' &&
+                allChangesResolved &&
+                reviewApproved === 0 &&
+                !ciRetriggerUnavailableReason && (
+                    <LemonBanner
+                        type="info"
+                        className="mb-4"
+                        action={{
+                            children: 'Re-trigger CI',
+                            loading: isRecomputing,
+                            onClick: recomputeRun,
+                            'data-attr': 'visual-review-recompute-run',
+                        }}
+                    >
+                        All changes are resolved by tolerating or quarantining — re-trigger to update the commit status
+                        and pass the gate. (No baseline commit needed; approved changes are shipped via Finalize run.)
+                    </LemonBanner>
+                )}
 
             {/* Snapshots panel — thumbnail strip as nav, diff viewer as body */}
             <div className="border rounded-lg overflow-hidden">

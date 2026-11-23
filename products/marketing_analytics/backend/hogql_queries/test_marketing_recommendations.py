@@ -12,6 +12,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_recommendation
     SEARCH_CONSOLE_URL,
     Ad,
     CampaignStats,
+    ExcludedSearch,
     FlaggedAd,
     KeywordTracking,
     OrganicQueryStats,
@@ -546,11 +547,15 @@ class TestMarketingRecommendations(SimpleTestCase):
             replace(_term("already a keyword", "c2", cost=500, conversions=0), status="ADDED"),
             _term("example login", "c2", cost=600, conversions=0),
             _term("cheap keeper", "c2", cost=50, conversions=1),
-            replace(_term("cheap but excluded", "c2", cost=40, conversions=1), status="EXCLUDED"),
+            _term("cheap but excluded", "c2", cost=40, conversions=1),
             _term("costly converter", "c2", cost=300, conversions=1),
         )
+        inputs = replace(
+            _inputs((good, costly), terms),
+            excluded_searches=frozenset({ExcludedSearch(term="cheap but excluded", campaign_id="c2")}),
+        )
 
-        review = next(rec for rec in recommend(_inputs((good, costly), terms)) if rec.rule == "review_campaign")
+        review = next(rec for rec in recommend(inputs) if rec.rule == "review_campaign")
 
         steps = review.steps or []
         assert review.subject == "Costly"
@@ -758,7 +763,11 @@ class TestMarketingRecommendations(SimpleTestCase):
         organic += (OrganicQueryStats(query=query, clicks=1, impressions=5000, position=25),)
         pages = (RankingPage(query=query, page=ranking_page, impressions=5000),) if ranking_page else ()
         keywords = (
-            (TermKeywordStats(term="funnel tracking", keyword=keyword, match_type="PHRASE", cost=100),)
+            (
+                TermKeywordStats(
+                    term="funnel tracking", campaign_id="c1", keyword=keyword, match_type="PHRASE", cost=100
+                ),
+            )
             if keyword
             else ()
         )
@@ -969,8 +978,13 @@ class TestMarketingRecommendations(SimpleTestCase):
             _term("product analytics", "c1", cost=500, conversions=10),
         )
         keywords = (
-            TermKeywordStats(term="spy website traffic", keyword="website traffic", match_type=match_type, cost=400),
-            TermKeywordStats(term="spy website traffic", keyword="traffic", match_type="BROAD", cost=100),
+            TermKeywordStats(
+                term="spy website traffic", campaign_id="c1", keyword="website traffic", match_type=match_type, cost=400
+            ),
+            TermKeywordStats(
+                term="spy website traffic", campaign_id="c1", keyword="traffic", match_type="BROAD", cost=100
+            ),
+            TermKeywordStats(term="spy website traffic", campaign_id="c2", keyword="spy", match_type="BROAD", cost=900),
         )
 
         recs = [
@@ -1052,7 +1066,7 @@ class TestMarketingRecommendations(SimpleTestCase):
             replace(_term("product analytics", "c1", cost=350, conversions=10), ad_group_ids=("ag1",)),
         )
         keywords = (
-            (TermKeywordStats(term="crm for dentist", keyword=keyword, match_type="BROAD", cost=250),)
+            (TermKeywordStats(term="crm for dentist", campaign_id="c1", keyword=keyword, match_type="BROAD", cost=250),)
             if keyword
             else ()
         )
@@ -1101,19 +1115,67 @@ class TestMarketingRecommendations(SimpleTestCase):
         assert len(recs) == PER_RULE_LIMIT
         assert recs[-1] == "analytics pricing"
 
-    @parameterized.expand([("serving", "ELIGIBLE", 1), ("paused", "PAUSED", 0), ("removed", "REMOVED", 0)])
-    def test_spend_without_conversions_skips_campaigns_that_do_not_serve(
-        self, _name: str, status: str, expected: int
+    @parameterized.expand(
+        [
+            ("serving", "ELIGIBLE", ("NONE",), [None], 1),
+            ("paused", "PAUSED", ("NONE",), [], 0),
+            ("removed", "REMOVED", ("NONE",), [], 0),
+            ("already_a_keyword", "ELIGIBLE", ("ADDED",), [], 0),
+            ("now_a_negative", "ELIGIBLE", ("EXCLUDED",), ["negative_keyword"], 0),
+            ("keyword_and_negative", "ELIGIBLE", ("ADDED_EXCLUDED",), ["negative_keyword"], 0),
+            ("negative_in_one_of_two_campaigns", "ELIGIBLE", ("EXCLUDED", "NONE"), [None], 1),
+            ("keyword_and_negative_in_one_of_two_campaigns", "ELIGIBLE", ("ADDED_EXCLUDED", "NONE"), [None], 1),
+        ]
+    )
+    def test_spend_without_conversions_needs_a_serving_campaign_and_detects_negatives(
+        self,
+        _name: str,
+        campaign_status: str,
+        term_statuses: tuple[str, ...],
+        expected_changes: list[str | None],
+        expected_unresolved: int,
     ) -> None:
-        campaigns = (_campaign(primary_status=status), _campaign(id="c2", name="Other"))
+        campaigns = (_campaign(primary_status=campaign_status), _campaign(id="c2", name="Other"))
         terms = (
-            _term("free analytics template", "c1", cost=500, conversions=0),
+            *(
+                replace(_term("free analytics template", campaign_id, cost=500, conversions=0), status=status)
+                for campaign_id, status in zip(("c1", "c2"), term_statuses)
+            ),
             _term("product analytics", "c2", cost=500, conversions=10),
         )
 
-        rows = [rec for rec in recommend(_inputs(campaigns, terms)) if rec.rule == "spend_without_conversions"]
+        excluded = frozenset(
+            ExcludedSearch(term="free analytics template", campaign_id=campaign_id)
+            for campaign_id, status in zip(("c1", "c2"), term_statuses)
+            if "EXCLUDED" in status
+        )
+        inputs = replace(_inputs(campaigns, terms), excluded_searches=excluded)
 
-        assert len(rows) == expected
+        rows = [rec for rec in recommend(inputs) if rec.rule == "spend_without_conversions"]
+
+        assert [rec.detectedChange for rec in rows] == expected_changes
+        assert len(apply_resolutions(rows, {}, include_resolved=False)) == expected_unresolved
+        # Spend in a campaign that already blocks the search can't be saved, and that campaign needs no new negative.
+        serving = [name for name, status in zip(("Search", "Other"), term_statuses) if "EXCLUDED" not in status]
+        assert [(rec.campaign, rec.reason.split(" (")[0]) for rec in rows] == [
+            (serving[0] if serving else "Search", f"Spent ${500 * max(len(serving), 1):,}")
+        ] * len(rows)
+        assert apply_resolutions(rows, {}, include_resolved=True) == rows
+
+    def test_clicks_from_a_campaign_that_now_excludes_a_search_still_make_it_navigational(self) -> None:
+        campaigns = (_campaign(), _campaign(id="c2", name="Other"))
+        terms = (
+            _term("trackly", "c1", cost=500, conversions=0, clicks=30),
+            _term("trackly", "c2", cost=500, conversions=0, clicks=5),
+            _term("product analytics", "c2", cost=500, conversions=10),
+        )
+        organic = (OrganicQueryStats(query="trackly", clicks=10, impressions=100, position=1),)
+        inputs = replace(
+            _inputs(campaigns, terms, organic),
+            excluded_searches=frozenset({ExcludedSearch(term="trackly", campaign_id="c1")}),
+        )
+
+        assert [rec.subject for rec in recommend(inputs) if rec.rule == "spend_without_conversions"] == []
 
     def test_category_words_are_not_treated_as_competitors(self) -> None:
         terms = (
