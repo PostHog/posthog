@@ -11,6 +11,8 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
+from posthog.models.scoping.manager import resolve_effective_team_id
+
 from products.alerts_platform.backend.facade.appearance import create_appearance_alert
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
@@ -51,7 +53,7 @@ class Command(BaseCommand):
         source = SourceKind(options["source"])
         try:
             view = create_appearance_alert(
-                team_id=options["team_id"],
+                team_id=resolve_effective_team_id(options["team_id"]),
                 source=source,
                 name=options["name"],
                 filters=[parse_filter(raw) for raw in options["filters"]],
