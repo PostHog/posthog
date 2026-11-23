@@ -1918,7 +1918,7 @@ Re-audited 2026-11-19 against <https://getbeamer-api.pages.dev/>: no new gaps wo
 
 ## Beehiiv — gaps
 
-Today (15): `Authors`, `Automations`, `ComplimentaryAccess`, `ConditionSets`, `CustomFields`, `NewsletterLists`, `Podcasts`, `Polls`, `PostTemplates`, `Posts`, `Publications`, `ReferralProgramMilestones`, `Segments`, `Subscriptions`, `Tiers`
+Today (19): `AutomationJourneys`, `Authors`, `Automations`, `ComplimentaryAccess`, `ConditionSets`, `CustomFields`, `NewsletterLists`, `PodcastEpisodes`, `Podcasts`, `PollResponses`, `Polls`, `PostTemplates`, `Posts`, `Publications`, `ReferralProgramMilestones`, `SegmentMembers`, `Segments`, `Subscriptions`, `Tiers`
 
 Diffed against: <https://developers.beehiiv.com/api-reference>
 
@@ -1926,11 +1926,11 @@ Diffed against: <https://developers.beehiiv.com/api-reference>
 
 Re-audited 2026-11-19 against: <https://developers.beehiiv.com/llms.txt>
 
-- [ ] `Podcast episodes (GET /publications/{publication_id}/podcasts/{podcast_id}/episodes)` — analyze episodes per podcast we already sync (high)
-- [ ] `Poll responses (GET /publications/{publication_id}/polls/{poll_id}/responses)` — analyze subscriber answers to the polls we sync (high)
-- [ ] `Automation journeys (GET /publications/{publication_id}/automations/{automation_id}/journeys)` — measure subscriber progress and completion through the automations we sync (medium)
+- [x] `Podcast episodes (GET /publications/{publication_id}/podcasts/{podcast_id}/episodes)` — analyze episodes per podcast we already sync (high)
+- [x] `Poll responses (GET /publications/{publication_id}/polls/{poll_id}/responses)` — analyze subscriber answers to the polls we sync (high)
+- [x] `Automation journeys (GET /publications/{publication_id}/automations/{automation_id}/journeys)` — measure subscriber progress and completion through the automations we sync (medium)
 - [ ] `Publication tags (GET /publication_tags)` — list the tag names used on subscriptions (medium)
-- [ ] `Segment members (GET /publications/{publication_id}/segments/{segment_id}/members)` — link subscribers to the segments we sync (medium)
+- [x] `Segment members (GET /publications/{publication_id}/segments/{segment_id}/members)` — link subscribers to the segments we sync (medium)
 - [ ] `Automation emails (GET /publications/{publication_id}/automations/{automation_id}/emails)` — see the emails inside each automation (low)
 - [ ] `Newsletter list subscriptions (GET /publications/{publication_id}/newsletter_lists/{newsletter_list_id}/subscriptions)` — link subscribers to the newsletter lists we sync (low)
 - [ ] `Paid recommendations offers and partnerships (GET /publications/{publication_id}/paid_recommendations/offers; GET /publications/{publication_id}/paid_recommendations/partnerships)` — analyze paid recommendation growth deals (low)
