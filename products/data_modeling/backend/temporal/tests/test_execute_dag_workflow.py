@@ -42,6 +42,12 @@ from products.data_modeling.backend.temporal.activities import (
     preempt_dag_run_activity,
 )
 from products.data_modeling.backend.temporal.activities.get_dag_structure import DAG as DAGPlan
+from products.data_modeling.backend.temporal.tests.recorded_metrics import (
+    REQUEST_TO_FINISH_METRIC,
+    RecordedMetric,
+    recorded_workflow_metrics,
+    request_to_finish_records,
+)
 from products.data_modeling.backend.temporal.workflows.execute_dag import (
     TRINO_CHILD_LOCK_PATCH,
     EmptyDAGOrCycleError,
@@ -68,6 +74,7 @@ class ShadowRunOutcome:
     result: ExecuteDAGResult
     start_child: AsyncMock
     execute_activity: AsyncMock
+    metrics: list[RecordedMetric]
 
 
 class TestGetDagStructureActivity:
@@ -1194,6 +1201,8 @@ class TestTrinoShadowRun:
 
         info = MagicMock()
         info.workflow_id = workflow_id
+        info.parent = None
+        info.start_time = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
         start_child_mock = AsyncMock(side_effect=start_child)
         execute_activity_mock = AsyncMock(side_effect=execute_activity)
         with (
@@ -1201,13 +1210,15 @@ class TestTrinoShadowRun:
             patch.object(temporal_workflow, "start_child_workflow", new=start_child_mock),
             patch.object(temporal_workflow, "now", return_value=dt.datetime(2026, 1, 1, tzinfo=dt.UTC)),
             patch.object(temporal_workflow, "info", return_value=info),
-            patch.object(temporal_workflow, "metric_meter", return_value=MagicMock()),
+            recorded_workflow_metrics() as metrics,
             patch.object(temporal_workflow, "logger"),
             patch.object(temporal_workflow, "patched", return_value=patched),
             patch("products.data_modeling.backend.temporal.workflows.execute_dag.capture_exception"),
         ):
             result = await ExecuteDAGWorkflow().run(inputs)
-        return ShadowRunOutcome(result=result, start_child=start_child_mock, execute_activity=execute_activity_mock)
+        return ShadowRunOutcome(
+            result=result, start_child=start_child_mock, execute_activity=execute_activity_mock, metrics=metrics
+        )
 
     @staticmethod
     def _shadow_starts(start_child: AsyncMock) -> list:
@@ -1256,35 +1267,42 @@ class TestTrinoShadowRun:
             patch(f"{module}.get_dag_finished_metric") as finished,
             patch(f"{module}.get_dag_duration_metric") as duration,
             patch(f"{module}.get_dag_node_count_metric") as node_count,
-            patch(f"{module}.record_request_to_finish") as request_to_finish,
         ):
-            await self._run(
+            outcome = await self._run(
                 ExecuteDAGInputs(team_id=7, dag_id="dag", managed_warehouse_only=managed_warehouse_only, shadow=True)
             )
 
         assert finished.call_args.args[1] == expected_engine
         assert duration.call_args.args[0] == expected_engine
         assert {call.args[1] for call in node_count.call_args_list} == {expected_engine}
-        assert request_to_finish.call_args.kwargs == {"engine": expected_engine, "status": "completed"}
+        assert [record.attributes for record in request_to_finish_records(outcome.metrics)] == [
+            {"trigger": "unknown", "engine": expected_engine, "status": "completed"}
+        ]
 
     async def test_a_run_that_raises_records_its_time_since_the_request_as_failed(self) -> None:
-        module = "products.data_modeling.backend.temporal.workflows.execute_dag"
-        requested_at = "2026-01-01T00:00:00+00:00"
+        info = MagicMock(workflow_id="execute-dag-ad-hoc")
+        info.parent = None
         with (
             patch.object(
                 temporal_workflow, "execute_activity", new=AsyncMock(side_effect=RuntimeError("no worker took it"))
             ),
-            patch.object(temporal_workflow, "info", return_value=MagicMock(workflow_id="execute-dag-ad-hoc")),
+            patch.object(temporal_workflow, "info", return_value=info),
+            patch.object(temporal_workflow, "now", return_value=dt.datetime(2026, 1, 1, 0, 1, tzinfo=dt.UTC)),
             patch.object(temporal_workflow, "logger"),
-            patch(f"{module}.record_request_to_finish") as request_to_finish,
+            recorded_workflow_metrics() as metrics,
             pytest.raises(RuntimeError),
         ):
             await ExecuteDAGWorkflow().run(
-                ExecuteDAGInputs(team_id=7, dag_id="dag", trigger="manual", requested_at=requested_at)
+                ExecuteDAGInputs(team_id=7, dag_id="dag", trigger="manual", requested_at="2026-01-01T00:00:00+00:00")
             )
 
-        assert request_to_finish.call_args.args == ("manual", requested_at)
-        assert request_to_finish.call_args.kwargs == {"engine": "clickhouse", "status": "failed"}
+        assert metrics == [
+            RecordedMetric(
+                name=REQUEST_TO_FINISH_METRIC,
+                attributes={"trigger": "manual", "engine": "clickhouse", "status": "failed"},
+                value=60.0,
+            )
+        ]
 
     @pytest.mark.parametrize(
         "workflow_id,inputs,expected",

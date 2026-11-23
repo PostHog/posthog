@@ -11,6 +11,11 @@ from products.data_modeling.backend.temporal.metrics import (
     run_trigger,
     tier_label,
 )
+from products.data_modeling.backend.temporal.tests.recorded_metrics import (
+    REQUEST_TO_FINISH_METRIC,
+    RecordedMetric,
+    recorded_workflow_metrics,
+)
 
 WORKFLOW_STARTED_AT = dt.datetime(2026, 1, 1, 0, 1, 0, tzinfo=dt.UTC)
 WORKFLOW_FINISHED_AT = dt.datetime(2026, 1, 1, 0, 1, 30, tzinfo=dt.UTC)
@@ -76,22 +81,21 @@ def test_run_trigger(workflow_id: str, requested_trigger: str, expected: str) ->
 def test_record_request_to_finish(
     _name: str, requested_at: str | None, parent: MagicMock | None, expected_seconds: list[float]
 ) -> None:
-    meter = MagicMock()
-    histogram = meter.with_additional_attributes.return_value.create_histogram_float.return_value
     info = MagicMock(start_time=WORKFLOW_STARTED_AT)
     info.parent = parent
 
     with (
-        patch.object(temporalio.workflow, "metric_meter", return_value=meter),
+        recorded_workflow_metrics() as recorded,
         patch.object(temporalio.workflow, "info", return_value=info),
         patch.object(temporalio.workflow, "now", return_value=WORKFLOW_FINISHED_AT),
     ):
         record_request_to_finish("manual", requested_at, engine="clickhouse", status="failed")
 
-    assert [call.args[0] for call in histogram.record.call_args_list] == expected_seconds
-    if expected_seconds:
-        assert meter.with_additional_attributes.call_args.args[0] == {
-            "trigger": "manual",
-            "engine": "clickhouse",
-            "status": "failed",
-        }
+    assert recorded == [
+        RecordedMetric(
+            name=REQUEST_TO_FINISH_METRIC,
+            attributes={"trigger": "manual", "engine": "clickhouse", "status": "failed"},
+            value=seconds,
+        )
+        for seconds in expected_seconds
+    ]
