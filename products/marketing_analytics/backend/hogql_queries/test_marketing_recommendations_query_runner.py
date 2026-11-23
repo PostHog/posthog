@@ -640,21 +640,19 @@ class TestMarketingAnalyticsRecommendationsSourceDiscovery(BaseTest):
 class TestAdJson(SimpleTestCase):
     @parameterized.expand(
         [
-            ("text_list_is_a_list", {"topic": "TRADEMARKS", "evidences": [{"textList": ["Acme"]}]}, ()),
-            ("topic_is_not_text", {"topic": 123, "evidences": []}, None),
-            ("evidences_is_a_number", {"topic": "TRADEMARKS", "evidences": 5}, ()),
-            ("texts_is_a_string", {"topic": "TRADEMARKS", "evidences": [{"textList": {"texts": "AB"}}]}, ()),
-            (
-                "texts_are_not_text",
-                {"topic": "TRADEMARKS", "evidences": [{"textList": {"texts": [1, "Acme"]}}]},
-                ("Acme",),
-            ),
+            ("text_list_is_a_list", {"topic": "TRADEMARKS", "evidences": [{"textList": ["Acme"]}]}),
+            ("topic_is_not_text", {"topic": 123, "evidences": []}),
+            ("evidences_is_a_number", {"topic": "TRADEMARKS", "evidences": 5}),
+            ("texts_is_a_string", {"topic": "TRADEMARKS", "evidences": [{"textList": {"texts": "AB"}}]}),
+            ("texts_are_not_text", {"topic": "TRADEMARKS", "evidences": [{"textList": {"texts": [1, "Acme"]}}]}),
         ]
     )
-    def test_skips_unexpected_shapes(self, _name: str, entry: dict[str, object], texts: tuple[str, ...] | None) -> None:
-        topics = _policy_topics(json.dumps([json.dumps(entry)]))
+    def test_skips_policy_topics_that_do_not_validate(self, _name: str, entry: dict[str, object]) -> None:
+        valid = {"topic": "DESTINATION_NOT_WORKING", "type": "PROHIBITED"}
 
-        assert topics == (() if texts is None else (PolicyTopic(topic="TRADEMARKS", type="", texts=texts),))
+        assert _policy_topics(json.dumps([json.dumps(entry), json.dumps(valid)])) == (
+            PolicyTopic(topic="DESTINATION_NOT_WORKING", type="PROHIBITED"),
+        )
 
     def test_asset_texts_skip_non_text(self) -> None:
         assert _asset_texts(json.dumps([json.dumps({"text": 123}), json.dumps({"text": "Acme"})])) == ("Acme",)
