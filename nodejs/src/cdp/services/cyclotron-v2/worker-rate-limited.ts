@@ -69,4 +69,14 @@ export class CyclotronV2RateLimitedWorker extends CyclotronV2Worker {
             }
         }
     }
+
+    // Claims tokens only for the sends with files it has room for, so a full worker spends none.
+    protected override async filesBatchLimit(room: number): Promise<CyclotronV2BatchLimit> {
+        const visibleRows = room > 0 ? await this.countFilesWork(room) : 0
+        if (visibleRows === 0) {
+            return { limit: 0 }
+        }
+        const decision = await this.getBatchLimit(visibleRows)
+        return decision ? { ...decision, limit: Math.min(decision.limit, visibleRows) } : { limit: visibleRows }
+    }
 }

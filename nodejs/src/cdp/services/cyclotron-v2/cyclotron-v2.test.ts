@@ -2842,6 +2842,24 @@ describe('Cyclotron V2', () => {
 
                 expect(firstBatch).toEqual({ jobs: 4, tokensLeft: 96 })
             })
+
+            it('takes tokens only for the sends with files it has room for when it polls them apart', async () => {
+                await manager.bulkCreateJobs(
+                    Array.from({ length: 5 }, () => ({ teamId: 1, queueName: 'email', fileBytes: 1000 }))
+                )
+                const bucket = tokenBucket(100)
+
+                const firstBatch = await firstBatchWithTokensLeft(
+                    createRateLimitedWorker(bucket.take, {
+                        queueName: 'email',
+                        boundedFairDequeue: true,
+                        sendsWithFiles: { room: () => 2 },
+                    }),
+                    bucket
+                )
+
+                expect(firstBatch).toEqual({ jobs: 2, tokensLeft: 98 })
+            })
         })
 
         it.each([
@@ -3808,10 +3826,19 @@ describe('Cyclotron V2', () => {
                         return first
                     },
                 },
-            ])('claims the lowest-sequence due row when $label', async ({ seed }) => {
+                {
+                    label: 'a lower-sequence row with files waits for its own poll',
+                    seed: async (): Promise<string> => {
+                        await manager.bulkCreateJobs([{ teamId: 200, queueName: EMAIL_QUEUE, fileBytes: 1000 }])
+                        const [plain] = await manager.bulkCreateJobs([{ teamId: 100, queueName: EMAIL_QUEUE }])
+                        return plain
+                    },
+                    overrides: { sendsWithFiles: { room: () => 0 } },
+                },
+            ])('claims the lowest-sequence due row when $label', async ({ seed, overrides }) => {
                 const expected = await seed()
 
-                const jobs = await dequeueOneBatch(createFairWorker({ batchMaxSize: 1 }))
+                const jobs = await dequeueOneBatch(createFairWorker({ batchMaxSize: 1, ...overrides }))
 
                 expect(jobs.map((j) => j.id)).toEqual([expected])
             })

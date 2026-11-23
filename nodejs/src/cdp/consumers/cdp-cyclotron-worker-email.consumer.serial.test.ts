@@ -820,6 +820,15 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             emailStatus: { status: 'failed', reason: 'attachment_wait_expired', sendingDomain: '' },
         },
         {
+            send: 'a send with files that waited too long on workers that refuse files and poll them apart',
+            room: null,
+            overrides: waitedTooLong,
+            cancel: false,
+            separatePoll: true,
+            status: 'failed',
+            emailStatus: { status: 'failed', reason: 'attachment_wait_expired', sendingDomain: '' },
+        },
+        {
             send: 'a send with files that waited too long for room',
             room: 0,
             overrides: waitedTooLong,
@@ -843,11 +852,12 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         cancel: boolean
         lookupsFail?: boolean
         workflowStatus?: HogFlow['status']
+        separatePoll?: boolean
         status: string
         emailStatus: EmailStatus
     }[])(
         'ends $send, instead of deferring it',
-        async ({ room, overrides, cancel, lookupsFail, workflowStatus, status, emailStatus }) => {
+        async ({ room, overrides, cancel, lookupsFail, workflowStatus, separatePoll, status, emailStatus }) => {
             if (workflowStatus) {
                 hogFlow = await insertHogFlow(hub.postgres, { ...emailFlow(), status: workflowStatus })
             }
@@ -864,7 +874,8 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             await startWorker(
                 room === null ? null : roomFor(room),
                 sesClientFor(ses),
-                lookupsFail ? postgresThatStopsWaitingOnLocks() : hub.postgres
+                lookupsFail ? postgresThatStopsWaitingOnLocks() : hub.postgres,
+                { CDP_EMAIL_ATTACHMENTS_SEPARATE_POLL: separatePoll ?? false }
             )
 
             expect(await ended(id)).toBe(status)
@@ -1010,5 +1021,25 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         const statuses = await Promise.all(ids.map((id) => ended(id, 20_000)))
         expect(statuses).toEqual(ids.map(() => 'completed'))
         expect(delivered()).toEqual(ids.map(() => ['invoice.pdf']))
+    })
+
+    it('takes only the sends with files it has room for when it polls them apart, and sends the rest without deferring them', async () => {
+        bucket.answer = 'hold'
+        const deferredBefore = await metric('cdp_email_attachments_deferral_tokens_total')
+        const withFiles = await enqueue(transactionalSend([invoice.metadata]), transactionalSend([invoice.metadata]))
+        await startWorker({ ...roomFor(2), maxInFlight: 1 }, undefined, undefined, {
+            CDP_EMAIL_ATTACHMENTS_SEPARATE_POLL: true,
+        })
+        await waitForExpect(() => expect(bucket.heldRequests).toBeGreaterThan(0))
+
+        const [plain] = await enqueue(transactionalSend(null))
+        expect(await ended(plain)).toBe('completed')
+        const rows = await Promise.all(withFiles.map(jobRow))
+        expect(rows.map((row) => row.status).sort()).toEqual(['available', 'running'])
+
+        bucket.release()
+        expect(await Promise.all(withFiles.map((id) => ended(id, 20_000)))).toEqual(['completed', 'completed'])
+        expect(delivered()).toEqual([[], ['invoice.pdf'], ['invoice.pdf']])
+        expect(await metric('cdp_email_attachments_deferral_tokens_total')).toBe(deferredBefore)
     })
 })

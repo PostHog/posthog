@@ -1,3 +1,5 @@
+import { escapeLiteral } from 'pg'
+
 import { CYCLOTRON_COUNTER_MAX } from './types'
 
 const CLAIM_UPDATE = `UPDATE cyclotron_jobs
@@ -42,25 +44,37 @@ const priorityClassesCte = (queueName: string): string => `priority_classes AS (
 
 const PRIORITY_CLASSES_CTE = priorityClassesCte('$1')
 
-export const COUNT_WORK_SQL = `WITH RECURSIVE ${PRIORITY_CLASSES_CTE}
+// Each poll query selects due rows with one extra filter, so the email worker can leave sends with files
+// to the poll that takes only them.
+type RowFilter = (alias: string) => string
+
+const anyRow: RowFilter = () => ''
+// The fair dequeue hides the queue name from the planner, so the literal is what lets the due scan read
+// idx_cyclotron_jobs_email_plain_due instead of reading every due send with files and discarding it.
+const plainRow =
+    (queueName: string): RowFilter =>
+    (alias) =>
+        `AND ${alias}queue_name = ${escapeLiteral(queueName)} AND ${alias}file_bytes IS NULL`
+
+const countWorkSql = (only: RowFilter): string => `WITH RECURSIVE ${PRIORITY_CLASSES_CTE}
 SELECT COUNT(*)::int AS n FROM (
     SELECT 1 FROM priority_classes c
     CROSS JOIN LATERAL (
         SELECT 1 FROM cyclotron_jobs j
-        WHERE j.status = 'available' AND j.queue_name = $1 AND j.priority = c.priority AND j.scheduled <= NOW()
+        WHERE j.status = 'available' AND j.queue_name = $1 AND j.priority = c.priority AND j.scheduled <= NOW() ${only('j.')}
         ORDER BY j.scheduled ASC
         LIMIT $2
     ) due
     LIMIT $2
 ) sub`
 
-export const DEQUEUE_JOBS_SQL = `WITH RECURSIVE ${PRIORITY_CLASSES_CTE},
+const dequeueJobsSql = (only: RowFilter): string => `WITH RECURSIVE ${PRIORITY_CLASSES_CTE},
 available AS (
     SELECT due.id
     FROM (SELECT priority FROM priority_classes ORDER BY priority ASC) c
     CROSS JOIN LATERAL (
         SELECT j.id FROM cyclotron_jobs j
-        WHERE j.status = 'available' AND j.queue_name = $1 AND j.priority = c.priority AND j.scheduled <= NOW()
+        WHERE j.status = 'available' AND j.queue_name = $1 AND j.priority = c.priority AND j.scheduled <= NOW() ${only('j.')}
         ORDER BY j.scheduled ASC
         LIMIT $2
         FOR UPDATE SKIP LOCKED
@@ -117,15 +131,15 @@ CROSS JOIN LATERAL (
 WHERE due.count > 0
 GROUP BY c.queue_name`
 
-export const LEGACY_COUNT_WORK_SQL = `SELECT COUNT(*)::int AS n FROM (
+const legacyCountWorkSql = (only: RowFilter): string => `SELECT COUNT(*)::int AS n FROM (
     SELECT 1 FROM cyclotron_jobs
-    WHERE status = 'available' AND queue_name = $1 AND scheduled <= NOW()
+    WHERE status = 'available' AND queue_name = $1 AND scheduled <= NOW() ${only('')}
     LIMIT $2
 ) sub`
 
-export const LEGACY_DEQUEUE_JOBS_SQL = `WITH available AS (
+const legacyDequeueJobsSql = (only: RowFilter): string => `WITH available AS (
     SELECT id FROM cyclotron_jobs
-    WHERE status = 'available' AND queue_name = $1 AND scheduled <= NOW()
+    WHERE status = 'available' AND queue_name = $1 AND scheduled <= NOW() ${only('')}
     ORDER BY priority ASC, scheduled ASC
     LIMIT $2
     FOR UPDATE SKIP LOCKED
@@ -139,13 +153,13 @@ export const FAIR_DEQUEUE_CANDIDATE_CAP = 1000
 
 const OPAQUE_QUEUE_NAME = '(SELECT $1::text)'
 
-export const FAIR_DEQUEUE_JOBS_SQL = `WITH RECURSIVE ${priorityClassesCte(OPAQUE_QUEUE_NAME)},
+const fairDequeueJobsSql = (only: RowFilter): string => `WITH RECURSIVE ${priorityClassesCte(OPAQUE_QUEUE_NAME)},
 due AS MATERIALIZED (
     SELECT due.id, due.priority, due.dequeue_seq
     FROM (SELECT priority FROM priority_classes ORDER BY priority ASC) c
     CROSS JOIN LATERAL (
         SELECT j.id, j.priority, j.dequeue_seq FROM cyclotron_jobs j
-        WHERE j.status = 'available' AND j.queue_name = ${OPAQUE_QUEUE_NAME} AND j.priority = c.priority AND j.scheduled <= NOW()
+        WHERE j.status = 'available' AND j.queue_name = ${OPAQUE_QUEUE_NAME} AND j.priority = c.priority AND j.scheduled <= NOW() ${only('j.')}
         ORDER BY j.scheduled ASC
         LIMIT ${FAIR_DEQUEUE_CANDIDATE_CAP} + 1
     ) due
@@ -159,7 +173,7 @@ from_due AS (
     FROM (SELECT id, priority, dequeue_seq FROM due ORDER BY priority ASC, dequeue_seq ASC NULLS FIRST) d
     JOIN cyclotron_jobs j ON j.id = d.id
     WHERE (SELECT all_due_rows FROM complete)
-      AND j.status = 'available' AND j.queue_name = ${OPAQUE_QUEUE_NAME}
+      AND j.status = 'available' AND j.queue_name = ${OPAQUE_QUEUE_NAME} ${only('j.')}
     ORDER BY d.priority ASC, d.dequeue_seq ASC NULLS FIRST
     LIMIT $2
     FOR UPDATE OF j SKIP LOCKED
@@ -167,7 +181,7 @@ from_due AS (
 from_index AS (
     SELECT id FROM cyclotron_jobs
     WHERE NOT (SELECT all_due_rows FROM complete)
-      AND status = 'available' AND queue_name = $1 AND scheduled <= NOW()
+      AND status = 'available' AND queue_name = $1 AND scheduled <= NOW() ${only('')}
     ORDER BY priority ASC, dequeue_seq ASC NULLS FIRST
     LIMIT $2
     FOR UPDATE SKIP LOCKED
@@ -177,9 +191,50 @@ WHERE cyclotron_jobs.id = ANY(ARRAY(SELECT id FROM from_due UNION ALL SELECT id 
   AND cyclotron_jobs.scheduled <= NOW()
 ${CLAIM_RETURNING}`
 
-export const LEGACY_FAIR_DEQUEUE_JOBS_SQL = `WITH available AS (
+const legacyFairDequeueJobsSql = (only: RowFilter): string => `WITH available AS (
     SELECT id FROM cyclotron_jobs
-    WHERE status = 'available' AND queue_name = $1 AND scheduled <= NOW()
+    WHERE status = 'available' AND queue_name = $1 AND scheduled <= NOW() ${only('')}
+    ORDER BY priority ASC, dequeue_seq ASC NULLS FIRST
+    LIMIT $2
+    FOR UPDATE SKIP LOCKED
+)
+${CLAIM_UPDATE}
+FROM available
+WHERE cyclotron_jobs.id = available.id
+${CLAIM_RETURNING}`
+
+export type PollSql = {
+    countWork: string
+    dequeueJobs: string
+    fairDequeueJobs: string
+    legacyCountWork: string
+    legacyDequeueJobs: string
+    legacyFairDequeueJobs: string
+}
+
+const pollSql = (only: RowFilter): PollSql => ({
+    countWork: countWorkSql(only),
+    dequeueJobs: dequeueJobsSql(only),
+    fairDequeueJobs: fairDequeueJobsSql(only),
+    legacyCountWork: legacyCountWorkSql(only),
+    legacyDequeueJobs: legacyDequeueJobsSql(only),
+    legacyFairDequeueJobs: legacyFairDequeueJobsSql(only),
+})
+
+export const ANY_ROW_POLL_SQL = pollSql(anyRow)
+export const plainRowPollSql = (queueName: string): PollSql => pollSql(plainRow(queueName))
+
+// The poll for sends with files, in the fair order of the main poll. It reads
+// idx_cyclotron_jobs_email_files_fair_dequeue.
+const FILES_DUE = `status = 'available' AND queue_name = $1 AND file_bytes IS NOT NULL AND scheduled <= NOW()`
+
+export const COUNT_FILES_WORK_SQL = `SELECT COUNT(*)::int AS n FROM (
+    SELECT 1 FROM cyclotron_jobs WHERE ${FILES_DUE} LIMIT $2
+) sub`
+
+export const DEQUEUE_FILES_SQL = `WITH available AS (
+    SELECT id FROM cyclotron_jobs
+    WHERE ${FILES_DUE}
     ORDER BY priority ASC, dequeue_seq ASC NULLS FIRST
     LIMIT $2
     FOR UPDATE SKIP LOCKED

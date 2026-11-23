@@ -179,6 +179,15 @@ export class InFlightRegistry {
         private readonly heapUsedBytes: () => number = () => process.memoryUsage().heapUsed
     ) {}
 
+    public admitsFiles(): boolean {
+        return this.limits !== null
+    }
+
+    // How many more sends with files the cap lets start. Their memory is checked when each one starts.
+    public room(): number {
+        return this.limits ? Math.max(0, this.limits.maxInFlight - this.inFlight) : 0
+    }
+
     public tryStart<T>(
         fileBytes: number,
         send: () => Promise<T>

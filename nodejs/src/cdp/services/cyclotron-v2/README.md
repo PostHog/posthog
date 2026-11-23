@@ -59,6 +59,12 @@ Each dequeued job exposes an ack interface:
 - `cancel()` — mark canceled
 - `heartbeat()` — extend the lock to prevent the janitor from reclaiming the job
 
+With `sendsWithFiles` set, as the email worker does when `CDP_EMAIL_ATTACHMENTS_SEPARATE_POLL` is on, the worker runs a second poll.
+The main poll then skips rows with `file_bytes` set, and the second poll dequeues them in the same fair order, no more at a time than the worker has room for.
+A worker with no room spends no SES tokens on them, and a plain send never waits behind them.
+Each poll has its own email index, `idx_cyclotron_jobs_email_plain_due` and `idx_cyclotron_jobs_email_files_fair_dequeue`, so a backlog of one kind of send does not slow the poll for the other.
+Check that both indexes are valid (`pg_index.indisvalid`) before turning the gate on: an interrupted `CREATE INDEX CONCURRENTLY` leaves an invalid index that a retry with `IF NOT EXISTS` does not rebuild.
+
 Every release write (`ack`, `fail`, `reschedule`, `defer`, `cancel`) matches the row on `lock_id`, so a write from a worker that lost its claim changes nothing.
 With `CDP_CYCLOTRON_RELEASE_WRITE_RETRY` on, a release write that loses its Postgres connection runs once more on a fresh connection, within what is left of the heartbeat limit.
 Without the retry, a write whose connection drops before it commits leaves the job claimed until the janitor's stall reset, which then runs it a second time.

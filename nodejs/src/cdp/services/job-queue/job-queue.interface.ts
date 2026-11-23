@@ -3,7 +3,7 @@ import { ProducerMessage } from '~/common/kafka/producer'
 
 import { HealthCheckResult } from '../../../types'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
-import { CyclotronV2IdempotencyKey, CyclotronV2IdempotentClaim } from '../cyclotron-v2/types'
+import { CyclotronV2IdempotencyKey, CyclotronV2IdempotentClaim, CyclotronV2SendsWithFiles } from '../cyclotron-v2/types'
 import type { CrashGuard } from '../poison-batch/crash-guard'
 
 export type ConsumeBatchFn = (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
@@ -13,6 +13,8 @@ export type ConsumerOptions = Pick<KafkaConsumerConfig, 'fetchBatchSize' | 'maxB
     // A factory, because the guard keys its counts by the consumer group, which the queue names. produce goes
     // through the queue's own producer.
     crashGuard?: (consumer: { groupId: string; produce: (message: ProducerMessage) => Promise<void> }) => CrashGuard
+    // Only the Postgres queue reads this: its worker then polls the sends with files apart from plain sends.
+    sendsWithFiles?: CyclotronV2SendsWithFiles
 }
 
 /**

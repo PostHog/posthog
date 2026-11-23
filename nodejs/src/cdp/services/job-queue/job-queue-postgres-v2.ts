@@ -21,7 +21,7 @@ import {
 import { StateOpener, encodeJob, encodeStateColumns, v2JobToInvocation } from '../cyclotron-v2/job-codec'
 import { IDEMPOTENCY_CLAIM_LOCK_TIMEOUT_MS } from '../cyclotron-v2/manager'
 import { CyclotronV2IdempotencyKey, CyclotronV2IdempotentClaim, CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
-import { IdempotentInvocation, IdempotentJobQueue } from './job-queue.interface'
+import { ConsumerOptions, IdempotentInvocation, IdempotentJobQueue } from './job-queue.interface'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
 
 export { extractActionId, extractDistinctId, extractPersonId } from '../cyclotron-v2/job-codec'
@@ -139,7 +139,8 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
 
     public async startAsConsumer(
         queue: CyclotronJobQueueKind,
-        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
+        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>,
+        options: ConsumerOptions = {}
     ): Promise<void> {
         if (!this.config.CYCLOTRON_NODE_DATABASE_URL) {
             throw new Error('Cyclotron V2 database URL not set')
@@ -158,6 +159,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
             boundedFairDequeue: this.config.CDP_CYCLOTRON_BOUNDED_FAIR_DEQUEUE,
             releaseWriteRetry: this.config.CDP_CYCLOTRON_RELEASE_WRITE_RETRY,
             includeEmptyBatches: true,
+            sendsWithFiles: options.sendsWithFiles,
         })
 
         await this.worker.connect(async (jobs) => {

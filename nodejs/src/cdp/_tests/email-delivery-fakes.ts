@@ -9,7 +9,7 @@ import { EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
 import { CyclotronV2Worker, CyclotronV2WorkerConfig } from '~/cdp/services/cyclotron-v2'
 import { CyclotronV2IdempotentClaim } from '~/cdp/services/cyclotron-v2/types'
 import { CyclotronJobQueuePostgresV2 } from '~/cdp/services/job-queue/job-queue-postgres-v2'
-import { IdempotentInvocation } from '~/cdp/services/job-queue/job-queue.interface'
+import { ConsumerOptions, IdempotentInvocation } from '~/cdp/services/job-queue/job-queue.interface'
 import { AttachmentStore, buildAttachmentStore } from '~/cdp/services/messaging/attachment-store'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '~/cdp/types'
 
@@ -212,10 +212,13 @@ export class EmailQueueOfOneTest extends CyclotronJobQueuePostgresV2 {
 
     public override startAsConsumer(
         _queue: CyclotronJobQueueKind,
-        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
+        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>,
+        options?: ConsumerOptions
     ): Promise<void> {
-        return super.startAsConsumer(this.queueName as CyclotronJobQueueKind, (invocations) =>
-            consumeBatch(invocations.map((invocation) => ({ ...invocation, queue: 'email' })))
+        return super.startAsConsumer(
+            this.queueName as CyclotronJobQueueKind,
+            (invocations) => consumeBatch(invocations.map((invocation) => ({ ...invocation, queue: 'email' }))),
+            options
         )
     }
 

@@ -6,6 +6,7 @@ import { CyclotronV2BatchLimit, CyclotronV2RateLimitedWorker, CyclotronV2Worker 
 import { CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { CyclotronJobQueuePostgresV2 } from './job-queue-postgres-v2'
+import { ConsumerOptions } from './job-queue.interface'
 
 export interface RateLimitedQueueOptions {
     limiter: RateLimiterService
@@ -38,14 +39,15 @@ export class CyclotronJobQueueRateLimitedPostgresV2 extends CyclotronJobQueuePos
 
     public override async startAsConsumer(
         queue: CyclotronJobQueueKind,
-        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
+        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>,
+        options?: ConsumerOptions
     ): Promise<void> {
         // Fail-closed on startup: unreachable Valkey throws and lets k8s
         // restart the pod. Sending without the gate would risk SES reputation
         // damage, so we don't start the consumer until the limiter is healthy.
         await this.rateLimit.limiter.ping()
 
-        await super.startAsConsumer(queue, consumeBatch)
+        await super.startAsConsumer(queue, consumeBatch, options)
     }
 
     protected override createWorker(workerConfig: CyclotronV2WorkerConfig): CyclotronV2Worker {

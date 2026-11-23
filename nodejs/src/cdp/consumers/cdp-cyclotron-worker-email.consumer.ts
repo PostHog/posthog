@@ -6,7 +6,7 @@ import { logger } from '~/common/utils/logger'
 import { PluginsServerConfig } from '~/types'
 
 import { CONSUMER_STOP_DEADLINE_MS, reportResultWriteFailure } from '../services/job-queue/job-queue-postgres-v2'
-import { JobQueue } from '../services/job-queue/job-queue.interface'
+import { ConsumerOptions, JobQueue } from '../services/job-queue/job-queue.interface'
 import { LONGEST_WAIT_FOR_ROOM_MS } from '../services/messaging/attachment-horizon'
 import { DAY_MS } from '../services/messaging/attachment-store'
 import { ATTACHMENT_SEND_DEADLINE_MS } from '../services/messaging/email.service'
@@ -168,6 +168,16 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
         )
         const unchecked = invocations.filter((invocation) => !Object.hasOwn(checked, invocation.functionId))
         return { ...(await super.hogFlowsFor(unchecked)), ...checked }
+    }
+
+    protected override consumerOptions(): ConsumerOptions {
+        const options = super.consumerOptions()
+        // A worker that refuses files keeps them in its main poll, so it still defers each one and fails it once it
+        // waited too long, rather than leave it unpolled.
+        if (!this.config.CDP_EMAIL_ATTACHMENTS_SEPARATE_POLL || !this.sendsWithFiles.admitsFiles()) {
+            return options
+        }
+        return { ...options, sendsWithFiles: { room: () => this.sendsWithFiles.room() } }
     }
 
     protected override async queueInvocationResults(results: CyclotronJobInvocationResult[]): Promise<void> {

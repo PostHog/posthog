@@ -272,7 +272,12 @@ export type CyclotronV2WorkerConfig = {
     boundedPolls?: boolean
     ownershipReadTimeoutMs?: number
     boundedFairDequeue?: boolean
+    // With it, the main poll leaves rows with file_bytes set to a second poll, which dequeues at most
+    // room() of them at a time.
+    sendsWithFiles?: CyclotronV2SendsWithFiles
 }
+
+export type CyclotronV2SendsWithFiles = { room: () => number }
 
 export type CyclotronV2JanitorConfig = {
     pool: CyclotronV2PoolConfig

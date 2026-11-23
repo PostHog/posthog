@@ -5,20 +5,14 @@ import { v7 as uuidv7 } from 'uuid'
 
 import { logger } from '~/common/utils/logger'
 
-import {
-    COUNT_WORK_SQL,
-    DEQUEUE_JOBS_SQL,
-    FAIR_DEQUEUE_JOBS_SQL,
-    LEGACY_COUNT_WORK_SQL,
-    LEGACY_DEQUEUE_JOBS_SQL,
-    LEGACY_FAIR_DEQUEUE_JOBS_SQL,
-} from './due-rows-sql'
+import { ANY_ROW_POLL_SQL, COUNT_FILES_WORK_SQL, DEQUEUE_FILES_SQL, PollSql, plainRowPollSql } from './due-rows-sql'
 import { SqlRunner, allocateEmailDequeueSeqs, batchEmailDequeueSeqs, timeEnqueuePhase } from './manager'
 import { createCyclotronPool } from './pg-pool'
 import {
     CYCLOTRON_COUNTER_MAX,
     CYCLOTRON_TRANSITION_CHURN_RATE_PER_HOUR,
     CYCLOTRON_TRANSITION_CHURN_THRESHOLD,
+    CyclotronV2BatchLimit,
     CyclotronV2BulkCreateAndCheckInInput,
     CyclotronV2DeferOptions,
     CyclotronV2DequeuedJob,
@@ -26,6 +20,7 @@ import {
     CyclotronV2JobInitSchema,
     CyclotronV2RescheduleOptions,
     CyclotronV2RescheduleOptionsSchema,
+    CyclotronV2SendsWithFiles,
     CyclotronV2WorkerConfig,
 } from './types'
 
@@ -333,7 +328,7 @@ export class CyclotronV2Worker {
     protected readonly pollDelayMs: number
     private readonly pollDelayMaxMs: number
     private nextPollDelayMs: number
-    private wakeFromPollSleep: (() => void) | null = null
+    private readonly wakeFromPollSleep = new Set<() => void>()
     private readonly heartbeatTimeoutMs: number
     private readonly releaseWriteHeartbeatLimitMs: number
     private readonly releaseWriteRetry: boolean
@@ -344,6 +339,8 @@ export class CyclotronV2Worker {
     private readonly boundedFairDequeue: boolean
     private readonly assignEmailDequeueSeq: (teamId: number) => Promise<string>
     private readonly releaseRetrySlots: ReleaseRetrySlots
+    private readonly pollSql: PollSql
+    protected readonly sendsWithFiles: CyclotronV2SendsWithFiles | undefined
 
     constructor(private config: CyclotronV2WorkerConfig) {
         this.pool = createCyclotronPool('worker', {
@@ -376,6 +373,8 @@ export class CyclotronV2Worker {
         // CyclotronV2Manager), so deriving this from the queue name keeps the
         // worker's ORDER BY in lockstep with where the sort key actually exists.
         this.fairDequeue = config.queueName === 'email'
+        this.sendsWithFiles = config.sendsWithFiles
+        this.pollSql = config.sendsWithFiles ? plainRowPollSql(config.queueName) : ANY_ROW_POLL_SQL
     }
 
     private assertBackOffFitsHeartbeat(): void {
@@ -392,7 +391,46 @@ export class CyclotronV2Worker {
         client.release()
 
         this.isConsuming = true
-        this.consumerLoopPromise = this.runConsumerLoop(processBatch)
+        this.consumerLoopPromise = Promise.all([
+            this.runConsumerLoop(processBatch),
+            this.sendsWithFiles ? this.runFilesLoop(this.sendsWithFiles, processBatch) : undefined,
+        ]).then(() => undefined)
+    }
+
+    private async runFilesLoop(
+        sendsWithFiles: CyclotronV2SendsWithFiles,
+        processBatch: (jobs: CyclotronV2DequeuedJob[]) => Promise<void>
+    ): Promise<void> {
+        while (this.isConsuming) {
+            try {
+                const decision = await this.filesBatchLimit(sendsWithFiles.room())
+                const rows = decision.limit > 0 ? await this.dequeueFiles(decision.limit) : []
+                if (rows.length === 0) {
+                    await this.sleepUntilStopped(decision.sleepMs ?? this.pollDelayMaxMs)
+                    continue
+                }
+                await processBatch(rows.map((row) => this.wrapJob(row)))
+            } catch (err) {
+                consumerLoopErrorsCounter.labels({ queue: this.queueName }).inc()
+                logger.error('CyclotronV2Worker files loop error', { error: String(err) })
+                await this.sleepUntilStopped(this.pollDelayMaxMs)
+            }
+        }
+    }
+
+    // How many sends with files the next files poll dequeues, given room for that many.
+    protected filesBatchLimit(room: number): Promise<CyclotronV2BatchLimit> {
+        return Promise.resolve({ limit: room })
+    }
+
+    protected async countFilesWork(limit: number): Promise<number> {
+        const result = await this.pool.query<{ n: number }>(COUNT_FILES_WORK_SQL, [this.config.queueName, limit])
+        return result.rows[0].n
+    }
+
+    private async dequeueFiles(limit: number): Promise<RawJobRow[]> {
+        const result = await this.pool.query<RawJobRow>(DEQUEUE_FILES_SQL, [this.config.queueName, limit, uuidv7()])
+        return result.rows
     }
 
     protected async runConsumerLoop(processBatch: (jobs: CyclotronV2DequeuedJob[]) => Promise<void>): Promise<void> {
@@ -445,11 +483,11 @@ export class CyclotronV2Worker {
         return new Promise((resolve) => {
             const wake = (): void => {
                 clearTimeout(timer)
-                this.wakeFromPollSleep = null
+                this.wakeFromPollSleep.delete(wake)
                 resolve()
             }
             const timer = setTimeout(wake, ms)
-            this.wakeFromPollSleep = wake
+            this.wakeFromPollSleep.add(wake)
         })
     }
 
@@ -471,7 +509,7 @@ export class CyclotronV2Worker {
      */
     protected async countWork(limit: number): Promise<number> {
         const result = await this.pool.query<{ n: number }>(
-            this.boundedPolls ? COUNT_WORK_SQL : LEGACY_COUNT_WORK_SQL,
+            this.boundedPolls ? this.pollSql.countWork : this.pollSql.legacyCountWork,
             [this.config.queueName, limit]
         )
         return result.rows[0].n
@@ -480,7 +518,7 @@ export class CyclotronV2Worker {
     protected async dequeueJobs(limit: number = this.batchMaxSize): Promise<RawJobRow[]> {
         const lockId = uuidv7()
         const result = await this.pool.query<RawJobRow>(
-            this.boundedPolls ? DEQUEUE_JOBS_SQL : LEGACY_DEQUEUE_JOBS_SQL,
+            this.boundedPolls ? this.pollSql.dequeueJobs : this.pollSql.legacyDequeueJobs,
             [this.config.queueName, limit, lockId]
         )
         // UPDATE...RETURNING doesn't preserve the CTE's ORDER BY,
@@ -505,7 +543,7 @@ export class CyclotronV2Worker {
     protected async fairDequeueJobs(limit: number = this.batchMaxSize): Promise<RawJobRow[]> {
         const lockId = uuidv7()
         const result = await this.pool.query<RawJobRow>(
-            this.boundedFairDequeue ? FAIR_DEQUEUE_JOBS_SQL : LEGACY_FAIR_DEQUEUE_JOBS_SQL,
+            this.boundedFairDequeue ? this.pollSql.fairDequeueJobs : this.pollSql.legacyFairDequeueJobs,
             [this.config.queueName, limit, lockId]
         )
         // Within-batch order is undefined (UPDATE...RETURNING doesn't preserve
@@ -898,7 +936,7 @@ export class CyclotronV2Worker {
 
     async stopConsuming(): Promise<void> {
         this.isConsuming = false
-        this.wakeFromPollSleep?.()
+        this.wakeFromPollSleep.forEach((wake) => wake())
         if (this.consumerLoopPromise) {
             await this.consumerLoopPromise
             this.consumerLoopPromise = null
