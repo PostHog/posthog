@@ -225,10 +225,10 @@ export function listRowMute(row: PlatformAlertListRow, now: Date): PlatformAlert
     if (until) {
         return { until }
     }
-    const count =
-        row.kind === 'group'
-            ? 0
-            : row.configuration.alerts.filter((alert) => activeSnooze(alert.snooze_until, now)).length
+    if (row.kind === 'group') {
+        return null
+    }
+    const count = row.configuration.alerts.filter((alert) => activeSnooze(alert.snooze_until, now)).length
     return count ? { until: null, count } : null
 }
 
