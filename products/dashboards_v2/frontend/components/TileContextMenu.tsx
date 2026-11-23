@@ -105,7 +105,7 @@ export function useContentTileActions(id: string, widget: ContentWidget): TileAc
 
 export function useSectionActions(id: string, collapsed: boolean, onStartRename: () => void): TileAction[] {
     const { disabledReasonFor } = useValues(dashboardV2Logic)
-    const { applyDashboardEdit } = useActions(dashboardV2Logic)
+    const { applyDashboardEdit, setSectionFolded } = useActions(dashboardV2Logic)
     return [
         {
             key: 'rename',
@@ -118,8 +118,8 @@ export function useSectionActions(id: string, collapsed: boolean, onStartRename:
             key: 'toggle',
             label: collapsed ? 'Expand' : 'Collapse',
             dataAttr: 'dashboard-v2-section-menu-toggle',
-            disabledReason: disabledReasonFor('updateSection'),
-            onSelect: () => applyDashboardEdit({ edit: 'updateSection', id, patch: { collapsed: !collapsed } }),
+            disabledReason: null,
+            onSelect: () => setSectionFolded(id, !collapsed),
         },
         {
             key: 'remove',
