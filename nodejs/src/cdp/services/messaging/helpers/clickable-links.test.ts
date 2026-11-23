@@ -1,4 +1,11 @@
-import { BODY_MAX_LENGTH, TREE_MAX_DEPTH, TREE_MAX_ELEMENTS, TREE_MAX_SCANS, clickableHrefs } from './clickable-links'
+import {
+    BODY_MAX_LENGTH,
+    TREE_MAX_DEPTH,
+    TREE_MAX_ELEMENTS,
+    TREE_MAX_SCANS,
+    clickableHrefs,
+    preferencesTokensInBody,
+} from './clickable-links'
 
 const manyAttributes = Array.from({ length: 1_000 }, (_, index) => `data-${index}="x"`).join(' ')
 
@@ -128,6 +135,13 @@ describe('clickableHrefs', () => {
             '<a href="https://example.com/bye"></a><frameset></frameset>',
             [],
         ],
+        [
+            'an anchor reconstructed across repeated blocks after an SVG drawing',
+            '<svg></svg><div><a href="https://example.com/a"></div>' +
+                '<div>x</div>'.repeat(100) +
+                '<a href="https://example.com/bye">Unsubscribe</a>',
+            ['https://example.com/bye', 'https://example.com/a'],
+        ],
     ])('returns the hrefs a reader can click in %s', (_name, html, hrefs) => {
         expect(clickableHrefs(html)).toEqual(hrefs)
     })
@@ -179,5 +193,16 @@ describe('clickableHrefs', () => {
         expect(
             clickableHrefs(`<div ${manyAttributes}></div><a href="https://example.com/bye">Unsubscribe</a>`)
         ).toEqual([])
+    })
+})
+
+describe('preferencesTokensInBody', () => {
+    it('extracts the preferences token without re-parsing reconstructed copies of a long href', () => {
+        const longHref = `https://example.com/${'a'.repeat(1_000_000)}`
+        const html =
+            `<svg></svg><div><a href="${longHref}"></div>` +
+            '<div>x</div>'.repeat(20_000) +
+            '<a href="https://app.posthog.com/messaging-preferences/tok-1/">Unsubscribe</a>'
+        expect(preferencesTokensInBody({ html }, 'https://app.posthog.com')).toEqual(['tok-1'])
     })
 })

@@ -8,6 +8,7 @@ import {
 } from '~/cdp/schema/cyclotron'
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 import { SHA256_HEX } from '~/cdp/services/messaging/attachment-store'
+import { decodeLiquidTags } from '~/cdp/utils/liquid'
 
 import { UNSUBSCRIBE_PLACEHOLDER, clickableHrefs, isTooLargeToCheck } from '../messaging/helpers/clickable-links'
 
@@ -249,12 +250,17 @@ const isMarketingEmailStep = (action: HogFlowAction): action is EmailStep =>
 export const marketingEmailStep = (hogFlow: HogFlow, category: SendCategory | undefined): EmailStep | undefined =>
     category?.type === 'marketing' ? hogFlow.actions.find(isMarketingEmailStep) : undefined
 
-const LIQUID_UNSUBSCRIBE_PLACEHOLDER = /\{\{-?\s*unsubscribe_url(_one_click)?\s*-?\}\}|\{%-?\s*unsubscribe_url\s*-?%\}/g
+const LIQUID_UNSUBSCRIBE_PLACEHOLDER =
+    /\{\{-?\s*unsubscribe_url(?:_one_click)?\s*(?:-?|\|\s*[a-zA-Z_][^{}]*)\}\}|\{%-?\s*unsubscribe_url\s*-?%\}/
 
-const hasUnsubscribeLink = ({ html, text }: { html?: string; text?: string }, placeholder: RegExp): boolean =>
+const hasUnsubscribeLink = (
+    { html, text }: { html?: string; text?: string },
+    placeholder: RegExp,
+    normalize: (value: string) => string = (value) => value
+): boolean =>
     html
-        ? clickableHrefs(html).some((href) => href.search(placeholder) !== -1)
-        : (text ?? '').search(placeholder) !== -1
+        ? clickableHrefs(html).some((href) => normalize(href).search(placeholder) !== -1)
+        : normalize(text ?? '').search(placeholder) !== -1
 
 const hasAddresses = (value: unknown): boolean =>
     Array.isArray(value) ? value.length > 0 : typeof value === 'string' && value.trim() !== ''
@@ -291,7 +297,7 @@ export const marketingSendRefusal = (
     }
     const linked = send?.content
         ? hasUnsubscribeLink(send.content, UNSUBSCRIBE_PLACEHOLDER)
-        : hasUnsubscribeLink(email, LIQUID_UNSUBSCRIBE_PLACEHOLDER)
+        : hasUnsubscribeLink(email, LIQUID_UNSUBSCRIBE_PLACEHOLDER, decodeLiquidTags)
     return linked ? marketingCopiesRefusal(action, send, category) : 'unsubscribe_link_required'
 }
 

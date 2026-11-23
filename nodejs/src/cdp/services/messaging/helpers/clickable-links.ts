@@ -55,8 +55,8 @@ class BoundedParser extends Parser<DefaultTreeAdapterMap> {
 
 const ignore = (): void => {}
 
-const scannedHrefs = (body: string): string[] | undefined => {
-    const hrefs: string[] = []
+const scannedHrefs = (body: string): Set<string> | undefined => {
+    const hrefs = new Set<string>()
     let followed = true
     const tokenizer: Tokenizer = new BoundedTokenizer(
         {},
@@ -70,7 +70,7 @@ const scannedHrefs = (body: string): string[] | undefined => {
                 tokenizer.state = TEXT_MODES.get(tag.tagName) ?? tokenizer.state
                 const href = tag.tagName === 'a' ? tag.attrs.find(({ name }) => name === 'href') : undefined
                 if (href) {
-                    hrefs.push(href.value)
+                    hrefs.add(href.value)
                 }
             },
             onEndTag: ignore,
@@ -86,7 +86,7 @@ const scannedHrefs = (body: string): string[] | undefined => {
         tokenizer.write(body, true)
     } catch (error) {
         if (error instanceof TooComplex) {
-            return []
+            return new Set()
         }
         throw error
     }
@@ -148,9 +148,9 @@ const boundedTree = (body: string): ParentNode | undefined => {
     }
 }
 
-const treeHrefs = (body: string): string[] => {
+const treeHrefs = (body: string): Set<string> => {
     const document = boundedTree(body)
-    const hrefs: string[] = []
+    const hrefs = new Set<string>()
     const parents: ParentNode[] = document ? [document] : []
     for (let parent = parents.pop(); parent; parent = parents.pop()) {
         for (const child of parent.childNodes) {
@@ -163,7 +163,7 @@ const treeHrefs = (body: string): string[] => {
                       child.attrs.find(({ name }) => name === 'href'))
                     : undefined
             if (href) {
-                hrefs.push(href.value)
+                hrefs.add(href.value)
             }
             parents.push(child)
         }
@@ -175,7 +175,7 @@ export const isTooLargeToCheck = ({ html, text }: { html?: string; text?: string
     (html?.length ?? 0) > BODY_MAX_LENGTH || (text?.length ?? 0) > BODY_MAX_LENGTH
 
 export const clickableHrefs = (body: string): string[] =>
-    body.length > BODY_MAX_LENGTH ? [] : (scannedHrefs(body) ?? treeHrefs(body))
+    body.length > BODY_MAX_LENGTH ? [] : [...(scannedHrefs(body) ?? treeHrefs(body))]
 
 export const filledUnsubscribeLength = (body: string | undefined, url: string | undefined): number => {
     if (!body || !url) {

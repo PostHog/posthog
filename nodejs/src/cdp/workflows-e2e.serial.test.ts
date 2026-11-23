@@ -4031,6 +4031,26 @@ describe('Workflows E2E (email queue)', () => {
                 payload: codeSendIn(newsletter, { content: undefined }),
             },
             {
+                name: 'a code send in a marketing category without its own content whose email step encodes spaces in the link href',
+                kind: 'code',
+                stepEmail: {
+                    subject: 'News',
+                    html: '<a href="{{%20unsubscribe_url%20}}">Unsubscribe</a>',
+                    text: '',
+                },
+                payload: codeSendIn(newsletter, { content: undefined }),
+            },
+            {
+                name: 'a code send in a marketing category without its own content whose email step filters the link with escape',
+                kind: 'code',
+                stepEmail: {
+                    subject: 'News',
+                    html: '<a href="{{ unsubscribe_url | escape }}">Unsubscribe</a>',
+                    text: '',
+                },
+                payload: codeSendIn(newsletter, { content: undefined }),
+            },
+            {
                 name: 'a code send in a marketing category to a recipient who opted out of another one',
                 kind: 'code',
                 payload: codeSendIn(newsletter),
@@ -4047,7 +4067,8 @@ describe('Workflows E2E (email queue)', () => {
 
             const delivered = await emailsTo(to)
             expect(delivered).toHaveLength(1)
-            expect(await preferencesLinkOwners(delivered[0].text)).toEqual([to])
+            const body = delivered[0].html ? await clickThroughLinks(delivered[0].html) : delivered[0].text
+            expect(await preferencesLinkOwners(body)).toEqual([to])
         })
 
         it.each([
@@ -4116,37 +4137,61 @@ describe('Workflows E2E (email queue)', () => {
             const flow = await insertHogFlow(hub.postgres, sendFlow('code', step))
             const to = `reader-${new UUIDT().toString()}@example.com`
 
-            const res = await post('code', flow, {
-                to,
-                distinct_id: 'reader',
-                ...(categoryOutsideSend
-                    ? { send: codeSend({ tracking: { captureEngagement: true } }), message_category: category }
-                    : codeSendIn(category, { tracking: { captureEngagement: true } })),
-                ...(scheduled && { scheduled_at: tomorrow() }),
+            const capturedEvents: Array<{ event?: string; properties?: Record<string, unknown> }> = []
+            const previousInternalFetch = mockInternalFetch.getMockImplementation()
+            mockInternalFetch.mockImplementation(async (url, options) => {
+                if (typeof options?.body === 'string') {
+                    capturedEvents.push(parseJSON(options.body))
+                }
+                return previousInternalFetch
+                    ? previousInternalFetch(url, options)
+                    : {
+                          status: 200,
+                          headers: {},
+                          json: () => Promise.resolve({}),
+                          text: () => Promise.resolve(''),
+                          dump: () => Promise.resolve(),
+                      }
             })
-            expect(res.status).toEqual(202)
-            await optOut(to, optedOutOf)
-            if ('triggerChanged' in row) {
-                await moveTriggerOffApi(flow)
-            }
-            if (scheduled) {
-                await sendNow(res.body.invocation_id)
-            }
-            await deliver(createCdpConsumerDeps(hub, kafkaProducer))
+            try {
+                const res = await post('code', flow, {
+                    to,
+                    distinct_id: 'reader',
+                    ...(categoryOutsideSend
+                        ? { send: codeSend({ tracking: { captureEngagement: true } }), message_category: category }
+                        : codeSendIn(category, { tracking: { captureEngagement: true } })),
+                    ...(scheduled && { scheduled_at: tomorrow() }),
+                })
+                expect(res.status).toEqual(202)
+                await optOut(to, optedOutOf)
+                if ('triggerChanged' in row) {
+                    await moveTriggerOffApi(flow)
+                }
+                if (scheduled) {
+                    await sendNow(res.body.invocation_id)
+                }
+                await deliver(createCdpConsumerDeps(hub, kafkaProducer))
 
-            expect(await emailsTo(to)).toHaveLength(sent ? 1 : 0)
-            if (!sent) {
-                await expectStoredStatus(res.body.invocation_id, { status: 'failed', reason: 'recipient_opted_out' })
-                return
+                expect(await emailsTo(to)).toHaveLength(sent ? 1 : 0)
+                if (!sent) {
+                    await expectStoredStatus(res.body.invocation_id, {
+                        status: 'failed',
+                        reason: 'recipient_opted_out',
+                    })
+                    return
+                }
+                await waitForExpect(() => {
+                    expect(
+                        capturedEvents
+                            .filter(({ event }) => event === '$workflows_email_sent')
+                            .map(({ properties }) => [properties?.$email_to, properties?.$email_transactional])
+                    ).toEqual([[to, categoryOutsideSend || category.type !== 'marketing']])
+                }, 15000)
+            } finally {
+                if (previousInternalFetch) {
+                    mockInternalFetch.mockImplementation(previousInternalFetch)
+                }
             }
-            await waitForExpect(() => {
-                expect(
-                    mockInternalFetch.mock.calls
-                        .map(([, options]) => parseJSON((options as { body: string }).body))
-                        .filter(({ event }) => event === '$workflows_email_sent')
-                        .map(({ properties }) => [properties.$email_to, properties.$email_transactional])
-                ).toEqual([[to, categoryOutsideSend || category.type !== 'marketing']])
-            }, 15000)
         })
 
         it('skips a marketing code send whose recipient opts out while it waits for its sending rate limit', async () => {

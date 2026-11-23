@@ -133,7 +133,7 @@ const decodeEncodedSpaces = (tag: string): string => {
 // We need to decode these but _only_ for the liquid elements i.e. content within {{ }} or {% %}
 // This is a single forward pass: a regex with a lazy `.*?` rescans to the end of the line for every
 // unmatched opener, which is quadratic on tenant-controlled input.
-const decodeLiquidTags = (template: string): string => {
+export const decodeLiquidTags = (template: string): string => {
     let out = ''
     let cursor = 0
     const exhausted = new Set<string>()
