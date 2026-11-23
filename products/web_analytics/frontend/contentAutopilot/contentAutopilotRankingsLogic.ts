@@ -8,6 +8,7 @@ import type { AEOPromptSetRankingsApi } from 'products/web_analytics/frontend/ge
 import type { BrandedSegmentEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { aiVisibilityCompetitorReviewLogic } from './aiVisibilityCompetitorReviewLogic'
+import type { CompetitorDecision } from './aiVisibilityCompetitorReviewLogic'
 import { type AiVisibilityFilters, filtersToQueryParams } from './aiVisibilityFilters'
 import type { AiVisibilityFilterTab } from './aiVisibilityFilters'
 import { contentAutopilotFiltersLogic } from './contentAutopilotFiltersLogic'
@@ -28,10 +29,10 @@ export interface contentAutopilotRankingsLogicValues {
 export interface contentAutopilotRankingsLogicActions {
     reviewCandidateSuccess: (
         brandId: string,
-        decision: import('./aiVisibilityCompetitorReviewLogic').CompetitorDecision
+        decision: CompetitorDecision
     ) => {
         brandId: string
-        decision: import('./aiVisibilityCompetitorReviewLogic').CompetitorDecision
+        decision: CompetitorDecision
     } // aiVisibilityCompetitorReviewLogic
     applyUrlFilters: (filters: Partial<AiVisibilityFilters>) => {
         filters: Partial<AiVisibilityFilters>
