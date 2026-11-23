@@ -231,6 +231,11 @@ export function listRowMute(row: PlatformAlertListRow, now: Date): PlatformAlert
     return count ? { kind: 'groupsSnoozed', count } : null
 }
 
+// The API refuses a snooze or an edit when the alert's source product keeps its own row for it.
+export function canChangeFromList(configuration: PlatformAlertConfigurationApi): boolean {
+    return configuration.legacy_configuration_id === null
+}
+
 export function describeOverflow(configuration: PlatformAlertConfigurationApi): string | null {
     const count = configuration.overflowed_groups
     if (count <= 0) {

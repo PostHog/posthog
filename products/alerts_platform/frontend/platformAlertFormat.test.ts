@@ -15,6 +15,7 @@ import {
     describeGroup,
     describeInterval,
     describeOverflow,
+    canChangeFromList,
     describeSchedule,
     listRowMute,
     groupLabels,
@@ -163,6 +164,13 @@ describe('platformAlertFormat', () => {
                 ? { kind: 'alert', configuration }
                 : { kind: 'group', configuration, group: alerts[groupIndex] }
         expect(listRowMute(row, new Date('2026-10-05T12:00:00Z'))).toEqual(expected)
+    })
+
+    test.each<[string, string | null, boolean]>([
+        ['an alert with no source row', null, true],
+        ['an alert its source product keeps', '0192a5b0-0000-7000-8000-000000000001', false],
+    ])('canChangeFromList: %s', (_, legacy_configuration_id, expected) => {
+        expect(canChangeFromList(makeConfiguration({ legacy_configuration_id }))).toEqual(expected)
     })
 
     test.each<[string, Partial<PlatformAlertConfigurationApi>, PlatformAlertStateCount[]]>([
