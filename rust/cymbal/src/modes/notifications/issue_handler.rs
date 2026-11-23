@@ -1,5 +1,7 @@
 use common_temporal::StartWorkflowOutcome;
-use tracing::error;
+use std::time::Duration;
+
+use tracing::{error, warn};
 
 use crate::core::{
     error::UnhandledError,
@@ -56,20 +58,39 @@ pub async fn handle_issue_reopened(
     Ok(())
 }
 
+const RECORD_RETRY_BUDGET: Duration = Duration::from_secs(30);
+
 pub async fn handle_issue_spiking(
     context: &NotificationsContext,
     notification: IssueSpiking,
 ) -> Result<(), UnhandledError> {
     if let Some(writer) = &context.spike_change_writer {
-        if let Err(error) = writer.record(&notification).await {
-            error!(
-                team_id = notification.meta.team_id,
-                notification_id = %notification.meta.notification_id,
-                change_id = ?notification.change_id,
-                error = %error,
-                "Failed to record spiking change"
-            );
-            return Err(error);
+        // Absorb a database blip here: an error restarts the consumer, which pauses every lifecycle
+        // notification behind this one. The budget stays under the pod's shutdown grace period.
+        let give_up_at = tokio::time::Instant::now() + RECORD_RETRY_BUDGET;
+        let mut delay = Duration::from_millis(250);
+        loop {
+            match writer.record(&notification).await {
+                Ok(()) => break,
+                Err(error) if tokio::time::Instant::now() + delay < give_up_at => {
+                    warn!(
+                        notification_id = %notification.meta.notification_id,
+                        error = %error,
+                        "Retrying spiking change"
+                    );
+                    tokio::time::sleep(delay).await;
+                    delay = (delay * 2).min(Duration::from_secs(5));
+                }
+                Err(error) => {
+                    error!(
+                        team_id = notification.meta.team_id,
+                        notification_id = %notification.meta.notification_id,
+                        error = %error,
+                        "Failed to record spiking change"
+                    );
+                    return Err(error);
+                }
+            }
         }
     }
     context

@@ -2,7 +2,8 @@ use std::time::Duration;
 
 use common_types::format::parse_datetime_assuming_utc;
 use sqlx::{Acquire, PgPool};
-use tracing::warn;
+use tracing::debug;
+use uuid::Uuid;
 
 use crate::{
     core::{config::build_pg_pool, types::notification::IssueSpiking},
@@ -17,6 +18,11 @@ use crate::{
 };
 
 const RECORD_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Stable across Kafka redelivery, and different from the notification id Temporal uses as the workflow id.
+pub fn spike_change_id(notification_id: &Uuid) -> Uuid {
+    Uuid::new_v5(notification_id, b"spiking")
+}
 
 #[derive(Clone)]
 pub struct SpikeChangeWriter {
@@ -49,16 +55,16 @@ impl SpikeChangeWriter {
     }
 
     pub async fn record(&self, notification: &IssueSpiking) -> Result<(), UnhandledError> {
-        let Some(change_id) = notification.change_id.filter(|id| !id.is_nil()) else {
-            return Ok(());
-        };
-        let Ok(timestamp) = parse_datetime_assuming_utc(&notification.event_timestamp) else {
-            warn!(
-                notification_id = %notification.meta.notification_id,
-                "Skipping spiking change with an unparseable event timestamp"
-            );
-            return Ok(());
-        };
+        let change_id = spike_change_id(&notification.meta.notification_id);
+        // Same rule as the linking stage: a bad client timestamp is SDK data quality, not a reason to drop the row.
+        let timestamp =
+            parse_datetime_assuming_utc(&notification.event_timestamp).unwrap_or_else(|e| {
+                debug!(
+                    notification_id = %notification.meta.notification_id,
+                    "Unparseable event timestamp, using current time: {e:?}"
+                );
+                chrono::Utc::now()
+            });
         let deadline = tokio::time::Instant::now() + self.timeout;
         let timeout_error =
             || UnhandledError::Other("Spiking change recording timed out".to_string());
@@ -137,7 +143,6 @@ mod tests {
             .await
             .unwrap();
         IssueSpiking {
-            change_id: Some(Uuid::now_v7()),
             meta: NotificationMeta {
                 notification_id: Uuid::now_v7(),
                 team_id: issue.team_id,
@@ -206,7 +211,7 @@ mod tests {
 
     #[sqlx::test(migrations = "./tests/test_migrations")]
     async fn records_current_snapshot_once_across_notification_replays(db: PgPool) {
-        let mut notification = notification(&db).await;
+        let notification = notification(&db).await;
         let writer = SpikeChangeWriter {
             pool: db.clone(),
             timeout: Duration::from_secs(10),
@@ -230,8 +235,6 @@ mod tests {
         assert_eq!(before, 0);
 
         writer.record(&notification).await.unwrap();
-        notification.event_uuid = Uuid::now_v7();
-        notification.meta.notification_id = Uuid::now_v7();
         writer.record(&notification).await.unwrap();
         let rows: Vec<(Uuid, String, serde_json::Value, serde_json::Value, String)> =
             sqlx::query_as(
@@ -241,7 +244,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].0, notification.change_id.unwrap());
+        assert_eq!(
+            rows[0].0,
+            spike_change_id(&notification.meta.notification_id)
+        );
         assert_eq!(rows[0].1, "spiking");
         assert_eq!(
             rows[0].2,
@@ -317,27 +323,24 @@ mod tests {
             .fetch_one(&db)
             .await
             .unwrap();
-        assert_eq!(row, notification.change_id.unwrap());
+        assert_eq!(row, spike_change_id(&notification.meta.notification_id));
         pool.close().await;
     }
 
     #[sqlx::test(migrations = "./tests/test_migrations")]
-    async fn legacy_and_invalid_notifications_do_not_block_the_partition(db: PgPool) {
+    async fn an_unparseable_timestamp_still_records_the_spike(db: PgPool) {
         let mut notification = notification(&db).await;
-        let mut legacy = notification.clone();
-        legacy.change_id = None;
+        notification.event_timestamp = "not a timestamp".to_string();
         let writer = SpikeChangeWriter {
             pool: db.clone(),
             timeout: Duration::from_secs(10),
         };
-        writer.record(&legacy).await.unwrap();
-        notification.event_timestamp = "not a timestamp".to_string();
         writer.record(&notification).await.unwrap();
         let count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM posthog_errortrackingissuechange")
                 .fetch_one(&db)
                 .await
                 .unwrap();
-        assert_eq!(count, 0);
+        assert_eq!(count, 1);
     }
 }

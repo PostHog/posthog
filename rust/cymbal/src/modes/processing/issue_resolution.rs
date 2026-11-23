@@ -652,7 +652,6 @@ pub async fn send_issue_reopened_notification(
 pub async fn send_issue_spiking_notification(
     context: &AppContext,
     spike: &SpikingIssue,
-    change_id: Option<Uuid>,
 ) -> Result<(), UnhandledError> {
     let issue = &spike.issue;
     store_error_tracking_event_properties(
@@ -677,7 +676,6 @@ pub async fn send_issue_spiking_notification(
         context,
         IngestionNotification::IssueSpiking(IssueSpiking {
             meta: notification_meta(issue),
-            change_id,
             issue: issue_notification_context(issue, spike.props.clone()),
             event_uuid: spike.event_uuid,
             event_timestamp: spike.event_timestamp.clone(),
