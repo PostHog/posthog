@@ -19,14 +19,20 @@ export interface SheetDrag {
  * `scrollGesture` is a `Gesture.Native()` wrapping a scroll view inside the sheet. A drag that starts on that view
  * scrolls it, and the sheet follows only drags that start elsewhere, such as on the grabber or a header.
  */
-export function useSheetDrag(visible: boolean, onClose: () => void, scrollGesture?: NativeGesture): SheetDrag {
+export function useSheetDrag(
+    visible: boolean,
+    onClose: () => void,
+    scrollGesture?: NativeGesture,
+    dragResetKey?: string | null
+): SheetDrag {
     const drag = useSharedValue(0)
 
+    // biome-ignore lint/correctness/useExhaustiveDependencies: changing the page resets the drag offset.
     useEffect(() => {
         if (visible) {
             drag.value = 0
         }
-    }, [visible, drag])
+    }, [visible, drag, dragResetKey])
 
     const pan = Gesture.Pan()
         .runOnJS(true)
