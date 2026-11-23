@@ -9612,14 +9612,14 @@ Note: Parsed the official OpenAPI 3.0.3 file linked from the docs site and liste
 
 ## Mem0 — gaps
 
-Today (6): `entities`, `events`, `memories`, `memory_history`, `organizations`, `projects`
+Today (7): `entities`, `events`, `memories`, `memory_history`, `organization_members`, `organizations`, `projects`
 
 Diffed against: <https://docs.mem0.ai/openapi.json>
 
 - [x] `GET /v1/memories/{memory_id}/history/` — Per-memory state transition history - how a memory was updated over time (high). Added as `memory_history` (fan-out over `memories`).
 - ~~`GET /v1/stats/`~~ — skipped: it returns one unkeyed, untimestamped object of running totals, so a table of it holds a single row whose meaning depends on when the sync ran. The memory, entity and add/search counts come from queries over `memories`, `entities` and `events`.
 - [x] `GET /api/v1/orgs/organizations/{org_id}/projects/` — Lookup table resolving the project scope that memories and events belong to (medium). Added as `projects` (fan-out over `organizations`).
-- [ ] `GET /api/v1/orgs/organizations/{org_id}/members/` — Org membership rows for attributing memory activity to people (low)
+- [x] `GET /api/v1/orgs/organizations/{org_id}/members/` — Org membership rows for attributing memory activity to people (low). Added as `organization_members` (fan-out over `organizations`).
 - [x] `GET /api/v1/orgs/organizations/` — Parent lookup for the projects and members tables (low). Added as `organizations`.
 
 Note: Mem0 publishes a real OpenAPI spec (33 paths, linked from https://docs.mem0.ai/llms.txt). Most non-covered paths are POST-only write/search operations, so the readable surface is genuinely small and the existing 3 tables cover the bulk of it.
@@ -10604,18 +10604,18 @@ Note: Diffed against Okta's published management OpenAPI (485 paths). Deliberate
 
 ## Omni — gaps
 
-Today (10): `Connections`, `DocumentPermissions`, `Documents`, `Folders`, `Models`, `ScheduleRecipients`, `Schedules`, `UserAttributes`, `UserGroups`, `Users`
+Today (15): `AiConversations`, `Connections`, `DocumentPermissions`, `Documents`, `FolderPermissions`, `Folders`, `Labels`, `Models`, `ScheduleRecipients`, `Schedules`, `UserAttributes`, `UserGroupModelRoles`, `UserGroups`, `UserModelRoles`, `Users`
 
 Diffed against: <https://docs.omni.co/sitemap.xml>
 
 - [x] `models (GET /api/v1/models — list-models, list-model-schemas)` — Lookup resolving the model id carried by documents, queries and schedules; nothing in the current tables identifies which data model content sits on (high)
 - [x] `schedule-recipients (list-schedule-recipients)` — Junction between the Schedules table we already sync and the users/groups actually receiving each delivery (high)
 - [x] `document-permissions (get-document-permissions, all-users-and-groups-with-document-access)` — Who can see which dashboard — the access-audit join across Documents, Users and UserGroups (high)
-- [ ] `ai conversations (list-ai-conversations, get-conversation)` — AI query usage per user, the closest thing Omni's API offers to consumption analytics (medium)
-- [ ] `labels (list-labels)` — Lookup for the labels applied to documents; without it label ids on content are unresolvable (medium)
-- [ ] `user-model-roles and user-group-model-roles (retrieve endpoints)` — Per-model permission grants for users and groups — governance reporting over models (medium)
+- [x] `ai conversations (list-ai-conversations, get-conversation)` — AI query usage per user, the closest thing Omni's API offers to consumption analytics (medium)
+- [x] `labels (list-labels)` — Lookup for the labels applied to documents; without it label ids on content are unresolvable (medium)
+- [x] `user-model-roles and user-group-model-roles (retrieve endpoints)` — Per-model permission grants for users and groups — governance reporting over models (medium)
 - [x] `user-attributes (list-user-attributes)` — Lookup for the attribute keys used in row-level access controls referenced on users (medium)
-- [ ] `folder-permissions (get-folder-permissions)` — Folder-level access grants, the inherited layer above document permissions on the Folders table we sync (medium)
+- [x] `folder-permissions (get-folder-permissions)` — Folder-level access grants, the inherited layer above document permissions on the Folders table we sync (medium)
 - [ ] `document-favorites (list-document-favoriters)` — Per-document favorite counts and favoriters — an engagement signal on content (medium)
 - [ ] `embed users and email-only users (list-embed-users, list-email-only-users)` — Two user populations excluded from the main Users table, so seat and delivery counts are understated (medium)
 - [ ] `document drafts (list-document-drafts)` — Unpublished drafts per document, useful for content lifecycle and staleness analysis (low)
@@ -16190,7 +16190,7 @@ Re-audited 2026-11-19 against <https://developer.workiz.com/api.json>: no new ga
 
 ## WorkOS — gaps
 
-Today (7): `connections`, `directories`, `directory_groups`, `directory_users`, `organizations`, `users`, `waitlist_entries`
+Today (8): `connections`, `directories`, `directory_groups`, `directory_users`, `organization_memberships`, `organizations`, `users`, `waitlist_entries`
 
 Diffed against: <https://workos.com/docs/reference/authkit/waitlist>
 
@@ -16198,7 +16198,7 @@ Diffed against: <https://workos.com/docs/reference/authkit/waitlist>
 
 Re-audited 2026-11-19 against: <https://workos.com/docs/llms.txt>
 
-- [ ] `Organization memberships (GET /user_management/organization_memberships)` — Join table between users and organizations with role and status; the users and organizations tables cannot be linked without it (high)
+- [x] `Organization memberships (GET /user_management/organization_memberships)` — Join table between users and organizations with role and status; the users and organizations tables cannot be linked without it (high)
 - [ ] `Invitations (GET /user_management/invitations)` — AuthKit invites with state and expiry, to measure invite acceptance by organization (medium)
 - [ ] `Environment roles (GET /authorization/roles)` — Lookup that names the role slugs carried on memberships (medium)
 - [ ] `Permissions (GET /authorization/permissions)` — Environment permission catalog that roles refer to (low)
@@ -16206,7 +16206,9 @@ Re-audited 2026-11-19 against: <https://workos.com/docs/llms.txt>
 - [ ] `Feature flags (GET /feature-flags)` — Flag definitions for the environment (low)
 - [ ] `Events (GET /events)` — Change feed of user, organization, directory and connection events; keeps history that current-state tables lose (medium)
 
-Note (2026-11-19): Read llms.txt and the reference pages served as .md, and checked each list route heading. Memberships, invitations, roles, permissions and events are environment-level lists. Groups need a fan-out per organization. Excluded sessions and identities (per-user fan-out, ephemeral), API keys, agent vault, redirect URIs, CORS origins, webhooks, audit log schema and export, FGA and Pipes. The events list needs a type filter and has a limited retention window, so confirm both before building.
+Note (2026-11-19): Read llms.txt and the reference pages served as .md, and checked each list route heading. Invitations, roles, permissions and events are environment-level lists. Groups need a fan-out per organization. Excluded sessions and identities (per-user fan-out, ephemeral), API keys, agent vault, redirect URIs, CORS origins, webhooks, audit log schema and export, FGA and Pipes. The events list needs a type filter and has a limited retention window, so confirm both before building.
+
+Note (2026-11-23): Built `organization_memberships`. The list call needs `user_id` or `organization_id`, so it fans out over organizations. It returns only active memberships by default, so the sync asks for `statuses=active,inactive,pending`. Webhook sync through the `organization_membership.*` events is not built.
 
 ## World Bank Open Data — gaps
 
