@@ -1,8 +1,8 @@
-from collections.abc import Mapping
-
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import SavedQuery
+from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.errors import BaseHogQLError, CompilationBudgetExceededError
 from posthog.hogql.printer import print_prepared_ast
 from posthog.hogql.resolver import resolve_types
@@ -18,56 +18,35 @@ READS_ANOTHER_TABLE = "After the rename, a name in its query would refer to a di
 DOES_NOT_RUN = "Its query does not run, so the rename cannot be checked against it."
 
 
+# A structural reference: what a join reads, or what a field is bound to, with no name the rename changes.
+Reference = tuple[object, ...]
+
+
 @frozen
 class QueryBindings:
-    """What a query reads, as the resolver binds it: each table reference and field in the text the user wrote,
+    """What a query reads, as the resolver binds it: each join source and field in the text the user wrote,
     in order, and the name of each output column."""
 
-    references: tuple[str, ...]
+    references: tuple[Reference, ...]
     columns: tuple[str, ...]
 
 
-def _describe(type: ast.Type | None, view_names: Mapping[str, str], union_views: Mapping[int, str]) -> str:
-    """The table a type is bound to. `view_names` maps a model's name to the one it is compared under, and
-    `union_views` names the model a UNION-bodied read stands for, keyed by the id of its type."""
-    if isinstance(type, ast.FieldType | ast.AsteriskType):
-        name = type.name if isinstance(type, ast.FieldType) else "*"
-        return f"{name} of {_describe(type.table_type, view_names, union_views)}"
-    if isinstance(type, ast.PropertyType):
-        return f"{'.'.join(map(str, type.chain))} of {_describe(type.field_type, view_names, union_views)}"
-    if isinstance(type, ast.SelectViewType):
-        return f"model {view_names.get(type.view_name, type.view_name)}"
-    if isinstance(type, ast.CTETableType):
-        return f"cte {type.name}"
-    if isinstance(type, ast.TableAliasType):
-        # An unaliased read of a materialized model is aliased after the name it was read by.
-        alias = view_names.get(type.alias, type.alias)
-        return f"{alias} as {_describe(type.table_type, view_names, union_views)}"
-    if isinstance(type, ast.TableType | ast.LazyTableType):
-        return f"table {type.table.to_printed_hogql()}"
-    if isinstance(type, ast.SelectQueryAliasType):
-        view_name = union_views.get(id(type))
-        if view_name is not None:
-            return f"model {view_names.get(view_name, view_name)}"
-        return f"subquery {type.alias}"
-    if isinstance(type, ast.LazyJoinType):
-        return f"{type.field} of {_describe(type.table_type, view_names, union_views)}"
-    return type.__class__.__name__
-
-
-def _union_view_name(table: ast.Expr | None) -> str | None:
-    """The model a UNION body was expanded from. The resolver marks each branch of a model's body."""
+def _view_name(table: ast.Expr | None) -> str | None:
+    """The model a join's subquery was expanded from. The resolver marks each branch of a model's body."""
     while isinstance(table, ast.SelectSetQuery):
         table = table.initial_select_query
     return table.view_name if isinstance(table, ast.SelectQuery) else None
 
 
 class _BindingCollector(TraversingVisitor):
-    def __init__(self) -> None:
+    def __init__(self, database: Database) -> None:
         super().__init__()
-        self.types: list[ast.Type | None] = []
-        # The resolver types a UNION-bodied model's read as a subquery, so the model is known only from its body.
-        self.union_views: dict[int, str] = {}
+        self.database = database
+        self.joins: list[Reference] = []
+        self.fields: list[ast.Type | None] = []
+        # A field names its table through the scope type its join put in scope. Keyed by object, so two joins of
+        # the same table stay apart, and mapped to the join's place in the text, so aliases never take part.
+        self.join_of: dict[int, int] = {}
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         # A model's body is expanded in place. It is the same before and after, so only the dependent's own text counts.
@@ -75,27 +54,71 @@ class _BindingCollector(TraversingVisitor):
             super().visit_select_query(node)
 
     def visit_join_expr(self, node: ast.JoinExpr) -> None:
-        view_name = _union_view_name(node.table)
-        if view_name is not None and node.type is not None:
-            self.union_views[id(node.type)] = view_name
-        self.types.append(node.type)
+        ordinal = len(self.joins)
+        self.joins.append(self._source(node))
+        if node.type is not None:
+            self.join_of[id(node.type)] = ordinal
         super().visit_join_expr(node)
 
     def visit_field(self, node: ast.Field) -> None:
-        self.types.append(node.type)
+        self.fields.append(node.type)
+
+    def _source(self, node: ast.JoinExpr) -> Reference:
+        view_name = _view_name(node.table)
+        if view_name is None:
+            return self._table(node.type)
+        # By the model's stored name, not a lookup: a synced table can own the bare name.
+        model_node = self.database.authored_model_node(view_name)
+        model = model_node.table if model_node is not None else self.database.get_table(view_name)
+        return ("model", model.id if isinstance(model, SavedQuery) else view_name)
+
+    def _table(self, type: ast.Type | None) -> Reference:
+        if isinstance(type, ast.TableAliasType | ast.ColumnAliasedTableType):
+            return self._table(type.table_type)
+        if isinstance(type, ast.TableType | ast.LazyTableType):
+            # A materialized model reads its backing table, which belongs to the model, not to its name.
+            if isinstance(type.table, S3Table) and type.table.saved_query_id is not None:
+                return ("model", type.table.saved_query_id)
+            return ("table", type.table.to_printed_hogql())
+        if isinstance(type, ast.CTETableAliasType):
+            return self._table(type.cte_table_type)
+        if isinstance(type, ast.CTETableType):
+            return ("cte", type.name)
+        if isinstance(type, ast.SelectQueryAliasType | ast.SelectQueryType | ast.SelectSetQueryType):
+            return ("subquery",)
+        return (type.__class__.__name__,)
+
+    def _owner(self, type: ast.Type | None) -> Reference:
+        if type is not None and id(type) in self.join_of:
+            return ("join", self.join_of[id(type)])
+        if isinstance(type, ast.LazyJoinType):
+            return self.describe(type)
+        # Not put in scope by a join of this text, such as a CTE read inside a model's body.
+        return ("unscoped", *self._table(type))
+
+    def describe(self, type: ast.Type | None) -> Reference:
+        if isinstance(type, ast.FieldType):
+            return ("field", type.name, self._owner(type.table_type))
+        if isinstance(type, ast.AsteriskType):
+            return ("*", self._owner(type.table_type))
+        if isinstance(type, ast.PropertyType):
+            return ("property", tuple(type.chain), self.describe(type.field_type))
+        if isinstance(type, ast.LazyJoinType):
+            return ("lazy join", type.field, self._owner(type.table_type))
+        if isinstance(type, ast.FieldAliasType):
+            return ("alias", type.alias, self.describe(type.type))
+        # A table name in FROM is itself a field; its join's entry already records what it reads.
+        return ("name of", self._owner(type))
 
 
-def query_bindings(
-    team: Team, query: str, database: Database, view_names: Mapping[str, str] | None = None
-) -> QueryBindings:
-    """Raises BaseHogQLError when the query does not resolve against `database`. `view_names` maps a model's
-    name to the one its bindings are reported under."""
+def query_bindings(team: Team, query: str, database: Database) -> QueryBindings:
+    """Raises BaseHogQLError when the query does not resolve against `database`."""
     context = HogQLContext(team_id=team.pk, team=team, enable_select_queries=True)
     context.database = database
     resolved = resolve_types(parse_model_query(query), context, dialect="clickhouse")
-    collector = _BindingCollector()
+    collector = _BindingCollector(database)
     collector.visit(resolved)
-    references = tuple(_describe(type, view_names or {}, collector.union_views) for type in collector.types)
+    references = (*collector.joins, *(collector.describe(type) for type in collector.fields))
     first = resolved
     while isinstance(first, ast.SelectSetQuery):
         first = first.initial_select_query
@@ -117,18 +140,10 @@ def _output_name(column: ast.Expr, context: HogQLContext) -> str:
     return print_prepared_ast(node=column, context=context, dialect="hogql")
 
 
-def binding_change(
-    team: Team, before: QueryBindings, after_query: str, renamed_database: Database, old_name: str, new_name: str
-) -> str | None:
+def binding_change(team: Team, before: QueryBindings, after_query: str, renamed_database: Database) -> str | None:
     """Why `after_query` against the renamed database does not read what the query read before, or None."""
     try:
-        after = query_bindings(
-            team,
-            after_query,
-            renamed_database,
-            # A table alias joins a dotted name with `__`. The exact name comes last so it wins when both match.
-            {new_name.replace(".", "__"): old_name.replace(".", "__"), new_name: old_name},
-        )
+        after = query_bindings(team, after_query, renamed_database)
     except CompilationBudgetExceededError:
         raise
     except BaseHogQLError:

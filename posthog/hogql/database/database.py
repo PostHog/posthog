@@ -1059,7 +1059,7 @@ class Database(BaseModel):
         database, so the copy costs no catalog build. Raises KeyError when `old_name` is not an authored model.
         """
         old_alias, new_alias = f"models.{old_name}", f"models.{new_name}"
-        model_node = self._authored_model_node(old_name)
+        model_node = self.authored_model_node(old_name)
         if model_node is None:
             raise KeyError(old_name)
         new_chain = new_name.split(".")
@@ -1080,7 +1080,7 @@ class Database(BaseModel):
             renamed._models_aliases[new_alias] = new_chain
             renamed._models_alias_nodes[new_alias] = TableNode(name=new_chain[-1], table=model)
         for name, query in (rewritten_queries or {}).items():
-            view_node = renamed._authored_model_node(name)
+            view_node = renamed.authored_model_node(name)
             if view_node is None or view_node.table is None:
                 continue
             chain = name.split(".")
@@ -1090,7 +1090,7 @@ class Database(BaseModel):
                 renamed._models_alias_nodes[f"models.{name}"] = TableNode(name=chain[-1], table=view)
         return renamed
 
-    def _authored_model_node(self, name: str) -> TableNode | None:
+    def authored_model_node(self, name: str) -> TableNode | None:
         """The node of the authored model stored as `name`: its `models.` alias, or its stored path when it has none."""
         alias_node = self._models_alias_nodes.get(f"models.{name}")
         if alias_node is not None:

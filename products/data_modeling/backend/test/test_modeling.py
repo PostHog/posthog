@@ -12,7 +12,12 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver import resolve_types
 
 from products.data_modeling.backend.facade.contracts import ModelRenameBlocked, ModelRenameJoin, ModelRenameRefusedError
-from products.data_modeling.backend.logic.model_bindings import DOES_NOT_RESOLVE, DOES_NOT_RUN, READS_ANOTHER_TABLE
+from products.data_modeling.backend.logic.model_bindings import (
+    DOES_NOT_RESOLVE,
+    DOES_NOT_RUN,
+    READS_ANOTHER_TABLE,
+    query_bindings,
+)
 from products.data_modeling.backend.logic.model_references import (
     DOES_NOT_PARSE,
     PARSE_CHECK_FAILED,
@@ -471,6 +476,12 @@ class TestRenameModelReferences(BaseTest):
                 None,
             ),
             ("a_plain_read", "income", "select revenue.id from revenue", None),
+            (
+                "an_aliased_read_beside_another_table_aliased_with_the_new_name",
+                "income",
+                "select r.id as a, income.event as b from revenue as r join events as income on 1 = 1",
+                None,
+            ),
             ("a_cte_with_another_name", "income", "with other as (select 2 as id) select id from revenue", None),
         ]
     )
@@ -486,6 +497,16 @@ class TestRenameModelReferences(BaseTest):
         dependent_rewrites = [entry for entry in plan.rewrites if entry.saved_query_id == dependent.id]
         assert dependent_blocks == ([reason] if reason is not None else [])
         assert len(dependent_rewrites) == (0 if reason is not None else 1)
+
+    def test_query_bindings_tell_two_joins_of_the_same_table_apart(self):
+        bindings = query_bindings(
+            self.team,
+            "select a.event, b.event from events as a join events as b on 1 = 1",
+            Database.create_for(team=self.team),
+        )
+
+        owners = [reference[2] for reference in bindings.references if reference[:2] == ("field", "event")]
+        assert owners == [("join", 0), ("join", 1)]
 
     @parameterized.expand(
         [
@@ -531,6 +552,7 @@ class TestRenameModelReferences(BaseTest):
         [
             ("a_cte_with_the_new_name", "with target as (select 999 as id) select id from src", READS_ANOTHER_TABLE),
             ("a_plain_read", "select id from src", None),
+            ("a_models_qualified_read", "select id from models.src", None),
             ("a_query_that_does_not_run", "select missing_column from src", DOES_NOT_RUN),
         ]
     )

@@ -317,7 +317,7 @@ def _compute_within_budget(team: Team, saved_query_id: uuid.UUID, new_name: str,
             elif check is None:
                 reason = DOES_NOT_RUN
             else:
-                reason = binding_change(team, check, rewrite.after, against, renamed.name, new_name)
+                reason = binding_change(team, check, rewrite.after, against)
             if reason is None:
                 rewrites.append(rewrite)
             else:
