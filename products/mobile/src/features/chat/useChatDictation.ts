@@ -332,10 +332,7 @@ export function useChatDictation({ onTranscript, disabled = false, scopeKey, dra
                 current.cancelNative = () => {
                     finalTranscript = ''
                     partialTranscript = ''
-                    // iOS can open the mic after an early abort. Retain the watchdog while waiting for start.
-                    if (!waitingForIosStart()) {
-                        abort()
-                    }
+                    abort()
                 }
                 watchdog = setTimeout(() => {
                     finish(recognitionFailed)

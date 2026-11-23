@@ -267,17 +267,19 @@ describe('chat dictation', () => {
         expect(result.current.phase).toBe('idle')
     })
 
-    test('aborts a delayed native start after leaving and ignores its transcript', async () => {
+    test('aborts when leaving before native start and ignores its late transcript', async () => {
         const { result, rerender } = renderDictation()
         await act(async () => result.current.toggle())
         expect(recognizer.start).toHaveBeenCalled()
         rerender('chat-b')
-        emit('start')
         expect(recognizer.abort).toHaveBeenCalledTimes(1)
+        emit('start')
+        expect(recognizer.abort).toHaveBeenCalledTimes(2)
         speech('Old chat transcript', true)
         emit('end')
         expect(onTranscript).not.toHaveBeenCalled()
 
+        await act(async () => jest.advanceTimersByTime(2500))
         await act(async () => result.current.toggle())
         emit('start')
         speech('New chat transcript', true)
