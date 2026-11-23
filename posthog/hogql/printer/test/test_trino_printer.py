@@ -3947,6 +3947,23 @@ def test_grouping_does_not_replace_different_or_nested_expressions(query: str, s
             "WITH items AS (SELECT JSONExtractArrayRaw(properties, 'items') AS xs FROM users) SELECT empty(xs) FROM items",
             'cardinality("items"."xs")',
         ),
+        (
+            "WITH items AS (SELECT [1, 2] AS xs) SELECT arrayFirst(x -> x > 1, xs) FROM items",
+            'coalesce(element_at(filter("items"."xs", "x" -> ("x" > 1)), 1), 0)',
+        ),
+        (
+            "WITH items AS (SELECT [1, 2] AS xs) SELECT arrayMap(x -> intDiv(x, 2), xs) FROM items",
+            'transform("items"."xs", "x" -> (CAST("x" AS BIGINT) / CAST(2 AS BIGINT)))',
+        ),
+        (
+            "WITH items AS (SELECT tuple(1, 'a') AS pair) SELECT intDiv(pair.1, 2) FROM items",
+            '(CAST(("items"."pair")[1] AS BIGINT) / CAST(2 AS BIGINT))',
+        ),
+        (
+            "WITH items(xs, flag) AS (SELECT [1] AS flag, true AS xs UNION ALL SELECT [2], false)"
+            " SELECT arrayFirst(x -> x > 0, xs) FROM items",
+            'filter("items"."xs", "x" -> ("x" > 0))',
+        ),
     ],
 )
 def test_preserves_array_types_across_cte_boundaries(query: str, expected: str) -> None:
