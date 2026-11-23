@@ -34,6 +34,26 @@ class VolatileFunctionDetector:
         return name.lower() in stable_functions
 
 
+_FUNCTION_BODY = re.compile(
+    r"\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE)\b.*?(\$\w*\$).*?\1", re.IGNORECASE | re.DOTALL
+)
+_TRIGGER_EVENT = r"(?:INSERT|UPDATE|DELETE|TRUNCATE)\b(?:\s+OF\s+[\w\s,\"]+?)?"
+_TRIGGER_EVENTS = re.compile(
+    rf"\b(?:BEFORE|AFTER|INSTEAD\s+OF)\s+{_TRIGGER_EVENT}(?:\s+OR\s+{_TRIGGER_EVENT})*\s+ON\b", re.IGNORECASE
+)
+
+
+def sql_run_at_migration_time(sql: str) -> str:
+    """The SQL with function bodies and trigger events taken out, because neither runs during the migration.
+
+    A body runs when the function is called, and BEFORE UPDATE ON names the statement that fires the
+    trigger. Matching DML keywords in either reads a CREATE TRIGGER as a data change. A DO block runs at
+    once, so its body stays.
+    """
+    sql = _FUNCTION_BODY.sub("CREATE FUNCTION", sql)
+    return _TRIGGER_EVENTS.sub("ON", sql)
+
+
 class OperationCategorizer:
     """Categorizes migration operations for combination risk analysis."""
 

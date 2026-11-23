@@ -6,7 +6,6 @@ from django.db import migrations, models
 # updates, so the version rises in commit order. The repository cache columns are not in the list,
 # so a cache refresh does not change the version.
 SQL = """
--- migration-analyzer: safe reason=updates no rows; UPDATE appears only in the trigger event (BEFORE UPDATE ON posthog_integration)
 CREATE OR REPLACE FUNCTION posthog_integration_bump_row_version() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN

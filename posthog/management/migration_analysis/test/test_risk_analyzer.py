@@ -1533,6 +1533,44 @@ class TestCombinationRisks:
         assert any("CRITICAL" in warning for warning in combination_risks)
         assert any("DML" in warning for warning in combination_risks)
 
+    @parameterized.expand(
+        [
+            (
+                "trigger_event_and_function_body",
+                "CREATE OR REPLACE FUNCTION bump() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
+                "UPDATE audit SET n = n + 1; RETURN NEW; END $$; "
+                "CREATE TRIGGER t BEFORE UPDATE OR DELETE ON test_table FOR EACH ROW EXECUTE FUNCTION bump();",
+                False,
+            ),
+            (
+                "trigger_event_with_columns",
+                "CREATE TRIGGER t AFTER UPDATE OF a, b ON test_table EXECUTE FUNCTION f();",
+                False,
+            ),
+            ("do_block_runs_now", "DO $$ BEGIN UPDATE test_table SET foo = 'bar'; END $$;", True),
+            (
+                "update_after_function",
+                "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1 $$; UPDATE test_table SET a = 1;",
+                True,
+            ),
+        ]
+    )
+    def test_runsql_dml_counts_only_sql_run_by_the_migration(self, _name, sql, expect_dml):
+        mock_migration = MagicMock()
+        mock_migration.atomic = True
+        mock_migration.operations = [
+            create_mock_operation(
+                migrations.AddField, model_name="test", name="new_field", field=models.CharField(null=True)
+            ),
+            create_mock_operation(migrations.RunSQL, sql=sql),
+        ]
+
+        operation_risks = [self.analyzer.analyze_operation(op) for op in mock_migration.operations]
+        combination_risks = self.analyzer.check_operation_combinations(mock_migration, operation_risks)
+
+        assert any("DML" in warning for warning in combination_risks) == expect_dml
+        assert (operation_risks[1].level == RiskLevel.BLOCKED) == expect_dml
+
     def test_runsql_with_ddl_and_schema_operations(self):
         """DDL + schema ops should give specific message about splitting"""
         mock_migration = MagicMock()
