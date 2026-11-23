@@ -4056,6 +4056,160 @@
   },
   {
    "input": {
+    "hog": "let rec := record\nrec.attributes.gt := rec.attributes.status > 399\nrec.attributes.lt := rec.attributes.status < 399\nrec.attributes.rev := 399 < rec.attributes.status\nrec.attributes.eq := rec.attributes.status == 500\nreturn rec",
+    "bytecode": [
+     "_H",
+     1,
+     32,
+     "record",
+     1,
+     1,
+     36,
+     0,
+     32,
+     "attributes",
+     45,
+     32,
+     "gt",
+     33,
+     399,
+     36,
+     0,
+     32,
+     "attributes",
+     45,
+     32,
+     "status",
+     45,
+     13,
+     46,
+     36,
+     0,
+     32,
+     "attributes",
+     45,
+     32,
+     "lt",
+     33,
+     399,
+     36,
+     0,
+     32,
+     "attributes",
+     45,
+     32,
+     "status",
+     45,
+     15,
+     46,
+     36,
+     0,
+     32,
+     "attributes",
+     45,
+     32,
+     "rev",
+     36,
+     0,
+     32,
+     "attributes",
+     45,
+     32,
+     "status",
+     45,
+     33,
+     399,
+     15,
+     46,
+     36,
+     0,
+     32,
+     "attributes",
+     45,
+     32,
+     "eq",
+     33,
+     500,
+     36,
+     0,
+     32,
+     "attributes",
+     45,
+     32,
+     "status",
+     45,
+     11,
+     46,
+     36,
+     0,
+     38,
+     35
+    ],
+    "record": {
+     "uuid": "0197a3f2-1111-7000-8000-000000000001",
+     "trace_id": {
+      "$bytes": "0123456789abcdef0123456789abcdef"
+     },
+     "span_id": {
+      "$bytes": "41534e465a346d727a65383d"
+     },
+     "trace_flags": 0,
+     "timestamp": 1736944633250123,
+     "observed_timestamp": 1736944633250000,
+     "body": "user jane@example.com logged in",
+     "severity_text": "info",
+     "severity_number": 9,
+     "service_name": "auth-api",
+     "resource_attributes": {
+      "k8s.namespace.name": "\"auth\""
+     },
+     "instrumentation_scope": "auth.sessions",
+     "event_name": null,
+     "attributes": {
+      "status": "\"500\""
+     },
+     "bytes_uncompressed": 120
+    },
+    "inputs": {},
+    "sensitive": []
+   },
+   "output": {
+    "status": "mutated",
+    "error": null,
+    "logs": [],
+    "record": {
+     "uuid": "0197a3f2-1111-7000-8000-000000000001",
+     "trace_id": {
+      "$bytes": "0123456789abcdef0123456789abcdef"
+     },
+     "span_id": {
+      "$bytes": "41534e465a346d727a65383d"
+     },
+     "trace_flags": 0,
+     "timestamp": 1736944633250123,
+     "observed_timestamp": 1736944633250000,
+     "body": "user jane@example.com logged in",
+     "severity_text": "info",
+     "severity_number": 9,
+     "service_name": "auth-api",
+     "resource_attributes": {
+      "k8s.namespace.name": "\"auth\""
+     },
+     "instrumentation_scope": "auth.sessions",
+     "event_name": null,
+     "attributes": {
+      "status": "\"500\"",
+      "gt": "true",
+      "lt": "false",
+      "rev": "true",
+      "eq": "true"
+     },
+     "bytes_uncompressed": 120
+    }
+   }
+  },
+  {
+   "input": {
     "hog": "let rec := record\nrec.attributes.added := 'x'\nreturn rec",
     "bytecode": [
      "_H",

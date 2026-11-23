@@ -316,6 +316,10 @@ const HOG_TRANSFORM_CASES: HogTransformCase[] = [
     },
     { hog: `let rec := record\nrec.attributes.str_num := '3'\nreturn rec`, record: { attributes: { str_num: '"3"' } } },
     {
+        hog: `let rec := record\nrec.attributes.gt := rec.attributes.status > 399\nrec.attributes.lt := rec.attributes.status < 399\nrec.attributes.rev := 399 < rec.attributes.status\nrec.attributes.eq := rec.attributes.status == 500\nreturn rec`,
+        record: { attributes: { status: '"500"' } },
+    },
+    {
         hog: `let rec := record\nrec.attributes.added := 'x'\nreturn rec`,
         record: { attributes: null, resource_attributes: null, body: null, trace_id: Buffer.alloc(16), span_id: null },
     },
