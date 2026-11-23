@@ -8,7 +8,7 @@ import fcntl
 import argparse
 import subprocess
 from datetime import UTC, datetime
-from http.client import IncompleteRead
+from http.client import HTTPMessage, IncompleteRead
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from urllib.error import HTTPError, URLError
@@ -44,12 +44,13 @@ class TrialClient:
         self.token = token
 
     def request(self, path: str, body: dict[str, Json] | None = None) -> dict[str, Json]:
-        payload = self.read_json(path, body)
+        content, _headers = self.read(path, body)
+        payload = json.loads(content)
         if not isinstance(payload, dict):
             raise ValueError("The scout API returned an unexpected response.")
         return payload
 
-    def read_json(self, path: str, body: dict[str, Json] | None = None) -> Json:
+    def read(self, path: str, body: dict[str, Json] | None = None) -> tuple[bytes, HTTPMessage]:
         request = Request(
             f"{self.host}{path}",
             data=json.dumps(body).encode() if body is not None else None,
@@ -59,8 +60,7 @@ class TrialClient:
         for attempt in range(4):
             try:
                 with build_opener(NoRedirects()).open(request, timeout=45) as response:
-                    payload = json.load(response)
-                return payload
+                    return response.read(), response.headers
             except HTTPError as error:
                 if error.code < 500 and error.code != 429:
                     detail = error.read().decode(errors="replace")[:2000]
@@ -74,6 +74,14 @@ class TrialClient:
                     raise RuntimeError("The API did not respond; retry this saved manifest.") from error
             time.sleep(2**attempt)
         raise RuntimeError("The API request could not complete.")
+
+
+def log_entry(line: str) -> Json:
+    try:
+        entry = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    return entry if isinstance(entry, dict) else None
 
 
 def save_json(path: Path, value: Json) -> None:
@@ -115,15 +123,24 @@ class Comparison:
     def download_logs(self, result: dict[str, Json], launch_id: str) -> None:
         if not result.get("task_id") or not result.get("task_run_id"):
             return
-        base = f"/api/projects/{self.manifest['project_id']}/tasks/{result['task_id']}/runs/{result['task_run_id']}/session_logs/"
+        base = f"/api/projects/{self.manifest['project_id']}/tasks/{result['task_id']}/runs/{result['task_run_id']}/log_entries/"
         entries: list[Json] = []
+        start = 0
         while True:
-            page = self.client.read_json(f"{base}?limit=500&offset={len(entries)}")
-            if not isinstance(page, list):
-                raise ValueError("The session logs API returned an unexpected response.")
-            if not page:
+            content, headers = self.client.read(f"{base}?start={start}&limit=5000")
+            offset = headers.get("X-Log-Offset")
+            count = headers.get("X-Log-Count")
+            if offset is None:
+                raise ValueError("The log entries API returned no X-Log-Offset header.")
+            if count is None:
+                raise ValueError("The log entries API returned no X-Log-Count header.")
+            lines = [line for line in content.decode().split("\n") if line]
+            entries.extend(entry for line in lines if (entry := log_entry(line)) is not None)
+            start = int(offset) + len(lines)
+            if start >= int(count):
                 break
-            entries.extend(page)
+            if not lines:
+                break
         save_json(self.output / f"{launch_id}.session-log.json", entries)
 
     def run(self, concurrency: int, timeout: int) -> None:

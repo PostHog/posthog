@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 import sysconfig
 import multiprocessing
+from http.client import HTTPMessage
 from io import BytesIO, StringIO
 from itertools import count
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlparse
+from urllib.response import addinfourl
 
 from unittest import TestCase
 from unittest.mock import patch
@@ -33,6 +35,7 @@ class FakeTrialClient(cli.TrialClient):
         self.active: set[str] = set()
         self.peak_active = 0
         self.polls: dict[str, int] = {}
+        self.log_lines: list[str] = []
 
     def request(self, path: str, body: dict[str, Json] | None = None) -> dict[str, Json]:
         if body is not None:
@@ -59,8 +62,12 @@ class FakeTrialClient(cli.TrialClient):
         self.active.remove(launch_id)
         return {"status": "completed", "task_status": "completed"}
 
-    def read_json(self, path: str, body: dict[str, Json] | None = None) -> list[Json]:
-        return []
+    def read(self, path: str, body: dict[str, Json] | None = None) -> tuple[bytes, HTTPMessage]:
+        start = int(parse_qs(urlparse(path).query)["start"][0])
+        headers = HTTPMessage()
+        headers["X-Log-Offset"] = str(start)
+        headers["X-Log-Count"] = str(len(self.log_lines))
+        return "".join(f"{line}\n" for line in self.log_lines[start : start + 2]).encode(), headers
 
 
 def run_paused_controller(arguments: list[str], variants: Path, connection: Connection, after_launch: bool) -> None:
@@ -194,6 +201,17 @@ class TestScoutLiveTrialsCLI(TestCase):
         assert saved["concurrency"] == expected
         assert [row["status"] for row in saved["runs"]] == ["done"] * 4
 
+    def test_log_download_reads_every_page_and_skips_unparseable_entries(self) -> None:
+        client = FakeTrialClient()
+        client.log_lines = ['{"page": 0}', '{"page": 1', '{"page": 2}']
+
+        cli.Comparison(client, self.output, self.manifest(1)).download_logs(
+            {"task_id": "task-1", "task_run_id": "run-1"}, "launch-0"
+        )
+
+        saved = json.loads((self.output / "launch-0.session-log.json").read_text())
+        assert saved == [{"page": 0}, {"page": 2}]
+
     def test_legacy_manifest_resumes_one_run_at_a_time(self) -> None:
         manifest = {**self.manifest(4), "host": "http://localhost:8000"}
         cli.save_json(self.output / "manifest.json", manifest)
@@ -220,12 +238,12 @@ class TestScoutLiveTrialsCLI(TestCase):
         started = {"launch_id": body["launch_id"], "context_id": "shared-context"}
         submitted: list[bytes] = []
 
-        def open_request(request: Request, timeout: int) -> BytesIO:
+        def open_request(request: Request, timeout: int) -> addinfourl:
             assert isinstance(request.data, bytes)
             submitted.append(request.data)
             if len(submitted) <= reset_count:
                 raise ConnectionResetError("Connection reset by peer")
-            return BytesIO(json.dumps(started).encode())
+            return addinfourl(BytesIO(json.dumps(started).encode()), HTTPMessage(), request.full_url)
 
         with patch.object(cli, "build_opener") as opener:
             opener.return_value.open.side_effect = open_request

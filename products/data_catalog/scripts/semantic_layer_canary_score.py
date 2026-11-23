@@ -219,19 +219,25 @@ class CanaryApiClient:
         if cached is not None:
             return cached
         entries: list[dict] = []
-        offset = 0
+        start = 0
         for _page in range(MAX_SESSION_LOG_PAGES):
             response = self._get(
-                f"/api/projects/{self.project_id}/tasks/{task_id}/runs/{run_id}/session_logs/",
-                params={"limit": SESSION_LOG_PAGE_SIZE, "offset": offset},
+                f"/api/projects/{self.project_id}/tasks/{task_id}/runs/{run_id}/log_entries/",
+                params={"start": start, "limit": SESSION_LOG_PAGE_SIZE},
             )
-            page = response.json()
-            if not isinstance(page, list):
-                raise ValueError(f"unexpected session_logs payload for run {run_id}")
-            entries.extend(page)
-            if response.headers.get("X-Has-More") != "true" or not page:
+            offset = response.headers.get("X-Log-Offset")
+            count = response.headers.get("X-Log-Count")
+            if offset is None:
+                raise ValueError(f"log_entries response for run {run_id} has no X-Log-Offset header")
+            if count is None:
+                raise ValueError(f"log_entries response for run {run_id} has no X-Log-Count header")
+            lines = [line for line in response.text.split("\n") if line]
+            entries.extend(entry for line in lines if (entry := _log_entry(line)) is not None)
+            start = int(offset) + len(lines)
+            if start >= int(count):
                 break
-            offset += len(page)
+            if not lines:
+                break
         else:
             raise ValueError(f"session log for run {run_id} exceeded {MAX_SESSION_LOG_PAGES} pages")
         self._log_entries[(task_id, run_id)] = entries
@@ -290,6 +296,14 @@ class CanaryApiClient:
 
     def task_url(self, task_id: str, run_id: str) -> str:
         return f"{self.host}/project/{self.project_id}/tasks/{task_id}?runId={run_id}"
+
+
+def _log_entry(line: str) -> dict | None:
+    try:
+        entry = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    return entry if isinstance(entry, dict) else None
 
 
 def _as_stream_payload(entry: dict) -> dict:
