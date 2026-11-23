@@ -51,7 +51,11 @@ describe('triggerVolumeLogic', () => {
     ])(
         'estimates a trigger on feature flag calls on the %s mode',
         async (_name, mode, total, peakPerDay, excludesFlagCalls) => {
-            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                flag_evaluations_mode: mode,
+                flag_calls_only_in_flag_evaluations: mode === FlagEvaluationsModeEnumApi.Number2,
+            })
             const filters = {
                 events: [{ id: '$feature_flag_called', type: 'events' as const, name: '$feature_flag_called' }],
             }

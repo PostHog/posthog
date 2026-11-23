@@ -1,4 +1,5 @@
 import {
+    type ContentWidget,
     type Dashboard,
     GRID,
     type SectionWidget,
@@ -16,6 +17,7 @@ export type DashboardEdit =
     | { edit: 'addTile'; grid: string; widget: Widget }
     | { edit: 'removeTile'; id: string }
     | { edit: 'updateSection'; id: string; patch: Partial<Pick<SectionWidget, 'title' | 'collapsed'>> }
+    | { edit: 'setTileParts'; id: string; parts: ContentWidget['parts'] }
     | { edit: 'addTab'; title: string }
     | { edit: 'renameTab'; id: string; title: string }
     | { edit: 'removeTab'; id: string }
@@ -196,6 +198,10 @@ function applyOnce(dashboard: Dashboard, edit: DashboardEdit): Dashboard {
         case 'updateSection':
             return changeTileEverywhere(dashboard, edit.id, (tile) =>
                 isSection(tile) ? { ...tile, widget: { ...tile.widget, ...edit.patch } } : tile
+            )
+        case 'setTileParts':
+            return changeTileEverywhere(dashboard, edit.id, (tile) =>
+                isSection(tile) ? tile : { ...tile, widget: { ...tile.widget, parts: edit.parts } }
             )
         case 'addTab':
             return {
