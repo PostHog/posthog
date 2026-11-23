@@ -11,6 +11,7 @@ from enum import StrEnum
 from functools import lru_cache, partial
 from ipaddress import ip_address, ip_network
 from typing import Any, Optional, cast
+from urllib.parse import quote, urlencode
 
 from django.conf import settings
 from django.contrib import auth
@@ -1242,6 +1243,19 @@ def get_or_set_session_cookie_created_at(request: HttpRequest) -> float:
     return request.session.setdefault(settings.SESSION_COOKIE_CREATED_AT_KEY, time.time())
 
 
+SESSION_EXPIRED_MESSAGE = "Your session has expired. Please log in again."
+
+
+def session_expired_login_url(request: HttpRequest) -> str:
+    params = {"message": SESSION_EXPIRED_MESSAGE}
+    next_url = request.get_full_path()
+    # The session is already destroyed, so `next` is the only record of the page the person opened.
+    # An API call or a form post is not a page to return to, and login lands on `/` without a `next`.
+    if request.method == "GET" and not request.path.startswith("/api/") and next_url != "/":
+        params["next"] = next_url
+    return f"{settings.LOGIN_URL}?{urlencode(params, safe='/', quote_via=quote)}"
+
+
 class SessionAgeMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
@@ -1266,7 +1280,7 @@ class SessionAgeMiddleware:
             current_time = time.time()
             if current_time - session_created_at > session_age:
                 logout(request)
-                return redirect("/login?message=Your session has expired. Please log in again.")
+                return redirect(session_expired_login_url(request))
 
         response = self.get_response(request)
         return response
