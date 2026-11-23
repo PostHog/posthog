@@ -28,7 +28,6 @@ function monitorAiProductSpecs(): TodayPaneProductSpec[] {
         { href: urls.aiObservabilityPrompts(), section: '/prompt-management' },
         { href: urls.aiObservabilityClusters() },
         { href: urls.aiObservabilityPlayground() },
-        { href: urls.aiObservabilityTags() },
     ]
 }
 

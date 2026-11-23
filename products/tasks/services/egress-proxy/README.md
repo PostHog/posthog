@@ -339,6 +339,8 @@ Replacement requires the previous execution ID and keeps the old registration re
 Workers recover that ID through `latest`, which includes expired and revoked registrations but cannot authorize requests.
 The registry assigns actor epochs under the run lock: one for the first execution, increasing on each replacement and unchanged on retries.
 Cancellation requests stop lookup, renewal and issuance even before the run reaches a terminal status.
+The Tasks workflow stops its egress child before writing a terminal status. Renewal and probe activities also recognize cancellation requests and terminal statuses, so a run ending during either operation retains its reason. Missing, revoked or expired authority on a live run still fails the child.
+Failed probe rounds emit `agent_egress_probe_failed` with their status counts before checking whether the run ended. A normal child completion does not erase that failure evidence.
 
 Changing or clearing the run's sandbox, or preparing a cloud resume, revokes its existing registration in the same transaction. If revocation fails, the state change fails too: otherwise restoring earlier run state could revive the old registration. Unrelated state updates do not access the egress table.
 
