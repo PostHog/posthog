@@ -38,13 +38,6 @@
             "minimum": 1,
             "type": "number"
         },
-        "max_anomaly_rate": {
-            "default": 0.1,
-            "description": "The noise filter: hide flagged series whose anomaly rate over the chart window of their interval is above this share, from 0 to 1. The chart window is the one `include_points` describes, not the requested range. A series flagged in many of its buckets is noisy, not unusual. Defaults to 0.1. Pass 1 to turn the filter off. A series with fewer than 10 scored buckets in its chart window is always shown, because its rate means little. `hidden_series` in the response counts the series it hid.",
-            "maximum": 1,
-            "minimum": 0,
-            "type": "number"
-        },
         "offset": {
             "default": 0,
             "description": "Rows to skip in the sorted result. Pass the previous `offset` plus `limit` when `has_more` is true.",
@@ -59,14 +52,39 @@
         },
         "order": {
             "default": "unusual",
-            "description": "`unusual` puts flagged series first, and among them the series that flagged the smallest share of the scored buckets in the chart window of its interval, because a flag on a series that rarely flags is the surprising one. A series with fewer than 10 scored buckets in its chart window sorts after the series with a share. The chart window ends at `date_to` and does not follow `date_from`. `recent` puts the series whose newest flagged bucket ended last first, whatever its interval, so an hour flagged this morning sorts above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.\n\n* `unusual` - Unusual\n* `recent` - Recent\n* `rate` - Rate",
-            "enum": ["unusual", "recent", "rate"],
+            "description": "`unusual` puts flagged series first, and among them the series that flagged the smallest share of the scored buckets in the chart window of its interval, because a flag on a series that rarely flags is the surprising one. A series with fewer than 10 scored buckets in its chart window sorts after the series with a share. The chart window ends at `date_to` and does not follow `date_from`. `recent` puts the series whose newest flagged bucket ended last first, whatever its interval, so an hour flagged this morning sorts above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as `unusual`. With `group_by: insight`, each insight sorts by its first series.\n\n* `unusual` - Unusual\n* `recent` - Recent",
+            "enum": ["unusual", "recent"],
             "type": "string"
         },
         "search": {
             "description": "Only insights whose name contains this text, ignoring case.",
             "maxLength": 200,
             "type": "string"
+        },
+        "viewed_within_days": {
+            "anyOf": [
+                {
+                    "const": 7,
+                    "type": "number"
+                },
+                {
+                    "const": 14,
+                    "type": "number"
+                },
+                {
+                    "const": 30,
+                    "type": "number"
+                },
+                {
+                    "const": 45,
+                    "type": "number"
+                },
+                {
+                    "const": 90,
+                    "type": "number"
+                }
+            ],
+            "description": "Only the insights the caller viewed in this many days: insights they opened, and insights on the dashboards they opened, with the tiles those dashboards have now. Views count only in the web app, not through the API or an MCP tool. Without it the search covers every insight in the project. When the caller viewed no insight in the window, the search covers every insight and `viewed_scope_empty` is true.\n\n* `7` - 7\n* `14` - 14\n* `30` - 30\n* `45` - 45\n* `90` - 90"
         }
     },
     "type": "object"
