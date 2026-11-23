@@ -156,16 +156,6 @@ _CHAT_MESSAGE_APIS = (
 )
 _TEAMS_WEBHOOK_DOMAIN = ".webhook.office.com"
 _INTERNAL_HOST_RULES = frozenset({Rule.INTERNAL_HOST, Rule.INTERNAL_HOST_REFERENCE})
-# These rules alert by themselves, and keeping the resource score beside them lets a high score still block.
-_AMPLIFICATION_RULES = frozenset({Rule.HUGE_RANGE, Rule.REPLACE_AMPLIFICATION})
-# The VM charges a builtin's result to the memory cap only after it builds it. Most builtins grow their input by a small
-# constant factor at most, but `replaceAll` multiplies it by the ratio of replacement to search length, `replaceOne`
-# and `replaceAll` expand the tokens below, `arrayStringConcat` copies its separator once per element, and an indented
-# `jsonStringify` repeats the indent once per level on every line. Any of them can pass the cap in one step.
-_MAX_REPLACEMENT_GROWTH = 8
-# JavaScript replaces these with the input before or after the match, or with the match itself.
-_REPLACEMENT_TOKENS = ("$`", "$'", "$&")
-_UNCAPPED_BUILTINS = frozenset({"replaceAll", "replaceOne", "arrayStringConcat", "jsonStringify", "sleep"})
 # Public names that resolve to loopback, or to the address written in them as in `127.0.0.1.nip.io`.
 _ADDRESS_DNS_DOMAINS = frozenset(
     {
@@ -239,8 +229,6 @@ def set_aside_scores(content: HogFunctionContent, rule_hits: Iterable[Rule]) -> 
         set_aside["internal_network"] = SetAsideReason.LITERAL_PUBLIC_URLS
     if requests.calls_out and requests.only_literal_fetches and all(map(_is_chat_message_api, requests.literal_urls)):
         set_aside["malformed_payload"] = SetAsideReason.CHAT_MESSAGES_ONLY
-    if not requests.fans_out and not requests.uncapped_step and not rules & _AMPLIFICATION_RULES:
-        set_aside["resource_exhaustion"] = SetAsideReason.NO_REQUEST_FAN_OUT
     return set_aside
 
 
@@ -250,9 +238,6 @@ class _Requests:
     # Every call that can send a request is a `fetch` of a literal URL.
     only_literal_fetches: bool
     literal_urls: tuple[str, ...]
-    # A call that can send a request runs in a loop, a callback, a function called from either, or a recursive one.
-    fans_out: bool
-    uncapped_step: bool
 
 
 def _requests_of(content: HogFunctionContent) -> _Requests | None:
@@ -272,8 +257,6 @@ def _requests_of(content: HogFunctionContent) -> _Requests | None:
         calls_out=any(shape.calls_out for shape in shapes),
         only_literal_fetches=all(shape.only_literal_fetches for shape in shapes),
         literal_urls=tuple(url for shape in shapes for url in shape.literal_urls),
-        fans_out=any(shape.fans_out for shape in shapes),
-        uncapped_step=any(shape.uncapped_step for shape in shapes),
     )
 
 
@@ -416,9 +399,7 @@ class _Binding:
     # Assigned, or used other than by a direct call. A value can be aliased and have its upvalues swapped, as in
     # `let alias := send` and `alias.upvalues[1] := ...`, so a call to it can run anything.
     rebound: bool = False
-    escaped: bool = False
-    # Declared with a dict literal and never replaced as a whole, so a write through a computed key cannot grow an
-    # array.
+    # Declared with a dict literal and never replaced as a whole, so a write into it cannot reach a closure.
     holds_dict: bool = False
     replaced: bool = False
 
@@ -428,113 +409,28 @@ class _Binding:
 
 
 @dataclass(frozen=False)
-class _Frame:
-    """The body being walked: the code itself, a function, or a lambda. A lambda that `let` does not name can be
-    called from anywhere, such as a callback that runs for every element."""
-
-    function: _Binding | None
-    anonymous: bool = False
-    loops: int = 0
-
-    @property
-    def repeats(self) -> bool:
-        return self.anonymous or self.loops > 0
-
-
-@frozen
-class _LocalCall:
-    caller: _Binding | None
-    repeats: bool
-    callee: _Binding
-
-
-@dataclass(frozen=False)
 class _CallGraph:
-    """Which declared functions can send a request, and which of them run again and again."""
+    """Which calls to locals can run something other than a body this walk checked."""
 
-    declared: list[_Binding] = field(default_factory=list)
-    sends: set[_Binding] = field(default_factory=set)
-    calls: list[_LocalCall] = field(default_factory=list)
-    keyed_writes: list[_Binding | None] = field(default_factory=list)
+    calls: list[_Binding] = field(default_factory=list)
     # The targets of writes into a container. A write into anything but a dict literal can reach a closure's `upvalues`,
     # which points it at another closure's variables, so after one no local call is known.
     container_writes: list[_Binding | None] = field(default_factory=list)
 
-    def requests(self, literal_urls: list[str], other_call: bool, fans_out: bool, uncapped_step: bool) -> _Requests:
+    def requests(self, literal_urls: list[str], other_call: bool) -> _Requests:
         """A call to a static function runs its body, which this walk checked. A call to any other local can run
         anything, because the local can hold a closure from an input or have its upvalues swapped."""
         rewires = not all(map(_is_dict, self.container_writes))
-        sends = set(self.sends)
-        # Every call to a declared function is an edge, so recursion shows as a cycle even when the call can also run
-        # something else.
-        edges: dict[_Binding, set[_Binding]] = {}
-        repeated = {function for function in self.declared if function.escaped}
-        for call in self.calls:
-            if call.caller is not None and call.callee.declares_function:
-                edges.setdefault(call.caller, set()).add(call.callee)
-            if rewires or not call.callee.is_static_function:
-                other_call = True
-                fans_out |= call.repeats
-                if call.caller is not None:
-                    sends.add(call.caller)
-            elif call.repeats:
-                repeated.add(call.callee)
-        sends = _callers_of(sends, edges)
+        other_call |= any(rewires or not callee.is_static_function for callee in self.calls)
         return _Requests(
             calls_out=other_call or bool(literal_urls),
             only_literal_fetches=not other_call,
             literal_urls=tuple(literal_urls),
-            # A rewired closure can call back into any function without an edge here, so any request can repeat.
-            fans_out=fans_out
-            or bool(repeated & sends)
-            or _has_cycle(sends, edges)
-            or (rewires and (other_call or bool(literal_urls))),
-            uncapped_step=uncapped_step or any(rewires or not _is_dict(target) for target in self.keyed_writes),
         )
 
 
 def _is_dict(target: _Binding | None) -> bool:
     return target is not None and target.holds_dict and not target.replaced
-
-
-def _callers_of(functions: set[_Binding], edges: dict[_Binding, set[_Binding]]) -> set[_Binding]:
-    """`functions` and every function that reaches one of them through calls."""
-    callers: dict[_Binding, set[_Binding]] = {}
-    for caller, callees in edges.items():
-        for callee in callees:
-            callers.setdefault(callee, set()).add(caller)
-    reached = set(functions)
-    pending = list(functions)
-    while pending:
-        for caller in callers.get(pending.pop(), ()):
-            if caller not in reached:
-                reached.add(caller)
-                pending.append(caller)
-    return reached
-
-
-def _has_cycle(functions: set[_Binding], edges: dict[_Binding, set[_Binding]]) -> bool:
-    """Whether calls among `functions` form a cycle. Every function on a cycle reaches the others, so a recursive
-    function that reaches a request has its whole cycle in `functions`."""
-    done: set[_Binding] = set()
-    for root in functions:
-        if root in done:
-            continue
-        path = {root}
-        stack = [(root, iter(edges.get(root, ())))]
-        while stack:
-            function, callees = stack[-1]
-            callee = next((callee for callee in callees if callee in functions and callee not in done), None)
-            if callee is None:
-                stack.pop()
-                path.discard(function)
-                done.add(function)
-            elif callee in path:
-                return True
-            else:
-                path.add(callee)
-                stack.append((callee, iter(edges.get(callee, ()))))
-    return False
 
 
 class _HogCodeVisitor(TraversingVisitor):
@@ -546,15 +442,12 @@ class _HogCodeVisitor(TraversingVisitor):
         self.matched: set[Rule] = set()
         self.calls_out = False
         self._scopes: list[dict[str, _Binding]] = [{}]
-        self._frames: list[_Frame] = [_Frame(function=None)]
         self._literal_urls: list[str] = []
         self._other_call = False
-        self._fans_out = False
-        self._uncapped_step = False
         self._graph = _CallGraph()
 
     def requests(self) -> _Requests:
-        return self._graph.requests(self._literal_urls, self._other_call, self._fans_out, self._uncapped_step)
+        return self._graph.requests(self._literal_urls, self._other_call)
 
     def _sends(self, literal_url: str | None = None) -> None:
         """A call here can send a request: a `fetch` of `literal_url`, or any call when it is None."""
@@ -563,11 +456,6 @@ class _HogCodeVisitor(TraversingVisitor):
             self._other_call = True
         else:
             self._literal_urls.append(literal_url)
-        frame = self._frames[-1]
-        if frame.repeats:
-            self._fans_out = True
-        elif frame.function is not None:
-            self._graph.sends.add(frame.function)
 
     def _local(self, name: str) -> _Binding | None:
         for scope in reversed(self._scopes):
@@ -581,8 +469,6 @@ class _HogCodeVisitor(TraversingVisitor):
     def _declare(self, name: str, *, declares_function: bool = False) -> _Binding:
         binding = _Binding(name=name, declares_function=declares_function)
         self._scopes[-1][name] = binding
-        if declares_function:
-            self._graph.declared.append(binding)
         return binding
 
     @contextmanager
@@ -593,54 +479,27 @@ class _HogCodeVisitor(TraversingVisitor):
         finally:
             self._scopes.pop()
 
-    @contextmanager
-    def _frame(self, function: _Binding | None) -> Iterator[None]:
-        self._frames.append(_Frame(function=function, anonymous=function is None))
-        try:
-            yield
-        finally:
-            self._frames.pop()
-
-    @contextmanager
-    def _loop(self) -> Iterator[None]:
-        self._frames[-1].loops += 1
-        try:
-            yield
-        finally:
-            self._frames[-1].loops -= 1
-
     def visit_block(self, node: ast.Block) -> None:
         with self._scope():
             super().visit_block(node)
 
     def visit_function(self, node: ast.Function) -> None:
-        function = self._declare(node.name, declares_function=True)
-        with self._scope(node.params), self._frame(function):
+        self._declare(node.name, declares_function=True)
+        with self._scope(node.params):
             super().visit_function(node)
 
     def visit_lambda(self, node: ast.Lambda) -> None:
-        self._visit_lambda(node, function=None)
-
-    def _visit_lambda(self, node: ast.Lambda, function: _Binding | None) -> None:
-        with self._scope(node.args), self._frame(function):
+        with self._scope(node.args):
             super().visit_lambda(node)
-
-    def visit_while_statement(self, node: ast.WhileStatement) -> None:
-        with self._loop():
-            super().visit_while_statement(node)
 
     def visit_for_in_statement(self, node: ast.ForInStatement) -> None:
         self.visit(node.expr)
-        with self._scope([node.valueVar, *([node.keyVar] if node.keyVar else [])]), self._loop():
+        with self._scope([node.valueVar, *([node.keyVar] if node.keyVar else [])]):
             self.visit(node.body)
 
     def visit_for_statement(self, node: ast.ForStatement) -> None:
         with self._scope():
-            self.visit(node.initializer)
-            with self._loop():
-                self.visit(node.condition)
-                self.visit(node.increment)
-                self.visit(node.body)
+            super().visit_for_statement(node)
 
     def visit_try_catch_statement(self, node: ast.TryCatchStatement) -> None:
         self.visit(node.try_stmt)
@@ -654,7 +513,8 @@ class _HogCodeVisitor(TraversingVisitor):
     def visit_variable_declaration(self, node: ast.VariableDeclaration) -> None:
         # The compiler binds a lambda's name before its body, so the body can call itself.
         if isinstance(node.expr, ast.Lambda):
-            self._visit_lambda(node.expr, function=self._declare(node.name, declares_function=True))
+            self._declare(node.name, declares_function=True)
+            self.visit(node.expr)
         else:
             super().visit_variable_declaration(node)
             self._declare(node.name).holds_dict = isinstance(node.expr, ast.Dict)
@@ -676,17 +536,6 @@ class _HogCodeVisitor(TraversingVisitor):
                 self._graph.container_writes.append(self._local(name))
             case _:
                 self._graph.container_writes.append(None)
-        # `a[1000000000] := 1` makes a sparse array whose holes the memory cap does not count, and a builtin that walks
-        # it, such as `jsonStringify`, runs past both caps in one step.
-        match node.left:
-            case ast.ArrayAccess(array=ast.Field(chain=[str(name)]), property=index) if not _small_constant_index(
-                index
-            ):
-                self._graph.keyed_writes.append(self._local(name))
-            case ast.ArrayAccess(property=index) if not _small_constant_index(index):
-                self._graph.keyed_writes.append(None)
-            case ast.TupleAccess(index=position) if not 0 < position <= MAX_RANGE_SIZE:
-                self._graph.keyed_writes.append(None)
 
     # An input can hold a closure that calls an async function, and code can swap a local function's upvalues, so any
     # call that does not name a builtin could reach one. A lambda literal callback is safe because its body is visited.
@@ -712,15 +561,13 @@ class _HogCodeVisitor(TraversingVisitor):
         super().visit_hogqlx_tag(node)
         if (binding := self._local(node.kind)) is not None:
             binding.rebound = True
-            binding.escaped = True
         self._sends()
 
     def visit_call(self, node: ast.Call) -> None:
         super().visit_call(node)
         if (callee := self._local(node.name)) is not None:
             self.calls_out = True
-            frame = self._frames[-1]
-            self._graph.calls.append(_LocalCall(caller=frame.function, repeats=frame.repeats, callee=callee))
+            self._graph.calls.append(callee)
             if node.params is not None:
                 # `f(params)(args)` calls whatever `f(params)` returns.
                 self._sends()
@@ -729,14 +576,8 @@ class _HogCodeVisitor(TraversingVisitor):
             self._sends(url)
         elif node.params is not None or node.name not in _BUILTIN_FUNCTIONS or node.name in OUTBOUND_FUNCTIONS:
             self._sends()
-        # `f(params)(args)` passes `params` to the builtin.
-        builtin_args = node.args if node.params is None else node.params
-        if node.name in _CALLBACK_FUNCTIONS and builtin_args and not isinstance(builtin_args[0], ast.Lambda):
-            # The builtin calls the value once per element.
+        if node.name in _CALLBACK_FUNCTIONS and node.args and not isinstance(node.args[0], ast.Lambda):
             self._sends()
-            self._fans_out = True
-        if node.name in _UNCAPPED_BUILTINS and not _bounded_growth(node.name, builtin_args):
-            self._uncapped_step = True
         if node.name in INTERNAL_FUNCTIONS:
             self.matched.add(Rule.INTERNAL_FUNCTION)
         elif node.name == "range" and _hog_range_size(node.args) > MAX_RANGE_SIZE:
@@ -749,17 +590,12 @@ class _HogCodeVisitor(TraversingVisitor):
         super().visit_field(node)
         if (binding := self._local(str(node.chain[0]))) is not None:
             binding.rebound = True
-            binding.escaped = True
             return
         if len(node.chain) != 1:
             return
         name = str(node.chain[0])
-        if name in OUTBOUND_FUNCTIONS:
-            # Passed on as a value, so it can be called any number of times.
-            self._sends()
-            self._fans_out = True
-        if name in _UNCAPPED_BUILTINS:
-            self._uncapped_step = True
+        self.calls_out |= name in OUTBOUND_FUNCTIONS
+        self._other_call |= name in OUTBOUND_FUNCTIONS
         if name in INTERNAL_FUNCTIONS:
             self.matched.add(Rule.INTERNAL_FUNCTION)
 
@@ -794,50 +630,6 @@ def _replaces_empty_string(args: list[ast.Expr]) -> bool:
     if len(args) != 3:
         return False
     return _is_empty_string(args[1]) and not _is_empty_string(args[2])
-
-
-def _small_constant_index(index: ast.Expr) -> bool:
-    match index:
-        case ast.Constant(value=str()):
-            return True
-        case ast.Constant(value=int(position)) if not isinstance(position, bool):
-            return 0 < position <= MAX_RANGE_SIZE
-    return False
-
-
-def _bounded_growth(name: str, args: list[ast.Expr]) -> bool:
-    if name == "replaceAll":
-        return _bounded_replacement(args)
-    if name == "replaceOne":
-        match args:
-            case [_, _, ast.Constant(value=str(replacement))]:
-                return not _has_replacement_token(replacement)
-        return False
-    if name == "arrayStringConcat":
-        return _short_separator(args)
-    if name == "jsonStringify":
-        return len(args) == 1
-    return False
-
-
-def _short_separator(args: list[ast.Expr]) -> bool:
-    match args:
-        case [_]:
-            return True
-        case [_, ast.Constant(value=str(separator))]:
-            return len(separator) <= _MAX_REPLACEMENT_GROWTH
-    return False
-
-
-def _bounded_replacement(args: list[ast.Expr]) -> bool:
-    match args:
-        case [_, ast.Constant(value=str(search)), ast.Constant(value=str(replacement))] if search:
-            return not _has_replacement_token(replacement) and len(replacement) <= _MAX_REPLACEMENT_GROWTH * len(search)
-    return False
-
-
-def _has_replacement_token(replacement: str) -> bool:
-    return any(token in replacement for token in _REPLACEMENT_TOKENS)
 
 
 def _is_empty_string(expr: ast.Expr) -> bool:

@@ -25,9 +25,8 @@ from products.cdp.backend.test.abuse_support import (
 LOW_CONTROL_SCORES = {**SCORES, "normal_integration": 0.2}
 SSRF_SCORES = {**SCORES, "internal_network": 0.6, "runtime_escape": 0.1, "normal_integration": 0.6}
 NO_CALL_HOG = "print(event.properties.$ip)"
-ONE_REQUEST = {"resource_exhaustion": "no_request_fan_out"}
-NO_REQUEST = {"internal_network": "no_outbound_call", **ONE_REQUEST}
-ONE_PUBLIC_REQUEST = {"internal_network": "literal_public_urls", **ONE_REQUEST}
+NO_REQUEST = {"internal_network": "no_outbound_call"}
+ONE_PUBLIC_REQUEST = {"internal_network": "literal_public_urls"}
 REQUEST_CATCHER_HOG = "fetch('https://webhook.site/0000')"
 METADATA_HOG = "fetch('http://169.254.169.254/latest')"
 ESTABLISHED = {
@@ -194,26 +193,6 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 True,
                 ONE_PUBLIC_REQUEST,
             ),
-            (
-                "resource_score_is_ignored_without_request_fan_out",
-                {**LOW_CONTROL_SCORES, "resource_exhaustion": 0.95, "runtime_escape": 0.1},
-                None,
-                RULE_FREE_HOG,
-                [],
-                False,
-                False,
-            ),
-            (
-                "resource_score_alerts_and_blocks_with_a_request_per_item",
-                {**LOW_CONTROL_SCORES, "resource_exhaustion": 0.95, "runtime_escape": 0.1},
-                None,
-                "for (let item in event.properties.items) {\n  fetch(inputs.url, {'body': item})\n}",
-                [],
-                True,
-                True,
-                True,
-                {},
-            ),
         ]
     )
     def test_a_verdict_is_captured_as_an_internal_event(
@@ -258,7 +237,7 @@ class TestAbuseClassification(AbuseClassificationTestCase):
             "risk_score": max(scores[question] for question in MALICIOUS_QUESTIONS),
             "rule_hits": rule_hits,
             "outbound_call": outbound_call,
-            "set_aside_scores": ONE_REQUEST if set_aside_scores is None else set_aside_scores,
+            "set_aside_scores": set_aside_scores or {},
             "would_alert": would_alert,
             "would_block": would_block,
             "state_truncated": False,
@@ -717,16 +696,16 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 {"hog": "print(event)"},
             ),
             (
-                "secret_input_that_adds_a_request_fan_out",
+                "secret_input_that_adds_a_call_beside_a_chat_post",
                 {
                     "inputs": {
                         "url": {"value": "https://hooks.example.com/orders"},
-                        "api_key": {"value": "{arrayMap(toString, [1])}"},
+                        "api_key": {"value": "{inputs.sender(1)}"},
                         "body": {"value": {"bytecode": "https://collector.example.net"}},
                     }
                 },
                 2,
-                {"hog": RULE_FREE_HOG},
+                {"hog": "fetch('https://slack.com/api/chat.postMessage', {'body': event})"},
             ),
         ]
     )

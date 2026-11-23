@@ -87,8 +87,6 @@ class SetAsideReason(StrEnum):
     LITERAL_PUBLIC_URLS = "literal_public_urls"
     # Text posted to a chat channel cannot break the system that receives it.
     CHAT_MESSAGES_ONLY = "chat_messages_only"
-    # The runtime caps the time and memory of an invocation, so only requests sent again and again exhaust anything.
-    NO_REQUEST_FAN_OUT = "no_request_fan_out"
 
 
 class FailureReason(StrEnum):
