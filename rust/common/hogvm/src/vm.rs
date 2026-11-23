@@ -1155,6 +1155,12 @@ impl<'a> HogVM<'a> {
     }
 
     fn in_op(&self, haystack: &HogValue, needle: &HogValue) -> Result<HogLiteral, VmError> {
+        // Each element that is a container costs a compare of its whole length, and the heap charges a repeated one as a pointer.
+        if let HogLiteral::Array(items) | HogLiteral::Tuple(items) = haystack.deref(&self.heap)? {
+            if items.iter().any(|item| matches!(item, HogValue::Ref(_))) {
+                assert_repeats_fit(&self.heap, haystack, MAX_JSON_SERDE_DEPTH, Cycles::Allowed)?;
+            }
+        }
         if !self.context.boolean_text_equality {
             return haystack.contains(needle, &self.heap);
         }

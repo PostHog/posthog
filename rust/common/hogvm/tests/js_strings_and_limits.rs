@@ -189,3 +189,17 @@ fn limits_do_not_refuse_what_fits() {
     );
     assert_eq!(replaced.unwrap(), json!(""));
 }
+
+// let a := range(2000); let h := range(2000); for i in 1..=2000: h[i] := a; let b := range(2000); b[2000] := -1; return b in h
+const MEMBERSHIP_OVER_ONE_ARRAY_MANY_TIMES: &str = r#"["_H", 1, 33, 2000, 2, "range", 1, 33, 2000, 2, "range", 1, 33, 1, 33, 2000, 36, 2, 16, 40, 16, 36, 1, 36, 2, 36, 0, 46, 33, 1, 36, 2, 6, 37, 2, 39, -23, 35, 33, 2000, 2, "range", 1, 36, 2, 33, 2000, 33, -1, 46, 36, 1, 36, 2, 21, 38, 35, 35, 35]"#;
+
+#[test]
+fn membership_stops_on_a_list_that_holds_one_array_many_times() {
+    let context =
+        context(MEMBERSHIP_OVER_ONE_ARRAY_MANY_TIMES, json!({})).with_max_steps(1_000_000);
+    let error = sync_execute(&context, false).unwrap_err().error;
+    assert!(
+        matches!(error, hogvm::VmError::OutOfResource(_)),
+        "{error:?}"
+    );
+}
