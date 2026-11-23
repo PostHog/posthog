@@ -12,3 +12,6 @@ rules:
     # The warehouse rail pane: its menu, header and sidebar, and the scene tabs its sidebar shows.
     - match: ['/TodayWarehouse*', '/todayWarehouse*', '/TodaySceneTabsList*', '/todaySceneTabsLogic*']
       owners: team-managed-warehouse
+    - match:
+          - '/todayPhoneTabsLogic.test.ts'
+      owners: platform-ux

@@ -12013,6 +12013,13 @@ export namespace Schemas {
       key: string;
     }
 
+    export interface ErrorTrackingIssueTagsFilter {
+      /** Keys of tag definitions. Keeps the issues that have all of these tags. */
+      has?: string[] | null;
+      /** Keys of tag definitions. Keeps the issues that have none of these tags. */
+      hasNot?: string[] | null;
+    }
+
     export type ErrorTrackingOrderBy = typeof ErrorTrackingOrderBy[keyof typeof ErrorTrackingOrderBy];
 
 
@@ -12088,8 +12095,9 @@ export namespace Schemas {
       groupTypeIndex?: number | null;
       /** Filter to a specific error tracking issue by ID. */
       issueId?: string | null;
-      /** Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project. */
       issueTag?: ErrorTrackingIssueTagFilter | null;
+      /** Filter by issue tags. Get the keys from the issue tag definitions. The query ignores a key whose tag is off for the project. */
+      issueTags?: ErrorTrackingIssueTagsFilter | null;
       kind?: 'ErrorTrackingQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
@@ -45216,7 +45224,7 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingIssueTagRead {
-      /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+      /** Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, or in `issueTags.hasNot` to keep the issues that do not. */
       key: string;
       /** Short name of the tag. */
       label: string;
@@ -45360,7 +45368,7 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingIssueTagCorrection {
-      /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+      /** Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, or in `issueTags.hasNot` to keep the issues that do not. */
       key: string;
       /** Short name of the tag. */
       label: string;
@@ -45373,7 +45381,7 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingIssueTagDefinition {
-      /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+      /** Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, or in `issueTags.hasNot` to keep the issues that do not. */
       key: string;
       /** Short name of the tag. */
       label: string;
@@ -133945,6 +133953,14 @@ export namespace Schemas {
       calls_per_parent_invocation: number | null;
     }
 
+    export interface _StoredTraceResponse {
+      /**
+         * The id as lowercase hex when the team stores a span of this trace, in any time range. Null when the id is not an OpenTelemetry trace id, as 32 hex characters or a hyphenated UUID, or no span is stored.
+         * @nullable
+         */
+      traceId: string | null;
+    }
+
     export interface _SymbolSetDownloadResponse {
       /** Presigned URL to download the source map file. Use immediately; expires after one hour. */
       url: string;
@@ -151712,6 +151728,15 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    };
+
+    export type TracingSpansStoredTraceRetrieveParams = {
+    /**
+     * A trace id from another product, such as an `$ai_trace_id`. Any string is accepted.
+     * @minLength 1
+     * @maxLength 255
+     */
+    trace_id: string;
     };
 
     export type TracingSpansValuesRetrieveParams = {

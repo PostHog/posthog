@@ -27,6 +27,17 @@ class WorkflowPublisher:
     job: str
     events: tuple[str, ...]
 
+    def to_entry(self) -> dict[str, object]:
+        """The engine's pending entry for this publisher, which `workflow_publisher` reads back."""
+        return {
+            "check": self.check,
+            "app_id": None,
+            "name": self.name,
+            "workflow": self.workflow,
+            "job": self.job,
+            "events": list(self.events),
+        }
+
 
 def _text(entry: dict, key: str) -> str:
     value = entry.get(key)
