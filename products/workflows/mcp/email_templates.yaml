@@ -180,11 +180,10 @@ tools:
             user which address the email goes out from (the address you pass, or the project's default sender). Also
             tell them before they confirm that if the project has no verified sending domain when execute runs, PostHog
             may send from the PostHog test sender instead, only to members of their organization, and ignore from and
-            reply_to. Pass on any warnings execute returns. Each execute call sends an email, so
-            never repeat one that succeeded. A 503, a timeout or a connection error means PostHog did not confirm the
-            send, and the email may still go out: do not try again on your own, tell the user. A 404 with code not_found
-            means sending email from code is not enabled for this project, or the project does not exist: stop and tell
-            the user.
+            reply_to. Pass on any warnings execute returns. Each execute call sends an email, so never repeat one that
+            succeeded. A 503, a timeout or a connection error means PostHog did not confirm the send, and the email may
+            still go out: do not try again on your own, tell the user. A 404 with code not_found means sending email
+            from code is not enabled for this project, or the project does not exist: stop and tell the user.
         include_params:
             - to
             - template_key
