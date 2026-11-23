@@ -2252,6 +2252,32 @@ def test_percentage_limit_rounds_up(percentage: int, offset: int, expected: list
             "ORDER BY l.live",
             [(0, 10), (1, 20)],
         ),
+        (
+            "WITH excluded AS (SELECT 'b' AS v UNION ALL SELECT 'c'), rows AS (SELECT ['a', 'b', 'd'] AS items) "
+            "SELECT arrayFilter(x -> x NOT IN (SELECT v FROM excluded), items), "
+            "arrayFilter(x -> x IN (SELECT v FROM excluded), items), "
+            "arrayFilter(x -> x NOT IN (SELECT v FROM excluded WHERE v = 'z'), items) FROM rows",
+            [(["a", "d"], ["b"], ["a", "b", "d"])],
+        ),
+        ("SELECT arrayFilter(x -> x NOT IN (SELECT 2 WHERE false), [NULL, 1])", [([None, 1],)]),
+        (
+            "WITH excluded AS (SELECT 'b' AS v UNION ALL SELECT NULL) "
+            "SELECT arrayFilter(x -> x IN (SELECT v FROM excluded), ['a', NULL]), "
+            "arrayFilter(x -> x NOT IN (SELECT v FROM excluded), ['a', NULL])",
+            [([None], ["a"])],
+        ),
+        ("SELECT arrayFilter(x -> x IN (SELECT 1), ['1', '2'])", [(["1"],)]),
+        ("SELECT arrayFilter(x -> x IN (SELECT arrayFilter(x -> x > 1, [1, 2])), [[2], [3]])", [([[2]],)]),
+        (
+            "WITH rows AS (SELECT 1 AS k, 1 AS v UNION ALL SELECT 1, 2) "
+            "SELECT k, arrayFilter(x -> x IN (SELECT 1), groupArray(v)) FROM rows GROUP BY k",
+            [(1, [1])],
+        ),
+        (
+            "WITH rows AS (SELECT 1 AS v UNION ALL SELECT 1) "
+            "SELECT arrayFilter(x -> x IN (SELECT v FROM rows LIMIT 1 BY v), [1, 2])",
+            [([1],)],
+        ),
         ("SELECT 7 AS n, arrayFilter(n -> n > 1, [1, 2]) AS vals", [(7, [2])]),
         # ClickHouse lets a projection name a part of itself, and inlining the projection must not redefine that name.
         (
@@ -3528,10 +3554,30 @@ def test_removes_noop_sample_one_for_trino() -> None:
     assert "SAMPLE" not in sql
 
 
+def test_nested_lambda_subquery_memberships_grow_linearly() -> None:
+    membership = "x"
+    for _ in range(15):
+        membership = f"({membership} IN (SELECT true))"
+
+    sql, _ = prepare_and_print_ast(
+        parse_select(f"SELECT arrayMap(x -> {membership}, [true])"), _context_with_trino_table(), "trino"
+    )
+
+    assert len(sql) < 20_000
+
+
 @pytest.mark.parametrize(
     ("query", "feature_code"),
     [
         ("SELECT user_id FROM users SAMPLE 0.5", "TRINO_SAMPLE_UNSUPPORTED"),
+        (
+            "SELECT arrayFilter(x -> x IN (SELECT user_id FROM users WHERE id = x), [user_id]) FROM users",
+            "TRINO_LAMBDA_SUBQUERY_CORRELATED",
+        ),
+        (
+            "SELECT arrayFilter(x -> x IN (SELECT 1), groupArray(user_id)) FROM users",
+            "TRINO_LAMBDA_SUBQUERY_IN_GLOBAL_AGGREGATE",
+        ),
         (
             "SELECT * FROM users PIVOT(uniq(user_id) FOR created_at IN ('2026-01-01'))",
             "TRINO_PIVOT_AGGREGATE_UNSUPPORTED",
