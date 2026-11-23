@@ -38,7 +38,6 @@ showTitle: true
 - Orchestration: [Kubernetes](https://kubernetes.io/) on [Amazon EKS](https://aws.amazon.com/eks/)
 - Infrastructure as code: [Terraform](https://www.terraform.io/)
 - Deployment: [Argo CD](https://argoproj.github.io/cd/)
-- Observability: [Grafana](https://grafana.com/)
 
 To get access, see [working with cloud providers](/handbook/engineering/cloud-providers).
 
