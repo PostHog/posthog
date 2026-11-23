@@ -89,7 +89,6 @@ class TestErrorTrackingAlertCreate(APIBaseTest):
         assert response.json()["attr"] == "source_config"
 
     def test_an_incident_destination_is_refused(self) -> None:
-        # The alert never resolves, so an incident manager would be saved and never hear anything.
         created = self._create({"condition": _NEW_ISSUES})
         assert created.status_code == status.HTTP_201_CREATED, created.json()
 
@@ -125,6 +124,11 @@ class TestErrorTrackingAlertWording(SimpleTestCase):
                 "http://localhost:8010/project/1/error-tracking/fingerprint/abc%2Fdef",
             ),
             ("by_issue_without_fingerprint", {}, "http://localhost:8010/project/1/error-tracking/issue-1"),
+            (
+                "by_issue_with_empty_fingerprint",
+                {"fingerprint": ""},
+                "http://localhost:8010/project/1/error-tracking/issue-1",
+            ),
         ]
     )
     def test_a_message_names_the_issue_and_links_to_it(

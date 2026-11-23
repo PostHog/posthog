@@ -8,7 +8,6 @@ Imported from `ready()`, so it stays light: no models, no query layer.
 """
 
 from typing import Final
-from urllib.parse import quote
 from uuid import UUID
 
 from posthog.utils import absolute_uri
@@ -44,10 +43,13 @@ def alert_url(team_id: int, _configuration_id: UUID) -> str:
 
 
 def issue_url(project_id: int, issue_id: str, fingerprint: str | None) -> str:
-    # A link by fingerprint survives a merge, which a link by issue id does not.
-    if fingerprint:
-        return absolute_uri(f"/project/{project_id}/error-tracking/fingerprint/{quote(fingerprint, safe='')}")
-    return absolute_uri(f"/project/{project_id}/error-tracking/{issue_id}")
+    from products.error_tracking.backend.logic import (  # noqa: PLC0415 - keeps models off the ready() path
+        build_issue_permalink_path,
+    )
+
+    return absolute_uri(
+        build_issue_permalink_path(project_id=project_id, issue_id=issue_id, fingerprint=fingerprint or None)
+    )
 
 
 def describe_transition(*, project_id: int, transition: AnnouncedTransition) -> SourceDescription:

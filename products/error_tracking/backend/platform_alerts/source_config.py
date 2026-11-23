@@ -29,7 +29,6 @@ CHECK_INTERVAL_MINUTES: Final = 1
 MAX_ALERTS_PER_TEAM: Final = 50
 ROLLOUT_FLAG: Final = "platform-alerts-source-error-tracking"
 
-# Each issue is its own instance, so a message about an issue replies in that issue's thread.
 ISSUE_GROUPING: Final = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=(ISSUE_ID_LABEL,))
 
 
