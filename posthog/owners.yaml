@@ -50,10 +50,6 @@ rules:
           - '/management/commands/backfill_code_review_scopes.py'
           - '/management/commands/test/test_backfill_code_review_scopes.py'
       owners: team-devex
-    - match:
-          - '/management/commands/test_ch_migrations_are_safe.py'
-          - '/management/commands/test/test_ch_migrations_are_safe.py'
-      owners: clickhouse
     - match: '/queries/'
       owners: team-analytics-platform
     - match: '/rbac/'
