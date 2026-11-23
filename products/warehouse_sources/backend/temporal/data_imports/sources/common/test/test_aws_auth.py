@@ -169,6 +169,11 @@ class TestResolveAwsCredentials(BaseTest):
             ("posthog_credentials_rejected", [sts_error("InvalidClientTokenId", "The security token is invalid.")]),
             ("posthog_role_denied", [sts_error("AccessDenied", f"not authorized on resource: {OUR_ROLE_ARN}")]),
             ("unreachable", [EndpointConnectionError(endpoint_url="https://sts.amazonaws.com")]),
+            (
+                "external_id_probe_unreachable",
+                [session("OURS"), EndpointConnectionError(endpoint_url="https://sts.amazonaws.com")],
+            ),
+            ("customer_role_unreachable", chain(EndpointConnectionError(endpoint_url="https://sts.amazonaws.com"))),
         ]
     )
     def test_failure_the_user_cannot_fix_retries_without_the_aws_code(self, _name: str, answers: list[Any]) -> None:
