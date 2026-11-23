@@ -1394,5 +1394,5 @@ environment:
         hidden: true
     migrate:clickhouse:with:prod:grants:
         bin_script: migrate-clickhouse-with-prod-grants
-        description: 'Apply ClickHouse migrations, running new ones with the prod migrations user grants'
+        description: 'Apply ClickHouse migrations, running recent ones with the prod migrations user grants'
         hidden: true

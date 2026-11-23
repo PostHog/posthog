@@ -1,29 +1,25 @@
 #!/usr/bin/env bash
 #
-# Applies ClickHouse migrations for local dev and CI. A migration that is new relative to the base
-# commit runs as the `migrations` user, which has the prod migrations user's roles
-# (docker/clickhouse/users-dev.xml), so a statement prod refuses fails here first. Older migrations
-# run as the default user: prod applied some of them before its current revokes existed.
+# Applies ClickHouse migrations for local dev and CI. Migrations after LAST_MIGRATION_AS_DEFAULT run
+# as the `migrations` user, which has the prod migrations user's roles (docker/clickhouse/users-dev.xml),
+# so a statement prod refuses fails here first. Earlier ones run as the default user: prod applied
+# them before its current revokes existed (0364 drops sharded_raw_sessions_v3, which prod now protects).
 #
-# CLICKHOUSE_MIGRATIONS_BASE sets the base commit. It defaults to the merge base with origin/master.
+# A new revoke in posthog-cloud-infra that breaks an applied migration fails the multinode smoke on
+# its sync PR. Raise LAST_MIGRATION_AS_DEFAULT to that migration then.
 
 set -euo pipefail
 
-BASE="${CLICKHOUSE_MIGRATIONS_BASE:-$(git merge-base HEAD origin/master)}"
-LAST_BASE_MIGRATION=$(git ls-tree --name-only "$BASE" posthog/clickhouse/migrations/ |
-    sed -nE 's#^posthog/clickhouse/migrations/([0-9]{4})_.*\.py$#\1#p' | sort -n | tail -1)
-if [ -z "$LAST_BASE_MIGRATION" ]; then
-    echo "No ClickHouse migrations found at $BASE. Fetch origin/master or set CLICKHOUSE_MIGRATIONS_BASE." >&2
-    exit 1
-fi
+LAST_MIGRATION_AS_DEFAULT=364
 
-echo "Applying ClickHouse migrations up to $LAST_BASE_MIGRATION (in $BASE) as the default user…"
-python manage.py migrate_clickhouse --upto "$((10#$LAST_BASE_MIGRATION))"
+echo "Applying ClickHouse migrations up to $LAST_MIGRATION_AS_DEFAULT as the default user…"
+python manage.py migrate_clickhouse --upto "$LAST_MIGRATION_AS_DEFAULT"
 
-echo "Applying newer ClickHouse migrations as the migrations user…"
+echo "Applying later ClickHouse migrations as the migrations user…"
 if ! CLICKHOUSE_MIGRATIONS_USER=migrations CLICKHOUSE_MIGRATIONS_PASSWORD=migrationspass python manage.py migrate_clickhouse; then
-    echo "A migration newer than $LAST_BASE_MIGRATION failed as the migrations user, which has the prod grants." >&2
+    echo "A migration after $LAST_MIGRATION_AS_DEFAULT failed as the migrations user, which has the prod grants." >&2
     echo "On 'Code: 497 Not enough privileges', prod refuses it too (e.g. DROP TABLE on a protected table)." >&2
-    echo "Get the privilege granted in posthog-cloud-infra first. Its sync then updates docker/clickhouse/users-dev.xml." >&2
+    echo "For a new migration, get the privilege granted in posthog-cloud-infra first. Its sync then updates docker/clickhouse/users-dev.xml." >&2
+    echo "For one prod already applied, raise LAST_MIGRATION_AS_DEFAULT in $0." >&2
     exit 1
 fi
