@@ -64301,6 +64301,8 @@ export namespace Schemas {
       categories?: string[] | null;
       dateRange?: DateRange | null;
       filterTestAccounts?: boolean | null;
+      /** Also return each row's volume chart buckets, which costs one more query. */
+      includeBuckets?: boolean | null;
       /** Bucket granularity of each row's volume chart. Defaults to day. */
       interval?: IntervalType | null;
       kind?: 'MCPToolQualityRowsQuery';
@@ -64794,8 +64796,10 @@ export namespace Schemas {
       Model: 'model',
       ProtocolVersion: 'protocolVersion',
       Tool: 'tool',
-      Harness: 'harness',
       ErrorType: 'errorType',
+      ToolShare: 'toolShare',
+      Harness: 'harness',
+      ErrorTypeShare: 'errorTypeShare',
       User: 'user',
       LabUsers: 'labUsers',
       NamedModelUsers: 'namedModelUsers',
