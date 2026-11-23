@@ -4,6 +4,7 @@ from tempfile import TemporaryDirectory
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -30,6 +31,8 @@ from products.marketing_analytics.backend.hogql_queries.marketing_recommendation
 )
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations_query_runner import (
     MarketingAnalyticsRecommendationsQueryRunner,
+    _asset_texts,
+    _policy_topics,
 )
 from products.marketing_analytics.backend.models.recommendation_resolution import RecommendationResolution
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
@@ -340,7 +343,8 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
             f'101,"{policy_topics}"\n'
             '11,1,PAUSED,"[""{\\""text\\"": \\""CRM for dentists\\""}""]","[]","[""https://example.com/crm""]",,DISAPPROVED,102,[]\n'
             "11,1,ENABLED,[],[],[],Patient records made simple,APPROVED_LIMITED,100,[]\n"
-            "11,1,ENABLED,[],[],[],Session replay,APPROVED,104,[]\n",
+            "11,1,ENABLED,[],[],[],Session replay,APPROVED,104,[]\n"
+            "12,1,ENABLED,[],[],[],Clinic scheduling,APPROVED,105,[]\n",
         )
         source = MarketingAnalyticsRecommendationsSource(
             sourceType="GoogleAds",
@@ -361,6 +365,7 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
 
         assert [(ad.campaign_id, ad.final_urls) for ad in runner._ads(source)] == [
             ("1", ("https://example.com/product",)),
+            ("1", ()),
             ("1", ()),
             ("1", ()),
         ]
@@ -658,3 +663,26 @@ class TestMarketingAnalyticsRecommendationsSourceDiscovery(BaseTest):
                 "sitesTable": "googlesearchconsole.organic.sites",
             },
         ]
+
+
+class TestAdJson(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("text_list_is_a_list", {"topic": "TRADEMARKS", "evidences": [{"textList": ["Acme"]}]}, ()),
+            ("topic_is_not_text", {"topic": 123, "evidences": []}, None),
+            ("evidences_is_a_number", {"topic": "TRADEMARKS", "evidences": 5}, ()),
+            ("texts_is_a_string", {"topic": "TRADEMARKS", "evidences": [{"textList": {"texts": "AB"}}]}, ()),
+            (
+                "texts_are_not_text",
+                {"topic": "TRADEMARKS", "evidences": [{"textList": {"texts": [1, "Acme"]}}]},
+                ("Acme",),
+            ),
+        ]
+    )
+    def test_skips_unexpected_shapes(self, _name: str, entry: dict[str, object], texts: tuple[str, ...] | None) -> None:
+        topics = _policy_topics(json.dumps([json.dumps(entry)]))
+
+        assert topics == (() if texts is None else (PolicyTopic(topic="TRADEMARKS", type="", texts=texts),))
+
+    def test_asset_texts_skip_non_text(self) -> None:
+        assert _asset_texts(json.dumps([json.dumps({"text": 123}), json.dumps({"text": "Acme"})])) == ("Acme",)

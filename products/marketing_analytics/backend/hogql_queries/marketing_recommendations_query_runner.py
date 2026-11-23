@@ -843,24 +843,28 @@ def _json_messages(value: str | None) -> list[dict[str, Any]]:
 
 
 def _asset_texts(value: str | None) -> tuple[str, ...]:
-    return tuple(text for asset in _json_messages(value) if (text := asset.get("text")))
+    return tuple(text for asset in _json_messages(value) if isinstance(text := asset.get("text"), str) and text)
+
+
+def _items(value: object) -> list[object]:
+    return value if isinstance(value, list) else []
 
 
 def _policy_topics(value: str | None) -> tuple[PolicyTopic, ...]:
     return tuple(
         PolicyTopic(
             topic=entry["topic"],
-            type=entry.get("type") or "",
+            type=str(entry.get("type") or ""),
             texts=tuple(
                 text
-                for evidence in entry.get("evidences") or []
-                if isinstance(evidence, dict)
-                for text in (evidence.get("textList") or {}).get("texts") or []
-                if text
+                for evidence in _items(entry.get("evidences"))
+                if isinstance(evidence, dict) and isinstance(text_list := evidence.get("textList"), dict)
+                for text in _items(text_list.get("texts"))
+                if isinstance(text, str) and text
             ),
         )
         for entry in _json_messages(value)
-        if entry.get("topic")
+        if isinstance(entry.get("topic"), str) and entry["topic"]
     )
 
 
