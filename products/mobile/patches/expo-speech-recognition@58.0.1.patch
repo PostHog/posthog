@@ -27,7 +27,7 @@ index 4a0604ab8ffd5112ec0bb770be56b3bc62dfcc80..966a4ed2b2812e857e14ea96fdc0eedf
          // If the user opted to stop
          if (recognitionState == RecognitionState.STOPPING) {
 diff --git a/ios/ExpoSpeechRecognitionModule.swift b/ios/ExpoSpeechRecognitionModule.swift
-index 9dc90826634fe3424c0c143eb7cfd72efe90498a..0047ed74875027d04a75f2b999de93380b054cd9 100644
+index 9dc90826634fe3424c0c143eb7cfd72efe90498a..d7560048b0a9395cd84abbb52a34a53191e1c536 100644
 --- a/ios/ExpoSpeechRecognitionModule.swift
 +++ b/ios/ExpoSpeechRecognitionModule.swift
 @@ -1,5 +1,6 @@
@@ -132,25 +132,36 @@ index 9dc90826634fe3424c0c143eb7cfd72efe90498a..0047ed74875027d04a75f2b999de9338
            self.sendEvent(
              "error",
              [
-@@ -364,7 +390,7 @@ public class ExpoSpeechRecognitionModule: Module {
+@@ -364,7 +390,8 @@ public class ExpoSpeechRecognitionModule: Module {
      }
  
      Function("stop") { () -> Void in
 -      Task {
++      cancelStartTask()
 +      Task { @MainActor in
          if let recognizer = speechRecognizer {
            await recognizer.stop()
          } else {
-@@ -374,7 +400,8 @@ public class ExpoSpeechRecognitionModule: Module {
+@@ -373,8 +400,9 @@ public class ExpoSpeechRecognitionModule: Module {
+       }
      }
  
-     Function("abort") { () -> Void in
+-    Function("abort") { () -> Void in
 -      Task {
++    Function("abort") { () -> Bool in
 +      cancelStartTask()
 +      Task { @MainActor in
          sendEvent("error", ["error": "aborted", "message": "Speech recognition aborted."])
  
          if let recognizer = speechRecognizer {
+@@ -383,6 +411,7 @@ public class ExpoSpeechRecognitionModule: Module {
+           sendEvent("end")
+         }
+       }
++      return true
+     }
+ 
+     Function("getSpeechRecognitionServices") { () -> [String] in
 diff --git a/ios/ExpoSpeechRecognizer.swift b/ios/ExpoSpeechRecognizer.swift
 index b27842501f72e1a5a9382636397cbef30d5a2b30..696f6bef748634d90c7765e130d1e0c5c4c35ecd 100644
 --- a/ios/ExpoSpeechRecognizer.swift
