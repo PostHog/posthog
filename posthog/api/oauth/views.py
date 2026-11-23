@@ -111,7 +111,7 @@ from posthog.models.oauth import (
     revoke_oauth_session,
     revoke_oauth_token_family,
 )
-from posthog.permissions import TimeSensitiveActionPermission
+from posthog.permissions import TimeSensitiveActionPermission, request_allows_sensitive_action
 from posthog.scopes.catalog import translate_renamed_scopes
 from posthog.scopes.ceilings import (
     clamp_scopes_to_ceiling,
@@ -1979,11 +1979,13 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         if is_read_only_impersonation(request):
             scopes = downgrade_scopes_to_read_only(scopes)
 
+        # The grant outlives this session, so it needs a recent sign-in. Declining stays open.
+        if serializer.validated_data["allow"] and not request_allows_sensitive_action(request):
+            raise PermissionDenied(
+                detail=TimeSensitiveActionPermission.message, code=TimeSensitiveActionPermission.code
+            )
+
         if serializer.validated_data["allow"] and requests_ema_issuer(scopes):
-            if not TimeSensitiveActionPermission().has_permission(request, self):
-                raise PermissionDenied(
-                    detail=TimeSensitiveActionPermission.message, code=TimeSensitiveActionPermission.code
-                )
             try:
                 ema_organization = validate_ema_grant(
                     request.user,

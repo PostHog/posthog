@@ -2757,6 +2757,8 @@ class TestTimeSensitivePermissions(APIBaseTest):
                 "post",
                 "/api/projects/@current/workload_trust_policy_requests/00000000-0000-0000-0000-000000000001/approve/",
             ),
+            ("cli_authorize", "post", "/api/cli-auth/authorize/"),
+            ("oauth_device_approve", "post", "/api/oauth_device/approve/"),
         ]
     )
     def test_credential_writes_require_recent_authentication(self, _name, method, url):
@@ -2777,6 +2779,8 @@ class TestTimeSensitivePermissions(APIBaseTest):
                 "delete",
                 "/api/users/@me/integrations/github/install_requests/00000000-0000-0000-0000-000000000001/",
             ),
+            ("oauth_device_lookup", "post", "/api/oauth_device/lookup/"),
+            ("oauth_device_deny", "post", "/api/oauth_device/deny/"),
         ]
     )
     def test_credential_reads_do_not_require_recent_authentication(self, _name, method, url):

@@ -22,6 +22,17 @@ def step_up_required(session: SessionBase) -> bool:
     return bool(session.get(settings.SESSION_STEP_UP_REQUIRED_KEY))
 
 
+def sensitive_window_is_open(session: SessionBase) -> bool:
+    """Whether the last sign-in or re-auth is within `SESSION_SENSITIVE_ACTIONS_AGE`. Ignores a risk step-up."""
+    reference = sensitive_action_reference(session)
+    return reference is not None and time.time() - reference <= settings.SESSION_SENSITIVE_ACTIONS_AGE
+
+
+def session_allows_sensitive_actions(session: SessionBase) -> bool:
+    """Whether this session may make a sensitive write, such as minting a lasting credential, without a re-auth."""
+    return not step_up_required(session) and sensitive_window_is_open(session)
+
+
 def fresh_reauth_expires_at(session: SessionBase) -> Optional[float]:
     """End of the short window that an identity change needs, counted from the last re-auth alone.
 

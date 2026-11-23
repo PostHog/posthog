@@ -1,10 +1,8 @@
 import os
-import time
 import uuid
 from collections.abc import Iterable
 from typing import Any, Optional, cast
 
-from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ImproperlyConfigured
 from django.db.models import Model
@@ -42,7 +40,7 @@ from posthog.organization_caching import get_cached_organization_membership
 from posthog.scopes.catalog import MCP_BUILT_IN_AGENT_SCOPE, APIScopeObjectOrNotSupported, translate_renamed_scopes
 from posthog.scopes.checks import scopes_covered_by_legacy_fallback, scopes_not_covered
 from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
-from posthog.session.reauth import sensitive_action_reference, step_up_required
+from posthog.session.reauth import sensitive_window_is_open, session_allows_sensitive_actions, step_up_required
 from posthog.utils import get_can_create_org
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
@@ -695,15 +693,17 @@ class TimeSensitiveActionPermission(BasePermission):
         if allow_actions and view.action in allow_actions:
             return True
 
-        reference = sensitive_action_reference(request.session)
-        if reference is None:
-            # This should always be covered by the middleware but just in case
-            return False
+        return sensitive_window_is_open(request.session)
 
-        if time.time() - reference > settings.SESSION_SENSITIVE_ACTIONS_AGE:
-            return False
 
+def request_allows_sensitive_action(request: Request) -> bool:
+    """The check `TimeSensitiveActionPermission` makes, for a view that gates only some requests or must not 403.
+
+    Personal API keys and OAuth tokens always pass, because only a browser session can go stale.
+    """
+    if not isinstance(request.successful_authenticator, SessionAuthentication):
         return True
+    return session_allows_sensitive_actions(request.session)
 
 
 class ScopeBasePermission(BasePermission):
