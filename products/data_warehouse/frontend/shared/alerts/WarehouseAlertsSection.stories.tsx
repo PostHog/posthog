@@ -34,11 +34,18 @@ const DEFAULT_ALERT: PlatformAlertConfigurationApi = {
     updated_at: '2026-10-01T09:00:00Z',
     labels: {},
     annotations: {},
-    created_by: null,
+    created_by: {
+        id: 1,
+        uuid: '0192a5b0-0000-7000-8000-0000000000aa',
+        email: 'alex@example.com',
+        first_name: 'Alex',
+        last_name: 'Example',
+        hedgehog_config: {},
+    },
     last_checked_at: '2026-10-05T12:00:00Z',
     last_error_message: null,
     state_timeline: [],
-    destination_types: [],
+    destination_types: ['slack'],
     alerts: [
         {
             id: '0192a5b0-0000-7000-8000-000000000101',
@@ -58,7 +65,17 @@ const PER_TABLE_ALERT: PlatformAlertConfigurationApi = {
     name: 'Stripe tables',
     source_config: { source_ids: [STRIPE_SOURCE_ID], group_by: 'schema', email_project_members: false },
     grouping: { ...DEFAULT_ALERT.grouping, keys: ['schema_id'] },
+    destination_types: ['webhook'],
     alerts: [],
+}
+
+const PAUSED_ALERT: PlatformAlertConfigurationApi = {
+    ...PER_TABLE_ALERT,
+    id: '0192a5b0-0000-7000-8000-000000000003',
+    name: 'Weekend checks',
+    enabled: false,
+    destination_types: ['email'],
+    created_by: null,
 }
 
 const meta: Meta = {
@@ -70,7 +87,7 @@ const meta: Meta = {
             get: {
                 '/api/projects/:team_id/platform_alerts/': () => [
                     200,
-                    { count: 2, next: null, previous: null, results: [DEFAULT_ALERT, PER_TABLE_ALERT] },
+                    { count: 3, next: null, previous: null, results: [DEFAULT_ALERT, PER_TABLE_ALERT, PAUSED_ALERT] },
                 ],
                 '/api/environments/:team_id/external_data_sources/': () => [
                     200,

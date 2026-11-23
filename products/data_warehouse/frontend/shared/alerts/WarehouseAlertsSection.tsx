@@ -1,13 +1,29 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPencil, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { IconMessage, IconPlusSmall } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCheckbox,
+    LemonInput,
+    LemonTable,
+    LemonTableColumn,
+    LemonTableColumns,
+    LemonTag,
+    Link,
+} from '@posthog/lemon-ui'
 
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { createdByColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { HogFunctionIcon } from 'scenes/hog-functions/configuration/HogFunctionIcon'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
 import {
+    DestinationTypeEnumApi,
     PlatformAlertConfigurationApi,
     PlatformAlertConfigurationSourceKindEnumApi,
     WarehouseAlertGroupByEnumApi,
@@ -20,16 +36,52 @@ import { WarehouseAlertModal } from './WarehouseAlertModal'
 import { WarehouseAlertEntry, warehouseAlertModalLogic } from './warehouseAlertModalLogic'
 import { WarehouseAlertsLogicProps, warehouseAlertsLogic } from './warehouseAlertsLogic'
 
+const DESTINATION_ICON_SRC: Partial<Record<DestinationTypeEnumApi, string>> = {
+    [DestinationTypeEnumApi.Slack]: '/static/services/slack.png',
+    [DestinationTypeEnumApi.Teams]: '/static/services/microsoft-teams.png',
+    [DestinationTypeEnumApi.Discord]: '/static/services/discord.png',
+    [DestinationTypeEnumApi.Pagerduty]: '/static/services/pagerduty.png',
+    [DestinationTypeEnumApi.Webhook]: '/static/services/webhook.svg',
+    [DestinationTypeEnumApi.IncidentIo]: '/static/services/incident_io.png',
+}
+
+function AlertDestinationIcon({ alert }: { alert: PlatformAlertConfigurationApi }): JSX.Element | null {
+    const type = alert.destination_types[0]
+    if (!type) {
+        return null
+    }
+    const src = DESTINATION_ICON_SRC[type]
+    // Email and in-app notifications have no logo, so they share one generic icon.
+    return src ? (
+        <HogFunctionIcon src={src} size="small" />
+    ) : (
+        <span className="flex items-center justify-center w-[30px] h-[30px] text-2xl text-secondary">
+            <IconMessage />
+        </span>
+    )
+}
+
 export interface WarehouseAlertsSectionProps extends WarehouseAlertsLogicProps {
     /** Where the section sits, recorded on the events it sends. */
     entry: WarehouseAlertEntry
 }
 
 export function WarehouseAlertsSection({ entry, ...logicProps }: WarehouseAlertsSectionProps): JSX.Element {
-    const { alerts, alertsLoading, alertsFailed, alertsUnavailable, deletingAlertId, targetLabels } = useValues(
+    const {
+        alerts,
+        alertsLoading,
+        alertsFailed,
+        alertsUnavailable,
+        deletingAlertId,
+        togglingAlertId,
+        targetLabels,
+        filters,
+        filteredAlerts,
+        hiddenAlertCount,
+    } = useValues(warehouseAlertsLogic(logicProps))
+    const { loadAlerts, deleteAlert, toggleAlertEnabled, setFilters, resetFilters } = useActions(
         warehouseAlertsLogic(logicProps)
     )
-    const { loadAlerts, deleteAlert } = useActions(warehouseAlertsLogic(logicProps))
     const { openForCreate, openForEdit } = useActions(warehouseAlertModalLogic(logicProps))
 
     const isSourceAlert = logicProps.kind === PlatformAlertConfigurationSourceKindEnumApi.WarehouseSource
@@ -47,27 +99,32 @@ export function WarehouseAlertsSection({ entry, ...logicProps }: WarehouseAlerts
 
     const columns: LemonTableColumns<PlatformAlertConfigurationApi> = [
         {
+            title: '',
+            width: 0,
+            render: (_, alert) => <AlertDestinationIcon alert={alert} />,
+        },
+        {
             title: 'Name',
             key: 'name',
+            sticky: true,
+            sorter: (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }),
             render: (_, alert) => (
-                <Link
-                    className="font-semibold"
-                    onClick={() => openForEdit(entry, alert)}
-                    data-attr="warehouse-alert-row-open"
-                >
-                    {alert.name}
-                </Link>
+                <div data-attr="warehouse-alert-row-open">
+                    <LemonTableLink
+                        onClick={() => openForEdit(entry, alert)}
+                        title={
+                            <>
+                                <span>{alert.name}</span>
+                                <LemonTag size="small" type="muted">
+                                    {isSourceAlert ? 'Source' : 'Destination'}
+                                </LemonTag>
+                            </>
+                        }
+                        description={describeWatches(alert)}
+                        truncateDescription
+                    />
+                </div>
             ),
-        },
-        {
-            title: 'Status',
-            key: 'status',
-            render: (_, alert) => <PlatformAlertStatusTag status={configurationStatus(alert)} />,
-        },
-        {
-            title: 'Watches',
-            key: 'watches',
-            render: (_, alert) => <span className="line-clamp-2">{describeWatches(alert)}</span>,
         },
         ...(isSourceAlert
             ? [
@@ -76,7 +133,7 @@ export function WarehouseAlertsSection({ entry, ...logicProps }: WarehouseAlerts
                       key: 'group_by',
                       render: (_: unknown, alert: PlatformAlertConfigurationApi) =>
                           alertGroupBy(alert) === WarehouseAlertGroupByEnumApi.Schema ? 'Per table' : 'Per source',
-                  },
+                  } as LemonTableColumn<PlatformAlertConfigurationApi, any>,
               ]
             : []),
         {
@@ -84,50 +141,49 @@ export function WarehouseAlertsSection({ entry, ...logicProps }: WarehouseAlerts
             key: 'email',
             render: (_, alert) => (emailsProjectMembers(alert) ? 'Yes' : 'No'),
         },
+        createdByColumn() as LemonTableColumn<PlatformAlertConfigurationApi, any>,
+        updatedAtColumn() as LemonTableColumn<PlatformAlertConfigurationApi, any>,
         {
-            title: '',
-            key: 'actions',
+            title: 'Status',
+            key: 'status',
+            width: 0,
+            sorter: (a, b) => Number(b.enabled) - Number(a.enabled),
+            render: (_, alert) => <PlatformAlertStatusTag status={configurationStatus(alert)} />,
+        },
+        {
             width: 0,
             render: (_, alert) => (
                 <More
                     overlay={
-                        <>
-                            <LemonButton
-                                fullWidth
-                                icon={<IconPencil />}
-                                onClick={() => openForEdit(entry, alert)}
-                                data-attr="warehouse-alert-row-edit"
-                            >
-                                Edit
-                            </LemonButton>
-                            <LemonButton
-                                fullWidth
-                                status="danger"
-                                icon={<IconTrash />}
-                                onClick={() => deleteAlert(alert)}
-                                disabledReason={deletingAlertId === alert.id ? 'Deleting this alert' : undefined}
-                                data-attr="warehouse-alert-row-delete"
-                            >
-                                Delete
-                            </LemonButton>
-                        </>
+                        <LemonMenuOverlay
+                            items={[
+                                {
+                                    label: 'Edit',
+                                    onClick: () => openForEdit(entry, alert),
+                                    'data-attr': 'warehouse-alert-row-edit',
+                                },
+                                {
+                                    label: alert.enabled ? 'Pause' : 'Resume',
+                                    onClick: () => toggleAlertEnabled(alert, !alert.enabled),
+                                    disabledReason: togglingAlertId === alert.id ? 'Updating this alert' : undefined,
+                                    'data-attr': 'warehouse-alert-row-toggle',
+                                },
+                                {
+                                    label: 'Delete',
+                                    status: 'danger' as const,
+                                    onClick: () => deleteAlert(alert),
+                                    disabledReason: deletingAlertId === alert.id ? 'Deleting this alert' : undefined,
+                                    'data-attr': 'warehouse-alert-row-delete',
+                                },
+                            ]}
+                        />
                     }
                 />
             ),
         },
     ]
 
-    const newAlertButton = (
-        <LemonButton
-            type="primary"
-            size="small"
-            icon={<IconPlusSmall />}
-            onClick={() => openForCreate(entry, createTargets)}
-            data-attr="warehouse-alert-new"
-        >
-            New alert
-        </LemonButton>
-    )
+    const hasAlerts = (alerts ?? []).length > 0
 
     return (
         <SceneSection
@@ -137,7 +193,6 @@ export function WarehouseAlertsSection({ entry, ...logicProps }: WarehouseAlerts
                     ? 'Get notified by email, Slack, PagerDuty or a webhook when a source fails to sync.'
                     : 'Get notified by email, Slack, PagerDuty or a webhook when a destination fails to receive synced rows.'
             }
-            actions={alertsUnavailable ? undefined : newAlertButton}
         >
             {alertsUnavailable ? (
                 <LemonBanner type="info">Alerts aren't available for this project yet.</LemonBanner>
@@ -154,18 +209,68 @@ export function WarehouseAlertsSection({ entry, ...logicProps }: WarehouseAlerts
                     Couldn't load alerts. Try again in a moment.
                 </LemonBanner>
             ) : (
-                <LemonTable
-                    dataSource={alerts ?? []}
-                    columns={columns}
-                    loading={alertsLoading || alerts === null}
-                    rowKey="id"
-                    nouns={['alert', 'alerts']}
-                    emptyState={
-                        logicProps.targetId
-                            ? `No alerts watch this ${noun} yet.`
-                            : `No ${noun} alerts yet. Create one to hear about failures.`
-                    }
-                />
+                <div className="flex flex-col gap-4">
+                    <div className="flex flex-wrap gap-2 items-center">
+                        <LemonInput
+                            type="search"
+                            placeholder="Search..."
+                            value={filters.search}
+                            onChange={(search) => setFilters({ search })}
+                        />
+                        <div className="flex-1" />
+                        <div className="flex flex-col xl:flex-row items-center gap-0.5 xl:gap-2 shrink-0">
+                            <span className="text-xs xl:text-sm">Created by:</span>
+                            <MemberSelect
+                                value={filters.createdBy}
+                                onChange={(user) => setFilters({ createdBy: user?.uuid || null })}
+                            />
+                        </div>
+                        <LemonCheckbox
+                            label="Show paused"
+                            bordered
+                            size="small"
+                            checked={filters.showPaused}
+                            onChange={(showPaused) => setFilters({ showPaused: !!showPaused })}
+                        />
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            icon={<IconPlusSmall />}
+                            onClick={() => openForCreate(entry, createTargets)}
+                            data-attr="warehouse-alert-new"
+                        >
+                            New alert
+                        </LemonButton>
+                    </div>
+                    <LemonTable
+                        dataSource={filteredAlerts}
+                        columns={columns}
+                        size="small"
+                        loading={alertsLoading || alerts === null}
+                        rowKey="id"
+                        nouns={['alert', 'alerts']}
+                        emptyState={
+                            hasAlerts ? (
+                                <>
+                                    No alerts matching filters.{' '}
+                                    <Link onClick={() => resetFilters()}>Clear filters</Link>
+                                </>
+                            ) : logicProps.targetId ? (
+                                `No alerts watch this ${noun} yet.`
+                            ) : (
+                                `No ${noun} alerts yet. Create one to hear about failures.`
+                            )
+                        }
+                        footer={
+                            hiddenAlertCount > 0 && (
+                                <div className="p-3 text-secondary">
+                                    {hiddenAlertCount} paused.{' '}
+                                    <Link onClick={() => setFilters({ showPaused: true })}>Show all</Link>
+                                </div>
+                            )
+                        }
+                    />
+                </div>
             )}
             <WarehouseAlertModal {...logicProps} />
         </SceneSection>
