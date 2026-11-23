@@ -328,6 +328,12 @@ class TestTransactionalEmailBatch(APIBaseTest):
                 "recipients",
             ),
             ("shared_scheduled_at", "code", {"scheduled_at": "2030-01-01T00:00:00Z"}, "scheduled_at"),
+            (
+                "shared_category",
+                "code",
+                {"category": {"key": "newsletter", "type": "marketing", "name": "Newsletter"}},
+                "category",
+            ),
             ("shared_to", "template", {"to": "a@example.com"}, "to"),
             ("shared_distinct_id", "code", {"distinct_id": "person-1"}, "distinct_id"),
             ("shared_unknown_field", "template", {"mesage_data": {"link": "https://example.com/a"}}, "mesage_data"),

@@ -30,7 +30,7 @@ from products.messaging.backend.presentation.views.refusals import ExplainedRefu
 
 BATCH_MAX_RECIPIENTS = 100
 BATCH_BODY_MAX_BYTES = 5 * 1024 * 1024
-BATCH_REFUSED_FIELDS = ("scheduled_at", *CODE_SEND_EXTRA_FIELDS)
+BATCH_REFUSED_FIELDS = ("scheduled_at", "category", *CODE_SEND_EXTRA_FIELDS)
 FIELDS_THAT_FAIL_ONE_RECIPIENT = frozenset({"to", "distinct_id"})
 UNCONFIRMED_EMAIL = (
     "The email pipeline did not confirm this email, so it may still go out. Send it again with the same "
