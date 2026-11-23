@@ -80,10 +80,10 @@ tools:
             host that the record is missing, since a lookup can lag and a second SPF or DMARC record breaks both. Then
             poll the status until it is verified, and call integrations-email-verify-create once. On not_started, call
             integrations-email-verify-create once, then read the status to get the records to publish. On failed, fix
-            the records first, then call integrations-email-verify-create. After about 15 minutes without verified,
-            stop polling. Name any record still pending; if none is, tell the person the records are published, the
-            email provider is still checking, and they can check again later. The setting-up-an-email-domain skill has
-            the details. If this tool returns an error, fall back to adding the records from
+            the records first, then call integrations-email-verify-create. After about 15 minutes without verified, stop
+            polling. Name any record still pending; if none is, tell the person the records are published, the email
+            provider is still checking, and they can check again later. The setting-up-an-email-domain skill has the
+            details. If this tool returns an error, fall back to adding the records from
             integrations-email-status-retrieve by hand.
         exclude_params:
             - context
