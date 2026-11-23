@@ -1052,6 +1052,11 @@ class EvalSuggestionList:
 
 
 @frozen
+class EvalSuggestionSettings:
+    enabled: bool
+
+
+@frozen
 class EvalSuggestionAcceptEstimate:
     target: str
     units: int

@@ -105,7 +105,7 @@ class TestQueriedAccessControlledResources(BaseTest):
             ("events_table", "select * from events", set()),
             # Catalog-enriched information_schema tables partition the cache by data_catalog access AND
             # by warehouse object access (their rows are hidden per-object via _catalog_table_visible),
-            # so an allowed user's cached certification/confidence/reasoning/evidence rows can't leak to
+            # so an allowed user's cached certification/reasoning/evidence rows can't leak to
             # a user with less data_catalog OR warehouse access on a cache hit.
             (
                 "information_schema_tables",

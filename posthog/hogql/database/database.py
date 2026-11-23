@@ -873,6 +873,7 @@ class Database(BaseModel):
     _view_table_names: list[str] = []
     _table_slot_origins: dict[tuple[str, ...], str] = {}
     _denied_tables: set[str] = set()  # Tables user doesn't have permission to access
+    _denied_warehouse_table_ids: set[str] = set()  # Ids of the warehouse tables in _denied_tables
     # `models.<stored name>` -> stored chain, for authored saved queries. Only the deny check reads it.
     _models_aliases: dict[str, list[str]] = {}
     # `models.<stored name>` -> the model's own view node. Resolution uses this and not the stored chain,
@@ -947,6 +948,7 @@ class Database(BaseModel):
         self._view_table_names = []
         self._table_slot_origins = {}
         self._denied_tables = set()
+        self._denied_warehouse_table_ids = set()
         self._models_aliases = {}
         self._models_alias_nodes = {}
         self._connection_id = None
@@ -1493,6 +1495,7 @@ class Database(BaseModel):
 
         # Add table names to denied tables so the query raises "You don't have access" instead of "Unknown table"
         self._denied_tables.add(table.name)
+        self._denied_warehouse_table_ids.add(str(table.id))
         if table.external_data_source:
             for table_key in _get_warehouse_table_keys(table, direct_query=self._is_direct_query()):
                 self._denied_tables.add(table_key)

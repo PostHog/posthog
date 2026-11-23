@@ -27,7 +27,13 @@ from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.direct_redshift_table import DirectRedshiftTable
 from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
 from posthog.hogql.database.direct_trino_table import DirectTrinoTable
-from posthog.hogql.database.models import DatabaseField, FieldOrTable, StructDatabaseField
+from posthog.hogql.database.models import (
+    DatabaseField,
+    DecimalDatabaseField,
+    FieldOrTable,
+    StructDatabaseField,
+    clickhouse_decimal_scale,
+)
 from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
     build_function_call,
@@ -396,12 +402,15 @@ def get_hogql_field_for_column(
     # Support for 'old' style columns
     if isinstance(column_definition, str):
         hogql_type_str = clickhouse_type.partition("(")[0]
-        return LEGACY_CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column_name, nullable=is_nullable)
-
-    return STR_TO_HOGQL_MAPPING.get(
-        str(column_definition.get("hogql", "UnknownDatabaseField")),
-        STR_TO_HOGQL_MAPPING["UnknownDatabaseField"],
-    )(name=column_name, nullable=is_nullable)
+        field = LEGACY_CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column_name, nullable=is_nullable)
+    else:
+        field = STR_TO_HOGQL_MAPPING.get(
+            str(column_definition.get("hogql", "UnknownDatabaseField")),
+            STR_TO_HOGQL_MAPPING["UnknownDatabaseField"],
+        )(name=column_name, nullable=is_nullable)
+    if isinstance(field, DecimalDatabaseField):
+        field.scale = clickhouse_decimal_scale(clickhouse_type)
+    return field
 
 
 def hogql_fields_and_structure_for_columns(

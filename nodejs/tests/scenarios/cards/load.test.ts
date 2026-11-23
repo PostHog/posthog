@@ -29,6 +29,21 @@ const overTheLimit = {
     },
 }
 
+const emailRamp = {
+    ...card,
+    drive: {
+        ...card.drive,
+        ramp: [
+            { scale: 1, for: '15s' },
+            { scale: 12, for: '15s' },
+        ],
+    },
+}
+
+const emailLoad = { targets: { claimsPerSecond: { email: 4 } }, tolerance: 0.1 }
+
+const sesSettings = { CDP_SES_RATE_LIMIT_CAPACITY: '500' }
+
 const TWICE_DECLARED_BARS = [
     { name: 'pickup_p99_under', params: { seconds: 5, queues: ['email'] } },
     { name: 'pickup_p99_under', params: { seconds: 10, queues: ['hogflow'] } },
@@ -76,7 +91,7 @@ describe('load', () => {
         throw new Error('the card loaded')
     }
 
-    it.each<[string, object | string, object | string | undefined, string]>([
+    it.each<[string, object | string, object | string | undefined, string | string[]]>([
         ['a card that is not YAML', 'id: [', undefined, 'card: '],
         ['a card with the wrong shape', { ...card, clock: 'scheduled' }, undefined, 'clock: '],
         [
@@ -410,8 +425,44 @@ describe('load', () => {
             undefined,
             'drive.traffic: event_email is listed 2 times; list each traffic kind once',
         ],
+        [
+            "an email load whose top step passes half of the SES limiter's refill",
+            emailRamp,
+            { ...profile, settings: sesSettings, load: emailLoad },
+            'profile.settings.CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: the email queue claims up to 53 jobs a second at the 12x step, over 50, 50% of the SES limiter refill; raise it to 106 or more',
+        ],
+        [
+            'an SES limiter capacity under one batch for every email replica',
+            card,
+            {
+                ...profile,
+                settings: { ...sesSettings, CONSUMER_BATCH_SIZE: '100' },
+                replicas: { 'cdp-cyclotron-worker-email': 6 },
+                load: emailLoad,
+            },
+            'profile.settings.CDP_SES_RATE_LIMIT_CAPACITY: 500 cannot hold one batch for every email replica (6) at once; raise it to 600 or more',
+        ],
+        [
+            'a load block without an email claim target on a card that sends email',
+            card,
+            {
+                ...profile,
+                settings: sesSettings,
+                load: { targets: { claimsPerSecond: { hogflow: 4 } }, tolerance: 0.1 },
+            },
+            'profile.load.targets.claimsPerSecond.email: the SES limiter check needs it',
+        ],
+        [
+            'a load block without an email claim target and an SES limiter capacity under one batch',
+            card,
+            { ...profile, load: { targets: { claimsPerSecond: { hogflow: 4 } }, tolerance: 0.1 } },
+            [
+                'profile.load.targets.claimsPerSecond.email: the SES limiter check needs it',
+                'profile.settings.CDP_SES_RATE_LIMIT_CAPACITY: 50 cannot hold one batch for every email replica (1) at once; raise it to 500 or more',
+            ],
+        ],
     ])('rejects %s', (_name, content, profileContent, problem) => {
-        expect(problemsOf(content, profileContent)).toEqual([expect.stringContaining(problem)])
+        expect(problemsOf(content, profileContent)).toEqual([problem].flat().map((one) => expect.stringContaining(one)))
     })
 
     const devCard = {
@@ -600,6 +651,42 @@ describe('load', () => {
                 invariants: [{ name: 'at_least_once' }, { name: 'refused_at_intake' }],
             },
             { ...profile, traffic: { transactional_email: { ratePerSecond: 2 } } },
+        ],
+        [
+            'an email load under half of a refill the profile raises',
+            emailRamp,
+            {
+                ...profile,
+                settings: { ...sesSettings, CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: '120' },
+                load: emailLoad,
+            },
+        ],
+        [
+            'an email load at exactly half of the refill',
+            {
+                ...emailRamp,
+                drive: {
+                    ...emailRamp.drive,
+                    ramp: [
+                        { scale: 1, for: '15s' },
+                        { scale: 10, for: '15s' },
+                    ],
+                },
+            },
+            {
+                ...profile,
+                settings: { ...sesSettings, CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: '110' },
+                load: { targets: { claimsPerSecond: { email: 5 } }, tolerance: 0.1 },
+            },
+        ],
+        [
+            'a load block on a card that sends no email, which the SES limiter never slows',
+            { ...card, drive: { ...card.drive, traffic: [{ name: 'event_webhook' }] } },
+            {
+                ...profile,
+                traffic: { event_webhook: { ratePerSecond: 2 } },
+                load: { targets: { claimsPerSecond: { hogflow: 4 } }, tolerance: 0.1 },
+            },
         ],
     ])('loads %s', (_name, content, profileContent) => {
         expect(loadCard(content, profileContent).card.id).toBe(card.id)
