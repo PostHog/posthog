@@ -81,7 +81,7 @@ from products.batch_exports.backend.temporal.sql.events import (
     EXPORT_TO_S3_FROM_EVENTS_BACKFILL,
     EXPORT_TO_S3_FROM_EVENTS_RECENT,
     EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS,
-    RECENT_EVENTS_FIELD_EXPRESSIONS,
+    EXTRACTED_FIELD_EXPRESSIONS,
     native_events_export_query,
 )
 from products.batch_exports.backend.temporal.sql.persons import (
@@ -701,7 +701,7 @@ async def _get_query(
         if native_source:
             query = native_events_export_query(fields, filters_str, s3_function=s3_function)
         else:
-            query_fields = _select_list(fields, reads_recent_events=reads_recent_events)
+            query_fields = _select_list(fields, extracts_ip=query_template is not EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS)
             if filters_str:
                 filters_str = f"AND {filters_str}"
             query = query_template.safe_substitute(
@@ -724,8 +724,8 @@ async def _get_query(
     return query, parameters, reads_recent_events
 
 
-def _select_list(fields: list[BatchExportField], *, reads_recent_events: bool) -> str:
-    field_expressions = RECENT_EVENTS_FIELD_EXPRESSIONS if reads_recent_events else {}
+def _select_list(fields: list[BatchExportField], *, extracts_ip: bool) -> str:
+    field_expressions = EXTRACTED_FIELD_EXPRESSIONS if extracts_ip else {}
     return ",".join(
         f"{field_expressions.get(field['expression'], field['expression'])} AS {field['alias']}" for field in fields
     )
