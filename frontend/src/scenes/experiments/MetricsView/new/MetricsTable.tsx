@@ -5,7 +5,6 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { verticalSortableListCollisionDetection } from 'lib/sortable'
-import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
 
 import { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { ExperimentStatsMethod } from '~/types'
@@ -14,7 +13,6 @@ import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 
 import { experimentLogic } from '../../experimentLogic'
 import { experimentMetricsLogic } from '../../experimentMetricsLogic'
-import { resolveSequentialEnabled } from '../../ExperimentView/sequential'
 import { type ExperimentVariantResult, getDefaultMetricTitle, getVariantInterval } from '../shared/utils'
 import { MAX_AXIS_RANGE } from './constants'
 import { MetricRowGroup } from './MetricRowGroup'
@@ -52,12 +50,6 @@ export function MetricsTable({
 }: MetricsTableProps): JSX.Element {
     const { experiment, exposuresLoading } = useValues(experimentLogic)
     const { recalculatingMetricUuids } = useValues(experimentMetricsLogic({ experiment }))
-    const { experimentsConfig } = useValues(experimentsConfigLogic)
-    const teamDefaultSequentialEnabled = experimentsConfig?.default_sequential_testing_enabled ?? false
-    const sequentialTestingEnabled = resolveSequentialEnabled(
-        experiment.stats_config?.frequentist,
-        teamDefaultSequentialEnabled
-    )
     const {
         duplicateMetric,
         duplicateSharedMetricAsInlineMetric,
@@ -185,7 +177,7 @@ export function MetricsTable({
                     <TableHeader
                         axisRange={axisRange}
                         statsMethod={experiment.stats_config?.method || ExperimentStatsMethod.Bayesian}
-                        sequentialTestingEnabled={sequentialTestingEnabled}
+                        significanceLevel={experiment.stats_config?.frequentist?.alpha}
                         loading={sectionLoading}
                     />
                     <SortableContext items={orderedUuids} strategy={verticalListSortingStrategy}>
