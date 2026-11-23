@@ -110,10 +110,11 @@ OVERRIDE_TIMESTAMP_TEAM_IDS: dict[int, int] = dict(
 )
 
 
-# Teams whose exports from `events_json_recent` include `$feature_flag_called` events. The table stores them, but
-# `events_json` does not, so other teams get the same events from either table.
-BATCH_EXPORTS_FEATURE_FLAG_CALLED_TEAM_IDS: list[str] = get_list(
-    os.getenv("BATCH_EXPORTS_FEATURE_FLAG_CALLED_TEAM_IDS", "")
+# Teams whose exports from `events_json_recent` include `$feature_flag_called` events.
+# This is a temporary workaround until HogQL exports are generally available and these events can be
+# exported from `flag_evaluations`. Note that `events_json` does not include FFC events regardless.
+BATCH_EXPORTS_INCLUDE_FEATURE_FLAG_CALLED_TEAM_IDS: list[str] = get_list(
+    os.getenv("BATCH_EXPORTS_INCLUDE_FEATURE_FLAG_CALLED_TEAM_IDS", "")
 )
 
 CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST", None)

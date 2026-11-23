@@ -176,14 +176,16 @@ async def insert_event_values_in_clickhouse(
             for event in events
         ],
     )
+    # In production, materialized views fill the new events tables from the same Kafka topic. Tests write to the legacy
+    # tables, so if using the new schema we copy the rows to both the new tables that batch exports reads from.
     if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
         uuids = [str(event["uuid"]) for event in events]
         if table == "sharded_events":
-            await mirror_events_into_json_table(
+            await _mirror_events_into_json_table(
                 client, uuids, source_table=table, target_table=EVENTS_JSON_DATA_TABLE, cleaner=EVENTS_JSON_CLEANER
             )
         if table in ("sharded_events", "events_recent", "sharded_events_recent"):
-            await mirror_events_into_json_table(
+            await _mirror_events_into_json_table(
                 client,
                 uuids,
                 source_table=table,
@@ -192,7 +194,7 @@ async def insert_event_values_in_clickhouse(
             )
 
 
-async def mirror_events_into_json_table(
+async def _mirror_events_into_json_table(
     client: ClickHouseClient, uuids: list[str], *, source_table: str, target_table: str, cleaner: str
 ) -> None:
     """Copy rows just written to `source_table` into a native-JSON events table through its ingest cleaner.

@@ -27,6 +27,7 @@ from posthog.temporal.common.logger import get_logger, get_write_only_logger
 from posthog.usage_ingestion.client import UsageRecord, areport_usage
 
 from products.batch_exports.backend.billing import is_billable_run
+from products.batch_exports.backend.events_table import exports_feature_flag_called_events
 from products.batch_exports.backend.facade.enums import BatchExportRunStatus
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
 from products.batch_exports.backend.service import (
@@ -41,10 +42,7 @@ from products.batch_exports.backend.service import (
     update_batch_export_run,
 )
 from products.batch_exports.backend.temporal.metrics import get_export_finished_metric, get_export_started_metric
-from products.batch_exports.backend.temporal.pipeline.query_ranges import (
-    exports_feature_flag_called_events,
-    use_distributed_events_recent_table,
-)
+from products.batch_exports.backend.temporal.pipeline.query_ranges import use_distributed_events_recent_table
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,

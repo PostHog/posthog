@@ -1,4 +1,4 @@
-"""Which events table a batch export reads.
+"""Which events tables a batch export reads, and which events it reads from them.
 
 This module must stay importable by both the API layer and the Temporal worker, so it
 should not import from `products.batch_exports.backend.temporal` or any DRF code.
@@ -18,3 +18,8 @@ def batch_exports_read_new_events_table() -> bool:
     """
     # The test suites that run on both tables turn on the new one with this Django setting.
     return settings.TEST and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+
+
+def exports_feature_flag_called_events(team_id: int) -> bool:
+    """Whether an export of `events_json_recent` for `team_id` includes `$feature_flag_called` events."""
+    return str(team_id) in settings.BATCH_EXPORTS_INCLUDE_FEATURE_FLAG_CALLED_TEAM_IDS

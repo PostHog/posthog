@@ -22,7 +22,10 @@ from posthog.clickhouse.workload import Workload
 from posthog.credentials import AWSKeyPair
 from posthog.dataclasses import frozen
 
-from products.batch_exports.backend.events_table import batch_exports_read_new_events_table
+from products.batch_exports.backend.events_table import (
+    batch_exports_read_new_events_table,
+    exports_feature_flag_called_events,
+)
 from products.batch_exports.backend.temporal.utils import make_retryable_with_exponential_backoff
 
 if typing.TYPE_CHECKING:
@@ -64,7 +67,6 @@ from products.batch_exports.backend.temporal.errors import MissingRequiredInputs
 from products.batch_exports.backend.temporal.filters import InvalidFilterError, compose_filters_clause
 from products.batch_exports.backend.temporal.metrics import log_query_duration
 from products.batch_exports.backend.temporal.pipeline.query_ranges import (
-    exports_feature_flag_called_events,
     is_5_min_batch_export,
     use_distributed_events_recent_table,
     wait_for_delta_past_data_interval_end,
