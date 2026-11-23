@@ -9,6 +9,7 @@ import { validTeamIds } from '~/common/utils/team-manager'
 import { Team } from '../../../types'
 import { HogFunctionType, HogFunctionTypeType } from '../../types'
 import { EncryptedFields } from '../../utils/encryption-utils'
+import { organizationInactiveColumn, withoutDeactivatedOrganizations } from './deactivated-organizations'
 
 const HOG_FUNCTION_FIELDS = [
     'id',
@@ -34,6 +35,11 @@ const HOG_FUNCTION_FIELDS = [
 ]
 
 export type HogFunctionTeamInfo = Pick<HogFunctionType, 'id' | 'team_id' | 'type'>
+
+// Transformations rewrite events at ingestion, such as to drop personal data, so they keep running for a
+// deactivated organization.
+const runsForDeactivatedOrganizations = (hogFunction: Pick<HogFunctionType, 'type'>): boolean =>
+    hogFunction.type === 'transformation'
 
 // /**
 //  * Sorts HogFunctions by their execution_order and creation date.
@@ -73,7 +79,8 @@ export class HogFunctionManagerService {
     constructor(
         private postgres: PostgresRouter,
         private pubSub: PubSub,
-        private encryptedFields: EncryptedFields
+        private encryptedFields: EncryptedFields,
+        private skipDeactivatedOrganizations = false
     ) {
         this.lazyLoaderByTeam = new LazyLoader({
             name: 'hog_function_manager_by_team',
@@ -192,16 +199,20 @@ export class HogFunctionManagerService {
 
     private async fetchTeamHogFunctions(teamIds: string[]): Promise<Record<string, HogFunctionTeamInfo[]>> {
         logger.debug('[HogFunctionManager]', 'Fetching team hog functions', { teamIds })
-        const response = await this.postgres.query<Pick<HogFunctionType, 'id' | 'team_id' | 'type'>>(
+        const response = await this.postgres.query<HogFunctionTeamInfo>(
             PostgresUse.COMMON_READ,
-            `SELECT id, team_id, type FROM posthog_hogfunction WHERE enabled = TRUE AND deleted = FALSE AND team_id = ANY($1)`,
+            `SELECT id, team_id, type${this.organizationInactiveSelect()} FROM posthog_hogfunction WHERE enabled = TRUE AND deleted = FALSE AND team_id = ANY($1)`,
             [validTeamIds(teamIds)],
             'fetchAllTeamHogFunctions'
         )
 
         const hogFunctionsByTeam: Record<string, HogFunctionTeamInfo[]> = {}
 
-        for (const item of response.rows) {
+        for (const item of withoutDeactivatedOrganizations(
+            'hog_function',
+            response.rows,
+            runsForDeactivatedOrganizations
+        )) {
             const teamId = item.team_id.toString()
             if (!hogFunctionsByTeam[teamId]) {
                 hogFunctionsByTeam[teamId] = []
@@ -217,12 +228,16 @@ export class HogFunctionManagerService {
 
         const response = await this.postgres.query<HogFunctionType>(
             PostgresUse.COMMON_READ,
-            `SELECT ${HOG_FUNCTION_FIELDS.join(', ')} FROM posthog_hogfunction WHERE id = ANY($1) AND deleted = FALSE`,
+            `SELECT ${HOG_FUNCTION_FIELDS.join(', ')}${this.organizationInactiveSelect()} FROM posthog_hogfunction WHERE id = ANY($1) AND deleted = FALSE`,
             [ids],
             'fetchHogFunctions'
         )
 
-        const hogFunctions = response.rows
+        const hogFunctions = withoutDeactivatedOrganizations(
+            'hog_function',
+            response.rows,
+            runsForDeactivatedOrganizations
+        )
 
         this.sanitize(hogFunctions)
 
@@ -230,6 +245,10 @@ export class HogFunctionManagerService {
             acc[hogFunction.id] = hogFunction
             return acc
         }, {})
+    }
+
+    private organizationInactiveSelect(): string {
+        return this.skipDeactivatedOrganizations ? `, ${organizationInactiveColumn('posthog_hogfunction')}` : ''
     }
 
     public sanitize(items: HogFunctionType[]): void {
