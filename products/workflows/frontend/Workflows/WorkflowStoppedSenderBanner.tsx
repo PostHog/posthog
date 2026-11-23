@@ -38,6 +38,8 @@ function StoppedSenderBanner({ broken, ...props }: WorkflowLogicProps & { broken
     const stepCount = broken.stepIds.length
     const steps = stepCount === 1 ? 'An email step' : `${stepCount} email steps`
     const domains = broken.domains.length === 1 ? "the domain's" : "the domains'"
+    // A rotating step still delivers from its other senders, so only the emails from a stopped domain fail.
+    const sendFrom = `${stepCount === 1 ? 'sends' : 'send'} from ${broken.domains.length === 1 ? 'it' : 'them'}`
     // Unsaved edits can delete a broken step, so the button opens one the editor still has.
     const stepToChange = broken.stepIds.find((id) => workflow.actions.some((action) => action.id === id))
     const nextStep = changeSenderAdvice(
@@ -61,8 +63,8 @@ function StoppedSenderBanner({ broken, ...props }: WorkflowLogicProps & { broken
                 }}
             >
                 <p className={stepToChange && !isViewOnly ? 'mb-2' : undefined}>
-                    Sending stopped for {broken.domains.join(', ')}. {steps} in this workflow can't send until {domains}{' '}
-                    DNS records are fixed. Fix your sending domain, or {nextStep}.
+                    Sending stopped for {broken.domains.join(', ')}. {steps} in this workflow {sendFrom}, and those
+                    emails fail until {domains} DNS records are fixed. Fix your sending domain, or {nextStep}.
                 </p>
                 {stepToChange && !isViewOnly && (
                     <LemonButton
