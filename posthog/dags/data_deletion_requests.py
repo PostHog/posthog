@@ -730,8 +730,11 @@ def _event_removal_placements(
     """Where this event-removal request reads or deletes rows, each target with the handle that reaches it."""
     events = [] if deletion_request.delete_all_events else deletion_request.events
     # A target that can't hold any of the named events has nothing to sweep, and mutations serialize
-    # per table, so enqueueing a no-op one would queue in front of real work.
-    placements = [p for p in resolve_placements(cluster) if p.target.may_hold_any_of(events)]
+    # per table, so enqueueing a no-op one would queue in front of real work. A target of derived
+    # rows has no event column to match on; its rows expire on their TTL.
+    placements = [
+        p for p in resolve_placements(cluster) if not p.target.derived_from_events and p.target.may_hold_any_of(events)
+    ]
     if not deletion_request.hogql_predicate:
         return EventRemovalPlacements(swept=placements, uncopied=[])
 

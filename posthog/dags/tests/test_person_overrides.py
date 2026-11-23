@@ -28,7 +28,14 @@ from posthog.dags.person_overrides import (
 )
 from posthog.dags.tests.conftest import insert_flag_evaluations
 from posthog.models.async_deletion import AsyncDeletion, DeletionRunJob, DeletionRunLog, DeletionRunStatus, DeletionType
-from posthog.models.deletion_targets import EVENTS, EVENTS_JSON, FLAG_EVALUATIONS, TargetPlacement
+from posthog.models.deletion_targets import (
+    EVENTS,
+    EVENTS_JSON,
+    EXPERIMENT_EXPOSURES,
+    EXPERIMENT_METRIC_EVENTS,
+    FLAG_EVALUATIONS,
+    TargetPlacement,
+)
 from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_DATA_TABLE
 
@@ -346,7 +353,9 @@ def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
 
     # This assertion names the targets literally instead of reusing SQUASH_TARGETS. That constant
     # would still match after someone drops a target from it.
-    resolve_placements.assert_called_once_with(cluster, (EVENTS, EVENTS_JSON, FLAG_EVALUATIONS))
+    resolve_placements.assert_called_once_with(
+        cluster, (EVENTS, EVENTS_JSON, FLAG_EVALUATIONS, EXPERIMENT_EXPOSURES, EXPERIMENT_METRIC_EVENTS)
+    )
     assert sorted(
         (
             enqueue.args[0].table,
