@@ -90,6 +90,7 @@ const HTML_VOID_ELEMENTS = new Set([
 ])
 const HTML_ROOT_ELEMENTS = new Set(['html', 'head', 'body'])
 const HTML_IN_SCOPE_BARRIERS = new Set(['applet', 'caption', 'marquee', 'object', 'table', 'td', 'th'])
+const HTML_IMPLIED_END_TAGS = new Set(['dd', 'dt', 'li', 'optgroup', 'option', 'p', 'rb', 'rp', 'rt', 'rtc'])
 const HTML_P_CLOSERS = new Set([
     'address',
     'article',
@@ -107,7 +108,6 @@ const HTML_P_CLOSERS = new Set([
     'figcaption',
     'figure',
     'footer',
-    'form',
     'h1',
     'h2',
     'h3',
@@ -157,6 +157,7 @@ type StackEntry = {
     integration: 'none' | 'html' | 'math-text'
     inScopeBarrier: boolean
     tableTag: boolean
+    inStack?: boolean
 }
 
 type TemplateFrame = {
@@ -288,6 +289,7 @@ export const clickableHrefs = (body: string): string[] => {
     }
     const hrefs = new Set<string>()
     const frames: TemplateFrame[] = [createTemplateFrame()]
+    let formElement: StackEntry | null = null
 
     const currentFrame = (): TemplateFrame => frames[frames.length - 1]
     const topEntry = (frame: TemplateFrame): StackEntry | undefined => frame.stack[frame.stack.length - 1]
@@ -305,6 +307,7 @@ export const clickableHrefs = (body: string): string[] => {
         } else {
             incCount(frame.htmlScopes[frame.htmlScopes.length - 1], entry.tag)
         }
+        entry.inStack = true
         frame.stack.push(entry)
     }
 
@@ -313,6 +316,7 @@ export const clickableHrefs = (body: string): string[] => {
         if (!popped) {
             return undefined
         }
+        popped.inStack = false
         if (popped.ns !== 'html') {
             decCount(frame.foreignRuns[frame.foreignRuns.length - 1], popped.tag)
             const next = topEntry(frame)
@@ -341,6 +345,40 @@ export const clickableHrefs = (body: string): string[] => {
             if (popped && popped.ns === 'html' && popped.tag === tag) {
                 break
             }
+        }
+    }
+
+    const closeOpenP = (frame: TemplateFrame): void => {
+        if ((frame.htmlScopes[frame.htmlScopes.length - 1].get('p') ?? 0) > 0) {
+            popToHtmlTag(frame, 'p')
+        }
+    }
+
+    const removeFormEntry = (frame: TemplateFrame, target: StackEntry): void => {
+        if (!target.inStack) {
+            return
+        }
+        for (let idx = frame.stack.length - 1; idx >= 0; idx -= 1) {
+            if (frame.stack[idx] !== target) {
+                continue
+            }
+            if (idx === frame.stack.length - 1) {
+                popEntry(frame)
+                return
+            }
+            target.inStack = false
+            decCount(frame.htmlScopes[frame.htmlScopes.length - 1], 'form')
+            const prev = frame.stack[idx - 1]
+            const next = frame.stack[idx + 1]
+            frame.stack.splice(idx, 1)
+            if (prev && prev.ns !== 'html' && next && next.ns !== 'html') {
+                const rightRun = frame.foreignRuns.pop()!
+                const leftRun = frame.foreignRuns[frame.foreignRuns.length - 1]
+                for (const [tag, count] of rightRun) {
+                    leftRun.set(tag, (leftRun.get(tag) ?? 0) + count)
+                }
+            }
+            return
         }
     }
 
@@ -479,48 +517,79 @@ export const clickableHrefs = (body: string): string[] => {
 
                 let anchorNs: Namespace = 'html'
                 if (inHtml) {
-                    if (
-                        HTML_P_CLOSERS.has(tag.tagName) &&
-                        (frame.htmlScopes[frame.htmlScopes.length - 1].get('p') ?? 0) > 0
-                    ) {
-                        popToHtmlTag(frame, 'p')
-                    }
-                    if (tag.tagName === 'svg') {
-                        if (!tag.selfClosing) {
-                            pushEntry(frame, {
-                                tag: 'svg',
-                                ns: 'svg',
+                    if (tag.tagName === 'form') {
+                        const inTemplate = frames.length > 1
+                        const top = topEntry(frame)
+                        const inTableContext =
+                            top !== undefined &&
+                            top.ns === 'html' &&
+                            (top.tag === 'table' || TABLE_SECTIONS.has(top.tag) || top.tag === 'tr')
+                        if (inTableContext) {
+                            if (!formElement && !inTemplate) {
+                                formElement = {
+                                    tag: 'form',
+                                    ns: 'html',
+                                    integration: 'none',
+                                    inScopeBarrier: false,
+                                    tableTag: false,
+                                    inStack: false,
+                                }
+                            }
+                        } else if (!formElement || inTemplate) {
+                            closeOpenP(frame)
+                            const entry: StackEntry = {
+                                tag: 'form',
+                                ns: 'html',
                                 integration: 'none',
                                 inScopeBarrier: false,
                                 tableTag: false,
-                            })
+                            }
+                            pushEntry(frame, entry)
+                            if (!inTemplate) {
+                                formElement = entry
+                            }
                         }
-                    } else if (tag.tagName === 'math') {
-                        if (!tag.selfClosing) {
+                    } else {
+                        if (HTML_P_CLOSERS.has(tag.tagName)) {
+                            closeOpenP(frame)
+                        }
+                        if (tag.tagName === 'svg') {
+                            if (!tag.selfClosing) {
+                                pushEntry(frame, {
+                                    tag: 'svg',
+                                    ns: 'svg',
+                                    integration: 'none',
+                                    inScopeBarrier: false,
+                                    tableTag: false,
+                                })
+                            }
+                        } else if (tag.tagName === 'math') {
+                            if (!tag.selfClosing) {
+                                pushEntry(frame, {
+                                    tag: 'math',
+                                    ns: 'math',
+                                    integration: 'none',
+                                    inScopeBarrier: false,
+                                    tableTag: false,
+                                })
+                            }
+                        } else if (tag.tagName === 'template') {
+                            frames.push(createTemplateFrame())
+                        } else if (tag.tagName === 'select') {
+                            frame.inSelect = true
+                        } else if (TABLE_TAGS.has(tag.tagName)) {
+                            pushHtmlTableTag(frame, tag.tagName)
+                        } else if (TEXT_MODES.has(tag.tagName)) {
+                            tokenizer.state = TEXT_MODES.get(tag.tagName)!
+                        } else if (!HTML_VOID_ELEMENTS.has(tag.tagName) && !HTML_ROOT_ELEMENTS.has(tag.tagName)) {
                             pushEntry(frame, {
-                                tag: 'math',
-                                ns: 'math',
+                                tag: tag.tagName,
+                                ns: 'html',
                                 integration: 'none',
-                                inScopeBarrier: false,
+                                inScopeBarrier: HTML_IN_SCOPE_BARRIERS.has(tag.tagName),
                                 tableTag: false,
                             })
                         }
-                    } else if (tag.tagName === 'template') {
-                        frames.push(createTemplateFrame())
-                    } else if (tag.tagName === 'select') {
-                        frame.inSelect = true
-                    } else if (TABLE_TAGS.has(tag.tagName)) {
-                        pushHtmlTableTag(frame, tag.tagName)
-                    } else if (TEXT_MODES.has(tag.tagName)) {
-                        tokenizer.state = TEXT_MODES.get(tag.tagName)!
-                    } else if (!HTML_VOID_ELEMENTS.has(tag.tagName) && !HTML_ROOT_ELEMENTS.has(tag.tagName)) {
-                        pushEntry(frame, {
-                            tag: tag.tagName,
-                            ns: 'html',
-                            integration: 'none',
-                            inScopeBarrier: HTML_IN_SCOPE_BARRIERS.has(tag.tagName),
-                            tableTag: false,
-                        })
                     }
                 } else {
                     const parentNs = topEntry(frame)!.ns
@@ -567,7 +636,7 @@ export const clickableHrefs = (body: string): string[] => {
                 }
 
                 const top = topEntry(frame)
-                if (top && top.ns !== 'html') {
+                if (!frame.inSelect && top && top.ns !== 'html') {
                     if (tag.tagName === 'p' || tag.tagName === 'br') {
                         while (frame.stack.length > 0) {
                             const cur = topEntry(frame)!
@@ -605,6 +674,29 @@ export const clickableHrefs = (body: string): string[] => {
                 } else if (TABLE_TAGS.has(tag.tagName)) {
                     if (frame.tables[frame.tables.length - 1]?.has(tag.tagName)) {
                         popToHtmlTag(frame, tag.tagName)
+                    }
+                } else if (tag.tagName === 'form') {
+                    const inTemplate = frames.length > 1
+                    const activeForm = formElement
+                    if (!inTemplate) {
+                        formElement = null
+                    }
+                    if (
+                        (activeForm !== null || inTemplate) &&
+                        (frame.htmlScopes[frame.htmlScopes.length - 1].get('form') ?? 0) > 0
+                    ) {
+                        while (frame.stack.length > 0) {
+                            const cur = topEntry(frame)!
+                            if (cur.ns !== 'html' || !HTML_IMPLIED_END_TAGS.has(cur.tag)) {
+                                break
+                            }
+                            popEntry(frame)
+                        }
+                        if (inTemplate) {
+                            popToHtmlTag(frame, 'form')
+                        } else if (activeForm) {
+                            removeFormEntry(frame, activeForm)
+                        }
                     }
                 } else if ((frame.htmlScopes[frame.htmlScopes.length - 1].get(tag.tagName) ?? 0) > 0) {
                     popToHtmlTag(frame, tag.tagName)

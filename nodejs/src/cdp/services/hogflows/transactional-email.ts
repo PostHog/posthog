@@ -264,17 +264,23 @@ export const marketingEmailStep = (hogFlow: HogFlow, category: SendCategory | un
 const LIQUID_UNSUBSCRIBE_EXPRESSION =
     '(?:\\{\\{-?\\s*unsubscribe_url(?:_one_click)?\\s*(?:-?|\\|\\s*[a-zA-Z_][^{}]*)\\}\\}|\\{%-?\\s*unsubscribe_url\\s*-?%\\})'
 const LIQUID_UNSUBSCRIBE_PLACEHOLDER = new RegExp(LIQUID_UNSUBSCRIBE_EXPRESSION)
+const LIQUID_UNSUBSCRIBE_BASE = new RegExp(`^${LIQUID_UNSUBSCRIBE_EXPRESSION}$`)
+const LIQUID_UNSUBSCRIBE_WITH_SUFFIX = new RegExp(`^${LIQUID_UNSUBSCRIBE_EXPRESSION}[?#][^\\r\\n]*$`)
 const LIQUID_UNSUBSCRIBE_HREF = new RegExp(`^${LIQUID_UNSUBSCRIBE_EXPRESSION}(?:[?#][^\\r\\n]*)?$`)
 const LIQUID_QUERY_SUFFIX = /^[?#][^\r\n]*$/
 const LIQUID_CONTROL_KEYWORD = /^-?\s*(if|unless|case|elsif|when|else|endif|endunless|endcase)(?=\s|-?$)/
 
-type LiquidBranchState = 'empty' | 'matched' | 'invalid'
+type LiquidBranchState = 'empty' | 'matched_base' | 'matched_query' | 'invalid'
 
 type LiquidFrame = {
     openTag: 'root' | 'if' | 'unless' | 'case'
+    mode: 'href' | 'suffix'
+    initialQuery: boolean
     inActiveBranch: boolean
     seenElse: boolean
-    matchedBranch: boolean
+    matchedState: 'none' | 'matched_base' | 'matched_query'
+    allBranchesValid: boolean
+    allBranchesQuery: boolean
     branchState: LiquidBranchState
     branchText: string
 }
@@ -290,9 +296,13 @@ const isLiquidUnsubscribeHref = (rawHref: string): boolean => {
 
     const root: LiquidFrame = {
         openTag: 'root',
+        mode: 'href',
+        initialQuery: false,
         inActiveBranch: true,
         seenElse: false,
-        matchedBranch: false,
+        matchedState: 'none',
+        allBranchesValid: true,
+        allBranchesQuery: false,
         branchState: 'empty',
         branchText: '',
     }
@@ -305,18 +315,39 @@ const isLiquidUnsubscribeHref = (rawHref: string): boolean => {
             return
         }
         if (frame.branchState === 'empty') {
-            frame.branchState = LIQUID_UNSUBSCRIBE_HREF.test(text) ? 'matched' : 'invalid'
-        } else if (!LIQUID_QUERY_SUFFIX.test(text)) {
+            if (LIQUID_UNSUBSCRIBE_BASE.test(text)) {
+                frame.branchState = 'matched_base'
+            } else if (LIQUID_UNSUBSCRIBE_WITH_SUFFIX.test(text)) {
+                frame.branchState = 'matched_query'
+            } else {
+                frame.branchState = 'invalid'
+            }
+        } else if (frame.branchState === 'matched_base') {
+            frame.branchState = LIQUID_QUERY_SUFFIX.test(text) ? 'matched_query' : 'invalid'
+        } else if (/[\r\n]/.test(text)) {
             frame.branchState = 'invalid'
         }
     }
 
     const finalizeBranch = (frame: LiquidFrame): void => {
         flushText(frame)
-        if (frame.inActiveBranch && frame.branchState === 'matched') {
-            frame.matchedBranch = true
+        if (frame.inActiveBranch) {
+            if (frame.mode === 'href') {
+                if (frame.branchState === 'matched_base') {
+                    frame.matchedState = 'matched_base'
+                } else if (frame.branchState === 'matched_query' && frame.matchedState === 'none') {
+                    frame.matchedState = 'matched_query'
+                }
+            } else {
+                if (frame.branchState === 'invalid') {
+                    frame.allBranchesValid = false
+                }
+                if (frame.branchState !== 'matched_query') {
+                    frame.allBranchesQuery = false
+                }
+            }
         }
-        frame.branchState = 'empty'
+        frame.branchState = frame.mode === 'suffix' ? (frame.initialQuery ? 'matched_query' : 'matched_base') : 'empty'
     }
 
     let pos = 0
@@ -342,15 +373,20 @@ const isLiquidUnsubscribeHref = (rawHref: string): boolean => {
         const keyword = keywordMatch[1]
         if (keyword === 'if' || keyword === 'unless' || keyword === 'case') {
             flushText(current)
-            if (current.inActiveBranch && current.branchState !== 'empty') {
-                current.branchState = 'invalid'
-            }
+            const isSuffix =
+                current.inActiveBranch &&
+                (current.branchState === 'matched_base' || current.branchState === 'matched_query')
+            const initialQuery = isSuffix && current.branchState === 'matched_query'
             stack.push({
                 openTag: keyword,
+                mode: isSuffix ? 'suffix' : 'href',
+                initialQuery,
                 inActiveBranch: keyword !== 'case',
                 seenElse: false,
-                matchedBranch: false,
-                branchState: 'empty',
+                matchedState: 'none',
+                allBranchesValid: true,
+                allBranchesQuery: true,
+                branchState: isSuffix ? (initialQuery ? 'matched_query' : 'matched_base') : 'empty',
                 branchText: '',
             })
         } else if (keyword === 'elsif' || keyword === 'when' || keyword === 'else') {
@@ -375,8 +411,17 @@ const isLiquidUnsubscribeHref = (rawHref: string): boolean => {
             stack.pop()
             finalizeBranch(current)
             const parent = stack[stack.length - 1]
-            if (parent.inActiveBranch) {
-                parent.branchState = parent.branchState === 'empty' && current.matchedBranch ? 'matched' : 'invalid'
+            if (parent.inActiveBranch && parent.branchState !== 'invalid') {
+                if (current.mode === 'href') {
+                    parent.branchState =
+                        parent.branchState === 'empty' && current.matchedState !== 'none'
+                            ? current.matchedState
+                            : 'invalid'
+                } else if (!current.allBranchesValid) {
+                    parent.branchState = 'invalid'
+                } else if (current.initialQuery || (current.seenElse && current.allBranchesQuery)) {
+                    parent.branchState = 'matched_query'
+                }
             }
         }
         pos = close + 2
@@ -386,7 +431,7 @@ const isLiquidUnsubscribeHref = (rawHref: string): boolean => {
         return false
     }
     flushText(root)
-    return root.branchState === 'matched'
+    return root.branchState === 'matched_base' || root.branchState === 'matched_query'
 }
 
 const hasLiquidUnsubscribeLink = ({ html, text }: { html?: string; text?: string }): boolean =>

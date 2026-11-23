@@ -397,6 +397,46 @@ describe('clickableHrefs', () => {
             '<div><object><svg></object></div><textarea><a href="https://example.com/bye">Unsubscribe</a></textarea>',
             [],
         ],
+        [
+            'an SVG xlink:href anchor after a closing form tag removes only the enclosing form',
+            '<form><svg></form><a xlink:href="https://example.com/bye"><text>Unsubscribe</text></a></svg>',
+            ['https://example.com/bye'],
+        ],
+        [
+            'an SVG xlink:href anchor after a closing form tag inside a nested SVG group',
+            '<form><svg><g></form><a xlink:href="https://example.com/bye"><text>Unsubscribe</text></a></g></svg>',
+            ['https://example.com/bye'],
+        ],
+        [
+            'an SVG xlink:href anchor after a closing form tag inside a template does not clear the outer form',
+            '<form><template></form></template><svg></form><a xlink:href="https://example.com/bye"><text>Unsubscribe</text></a></svg>',
+            ['https://example.com/bye'],
+        ],
+        [
+            'an SVG xlink:href anchor after a closing form tag is blocked by a foreignObject scope barrier',
+            '<form><svg><foreignObject><p>x</form><a xlink:href="https://example.com/bye"><text>Unsubscribe</text></a></svg>',
+            [],
+        ],
+        [
+            'an SVG xlink:href anchor after a form opened directly inside a table and closed inside SVG',
+            '<table><form><tr><td><svg></form><a xlink:href="https://example.com/bye"><text>Unsubscribe</text></a></svg></td></tr></table>',
+            ['https://example.com/bye'],
+        ],
+        [
+            'an SVG xlink:href anchor inside SVG after an ignored nested form start tag',
+            '<form><p><form><svg></form><a xlink:href="https://example.com/bye"><text>Unsubscribe</text></a></svg>',
+            ['https://example.com/bye'],
+        ],
+        [
+            'an anchor after a template whose closing form tag popped an open SVG element',
+            '<template><form><svg></form><a xlink:href="https://example.com/in-template">In template</a></svg></template><a href="https://example.com/bye">Unsubscribe</a>',
+            ['https://example.com/bye'],
+        ],
+        [
+            'an SVG xlink:href anchor ignored when a foreignObject end tag is swallowed inside an open select',
+            '<svg><foreignObject><select></foreignObject></select><a xlink:href="https://example.com/bye">Unsubscribe</a></svg>',
+            [],
+        ],
     ])('returns the hrefs a reader can click in %s', (_name, html, hrefs) => {
         expect(clickableHrefs(html)).toEqual(hrefs)
     })
@@ -434,6 +474,10 @@ describe('clickableHrefs', () => {
         [
             'many nested MathML text integration points followed by unmatched SVG end tags',
             '<math><mtext>'.repeat(20_000) + '</svg>'.repeat(20_000),
+        ],
+        [
+            'deeply nested divs followed by repeated detached form end tags',
+            '<div>'.repeat(20_000) + '<form><table><td><form></td></table></form>'.repeat(5_000),
         ],
     ])('finds the anchor after large %s', (_name, filler) => {
         expect(clickableHrefs(filler + '<a href="https://example.com/bye">Unsubscribe</a>')).toEqual([
@@ -514,6 +558,8 @@ describe('clickableHrefs', () => {
             '</math>',
             '<p>',
             '</p>',
+            '<form>',
+            '</form>',
             '<hr>',
             '</br>',
             '<script>',
@@ -593,6 +639,13 @@ describe('preferencesTokensInBody', () => {
         expect(hasReplaceableUnsubscribeLink({ html })).toBe(true)
         const filled = replaceUnsubscribePlaceholder(html, 'https://app.posthog.com/messaging-preferences/tok-hr/')
         expect(preferencesTokensInBody({ html: filled }, 'https://app.posthog.com')).toEqual(['tok-hr'])
+    })
+
+    it('extracts the preferences token from an SVG xlink:href anchor after a closing form tag', () => {
+        const html = '<form><svg></form><a xlink:href="{{ unsubscribe_url }}"><text>Unsubscribe</text></a></svg>'
+        expect(hasReplaceableUnsubscribeLink({ html })).toBe(true)
+        const filled = replaceUnsubscribePlaceholder(html, 'https://app.posthog.com/messaging-preferences/tok-form/')
+        expect(preferencesTokensInBody({ html: filled }, 'https://app.posthog.com')).toEqual(['tok-form'])
     })
 })
 

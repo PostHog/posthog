@@ -4453,21 +4453,6 @@ describe('Workflows E2E (email queue)', () => {
 
             const locker = await hub.postgres.connect(PostgresUse.COMMON_WRITE)
             let locked = false
-            const queryWithTimeout = async (router: PostgresRouter, tag: string) => {
-                let timer: NodeJS.Timeout | undefined
-                try {
-                    return await Promise.race([
-                        router
-                            .query(PostgresUse.COMMON_WRITE, 'SELECT 1 AS answered', undefined, tag)
-                            .then((res) => res.rows),
-                        new Promise<string>((resolve) => {
-                            timer = setTimeout(() => resolve('pool_exhausted'), 1_000)
-                        }),
-                    ])
-                } finally {
-                    clearTimeout(timer)
-                }
-            }
             try {
                 const warmup = await post(
                     'code',
@@ -4478,6 +4463,7 @@ describe('Workflows E2E (email queue)', () => {
                 expect(warmup.status).toEqual(422)
 
                 await locker.query('BEGIN')
+                await locker.query(`SET LOCAL idle_in_transaction_session_timeout = '15s'`)
                 await locker.query('LOCK TABLE posthog_messagerecipientpreference IN ACCESS EXCLUSIVE MODE')
                 locked = true
 
@@ -4491,10 +4477,26 @@ describe('Workflows E2E (email queue)', () => {
                     expect(res.status).toEqual(202)
                 }
 
-                expect(await queryWithTimeout(onePoolPostgres, 'test-main-pool-free')).toEqual([{ answered: 1 }])
-                expect(await queryWithTimeout(sandboxReadRouter(onePoolPostgres), 'test-bounded-pool-free')).toEqual([
-                    { answered: 1 },
-                ])
+                expect(
+                    (
+                        await sandboxReadRouter(onePoolPostgres).query(
+                            PostgresUse.COMMON_WRITE,
+                            'SELECT 1 AS answered',
+                            undefined,
+                            'test-bounded-pool-free'
+                        )
+                    ).rows
+                ).toEqual([{ answered: 1 }])
+                expect(
+                    (
+                        await onePoolPostgres.query(
+                            PostgresUse.COMMON_WRITE,
+                            'SELECT 1 AS answered',
+                            undefined,
+                            'test-main-pool-free'
+                        )
+                    ).rows
+                ).toEqual([{ answered: 1 }])
 
                 await locker.query('COMMIT')
                 locked = false
@@ -4509,7 +4511,7 @@ describe('Workflows E2E (email queue)', () => {
                 expect(afterUnlock.body).toEqual({ error: 'recipient_opted_out' })
             } finally {
                 if (locked) {
-                    await locker.query('COMMIT')
+                    await locker.query('COMMIT').catch(() => undefined)
                 }
                 locker.release()
                 boundedServer.close()
@@ -4530,21 +4532,6 @@ describe('Workflows E2E (email queue)', () => {
             const locker = await hub.postgres.connect(PostgresUse.COMMON_WRITE)
             let worker: CdpCyclotronWorkerEmail | undefined
             let locked = false
-            const queryWithTimeout = async (router: PostgresRouter, tag: string) => {
-                let timer: NodeJS.Timeout | undefined
-                try {
-                    return await Promise.race([
-                        router
-                            .query(PostgresUse.COMMON_WRITE, 'SELECT 1 AS answered', undefined, tag)
-                            .then((result) => result.rows),
-                        new Promise<string>((resolve) => {
-                            timer = setTimeout(() => resolve('pool_exhausted'), 1_000)
-                        }),
-                    ])
-                } finally {
-                    clearTimeout(timer)
-                }
-            }
             try {
                 await locker.query('BEGIN')
                 await locker.query(`SET LOCAL idle_in_transaction_session_timeout = '15s'`)
@@ -4556,19 +4543,36 @@ describe('Workflows E2E (email queue)', () => {
                     workerDeps,
                     new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
                 )
+                const attemptStart = Date.now()
                 await worker.start()
 
                 await waitForExpect(async () => {
                     const jobs = await queryCyclotronJobs()
                     expect(jobs).toHaveLength(1)
-                    expect(jobs[0].status).toEqual('available')
-                    expect(new Date(jobs[0].scheduled).getTime()).toBeGreaterThan(Date.now() + 1_000)
-                }, 8_000)
+                    expect(jobs[0]).toMatchObject({ queue_name: 'email', status: 'available' })
+                    expect(new Date(jobs[0].scheduled).getTime()).toBeGreaterThanOrEqual(attemptStart + 30_000)
+                }, 15_000)
 
                 expect(await emailsTo(to)).toEqual([])
-                expect(await queryWithTimeout(onePoolPostgres, 'test-worker-main-pool-free')).toEqual([{ answered: 1 }])
                 expect(
-                    await queryWithTimeout(sandboxReadRouter(onePoolPostgres), 'test-worker-bounded-pool-free')
+                    (
+                        await sandboxReadRouter(onePoolPostgres).query(
+                            PostgresUse.COMMON_WRITE,
+                            'SELECT 1 AS answered',
+                            undefined,
+                            'test-worker-bounded-pool-free'
+                        )
+                    ).rows
+                ).toEqual([{ answered: 1 }])
+                expect(
+                    (
+                        await onePoolPostgres.query(
+                            PostgresUse.COMMON_WRITE,
+                            'SELECT 1 AS answered',
+                            undefined,
+                            'test-worker-main-pool-free'
+                        )
+                    ).rows
                 ).toEqual([{ answered: 1 }])
 
                 await locker.query('COMMIT')

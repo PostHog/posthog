@@ -60,6 +60,46 @@ describe('marketingSendRefusal', () => {
             undefined,
         ],
         [
+            'an optional conditional query string after unsubscribe_url',
+            '<a href="{{ unsubscribe_url }}{% if variables.lang %}?lang={{ variables.lang }}{% endif %}">Unsubscribe</a>',
+            undefined,
+        ],
+        [
+            'an if/else conditional query string after unsubscribe_url',
+            '<a href="{{ unsubscribe_url }}{% if variables.a %}?a=1{% else %}?a=2{% endif %}">Unsubscribe</a>',
+            undefined,
+        ],
+        [
+            'a conditional query parameter appended after a query string',
+            '<a href="{{ unsubscribe_url }}?a=1{% if variables.b %}&b=2{% endif %}">Unsubscribe</a>',
+            undefined,
+        ],
+        [
+            'an optional conditional fragment after unsubscribe_url',
+            '<a href="{{ unsubscribe_url }}{% if variables.frag %}#footer{% endif %}">Unsubscribe</a>',
+            undefined,
+        ],
+        [
+            'an exhaustive conditional query string followed by an optional conditional query parameter',
+            '<a href="{{ unsubscribe_url }}{% if variables.a %}?a=1{% else %}?a=2{% endif %}{% if variables.b %}&b=2{% endif %}">Unsubscribe</a>',
+            undefined,
+        ],
+        [
+            'a nested conditional query parameter inside a conditional query string',
+            '<a href="{{ unsubscribe_url }}{% if variables.a %}?a=1{% if variables.b %}&b=2{% endif %}{% endif %}">Unsubscribe</a>',
+            undefined,
+        ],
+        [
+            'a case conditional query string after unsubscribe_url',
+            "<a href=\"{{ unsubscribe_url }}{% case variables.lang %}{% when 'de' %}?lang=de{% when 'fr' %}?lang=fr{% endcase %}\">Unsubscribe</a>",
+            undefined,
+        ],
+        [
+            'an optional conditional query string nested inside a conditional unsubscribe_url branch',
+            '<a href="{% if variables.a %}{{ unsubscribe_url }}{% if variables.lang %}?lang={{ variables.lang }}{% endif %}{% endif %}">Unsubscribe</a>',
+            undefined,
+        ],
+        [
             'a foreign-host URL wrapping an if conditional',
             '<a href="https://example.com/?next={% if true %}{{ unsubscribe_url }}{% endif %}">Unsubscribe</a>',
             'unsubscribe_link_required',
@@ -112,6 +152,56 @@ describe('marketingSendRefusal', () => {
         [
             'an unclosed if conditional',
             '<a href="{% if true %}{{ unsubscribe_url }}">Unsubscribe</a>',
+            'unsubscribe_link_required',
+        ],
+        [
+            'a conditional domain suffix after unsubscribe_url',
+            '<a href="{{ unsubscribe_url }}{% if true %}.evil.com{% endif %}">Unsubscribe</a>',
+            'unsubscribe_link_required',
+        ],
+        [
+            'a conditional path traversal suffix after unsubscribe_url',
+            '<a href="{{ unsubscribe_url }}{% if true %}/../other{% endif %}">Unsubscribe</a>',
+            'unsubscribe_link_required',
+        ],
+        [
+            'a conditional authority suffix after unsubscribe_url',
+            '<a href="{{ unsubscribe_url }}{% if true %}@evil.com{% endif %}">Unsubscribe</a>',
+            'unsubscribe_link_required',
+        ],
+        [
+            'a conditional raw variable suffix before any query or fragment',
+            '<a href="{{ unsubscribe_url }}{% if true %}{{ variables.path }}{% endif %}">Unsubscribe</a>',
+            'unsubscribe_link_required',
+        ],
+        [
+            'a conditional suffix whose else branch appends path text',
+            '<a href="{{ unsubscribe_url }}{% if true %}?a=1{% else %}/evil{% endif %}">Unsubscribe</a>',
+            'unsubscribe_link_required',
+        ],
+        [
+            'an optional query conditional followed by a bare ampersand suffix',
+            '<a href="{{ unsubscribe_url }}{% if variables.a %}?a=1{% endif %}&b=2">Unsubscribe</a>',
+            'unsubscribe_link_required',
+        ],
+        [
+            'an optional query conditional followed by a second conditional starting with an ampersand',
+            '<a href="{{ unsubscribe_url }}{% if variables.a %}?a=1{% endif %}{% if variables.b %}&b=2{% endif %}">Unsubscribe</a>',
+            'unsubscribe_link_required',
+        ],
+        [
+            'an elsif suffix with an empty branch followed by a bare ampersand suffix',
+            '<a href="{{ unsubscribe_url }}{% if variables.a %}?a=1{% elsif variables.b %}{% else %}?c=3{% endif %}&d=4">Unsubscribe</a>',
+            'unsubscribe_link_required',
+        ],
+        [
+            'an unclosed suffix conditional after unsubscribe_url',
+            '<a href="{{ unsubscribe_url }}{% if true %}?a=1">Unsubscribe</a>',
+            'unsubscribe_link_required',
+        ],
+        [
+            'a duplicate else clause in a suffix conditional after unsubscribe_url',
+            '<a href="{{ unsubscribe_url }}{% if true %}?a=1{% else %}?a=2{% else %}?a=3{% endif %}">Unsubscribe</a>',
             'unsubscribe_link_required',
         ],
     ])('evaluates a saved email step with %s', (_name, html, expected) => {

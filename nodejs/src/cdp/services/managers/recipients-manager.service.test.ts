@@ -430,30 +430,48 @@ describe('RecipientsManager', () => {
             }
 
             try {
+                const seededRecipients = Array.from({ length: 12 }, (_, index) => ({
+                    stored: index === 0 ? 'Alice@Example.com' : `recipient-${index}@example.com`,
+                    lookup: index === 0 ? 'alice@example.com' : `recipient-${index}@example.com`,
+                    primaryStatus: index % 2 === 0 ? 'OPTED_OUT' : 'OPTED_IN',
+                }))
+                const primaryValues: unknown[] = [team.id]
+                const primaryPlaceholders = seededRecipients
+                    .map((recipient, index) => {
+                        const idParam = index * 3 + 2
+                        const identifierParam = index * 3 + 3
+                        const prefsParam = index * 3 + 4
+                        primaryValues.push(
+                            new UUIDT().toString(),
+                            recipient.stored,
+                            JSON.stringify({ 'cat-1': recipient.primaryStatus })
+                        )
+                        return `($${idParam}, $1, $${identifierParam}, $${prefsParam}, NOW(), NOW(), false)`
+                    })
+                    .join(', ')
                 await hub.postgres.query(
                     PostgresUse.COMMON_WRITE,
                     `INSERT INTO ${primarySchema}.posthog_messagerecipientpreference
                         (id, team_id, identifier, preferences, created_at, updated_at, deleted)
-                     VALUES
-                        ($1, $2, 'Alice@Example.com', $3, NOW(), NOW(), false),
-                        ($4, $2, 'bob@example.com', $5, NOW(), NOW(), false)`,
-                    [
-                        new UUIDT().toString(),
-                        team.id,
-                        JSON.stringify({ 'cat-1': 'OPTED_OUT' }),
-                        new UUIDT().toString(),
-                        JSON.stringify({ 'cat-1': 'OPTED_IN' }),
-                    ],
+                     VALUES ${primaryPlaceholders}`,
+                    primaryValues,
                     'testSeedPrimary'
                 )
+                const replicaValues: unknown[] = [team.id, JSON.stringify({ 'cat-1': 'OPTED_IN' })]
+                const replicaPlaceholders = seededRecipients
+                    .map((recipient, index) => {
+                        const idParam = index * 2 + 3
+                        const identifierParam = index * 2 + 4
+                        replicaValues.push(new UUIDT().toString(), recipient.stored)
+                        return `($${idParam}, $1, $${identifierParam}, $2, NOW(), NOW(), false)`
+                    })
+                    .join(', ')
                 await hub.postgres.query(
                     PostgresUse.COMMON_WRITE,
                     `INSERT INTO ${replicaSchema}.posthog_messagerecipientpreference
                         (id, team_id, identifier, preferences, created_at, updated_at, deleted)
-                     VALUES
-                        ($1, $2, 'Alice@Example.com', $3, NOW(), NOW(), false),
-                        ($4, $2, 'bob@example.com', $3, NOW(), NOW(), false)`,
-                    [new UUIDT().toString(), team.id, JSON.stringify({ 'cat-1': 'OPTED_IN' }), new UUIDT().toString()],
+                     VALUES ${replicaPlaceholders}`,
+                    replicaValues,
                     'testSeedReplica'
                 )
 
@@ -465,34 +483,44 @@ describe('RecipientsManager', () => {
                 })
                 expect(cachedReplica?.preferences).toEqual({ 'cat-1': 'OPTED_IN' })
 
-                const scansBefore = await readPrimaryScans()
-                const results = await Promise.all([
-                    ...Array.from({ length: 25 }, () =>
-                        freshManager.getFresh({ teamId: team.id, identifier: 'alice@example.com', anyCase: true })
-                    ),
-                    ...Array.from({ length: 25 }, () =>
-                        freshManager.getFresh({ teamId: team.id, identifier: 'bob@example.com', anyCase: true })
-                    ),
-                    freshManager.getFresh({ teamId: team.id, identifier: 'missing@example.com', anyCase: true }),
+                const smallBatchBefore = await readPrimaryScans()
+                const smallBatch = await Promise.all([
+                    freshManager.getFresh({ teamId: team.id, identifier: seededRecipients[0].lookup, anyCase: true }),
+                    freshManager.getFresh({ teamId: team.id, identifier: seededRecipients[1].lookup, anyCase: true }),
+                    freshManager.getFresh({ teamId: team.id, identifier: 'missing-small@example.com', anyCase: true }),
                 ])
-                const scansAfterBatch = await readPrimaryScans()
+                const smallBatchScans = (await readPrimaryScans()) - smallBatchBefore
 
-                expect(scansAfterBatch - scansBefore).toBeGreaterThan(0)
-                expect(scansAfterBatch - scansBefore).toBeLessThanOrEqual(3)
-                expect(results[0]?.preferences).toEqual({ 'cat-1': 'OPTED_OUT' })
-                expect(results[25]?.preferences).toEqual({ 'cat-1': 'OPTED_IN' })
-                expect(results[50]).toBeNull()
+                const largeBatchBefore = await readPrimaryScans()
+                const largeBatch = await Promise.all([
+                    ...seededRecipients.map((recipient) =>
+                        freshManager.getFresh({ teamId: team.id, identifier: recipient.lookup, anyCase: true })
+                    ),
+                    freshManager.getFresh({ teamId: team.id, identifier: 'missing-large@example.com', anyCase: true }),
+                ])
+                const largeBatchScans = (await readPrimaryScans()) - largeBatchBefore
+
+                expect(smallBatchScans).toBeGreaterThan(0)
+                expect(largeBatchScans).toBeGreaterThan(0)
+                expect(largeBatchScans).toBeLessThanOrEqual(smallBatchScans)
+                expect(smallBatch[0]?.preferences).toEqual({ 'cat-1': 'OPTED_OUT' })
+                expect(smallBatch[1]?.preferences).toEqual({ 'cat-1': 'OPTED_IN' })
+                expect(smallBatch[2]).toBeNull()
+                for (let index = 0; index < seededRecipients.length; index += 1) {
+                    expect(largeBatch[index]?.preferences).toEqual({ 'cat-1': seededRecipients[index].primaryStatus })
+                }
+                expect(largeBatch[seededRecipients.length]).toBeNull()
 
                 await hub.postgres.query(
                     PostgresUse.COMMON_WRITE,
                     `UPDATE ${primarySchema}.posthog_messagerecipientpreference
                      SET preferences = $1 WHERE team_id = $2 AND identifier = $3`,
-                    [JSON.stringify({ 'cat-1': 'OPTED_OUT' }), team.id, 'bob@example.com'],
+                    [JSON.stringify({ 'cat-1': 'OPTED_OUT' }), team.id, seededRecipients[1].stored],
                     'testUpdatePrimaryRecipient'
                 )
                 const updated = await freshManager.getFresh({
                     teamId: team.id,
-                    identifier: 'bob@example.com',
+                    identifier: seededRecipients[1].lookup,
                     anyCase: true,
                 })
                 expect(updated?.preferences).toEqual({ 'cat-1': 'OPTED_OUT' })
