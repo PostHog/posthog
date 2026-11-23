@@ -10,6 +10,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
+from products.replay.backend.management.commands.export_recordings_to_s3 import failure_message
 from products.replay.backend.temporal.export_recordings import workflow
 from products.replay.backend.temporal.export_recordings.quote import QuoteUsage, price
 from products.replay.backend.temporal.export_recordings.types import (
@@ -120,6 +121,7 @@ async def test_an_unsafe_role_fails_the_run_before_any_shard() -> None:
     assert started == [("check", 0)]
     assert summaries == []
     assert isinstance(result, WorkflowFailureError)
+    assert failure_message(result) == "role lacks the external ID condition"
 
 
 @pytest.mark.parametrize("cross_region,transfer_usd", [(False, 0.0), (True, 40.0)])

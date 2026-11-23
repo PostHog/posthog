@@ -36,6 +36,7 @@ from posthog.clickhouse.client.connection import set_default_clickhouse_workload
 from posthog.clickhouse.workload import Workload
 from posthog.models import Team
 from posthog.temporal.common.client import async_connect
+from posthog.temporal.common.errors import describe_failure
 
 from products.replay.backend.temporal.export_recordings.activities import destination_error
 from products.replay.backend.temporal.export_recordings.quote import (
@@ -297,13 +298,10 @@ async def _describe(workflow_id: str) -> str:
     try:
         await handle.result()
     except WorkflowFailureError as e:
-        return f"{line}\n{failure_reason(e)}"
+        return f"{line}\n{failure_message(e)}"
     return line
 
 
-def failure_reason(error: WorkflowFailureError) -> str:
-    """The innermost failure message, which names the failed shards or the missing permission."""
-    cause: BaseException = error
-    while (inner := getattr(cause, "cause", None)) is not None:
-        cause = inner
-    return str(cause)
+def failure_message(error: WorkflowFailureError) -> str:
+    # The client error is not a Temporal FailureError, so unwrapping starts at its cause.
+    return describe_failure(error.cause)

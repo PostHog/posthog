@@ -83,7 +83,7 @@ BLOCK_URL_PATTERN = re.compile(r"^s3://[^/]+/(?P<key>[^?]+)\?range=bytes=(?P<sta
 # Our cost and storage paths stay out of the customer's bucket.
 CUSTOMER_QUOTE_FIELDS = ("quote_id", "team_id", "date_from", "date_to", "selection", "created_at", "usage")
 
-NON_RETRYABLE_ERRORS = (InvalidCredentialsError, ExternalRoleArnNotConfiguredError, IntegrationError)
+NON_RETRYABLE_ERRORS = (InvalidCredentialsError, ExternalRoleArnNotConfiguredError)
 
 # Same rule as recording-api's listBlocks. Needs `start_time` and the session's grouped rows.
 SESSION_EXPIRY_TIME_SQL = "dateTrunc('DAY', start_time) + toIntervalDay(coalesce(max(retention_period_days), 30))"
@@ -344,10 +344,8 @@ def external_id(organization_id: object) -> str:
 
 
 def role_account_id(aws_role_arn: str) -> str:
-    parts = aws_role_arn.split(":")
-    if len(parts) < 6 or not parts[4]:
-        raise ApplicationError(f"Malformed role ARN {aws_role_arn!r}", non_retryable=True)
-    return parts[4]
+    # destination_error has already matched the ARN against AWS_ROLE_ARN_RE.
+    return aws_role_arn.split(":")[4]
 
 
 def destination_error(destination: ExportDestination) -> str | None:
@@ -637,24 +635,20 @@ async def check_destination(input: CheckDestinationInput) -> None:
             settings.RECORDING_EXPORT_S3_EXTERNAL_ROLE_ARN,
             external_id(team.organization_id),
         )
-    except NON_RETRYABLE_ERRORS as e:
+    except IntegrationError as e:
         raise ApplicationError(str(e), non_retryable=True) from e
     # A test upload that is aborted leaves no object, and each step needs a different permission.
     destination = input.destination
     key = f"{run_prefix(destination, input.team_id)}/{input.run_id}/preflight"
-    put = f"s3:PutObject on s3://{destination.bucket}/{key}"
-    key_arn = (
-        kms_key_arn(destination.kms_key_id, destination.region, destination.role_arn)
-        if destination.kms_key_id
-        else None
-    )
+    create_needs = part_needs = f"s3:PutObject on s3://{destination.bucket}/{key}"
+    if destination.kms_key_id:
+        key_arn = kms_key_arn(destination.kms_key_id, destination.region, destination.role_arn)
+        create_needs = f"{create_needs} and kms:GenerateDataKey on {key_arn}"
+        part_needs = f"kms:Decrypt on {key_arn}"
     async with customer_bucket(input.team_id, destination, input.run_id) as bucket:
-        upload_id = await _probe(
-            bucket.create_multipart_upload(key), f"{put} and kms:GenerateDataKey on {key_arn}" if key_arn else put
-        )
+        upload_id = await _probe(bucket.create_multipart_upload(key), create_needs)
         try:
-            part = bucket.upload_part(key, upload_id, 1, bytearray(b"preflight"))
-            await _probe(part, f"kms:Decrypt on {key_arn}" if key_arn else put)
+            await _probe(bucket.upload_part(key, upload_id, 1, bytearray(b"preflight")), part_needs)
         finally:
             await _probe(
                 bucket.abort_multipart_upload(key, upload_id),
