@@ -1,3 +1,4 @@
+import bisect
 import dataclasses
 from typing import TypeVar
 
@@ -715,7 +716,10 @@ class TrinoArrayJoinFunctionLowerer(CloningVisitor):
             limit_percent=query.limit_percent,
             view_name=query.view_name,
         )
-        query.group_by = [_inner_group_by(expr, unnested_positions) for expr in query.group_by or []] or None
+        sorted_unnested_positions = sorted(unnested_positions)
+        query.group_by = [
+            _inner_group_by(expr, unnested_positions, sorted_unnested_positions) for expr in query.group_by or []
+        ] or None
         query.select = inner_select
         query.type = dataclasses.replace(query.type, columns=inner_columns)
         _clear_outer_clauses(query)
@@ -757,7 +761,7 @@ def _aggregated_unnest_output_names(query: ast.SelectQuery, pending: list[tuple[
     return list(query.type.columns)
 
 
-def _inner_group_by(expr: ast.Expr, unnested_positions: set[int]) -> ast.Expr:
+def _inner_group_by(expr: ast.Expr, unnested_positions: set[int], sorted_unnested_positions: list[int]) -> ast.Expr:
     position = positional_index(expr)
     if position is None:
         return expr
@@ -765,7 +769,7 @@ def _inner_group_by(expr: ast.Expr, unnested_positions: set[int]) -> ast.Expr:
         raise TrinoLoweringError(
             "TRINO_ARRAY_JOIN_AGGREGATE_FILTER_UNSUPPORTED", "GROUP BY an arrayJoin over aggregates", expr
         )
-    return ast.PositionalRef(index=position - sum(1 for moved in unnested_positions if moved < position - 1))
+    return ast.PositionalRef(index=position - bisect.bisect_left(sorted_unnested_positions, position - 1))
 
 
 def _clear_outer_clauses(query: ast.SelectQuery) -> None:
@@ -812,15 +816,18 @@ def _read_names(node: ast.Expr) -> set[str]:
 
 
 def _positions_reading_names(select: list[ast.Expr], output_names: list[str], names: set[str]) -> set[int]:
-    reads = [_read_names(projection) for projection in select]
+    readers: dict[str, list[int]] = {}
+    for position, projection in enumerate(select):
+        for name in _read_names(projection):
+            readers.setdefault(name, []).append(position)
     positions: set[int] = set()
-    reached = set(names)
-    while True:
-        found = {position for position, read in enumerate(reads) if position not in positions and read & reached}
-        if not found:
-            return positions
-        positions |= found
-        reached |= {output_names[position] for position in found}
+    pending = list(names)
+    while pending:
+        for position in readers.pop(pending.pop(), []):
+            if position not in positions:
+                positions.add(position)
+                pending.append(output_names[position])
+    return positions
 
 
 class _UnnestedQueryReader(CloningVisitor):
