@@ -2613,17 +2613,18 @@ describe('EmailService', () => {
             )
 
             it.each([
-                ['with a text part when it fits beside them', '<p>Hello</p>', 'Hello'],
-                [
-                    'without a text part when one would carry it past the size limit',
-                    'x'.repeat(MESSAGE_MAX_BYTES / 2),
-                    undefined,
-                ],
-            ])('sends html-only content with files %s', async (_name, html, expectedText) => {
+                ['with a text part when it fits beside them', 0, 'Hello'],
+                // The html alone fits beside the file. Its text part, about as large as the html, does not.
+                ['without a text part when one would carry it past the size limit', 27_800_000, undefined],
+            ])('sends html-only content with files %s', async (_name, fileBytes, expectedText) => {
+                const file = fileBytes
+                    ? await uploadAttachment(team.id, { filename: 'large.pdf' }, Buffer.alloc(fileBytes, 1))
+                    : pdf
+                const html = fileBytes ? `<p>${'x'.repeat(1_000_000)}</p>` : '<p>Hello</p>'
                 invocation.queueParameters = createEmailParams({
                     from: { integrationId: 1 },
                     to: { email: recipient, name: 'Test User' },
-                    attachments: [pdf.metadata],
+                    attachments: [file.metadata],
                     html,
                     text: '',
                 })
@@ -3797,12 +3798,6 @@ describe('EmailService', () => {
                 { html: '<p>Hello</p>', text: 'Your own text' },
                 true,
                 { text: 'Your own text', html: expect.any(String), charsets: { text: 'UTF-8' } },
-            ],
-            [
-                'html only, too large to carry a text part as well',
-                { html: 'x'.repeat(MESSAGE_MAX_BYTES / 2), text: undefined },
-                true,
-                { text: undefined, html: expect.any(String), charsets: { text: undefined } },
             ],
             [
                 'html only, from a team not on the text part list',

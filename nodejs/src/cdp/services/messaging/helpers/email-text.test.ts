@@ -64,7 +64,15 @@ describe('plainTextFromHtml', () => {
             '<body><p>Sign in</p></body><p>Your code: 482913</p>',
             'Sign in\n\nYour code: 482913',
         ],
-        ['html longer than the converter reads', '<p>Hi</p>' + ' '.repeat(1 << 24), ''],
+        ['html longer than the converter reads', '<p>Hi</p>' + ' '.repeat(1 << 20), ''],
+        ['lists nested deeper than the converter reads', '<ul><li>'.repeat(70) + 'Hi' + '</li></ul>'.repeat(70), ''],
+        [
+            'an ordered list past the Roman numerals',
+            '<p>Code: 1</p><ol type="I" start="4000"><li>Open</li></ol>',
+            'Code: 1\n\n 4000. Open',
+        ],
+        ['an image-only ordered list', '<ol><li><img src="banner.png"></li></ol>', ''],
+        ['a link with spaces around a page anchor', '<a href=" #top ">Back</a>', 'Back'],
         ['a code shown as an image', '<p>Your code:</p><img src="code.png" alt="482913">', 'Your code:\n\n482913'],
         [
             'comments and conditional comments',
@@ -74,6 +82,7 @@ describe('plainTextFromHtml', () => {
         ['a literal less-than sign', '<p>1 < 2 and 3 > 2</p>', '1 < 2 and 3 > 2'],
         ['nested quotes', '<blockquote><blockquote><p>Quoted</p></blockquote></blockquote>', 'Quoted'],
         ['punctuation only', '<p>??!</p>', '??!'],
+        ['a rule made of hyphens', '<p>---</p>', '---'],
         ['lists and line breaks', '<ul><li>One</li><li>Two</li></ul>Line<br>Next', '- One\n- Two\n\nLine\nNext'],
         ['joiners in visible text', '<p>👩&#8205;💻 می&#8204;خواهم</p>', '👩\u200d💻 می\u200cخواهم'],
         [
@@ -83,7 +92,7 @@ describe('plainTextFromHtml', () => {
         ],
         ['an image with only joiners beside it', '<img src="banner.png"><p>&#8204;&#8205; </p>', ''],
         ['an image-only list item', '<ul><li><img src="banner.png"></li></ul>', ''],
-        ['html nested deeper than the stack allows', '<div>'.repeat(20000) + 'Hi' + '</div>'.repeat(20000), ''],
+        ['html nested far deeper than the converter reads', '<div>'.repeat(20000) + 'Hi' + '</div>'.repeat(20000), ''],
         ['table cells', '<table><tr><td>Total</td><td>$5</td></tr></table>', 'Total\n$5'],
     ])('renders %s', (_case, html, expected) => {
         expect(plainTextFromHtml(html)).toBe(expected)
