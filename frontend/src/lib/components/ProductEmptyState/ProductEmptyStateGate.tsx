@@ -98,17 +98,7 @@ function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateG
     const gateRender = activeProductEmptyStateGateRender({ config, forcedMode, status, skipped })
 
     useSceneContentReady(gateRender !== 'loading')
-    if (gateRender !== 'loading') {
-        markBootPhase('empty_state_gate_resolved', { empty_state_gate_render: gateRender })
-    }
 
-    if (gateRender === 'setup') {
-        return (
-            <ProductSceneFrame config={config} SceneNav={emptyState.SceneNav}>
-                <ProductEmptyState config={config} mode={forcedMode ?? mode} preview={!!forcedMode} />
-            </ProductSceneFrame>
-        )
-    }
     if (gateRender === 'loading') {
         // One consistent loading treatment app-wide, the same scene-level spinner shown while
         // scene chunks load. `productSetupPreloadLogic` answers this ahead of time only for
@@ -118,6 +108,14 @@ function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateG
         return (
             <ProductSceneFrame config={config} SceneNav={emptyState.SceneNav}>
                 <SpinnerOverlay sceneLevel />
+            </ProductSceneFrame>
+        )
+    }
+    markBootPhase('empty_state_gate_resolved', { empty_state_gate_render: gateRender })
+    if (gateRender === 'setup') {
+        return (
+            <ProductSceneFrame config={config} SceneNav={emptyState.SceneNav}>
+                <ProductEmptyState config={config} mode={forcedMode ?? mode} preview={!!forcedMode} />
             </ProductSceneFrame>
         )
     }
