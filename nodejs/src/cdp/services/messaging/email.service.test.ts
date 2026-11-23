@@ -1628,6 +1628,14 @@ describe('EmailService', () => {
             invocation.queueParameters = createEmailParams({ from: { integrationId: 1 } })
             await mailDevAPI.clearEmails()
         })
+        it('should send html-only content with a text part made from the html', async () => {
+            invocation.queueParameters = createEmailParams({ html: '<p>Your code is <b>482913</b></p>', text: '' })
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            await waitForExpect(async () => expect(mailDevAPI.getEmails()).resolves.toHaveLength(1))
+            const [email] = await mailDevAPI.getEmails()
+            expect(email.text).toBe('Your code is 482913')
+        })
         it.each([
             ['a plain recipient name', 'Test User'],
             ['a non-ASCII recipient name', 'Café "Müller"'],
@@ -2600,6 +2608,21 @@ describe('EmailService', () => {
                     expect(ses.sent).toEqual([])
                 }
             )
+
+            it('sends html-only content with files without a text part when one would carry it past the size limit', async () => {
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1 },
+                    to: { email: recipient, name: 'Test User' },
+                    attachments: [pdf.metadata],
+                    html: 'x'.repeat(MESSAGE_MAX_BYTES / 2),
+                    text: '',
+                })
+
+                const result = await sender().executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(ses.sent).toEqual([expect.objectContaining({ text: undefined, html: expect.any(String) })])
+            })
 
             it.each([
                 ['was never uploaded', () => Promise.resolve(attachmentFile())],
@@ -3745,14 +3768,14 @@ describe('EmailService', () => {
             [
                 'html only, no text',
                 { html: '<p>Hello</p>', text: undefined },
-                { text: undefined, html: expect.any(String) },
+                { text: 'Hello', html: expect.any(String) },
             ],
             [
                 'html only, empty text',
-                { html: '<p>Hello</p>', text: '' },
-                { text: undefined, html: expect.any(String) },
+                { html: '<p>Your code is <b>482913</b></p><a href="https://example.com/help">Help</a>', text: '' },
+                { text: 'Your code is 482913\n\nHelp (https://example.com/help)', html: expect.any(String) },
             ],
-        ])('sends only the parts that have content: %s', async (_name, content, expectedParts) => {
+        ])('sends a part for each kind of content: %s', async (_name, content, expectedParts) => {
             invocation.hogFunction.metadata = { message_category_type: 'transactional' }
             invocation.queueParameters = CyclotronInvocationQueueParametersEmailSchema.parse(
                 createEmailParams({ from: { integrationId: 1 }, ...content })
@@ -3761,9 +3784,7 @@ describe('EmailService', () => {
             expect(result.error).toBeUndefined()
             const [sent] = ses.sent
             expect(sent).toMatchObject(expectedParts)
-            if (content.text) {
-                expect(sent.charsets.text).toEqual('UTF-8')
-            }
+            expect(sent.charsets.text).toEqual('UTF-8')
         })
 
         it('should not include preheader span if not in params', async () => {

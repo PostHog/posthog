@@ -51,6 +51,7 @@ import {
     resolveEmailTrackingDistinctId,
 } from './email-tracking.service'
 import { UtmTagging, htmlForSes, tagEmailLinks, utmTagsFor } from './helpers/email-html'
+import { plainTextFromHtml } from './helpers/email-text'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
 import {
@@ -302,6 +303,9 @@ class UnverifiedEmailDomainError extends Error {
 
 const isRealWorkflowSend = (invocation: CyclotronJobInvocationHogFunction, isTest: boolean): boolean =>
     !isTest && 'hogFlow' in invocation
+
+const textPart = (params: CyclotronInvocationQueueParametersEmailType): string =>
+    params.text || (params.html ? plainTextFromHtml(params.html) : '')
 
 const deliveredRecipients = (params: CyclotronInvocationQueueParametersEmailType): string[] => [
     unquoteMailbox(params.to.email),
@@ -1576,11 +1580,12 @@ export class EmailService {
         files: LoadedAttachment[] = []
     ): Promise<void> {
         // This can timeout but there is no native timeout so we do our own one
+        const text = textPart(params)
         const mailOptions: SendMailOptions = {
             from: toNodemailerAddress(from.name, from.email),
             to: toNodemailerAddress(params.to.name, params.to.email),
             subject: sanitizeEmailSubject(params.subject),
-            ...(params.text ? { text: params.text } : {}),
+            ...(text ? { text } : {}),
             headers: { [AUTO_SUBMITTED_HEADER.Name!]: AUTO_SUBMITTED_HEADER.Value! },
             ...(params.html
                 ? {
@@ -1662,16 +1667,18 @@ export class EmailService {
                   params.preheader
               )
             : null
-        if (
-            files.length > 0 &&
+        const fitsBesideFiles = (text: string): boolean =>
+            files.length === 0 ||
             estimateMessageBytes(
                 files.map(({ bytes }) => bytes.byteLength),
-                [html ?? '', params.text ?? ''],
+                [html ?? '', text],
                 sanitizeEmailSubject(params.subject)
-            ) > MESSAGE_MAX_BYTES
-        ) {
+            ) <= MESSAGE_MAX_BYTES
+        if (!fitsBesideFiles(params.text ?? '')) {
             throw new MessageTooLargeError()
         }
+        const candidateText = textPart(params)
+        const text = fitsBesideFiles(candidateText) ? candidateText : ''
         const htmlBody = html ? { Html: { Data: html, Charset: 'UTF-8' } } : {}
 
         const sendEmailParams: SendEmailCommandInput = {
@@ -1686,7 +1693,7 @@ export class EmailService {
                         Charset: 'UTF-8',
                     },
                     Body: {
-                        ...(params.text ? { Text: { Data: params.text, Charset: 'UTF-8' } } : {}),
+                        ...(text ? { Text: { Data: text, Charset: 'UTF-8' } } : {}),
                         ...htmlBody,
                     },
                 },
