@@ -1591,6 +1591,18 @@ def test_prints_empty_for_lowered_json_property_after_second_resolution() -> Non
     assert context.values == {}
 
 
+@pytest.mark.parametrize(
+    "expression", ["coalesce(properties.task_run_id, '')", "ifNull(properties.task_run_id, user_id)"]
+)
+def test_prints_not_empty_for_a_property_read_with_a_string_fallback(expression: str) -> None:
+    sql, _ = prepare_and_print_ast(
+        parse_select(f"SELECT notEmpty({expression}) FROM users"), _context_with_trino_table(), "trino"
+    )
+
+    assert sql.startswith('SELECT (coalesce(json_extract_scalar("users"."properties", \'$["task_run_id"]\'), ')
+    assert " IS NOT NULL AND coalesce(" in sql
+
+
 def test_lowers_nested_json_keys_and_values_raw() -> None:
     context = _context_with_trino_table()
     sql, _ = prepare_and_print_ast(parse_select("SELECT JSONExtractKeysAndValuesRaw('{}', 'teams')"), context, "trino")
@@ -3308,6 +3320,27 @@ def test_lowers_unaliased_left_any_join(people_column: str, expected: str, unrea
     ],
 )
 def test_curated_array_field_over_a_text_column_compares_as_text(structure: str, query: str, expected: str) -> None:
+    sql, _ = prepare_and_print_ast(parse_select(query), _context_with_warehouse_prices(structure), "trino")
+
+    assert expected in sql
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "SELECT day + 1 FROM (SELECT arrayJoin(tiers) AS day FROM prices)",
+        "WITH d AS (SELECT arrayJoin(tiers) AS day FROM prices) SELECT day + 1 FROM d",
+    ],
+)
+def test_stored_date_array_column_unnests_to_dates(query: str) -> None:
+    context = _context_with_warehouse_prices("`id` String, `tiers` Array(Date32)")
+
+    sql, _ = prepare_and_print_ast(parse_select(query), context, "trino")
+
+    assert "date_add('day', CAST(1 AS BIGINT), " in sql
+
+
+def _context_with_warehouse_prices(structure: str) -> HogQLContext:
     database = Database(include_posthog_tables=False)
     database.tables.add_child(
         TableNode(
@@ -3324,7 +3357,7 @@ def test_curated_array_field_over_a_text_column_compares_as_text(structure: str,
             ),
         )
     )
-    context = HogQLContext(
+    return HogQLContext(
         database=database,
         modifiers=_trino_modifiers(),
         enable_select_queries=True,
@@ -3332,10 +3365,6 @@ def test_curated_array_field_over_a_text_column_compares_as_text(structure: str,
         restricted_properties=set(),
         trino_table_locators={"prices": ("ducklake", "stripe", "prices")},
     )
-
-    sql, _ = prepare_and_print_ast(parse_select(query), context, "trino")
-
-    assert expected in sql
 
 
 @pytest.mark.parametrize(
