@@ -1,5 +1,8 @@
 {
     "skills": {
+        "adding-warehouse-person-properties": {
+            "feature_flag": "customer-analytics-csp"
+        },
         "analyzing-ai-citations": {
             "feature_flag": "aeo-citation-tracking"
         },
@@ -143,6 +146,9 @@
         },
         "setting-up-data-catalog": {},
         "setting-up-supabase-auth-emails": {},
+        "setting-up-warehouse-properties": {
+            "feature_flag": "customer-analytics-csp"
+        },
         "signals": {},
         "skills-store": {},
         "suggesting-data-imports": {},
