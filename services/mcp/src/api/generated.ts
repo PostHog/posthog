@@ -50056,8 +50056,8 @@ export namespace Schemas {
     }
 
     /**
-     * * `bayesian` - bayesian
-     * * `frequentist` - frequentist
+     * * `bayesian` - Bayesian
+     * * `frequentist` - Frequentist
      */
     export type StatsMethodEnum = typeof StatsMethodEnum[keyof typeof StatsMethodEnum];
 
@@ -50068,13 +50068,13 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `exclude` - exclude
-     * * `first_seen` - first_seen
+     * * `exclude` - Exclude from analysis
+     * * `first_seen` - Use first seen variant
      */
-    export type ExperimentWatchMultipleVariantHandlingEnum = typeof ExperimentWatchMultipleVariantHandlingEnum[keyof typeof ExperimentWatchMultipleVariantHandlingEnum];
+    export type ExperimentHealthMultipleVariantHandlingEnum = typeof ExperimentHealthMultipleVariantHandlingEnum[keyof typeof ExperimentHealthMultipleVariantHandlingEnum];
 
 
-    export const ExperimentWatchMultipleVariantHandlingEnum = {
+    export const ExperimentHealthMultipleVariantHandlingEnum = {
       Exclude: 'exclude',
       FirstSeen: 'first_seen',
     } as const;
@@ -50082,8 +50082,8 @@ export namespace Schemas {
     export interface ExperimentHealthAnalysisSetup {
       /** The statistical method of the results.
        *
-       * * `bayesian` - bayesian
-       * * `frequentist` - frequentist */
+       * * `bayesian` - Bayesian
+       * * `frequentist` - Frequentist */
       stats_method: StatsMethodEnum;
       /** The Bayesian credible interval, or 1 - alpha for the frequentist test, as a fraction such as 0.95. */
       confidence_level: number;
@@ -50112,9 +50112,9 @@ export namespace Schemas {
       test_account_filter_count: number;
       /** What the results do with users exposed to more than one variant. Null when the exposure criteria can't be read.
        *
-       * * `exclude` - exclude
-       * * `first_seen` - first_seen */
-      multiple_variant_handling: ExperimentWatchMultipleVariantHandlingEnum | null;
+       * * `exclude` - Exclude from analysis
+       * * `first_seen` - Use first seen variant */
+      multiple_variant_handling: ExperimentHealthMultipleVariantHandlingEnum | null;
       /** Whether a user counts only after their conversion or retention window is complete. */
       only_count_matured_users: boolean;
       /** The variant that the others are compared against. */
@@ -52134,6 +52134,18 @@ export namespace Schemas {
       /** Sessions those people had within 24 hours of being exposed, and before the experiment ended or this request was made, which is more than the comparison reads: it says how much recorded material sits behind the variant. */
       sessions: number;
     }
+
+    /**
+     * * `exclude` - exclude
+     * * `first_seen` - first_seen
+     */
+    export type ExperimentWatchMultipleVariantHandlingEnum = typeof ExperimentWatchMultipleVariantHandlingEnum[keyof typeof ExperimentWatchMultipleVariantHandlingEnum];
+
+
+    export const ExperimentWatchMultipleVariantHandlingEnum = {
+      Exclude: 'exclude',
+      FirstSeen: 'first_seen',
+    } as const;
 
     /**
      * * `too_early` - too_early

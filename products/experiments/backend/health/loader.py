@@ -8,9 +8,11 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealth,
     ExperimentHealthAnalysisSetup,
     ExperimentHealthExposureSetup,
+    ExperimentHealthMultipleVariantHandling,
     ExperimentHealthReaderAccess,
     ExperimentHealthReleaseCondition,
     ExperimentHealthSetup,
+    ExperimentHealthStatsMethod,
 )
 from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.health.condition_set_traffic import load_condition_set_traffic
@@ -138,7 +140,7 @@ def _analysis_setup(experiment: Experiment) -> ExperimentHealthAnalysisSetup:
     cuped_config = stats_config.get("cuped")
     frequentist_config = stats_config.get("frequentist")
     return ExperimentHealthAnalysisSetup(
-        stats_method=settings.stats_method,
+        stats_method=ExperimentHealthStatsMethod(settings.stats_method),
         confidence_level=1 - stats.alpha if isinstance(stats, FrequentistSettings) else stats.ci_level,
         sequential_testing=stats.sequential_testing_enabled if isinstance(stats, FrequentistSettings) else None,
         sequential_testing_from_project_default=isinstance(stats, FrequentistSettings)
@@ -148,7 +150,9 @@ def _analysis_setup(experiment: Experiment) -> ExperimentHealthAnalysisSetup:
         cuped_from_project_default=not (isinstance(cuped_config, dict) and "enabled" in cuped_config),
         filters_test_accounts=bool(settings.normalized_exposure["filter_test_accounts"]) if exposure_readable else None,
         test_account_filter_count=len(settings.test_account_filters),
-        multiple_variant_handling=settings.normalized_exposure["multiple_variant_handling"]
+        multiple_variant_handling=ExperimentHealthMultipleVariantHandling(
+            settings.normalized_exposure["multiple_variant_handling"]
+        )
         if exposure_readable
         else None,
         only_count_matured_users=settings.only_count_matured_users,

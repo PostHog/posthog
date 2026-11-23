@@ -636,13 +636,23 @@ class ExperimentHealthExposureSetup:
     activation: str | None
 
 
+class ExperimentHealthStatsMethod(LabeledStrEnum):
+    BAYESIAN = "bayesian", "Bayesian"
+    FREQUENTIST = "frequentist", "Frequentist"
+
+
+class ExperimentHealthMultipleVariantHandling(LabeledStrEnum):
+    EXCLUDE = "exclude", "Exclude from analysis"
+    FIRST_SEEN = "first_seen", "Use first seen variant"
+
+
 @frozen
 class ExperimentHealthAnalysisSetup:
     """What the results calculation reads besides the metrics, resolved as the calculation resolves it. A
     `*_from_project_default` field is true when the experiment doesn't set the value, so the calculation takes the
     project's default."""
 
-    stats_method: Literal["bayesian", "frequentist"]
+    stats_method: ExperimentHealthStatsMethod
     confidence_level: float
     sequential_testing: bool | None
     sequential_testing_from_project_default: bool
@@ -651,7 +661,7 @@ class ExperimentHealthAnalysisSetup:
     cuped_from_project_default: bool
     filters_test_accounts: bool | None
     test_account_filter_count: int
-    multiple_variant_handling: str | None
+    multiple_variant_handling: ExperimentHealthMultipleVariantHandling | None
     only_count_matured_users: bool
     baseline_variant: str
     excluded_variants: tuple[str, ...]

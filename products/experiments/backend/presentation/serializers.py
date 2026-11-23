@@ -55,8 +55,10 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
     ExperimentHealthInputsTrafficStatus,
     ExperimentHealthMetricCompileErrorKind,
+    ExperimentHealthMultipleVariantHandling,
     ExperimentHealthRuleSide,
     ExperimentHealthRuleTest,
+    ExperimentHealthStatsMethod,
     ExperimentHealthValueKey,
     ExperimentValidationError,
     HealthExposureInputsStatus,
@@ -460,7 +462,7 @@ class ExperimentHealthExposureSetupSerializer(serializers.Serializer):
 
 class ExperimentHealthAnalysisSetupSerializer(serializers.Serializer):
     stats_method = serializers.ChoiceField(
-        choices=["bayesian", "frequentist"], help_text="The statistical method of the results."
+        choices=ExperimentHealthStatsMethod.choices, help_text="The statistical method of the results."
     )
     confidence_level = serializers.FloatField(
         help_text="The Bayesian credible interval, or 1 - alpha for the frequentist test, as a fraction such as 0.95."
@@ -492,7 +494,7 @@ class ExperimentHealthAnalysisSetupSerializer(serializers.Serializer):
         help_text="How many of the project's test account filters the results apply. 0 when they count test accounts."
     )
     multiple_variant_handling = serializers.ChoiceField(
-        choices=[handling.value for handling in MultipleVariantHandling],
+        choices=ExperimentHealthMultipleVariantHandling.choices,
         allow_null=True,
         help_text=(
             "What the results do with users exposed to more than one variant. Null when the exposure criteria can't "

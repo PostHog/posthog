@@ -3048,8 +3048,8 @@ export interface ExperimentHealthExposureSetupApi {
 }
 
 /**
- * * `bayesian` - bayesian
- * * `frequentist` - frequentist
+ * * `bayesian` - Bayesian
+ * * `frequentist` - Frequentist
  */
 export type StatsMethodEnumApi = (typeof StatsMethodEnumApi)[keyof typeof StatsMethodEnumApi]
 
@@ -3059,13 +3059,13 @@ export const StatsMethodEnumApi = {
 } as const
 
 /**
- * * `exclude` - exclude
- * * `first_seen` - first_seen
+ * * `exclude` - Exclude from analysis
+ * * `first_seen` - Use first seen variant
  */
-export type ExperimentWatchMultipleVariantHandlingEnumApi =
-    (typeof ExperimentWatchMultipleVariantHandlingEnumApi)[keyof typeof ExperimentWatchMultipleVariantHandlingEnumApi]
+export type ExperimentHealthMultipleVariantHandlingEnumApi =
+    (typeof ExperimentHealthMultipleVariantHandlingEnumApi)[keyof typeof ExperimentHealthMultipleVariantHandlingEnumApi]
 
-export const ExperimentWatchMultipleVariantHandlingEnumApi = {
+export const ExperimentHealthMultipleVariantHandlingEnumApi = {
     Exclude: 'exclude',
     FirstSeen: 'first_seen',
 } as const
@@ -3073,8 +3073,8 @@ export const ExperimentWatchMultipleVariantHandlingEnumApi = {
 export interface ExperimentHealthAnalysisSetupApi {
     /** The statistical method of the results.
      *
-     * * `bayesian` - bayesian
-     * * `frequentist` - frequentist */
+     * * `bayesian` - Bayesian
+     * * `frequentist` - Frequentist */
     stats_method: StatsMethodEnumApi
     /** The Bayesian credible interval, or 1 - alpha for the frequentist test, as a fraction such as 0.95. */
     confidence_level: number
@@ -3103,9 +3103,9 @@ export interface ExperimentHealthAnalysisSetupApi {
     test_account_filter_count: number
     /** What the results do with users exposed to more than one variant. Null when the exposure criteria can't be read.
      *
-     * * `exclude` - exclude
-     * * `first_seen` - first_seen */
-    multiple_variant_handling: ExperimentWatchMultipleVariantHandlingEnumApi | null
+     * * `exclude` - Exclude from analysis
+     * * `first_seen` - Use first seen variant */
+    multiple_variant_handling: ExperimentHealthMultipleVariantHandlingEnumApi | null
     /** Whether a user counts only after their conversion or retention window is complete. */
     only_count_matured_users: boolean
     /** The variant that the others are compared against. */
@@ -4954,6 +4954,18 @@ export interface ExperimentWatchVariantApi {
     /** Sessions those people had within 24 hours of being exposed, and before the experiment ended or this request was made, which is more than the comparison reads: it says how much recorded material sits behind the variant. */
     sessions: number
 }
+
+/**
+ * * `exclude` - exclude
+ * * `first_seen` - first_seen
+ */
+export type ExperimentWatchMultipleVariantHandlingEnumApi =
+    (typeof ExperimentWatchMultipleVariantHandlingEnumApi)[keyof typeof ExperimentWatchMultipleVariantHandlingEnumApi]
+
+export const ExperimentWatchMultipleVariantHandlingEnumApi = {
+    Exclude: 'exclude',
+    FirstSeen: 'first_seen',
+} as const
 
 /**
  * * `too_early` - too_early
