@@ -18,17 +18,23 @@ describe('HomeHost', () => {
     let dashboards: { id: number }[]
     let dashboardsCreated: number
     let dismissBodies: unknown[]
+    let checklistRefreshes: (string | null)[]
 
     beforeEach(() => {
         clearCachedChecklistVerdict()
         dismissBodies = []
+        checklistRefreshes = []
         metricsAnswer = [200, METRICS]
         dashboards = [{ id: 42 }]
         dashboardsCreated = 0
         useMocks({
             get: {
                 '/api/projects/:team_id/ai_observability/traces/metrics/': () => metricsAnswer,
-                '/api/projects/:team_id/ai_observability/instrumentation_checklist/': () => [200, CHECKLIST_WARNING],
+                '/api/projects/:team_id/ai_observability/instrumentation_checklist/': ({ request }) => {
+                    const refresh = new URL(request.url).searchParams.get('refresh')
+                    checklistRefreshes.push(refresh)
+                    return [200, refresh === 'true' ? CHECKLIST_ALL_OK : CHECKLIST_WARNING]
+                },
                 '/api/projects/:team_id/dashboards/': () => [200, { count: dashboards.length, results: dashboards }],
             },
             post: {
@@ -74,6 +80,20 @@ describe('HomeHost', () => {
 
         await waitFor(() => expect(container.querySelector('[data-attr="home-instrumentation"]')).toBeNull())
         expect(dismissBodies).toEqual([{ check: 'sessions' }])
+    })
+
+    it('re-checks the shared checklist from the row and installs the fresh answer', async () => {
+        const { container } = render(<HomeHost />)
+        const refresh = await waitFor(() => {
+            const button = container.querySelector('[data-attr="home-instrumentation-refresh"]')
+            expect(button).not.toBeNull()
+            return button as HTMLElement
+        })
+
+        fireEvent.click(refresh)
+
+        await waitFor(() => expect(container.querySelector('[data-attr="home-instrumentation"]')).toBeNull())
+        expect(checklistRefreshes.at(-1)).toBe('true')
     })
 
     it('hides the dashboard link without creating a dashboard when there is none', async () => {

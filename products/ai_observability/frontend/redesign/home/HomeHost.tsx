@@ -29,8 +29,9 @@ export function HomeHost(): JSX.Element {
     } = useValues(logic)
     const { loadMetrics, toggleChart, closeChart } = useActions(logic)
     const { timezone } = useValues(teamLogic)
-    const { checklist, checklistBusy, pendingCheckKey } = useValues(instrumentationChecklistLogic)
-    const { dismissCheck, restoreCheck } = useActions(instrumentationChecklistLogic)
+    const { checklist, checklistBusy, checklistLoading, pendingCheckKey, refreshFailed } =
+        useValues(instrumentationChecklistLogic)
+    const { dismissCheck, restoreCheck, loadInstrumentationChecklist } = useActions(instrumentationChecklistLogic)
     const { dateFrom, dateTo, filterTestAccounts } = useValues(shellScopeLogic)
     const { setDateRange, setFilterTestAccounts } = useActions(shellScopeLogic)
 
@@ -88,8 +89,11 @@ export function HomeHost(): JSX.Element {
                     checklist={checklist}
                     loading={checklistBusy}
                     pendingCheckKey={pendingCheckKey}
+                    refreshing={checklistLoading}
+                    refreshFailed={refreshFailed}
                     onDismiss={dismissCheck}
                     onRestore={restoreCheck}
+                    onRefresh={() => loadInstrumentationChecklist({ refresh: true })}
                 />
             }
         />

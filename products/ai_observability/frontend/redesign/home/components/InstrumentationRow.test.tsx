@@ -12,8 +12,11 @@ function renderRow(props: Partial<InstrumentationRowProps> = {}): ReturnType<typ
             checklist={CHECKLIST_WARNING}
             loading={false}
             pendingCheckKey={null}
+            refreshing={false}
+            refreshFailed={false}
             onDismiss={jest.fn()}
             onRestore={jest.fn()}
+            onRefresh={jest.fn()}
             {...props}
         />
     )
@@ -86,6 +89,18 @@ describe('InstrumentationRow', () => {
         )
 
         expect(onRestore).toHaveBeenCalledWith(first.key)
+    })
+
+    it('offers a retry beside the prompt when a refresh fails', () => {
+        const onRefresh = jest.fn()
+        const { container } = renderRow({ refreshFailed: true, onRefresh })
+        const refresh = container.querySelector('[data-attr="home-instrumentation-refresh"]') as HTMLElement
+
+        expect(container.textContent).toContain('Could not refresh the checklist.')
+        expect(refresh.textContent).toBe('Try again')
+        fireEvent.click(refresh)
+
+        expect(onRefresh).toHaveBeenCalledTimes(1)
     })
 
     it.each([

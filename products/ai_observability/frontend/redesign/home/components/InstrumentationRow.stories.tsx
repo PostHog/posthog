@@ -11,8 +11,11 @@ const meta: Meta<typeof InstrumentationRow> = {
         checklist: CHECKLIST_PENDING,
         loading: false,
         pendingCheckKey: null,
+        refreshing: false,
+        refreshFailed: false,
         onDismiss: () => {},
         onRestore: () => {},
+        onRefresh: () => {},
     },
 }
 export default meta
@@ -24,3 +27,5 @@ export const NothingWarnsCollapsed: Story = {}
 export const WarningOpenWithPrompt: Story = { args: { checklist: CHECKLIST_WARNING } }
 
 export const Loading: Story = { args: { checklist: null, loading: true } }
+
+export const RefreshFailed: Story = { args: { checklist: CHECKLIST_WARNING, refreshFailed: true } }

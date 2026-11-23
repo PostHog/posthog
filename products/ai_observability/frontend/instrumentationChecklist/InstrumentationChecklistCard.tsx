@@ -1,13 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonTag } from '@posthog/lemon-ui'
+import { LemonCollapse, LemonTag } from '@posthog/lemon-ui'
 
 import { InstrumentationCheckStatusEnumApi } from '../generated/api.schemas'
+import { InstrumentationCheckRow } from '../redesign/shared/components/InstrumentationCheckRow'
 import {
-    INSTRUMENTATION_BUSY_REASON,
-    InstrumentationCheckRow,
-} from '../redesign/shared/components/InstrumentationCheckRow'
+    INSTRUMENTATION_REFRESH_FAILED,
+    InstrumentationRefreshButton,
+} from '../redesign/shared/components/InstrumentationRefreshButton'
 import { InstrumentationChecklistCardState, instrumentationChecklistLogic } from './instrumentationChecklistLogic'
 
 const PANEL_KEY = 'instrumentation-checklist'
@@ -88,25 +88,20 @@ export function InstrumentationChecklistCard(): JSX.Element | null {
                                 ))}
                                 <div className="flex items-center justify-between gap-2 border-t pt-3">
                                     {refreshFailed ? (
-                                        <span className="text-danger text-xs">Could not refresh the checklist.</span>
+                                        <span className="text-danger text-xs">{INSTRUMENTATION_REFRESH_FAILED}</span>
                                     ) : (
                                         <span className="text-muted text-xs">
                                             Checked over the last {windowDays} days.
                                         </span>
                                     )}
-                                    <LemonButton
-                                        type="secondary"
+                                    <InstrumentationRefreshButton
+                                        refreshing={checklistLoading}
+                                        refreshFailed={refreshFailed}
+                                        pendingCheckKey={pendingCheckKey}
+                                        onRefresh={() => loadInstrumentationChecklist({ refresh: true })}
                                         size="xsmall"
-                                        icon={<IconRefresh />}
-                                        loading={checklistLoading}
-                                        disabledReason={
-                                            pendingCheckKey !== null ? INSTRUMENTATION_BUSY_REASON : undefined
-                                        }
-                                        onClick={() => loadInstrumentationChecklist({ refresh: true })}
                                         data-attr="ai-observability-instrumentation-checklist-refresh"
-                                    >
-                                        {refreshFailed ? 'Try again' : 'Refresh'}
-                                    </LemonButton>
+                                    />
                                 </div>
                             </div>
                         ),

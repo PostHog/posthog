@@ -12,6 +12,10 @@ import {
     InstrumentationChecklistApi,
 } from '../../../generated/api.schemas'
 import { InstrumentationCheckRow } from '../../shared/components/InstrumentationCheckRow'
+import {
+    INSTRUMENTATION_REFRESH_FAILED,
+    InstrumentationRefreshButton,
+} from '../../shared/components/InstrumentationRefreshButton'
 
 export interface InstrumentationRowProps {
     checklist: InstrumentationChecklistApi | null
@@ -19,8 +23,13 @@ export interface InstrumentationRowProps {
     loading: boolean
     /** The check whose dismissal or recheck is being saved, if any. */
     pendingCheckKey: AIObservabilityInstrumentationCheckEnumApi | null
+    /** Whether the checklist is being read again. */
+    refreshing: boolean
+    /** Whether the last refresh failed under the checklist on screen. */
+    refreshFailed: boolean
     onDismiss: (key: AIObservabilityInstrumentationCheckEnumApi) => void
     onRestore: (key: AIObservabilityInstrumentationCheckEnumApi) => void
+    onRefresh: () => void
 }
 
 const { Ok, Warning } = InstrumentationCheckStatusEnumApi
@@ -29,8 +38,11 @@ export function InstrumentationRow({
     checklist,
     loading,
     pendingCheckKey,
+    refreshing,
+    refreshFailed,
     onDismiss,
     onRestore,
+    onRefresh,
 }: InstrumentationRowProps): JSX.Element | null {
     // Purely visual, so it stays in the component. Null means the person has not chosen yet.
     const [chosenOpen, setChosenOpen] = useState<boolean | null>(null)
@@ -65,20 +77,33 @@ export function InstrumentationRow({
                         <span translate="no">{checklist.total}</span>
                     </span>
                 </LemonButton>
-                {checklist.agent_prompt !== null ? (
-                    <AgentPromptButton
-                        appearance="lemon"
-                        label="Fix instrumentation"
-                        actions={[
-                            {
-                                key: 'ai-observability-instrumentation',
-                                label: 'Fix instrumentation',
-                                buildPrompt: () => checklist.agent_prompt ?? '',
-                            },
-                        ]}
-                        data-attr="home-instrumentation-prompt"
+                <div className="flex flex-wrap items-center gap-2">
+                    {refreshFailed ? (
+                        <span className="text-danger text-xs">{INSTRUMENTATION_REFRESH_FAILED}</span>
+                    ) : null}
+                    <InstrumentationRefreshButton
+                        refreshing={refreshing}
+                        refreshFailed={refreshFailed}
+                        pendingCheckKey={pendingCheckKey}
+                        onRefresh={onRefresh}
+                        size="small"
+                        data-attr="home-instrumentation-refresh"
                     />
-                ) : null}
+                    {checklist.agent_prompt !== null ? (
+                        <AgentPromptButton
+                            appearance="lemon"
+                            label="Fix instrumentation"
+                            actions={[
+                                {
+                                    key: 'ai-observability-instrumentation',
+                                    label: 'Fix instrumentation',
+                                    buildPrompt: () => checklist.agent_prompt ?? '',
+                                },
+                            ]}
+                            data-attr="home-instrumentation-prompt"
+                        />
+                    ) : null}
+                </div>
             </div>
             {open ? (
                 <div className="flex flex-col gap-3">
