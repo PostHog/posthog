@@ -66,7 +66,7 @@ function SummaryNote({
         case 'writing':
             return <>No summary yet. Summaries take a minute to write after an issue is first seen.</>
         case 'not_generated':
-            return <>No summary. Summaries are written when an issue is first seen.</>
+            return <>No summary. PostHog didn't write one when this issue was first seen.</>
         case 'restricted':
             return <>No summary. Summaries use event data you don't have access to.</>
         case 'ai_not_approved':
