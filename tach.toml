@@ -644,7 +644,7 @@ depends_on = [
     "products.dashboards",
     "products.exports",
     "products.workflows", "products.access_control",
-    # Evaluations and taggers compile Hog through products.cdp.backend.validation and filters.
+    # Evaluations compile Hog through products.cdp.backend.validation and filters.
     "products.cdp",
     # Facade only: the trace view links a trace's git branch to its pull request.
     "products.engineering_analytics",

@@ -23,7 +23,6 @@ from .parser_recipe import ParserRecipe
 from .provider_keys import LLMProvider, LLMProviderKey
 from .review_queues import ReviewQueue, ReviewQueueItem
 from .score_definitions import ScoreDefinition, ScoreDefinitionInput, ScoreDefinitionVersion
-from .taggers import Tagger
 from .trace_reviews import TraceReview, TraceReviewScore
 
 __all__ = [
@@ -62,7 +61,6 @@ __all__ = [
     "ScoreDefinition",
     "ScoreDefinitionInput",
     "ScoreDefinitionVersion",
-    "Tagger",
     "TraceReview",
     "TraceReviewScore",
 ]

@@ -540,7 +540,7 @@ describe('modelPickerLogic', () => {
             expect(openaiGroup?.providerKeyId).toBe('key-1')
         })
 
-        it('offers typed Azure deployments to the tagger picker but not to the playground', async () => {
+        it('offers typed Azure deployments to the evaluation picker but not to the playground', async () => {
             useMocks({
                 get: {
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {

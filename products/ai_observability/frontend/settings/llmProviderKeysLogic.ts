@@ -846,7 +846,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
     })),
 
     selectors({
-        // The team has no active key, so it must bring its own provider key to run llm_judge evals and taggers.
+        // The team has no active key, so it must bring its own provider key to run llm_judge evals.
         requiresProviderKey: [
             (s) => [s.evaluationConfig],
             (evaluationConfig: EvaluationConfig | null) =>

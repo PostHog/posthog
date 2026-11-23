@@ -500,7 +500,6 @@ rules:
                               |SurveyResponseArchive
                               |TableCertification
                               |Tag
-                              |Tagger
                               |Task
                               |TaskActivity
                               |TaskArtifact
@@ -1049,7 +1048,6 @@ rules:
                         |SurveyResponseArchive
                         |TableCertification
                         |Tag
-                        |Tagger
                         |Task
                         |TaskActivity
                         |TaskArtifact
@@ -1393,7 +1391,6 @@ rules:
                         |SurveyResponseArchive
                         |TableCertification
                         |TaggedItem
-                        |Tagger
                         |Task
                         |TaskRun
                         |TeamAccessControlConfig
