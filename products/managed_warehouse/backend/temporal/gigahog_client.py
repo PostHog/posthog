@@ -12,6 +12,7 @@ This module must not import the workflow module: the workflow imports it.
 
 from __future__ import annotations
 
+import os
 import time
 import uuid
 import datetime as dt
@@ -224,6 +225,8 @@ class GigahogClient:
         self._session = session or requests.Session()
         self._api_session = internal_requests_session() if config.api_direct else self._session
         self._oauth_session = internal_requests_session() if config.oauth_direct else self._session
+        if config.oauth_direct:
+            self._oauth_session.verify = os.getenv("REQUESTS_CA_BUNDLE") or os.getenv("CURL_CA_BUNDLE") or True
         self._base = f"{config.url.rstrip('/')}/v1/catalogs/{_segment(config.catalog)}"
 
     def close(self) -> None:
