@@ -386,7 +386,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://developer.matomo.org/api-reference/reporting-api#UserCountry",
         "columns": {
             "_date": "The report day this row is for.",
-            "label": "The region name, followed by its parent region and country names.",
+            "label": "The region name, followed by its country name.",
             "region": "The region code.",
             "region_name": "The region name.",
             "country": "The two-letter country code.",
