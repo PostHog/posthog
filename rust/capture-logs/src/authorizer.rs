@@ -92,18 +92,16 @@ impl Authorizer {
             .and_then(|value| value.to_str().ok())
             .map(strip_bearer)
             .filter(|token| !token.is_empty());
-        match verbatim {
-            Some(token) => {
-                self.check(token, signal, signal == Signal::Logs)?;
-                Ok(token)
-            }
+        let token = match verbatim {
+            Some(token) => token,
             None => {
-                let (token, _) = resolve_token(headers, None)
-                    .map_err(|rejection| self.reject(signal, "missing_token", rejection))?;
-                self.check(token, signal, signal == Signal::Logs)?;
-                Ok(token)
+                resolve_token(headers, None)
+                    .map_err(|rejection| self.reject(signal, "missing_token", rejection))?
+                    .0
             }
-        }
+        };
+        self.check(token, signal, signal == Signal::Logs)?;
+        Ok(token)
     }
 
     /// Resolve the token from the URL path, then the `Authorization` header, then the `token` query
@@ -142,7 +140,6 @@ impl Authorizer {
         Ok(token)
     }
 
-    /// `digest_allowed` is true only for a logs token that came from a header.
     fn check(&self, token: &str, signal: Signal, digest_allowed: bool) -> Result<(), Rejection> {
         let is_digest = is_secret_key_digest(token);
         // A key that `hash_secret_keys` did not hash came from a URL path or a query string, and
@@ -151,12 +148,11 @@ impl Authorizer {
             return Err(self.reject(signal, "secret_key_not_allowed", secret_key_not_allowed()));
         }
 
-        // A value that holds the key prefix next to a character that no token has can be a secret
-        // key in a form that `find_secret_key` does not find. A public token with an unusual
-        // character and no key prefix is not affected.
+        // The key prefix next to a character that no token has can be a secret key in a form that
+        // `find_secret_key` does not find. A public token without the prefix is not affected.
         let is_token_char = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'-';
         let holds_key_prefix = token.to_ascii_lowercase().contains(SECRET_KEY_PREFIX);
-        if !is_digest && holds_key_prefix && !token.bytes().all(is_token_char) {
+        if holds_key_prefix && !token.bytes().all(is_token_char) {
             return Err(self.reject(signal, "secret_key_not_allowed", secret_key_not_allowed()));
         }
 

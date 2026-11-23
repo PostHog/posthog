@@ -21,10 +21,9 @@ pub const SECRET_KEY_DIGEST_PREFIX: &str = "sha256$";
 /// So a run this long marks a key even with no boundary before it, as in `Bearer%20phs_...`.
 const SECRET_KEY_RUN: usize = 44;
 
-/// Finds a secret key anywhere in `value`, behind a scheme, a quote or an encoding, and with the
-/// prefix in any letter case. A public token that holds `phs_` in the middle does not match.
-/// It does not find a key that the sender changed in another way. The authorizer rejects a value
-/// that holds the prefix next to a character that no token has.
+/// Finds a secret key behind a scheme, a quote or an encoding, with the prefix in any letter case.
+/// A public token that holds `phs_` in the middle does not match, and neither does a key that the
+/// sender changed in another way.
 pub fn find_secret_key(value: &str) -> Option<&str> {
     let is_key_char = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
     // ASCII lowercase keeps every byte offset, so an index into `lowercase` is valid in `value`.
