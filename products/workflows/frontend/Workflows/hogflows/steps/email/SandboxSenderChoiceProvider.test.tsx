@@ -4,7 +4,6 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { Node } from '@xyflow/react'
 import { BindLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -65,7 +64,7 @@ jest.mock('react-email-editor', () => {
     }
 })
 
-const LOGIC_PROPS: WorkflowLogicProps = { id: 'new' }
+const LOGIC_PROPS: WorkflowLogicProps = { id: 'flow-1' }
 const STEP_ID = 'email_step'
 
 const SANDBOX_STATUS = {
@@ -154,6 +153,13 @@ const SANDBOX_STEP = {
     },
 } as HogFlowAction
 
+const TRIGGER = {
+    id: 'trigger_node',
+    type: 'trigger',
+    name: 'Trigger',
+    config: { type: 'event', filters: { events: [{ id: '$pageview', type: 'events' }] } },
+} as HogFlowAction
+
 function storedStep(): HogFlowAction | undefined {
     return workflowLogic(LOGIC_PROPS).values.workflow.actions.find((action) => action.id === STEP_ID)
 }
@@ -177,11 +183,22 @@ function showSenderRow(show = true): void {
     featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_EMAIL_HEADER]: show })
 }
 
+let savedStep: HogFlowAction
+
+function savedWorkflow(): Record<string, unknown> {
+    return {
+        id: LOGIC_PROPS.id,
+        name: 'Welcome',
+        status: 'draft',
+        trigger: TRIGGER.config,
+        actions: [TRIGGER, savedStep],
+        edges: [{ from: TRIGGER.id, to: savedStep.id, type: 'continue' }],
+    }
+}
+
 async function renderStep(step: HogFlowAction, readyTestId = 'workflow-email-sender-select'): Promise<void> {
-    const wfLogic = workflowLogic(LOGIC_PROPS)
-    wfLogic.mount()
-    await expectLogic(wfLogic).toDispatchActions(['loadHogFunctionTemplatesByIdSuccess'])
-    wfLogic.actions.setWorkflowInfo({ actions: [...wfLogic.values.workflow.actions, step] })
+    savedStep = step
+    workflowLogic(LOGIC_PROPS).mount()
     render(
         <BindLogic logic={workflowLogic} props={LOGIC_PROPS}>
             <StoredStepConfiguration />
@@ -220,6 +237,13 @@ describe('SandboxSenderChoiceProvider', () => {
                 '/api/projects/:team_id/hog_function_templates': { results: [EMAIL_TEMPLATE], count: 1 },
                 '/api/projects/:team_id/integrations/': { results: [OWN_SENDER], next: null },
                 '/api/projects/:team_id/workflow_email_sandbox/status/': SANDBOX_STATUS,
+                '/api/projects/:team_id/hog_flows/:id/': () => [200, savedWorkflow()],
+            },
+            patch: {
+                '/api/projects/:team_id/hog_flows/:id/': async ({ request }) => [
+                    200,
+                    { ...savedWorkflow(), ...((await request.json()) as Record<string, unknown>) },
+                ],
             },
         })
         initKeaTests()
