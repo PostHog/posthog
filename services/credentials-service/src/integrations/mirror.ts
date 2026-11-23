@@ -1,6 +1,10 @@
 // `PUT /v1/integrations/mirror`: copies Django `posthog_integration` rows, keyed by their int id.
 // Django stays the source of truth, so a row replaces every stored field. The sender's
 // `source_version` orders the writes, so a late retry of an older copy cannot win.
+//
+// `POST /v1/integrations/mirror/purge`: the rollback. It hard-deletes the copies of one kind.
+// A soft delete would leave a tombstone, and a tombstone answers a later upsert with `stale`,
+// so a new backfill after the rollback could not start clean.
 
 import { randomUUID } from 'node:crypto'
 import type { Pool, PoolClient } from 'pg'
@@ -10,11 +14,14 @@ import type { JsonObject } from '../crypto/canonical'
 import type { Envelope, SealedSecret } from '../crypto/envelope'
 import type { IntegrationOwner } from '../db/integrations'
 import {
+    type MirrorOwnedRow,
     type MirrorRow,
     type MirrorWriteResult,
     findKeyHolder,
     getByLegacyId,
+    hardDeleteMirrorOwned,
     insertMirrored,
+    listMirrorOwned,
     lockByLegacyId,
     replaceMirrored,
     softDeleteMirrored,
@@ -24,11 +31,12 @@ import { withTransaction } from '../db/transaction'
 import { logger } from '../lib/logging'
 import { type AuditEntry, insertAuditRows, logAuditEntries } from './audit'
 import { IntegrationApiError } from './errors'
-import { mirrorRowsTotal } from './metrics'
+import { mirrorPurgeRowsTotal, mirrorRowsTotal } from './metrics'
 import { type Caller, isEmpty, owner, sealSecret, writeDeadline } from './service'
 import {
     type MirrorBody,
     type MirrorDeleteRow,
+    type MirrorPurgeBody,
     type MirrorRowBody,
     type MirrorUpsertRow,
     checkAuthType,
@@ -37,6 +45,9 @@ import {
 const MIRROR_CONCURRENCY = 8
 // A tombstone has no auth type of its own. A valid one keeps readers of the change feed parsing it.
 const TOMBSTONE_AUTH_TYPE = 'credentials'
+// A tombstone needs a source version to count as a mirror row, so the purge can find it.
+// A stored tombstone refuses every upsert whatever its version, so the lowest one is enough.
+const TOMBSTONE_SOURCE_VERSION = 0
 
 export type MirrorOutcome =
     | 'created'
@@ -119,6 +130,15 @@ function secretOf(row: MirrorUpsertRow): JsonObject | null {
     return isEmpty(blob) && row.legacy_unreadable_keys.length === 0 ? null : blob
 }
 
+export interface MirrorPurgeResult {
+    /** The rows deleted. Zero for a dry run. */
+    purged: number
+    /** The legacy ids deleted, or for a dry run the ones it would delete, in order. */
+    legacy_ids: number[]
+    /** The cursor for the next page, or null when this page was the last. */
+    next_after_legacy_id: number | null
+}
+
 export interface MirrorDeps {
     pool: Pool
     envelope: Envelope
@@ -158,6 +178,68 @@ export class MirrorService {
             throw failure.reason
         }
         return { results }
+    }
+
+    /** Deletes one page of the rows that the mirror wrote for `body.kind`. One transaction per page. */
+    async purge(caller: Caller, body: MirrorPurgeBody): Promise<MirrorPurgeResult> {
+        // The route checked the kind against the token. Source rows of the kind need the source-row grant too.
+        assertKindAllowed(caller.auth, body.kind)
+        const sourceRows = caller.auth.sourceRows
+        const filter = {
+            kind: body.kind,
+            afterLegacyId: body.after_legacy_id,
+            limit: body.limit,
+            teamIds: body.team_ids,
+            sourceRows: sourceRows !== null && (sourceRows.kinds === null || sourceRows.kinds.includes(body.kind)),
+        }
+        const entry = (outcome: string, details: Record<string, unknown>, row?: MirrorOwnedRow): AuditEntry => ({
+            actor: caller.actor,
+            occurredAt: new Date(),
+            operation: 'mirror_purge',
+            outcome,
+            ownerType: row?.ownerType ?? null,
+            ownerId: row?.ownerId ?? null,
+            integrationId: row?.id ?? null,
+            kind: body.kind,
+            fields: [],
+            details,
+        })
+
+        let rows: MirrorOwnedRow[]
+        let entries: AuditEntry[]
+        if (body.dry_run) {
+            rows = await listMirrorOwned(this.deps.pool, filter, false)
+            entries = [entry('dry_run', { matched: rows.length, after_legacy_id: body.after_legacy_id })]
+            await insertAuditRows(this.deps.pool, entries)
+        } else {
+            const page = await this.writeTransaction(async (tx) => {
+                const locked = await listMirrorOwned(tx, filter, true)
+                const deleted = await hardDeleteMirrorOwned(
+                    tx,
+                    locked.map((row) => row.id)
+                )
+                // No foreign key points from audit_log to integrations, so these rows outlive the purge.
+                const written = deleted.map((row) =>
+                    entry('purged', { legacy_id: row.legacyId, source_version: row.sourceVersion }, row)
+                )
+                await insertAuditRows(tx, written)
+                return { deleted, written }
+            })
+            rows = page.deleted
+            entries = page.written
+        }
+        logAuditEntries(entries)
+        if (rows.length > 0) {
+            mirrorPurgeRowsTotal.labels({ outcome: body.dry_run ? 'dry_run' : 'purged' }).inc(rows.length)
+        }
+
+        const legacyIds = rows.map((row) => row.legacyId)
+        return {
+            purged: body.dry_run ? 0 : rows.length,
+            legacy_ids: legacyIds,
+            // A page shorter than the limit was the last one.
+            next_after_legacy_id: legacyIds.length === body.limit ? (legacyIds.at(-1) ?? null) : null,
+        }
     }
 
     private async mirrorRow(
@@ -313,7 +395,7 @@ export class MirrorService {
                 errors: '',
                 createdById: null,
                 createdAt: null,
-                sourceVersion: (row as MirrorDeleteRow).source_version ?? null,
+                sourceVersion: (row as MirrorDeleteRow).source_version ?? TOMBSTONE_SOURCE_VERSION,
             })
             outcome = 'deleted'
         } else {

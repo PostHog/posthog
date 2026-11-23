@@ -143,6 +143,19 @@ export const mirrorBody = z
     })
 export type MirrorBody = z.infer<typeof mirrorBody>
 
+export const MAX_PURGE_PAGE_SIZE = 500
+export const MAX_PURGE_TEAM_IDS = 1000
+
+export const mirrorPurgeBody = z.strictObject({
+    kind,
+    /** The keyset cursor: the page starts after this legacy id. */
+    after_legacy_id: legacyId.nullable().default(null),
+    limit: z.int().min(1).max(MAX_PURGE_PAGE_SIZE).default(MAX_PURGE_PAGE_SIZE),
+    team_ids: z.array(z.int().positive()).min(1).max(MAX_PURGE_TEAM_IDS).nullable().default(null),
+    dry_run: z.boolean().default(false),
+})
+export type MirrorPurgeBody = z.infer<typeof mirrorPurgeBody>
+
 function validationError(error: z.ZodError): IntegrationApiError {
     // Paths and messages only: an issue never carries the rejected value back to the caller.
     const issues = error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message }))

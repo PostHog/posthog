@@ -1,4 +1,5 @@
-// Queries for `PUT /v1/integrations/mirror`, which copies Django rows keyed by their int id.
+// Queries for `PUT /v1/integrations/mirror`, which copies Django rows keyed by their int id, and
+// for `POST /v1/integrations/mirror/purge`, which hard-deletes those copies on rollback.
 // The lookups by legacy id bind no owner: legacy ids are unique across owners, and the service
 // compares the owner in code so that it can answer `owner_mismatch` instead of inserting.
 
@@ -204,4 +205,87 @@ export async function softDeleteMirrored(
          RETURNING ${MIRROR_COLUMNS}`,
         [id, sourceVersion, owner.type, owner.id]
     )
+}
+
+/** A row the mirror wrote: it has a legacy id and a source version. */
+export interface MirrorOwnedRow {
+    id: string
+    legacyId: number
+    sourceVersion: number
+    ownerType: string
+    ownerId: number
+    kind: string
+}
+
+export interface MirrorPurgeFilter {
+    kind: string
+    afterLegacyId: number | null
+    limit: number
+    /** Null matches every owner. */
+    teamIds: readonly number[] | null
+    /** False leaves warehouse source rows alone. */
+    sourceRows: boolean
+}
+
+interface MirrorOwnedDbRow {
+    id: string
+    legacy_id: string
+    source_version: string
+    owner_type: string
+    owner_id: string
+    kind: string
+}
+
+function toMirrorOwnedRow(row: MirrorOwnedDbRow): MirrorOwnedRow {
+    return {
+        id: row.id,
+        legacyId: Number(row.legacy_id),
+        sourceVersion: Number(row.source_version),
+        ownerType: row.owner_type,
+        ownerId: Number(row.owner_id),
+        kind: row.kind,
+    }
+}
+
+const MIRROR_OWNED_COLUMNS = 'id, legacy_id, source_version, owner_type, owner_id, kind'
+
+/**
+ * One keyset page of the rows the mirror wrote for a kind, live or tombstoned, in legacy id
+ * order. `lock` takes a row lock on each, so a concurrent mirror write waits for the purge.
+ * A row the service created itself has no source version and never matches.
+ */
+export async function listMirrorOwned(
+    db: Queryable,
+    filter: MirrorPurgeFilter,
+    lock: boolean
+): Promise<MirrorOwnedRow[]> {
+    const result = await query<MirrorOwnedDbRow>(
+        db,
+        `SELECT ${MIRROR_OWNED_COLUMNS} FROM integrations
+         WHERE kind = $1 AND legacy_id IS NOT NULL AND source_version IS NOT NULL
+           AND ($2::bigint IS NULL OR legacy_id > $2::bigint)
+           AND ($3::bigint[] IS NULL OR (owner_type = 'team' AND owner_id = ANY($3::bigint[])))
+           AND ($4::boolean OR NOT is_source_row)
+         ORDER BY legacy_id
+         LIMIT $5
+         ${lock ? 'FOR UPDATE' : ''}`,
+        [filter.kind, filter.afterLegacyId, filter.teamIds, filter.sourceRows, filter.limit]
+    )
+    return result.rows.map(toMirrorOwnedRow)
+}
+
+/** Hard-deletes locked mirror rows and their secrets. Returns the rows it deleted. */
+export async function hardDeleteMirrorOwned(db: Queryable, ids: readonly string[]): Promise<MirrorOwnedRow[]> {
+    if (ids.length === 0) {
+        return []
+    }
+    await query(db, 'DELETE FROM integration_secrets WHERE integration_id = ANY($1::uuid[])', [ids])
+    const result = await query<MirrorOwnedDbRow>(
+        db,
+        `DELETE FROM integrations
+         WHERE id = ANY($1::uuid[]) AND legacy_id IS NOT NULL AND source_version IS NOT NULL
+         RETURNING ${MIRROR_OWNED_COLUMNS}`,
+        [ids]
+    )
+    return result.rows.map(toMirrorOwnedRow).sort((a, b) => a.legacyId - b.legacyId)
 }
