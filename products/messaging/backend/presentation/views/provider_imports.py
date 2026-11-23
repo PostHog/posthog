@@ -41,6 +41,13 @@ class ImportStepOptionSerializer(serializers.Serializer):
     )
     label = serializers.CharField(help_text="Display name of the step.")  # type: ignore[assignment]  # field named `label` shadows DRF Field.label
     description = serializers.CharField(help_text="What the step imports and where it lands in PostHog.")
+    needs = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Keys of the steps that must be selected too for this one to run, such as `contacts`. Often empty.",
+    )
+    counts_as_events = serializers.BooleanField(
+        help_text="Whether the step creates or updates people. Each of those counts as one event on the bill."
+    )
 
 
 class ImportSettingChoiceSerializer(serializers.Serializer):
@@ -129,9 +136,14 @@ class ImportStepProgressSerializer(serializers.Serializer):
     counts = ImportStepCountSerializer(
         many=True, help_text="A breakdown of what the step did. Only counts above zero appear."
     )
-    items = ImportStepItemSerializer(many=True, help_text="The objects the step handled, with anything to review.")
+    items = ImportStepItemSerializer(
+        many=True,
+        help_text="The objects the step handled, with anything to review. Always empty in the list of runs; get the run for them.",
+    )
     warnings_omitted = serializers.IntegerField(help_text="How many more warnings there were than `warnings` holds.")
-    items_omitted = serializers.IntegerField(help_text="How many more objects there were than `items` holds.")
+    items_omitted = serializers.IntegerField(
+        help_text="How many more objects there were than `items` holds. In the list of runs, this counts every object."
+    )
 
 
 class ProviderImportRunSerializer(serializers.Serializer):

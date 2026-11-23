@@ -13,6 +13,7 @@ const meta: Meta<typeof TraceSplitView> = {
         tree: FIXTURE_TREE,
         selectedNodeId: generation.id,
         onSelectNode: () => {},
+        onStepNode: () => {},
         onPrefetchNode: () => {},
         evalOutcomes: new Map(),
         detail: {

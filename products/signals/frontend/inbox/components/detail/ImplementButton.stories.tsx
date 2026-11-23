@@ -17,7 +17,7 @@ export default meta
 
 type Story = StoryObj<typeof ImplementButton>
 
-const report = makeReport({ title: 'Exceptions spiked after the 18 June deploy' })
+const report = makeReport({ title: 'Exceptions spiked after the 18 June deploy', repo_slug: 'example/app' })
 
 export const Default: Story = {
     render: () => <ImplementButton report={report} />,
@@ -38,22 +38,11 @@ export const NoRepository: Story = {
                 },
                 '/api/projects/:id/tasks/@me/config/': { ai_run_preferences: {}, resolved_ai_run_defaults: null },
             },
-            post: {
-                '/api/projects/:id/tasks/': [
-                    400,
-                    {
-                        type: 'validation_error',
-                        code: 'report_implementation_repository_unresolved',
-                        attr: 'repository',
-                        detail: 'Select a repository to continue.',
-                    },
-                ],
-            },
         }),
     ],
     render: () => <ImplementButton report={{ ...report, repo_slug: null }} />,
     play: async ({ canvasElement }) => {
-        const button = await within(canvasElement).findByText('Implement')
+        const button = await within(canvasElement).findByText('Select repository')
         await waitFor(() => {
             const access = reportGithubAccessLogic({ report: { ...report, repo_slug: null } }).values
             if (access.loading || access.disabledReason || !access.repositoryIntegrationId) {

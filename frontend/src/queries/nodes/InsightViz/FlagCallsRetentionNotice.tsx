@@ -2,8 +2,8 @@ import { IconInfo } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 import { Item, ItemContent, ItemMedia, Text } from '@posthog/quill'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { dayjs } from 'lib/dayjs'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { DATE_FORMAT } from 'lib/utils/datetime'
 import { FLAG_EVALUATIONS_RETENTION_DAYS, FlagCallsRetentionGap } from 'scenes/feature-flags/flagEvaluationsTable'
 

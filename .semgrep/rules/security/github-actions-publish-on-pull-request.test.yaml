@@ -56,6 +56,12 @@ jobs:
             # ruleid: github-actions-publish-on-pull-request
             - run: cargo publish -p posthog-symbol-data
 
+    publish-mcp-registry:
+        runs-on: ubuntu-24.04
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: mcp-publisher publish services/mcp/server.json
+
     cut-release-with-an-archived-action:
         runs-on: ubuntu-24.04
         steps:
@@ -208,6 +214,13 @@ jobs:
         steps:
             # ok: github-actions-publish-on-pull-request
             - run: gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" dist/*
+
+    publish-mcp-registry:
+        runs-on: ubuntu-24.04
+        if: needs.check.outputs.publish == 'true' && github.ref == 'refs/heads/master'
+        steps:
+            # ok: github-actions-publish-on-pull-request
+            - run: mcp-publisher publish services/mcp/server.json
 
     validate-only:
         runs-on: ubuntu-24.04
