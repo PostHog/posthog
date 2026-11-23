@@ -3817,6 +3817,12 @@ describe('EmailService', () => {
                 'every team',
                 { text: 'Hello', html: expect.any(String), charsets: { text: 'UTF-8' } },
             ],
+            [
+                'html only, with the default text part list',
+                { html: '<p>Hello</p>', text: undefined },
+                'default',
+                { text: undefined, html: expect.any(String), charsets: { text: undefined } },
+            ],
         ])('sends a part for each kind of content: %s', async (_name, content, listed, expectedParts) => {
             invocation.hogFunction.metadata = { message_category_type: 'transactional' }
             invocation.queueParameters = CyclotronInvocationQueueParametersEmailSchema.parse(
@@ -3826,6 +3832,7 @@ describe('EmailService', () => {
                 'this team': String(team.id),
                 'another team': String(team.id + 1),
                 'every team': '*',
+                default: hub.CDP_EMAIL_TEXT_PART_TEAMS,
             }[listed]
             const result = await createService({ textPartTeams }).executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
