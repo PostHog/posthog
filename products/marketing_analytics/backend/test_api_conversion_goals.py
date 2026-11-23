@@ -440,6 +440,12 @@ class TestRecommendationConversionActionsSetting(APIBaseTest):
             ("saves_the_list", ["customers/1/conversionActions/10"], 200, ["customers/1/conversionActions/10"]),
             ("empty_list_counts_primary_actions", [], 200, []),
             ("rejects_an_action_name", ["Purchase"], 400, ["customers/9/conversionActions/90"]),
+            (
+                "rejects_non_ascii_digits",
+                ["customers/\u0661/conversionActions/10"],
+                400,
+                ["customers/9/conversionActions/90"],
+            ),
         ]
     )
     def test_settings_save_writes_the_recommendation_conversion_actions(
@@ -458,6 +464,17 @@ class TestRecommendationConversionActionsSetting(APIBaseTest):
         assert response.status_code == expected_status, response.json()
         config = TeamMarketingAnalyticsConfig.objects.get(team=self.team)
         assert config.recommendation_conversion_actions == stored
+
+    def test_null_column_reads_as_an_empty_list_that_saves_back(self) -> None:
+        TeamMarketingAnalyticsConfig.objects.filter(team=self.team).update(recommendation_conversion_actions=None)
+
+        read = self.client.get(f"/api/projects/{self.team.pk}/").json()["marketing_analytics_config"]
+        assert read["recommendation_conversion_actions"] == []
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.pk}/", {"marketing_analytics_config": read}, format="json"
+        )
+        assert response.status_code == 200, response.json()
 
 
 class TestConversionGoalIdIsOneName(APIBaseTest):
