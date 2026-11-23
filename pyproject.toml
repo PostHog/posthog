@@ -823,13 +823,11 @@ ignore_imports = [
     "products.access_control.backend.presentation.role -> products.access_control.backend.models.role",
     # TODO: dashboards presentation wave — the moved dashboard and template viewsets are still
     # ModelViewSets over the dashboards models, and they reach the widget, customization, access and
-    # run-output modules directly. The dashboard viewset also reads alerts rows and builds default
-    # templates from ai_observability and mcp_analytics internals, and the tile serializer that
-    # insight payloads nest is a ModelSerializer over DashboardTile. Thin each viewset to
+    # run-output modules directly. The dashboard viewset also reads alerts rows, and the tile
+    # serializer that insight payloads nest is a ModelSerializer over DashboardTile. Thin each viewset to
     # parse -> facade -> serialize and delete each entry.
     # backend:contract-check stays off until this list is empty.
     "products.dashboards.backend.presentation.serializers -> products.dashboards.backend.models.dashboard_tile",
-    "products.dashboards.backend.presentation.views.dashboard -> products.ai_observability.backend.dashboard_templates",
     "products.dashboards.backend.presentation.views.dashboard -> products.alerts.backend.models.alert",
     "products.dashboards.backend.presentation.views.dashboard -> products.dashboards.backend.access",
     "products.dashboards.backend.presentation.views.dashboard -> products.dashboards.backend.constants",
@@ -847,7 +845,6 @@ ignore_imports = [
     "products.dashboards.backend.presentation.views.dashboard -> products.dashboards.backend.widget_query_throttle",
     "products.dashboards.backend.presentation.views.dashboard -> products.dashboards.backend.widget_registry",
     "products.dashboards.backend.presentation.views.dashboard -> products.dashboards.backend.widget_specs.configs",
-    "products.dashboards.backend.presentation.views.dashboard -> products.mcp_analytics.backend.dashboard_templates",
     "products.dashboards.backend.presentation.views.dashboard_templates -> products.dashboards.backend.customization",
     "products.dashboards.backend.presentation.views.dashboard_templates -> products.dashboards.backend.models.dashboard_templates",
     "products.dashboards.backend.presentation.widget_openapi_serializers -> products.dashboards.backend.widget_specs.openapi",

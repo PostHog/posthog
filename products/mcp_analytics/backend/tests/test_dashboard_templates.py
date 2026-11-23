@@ -1,11 +1,10 @@
-from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
+from products.mcp_analytics.backend.facade.api import default_dashboard_template
 
 
 def test_mcp_analytics_default_template_includes_oauth_client_pie_chart() -> None:
-    template = get_mcp_analytics_default_template()
+    template = default_dashboard_template()
 
     assert template.tags == ["mcp-analytics"]
-    assert template.tiles is not None
     assert len(template.tiles) == 3
 
     tile = template.tiles[0]
@@ -21,9 +20,8 @@ def test_mcp_analytics_default_template_includes_oauth_client_pie_chart() -> Non
 
 
 def test_mcp_analytics_default_template_includes_users_and_sessions() -> None:
-    template = get_mcp_analytics_default_template()
+    template = default_dashboard_template()
 
-    assert template.tiles is not None
     tile = template.tiles[1]
     source = tile["query"]["source"]
 
@@ -53,9 +51,8 @@ def test_mcp_analytics_default_template_includes_users_and_sessions() -> None:
 
 
 def test_mcp_analytics_default_template_includes_tool_calls_by_error_status() -> None:
-    template = get_mcp_analytics_default_template()
+    template = default_dashboard_template()
 
-    assert template.tiles is not None
     tile = template.tiles[2]
     source = tile["query"]["source"]
 

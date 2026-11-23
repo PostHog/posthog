@@ -4874,11 +4874,29 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertNotIn("insight", streamed_tile)
         self.assertNotIn("Confidential usage", json.dumps(streamed_tile))
 
-    def test_create_unlisted_dashboard_creates_tags(self):
-        """Test that unlisted dashboards get tags"""
+    @parameterized.expand(
+        [
+            (
+                "llm-analytics",
+                "AI observability default",
+                "Overview of your AI usage, costs, and performance",
+                9,
+                ["ai-observability"],
+            ),
+            ("mcp-analytics", "MCP Analytics Default", "Overview of your MCP usage.", 3, []),
+        ]
+    )
+    def test_create_unlisted_dashboard_creates_tags(
+        self,
+        tag: str,
+        expected_name: str,
+        expected_description: str,
+        expected_insight_count: int,
+        expected_insight_tags: list[str],
+    ) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/dashboards/create_unlisted_dashboard/",
-            {"tag": "llm-analytics"},
+            {"tag": tag},
             format="json",
         )
 
@@ -4887,18 +4905,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         # Verify dashboard was created with unlisted mode
         self.assertEqual(dashboard.creation_mode, "unlisted")
-        self.assertEqual(dashboard.name, "AI observability default")
+        self.assertEqual(
+            (dashboard.name, dashboard.description, dashboard.filters),
+            (expected_name, expected_description, {"date_from": "-7d"}),
+        )
 
         # Verify tags were created
         tags = list(dashboard.tagged_items.values_list("tag__name", flat=True))
-        self.assertEqual(tags, ["llm-analytics"])
+        self.assertEqual(tags, [tag])
 
         insights = Insight.objects.filter(dashboard_tiles__dashboard=dashboard)
-        self.assertGreater(insights.count(), 0)
+        self.assertEqual(insights.count(), expected_insight_count)
         for insight in insights:
             self.assertEqual(
                 list(insight.tagged_items.values_list("tag__name", flat=True)),
-                ["ai-observability"],
+                expected_insight_tags,
             )
 
     def test_create_unlisted_dashboard_enforces_uniqueness(self):

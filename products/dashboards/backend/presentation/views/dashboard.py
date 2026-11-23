@@ -131,7 +131,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
-from products.ai_observability.backend.dashboard_templates import get_ai_observability_default_template
+from products.ai_observability.backend.facade import api as ai_observability_api
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.access import dashboard_access_method, record_dashboard_access, record_dashboard_view
 from products.dashboards.backend.constants import (
@@ -161,6 +161,7 @@ from products.dashboards.backend.facade.api import (
     CannotAddToDashboard,
     add_insight_to_dashboard,
     board_stream_cached_event,
+    create_unlisted_dashboard,
     dashboard_v2_enabled,
     read_cached_tiles,
     shared_tile_work,
@@ -228,7 +229,7 @@ from products.dashboards.backend.widget_registry import (
     validate_widget_config,
 )
 from products.dashboards.backend.widget_specs.configs import CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE
-from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
+from products.mcp_analytics.backend.facade import api as mcp_analytics_api
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -3316,8 +3317,8 @@ class DashboardsViewSet(
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
     TEMPLATE_MAP = {
-        "llm-analytics": get_ai_observability_default_template,
-        "mcp-analytics": get_mcp_analytics_default_template,
+        "llm-analytics": ai_observability_api.default_dashboard_template,
+        "mcp-analytics": mcp_analytics_api.default_dashboard_template,
     }
 
     @validated_request(
@@ -4969,22 +4970,10 @@ class DashboardsViewSet(
                     status=status.HTTP_409_CONFLICT,
                 )
 
-            template = self.TEMPLATE_MAP[tag]()
-            dashboard = Dashboard.objects.create(
-                team_id=self.team_id,
-                name=template.template_name,
-                description=template.dashboard_description or "",
-                filters={**(template.dashboard_filters or {}), "__template_version": 1},
-                created_by=cast(User, request.user),
-                creation_mode="unlisted",
+            created = create_unlisted_dashboard(
+                team=self.team, user=cast(User, request.user), template=self.TEMPLATE_MAP[tag]()
             )
-
-            create_from_template(
-                dashboard,
-                template,
-                cast(User, request.user),
-                user_access_control=UserAccessControl(user=cast(User, request.user), team=self.team),
-            )
+            dashboard = Dashboard.objects.get(pk=created.id)
 
             return Response(
                 DashboardSerializer(dashboard, context=self.get_serializer_context()).data,

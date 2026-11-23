@@ -16,6 +16,7 @@ from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.dashboards.backend.facade.contracts import DashboardTemplateDefinition
 from products.engineering_analytics.backend.facade import api as engineering_analytics_api
 from products.engineering_analytics.backend.facade.contracts import BranchPRMatch, GitHubSourceNotConnectedError
 from products.exports.backend.facade.api import (
@@ -33,6 +34,7 @@ from products.surveys.backend.facade.api import (
     get_survey_responses_linked_to,
 )
 
+from ..dashboard_templates import get_ai_observability_default_template
 from ..logic.eval_suggestions import (
     config as eval_suggestions_config,
     eligibility as eval_suggestions_eligibility,
@@ -1188,3 +1190,7 @@ def draft_eval_suggestions(team_id: int, run_id: str, *, include_paid: bool, dea
 
 def publish_eval_suggestions(team_id: int, run_id: str) -> int:
     return eval_suggestions_pipeline.publish_stage(team_id, run_id)
+
+
+def default_dashboard_template() -> DashboardTemplateDefinition:
+    return get_ai_observability_default_template()

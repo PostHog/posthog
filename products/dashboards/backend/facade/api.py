@@ -991,6 +991,15 @@ def create_starter_dashboard(*, team_id: int) -> DashboardRef:
     return DashboardRef(id=dashboard.id, name=dashboard.name)
 
 
+def create_unlisted_dashboard(*, team: "Team", user: User, template: DashboardTemplateDefinition) -> DashboardRef:
+    """Create an unlisted dashboard from a template definition, with the template's tiles.
+
+    Run inside the caller's transaction. The caller enforces one unlisted dashboard per template tag.
+    """
+    dashboard = templates_logic.create_unlisted_dashboard(team=team, user=user, template=template)
+    return DashboardRef(id=dashboard.id, name=dashboard.name)
+
+
 def widget_type_label(widget_type: str) -> str | None:
     """The catalog label of a widget type, or None for a type the catalog does not list."""
     # Imported at call time: the catalog loads every widget spec, and they import posthog.schema.

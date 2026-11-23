@@ -2672,7 +2672,6 @@ presentation-uses-facade	products.cohorts.backend.routes	products.cohorts.backen
 presentation-uses-facade	products.conversations.backend.routes	products.conversations.backend.api	1
 presentation-uses-facade	products.customer_analytics.backend.presentation.views.views	products.cdp.backend.presentation.icons	1
 presentation-uses-facade	products.dashboards.backend.presentation.serializers	products.dashboards.backend.models.dashboard_tile	1
-presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.ai_observability.backend.dashboard_templates	1
 presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.alerts.backend.models.alert	1
 presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.dashboards.backend.access	1
 presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.dashboards.backend.constants	1
@@ -2690,7 +2689,6 @@ presentation-uses-facade	products.dashboards.backend.presentation.views.dashboar
 presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.dashboards.backend.widget_query_throttle	1
 presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.dashboards.backend.widget_registry	1
 presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.dashboards.backend.widget_specs.configs	1
-presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.mcp_analytics.backend.dashboard_templates	1
 presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.product_analytics.backend.presentation.insight	1
 presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard_templates	products.dashboards.backend.customization	1
 presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard_templates	products.dashboards.backend.models.dashboard_templates	1
@@ -2945,7 +2943,6 @@ product-code-at-home	ai_observability	posthog.temporal.ai_observability.retries	
 product-code-at-home	ai_observability	posthog.temporal.ai_observability.run_aggregate_evaluation	1
 product-code-at-home	ai_observability	posthog.temporal.ai_observability.run_evaluation	1
 product-code-at-home	ai_observability	posthog.temporal.ai_observability.run_session_evaluation	1
-product-code-at-home	ai_observability	posthog.temporal.ai_observability.run_tagger	1
 product-code-at-home	ai_observability	posthog.temporal.ai_observability.run_trace_evaluation	1
 product-code-at-home	ai_observability	posthog.temporal.ai_observability.sentiment	1
 product-code-at-home	ai_observability	posthog.temporal.ai_observability.sentiment.constants	1
@@ -2971,7 +2968,6 @@ product-code-at-home	ai_observability	posthog.temporal.ai_observability.test_ret
 product-code-at-home	ai_observability	posthog.temporal.ai_observability.test_run_aggregate_evaluation	1
 product-code-at-home	ai_observability	posthog.temporal.ai_observability.test_run_evaluation	1
 product-code-at-home	ai_observability	posthog.temporal.ai_observability.test_run_session_evaluation	1
-product-code-at-home	ai_observability	posthog.temporal.ai_observability.test_run_tagger	1
 product-code-at-home	ai_observability	posthog.temporal.ai_observability.test_run_trace_evaluation	1
 product-code-at-home	ai_observability	posthog.temporal.ai_observability.test_team_capture	1
 product-code-at-home	ai_observability	posthog.temporal.ai_observability.test_team_discovery	1
