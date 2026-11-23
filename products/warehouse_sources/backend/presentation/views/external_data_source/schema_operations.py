@@ -59,6 +59,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     new_source_requires_ssl,
     supports_adding_tables,
 )
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.presentation.sync_frequency_field import SYNC_FREQUENCY_HELP_TEXT
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     FULL_REFRESH_TIME_OF_DAY_HELP_TEXT,
@@ -484,16 +485,19 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 )
                 if reconciled_deleted_schemas:
                     schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
-            else:
+            elif isinstance(source, SQLSource):
+                if source.supports_column_selection:
+                    source.reconcile_schema_metadata(source=instance, source_schemas=schemas, team_id=self.team_id)
+            elif instance.source_type == ExternalDataSourceType.CLICKHOUSE:
                 # The ClickHouse source module imports clickhouse_connect, which loads polars, and web
-                # processes import this view at boot. A ClickHouse source object has loaded it already.
+                # processes import this view at boot, so only a ClickHouse refresh imports it.
                 from products.warehouse_sources.backend.facade.source_management import (  # noqa: PLC0415
                     ClickHouseSource,
                 )
 
                 # ClickHouse isn't a SQLSource but exposes the same column-selection
                 # capability and reconcile hook, so it reuses this path.
-                if isinstance(source, (SQLSource, ClickHouseSource)) and source.supports_column_selection:
+                if isinstance(source, ClickHouseSource) and source.supports_column_selection:
                     source.reconcile_schema_metadata(source=instance, source_schemas=schemas, team_id=self.team_id)
 
         # Outside the atomic block: schedule creation talks to Temporal, which must not run under
