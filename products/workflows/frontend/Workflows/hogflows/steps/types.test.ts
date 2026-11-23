@@ -71,6 +71,30 @@ describe('HogFlowActionSchema', () => {
                 },
             },
         ],
+        [
+            'conditional_branch with filter groups',
+            {
+                id: 'action_conditional_branch_abc123',
+                name: 'Branch',
+                type: 'conditional_branch',
+                description: '',
+                config: {
+                    conditions: [
+                        {
+                            filters: {
+                                properties: {
+                                    type: 'OR',
+                                    values: [
+                                        { type: 'AND', values: [{ key: 'plan', value: 'pro', type: 'person' }] },
+                                        { type: 'AND', values: [{ key: 'id', value: 42, type: 'cohort' }] },
+                                    ],
+                                },
+                            },
+                        },
+                    ],
+                },
+            },
+        ],
     ])('validates %s action without created_at/updated_at', (_label, action) => {
         const result = HogFlowActionSchema.safeParse(action)
         expect(result.success).toBe(true)

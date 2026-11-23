@@ -94,7 +94,10 @@ export type OrganizationApiMetadata = { [key: string]: string }
 
 export interface OrganizationApi {
     readonly id: string
-    /** @maxLength 64 */
+    /**
+     * Name of the organization.
+     * @maxLength 64
+     */
     name: string
     /** @pattern ^[-a-zA-Z0-9_]+$ */
     readonly slug: string
@@ -146,6 +149,11 @@ export interface OrganizationApi {
     readonly member_count: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
+    /**
+     * When True, AI data processing cannot be turned on through the UI or API, and members cannot ask admins to turn it on. Set at the organization's request.
+     * @nullable
+     */
+    readonly is_ai_data_processing_locked: boolean | null
     /**
      * When True, this organization allows its data to be used to train PostHog AI models.
      * @nullable
@@ -220,7 +228,10 @@ export type PatchedOrganizationApiMetadata = { [key: string]: string }
 
 export interface PatchedOrganizationApi {
     readonly id?: string
-    /** @maxLength 64 */
+    /**
+     * Name of the organization.
+     * @maxLength 64
+     */
     name?: string
     /** @pattern ^[-a-zA-Z0-9_]+$ */
     readonly slug?: string
@@ -272,6 +283,11 @@ export interface PatchedOrganizationApi {
     readonly member_count?: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
+    /**
+     * When True, AI data processing cannot be turned on through the UI or API, and members cannot ask admins to turn it on. Set at the organization's request.
+     * @nullable
+     */
+    readonly is_ai_data_processing_locked?: boolean | null
     /**
      * When True, this organization allows its data to be used to train PostHog AI models.
      * @nullable
@@ -585,6 +601,8 @@ export interface OrganizationPersonalAPIKeyAccessScopeApi {
 }
 
 export interface OrganizationPersonalAPIKeyApi {
+    /** Unique ID of the key. */
+    readonly id: string
     /** The organization member who owns this key. */
     readonly owner: OrganizationPersonalAPIKeyOwnerApi
     /** Masked, display-safe hint of the key value (e.g. 'phx_***1234'). Not the secret. The owner sees the same masked value in their own settings, so it can be used to identify a key. */
@@ -593,6 +611,8 @@ export interface OrganizationPersonalAPIKeyApi {
     readonly scopes: readonly string[]
     /** Where the key's scopes apply within this organization. */
     readonly access_scope: OrganizationPersonalAPIKeyAccessScopeApi
+    /** Whether the key also works in at least one other organization its owner belongs to. */
+    readonly reaches_other_organizations: boolean
     /**
      * When the key was last used to authenticate, if ever.
      * @nullable
@@ -609,6 +629,46 @@ export interface PaginatedOrganizationPersonalAPIKeyListApi {
     /** @nullable */
     previous?: string | null
     results: OrganizationPersonalAPIKeyApi[]
+}
+
+/**
+ * * `rolled` - Rolled
+ * * `deleted` - Deleted
+ */
+export type KeyActionOutcomeEnumApi = (typeof KeyActionOutcomeEnumApi)[keyof typeof KeyActionOutcomeEnumApi]
+
+export const KeyActionOutcomeEnumApi = {
+    Rolled: 'rolled',
+    Deleted: 'deleted',
+} as const
+
+export interface OrganizationPersonalAPIKeyActionResultApi {
+    /** What happened to the key. 'rolled': the key has a new secret that nobody sees, and the old secret no longer works anywhere. 'deleted': the key no longer exists and cannot be used in any organization.
+     *
+     * * `rolled` - Rolled
+     * * `deleted` - Deleted */
+    outcome: KeyActionOutcomeEnumApi
+}
+
+export interface OrganizationPersonalAPIKeyBulkActionResultApi {
+    /** Number of keys that got a new secret that nobody sees. Their old secrets no longer work anywhere. */
+    rolled: number
+    /** Number of keys that no longer exist. */
+    deleted: number
+    /** Number of keys left unchanged because they were rolled at or after 'skip_rolled_since'. */
+    skipped: number
+    /** Number of keys that an error left unchanged. Run the action again to change them. */
+    failed: number
+    /** When the roll of all keys started. A retry returns the 'skip_rolled_since' it was given. */
+    started_at: string
+}
+
+export interface OrganizationPersonalAPIKeyRollAllRequestApi {
+    /**
+     * Leave keys alone that were rolled at or after this time. To retry a roll of all keys without rolling its keys again, pass the 'started_at' that the earlier attempt returned.
+     * @nullable
+     */
+    skip_rolled_since?: string | null
 }
 
 /**
@@ -920,7 +980,6 @@ export interface WelcomeResponseApi {
  * * `personal_api_key` - personal_api_key
  * * `oauth` - oauth
  * * `project_secret_key` - project_secret_key
- * * `team_secret_token` - team_secret_token
  * * `id_jag` - id_jag
  * * `oidc_workload` - oidc_workload
  * * `internal_jwt` - internal_jwt
@@ -938,6 +997,7 @@ export interface WelcomeResponseApi {
  * * `webhook` - webhook
  * * `cross_region_signature` - cross_region_signature
  * * `unattributed` - unattributed
+ * * `team_secret_token` - team_secret_token
  */
 export type ActivityLogCredentialTypeEnumApi =
     (typeof ActivityLogCredentialTypeEnumApi)[keyof typeof ActivityLogCredentialTypeEnumApi]
@@ -947,7 +1007,6 @@ export const ActivityLogCredentialTypeEnumApi = {
     PersonalApiKey: 'personal_api_key',
     Oauth: 'oauth',
     ProjectSecretKey: 'project_secret_key',
-    TeamSecretToken: 'team_secret_token',
     IdJag: 'id_jag',
     OidcWorkload: 'oidc_workload',
     InternalJwt: 'internal_jwt',
@@ -965,6 +1024,7 @@ export const ActivityLogCredentialTypeEnumApi = {
     Webhook: 'webhook',
     CrossRegionSignature: 'cross_region_signature',
     Unattributed: 'unattributed',
+    TeamSecretToken: 'team_secret_token',
 } as const
 
 export interface ActivityLogApi {
@@ -997,7 +1057,6 @@ export interface ActivityLogApi {
      * * `personal_api_key` - personal_api_key
      * * `oauth` - oauth
      * * `project_secret_key` - project_secret_key
-     * * `team_secret_token` - team_secret_token
      * * `id_jag` - id_jag
      * * `oidc_workload` - oidc_workload
      * * `internal_jwt` - internal_jwt
@@ -1014,7 +1073,8 @@ export interface ActivityLogApi {
      * * `export_renderer` - export_renderer
      * * `webhook` - webhook
      * * `cross_region_signature` - cross_region_signature
-     * * `unattributed` - unattributed */
+     * * `unattributed` - unattributed
+     * * `team_secret_token` - team_secret_token */
     readonly credential_type: ActivityLogCredentialTypeEnumApi | null
     /**
      * Id of the credential that authenticated the change: the login session id for 'session', or the key id for 'personal_api_key' and 'project_secret_key'. Null for every other credential type and for impersonated changes.
@@ -1646,6 +1706,8 @@ export type ActivityLogListParams = {
      * * `DataWarehouseJoin` - DataWarehouseJoin
      * * `Billing` - Billing
      * * `Loop` - Loop
+     * * `SandboxEnvironment` - SandboxEnvironment
+     * * `SandboxCustomImage` - SandboxCustomImage
      * * `StamphogRepoConfig` - StamphogRepoConfig
      * * `ReviewRepository` - ReviewRepository
      * * `ReviewProjectSettings` - ReviewProjectSettings
@@ -1769,6 +1831,8 @@ export const ActivityLogListScope = {
     DataWarehouseJoin: 'DataWarehouseJoin',
     Billing: 'Billing',
     Loop: 'Loop',
+    SandboxEnvironment: 'SandboxEnvironment',
+    SandboxCustomImage: 'SandboxCustomImage',
     StamphogRepoConfig: 'StamphogRepoConfig',
     ReviewRepository: 'ReviewRepository',
     ReviewProjectSettings: 'ReviewProjectSettings',
@@ -1879,6 +1943,8 @@ export const ActivityLogListScope = {
  * * `DataWarehouseJoin` - DataWarehouseJoin
  * * `Billing` - Billing
  * * `Loop` - Loop
+ * * `SandboxEnvironment` - SandboxEnvironment
+ * * `SandboxCustomImage` - SandboxCustomImage
  * * `StamphogRepoConfig` - StamphogRepoConfig
  * * `ReviewRepository` - ReviewRepository
  * * `ReviewProjectSettings` - ReviewProjectSettings
@@ -1990,6 +2056,8 @@ export const ActivityLogListScopesItem = {
     DataWarehouseJoin: 'DataWarehouseJoin',
     Billing: 'Billing',
     Loop: 'Loop',
+    SandboxEnvironment: 'SandboxEnvironment',
+    SandboxCustomImage: 'SandboxCustomImage',
     StamphogRepoConfig: 'StamphogRepoConfig',
     ReviewRepository: 'ReviewRepository',
     ReviewProjectSettings: 'ReviewProjectSettings',
@@ -2015,7 +2083,7 @@ export type AdvancedActivityLogsListParams = {
      */
     detail_filters?: string
     /**
-     * Upper bound on `created_at` (inclusive), ISO-8601.
+     * Upper bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T11:30:00Z`.
      */
     end_date?: string
     /**
@@ -2078,7 +2146,7 @@ export type AdvancedActivityLogsListParams = {
      */
     search_text?: string
     /**
-     * Lower bound on `created_at` (inclusive), ISO-8601.
+     * Lower bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T10:30:00Z`.
      */
     start_date?: string
     /**

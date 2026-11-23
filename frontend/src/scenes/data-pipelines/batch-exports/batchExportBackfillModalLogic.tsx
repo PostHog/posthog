@@ -123,16 +123,16 @@ export interface batchExportBackfillModalLogicValues {
     batchExportConfig: BatchExportConfiguration | null // batchExportDataLogic
     backfillForm: {
         earliest_backfill: boolean
-        end_at?: Dayjs | undefined
-        start_at?: Dayjs | undefined
+        end_at?: Dayjs
+        start_at?: Dayjs
     }
     backfillFormAllErrors: Record<string, any>
     backfillFormChanged: boolean
     backfillFormErrors: DeepPartialMap<
         {
             earliest_backfill: boolean
-            end_at?: Dayjs | undefined
-            start_at?: Dayjs | undefined
+            end_at?: Dayjs
+            start_at?: Dayjs
         },
         ValidationErrorType
     >
@@ -143,8 +143,8 @@ export interface batchExportBackfillModalLogicValues {
     backfillFormValidationErrors: DeepPartialMap<
         {
             earliest_backfill: boolean
-            end_at?: Dayjs | undefined
-            start_at?: Dayjs | undefined
+            end_at?: Dayjs
+            start_at?: Dayjs
         },
         ValidationErrorType
     >
@@ -173,15 +173,11 @@ export interface batchExportBackfillModalLogicActions {
     openBackfillModal: () => {
         value: true
     }
-    resetBackfillForm: (values?: {
-        earliest_backfill: boolean
-        end_at?: Dayjs | undefined
-        start_at?: Dayjs | undefined
-    }) => {
+    resetBackfillForm: (values?: { earliest_backfill: boolean; end_at?: Dayjs; start_at?: Dayjs }) => {
         values?: {
             earliest_backfill: boolean
-            end_at?: Dayjs | undefined
-            start_at?: Dayjs | undefined
+            end_at?: Dayjs
+            start_at?: Dayjs
         }
     }
     setBackfillFormManualErrors: (errors: Record<string, any>) => {
@@ -197,14 +193,14 @@ export interface batchExportBackfillModalLogicActions {
     setBackfillFormValues: (
         values: DeepPartial<{
             earliest_backfill: boolean
-            end_at?: Dayjs | undefined
-            start_at?: Dayjs | undefined
+            end_at?: Dayjs
+            start_at?: Dayjs
         }>
     ) => {
         values: DeepPartial<{
             earliest_backfill: boolean
-            end_at?: Dayjs | undefined
-            start_at?: Dayjs | undefined
+            end_at?: Dayjs
+            start_at?: Dayjs
         }>
     }
     setEarliestBackfill: () => {
@@ -220,26 +216,18 @@ export interface batchExportBackfillModalLogicActions {
         error: Error
         errors: Record<string, any>
     }
-    submitBackfillFormRequest: (backfillForm: {
-        earliest_backfill: boolean
-        end_at?: Dayjs | undefined
-        start_at?: Dayjs | undefined
-    }) => {
+    submitBackfillFormRequest: (backfillForm: { earliest_backfill: boolean; end_at?: Dayjs; start_at?: Dayjs }) => {
         backfillForm: {
             earliest_backfill: boolean
-            end_at?: Dayjs | undefined
-            start_at?: Dayjs | undefined
+            end_at?: Dayjs
+            start_at?: Dayjs
         }
     }
-    submitBackfillFormSuccess: (backfillForm: {
-        earliest_backfill: boolean
-        end_at?: Dayjs | undefined
-        start_at?: Dayjs | undefined
-    }) => {
+    submitBackfillFormSuccess: (backfillForm: { earliest_backfill: boolean; end_at?: Dayjs; start_at?: Dayjs }) => {
         backfillForm: {
             earliest_backfill: boolean
-            end_at?: Dayjs | undefined
-            start_at?: Dayjs | undefined
+            end_at?: Dayjs
+            start_at?: Dayjs
         }
     }
     touchBackfillFormField: (key: string) => {

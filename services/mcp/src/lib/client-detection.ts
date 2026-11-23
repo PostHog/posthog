@@ -13,14 +13,9 @@
  *   only way a client lands in tools mode without an explicit `?mode=` /
  *   `x-posthog-mcp-mode` override — see `resolveMode`.
  *
- * - `isCliModeEnabled()` matches clients that should drop `structuredContent`
- *   when a `formatted_results` override is set. Every known Anthropic client
- *   qualifies — matched against the `x-anthropic-client` (`vendorClient`)
- *   header, since Anthropic pools MCP transports across all its products and
- *   reports the live one there. Other coding agents are matched by
- *   self-reported client name. Cursor is deliberately excluded from the name
- *   match — it reads text for the model and renders `structuredContent` in UI,
- *   so it does not need the formatted-results workaround.
+ * - `prefersFormattedText()` decides whether a client drops `structuredContent`
+ *   when a `formatted_results` override is set. Every client does, except the
+ *   ones that read it (Cursor, Claude Artifacts, and non-Anthropic render-ui hosts).
  *
  * - `isPostHogCodeConsumer()` matches the `x-posthog-mcp-consumer` header
  *   sent by the PostHog Desktop Tasks wrapper.
@@ -58,55 +53,6 @@ function matchesProductName(value: string | undefined, names: readonly string[])
     const product = value?.trim().split(/[\s/]/, 1)[0]?.toLowerCase()
     return !!product && names.includes(product)
 }
-
-// Coding agents and LLM-driven clients that render text rather than MCP Apps UI.
-// Matched by `isCliModeEnabled()`, which gates dropping `structuredContent` when a
-// `formatted_results` override is set. Mode selection does NOT read this list — CLI
-// (single-exec) is the default for every client; `TOOLS_MODE_CLIENT_NAME_FRAGMENTS`
-// is the tools-mode allow-list.
-export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
-    'claude-code',
-    'cline',
-    'roo-code',
-    'roo-cline',
-    'continue',
-    'codex',
-    'windsurf',
-    'zed',
-    'aider',
-    'copilot',
-    'gemini-cli',
-    // Devin self-reports `clientInfo.name` as `Devin`; it's a coding agent and
-    // benefits from the same single-exec mode.
-    'devin',
-    // LibreChat is a general MCP client, but benefits from the same CLI-shaped
-    // single-exec mode as coding agents.
-    'librechat',
-    // Notion AI ships its own `notion-mcp-client` (not a coding agent per se,
-    // but an LLM-driven consumer that benefits from the same single-exec mode
-    // and formatted-text rendering as coding agents).
-    'notion',
-    // OpenCode is a terminal coding agent (and the engine behind clients like
-    // OpenWork). It connects through OpenCode's MCP client, which self-reports
-    // `clientInfo.name` as `opencode`. It renders text, not MCP Apps UI, so it
-    // wants single-exec mode like the other coding agents.
-    'opencode',
-    // Amp is Sourcegraph's coding agent; its MCP client self-reports
-    // `clientInfo.name` as `amp-mcp-client` and benefits from single-exec mode.
-    'amp-mcp-client',
-    // Poke is an LLM-driven assistant that renders text, not MCP Apps UI, so it
-    // wants the same single-exec mode as the coding agents.
-    'poke',
-    // Grok (xAI) — both Grok Build (the terminal coding agent) and the grok.com
-    // assistant connect custom MCP servers and render text rather than MCP Apps
-    // UI, so they benefit from the same single-exec mode and formatted-text
-    // rendering as the other coding agents.
-    'grok',
-    // Ando is an LLM-driven assistant (Slack, chat, calls) whose MCP client
-    // self-reports `clientInfo.name` as `ando-mcp-gateway`; it renders text and
-    // benefits from the same single-exec mode as the coding agents.
-    'ando-mcp-gateway',
-] as const
 
 // Clients that wedge after a stateless `server/discover` but complete the legacy
 // handshake, so discover answers method-not-found to push them back to `initialize`.
@@ -204,9 +150,14 @@ export const INLINE_EXEC_UI_APP_VENDOR_FRAGMENTS = ['claudecode'] as const
 // User-Agent Anthropic clients send when they connect without the
 // `x-anthropic-client` header (Claude.ai web/desktop and internal Anthropic
 // tooling). It's a generic Anthropic signal — Claude Code and Cowork can send it
-// too — so it drives CLI-mode detection; the UI-host check reuses it as its own
+// too — so it drives Anthropic detection; the UI-host check reuses it as its own
 // user-agent fallback.
 export const ANTHROPIC_USER_AGENT_FRAGMENTS = ['claude-user'] as const
+
+// Claude Code connecting directly sends `claude-code/<version> (<entrypoint>, ...)`. The
+// entrypoint `cli` is the interactive terminal. Desktop sends `claude-desktop`, the IDE
+// extensions send `claude-vscode`, and headless and SDK runs send `sdk-*`.
+const TERMINAL_CLAUDE_CODE_USER_AGENT = /^claude-code\/\S+ \(cli[,)]/i
 
 // Published Claude artifact pages call the MCP from page code to fill in their data, so no model
 // reads the responses.
@@ -250,9 +201,7 @@ const CLIENT_CAPABILITY_OVERRIDES: readonly CapabilityOverride[] = [
 
 type MCPClientProfileInput = {
     clientName?: string | undefined
-    clientVersion?: string | undefined
     consumer?: string | undefined
-    oauthClientName?: string | undefined
     // Per-request `x-anthropic-client` value (e.g. `ClaudeCode`, `ClaudeAI`).
     // Anthropic pools MCP transports across products, so the live inner client
     // can disagree with the session-pinned `clientName` from `initialize`.
@@ -264,9 +213,7 @@ type MCPClientProfileInput = {
 
 export class MCPClientProfile {
     readonly clientName: string | undefined
-    readonly clientVersion: string | undefined
     readonly consumer: string | undefined
-    readonly oauthClientName: string | undefined
     readonly vendorClient: string | undefined
     readonly userAgent: string | undefined
     readonly uiSupported: boolean | undefined
@@ -275,12 +222,17 @@ export class MCPClientProfile {
 
     constructor(input: MCPClientProfileInput) {
         this.clientName = input.clientName
-        this.clientVersion = input.clientVersion
         this.consumer = input.consumer
-        this.oauthClientName = input.oauthClientName
         this.vendorClient = input.vendorClient
         this.userAgent = input.userAgent
         this.uiSupported = input.uiSupported
+    }
+
+    isCursor(): boolean {
+        return (
+            matchesAnyFragment(this.clientName, TOOLS_MODE_CLIENT_NAME_FRAGMENTS) ||
+            matchesAnyFragment(this.userAgent, TOOLS_MODE_USER_AGENT_FRAGMENTS)
+        )
     }
 
     isToolsModeClient(): boolean {
@@ -289,21 +241,19 @@ export class MCPClientProfile {
         // the self-reported `clientInfo.name` and the User-Agent (older Cursor
         // builds identify only through the UA); never on the vendor header, so
         // Anthropic pooled transports can't land in tools mode.
-        return (
-            matchesAnyFragment(this.clientName, TOOLS_MODE_CLIENT_NAME_FRAGMENTS) ||
-            matchesAnyFragment(this.userAgent, TOOLS_MODE_USER_AGENT_FRAGMENTS)
-        )
+        return this.isCursor()
     }
 
-    isCliModeEnabled(): boolean {
-        // Gates dropping `structuredContent` when a `formatted_results` override
-        // is set — these clients read `content[].text`, so the structured copy
-        // would only bloat the payload. Every Anthropic product qualifies.
+    prefersFormattedText(): boolean {
+        // Artifact pages consume the structured data directly from page code.
+        if (this.isArtifactRuntime()) {
+            return false
+        }
+        // Claude Code shows the structured copy to the model even when MCP Apps are supported.
         if (this.isAnthropicClient()) {
             return true
         }
-        // Otherwise fall back to the self-reported client name for coding agents.
-        return matchesAnyFragment(this.clientName, CODING_AGENT_CLIENT_NAME_FRAGMENTS)
+        return !this.isCursor() && !this.isRenderUiHost()
     }
 
     isAnthropicClient(): boolean {
@@ -313,7 +263,7 @@ export class MCPClientProfile {
         // (Claude.ai web/desktop, internal tools) connect without that header, so
         // also accept the `Claude-User` user-agent and the pooled `Anthropic/…`
         // `clientInfo.name`. Unlike `isRenderUiHost`, matching the pooled name here
-        // is safe and intended: every Anthropic product belongs in CLI mode, so
+        // is safe and intended: every Anthropic product gets the same treatment, so
         // there is nothing to misclassify.
         return matchesAnyFragment(this.vendorClient, ANTHROPIC_CLIENT_NAME_FRAGMENTS) || this.isAnthropicConnector()
     }
@@ -376,6 +326,13 @@ export class MCPClientProfile {
         return matchesAnyFragment(this.vendorClient, INLINE_EXEC_UI_APP_VENDOR_FRAGMENTS)
     }
 
+    drawsTimeSeriesCharts(): boolean {
+        // Through a claude.ai connector, Claude Code sends `x-anthropic-client: ClaudeCode` with the
+        // `Claude-User` User-Agent from the terminal and from Desktop alike. Those requests are
+        // included too, because most Claude Code sessions connect that way.
+        return TERMINAL_CLAUDE_CODE_USER_AGENT.test(this.userAgent?.trim() ?? '') || this.isInlineExecUiHost()
+    }
+
     isClaudeChatHost(): boolean {
         // Same vendor-authoritative shape as `isRenderUiHost`, narrowed to the chat
         // surfaces (Claude web/desktop) that ignore the `instructions` payload. The
@@ -407,10 +364,6 @@ export class MCPClientProfile {
         }
         return resolved
     }
-}
-
-export function isCliModeEnabledClient(clientName: string | undefined): boolean {
-    return new MCPClientProfile({ clientName }).isCliModeEnabled()
 }
 
 export function isLegacyDialectOnlyClient(clientName: string | undefined): boolean {

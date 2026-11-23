@@ -1,5 +1,5 @@
 import { AddressInfo, Socket, connect, createServer } from 'net'
-import { Client, Pool } from 'pg'
+import { Client, Pool, PoolClient } from 'pg'
 import { Histogram, register } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
@@ -1821,6 +1821,28 @@ describe('Cyclotron V2', () => {
                 expect(await totalJobCount()).toBe(1)
             })
 
+            it('gives up on a claim that waits on a locked key once the statement timeout passes', async () => {
+                const id = uuidv7()
+                const holder = await assertPool.connect()
+                const bounded = createManager({ pool: { dbUrl: DB_URL, statementTimeoutMs: 200 } })
+                try {
+                    await holder.query('BEGIN')
+                    await holder.query(
+                        `INSERT INTO cyclotron_idempotency_keys (id, team_id, fingerprint, expires_at)
+                         VALUES ($1, 1, 'a', NOW() + interval '1 day')`,
+                        [id]
+                    )
+
+                    await expect(bounded.createJobsIdempotently([keyed(id, 'a')])).rejects.toThrow(
+                        'canceling statement due to statement timeout'
+                    )
+                } finally {
+                    await holder.query('ROLLBACK')
+                    holder.release()
+                    await bounded.disconnect()
+                }
+            })
+
             it('leaves no key behind when the job insert fails, so the retry queues the job', async () => {
                 const id = uuidv7()
 
@@ -1835,7 +1857,7 @@ describe('Cyclotron V2', () => {
 
             it.each([
                 ['reclaims it once its job is gone', true, null, ['created']],
-                ['keeps it while its job still exists', false, { fingerprint: 'a' }, ['mismatch']],
+                ['keeps it while its job still exists', false, { fingerprint: 'a', reply: null }, ['mismatch']],
             ])('for an expired key the janitor has not swept, %s', async (_name, jobGone, found, expected) => {
                 const id = uuidv7()
                 await manager.createJobsIdempotently([keyed(id, 'a')])
@@ -3212,12 +3234,18 @@ describe('Cyclotron V2', () => {
         })
 
         it.each([
-            ['below the churn threshold', CYCLOTRON_TRANSITION_CHURN_THRESHOLD - 2, 0],
-            ['at the churn threshold', CYCLOTRON_TRANSITION_CHURN_THRESHOLD - 1, 1],
-        ])('counts a dequeue %s', async (_label, seeded, expected) => {
+            ['below the churn threshold', CYCLOTRON_TRANSITION_CHURN_THRESHOLD - 2, 0, 0],
+            ['at the churn threshold', CYCLOTRON_TRANSITION_CHURN_THRESHOLD - 1, 0, 1],
+            ['at the churn threshold on a day-old job', CYCLOTRON_TRANSITION_CHURN_THRESHOLD - 1, 24, 1],
+            ['at the churn threshold on a weeks-old job', CYCLOTRON_TRANSITION_CHURN_THRESHOLD - 1, 400, 0],
+            ['at the counter cap on a day-old job', CYCLOTRON_COUNTER_MAX, 24, 1],
+        ])('counts a dequeue %s', async (_label, seeded, ageHours, expected) => {
             const before = await churnCountForQueue(QUEUE)
             const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
-            await assertPool.query('UPDATE cyclotron_jobs SET transition_count = $1 WHERE id = $2', [seeded, id])
+            await assertPool.query(
+                'UPDATE cyclotron_jobs SET transition_count = $1, created = NOW() - make_interval(hours => $3) WHERE id = $2',
+                [seeded, id, ageHours]
+            )
 
             await dequeueOneBatch(createWorker())
 
@@ -4851,8 +4879,11 @@ describe('Cyclotron V2', () => {
             }
             const expired = uuidv7()
             const live = uuidv7()
-            await insertWatcher(expired, new Date(Date.now() - 60_000))
+            // Kept past its expiry while the matcher may still hold an event that arrived before it.
+            const justExpired = uuidv7()
+            await insertWatcher(expired, new Date(Date.now() - 600_000))
             await insertWatcher(live, new Date(Date.now() + 3_600_000))
+            await insertWatcher(justExpired, new Date(Date.now() - 60_000))
             const insertKey = async (id: string, expiresAt: Date): Promise<void> => {
                 await assertPool.query(
                     `INSERT INTO cyclotron_idempotency_keys (id, team_id, fingerprint, expires_at)
@@ -4879,9 +4910,9 @@ describe('Cyclotron V2', () => {
             writer.release()
 
             const remaining = await assertPool.query(`SELECT id FROM conversion_watchers WHERE id = ANY($1::uuid[])`, [
-                [expired, live],
+                [expired, live, justExpired],
             ])
-            expect(remaining.rows.map((r) => r.id)).toEqual([live])
+            expect(remaining.rows.map((r) => r.id).sort()).toEqual([live, justExpired].sort())
             const remainingKeys = await assertPool.query(
                 `SELECT id FROM cyclotron_idempotency_keys WHERE id = ANY($1::uuid[])`,
                 [[expiredKey, liveKey, expiredKeyWithJob, lockedKey]]
@@ -5076,6 +5107,296 @@ describe('Cyclotron V2', () => {
             await janitor.runOnce()
             const retried = await dequeueOneBatch(worker)
             expect(retried.map((j) => j.id)).toEqual([id])
+        })
+
+        describe('a release write whose connection drops', () => {
+            const jobRow = (id: string): [string, unknown[]] => [
+                'SELECT id FROM cyclotron_jobs WHERE id = $1 FOR UPDATE',
+                [id],
+            ]
+
+            async function interruptReleaseWrite(
+                release: () => Promise<void>,
+                {
+                    lock,
+                    interrupt = 'pg_terminate_backend',
+                    interrupts = 1,
+                    beforeRetry = (holder) => holder.query('ROLLBACK'),
+                }: {
+                    lock: [string, unknown[]]
+                    interrupt?: 'pg_terminate_backend' | 'pg_cancel_backend'
+                    interrupts?: number
+                    beforeRetry?: (holder: PoolClient) => Promise<unknown>
+                }
+            ): Promise<'released' | 'rejected'> {
+                const holder = await assertPool.connect()
+                try {
+                    await holder.query('BEGIN')
+                    await holder.query(...lock)
+                    const write = release().then(
+                        () => 'released' as const,
+                        () => 'rejected' as const
+                    )
+                    const waitingWrite = async (): Promise<number | undefined> => {
+                        const { rows } = await assertPool.query<{ pid: number }>(
+                            `SELECT pid FROM pg_stat_activity WHERE application_name = $1 AND wait_event_type = 'Lock'`,
+                            [DROP_APP]
+                        )
+                        return rows[0]?.pid
+                    }
+                    for (let i = 0; i < interrupts; i++) {
+                        let pid: number | undefined
+                        await waitForExpect(async () => expect((pid = await waitingWrite())).toBeDefined(), 2000, 10)
+                        await assertPool.query(`SELECT ${interrupt}($1)`, [pid])
+                        await waitForExpect(async () => expect(await waitingWrite()).not.toBe(pid), 2000, 10)
+                    }
+                    await beforeRetry(holder)
+                    return await write
+                } finally {
+                    holder.release(true)
+                }
+            }
+
+            async function janitorResets(id: string): Promise<number> {
+                const janitor = createJanitor({ cleanupGraceMs: 60_000 })
+                stops.push(() => janitor.stop())
+                await janitor.runOnce()
+                return (await queryJob(id)).janitor_touch_count
+            }
+
+            async function dequeueOnDropTestPool(
+                overrides: Record<string, unknown>,
+                queueName = QUEUE
+            ): Promise<CyclotronV2DequeuedJob> {
+                const worker = createWorker(queueName, { pool: { dbUrl: DROP_DB_URL }, ...overrides })
+                stops.push(() => worker.disconnect())
+                const [job] = await dequeueOneBatch(worker)
+                return job
+            }
+
+            it.each([
+                ['ack', 'completed', (job: CyclotronV2DequeuedJob) => job.ack()],
+                ['fail', 'failed', (job: CyclotronV2DequeuedJob) => job.fail()],
+                ['cancel', 'canceled', (job: CyclotronV2DequeuedJob) => job.cancel()],
+                ['reschedule', 'available', (job: CyclotronV2DequeuedJob) => job.reschedule()],
+                ['defer', 'available', (job: CyclotronV2DequeuedJob) => job.defer({ scheduledAt: new Date() })],
+            ])(
+                'retries %s once on a fresh connection, so the job ends released and the janitor never resets it',
+                async (_operation, status, release) => {
+                    const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
+                    const job = await dequeueOnDropTestPool({ releaseWriteRetry: true })
+
+                    expect(await interruptReleaseWrite(() => release(job), { lock: jobRow(id) })).toBe('released')
+
+                    const row = await queryJob(id)
+                    expect({ status: row.status, lock_id: row.lock_id }).toEqual({ status, lock_id: null })
+                    expect(await janitorResets(id)).toBe(0)
+                }
+            )
+
+            it.each([
+                ['an email defer', 'email', (job: CyclotronV2DequeuedJob) => job.defer({ scheduledAt: new Date() })],
+                [
+                    'a reschedule into the email queue',
+                    QUEUE,
+                    (job: CyclotronV2DequeuedJob) => job.reschedule({ queueName: 'email' }),
+                ],
+            ])(
+                'retries %s once on the slot it reserved, behind an email job the team enqueued while it ran',
+                async (_operation, queueName, release) => {
+                    const [id] = await manager.bulkCreateJobs([{ teamId: 1, queueName }])
+                    const job = await dequeueOnDropTestPool({ releaseWriteRetry: true }, queueName)
+                    const [enqueuedWhileRunning] = await manager.bulkCreateJobs([{ teamId: 1, queueName: 'email' }])
+                    const teamEmailCounter = async (): Promise<bigint> =>
+                        BigInt(
+                            (
+                                await assertPool.query<{ counter: string }>(
+                                    'SELECT counter FROM cyclotron_email_team_seq WHERE team_id = 1'
+                                )
+                            ).rows[0].counter
+                        )
+                    const counterBefore = await teamEmailCounter()
+
+                    expect(await interruptReleaseWrite(() => release(job), { lock: jobRow(id) })).toBe('released')
+
+                    expect((await teamEmailCounter()) - counterBefore).toBe(1n)
+                    const emailWorker = createWorker('email', { batchMaxSize: 1 })
+                    stops.push(() => emailWorker.disconnect())
+                    const [next] = await dequeueOneBatch(emailWorker)
+                    expect(next.id).toBe(enqueuedWhileRunning)
+                }
+            )
+
+            it('retries an email defer whose dequeue slot reservation lost its connection', async () => {
+                const [id] = await manager.bulkCreateJobs([{ teamId: 1, queueName: 'email' }])
+                const job = await dequeueOnDropTestPool({ releaseWriteRetry: true }, 'email')
+
+                expect(
+                    await interruptReleaseWrite(() => job.defer({ scheduledAt: new Date() }), {
+                        lock: ['SELECT counter FROM cyclotron_email_team_seq WHERE team_id = $1 FOR UPDATE', [1]],
+                    })
+                ).toBe('released')
+
+                const row = await queryJob(id)
+                expect({ status: row.status, lock_id: row.lock_id }).toEqual({ status: 'available', lock_id: null })
+            })
+
+            it('opens no more retry connections than the worker pool holds when one dropped slot reservation fails a batch', async () => {
+                const ids = await manager.bulkCreateJobs(
+                    Array.from({ length: 4 }, () => ({ teamId: 1, queueName: 'email' }))
+                )
+                const worker = createWorker('email', {
+                    pool: { dbUrl: DROP_DB_URL, maxConnections: 2 },
+                    batchMaxSize: 4,
+                    releaseWriteRetry: true,
+                    releaseWriteHeartbeatLimitMs: 1000,
+                })
+                stops.push(() => worker.disconnect())
+                const jobs = await dequeueOneBatch(worker)
+                let defers!: Promise<PromiseSettledResult<void>[]>
+                let mostRetriesWaiting = 0
+
+                const outcome = await interruptReleaseWrite(
+                    async () => {
+                        defers = Promise.allSettled(jobs.map((job) => job.defer({ scheduledAt: new Date() })))
+                        if ((await defers).some((result) => result.status === 'rejected')) {
+                            throw new Error('a defer failed')
+                        }
+                    },
+                    {
+                        lock: ['SELECT counter FROM cyclotron_email_team_seq WHERE team_id = $1 FOR UPDATE', [1]],
+                        beforeRetry: async (holder) => {
+                            let settled = false
+                            void defers.then(() => (settled = true))
+                            while (!settled) {
+                                mostRetriesWaiting = Math.max(mostRetriesWaiting, await backendsWaitingOnLocks())
+                            }
+                            await holder.query('ROLLBACK')
+                        },
+                    }
+                )
+
+                expect({ jobs: jobs.length, outcome, mostRetriesWaiting }).toEqual({
+                    jobs: 4,
+                    outcome: 'rejected',
+                    mostRetriesWaiting: 2,
+                })
+                const rows = await Promise.all(ids.map((id) => queryJob(id)))
+                expect(rows.map((row) => row.status)).toEqual(['running', 'running', 'running', 'running'])
+
+                const laterId = await manager.createJob({ teamId: 1, queueName: 'email' })
+                const [laterJob] = await dequeueOneBatch(worker)
+                expect(await interruptReleaseWrite(() => laterJob.ack(), { lock: jobRow(laterId) })).toBe('released')
+            }, 10_000)
+
+            const OTHER_WORKER_LOCK = '01a1e3aa-0000-7000-8000-000000000001'
+
+            it.each([
+                [
+                    'its first write committed before the connection dropped',
+                    `UPDATE cyclotron_jobs SET status = 'completed', lock_id = NULL WHERE id = $1`,
+                    { status: 'completed', lock_id: null },
+                ],
+                [
+                    'another worker claimed the job',
+                    `UPDATE cyclotron_jobs SET lock_id = '${OTHER_WORKER_LOCK}' WHERE id = $1`,
+                    { status: 'running', lock_id: OTHER_WORKER_LOCK },
+                ],
+            ])('a retry matches no row and leaves it alone when %s', async (_case, landedFirst, expected) => {
+                const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
+                const job = await dequeueOnDropTestPool({ releaseWriteRetry: true })
+
+                const outcome = await interruptReleaseWrite(() => job.fail(), {
+                    lock: jobRow(id),
+                    beforeRetry: async (holder) => {
+                        await holder.query(landedFirst, [id])
+                        await holder.query('COMMIT')
+                    },
+                })
+
+                expect(outcome).toBe('released')
+                const row = await queryJob(id)
+                expect({ status: row.status, lock_id: row.lock_id }).toEqual(expected)
+            })
+
+            it('cancels a retry that stalls past the heartbeat limit, so nothing waits on the job once the write gives up', async () => {
+                const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
+                const job = await dequeueOnDropTestPool({ releaseWriteRetry: true, releaseWriteHeartbeatLimitMs: 500 })
+                let ack!: Promise<void>
+                let waitingWhileLocked: number | undefined
+
+                const outcome = await interruptReleaseWrite(() => (ack = job.ack()), {
+                    lock: jobRow(id),
+                    beforeRetry: async (holder) => {
+                        await ack.catch(() => undefined)
+                        waitingWhileLocked = await backendsWaitingOnLocks()
+                        await holder.query('ROLLBACK')
+                    },
+                })
+
+                expect({ outcome, waitingWhileLocked }).toEqual({ outcome: 'rejected', waitingWhileLocked: 0 })
+                expect((await queryJob(id)).status).toBe('running')
+                expect(await janitorResets(id)).toBe(1)
+            }, 10_000)
+
+            it('gives up a retry at the heartbeat limit even when an earlier statement of the retry used up most of it', async () => {
+                const limitMs = 60_000
+                const [id] = await manager.bulkCreateJobs([{ teamId: 1, queueName: 'email' }])
+                const job = await dequeueOnDropTestPool(
+                    { releaseWriteRetry: true, releaseWriteHeartbeatLimitMs: limitMs },
+                    'email'
+                )
+                const jobHolder = await assertPool.connect()
+                await jobHolder.query('BEGIN')
+                await jobHolder.query(...jobRow(id))
+                const releasedAt = Date.now()
+                const clock = jest.spyOn(Date, 'now').mockReturnValue(releasedAt)
+
+                try {
+                    const outcome = await interruptReleaseWrite(() => job.defer({ scheduledAt: new Date() }), {
+                        lock: ['SELECT counter FROM cyclotron_email_team_seq WHERE team_id = $1 FOR UPDATE', [1]],
+                        beforeRetry: async (holder) => {
+                            await waitForExpect(async () => expect(await backendsWaitingOnLocks()).toBe(1), 2000, 10)
+                            clock.mockReturnValue(releasedAt + limitMs - 100)
+                            await holder.query('ROLLBACK')
+                        },
+                    })
+
+                    expect(outcome).toBe('rejected')
+                } finally {
+                    clock.mockRestore()
+                    await jobHolder.query('ROLLBACK')
+                    jobHolder.release()
+                }
+                expect(await janitorResets(id)).toBe(1)
+            })
+
+            it.each([
+                ['the retry switch is off', 'pg_terminate_backend' as const, { releaseWriteRetry: false }, 1],
+                [
+                    'the statement was canceled on a live connection',
+                    'pg_cancel_backend' as const,
+                    { releaseWriteRetry: true },
+                    1,
+                ],
+                [
+                    'the write outlived the heartbeat limit',
+                    'pg_terminate_backend' as const,
+                    { releaseWriteRetry: true, releaseWriteHeartbeatLimitMs: -1 },
+                    1,
+                ],
+                ['the retry loses its connection too', 'pg_terminate_backend' as const, { releaseWriteRetry: true }, 2],
+            ])('leaves the job to the janitor when %s', async (_case, interrupt, overrides, interrupts) => {
+                const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
+                const job = await dequeueOnDropTestPool(overrides)
+
+                expect(await interruptReleaseWrite(() => job.ack(), { lock: jobRow(id), interrupt, interrupts })).toBe(
+                    'rejected'
+                )
+
+                expect((await queryJob(id)).status).toBe('running')
+                expect(await janitorResets(id)).toBe(1)
+            })
         })
     })
 })

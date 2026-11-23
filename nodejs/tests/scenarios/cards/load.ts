@@ -4,23 +4,22 @@ import path from 'path'
 import { parse, stringify } from 'yaml'
 import { z } from 'zod'
 
-import { getDefaultConfig, overrideConfigWithEnv } from '~/common/config/config'
+import { parseNumberFromEnv } from '~/common/config'
+import { getDefaultConfig } from '~/common/config/config'
 
-import { durationMs } from '../duration'
-import { TRAFFIC } from '../generator/traffic'
+import { EMAIL_ACTION, TRAFFIC } from '../generator/traffic'
 import { DEFINITIONS, Definition, Definitions } from './definitions'
-import { Card, Named, Profile } from './schema'
+import { Card, Named, Profile, stepsOf } from './schema'
+import { Target, targetProblems } from './target'
 
 export const PROFILES_DIR = path.join(__dirname, '..', 'profiles')
 export const ROLE_RESTART_BACKOFF_MS = 2000
-const JANITOR_STALL_BACKOFF_FIRST_RETRY_SPREAD_MS = 5000
-const STALLING_VALVES = ['role.kill', 'role.freeze', 'pg.drop_connections']
 const PROCESS_ENV_SETTINGS = ['HOG_BYTECODE_CACHE_REQUIRED', 'HOG_BYTECODE_CACHE_REWRITE']
 export const LOAD_PRODUCER_SETTING_PREFIX = 'KAFKA_PRODUCER_'
 
 export type LoadedCard = { card: Card; profile: Profile; cardHash: string; profileHash: string }
 
-export type LoadOptions = { profilePath?: string; definitions?: Definitions }
+export type LoadOptions = { profilePath?: string; target?: Target }
 
 export class CardError extends Error {
     constructor(
@@ -38,15 +37,21 @@ function problemsOf(error: z.ZodError, prefix: string): string[] {
     )
 }
 
-function readYaml(file: string, label: string): { value: unknown } | { problem: string } {
-    if (!existsSync(file)) {
-        return { problem: `${label}: no file at ${file}` }
-    }
+type Read = { value: unknown } | { problem: string }
+
+function parseYaml(text: () => string, label: string): Read {
     try {
-        return { value: parse(readFileSync(file, 'utf8'), { maxAliasCount: 0 }) }
+        return { value: parse(text(), { maxAliasCount: 0 }) }
     } catch (error) {
         return { problem: `${label}: ${(error as Error).message}` }
     }
+}
+
+function readYaml(file: string, label: string): Read {
+    if (!existsSync(file)) {
+        return { problem: `${label}: no file at ${file}` }
+    }
+    return parseYaml(() => readFileSync(file, 'utf8'), label)
 }
 
 function sha256(value: unknown): string {
@@ -75,6 +80,7 @@ function checkNames(card: Card, definitions: Definitions): string[] {
         ...card.measure.flatMap((entry, i) =>
             checkNamed('measurement', `measure.${i}`, entry, definitions.measurements)
         ),
+        ...card.bars.flatMap((entry, i) => checkNamed('bar', `bars.${i}`, entry, definitions.bars)),
         ...card.valves.flatMap((entry, i) => {
             const definition = definitions.valves.find(({ name }) => name === entry.valve)
             if (!definition) {
@@ -90,80 +96,15 @@ function checkNames(card: Card, definitions: Definitions): string[] {
     ]
 }
 
-function checkSchedules(card: Card): string[] {
-    return card.valves.flatMap((entry, i) => {
-        if (entry.at !== undefined && entry.valve === 'pg.drop_connections') {
-            return [`valves.${i}.at: pg.drop_connections waits for running jobs, so it takes when, not at`]
-        }
-        return []
-    })
-}
-
 type Settings = Record<string, unknown>
 
-function checkStallBound(card: Card, config: Settings): string[] {
-    if (!card.valves.some(({ valve }) => STALLING_VALVES.includes(valve))) {
-        return []
-    }
-    const milliseconds = (name: string): number => Number(config[name])
-    const names = ['CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS', 'CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS']
-    const unreadable = names.filter((name) => !(milliseconds(name) >= 0))
-    if (unreadable.length > 0) {
-        return unreadable.map((name) => `profile.settings.${name}: not a number of milliseconds at or above zero`)
-    }
-    const connectionDrops = card.valves.filter(({ valve }) => valve === 'pg.drop_connections').length
-    const perRole = new Map<string, number>()
-    card.valves
-        .filter(({ valve }) => valve === 'role.kill' || valve === 'role.freeze')
-        .forEach(({ target }) => perRole.set(target, (perRole.get(target) ?? 0) + 1))
-    const stalls = Math.max(0, ...perRole.values()) + connectionDrops
-    const baseMs = Math.max(milliseconds('CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_BASE_MS'), 0) || 0
-    const maxMs =
-        milliseconds('CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_MAX_MS') > 0
-            ? milliseconds('CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_MAX_MS')
-            : 600000
-    const boundMs =
-        names.reduce((total, name) => total + milliseconds(name), 0) +
-        JANITOR_STALL_BACKOFF_FIRST_RETRY_SPREAD_MS +
-        Math.min(baseMs * (2 ** (stalls - 1) - 1), maxMs) +
-        ROLE_RESTART_BACKOFF_MS
-    if (durationMs(card.convergeWithin) > boundMs) {
-        return []
-    }
-    return [
-        `convergeWithin: ${card.convergeWithin} must exceed ${boundMs / 1000}s, the janitor's stall timeout, sweep interval, first-retry spread and repeated-stall backoff plus the role restart backoff`,
-    ]
-}
-
 function checkSuppression(card: Card): string[] {
-    const bounceEntries = card.valves.filter(({ valve, dose }) => valve === 'ses.reject' && dose.type === 'bounce')
-    const bouncesEverySend = bounceEntries.some(
-        ({ dose, at, for: holdFor }) =>
-            (dose.share ?? 1) === 1 &&
-            at !== undefined &&
-            durationMs(at) === 0 &&
-            durationMs(holdFor) >= durationMs(card.drive.for)
+    const bounces = card.valves.some(({ valve, dose }) => valve === 'ses.reject' && dose.type === 'bounce')
+    return card.invariants.flatMap(({ name }, i) =>
+        name === 'bounced_suppressed' && !bounces
+            ? [`invariants.${i}.name: bounced_suppressed needs a ses.reject entry with type bounce`]
+            : []
     )
-    const withoutFollowUp = card.drive.traffic
-        .map(({ name }) => name)
-        .filter((name) => !TRAFFIC.find((traffic) => traffic.name === name)?.followUp)
-    return card.invariants.flatMap(({ name }, i) => {
-        if (name !== 'bounced_suppressed') {
-            return []
-        }
-        const where = `invariants.${i}.name: bounced_suppressed`
-        if (bounceEntries.length === 0) {
-            return [`${where} needs a ses.reject entry with type bounce`]
-        }
-        return [
-            ...(bouncesEverySend
-                ? []
-                : [`${where} needs a ses.reject bounce at share 1 from 0s for the whole ${card.drive.for} drive`]),
-            ...(withoutFollowUp.length === 0
-                ? []
-                : [`${where} needs traffic that follows up every bounce, and ${withoutFollowUp.join(', ')} does not`]),
-        ]
-    })
 }
 
 const ANSWERED_AT_INTAKE = TRAFFIC.filter(({ intake }) => intake !== 'event').map(({ name }) => name)
@@ -193,7 +134,95 @@ function checkProfile(card: Card, profile: Profile, definitions: Definitions, de
     ]
 }
 
-function loadProfile(card: Card, profilePath: string | undefined): { profile: Profile } | { problems: string[] } {
+// The event pipeline rate limits each workflow, and each seeded team runs one workflow per traffic kind, so a kind's
+// load splits over setup.teams workflows. A card that brings any of them near the limit would measure the limit, not
+// the queue.
+const RATE_LIMIT_SHARE = 0.8
+
+// The card may load on a machine other than the run host, so only the profile can set the limit its roles run with.
+function settingOf(profile: Profile, defaults: Settings, key: string): number {
+    const fallback = Number(defaults[key])
+    const raw = profile.settings[key]
+    return raw === undefined ? fallback : parseNumberFromEnv(key, String(raw), fallback)
+}
+
+const topScaleOf = (card: Card): number => Math.max(...stepsOf(card.drive).map(({ scale }) => scale))
+
+function checkWorkflowRate(card: Card, profile: Profile, defaults: Settings): string[] {
+    const ceiling = settingOf(profile, defaults, 'CDP_RATE_LIMITER_REFILL_RATE') * RATE_LIMIT_SHARE
+    const topScale = topScaleOf(card)
+    return card.drive.traffic.flatMap(({ name }) => {
+        const kind = TRAFFIC.find((traffic) => traffic.name === name)
+        const shape = kind?.profile.safeParse(profile.traffic[name])
+        if (kind === undefined || kind.intake === 'transactional' || !shape?.success) {
+            return []
+        }
+        const perWorkflow = (shape.data.ratePerSecond * topScale) / card.setup.teams
+        return perWorkflow <= ceiling
+            ? []
+            : [
+                  `setup.teams: ${name} sends ${perWorkflow} units a second to each team's workflow at the ${topScale}x step, over ${ceiling}, ${RATE_LIMIT_SHARE * 100}% of the per-workflow rate limit; spread it over ${Math.ceil((perWorkflow * card.setup.teams) / ceiling)} teams or more`,
+              ]
+    })
+}
+
+const SES_SHARE = 0.5
+
+const withoutFloatNoise = (value: number): number => Number(value.toFixed(6))
+
+function checkSesLimiter(card: Card, profile: Profile, defaults: Settings): string[] {
+    const sendsEmail = card.drive.traffic.some(({ name }) =>
+        TRAFFIC.find((traffic) => traffic.name === name)?.deliveries.includes(EMAIL_ACTION)
+    )
+    if (profile.load === undefined || !sendsEmail) {
+        return []
+    }
+    const capacity = settingOf(profile, defaults, 'CDP_SES_RATE_LIMIT_CAPACITY')
+    const replicas = profile.replicas['cdp-cyclotron-worker-email'] ?? 1
+    const burst = replicas * settingOf(profile, defaults, 'CONSUMER_BATCH_SIZE')
+    return [
+        ...checkSesRefill(card, profile, defaults, profile.load.targets.claimsPerSecond.email, profile.load.tolerance),
+        ...(capacity >= burst
+            ? []
+            : [
+                  `profile.settings.CDP_SES_RATE_LIMIT_CAPACITY: ${capacity} cannot hold one batch for every email replica (${replicas}) at once; raise it to ${burst} or more`,
+              ]),
+    ]
+}
+
+function checkSesRefill(
+    card: Card,
+    profile: Profile,
+    defaults: Settings,
+    claims: number | undefined,
+    tolerance: number
+): string[] {
+    if (claims === undefined) {
+        return ['profile.load.targets.claimsPerSecond.email: the SES limiter check needs it']
+    }
+    const topScale = topScaleOf(card)
+    const peak = withoutFloatNoise(claims * topScale * (1 + tolerance))
+    const ceiling = settingOf(profile, defaults, 'CDP_SES_RATE_LIMIT_REFILL_PER_SECOND') * SES_SHARE
+    return peak <= ceiling
+        ? []
+        : [
+              `profile.settings.CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: the email queue claims up to ${Math.ceil(peak)} jobs a second at the ${topScale}x step, over ${ceiling}, ${SES_SHARE * 100}% of the SES limiter refill; raise it to ${Math.ceil(peak / SES_SHARE)} or more`,
+          ]
+}
+
+// Each listing seeds its own workflow per team, and both match the kind's events, so every unit would run twice.
+function checkTrafficOnce(card: Card): string[] {
+    const listed = card.drive.traffic.map(({ name }) => name)
+    return [...new Set(listed)]
+        .filter((name) => TRAFFIC.find((traffic) => traffic.name === name)?.intake === 'event')
+        .map((name) => ({ name, times: listed.filter((listedName) => listedName === name).length }))
+        .filter(({ times }) => times > 1)
+        .map(({ name, times }) => `drive.traffic: ${name} is listed ${times} times; list each traffic kind once`)
+}
+
+type ProfileRead = { profile: Profile } | { problems: string[] }
+
+function loadProfile(card: Card, profilePath: string | undefined): ProfileRead {
     const file = profilePath ?? path.join(PROFILES_DIR, `${card.profile}.yaml`)
     if (profilePath === undefined && !existsSync(file)) {
         return { problems: [`profile: no shipped profile ${card.profile}; pass its file with --profile`] }
@@ -201,8 +230,7 @@ function loadProfile(card: Card, profilePath: string | undefined): { profile: Pr
     return readProfile(file)
 }
 
-export function readProfile(file: string): { profile: Profile } | { problems: string[] } {
-    const read = readYaml(file, 'profile')
+function profileOf(read: Read): ProfileRead {
     if ('problem' in read) {
         return { problems: [read.problem] }
     }
@@ -210,9 +238,28 @@ export function readProfile(file: string): { profile: Profile } | { problems: st
     return profile.success ? { profile: profile.data } : { problems: problemsOf(profile.error, 'profile') }
 }
 
+export function readProfile(file: string): ProfileRead {
+    return profileOf(readYaml(file, 'profile'))
+}
+
 export function load(cardPath: string, options: LoadOptions = {}): LoadedCard {
-    const definitions = options.definitions ?? DEFINITIONS
-    const read = readYaml(cardPath, 'card')
+    return check(cardPath, readYaml(cardPath, 'card'), (card) => loadProfile(card, options.profilePath), options.target)
+}
+
+export function loadText(label: string, { card, profile }: { card: string; profile: string }): LoadedCard {
+    return check(
+        label,
+        parseYaml(() => card, 'card'),
+        () => profileOf(parseYaml(() => profile, 'profile'))
+    )
+}
+
+function check(
+    cardPath: string,
+    read: Read,
+    profileFor: (card: Card) => ProfileRead,
+    target: Target = 'local'
+): LoadedCard {
     if ('problem' in read) {
         throw new CardError(cardPath, [read.problem])
     }
@@ -221,17 +268,22 @@ export function load(cardPath: string, options: LoadOptions = {}): LoadedCard {
         throw new CardError(cardPath, problemsOf(parsed.error, ''))
     }
     const card = parsed.data
-    const loaded = loadProfile(card, options.profilePath)
+    const loaded = profileFor(card)
     const defaults = getDefaultConfig() as unknown as Settings
-    const config = overrideConfigWithEnv(defaults, 'profile' in loaded ? loaded.profile.settings : {})
 
     const problems = [
-        ...checkNames(card, definitions),
-        ...checkSchedules(card),
-        ...checkStallBound(card, config),
+        ...checkNames(card, DEFINITIONS),
         ...checkSuppression(card),
+        ...checkTrafficOnce(card),
         ...checkIntakeVerdict(card),
-        ...('profile' in loaded ? checkProfile(card, loaded.profile, definitions, defaults) : loaded.problems),
+        ...('profile' in loaded
+            ? [
+                  ...checkProfile(card, loaded.profile, DEFINITIONS, defaults),
+                  ...checkWorkflowRate(card, loaded.profile, defaults),
+                  ...checkSesLimiter(card, loaded.profile, defaults),
+                  ...targetProblems(card, loaded.profile, target),
+              ]
+            : loaded.problems),
     ]
     if (problems.length > 0 || !('profile' in loaded)) {
         throw new CardError(cardPath, problems)

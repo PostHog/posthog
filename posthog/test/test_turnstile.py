@@ -3,13 +3,14 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase, TestCase, override_settings
 
 import requests
+from parameterized import parameterized
 
 from posthog.turnstile import (
     CHALLENGE_NONCE_TTL_SECONDS,
     TURNSTILE_SITEVERIFY_URL,
     _nonce_identity_hash,
+    consume_challenge_nonce,
     create_challenge_nonce,
-    validate_and_consume_nonce,
     verify_turnstile_token,
 )
 
@@ -76,34 +77,40 @@ class TestChallengeNonce(TestCase):
         ttl = self.redis_client.ttl(redis_key)
         assert 0 < ttl <= CHALLENGE_NONCE_TTL_SECONDS
 
-    def test_validate_and_consume_success(self):
-        nonce = create_challenge_nonce("test@example.com", "1.2.3.4")
-        assert validate_and_consume_nonce(nonce, "test@example.com", "1.2.3.4") is True
+    @parameterized.expand(
+        [
+            ("with a radar attempt", "radar_att_01ABC", "radar_att_01ABC"),
+            ("without a radar attempt", "", ""),
+        ]
+    )
+    def test_consume_returns_the_stored_attempt(self, _name, radar_attempt_id, expected):
+        nonce = create_challenge_nonce("test@example.com", "1.2.3.4", radar_attempt_id=radar_attempt_id)
+        assert consume_challenge_nonce(nonce, "test@example.com", "1.2.3.4") == expected
         redis_key = f"turnstile_nonce:{nonce}"
         assert not self.redis_client.exists(redis_key)
 
     def test_validate_and_consume_single_use(self):
         nonce = create_challenge_nonce("test@example.com", "1.2.3.4")
-        assert validate_and_consume_nonce(nonce, "test@example.com", "1.2.3.4") is True
-        assert validate_and_consume_nonce(nonce, "test@example.com", "1.2.3.4") is False
+        assert consume_challenge_nonce(nonce, "test@example.com", "1.2.3.4") == ""
+        assert consume_challenge_nonce(nonce, "test@example.com", "1.2.3.4") is None
 
     def test_validate_fails_with_wrong_email(self):
         nonce = create_challenge_nonce("test@example.com", "1.2.3.4")
-        assert validate_and_consume_nonce(nonce, "other@example.com", "1.2.3.4") is False
+        assert consume_challenge_nonce(nonce, "other@example.com", "1.2.3.4") is None
 
     def test_validate_fails_with_wrong_ip(self):
         nonce = create_challenge_nonce("test@example.com", "1.2.3.4")
-        assert validate_and_consume_nonce(nonce, "test@example.com", "5.6.7.8") is False
+        assert consume_challenge_nonce(nonce, "test@example.com", "5.6.7.8") is None
 
     def test_validate_fails_with_bad_format(self):
-        assert validate_and_consume_nonce("invalid", "test@example.com", "1.2.3.4") is False
-        assert validate_and_consume_nonce("challenge:abc", "test@example.com", "1.2.3.4") is False
+        assert consume_challenge_nonce("invalid", "test@example.com", "1.2.3.4") is None
+        assert consume_challenge_nonce("challenge:abc", "test@example.com", "1.2.3.4") is None
 
     def test_validate_fails_with_expired_nonce(self):
         nonce = create_challenge_nonce("test@example.com", "1.2.3.4")
         redis_key = f"turnstile_nonce:{nonce}"
         self.redis_client.delete(redis_key)
-        assert validate_and_consume_nonce(nonce, "test@example.com", "1.2.3.4") is False
+        assert consume_challenge_nonce(nonce, "test@example.com", "1.2.3.4") is None
 
     def test_identity_hash_is_case_insensitive_for_email(self):
         hash1 = _nonce_identity_hash("Test@Example.COM", "1.2.3.4")

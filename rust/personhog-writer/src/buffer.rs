@@ -186,8 +186,6 @@ mod tests {
             team_id,
             uuid: format!("uuid-{team_id}-{person_id}"),
             properties: vec![],
-            properties_last_updated_at: vec![],
-            properties_last_operation: vec![],
             created_at: 1700000000,
             version,
             is_identified: false,

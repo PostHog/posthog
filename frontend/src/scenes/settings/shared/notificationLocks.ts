@@ -11,3 +11,7 @@ export function lockedValueFor(
     const match = locks?.find((lock) => lock.setting === setting && lock.scope_id === String(scopeId))
     return match ? match.locked_value : null
 }
+
+export function lockedDisabledReason(enforced: boolean | null, userLoading: boolean): string | undefined {
+    return enforced !== null ? LOCKED_BY_ORGANIZATION : userLoading ? 'Loading...' : undefined
+}

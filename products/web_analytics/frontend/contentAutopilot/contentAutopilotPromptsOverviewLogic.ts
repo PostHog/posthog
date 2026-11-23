@@ -8,8 +8,14 @@ import type { DataTableNode, DataVisualizationNode } from '~/queries/schema/sche
 
 import { aeoPromptsOverview } from 'products/web_analytics/frontend/generated/api'
 import type { AEOPromptSetOverviewApi } from 'products/web_analytics/frontend/generated/api.schemas'
+import type {
+    AEOPromptApi,
+    AEOPromptImportResultApi,
+    BrandedSegmentEnumApi,
+} from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { type AiVisibilityFilters, filtersToQueryParams } from './aiVisibilityFilters'
+import type { AiVisibilityFilterTab } from './aiVisibilityFilters'
 import { contentAutopilotFiltersLogic } from './contentAutopilotFiltersLogic'
 import { ContentAutopilotWorkspaceTab, contentAutopilotLogic } from './contentAutopilotLogic'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
@@ -47,31 +53,31 @@ export interface contentAutopilotPromptsOverviewLogicActions {
         filters: Partial<AiVisibilityFilters>
     } // contentAutopilotFiltersLogic
     setBrandedSegment: (
-        brandedSegment: import('products/web_analytics/frontend/generated/api.schemas').BrandedSegmentEnumApi,
-        tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
+        brandedSegment: BrandedSegmentEnumApi,
+        tab: AiVisibilityFilterTab
     ) => {
-        brandedSegment: import('products/web_analytics/frontend/generated/api.schemas').BrandedSegmentEnumApi
-        tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
+        brandedSegment: BrandedSegmentEnumApi
+        tab: AiVisibilityFilterTab
     } // contentAutopilotFiltersLogic
     setDays: (
         days: 7 | 14 | 30 | 90,
-        tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
+        tab: AiVisibilityFilterTab
     ) => {
         days: 7 | 14 | 30 | 90
-        tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
+        tab: AiVisibilityFilterTab
     } // contentAutopilotFiltersLogic
     setEngine: (
         engine: string | null,
-        tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
+        tab: AiVisibilityFilterTab
     ) => {
         engine: string | null
-        tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
+        tab: AiVisibilityFilterTab
     } // contentAutopilotFiltersLogic
     setTopic: (
         topic: string | null,
-        tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
+        tab: AiVisibilityFilterTab
     ) => {
-        tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
+        tab: AiVisibilityFilterTab
         topic: string | null
     } // contentAutopilotFiltersLogic
     setWorkspaceTab: (workspaceTab: ContentAutopilotWorkspaceTab) => {
@@ -80,21 +86,17 @@ export interface contentAutopilotPromptsOverviewLogicActions {
     openPromptDetail: (promptId: string) => {
         promptId: string
     } // contentAutopilotPromptDetailLogic
-    savePromptEditSuccess: (prompt: import('products/web_analytics/frontend/generated/api.schemas').AEOPromptApi) => {
-        prompt: import('products/web_analytics/frontend/generated/api.schemas').AEOPromptApi
+    savePromptEditSuccess: (prompt: AEOPromptApi) => {
+        prompt: AEOPromptApi
     } // contentAutopilotPromptDetailLogic
-    setPromptArchivedSuccess: (
-        prompt: import('products/web_analytics/frontend/generated/api.schemas').AEOPromptApi
-    ) => {
-        prompt: import('products/web_analytics/frontend/generated/api.schemas').AEOPromptApi
+    setPromptArchivedSuccess: (prompt: AEOPromptApi) => {
+        prompt: AEOPromptApi
     } // contentAutopilotPromptDetailLogic
-    addPromptsSuccess: (
-        result: import('products/web_analytics/frontend/generated/api.schemas').AEOPromptImportResultApi
-    ) => {
-        result: import('products/web_analytics/frontend/generated/api.schemas').AEOPromptImportResultApi
+    addPromptsSuccess: (result: AEOPromptImportResultApi) => {
+        result: AEOPromptImportResultApi
     } // contentAutopilotPromptsLogic
-    setPromptActiveSuccess: (prompt: import('products/web_analytics/frontend/generated/api.schemas').AEOPromptApi) => {
-        prompt: import('products/web_analytics/frontend/generated/api.schemas').AEOPromptApi
+    setPromptActiveSuccess: (prompt: AEOPromptApi) => {
+        prompt: AEOPromptApi
     } // contentAutopilotPromptsLogic
     loadPromptSetOverview: () => {
         value: true
@@ -275,12 +277,12 @@ export const contentAutopilotPromptsOverviewLogic = kea<contentAutopilotPromptsO
                 overviewWindow ? promptSetSourcesQuery(overviewWindow) : null,
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         selectOverviewTopic: ({ topic }) => {
             // pinned: analytics event name, renaming it breaks dashboards
             posthog.capture('web analytics content autopilot prompts overview topic selected')
-            actions.setTopic(topic, 'overview')
-            actions.setWorkspaceTab('prompts')
+            // Picking the selected topic again clears it, so the table works as a toggle.
+            actions.setTopic(values.filters.topic === topic ? null : topic, 'overview')
         },
         openOverviewSearchPrompt: ({ promptId }) => {
             // pinned: analytics event name, renaming it breaks dashboards

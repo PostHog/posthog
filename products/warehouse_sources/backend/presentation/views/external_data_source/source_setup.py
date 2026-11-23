@@ -81,6 +81,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     SourceSchema,
     WebhookSource,
     add_table_failure_message,
+    added_table_root,
     build_default_schemas,
     draft_manifest_sync,
     fetch_docs_text,
@@ -97,6 +98,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     reserved_column_names,
     source_type_supports_cdc,
     sql_schema_metadata,
+    supports_adding_tables,
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.facade.sync_alerts import create_default_failure_alert
@@ -240,6 +242,28 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         read_only=True,
         help_text="Whether this source supports per-column sync selection via `enabled_columns`.",
     )
+    supports_adding_tables = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Whether tables can be added to this source by their path with the add_table endpoint. True for "
+            "object storage sources whose files URL names a folder, not one file or a pattern."
+        ),
+    )
+    table_root = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "For object storage sources: the folder that add_table resolves relative paths against, as "
+            "`<bucket>/<folder>/`, such as `my-bucket/exports/`. It is the folder of the source's files URL. Null "
+            "for other sources, for a files URL that names one file or a pattern, or when the URL can't be read."
+        ),
+    )
+    supports_table_discovery = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Whether PostHog can find new tables in this source on its own, with refresh_schemas. False for a "
+            "source that reads tables from anywhere in its bucket. Add tables to such a source by their path."
+        ),
+    )
     file_name = serializers.SerializerMethodField(
         read_only=True,
         help_text="The name of the file a file upload source imports. Null for other sources or when it is unknown.",
@@ -353,6 +377,9 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "supports_webhooks",
             "webhook_not_registered",
             "supports_column_selection",
+            "supports_adding_tables",
+            "table_root",
+            "supports_table_discovery",
             "file_name",
             "api_version",
             "api_version_deprecation",
@@ -375,6 +402,9 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "supports_webhooks",
             "webhook_not_registered",
             "supports_column_selection",
+            "supports_adding_tables",
+            "table_root",
+            "supports_table_discovery",
             "file_name",
             "api_version",
             "api_version_deprecation",
@@ -448,9 +478,16 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     def get_created_by(self, instance: ExternalDataSource) -> str | None:
         return instance.created_by.email if instance.created_by else None
 
+    def _registered_source(self, instance: ExternalDataSource) -> AnySource | None:
+        try:
+            return SourceRegistry.get_source(instance.source_type)
+        except ValueError:
+            # Removing a vendor's source leaves its stored rows behind, so an unregistered type is expected here.
+            return None
+
     def get_supports_webhooks(self, instance: ExternalDataSource) -> bool:
         try:
-            source = SourceRegistry.get_source(instance.source_type)
+            source = self._registered_source(instance)
             return isinstance(source, WebhookSource)
         except Exception as e:
             capture_exception(e)
@@ -475,10 +512,29 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_file_name(self, instance: ExternalDataSource) -> str | None:
         try:
-            return SourceRegistry.get_source(instance.source_type).uploaded_file_name(instance)
+            source = self._registered_source(instance)
+            return source.uploaded_file_name(instance) if source is not None else None
         except Exception as e:
             capture_exception(e)
             return None
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_supports_adding_tables(self, instance: ExternalDataSource) -> bool:
+        return self.get_table_root(instance) is not None
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_table_root(self, instance: ExternalDataSource) -> str | None:
+        if not supports_adding_tables(instance.source_type):
+            return None
+        try:
+            source_inputs = self._source_inputs(instance)
+        except UnreadableSourceInputsError:
+            return None
+        return added_table_root(instance.source_type, source_inputs)
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_supports_table_discovery(self, instance: ExternalDataSource) -> bool:
+        return not instance.is_self_managed_migration
 
     def get_supports_column_selection(self, instance: ExternalDataSource) -> bool:
         return source_supports_column_selection(instance.source_type)
@@ -1144,6 +1200,11 @@ class SourceSetupSerializer(serializers.Serializer):
             "Whether a synced source should also be live-queryable via direct connection. "
             "Defaults to false; ignored for pure direct-query sources."
         ),
+    )
+    created_via = serializers.ChoiceField(
+        choices=ExternalDataSourceCreateCreatedVia.choices,
+        default=ExternalDataSource.CreatedVia.API,
+        help_text="Where the request came from: `web`, `api`, or `mcp`. Defaults to `api`.",
     )
 
 
@@ -2520,7 +2581,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             ),
             prefix=serializer.validated_data.get("prefix"),
             description=serializer.validated_data.get("description"),
-            created_via=ExternalDataSource.CreatedVia.MCP,
+            created_via=serializer.validated_data["created_via"],
             direct_query_enabled=serializer.validated_data.get("direct_query_enabled", False),
         )
 

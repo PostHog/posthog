@@ -543,7 +543,8 @@ class TestValidateCredentials:
             ok, message = GoogleAdsSource().validate_credentials(config, team_id=1)
 
         assert ok is False
-        assert "Reconnect your Google Ads account" in (message or "")
+        assert "Reconnect your Google account" in (message or "")
+        assert "allow Google Ads access when Google asks" in (message or "")
         assert "scopes" not in (message or "")
 
     def test_transient_google_side_error_returns_retry_message(self):
@@ -1508,6 +1509,38 @@ class TestGetOAuthAccountsCaching:
         assert [account.value for account in second] == ["987-654-3210"]
 
 
+class TestGetOAuthAccountsSearch:
+    @pytest.mark.parametrize(
+        "search, expected",
+        [
+            ("1234567890", ["123-456-7890"]),
+            ("123-456-7890", ["123-456-7890"]),
+            ("4567890", ["123-456-7890"]),
+            ("acme", ["123-456-7890"]),
+            ("987654", ["987-654-3210"]),
+            ("555", []),
+        ],
+    )
+    def test_customer_id_matches_with_or_without_dashes(self, search, expected):
+        cache.clear()
+        accounts = [
+            {"id": "1234567890", "name": "Acme Corp", "level": None, "parent_id": "1234567890", "manager": False},
+            {"id": "9876543210", "name": "Beta Client", "level": None, "parent_id": "9876543210", "manager": False},
+        ]
+        integration = mock.Mock(errors=None)
+
+        with (
+            mock.patch.object(GoogleAdsSource, "get_oauth_integration", return_value=integration),
+            mock.patch(f"{_SOURCE_MODULE}.OauthIntegration") as mock_oauth,
+            mock.patch(f"{_SOURCE_MODULE}.GoogleAdsIntegration") as mock_google_ads,
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            mock_google_ads.return_value.list_google_ads_accessible_accounts.return_value = accounts
+            result = GoogleAdsSource().get_oauth_accounts(1, 2, search=search)
+
+        assert [account.value for account in result] == expected
+
+
 class TestGetOAuthAccountsHierarchy:
     def test_maps_the_hierarchy_and_groups_only_the_first_level(self):
         # `parent_id` is the accessible root the hierarchy walk started from, not the direct manager,
@@ -1533,12 +1566,24 @@ class TestGetOAuthAccountsHierarchy:
 
         # Stored dashed as the Google Ads UI shows it; clean_customer_id normalizes to bare at the API boundary.
         assert accounts == [
-            IntegrationAccount(value="650-192-4158", display_name="Example Corp", is_primary=True, badges=("Manager",)),
-            IntegrationAccount(value="123-456-7890", display_name="Client One", group="Example Corp"),
             IntegrationAccount(
-                value="222-222-2222", display_name="Sub Manager", badges=("Manager",), group="Example Corp"
+                value="650-192-4158",
+                display_name="Example Corp",
+                is_primary=True,
+                badges=("Manager",),
+                secondary_text="6501924158",
             ),
-            IntegrationAccount(value="555-555-5555", display_name="Deep Client"),
+            IntegrationAccount(
+                value="123-456-7890", display_name="Client One", group="Example Corp", secondary_text="1234567890"
+            ),
+            IntegrationAccount(
+                value="222-222-2222",
+                display_name="Sub Manager",
+                badges=("Manager",),
+                group="Example Corp",
+                secondary_text="2222222222",
+            ),
+            IntegrationAccount(value="555-555-5555", display_name="Deep Client", secondary_text="5555555555"),
         ]
 
 
@@ -1576,7 +1621,7 @@ class TestGetOAuthAccountsPermissionErrors:
         [
             (
                 '{"error": {"status": "PERMISSION_DENIED", "details": [{"reason": "ACCESS_TOKEN_SCOPE_INSUFFICIENT"}]}}',
-                "allow access to your Google Ads data",
+                "allow Google Ads access when Google asks",
             ),
             ('{"error": {"status": "PERMISSION_DENIED"}}', "Google rejected the credentials"),
         ],

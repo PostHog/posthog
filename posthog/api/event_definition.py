@@ -24,7 +24,7 @@ from rest_framework.settings import api_settings
 
 from posthog.accessible_teams import AccessibleTeams, CredentialScopeDenied
 from posthog.api.event_definition_generators.base import EventDefinitionGenerator
-from posthog.api.event_definition_generators.golang import GolangGenerator
+from posthog.api.event_definition_generators.golang import GolangGenerator, GoSDK
 from posthog.api.event_definition_generators.python import PythonGenerator
 from posthog.api.event_definition_generators.typescript import (
     TypeScriptGenerator,
@@ -425,6 +425,19 @@ class TypeScriptDefinitionsQuerySerializer(serializers.Serializer):
     )
 
 
+class GolangDefinitionsQuerySerializer(serializers.Serializer):
+    sdk = serializers.ChoiceField(
+        choices=GoSDK.choices,
+        default=GoSDK.POSTHOG_GO,
+        required=False,
+        help_text=(
+            "The posthog-go major the package imports. `posthog-go` imports `github.com/posthog/posthog-go` (1.x). "
+            "`posthog-go-v2` imports `github.com/posthog/posthog-go/v2` (2.x). "
+            "A package built for one major does not compile against the other."
+        ),
+    )
+
+
 class GeneratedDefinitionsSerializer(serializers.Serializer):
     content = serializers.CharField(help_text="The generated module, ready to write to a file.")
     event_count = serializers.IntegerField(help_text="How many events the module types.")
@@ -436,6 +449,14 @@ class GeneratedDefinitionsSerializer(serializers.Serializer):
         choices=TypeScriptSDK.choices,
         required=False,
         help_text="TypeScript only: the SDK the module wraps. Clients check it to detect a PostHog that ignores `sdk`.",
+    )
+
+
+class GeneratedGolangDefinitionsSerializer(GeneratedDefinitionsSerializer):
+    sdk = serializers.ChoiceField(
+        choices=GoSDK.choices,
+        required=False,
+        help_text="The posthog-go major the package imports. Clients check it to detect a PostHog that ignores `sdk`.",
     )
 
 
@@ -1226,10 +1247,13 @@ class EventDefinitionViewSet(
         generator = TypeScriptTypesGenerator() if sdk == TypeScriptSDK.NONE else TypeScriptGenerator()
         return self._generate_definitions(generator, extra={"sdk": sdk})
 
-    @extend_schema(responses={200: GeneratedDefinitionsSerializer})
+    @extend_schema(parameters=[GolangDefinitionsQuerySerializer], responses={200: GeneratedGolangDefinitionsSerializer})
     @action(detail=False, methods=["GET"], url_path="golang", required_scopes=["event_definition:read"])
     def golang_definitions(self, *args, **kwargs):
-        return self._generate_definitions(GolangGenerator())
+        query = GolangDefinitionsQuerySerializer(data=self.request.query_params)
+        query.is_valid(raise_exception=True)
+        sdk = GoSDK(query.validated_data["sdk"])
+        return self._generate_definitions(GolangGenerator(sdk), extra={"sdk": sdk.value})
 
     @extend_schema(responses={200: GeneratedDefinitionsSerializer})
     @action(detail=False, methods=["GET"], url_path="python", required_scopes=["event_definition:read"])

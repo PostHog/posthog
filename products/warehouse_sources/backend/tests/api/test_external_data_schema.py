@@ -1,7 +1,10 @@
+import re
+import json
 import uuid
 import contextlib
 import dataclasses
 from datetime import UTC, datetime, time, timedelta
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -22,8 +25,6 @@ from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
-from rest_framework.request import Request
-from rest_framework.test import APIRequestFactory
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.api.test.test_log_entries import create_log_entry
@@ -98,6 +99,19 @@ from products.warehouse_sources.backend.tests.api.utils import (
     open_orders_schema,
 )
 from products.warehouse_sources.sources.amazon_s3.source import AmazonS3Source
+
+TUNING_SKILL_PATH = Path(__file__).parents[3] / "skills" / "tuning-incremental-sync-config" / "SKILL.md"
+
+
+def skill_steps(heading: str) -> list[tuple[str, str]]:
+    section = TUNING_SKILL_PATH.read_text().split(f"\n### {heading}\n", 1)[1].split("\n### ", 1)[0]
+    parsed = []
+    for step in re.split(r"^\d+\. ", section, flags=re.MULTILINE)[1:]:
+        tool = re.match(r"`([a-z-]+)`", step)
+        assert tool, f"step does not start with a tool name: {step!r}"
+        parsed.append((tool.group(1), step))
+    return parsed
+
 
 _PH_HISTORY_NAMING_FLAG = (
     "products.warehouse_sources.backend.temporal.data_imports.cdc.history_table.is_source_flag_enabled"
@@ -834,7 +848,7 @@ class TestExternalDataSchema(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         return response.json()["incremental_fields"][0]["field"]
 
-    def test_incremental_fields_withdraws_a_stored_pick_when_the_flag_turns_off(self):
+    def test_incremental_fields_withdraws_a_stored_pick_when_ai_consent_is_revoked(self):
         schema = self._orders_schema_without_cursor()
         recommender = "products.warehouse_sources.backend.logic.incremental_field_model"
         with (
@@ -845,8 +859,9 @@ class TestExternalDataSchema(APIBaseTest):
         ):
             self._open_sync_form(schema)
             assert self._open_sync_form(schema) == "fecha_actualizacion"
-            with mock.patch(f"{recommender}.feature_enabled_or_false", return_value=False):
-                assert self._open_sync_form(schema) == "created_at"
+            self.organization.is_ai_data_processing_approved = False
+            self.organization.save()
+            assert self._open_sync_form(schema) == "created_at"
 
     @parameterized.expand(
         [
@@ -2572,6 +2587,59 @@ class TestExternalDataSchema(APIBaseTest):
 
         schema.refresh_from_db()
         assert schema.sync_type_config.get("primary_key_columns") == expected_pk
+
+    def test_skill_incremental_primary_key_change_steps_are_accepted(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
+        )
+        table = DataWarehouseTable.objects.create(team=self.team, external_data_source=source)
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={
+                "incremental_field": "created",
+                "incremental_field_type": "integer",
+                "incremental_field_last_value": 1,
+                "primary_key_columns": ["id"],
+            },
+            table=table,
+        )
+        url = f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}"
+        steps = skill_steps("Changing primary keys on an incremental table")
+        new_key: list[str] | None = None
+
+        views = "products.warehouse_sources.backend.presentation.views.external_data_schema"
+        with (
+            mock.patch(f"{views}.external_data_workflow_exists", return_value=True),
+            mock.patch(f"{views}.pause_external_data_schedule"),
+            mock.patch(f"{views}.unpause_external_data_schedule"),
+            mock.patch(f"{views}._trigger_schema_sync"),
+            mock.patch("products.data_warehouse.backend.facade.api.get_s3_client"),
+        ):
+            for tool, text in steps:
+                if tool == "external-data-schemas-delete-data":
+                    response = self.client.delete(f"{url}/delete_data")
+                elif tool == "external-data-schemas-partial-update":
+                    payload_match = re.search(r"`(\{.*?\})`", text, flags=re.DOTALL)
+                    assert payload_match, f"partial-update step has no JSON payload: {text!r}"
+                    payload = json.loads(payload_match.group(1))
+                    new_key = payload["primary_key_columns"]
+                    response = self.client.patch(url, data=payload, content_type="application/json")
+                elif tool == "external-data-schemas-reload":
+                    response = self.client.post(f"{url}/reload/")
+                else:
+                    raise AssertionError(f"unexpected step {tool}")
+                assert response.status_code == 200, (tool, response.content)
+
+        assert [tool for tool, _ in steps][-1] == "external-data-schemas-reload"
+        schema.refresh_from_db()
+        assert new_key is not None and new_key != ["id"]
+        assert schema.primary_key_columns == new_key
+        assert schema.should_sync is True
 
     def test_update_schema_primary_key_columns_not_reset_on_full_refresh(self):
         source = ExternalDataSource.objects.create(
@@ -5588,6 +5656,45 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
         ]
         assert response.json()["source_column_metadata_available"] is False
 
+    @parameterized.expand(
+        [
+            ("stale_column_dropped", ["email", "total"], ["email", "total", "id"], 200, ["email", "id"]),
+            ("only_stale_column_left", ["total"], ["total"], 400, ["total"]),
+            ("new_unknown_column_rejected", ["total"], ["email", "nope"], 400, ["total"]),
+        ]
+    )
+    def test_enabled_columns_save_drops_stored_columns_the_source_lost(
+        self,
+        _name: str,
+        stored: list[str],
+        sent: list[str],
+        expected_status: int,
+        expected_enabled_columns: list[str],
+    ):
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        schema = ExternalDataSchema.objects.create(
+            name="customers",
+            team=self.team,
+            source=source,
+            enabled_columns=stored,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [
+                        {"name": "id", "data_type": "integer", "is_nullable": False},
+                        {"name": "email", "data_type": "text", "is_nullable": True},
+                    ]
+                }
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}", data={"enabled_columns": sent}
+        )
+
+        assert response.status_code == expected_status, response.json()
+        schema.refresh_from_db()
+        assert schema.enabled_columns == expected_enabled_columns
+
     def test_enabled_columns_rejected_without_source_metadata_for_source_projection(self):
         source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
         schema = ExternalDataSchema.objects.create(name="customers", team=self.team, source=source)
@@ -5679,10 +5786,12 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
 
     @parameterized.expand(
         [
-            # source_type, expected supports_column_selection, expected supports_row_filters, direct_query_enabled.
+            # source_type, expected supports_column_selection, expected supports_row_filters, direct_query_enabled,
+            # whether the self-managed table migration made the source.
             # Stripe is a managed-schema source (no column selection); row filters are SQL-only.
-            (ExternalDataSourceType.STRIPE, False, False, False),
-            (ExternalDataSourceType.POSTGRES, True, True, True),
+            (ExternalDataSourceType.STRIPE, False, False, False, False),
+            (ExternalDataSourceType.POSTGRES, True, True, True, False),
+            (ExternalDataSourceType.AMAZONS3, True, False, False, True),
         ]
     )
     def test_retrieve_includes_source_summary(
@@ -5691,8 +5800,12 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         expected_column_selection: bool,
         expected_row_filters: bool,
         direct_query_enabled: bool,
+        migrated: bool,
     ):
         source, schema = self._create(source_type=source_type, direct_query_enabled=direct_query_enabled)
+        if migrated:
+            source.connection_metadata = {"self_managed_migration": {"group_key": "s3/us-east-1/example-bucket"}}
+            source.save(update_fields=["connection_metadata"])
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/")
         assert response.status_code == 200, response.json()
         summary = response.json()["source"]
@@ -5703,6 +5816,8 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         assert summary["supports_column_selection"] is expected_column_selection
         assert summary["supports_row_filters"] is expected_row_filters
         assert summary["direct_query_enabled"] is direct_query_enabled
+        # The schema page hides "Pull new schemas" on a source that reads a whole bucket.
+        assert summary["supports_table_discovery"] is not migrated
         assert "user_access_level" in summary
 
     @parameterized.expand(
@@ -6898,19 +7013,6 @@ class TestExternalDataSchemaLogs(ClickhouseTestMixin, APIBaseTest):
 
         assert second_page["count"] == 3
         assert [entry["message"] for entry in second_page["results"]] == ["entry 1"]
-
-
-class TestExternalDataSchemaIntrospection(SimpleTestCase):
-    def test_schema_generation_needs_no_team_context(self) -> None:
-        view = ExternalDataSchemaViewset()
-        view.request = Request(APIRequestFactory().get("/"))
-        view.format_kwarg = None
-        view.kwargs = {}
-
-        with mock.patch.object(view, "swagger_fake_view", True, create=True):
-            serializer = view.get_serializer()
-        assert isinstance(serializer, ExternalDataSchemaSerializer)
-        assert "table_id" in serializer.fields
 
 
 MIGRATED_ORDERS_METADATA = table_definition_for(

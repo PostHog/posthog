@@ -38,10 +38,16 @@ from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, cons
 from products.signals.backend.models import PersonalInboxRanking
 from products.signals.backend.personal_ranking.build_budget import DAILY_BUILD_COST, spend_shared_build
 from products.signals.backend.personal_ranking.candidates import Candidate, gather_candidates, stored_candidates
-from products.signals.backend.personal_ranking.config import PersonalRankingConfig, list_limit, read_config
+from products.signals.backend.personal_ranking.config import (
+    PersonalRankingConfig,
+    config_for_user,
+    list_limit,
+    read_config,
+)
 from products.signals.backend.personal_ranking.inbox_activity import read_inbox_activity
 from products.signals.backend.personal_ranking.logic import (
     RETRYABLE_FALLBACK_REASONS,
+    BuildTrigger,
     input_hash,
     latest_row,
     may_call_model,
@@ -199,6 +205,7 @@ def _start_build(
     seen: PersonalInboxRanking | None,
     current_hash: str | None,
     check_first: bool = False,
+    trigger: BuildTrigger = "on_demand",
 ) -> BuildStart | PersonalInboxRanking:
     """Queue one background build, unless one is already running for the person or the buckets refuse it.
 
@@ -217,7 +224,7 @@ def _start_build(
         if _spend_build(team.id, user.id, config, calls_model=calls_model) is not None:
             cache.delete(lock_key)
             return "rate_limited"
-        build_personal_inbox_ranking.delay(team.id, user.id, focus, limit, check_first)
+        build_personal_inbox_ranking.delay(team.id, user.id, focus, limit, check_first, trigger)
         return "started"
     except Exception as error:
         # A broker or cache failure must not fail the read, which still has a list to serve.
@@ -226,6 +233,30 @@ def _start_build(
             with suppress(Exception):
                 cache.delete(lock_key)
         return "failed"
+
+
+def start_inbox_load_build(team: Team, user: User) -> bool:
+    """Queue a build for a person who loads the inbox with no stored list. True when a build is queued or running.
+
+    The page load does not gather the candidates, so the task compares the inputs first and spends the shared daily
+    limit only when the build calls the model.
+    """
+    config = config_for_user(read_config(), user.id)
+    if not config.enabled:
+        return False
+    start = _start_build(
+        team,
+        user,
+        config,
+        None,
+        list_limit(config, None),
+        calls_model=False,
+        seen=None,
+        current_hash=None,
+        check_first=True,
+        trigger="inbox_load",
+    )
+    return start in ("started", "running")
 
 
 def _row_stored_since(
@@ -375,7 +406,7 @@ def serve_personal_ranking(
     max_age_minutes: int | None = None,
     config: PersonalRankingConfig | None = None,
 ) -> ServedRanking:
-    config = config or read_config()
+    config = config_for_user(config or read_config(), user.id)
     if not config.enabled:
         return UNAVAILABLE
     limit = list_limit(config, limit)

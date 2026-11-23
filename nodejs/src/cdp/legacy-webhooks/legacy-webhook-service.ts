@@ -12,7 +12,7 @@ import { Action, Hook, HookPayload, PostIngestionEvent, RawClickHouseEvent, RawK
 import { assertTeamId, skipIfMalformed } from '../consumers/message-parsing'
 import { ActionManager } from '../legacy-webhooks/action-manager'
 import { ActionMatcher } from '../legacy-webhooks/action-matcher'
-import { cdpTrackedFetch } from '../utils/cdp-fetch'
+import { cdpTrackedFetch, loggableOrigin } from '../utils/cdp-fetch'
 
 export class LegacyWebhookService {
     protected actionManager: ActionManager
@@ -63,7 +63,7 @@ export class LegacyWebhookService {
             data: convertToHookPayload(event),
         }
 
-        logger.debug('⚠️', `Firing webhook ${hook.target} for team ${team.id}`)
+        logger.debug('⚠️', `Firing webhook ${loggableOrigin(hook.target)} for team ${team.id}`)
 
         const response = await cdpTrackedFetch({
             url: hook.target,

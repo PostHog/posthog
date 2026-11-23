@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 
@@ -10,6 +11,7 @@ import { FeatureFlagFilters } from '~/types'
 import { defaultReleaseConditionsLogic } from './defaultReleaseConditionsLogic'
 import { distributeAggregationGroupTypeIndex } from './defaultReleaseConditionsUtils'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
+import { QuillDefaultReleaseConditions } from './QuillDefaultReleaseConditions'
 
 export function DefaultReleaseConditions(): JSX.Element {
     const restrictedReason = useRestrictedArea({
@@ -20,6 +22,32 @@ export function DefaultReleaseConditions(): JSX.Element {
         useValues(defaultReleaseConditionsLogic)
     const { setLocalEnabled, setLocalGroups, saveDefaultReleaseConditions, discardChanges } =
         useActions(defaultReleaseConditionsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const handleFiltersChange = (updatedFilters: FeatureFlagFilters): void => {
+        setLocalGroups(
+            distributeAggregationGroupTypeIndex(
+                updatedFilters.groups,
+                updatedFilters.aggregation_group_type_index ?? null
+            )
+        )
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillDefaultReleaseConditions
+                isEnabled={isEnabled}
+                filtersForEditor={filtersForEditor}
+                hasChanges={hasChanges}
+                loading={defaultReleaseConditionsLoading}
+                restrictedReason={restrictedReason}
+                onToggleEnabled={setLocalEnabled}
+                onFiltersChange={handleFiltersChange}
+                onSave={saveDefaultReleaseConditions}
+                onDiscard={discardChanges}
+            />
+        )
+    }
 
     return (
         <div className="space-y-4">
@@ -43,14 +71,7 @@ export function DefaultReleaseConditions(): JSX.Element {
                     <FeatureFlagReleaseConditionsCollapsible
                         id="default-release-conditions"
                         filters={filtersForEditor}
-                        onChange={(updatedFilters: FeatureFlagFilters) => {
-                            setLocalGroups(
-                                distributeAggregationGroupTypeIndex(
-                                    updatedFilters.groups,
-                                    updatedFilters.aggregation_group_type_index ?? null
-                                )
-                            )
-                        }}
+                        onChange={handleFiltersChange}
                         isDisabled={!!restrictedReason}
                         hideEarlyExit
                     />

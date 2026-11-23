@@ -13,7 +13,7 @@ import { file_personhog_types_v1_common } from './common_pb'
 export const file_personhog_types_v1_cohort: GenFile =
     /*@__PURE__*/
     fileDesc(
-        'Ch9wZXJzb25ob2cvdHlwZXMvdjEvY29ob3J0LnByb3RvEhJwZXJzb25ob2cudHlwZXMudjEiOAoQQ29ob3J0TWVtYmVyc2hpcBIRCgljb2hvcnRfaWQYASABKAMSEQoJaXNfbWVtYmVyGAIgASgIInwKHENoZWNrQ29ob3J0TWVtYmVyc2hpcFJlcXVlc3QSEQoJcGVyc29uX2lkGAEgASgDEhIKCmNvaG9ydF9pZHMYAiADKAMSNQoMcmVhZF9vcHRpb25zGAMgASgLMh8ucGVyc29uaG9nLnR5cGVzLnYxLlJlYWRPcHRpb25zIlUKGENvaG9ydE1lbWJlcnNoaXBSZXNwb25zZRI5CgttZW1iZXJzaGlwcxgBIAMoCzIkLnBlcnNvbmhvZy50eXBlcy52MS5Db2hvcnRNZW1iZXJzaGlwImYKGUNvdW50Q29ob3J0TWVtYmVyc1JlcXVlc3QSEgoKY29ob3J0X2lkcxgBIAMoAxI1CgxyZWFkX29wdGlvbnMYAiABKAsyHy5wZXJzb25ob2cudHlwZXMudjEuUmVhZE9wdGlvbnMiKwoaQ291bnRDb2hvcnRNZW1iZXJzUmVzcG9uc2USDQoFY291bnQYASABKAMiQQoZRGVsZXRlQ29ob3J0TWVtYmVyUmVxdWVzdBIRCgljb2hvcnRfaWQYASABKAMSEQoJcGVyc29uX2lkGAIgASgDIi0KGkRlbGV0ZUNvaG9ydE1lbWJlclJlc3BvbnNlEg8KB2RlbGV0ZWQYASABKAgiSAoeRGVsZXRlQ29ob3J0TWVtYmVyc0J1bGtSZXF1ZXN0EhIKCmNvaG9ydF9pZHMYASADKAMSEgoKYmF0Y2hfc2l6ZRgCIAEoBSI4Ch9EZWxldGVDb2hvcnRNZW1iZXJzQnVsa1Jlc3BvbnNlEhUKDWRlbGV0ZWRfY291bnQYASABKAMiZQoaSW5zZXJ0Q29ob3J0TWVtYmVyc1JlcXVlc3QSEQoJY29ob3J0X2lkGAEgASgDEhIKCnBlcnNvbl9pZHMYAiADKAMSFAoHdmVyc2lvbhgDIAEoBUgAiAEBQgoKCF92ZXJzaW9uIjUKG0luc2VydENvaG9ydE1lbWJlcnNSZXNwb25zZRIWCg5pbnNlcnRlZF9jb3VudBgBIAEoAyKFAQoaTGlzdENvaG9ydE1lbWJlcklkc1JlcXVlc3QSEQoJY29ob3J0X2lkGAEgASgDEg4KBmN1cnNvchgCIAEoAxINCgVsaW1pdBgDIAEoBRI1CgxyZWFkX29wdGlvbnMYBCABKAsyHy5wZXJzb25ob2cudHlwZXMudjEuUmVhZE9wdGlvbnMiRgobTGlzdENvaG9ydE1lbWJlcklkc1Jlc3BvbnNlEhIKCnBlcnNvbl9pZHMYASADKAMSEwoLbmV4dF9jdXJzb3IYAiABKANiBnByb3RvMw',
+        'Ch9wZXJzb25ob2cvdHlwZXMvdjEvY29ob3J0LnByb3RvEhJwZXJzb25ob2cudHlwZXMudjEiOAoQQ29ob3J0TWVtYmVyc2hpcBIRCgljb2hvcnRfaWQYASABKAMSEQoJaXNfbWVtYmVyGAIgASgIInwKHENoZWNrQ29ob3J0TWVtYmVyc2hpcFJlcXVlc3QSEQoJcGVyc29uX2lkGAEgASgDEhIKCmNvaG9ydF9pZHMYAiADKAMSNQoMcmVhZF9vcHRpb25zGAMgASgLMh8ucGVyc29uaG9nLnR5cGVzLnYxLlJlYWRPcHRpb25zIlUKGENvaG9ydE1lbWJlcnNoaXBSZXNwb25zZRI5CgttZW1iZXJzaGlwcxgBIAMoCzIkLnBlcnNvbmhvZy50eXBlcy52MS5Db2hvcnRNZW1iZXJzaGlwImYKGUNvdW50Q29ob3J0TWVtYmVyc1JlcXVlc3QSEgoKY29ob3J0X2lkcxgBIAMoAxI1CgxyZWFkX29wdGlvbnMYAiABKAsyHy5wZXJzb25ob2cudHlwZXMudjEuUmVhZE9wdGlvbnMiKwoaQ291bnRDb2hvcnRNZW1iZXJzUmVzcG9uc2USDQoFY291bnQYASABKAMiQQoZRGVsZXRlQ29ob3J0TWVtYmVyUmVxdWVzdBIRCgljb2hvcnRfaWQYASABKAMSEQoJcGVyc29uX2lkGAIgASgDIi0KGkRlbGV0ZUNvaG9ydE1lbWJlclJlc3BvbnNlEg8KB2RlbGV0ZWQYASABKAgiSAoeRGVsZXRlQ29ob3J0TWVtYmVyc0J1bGtSZXF1ZXN0EhIKCmNvaG9ydF9pZHMYASADKAMSEgoKYmF0Y2hfc2l6ZRgCIAEoBSI4Ch9EZWxldGVDb2hvcnRNZW1iZXJzQnVsa1Jlc3BvbnNlEhUKDWRlbGV0ZWRfY291bnQYASABKAMiTgolRGVsZXRlQ29ob3J0TWVtYmVyc0J5UGVyc29uSWRzUmVxdWVzdBIRCgljb2hvcnRfaWQYASABKAMSEgoKcGVyc29uX2lkcxgCIAMoAyI/CiZEZWxldGVDb2hvcnRNZW1iZXJzQnlQZXJzb25JZHNSZXNwb25zZRIVCg1kZWxldGVkX2NvdW50GAEgASgDImUKGkluc2VydENvaG9ydE1lbWJlcnNSZXF1ZXN0EhEKCWNvaG9ydF9pZBgBIAEoAxISCgpwZXJzb25faWRzGAIgAygDEhQKB3ZlcnNpb24YAyABKAVIAIgBAUIKCghfdmVyc2lvbiI1ChtJbnNlcnRDb2hvcnRNZW1iZXJzUmVzcG9uc2USFgoOaW5zZXJ0ZWRfY291bnQYASABKAMihQEKGkxpc3RDb2hvcnRNZW1iZXJJZHNSZXF1ZXN0EhEKCWNvaG9ydF9pZBgBIAEoAxIOCgZjdXJzb3IYAiABKAMSDQoFbGltaXQYAyABKAUSNQoMcmVhZF9vcHRpb25zGAQgASgLMh8ucGVyc29uaG9nLnR5cGVzLnYxLlJlYWRPcHRpb25zIkYKG0xpc3RDb2hvcnRNZW1iZXJJZHNSZXNwb25zZRISCgpwZXJzb25faWRzGAEgAygDEhMKC25leHRfY3Vyc29yGAIgASgDYgZwcm90bzM',
         [file_personhog_types_v1_common]
     )
 
@@ -221,6 +221,52 @@ export const DeleteCohortMembersBulkResponseSchema: GenMessage<DeleteCohortMembe
     messageDesc(file_personhog_types_v1_cohort, 8)
 
 /**
+ * DeleteCohortMembersByPersonIds removes the given persons from one cohort.
+ * Caller is responsible for team-level isolation (cohortpeople has no team_id column).
+ *
+ * @generated from message personhog.types.v1.DeleteCohortMembersByPersonIdsRequest
+ */
+export type DeleteCohortMembersByPersonIdsRequest =
+    Message<'personhog.types.v1.DeleteCohortMembersByPersonIdsRequest'> & {
+        /**
+         * @generated from field: int64 cohort_id = 1;
+         */
+        cohortId: bigint
+
+        /**
+         * @generated from field: repeated int64 person_ids = 2;
+         */
+        personIds: bigint[]
+    }
+
+/**
+ * Describes the message personhog.types.v1.DeleteCohortMembersByPersonIdsRequest.
+ * Use `create(DeleteCohortMembersByPersonIdsRequestSchema)` to create a new message.
+ */
+export const DeleteCohortMembersByPersonIdsRequestSchema: GenMessage<DeleteCohortMembersByPersonIdsRequest> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_cohort, 9)
+
+/**
+ * @generated from message personhog.types.v1.DeleteCohortMembersByPersonIdsResponse
+ */
+export type DeleteCohortMembersByPersonIdsResponse =
+    Message<'personhog.types.v1.DeleteCohortMembersByPersonIdsResponse'> & {
+        /**
+         * @generated from field: int64 deleted_count = 1;
+         */
+        deletedCount: bigint
+    }
+
+/**
+ * Describes the message personhog.types.v1.DeleteCohortMembersByPersonIdsResponse.
+ * Use `create(DeleteCohortMembersByPersonIdsResponseSchema)` to create a new message.
+ */
+export const DeleteCohortMembersByPersonIdsResponseSchema: GenMessage<DeleteCohortMembersByPersonIdsResponse> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_cohort, 10)
+
+/**
  * InsertCohortMembers adds persons to a static cohort.
  * Caller is responsible for team-level isolation (cohortpeople has no team_id column).
  *
@@ -249,7 +295,7 @@ export type InsertCohortMembersRequest = Message<'personhog.types.v1.InsertCohor
  */
 export const InsertCohortMembersRequestSchema: GenMessage<InsertCohortMembersRequest> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_cohort, 9)
+    messageDesc(file_personhog_types_v1_cohort, 11)
 
 /**
  * @generated from message personhog.types.v1.InsertCohortMembersResponse
@@ -267,7 +313,7 @@ export type InsertCohortMembersResponse = Message<'personhog.types.v1.InsertCoho
  */
 export const InsertCohortMembersResponseSchema: GenMessage<InsertCohortMembersResponse> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_cohort, 10)
+    messageDesc(file_personhog_types_v1_cohort, 12)
 
 /**
  * ListCohortMemberIds returns person IDs for a cohort with keyset pagination.
@@ -303,7 +349,7 @@ export type ListCohortMemberIdsRequest = Message<'personhog.types.v1.ListCohortM
  */
 export const ListCohortMemberIdsRequestSchema: GenMessage<ListCohortMemberIdsRequest> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_cohort, 11)
+    messageDesc(file_personhog_types_v1_cohort, 13)
 
 /**
  * @generated from message personhog.types.v1.ListCohortMemberIdsResponse
@@ -326,4 +372,4 @@ export type ListCohortMemberIdsResponse = Message<'personhog.types.v1.ListCohort
  */
 export const ListCohortMemberIdsResponseSchema: GenMessage<ListCohortMemberIdsResponse> =
     /*@__PURE__*/
-    messageDesc(file_personhog_types_v1_cohort, 12)
+    messageDesc(file_personhog_types_v1_cohort, 14)

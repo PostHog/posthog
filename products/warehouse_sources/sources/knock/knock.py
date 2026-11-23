@@ -38,6 +38,11 @@ NO_AUDIENCE_KEYS_ERROR = (
     "Add your audience keys in the source settings, then sync again."
 )
 
+NO_FEED_CHANNEL_IDS_ERROR = (
+    "The Knock user feed items table needs at least one in-app feed channel ID. "
+    "Add your channel IDs in the source settings, then sync again."
+)
+
 
 @dataclasses.dataclass(frozen=True)
 class KnockResumeConfig:
@@ -94,6 +99,7 @@ def _shape_user_subscription(row: dict[str, Any]) -> dict[str, Any]:
 _FANOUT_CHILD_ROW_MAPS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "user_subscriptions": _shape_user_subscription,
     "user_preferences": _decode_user_id,
+    "user_feed_items": _decode_user_id,
 }
 
 
@@ -159,6 +165,7 @@ def _fanout_items(
     job_id: str,
     db_incremental_field_last_value: Optional[Any],
     should_use_incremental_field: bool,
+    path_format_values: Optional[dict[str, str]] = None,
 ) -> Any:
     endpoint_config = ENDPOINTS_CONFIG[endpoint]
     fanout = endpoint_config.fanout
@@ -182,7 +189,7 @@ def _fanout_items(
         child_endpoint=endpoint,
         fanout=fanout,
         client_config=_client_config(api_key),
-        path_format_values={},
+        path_format_values=path_format_values or {},
         team_id=team_id,
         job_id=job_id,
         db_incremental_field_last_value=None,
@@ -200,9 +207,9 @@ def _fanout_items(
     return cast(Resource, resource).add_map(child_row_map) if child_row_map is not None else resource
 
 
-def _tag_audience_key(audience_key: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
+def _tag_column(column: str, value: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
     def _tag(row: dict[str, Any]) -> dict[str, Any]:
-        row["audience_key"] = audience_key
+        row[column] = value
         return row
 
     return _tag
@@ -242,7 +249,7 @@ def _keyed_items(
         )
         if endpoint == "audience_members":
             # Member rows don't say which audience they belong to.
-            resource["data_map"] = _tag_audience_key(key)
+            resource["data_map"] = _tag_column("audience_key", key)
 
         config: RESTAPIConfig = {
             "client": _client_config(api_key),
@@ -262,6 +269,33 @@ def _keyed_items(
             resumable_source_manager.safe_point()
 
 
+def _feed_channel_resource(api_key: str, channel_id: str, team_id: int, job_id: str) -> Resource:
+    resource = _fanout_items(
+        api_key,
+        "user_feed_items",
+        team_id,
+        job_id,
+        db_incremental_field_last_value=None,
+        should_use_incremental_field=False,
+        path_format_values={"channel_id": quote(channel_id, safe="")},
+    )
+    return cast(Resource, resource).add_map(_tag_column("channel_id", channel_id))
+
+
+def _feed_items(api_key: str, channel_ids: list[str], team_id: int, job_id: str) -> Resource:
+    # Like the other user fan-outs, this stages no resume state, so a hand-off restarts the run as
+    # a fresh full refresh. A checkpoint per channel would resume as an append and repeat the rows
+    # of a channel that was in progress.
+    def pages() -> Iterator[Any]:
+        for channel_id in channel_ids:
+            yield from _feed_channel_resource(api_key, channel_id, team_id, job_id)
+
+    # The walk hands each page on unchanged and holds no rows. As a `Resource` it keeps the
+    # framework's per-page safe points, also through users with an empty feed.
+    hints = _feed_channel_resource(api_key, channel_ids[0], team_id, job_id)._hints
+    return Resource(pages, name="user_feed_items", hints=hints)
+
+
 def knock_source(
     api_key: str,
     endpoint: str,
@@ -272,11 +306,18 @@ def knock_source(
     should_use_incremental_field: bool = False,
     object_collections: Optional[str] = None,
     audience_keys: Optional[str] = None,
+    in_app_feed_channel_ids: Optional[str] = None,
 ) -> SourceResponse:
     endpoint_config = ENDPOINTS_CONFIG[endpoint]
 
     items: Any
-    if endpoint_config.fanout is not None:
+    if endpoint == "user_feed_items":
+        channel_ids = parse_key_list(in_app_feed_channel_ids)
+        if not channel_ids:
+            raise ValueError(NO_FEED_CHANNEL_IDS_ERROR)
+        feed_resource = _feed_items(api_key, channel_ids, team_id, job_id)
+        items = lambda: feed_resource
+    elif endpoint_config.fanout is not None:
         resource = _fanout_items(
             api_key, endpoint, team_id, job_id, db_incremental_field_last_value, should_use_incremental_field
         )

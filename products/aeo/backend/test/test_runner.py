@@ -18,7 +18,7 @@ from posthog.models.team import Team
 from products.aeo.backend import runner
 from products.aeo.backend.engines import CitationCheck, build_check_fields
 from products.aeo.backend.facade.contracts import BrandKind, BrandSource, BrandStatus, CheckMode
-from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt
+from products.aeo.backend.models import AEOBrand, AEOCheckCitation, AEOCitationCheck, AEOPrompt
 from products.aeo.backend.runner import run_citation_checks, select_prompts
 from products.aeo.backend.seeding import PromptCandidate, upsert_prompts
 from products.aeo.backend.test.factories import create_own_brand
@@ -134,6 +134,8 @@ def test_run_records_checks_and_rotates_without_a_team_scope(
     assert {c.prompt_topic for c in checks} == {"t0", "t1"}
     assert len({c.prompt_id for c in checks}) == 4
     assert sorted((c.prompt_text, c.prompt_version) for c in checks) == [("q0?", 3), ("q1?", 1), ("q2?", 1), ("q3?", 1)]
+    cited = AEOCheckCitation.objects.for_team(team.id).values_list("citation_check_id", "created_at")
+    assert set(cited) == {(c.id, c.created_at) for c in checks}
 
 
 @pytest.mark.parametrize("own_brand_status", [None, BrandStatus.IGNORED], ids=["no_own_brand", "own_brand_ignored"])

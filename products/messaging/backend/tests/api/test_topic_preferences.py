@@ -59,9 +59,19 @@ class TestTopicPreferences(APIBaseTest):
             team=self.team, identifier="jane@example.com", preferences=preferences
         )
 
-    def test_opts_a_recipient_out_of_one_topic(self, _flag: MagicMock) -> None:
+    @parameterized.expand(
+        [
+            ("project_path", "/api/projects/{team_id}/messaging/preferences/"),
+            ("key_scoped_path", "/api/messaging/preferences/"),
+        ]
+    )
+    def test_opts_a_recipient_out_of_one_topic(self, _flag: MagicMock, _name: str, path: str) -> None:
         identifier = " jane@example.com "
-        response = self._set({"identifier": identifier, "topics": {"newsletter": False}})
+        response = self.psak.post(
+            path.format(team_id=self.team.id),
+            {"identifier": identifier, "topics": {"newsletter": False}},
+            format="json",
+        )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == {

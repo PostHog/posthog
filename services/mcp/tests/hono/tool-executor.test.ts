@@ -11,7 +11,7 @@ vi.mock('@/resources', () => ({
     getPromptsFromManifest: vi.fn().mockResolvedValue([]),
 }))
 
-import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
+import { MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_TIME_SERIES_CHARTS_FLAG } from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
@@ -20,6 +20,7 @@ import { MCPClientProfile } from '@/lib/client-detection'
 import { PostHogApiError, PostHogPermissionError } from '@/lib/errors'
 import { buildToolDomainsCompact } from '@/lib/instructions'
 import { CHATGPT_APP_OAUTH_CLIENT_ID } from '@/lib/oauth-constants'
+import { CHART_DATA_PREAMBLE } from '@/lib/time-series-chart-data'
 import { RENDER_UI_RESOURCE_URI, URI_MAP } from '@/resources/ui-apps.generated'
 import { makeSkillFile, SkillCatalog } from '@/skills/skill-catalog'
 import { GENERATED_TOOL_MAP } from '@/tools/generated'
@@ -139,6 +140,90 @@ describe('ToolExecutor', () => {
             expect(text).toContain('execute-sql')
             expect(text).toContain('organization-get')
             expect(text).not.toContain('feature-flag-get-all')
+        })
+
+        describe('split writes', () => {
+            const deleteCommand = { command: 'call dashboard-delete {"id":1}' }
+
+            function splitState(splitWrites: boolean): { state: ResolvedState; request: MockInstance } {
+                const request = vi.fn().mockResolvedValue({ id: 1, deleted: true })
+                const tools = catalog
+                    .getFilteredTools({ scopes: ['*'] })
+                    .filter((tool) => tool.name === 'dashboard-delete')
+                const state = makeToolExecutorState(tools, {
+                    useSingleExec: true,
+                    splitWrites,
+                    context: {
+                        api: mockApi({ request }),
+                        cache: {},
+                        env: {},
+                        stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+                        sessionManager: {},
+                        getDistinctId: vi.fn(),
+                        trackEvent: vi.fn(),
+                    } as any,
+                })
+                return { state, request }
+            }
+
+            // Clients always allow exec-read, so no request, split or not, may let it write.
+            it.each([true, false])('refuses a write through exec-read when the request split is %s', async (split) => {
+                const { state, request } = splitState(split)
+
+                const result = (await executor.handleToolCall(
+                    { name: 'exec-read', arguments: deleteCommand },
+                    state
+                )) as any
+
+                expect(result.content[0].text).toContain('exec-write')
+                expect(request).not.toHaveBeenCalled()
+            })
+
+            it.each([
+                ['exec on a default connection', 'exec', false],
+                ['exec-write on a split connection', 'exec-write', true],
+            ])('runs a write through %s', async (_label, name, splitWrites) => {
+                const { state, request } = splitState(splitWrites)
+
+                await executor.handleToolCall({ name, arguments: deleteCommand }, state)
+
+                expect(request).toHaveBeenCalledWith(
+                    expect.objectContaining({ method: 'PATCH', body: { deleted: true } })
+                )
+            })
+
+            it.each([
+                ['surveys-summarize-responses-create', '{"id":"1"}'],
+                ['agent-feedback', '{"summary":"s","feedback_type":"other","sentiment":"neutral","details":"d"}'],
+            ])('refuses %s through exec-read', async (toolName, input) => {
+                const request = vi.fn()
+                const trackEvent = vi.fn()
+                const tools = catalog.getFilteredTools({ scopes: ['*'] }).filter((tool) => tool.name === toolName)
+                const state = makeToolExecutorState(tools, {
+                    useSingleExec: true,
+                    context: { ...makeToolExecutorState([]).context, api: mockApi({ request }), trackEvent } as any,
+                })
+
+                const result = (await executor.handleToolCall(
+                    { name: 'exec-read', arguments: { command: `call ${toolName} ${input}` } },
+                    state
+                )) as any
+
+                expect(result.content[0].text).toContain('exec-write')
+                expect([request.mock.calls.length, trackEvent.mock.calls.length]).toEqual([0, 0])
+            })
+
+            it.each([
+                ['exec-write', false],
+                ['exec', true],
+            ])('hides the unlisted %s when the request split is %s', async (name, splitWrites) => {
+                const { state, request } = splitState(splitWrites)
+
+                const result = (await executor.handleToolCall({ name, arguments: deleteCommand }, state)) as any
+
+                expect(result.content[0].text).toBe(`Tool ${name} not found`)
+                expect(request).not.toHaveBeenCalled()
+            })
         })
 
         function skillMissContext(skillName: string, body: string): ResolvedState['context'] {
@@ -269,6 +354,43 @@ describe('ToolExecutor', () => {
             expect(result.tools[0]!.name).toBe('exec')
         })
 
+        it.each([
+            ['a default connection', {}, [['exec', false]]],
+            [
+                'a split connection',
+                { splitWrites: true },
+                [
+                    ['exec-read', true],
+                    ['exec-write', false],
+                ],
+            ],
+        ])('advertises the exec dispatchers and their read-only hints on %s', async (_label, overrides, expected) => {
+            const state = makeToolExecutorState([], { useSingleExec: true, ...overrides })
+
+            const result = await executor.handleToolsList(state)
+
+            expect(result.tools.map((t) => [t.name, t.annotations?.readOnlyHint])).toEqual(expected)
+        })
+
+        it('points exec-read at its own name', async () => {
+            const state = makeToolExecutorState([], { useSingleExec: true, splitWrites: true })
+
+            const [execRead] = (await executor.handleToolsList(state)).tools
+            const text = `${execRead!.description}${JSON.stringify(execRead!.inputSchema)}`
+
+            expect([text.includes('posthog:exec-read('), text.includes('posthog:exec(')]).toEqual([true, false])
+        })
+
+        it('marks only exec-write destructive', async () => {
+            const result = await executor.handleToolsList(
+                makeToolExecutorState([], { useSingleExec: true, splitWrites: true })
+            )
+            expect(result.tools.map((t) => [t.name, t.annotations?.destructiveHint])).toEqual([
+                ['exec-read', false],
+                ['exec-write', true],
+            ])
+        })
+
         // The flag decides skill exposure per client; guides stay a Claude chat-host
         // feature; plugin and sandbox consumers get neither because they carry their
         // own skills. A regression in any row silently changes what an agent is told.
@@ -339,8 +461,9 @@ describe('ToolExecutor', () => {
                     toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: skillsEnabled },
                     clientProfile: {
                         capabilities: { supportsInstructions: true },
-                        isCliModeEnabled: vi.fn(() => true),
+                        prefersFormattedText: vi.fn(() => true),
                         isInlineExecUiHost: vi.fn(() => false),
+                        drawsTimeSeriesCharts: vi.fn(() => false),
                         isClaudeChatHost: vi.fn(() => isClaudeChatHost),
                         isAnthropicConnector: vi.fn(() => isClaudeChatHost),
                     } as any,
@@ -595,8 +718,9 @@ describe('ToolExecutor', () => {
                         distinctId,
                         clientProfile: {
                             capabilities: { supportsInstructions },
-                            isCliModeEnabled: vi.fn(() => true),
+                            prefersFormattedText: vi.fn(() => true),
                             isInlineExecUiHost: vi.fn(() => false),
+                            drawsTimeSeriesCharts: vi.fn(() => false),
                             isClaudeChatHost: vi.fn(() => isClaudeChatHost),
                             isAnthropicConnector: vi.fn(() => isClaudeChatHost),
                         } as any,
@@ -619,6 +743,61 @@ describe('ToolExecutor', () => {
             }
         )
 
+        it.each([
+            { label: 'skills flag on', skillsEnabled: true, consumer: undefined, expectLearn: true },
+            {
+                label: 'plugin consumer with skills flag on',
+                skillsEnabled: true,
+                consumer: 'plugin',
+                expectLearn: false,
+            },
+            { label: 'skills flag off', skillsEnabled: false, consumer: undefined, expectLearn: false },
+        ])(
+            'offers and serves a learn tool in tools mode only when skills are available: $label',
+            async ({ skillsEnabled, consumer, expectLearn }) => {
+                const skills = new SkillCatalog([
+                    {
+                        name: 'sample-skill',
+                        description: 'A sample skill.',
+                        files: [makeSkillFile('SKILL.md', '# Sample skill')],
+                    },
+                ])
+                const instructionsBuilder = new InstructionsBuilder('')
+                const skillExecutor = new ToolExecutor(catalog, instructionsBuilder, {
+                    getCatalog: () => skills,
+                } as any)
+                const state = makeToolExecutorState([], {
+                    toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: skillsEnabled },
+                    ...(consumer
+                        ? {
+                              sessionContext: {
+                                  mcpClientName: 'cursor-vscode',
+                                  mcpClientVersion: '1.0',
+                                  mcpProtocolVersion: '2025-03-26',
+                                  mcpConsumer: consumer,
+                                  mcpVendorClient: undefined,
+                              },
+                          }
+                        : {}),
+                })
+
+                const listed = await skillExecutor.handleToolsList(state)
+                expect(listed.tools.some((tool) => tool.name === 'learn')).toBe(expectLearn)
+                expect(instructionsBuilder.build(state).includes('call the `learn` tool')).toBe(expectLearn)
+
+                const call = (command: string): Promise<{ content: { text: string }[]; isError?: boolean }> =>
+                    skillExecutor.handleToolCall({ name: 'learn', arguments: { command } }, state) as any
+                const result = await call('posthog:sample-skill')
+                if (!expectLearn) {
+                    expect(result.isError).toBe(true)
+                    expect(result.content[0]!.text).toBe('Tool learn not found')
+                    return
+                }
+                expect(result.content[0]!.text).toContain('# Sample skill')
+                expect((await call('learn posthog:sample-skill')).content[0]!.text).toContain('# Sample skill')
+            }
+        )
+
         it('serves multiple optional guidance topics through exec learn for Claude web/desktop', async () => {
             const state = makeToolExecutorState(
                 catalog
@@ -630,8 +809,9 @@ describe('ToolExecutor', () => {
                     renderUiEnabled: true,
                     clientProfile: {
                         capabilities: { supportsInstructions: true },
-                        isCliModeEnabled: vi.fn(() => true),
+                        prefersFormattedText: vi.fn(() => true),
                         isInlineExecUiHost: vi.fn(() => false),
+                        drawsTimeSeriesCharts: vi.fn(() => false),
                         isClaudeChatHost: vi.fn(() => true),
                         isAnthropicConnector: vi.fn(() => true),
                     } as any,
@@ -733,8 +913,9 @@ describe('ToolExecutor', () => {
                 } as any)
             }
 
-            async function renderSurvey(): Promise<any> {
+            async function renderSurvey(isCursor = false): Promise<any> {
                 const state = makeToolExecutorState([uiAppTool], { useSingleExec: true, renderUiEnabled: true })
+                vi.mocked(state.clientProfile.isCursor).mockReturnValue(isCursor)
                 return executor.handleToolCall(
                     { name: 'render-ui', arguments: { tool_name: 'survey-get', tool_input: { surveyId: 'abc' } } },
                     state
@@ -748,6 +929,16 @@ describe('ToolExecutor', () => {
 
                 expect(result._meta[APP_DATA_META_KEY]).toMatchObject({ id: 'abc', name: 'NPS' })
                 expect(result.structuredContent).not.toHaveProperty('name')
+                expect(result.structuredContent).not.toHaveProperty([APP_DATA_META_KEY])
+            })
+
+            it('carries the data in structuredContent instead of _meta for Cursor', async () => {
+                stubInnerTool(async () => ({ id: 'abc', name: 'NPS' }))
+
+                const result = await renderSurvey(true)
+
+                expect(result.structuredContent[APP_DATA_META_KEY]).toMatchObject({ id: 'abc', name: 'NPS' })
+                expect(result._meta).not.toHaveProperty([APP_DATA_META_KEY])
             })
 
             it('preloads query charts through exec as JSON, like the app does', async () => {
@@ -884,7 +1075,7 @@ describe('ToolExecutor', () => {
             } as any)
 
             const state = makeToolExecutorState([uiAppTool], { useSingleExec, renderUiEnabled })
-            vi.mocked(state.clientProfile.isCliModeEnabled).mockReturnValue(true)
+            vi.mocked(state.clientProfile.prefersFormattedText).mockReturnValue(true)
             if (posthogAi) {
                 state.clientProfile = { ...state.clientProfile, consumer: 'posthog_ai' } as typeof state.clientProfile
             }
@@ -898,6 +1089,42 @@ describe('ToolExecutor', () => {
                     results: [{ count: 28, label: '$pageview' }],
                 })
             }
+        })
+    })
+
+    describe('time series chart data', () => {
+        let getToolByNameSpy: MockInstance | undefined
+
+        afterEach(() => {
+            getToolByNameSpy?.mockRestore()
+            getToolByNameSpy = undefined
+        })
+
+        it.each([
+            { label: 'appends it when the flag is on', flagEnabled: true },
+            { label: 'leaves it out when the flag is off', flagEnabled: false },
+            { label: 'leaves it out when the flag is not evaluated', flagEnabled: undefined },
+        ])('$label', async ({ flagEnabled }) => {
+            getToolByNameSpy = vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+                build() {
+                    return this.base
+                },
+                base: {
+                    schema: z.object({}),
+                    handler: async () => ({
+                        results: [{ label: '$pageview', days: ['2026-11-01', '2026-11-02'], data: [3, 5] }],
+                    }),
+                },
+            } as any)
+            const state = makeToolExecutorState([{ name: 'query-trends' }], {
+                toolFeatureFlags: { [MCP_TIME_SERIES_CHARTS_FLAG]: flagEnabled },
+            })
+            vi.mocked(state.clientProfile.drawsTimeSeriesCharts).mockReturnValue(true)
+
+            const result = (await executor.handleToolCall({ name: 'query-trends', arguments: {} }, state)) as any
+
+            const text = result.content.map((c: { text: string }) => c.text).join('\n')
+            expect(text.includes(CHART_DATA_PREAMBLE)).toBe(flagEnabled === true)
         })
     })
 
@@ -1028,6 +1255,13 @@ describe('ToolExecutor', () => {
                 missingScopes: ['endpoint:write'],
                 requiredScopes: ['endpoint:write', 'query:read'],
             },
+            {
+                name: 'dashboard-get',
+                title: 'Get dashboard',
+                description: 'Get a dashboard',
+                missingScopes: ['dashboard:read'],
+                requiredScopes: ['dashboard:read'],
+            },
         ]
         const gated = {
             scopeGatedTools,
@@ -1051,6 +1285,38 @@ describe('ToolExecutor', () => {
             await expect(result).rejects.toMatchObject({
                 challenge: 'Bearer error="insufficient_scope", scope="endpoint:write query:read"',
             })
+        })
+
+        it.each([
+            ['exec-write', false],
+            ['exec', true],
+        ])('answers the unlisted %s as not found before asking for a scope', async (name, splitWrites) => {
+            const result = (await executor.handleToolCall(
+                { name, arguments: { command: 'call endpoint-create {}' } },
+                makeToolExecutorState([], { useSingleExec: true, splitWrites, ...gated, supportsStepUp: true })
+            )) as any
+
+            expect(result.content[0].text).toBe(`Tool ${name} not found`)
+        })
+
+        it('asks for the scope of a read-only tool on exec-read', async () => {
+            const result = executor.handleToolCall(
+                { name: 'exec-read', arguments: { command: 'call dashboard-get {"id":1}' } },
+                makeToolExecutorState([], { useSingleExec: true, ...gated, supportsStepUp: true })
+            )
+
+            await expect(result).rejects.toMatchObject({
+                challenge: 'Bearer error="insufficient_scope", scope="dashboard:read"',
+            })
+        })
+
+        it('sends the write to exec-write instead of asking for its scope on exec-read', async () => {
+            const result = (await executor.handleToolCall(
+                { name: 'exec-read', arguments: { command: 'call endpoint-create {}' } },
+                makeToolExecutorState([], { useSingleExec: true, ...gated, supportsStepUp: true })
+            )) as any
+
+            expect(result.content[0].text).toContain('exec-write({"command":"call endpoint-create {}"})')
         })
 
         it.each([

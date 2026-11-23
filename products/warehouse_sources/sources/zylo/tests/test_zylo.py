@@ -70,34 +70,67 @@ class TestZyloSourceResumeBehavior:
 
         assert result.params("skip") == ["0"]
 
-    def test_incremental_request_carries_gte_filter_and_sort(self) -> None:
+    @pytest.mark.parametrize(
+        ("endpoint", "path"),
+        [
+            ("Contracts", "/v2/contracts"),
+            ("PendingContractLineItems", "/v2/pendingContractLineItems"),
+            ("CustomFields", "/v2/customFields"),
+        ],
+    )
+    def test_incremental_request_carries_gte_filter_and_sort(self, endpoint: str, path: str) -> None:
         result = self._driver().run(
-            "Contracts",
-            [self._page([{"id": "contract_1"}])],
+            endpoint,
+            [self._page([{"id": "row_1"}])],
             incremental_field="zylo_created_at",
         )
 
+        assert result.paths == [path]
         assert result.requests[0].param("zylo_created_at") == f"{INITIAL_INCREMENTAL_VALUE},gte"
         assert result.requests[0].param("sort") == "+zylo_created_at"
 
-    def test_executions_fan_out_per_automation_with_incremental_filter(self) -> None:
+    @pytest.mark.parametrize("incremental_field", ["zylo_created_at", "zylo_modified_at"])
+    def test_application_stats_never_filters_on_application_timestamps(self, incremental_field: str) -> None:
         result = self._driver().run(
-            "AutomationExecutions",
+            "ApplicationStats",
+            [self._page([{"id": "app_1", "last_12_months_spend": "1200.00"}])],
+            incremental_field=incremental_field,
+            db_incremental_field_last_value=datetime(2026, 7, 21, 12, tzinfo=UTC),
+        )
+
+        assert result.paths == ["/v2/applicationStats"]
+        assert result.requests[0].param("zylo_created_at") is None
+        assert result.requests[0].param("zylo_modified_at") is None
+        assert result.requests[0].param("sort") == "+zylo_created_at"
+        assert len(result.rows) == 1
+
+    @pytest.mark.parametrize(
+        ("endpoint", "parent_path", "child_path", "parent_key"),
+        [
+            ("AutomationExecutions", "/v2/automations", "/v2/automations/{}/executions", "automation_id"),
+            ("ApplicationFunctionalities", "/v2/applications", "/v2/applications/{}/functionalities", "application_id"),
+        ],
+    )
+    def test_fan_out_per_parent_with_incremental_filter(
+        self, endpoint: str, parent_path: str, child_path: str, parent_key: str
+    ) -> None:
+        result = self._driver().run(
+            endpoint,
             [
-                self._page([{"id": "auto_1"}, {"id": "auto_2"}]),
-                self._page([{"id": f"exec_{i}", "automation_id": "auto_1"} for i in range(1000)]),
-                self._page([{"id": "exec_last", "automation_id": "auto_1"}]),
-                self._page([{"id": "exec_b", "automation_id": "auto_2"}]),
+                self._page([{"id": "parent_1"}, {"id": "parent_2"}]),
+                self._page([{"id": f"child_{i}", parent_key: "parent_1"} for i in range(1000)]),
+                self._page([{"id": "child_last", parent_key: "parent_1"}]),
+                self._page([{"id": "child_b", parent_key: "parent_2"}]),
             ],
             incremental_field="zylo_modified_at",
             db_incremental_field_last_value=datetime(2026, 7, 21, 12, tzinfo=UTC),
         )
 
         assert result.paths == [
-            "/v2/automations",
-            "/v2/automations/auto_1/executions",
-            "/v2/automations/auto_1/executions",
-            "/v2/automations/auto_2/executions",
+            parent_path,
+            child_path.format("parent_1"),
+            child_path.format("parent_1"),
+            child_path.format("parent_2"),
         ]
         assert result.requests[0].param("zylo_modified_at") is None
         assert result.params("skip")[1:] == ["0", "1000", "0"]

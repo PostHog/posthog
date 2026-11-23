@@ -136,6 +136,7 @@ from posthog.permissions import (
     credential_admits_team,
     get_authenticator_scoped_team_ids,
     get_request_reachable_organization_ids,
+    organization_refuses_personal_api_key,
 )
 from posthog.rate_limit import (
     OnboardingSkipThrottle,
@@ -169,7 +170,9 @@ from posthog.tasks.email import (
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_safe_cache, render_template, safe_cache_set
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.dashboards.backend.facade.api import find_dashboard_team_id
 from products.notifications.backend.facade.api import NotificationType
 
@@ -946,14 +949,25 @@ class UserSerializer(serializers.ModelSerializer):
 
         # `/api/users/@me/` has no tenant target, so `APIScopePermission` leaves a credential confined to
         # some organizations free to read the user's current project and organization in any other one.
-        if data.get("team") is not None and not credential_admits_team(
+        current_team_outside_reach = data.get("team") is not None and not credential_admits_team(
             request, data["team"]["id"], data["team"]["organization"]
-        ):
+        )
+        if current_team_outside_reach:
             data["team"] = None
         if data.get("organization") is not None and not credential_admits_organization(
             request, data["organization"]["id"]
         ):
             data["organization"] = None
+        # Clients such as the setup agent take `team` as the project to work in. A credential that reaches
+        # one project names that project without doubt. With several, any pick could send a client's
+        # writes to a project the user did not choose, so `team` stays null.
+        if (
+            current_team_outside_reach
+            and request is not None
+            and (sole_team := self._sole_reachable_team(instance, request)) is not None
+        ):
+            data["team"] = TeamBasicSerializer(sole_team, context=self.context).data
+            data["organization"] = OrganizationSerializer(sole_team.organization, context=self.context).data
         scoped_teams = get_authenticator_scoped_team_ids(getattr(request, "successful_authenticator", None))
         if scoped_teams and (organization := data.get("organization")) is not None:
             organization["teams"] = [team for team in organization.get("teams") or [] if team["id"] in scoped_teams]
@@ -974,6 +988,42 @@ class UserSerializer(serializers.ModelSerializer):
                 data["shortcut_position"] = ShortcutPosition.ABOVE.value
 
         return data
+
+    def _sole_reachable_team(self, user: User, request: Request) -> Team | None:
+        reachable_organizations = get_request_reachable_organization_ids(request)
+        if reachable_organizations is None:
+            return None
+        candidates = Team.objects.filter(organization_id__in=reachable_organizations)
+        scoped_teams = get_authenticator_scoped_team_ids(getattr(request, "successful_authenticator", None))
+        if scoped_teams:
+            candidates = candidates.filter(id__in=scoped_teams)
+        blocked_organizations = get_ip_blocked_organization_ids(request)
+        if blocked_organizations:
+            candidates = candidates.exclude(organization_id__in=blocked_organizations)
+
+        user_permissions = self.context.get("user_permissions")
+        if not isinstance(user_permissions, UserPermissions) or user_permissions.user != user:
+            user_permissions = UserPermissions(user)
+        # `/api/users/@me/` skips the organization gates that every route of the named project applies, so a
+        # project those gates refuse must not be named here either.
+        organization_admits: dict[str, bool] = {}
+        sole_team: Team | None = None
+        for team in candidates.select_related("organization").order_by("id"):
+            organization_id = str(team.organization_id)
+            if organization_id not in organization_admits:
+                organization_admits[organization_id] = not (
+                    OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(user.email, team.organization)
+                    or organization_refuses_personal_api_key(request, team.organization)
+                )
+            if (
+                not organization_admits[organization_id]
+                or user_permissions.team(team).effective_membership_level is None
+            ):
+                continue
+            if sole_team is not None:
+                return None
+            sole_team = team
+        return sole_team
 
 
 class ScenePersonalisationSerializer(serializers.ModelSerializer):
@@ -1828,7 +1878,11 @@ class UserViewSet(
 
 def _user_can_access_toolbar(user: User, team: Team) -> bool:
     """Whether the user is allowed to launch the toolbar for this team."""
-    return UserAccessControl(user, team=team).check_access_level_for_resource("toolbar", "viewer")
+    return authorization.check(
+        resource=Resource(type=ResourceType.TOOLBAR, project_id=team.pk),
+        action=Action.VIEW,
+        subject=Subject(user_id=user.pk),
+    )
 
 
 @require_http_methods(["GET"])
@@ -1972,7 +2026,12 @@ def toolbar_oauth_callback(request):
     base_url = urllib.parse.urlunparse(parsed._replace(fragment=""))
     quoted_code = urllib.parse.quote(code, safe="")
     quoted_client_id = urllib.parse.quote(oauth_app.client_id, safe="")
-    toolbar_param = f"__posthog_toolbar=code:{quoted_code},client_id:{quoted_client_id}"
+    # The toolbar builds every API path from these ids. The grant above is scoped to this team, so they name the only
+    # project its token can reach. Older toolbar builds read up to client_id and ignore the rest.
+    toolbar_param = (
+        f"__posthog_toolbar=code:{quoted_code},client_id:{quoted_client_id},"
+        f"team_id:{team.id},project_id:{team.project_id}"
+    )
     if original_fragment:
         # SPA hash routes (e.g. `#/login`) treat the entire post-`#` substring
         # as the path, so `&` would make the auth params part of the route and

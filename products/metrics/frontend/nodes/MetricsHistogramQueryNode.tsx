@@ -53,6 +53,7 @@ export function MetricsHistogramQueryNode(props: {
         query: props.query,
         key,
         cachedResults: cachedHistogram,
+        loadQueue: props.context.loadQueue,
         loadPriority,
         onData,
         dataNodeCollectionId: dataNodeCollectionId ?? key,
@@ -71,7 +72,7 @@ export function MetricsHistogramQueryNode(props: {
         // scene also gets a `dashboardId` when it opens from a tile, so `embedded` must also be set.
         <div
             className={cn(
-                'relative flex flex-col w-full h-full',
+                'relative flex flex-1 flex-col w-full h-full',
                 !(props.embedded && props.context.insightProps?.dashboardId != null) && 'min-h-[200px]'
             )}
         >

@@ -84,30 +84,37 @@ def _newest_run_commits(run: Run, pr_numbers: Iterable[int]) -> dict[int, str]:
     return {pr_number: commit_sha for pr_number, commit_sha in newest if pr_number is not None}
 
 
-def _candidates(run: Run, comparison: github_api.Comparison | None) -> list[BaselineApproval]:
-    """The open approvals whose commits the run's tree contains."""
+def _candidates(run: Run, comparison: github_api.Comparison | None, position: int) -> list[BaselineApproval]:
+    """The approvals whose commits the run's tree contains and that the ledger at `position` does not hold yet."""
     if comparison is None:
         return []
-    open_approvals = BaselineApproval.objects.using(WRITER_DB).filter(
-        repo_id=run.repo_id, run_type=run.run_type, state=BaselineApprovalState.OPEN
+    # An approval that landed after the run's ledger position is promoted, but the ledger the run
+    # reads does not hold its hash. Without it a run that started before the landing, such as a
+    # queue run of the next pull request or a stack child before its rebase, sees the approved
+    # change as unapproved.
+    outside_ledger = Q(state=BaselineApprovalState.OPEN) | Q(
+        state=BaselineApprovalState.PROMOTED, landed_position__gt=position
+    )
+    pending = BaselineApproval.objects.using(WRITER_DB).filter(
+        outside_ledger, repo_id=run.repo_id, run_type=run.run_type
     )
     # A list cut short cannot prove that another pull request's commit is absent, so only the
     # run's own pull request counts.
     if not comparison.complete:
         if run.pr_number is None:
             return []
-        return list(open_approvals.filter(pr_number=run.pr_number))
+        return list(pending.filter(pr_number=run.pr_number))
 
     contained = [commit.sha for commit in comparison.commits]
     in_tree = Q(commit_sha__in=contained) | Q(carried_commit_sha__in=contained)
     if run.pr_number is not None:
         in_tree |= Q(pr_number=run.pr_number)
-    rest = open_approvals.exclude(in_tree)
+    rest = pending.exclude(in_tree)
     rest_prs = set(rest.values_list("pr_number", flat=True).distinct())
     prs_with_contained_head = [
         pr_number for pr_number, commit_sha in _newest_run_commits(run, rest_prs).items() if commit_sha in contained
     ]
-    approvals = list(open_approvals.filter(in_tree))
+    approvals = list(pending.filter(in_tree))
     if prs_with_contained_head:
         approvals += list(rest.filter(pr_number__in=prs_with_contained_head))
     return approvals
@@ -156,12 +163,14 @@ def reduce_overlay(candidates: list[BaselineApproval], ledger_hashes: dict[str, 
     )
 
 
-def overlay_for_run(run: Run, comparison: github_api.Comparison | None, ledger_hashes: dict[str, str]) -> Overlay:
-    """The approvals a run compares against on top of the ledger, per identifier.
+def overlay_for_run(
+    run: Run, comparison: github_api.Comparison | None, position: int, ledger_hashes: dict[str, str]
+) -> Overlay:
+    """The approvals a run compares against on top of the ledger at `position`, per identifier.
 
     `comparison` is None for a run on the default branch, which has no candidates.
     """
-    return reduce_overlay(_candidates(run, comparison), ledger_hashes)
+    return reduce_overlay(_candidates(run, comparison, position), ledger_hashes)
 
 
 def _ledger_base_hashes(
@@ -359,6 +368,57 @@ def record_carried_commits(run: Run) -> None:
         BaselineApproval.objects.using(WRITER_DB).filter(
             team_id=run.team_id, id__in=reproduced, state=BaselineApprovalState.OPEN
         ).update(carried_commit_sha=run.commit_sha, updated_at=now)
+
+
+def is_stale(approval: BaselineApproval, current_hash: str) -> bool:
+    """Whether landing the approval now would make it `conflicted`.
+
+    The approved hash counts as fresh because the ledger already holds that picture.
+    """
+    return current_hash != approval.content_hash and not base_still_holds(approval, current_hash)
+
+
+def stale_approvals(run: Run) -> list[BaselineApproval]:
+    """The open approvals that the run's passing verdict rests on, whose base the ledger no longer holds.
+
+    These are the approvals made on the run and the approvals its frozen record applied as overlay.
+    The ledger is read at the cursor and not at the run's merge-base, because a merge after the run
+    makes the approval conflict when its pull request lands. Nothing is stored, so a revert that
+    moves the ledger back makes the approval fresh again.
+    """
+    record = baseline_record.record_for_run(run)
+    if record is None:
+        return []
+    overlay_approval_ids = [entry.approval_id for entry in record.overlay.values()]
+    # Only finalize writes approvals with this run as their source, and finalize marks the run approved.
+    if not run.approved and not overlay_approval_ids:
+        return []
+    approvals = list(
+        BaselineApproval.objects.using(WRITER_DB).filter(
+            Q(source_run_id=run.id) | Q(id__in=overlay_approval_ids),
+            repo_id=run.repo_id,
+            run_type=run.run_type,
+            state=BaselineApprovalState.OPEN,
+        )
+    )
+    if not approvals:
+        return []
+    head = ledger.cursor(run.repo_id)
+    if head is None:
+        return []
+    current = ledger.hashes_at(
+        run.repo_id, run.run_type, {approval.identifier for approval in approvals}, head.position
+    )
+    stale = [approval for approval in approvals if is_stale(approval, current.get(approval.identifier, ""))]
+    if not stale:
+        return []
+    # A quarantined snapshot does not gate the run, so a stale approval of it must not gate it either.
+    quarantined = set(
+        run.snapshots.using(WRITER_DB)
+        .filter(identifier__in={approval.identifier for approval in stale}, is_quarantined=True)
+        .values_list("identifier", flat=True)
+    )
+    return [approval for approval in stale if approval.identifier not in quarantined]
 
 
 def _is_evidence_candidate(run: Run) -> bool:
