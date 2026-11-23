@@ -46,6 +46,20 @@ export const DryRun: Story = {
     render: () => <EditableConfigForm initialConfig={{ ...mockScoutConfigs[0], emit: false }} />,
 }
 
+// A scout that may start report actions on report pull requests, as the person its runs act as.
+export const WithReportActions: Story = {
+    render: () => (
+        <EditableConfigForm
+            initialConfig={{
+                ...mockScoutConfigs[0],
+                report_actions: ['make_it_green', 'resolve_conflicts'],
+                max_report_actions_per_day: 5,
+            }}
+        />
+    ),
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+}
+
 // A scout that is switched off. Everything the next run would use stays editable; only the controls
 // that would change that run's timing lock.
 export const Disabled: Story = {
