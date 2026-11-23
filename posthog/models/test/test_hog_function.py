@@ -305,17 +305,33 @@ class TestHogFunction(TestCase):
             else:
                 mock_reload.assert_not_called()
 
-    @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
-    def test_a_failed_organization_reload_does_not_fail_the_organization_save(self, mock_reload: Mock) -> None:
-        HogFunction.objects.create(name="Enabled", team=self.team, type="destination", enabled=True)
-        mock_reload.side_effect = RuntimeError("redis down")
-
+    @patch(
+        "products.cdp.backend.tasks.hog_functions.reload_organization_hog_functions.delay",
+        side_effect=RuntimeError("broker down"),
+    )
+    def test_a_failed_organization_reload_enqueue_does_not_fail_the_organization_save(self, mock_delay: Mock) -> None:
         with self.captureOnCommitCallbacks(execute=True):
             self.org.is_active = False
             self.org.save()
 
         self.org.refresh_from_db()
         assert self.org.is_active is False
+        mock_delay.assert_called_once_with(str(self.org.id))
+
+    @patch(
+        "products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers",
+        side_effect=[RuntimeError("redis down"), None],
+    )
+    def test_a_failed_team_reload_does_not_stop_the_other_teams(self, mock_reload: Mock) -> None:
+        other_team = Team.objects.create(organization=self.org, name="Other")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.org.is_active = False
+            self.org.save()
+
+        assert sorted(call.kwargs["team_id"] for call in mock_reload.call_args_list) == sorted(
+            [self.team.id, other_team.id]
+        )
 
 
 class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):

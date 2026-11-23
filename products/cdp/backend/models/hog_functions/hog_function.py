@@ -411,7 +411,11 @@ def _enqueue_organization_reload(organization_id: str) -> None:
 
 def publish_organization_hog_function_reloads(organization_id: UUID) -> None:
     for team_id, hog_function_ids in _hog_function_ids_by_team(organization_id).items():
-        reload_hog_functions_on_workers(team_id=team_id, hog_function_ids=hog_function_ids)
+        try:
+            reload_hog_functions_on_workers(team_id=team_id, hog_function_ids=hog_function_ids)
+        except Exception as e:
+            logger.exception("hog_function_organization_reload_failed", team_id=team_id)
+            capture_exception(e)
 
 
 def _hog_function_ids_by_team(organization_id: UUID) -> dict[int, list[str]]:
