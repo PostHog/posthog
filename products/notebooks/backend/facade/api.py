@@ -25,6 +25,7 @@ from .. import logic, markdown_migration
 # NotebookCreationSource is re-exported here so cross-product callers can label their create
 # source (e.g. notebooks.NotebookCreationSource.TEMPORAL_AGENT) without importing internals.
 from ..analytics import NotebookCreationSource, capture_notebook_created, notebook_node_count
+from ..logic import authorize_notebook_table_edit as authorize_notebook_table_edit
 from ..models import Notebook, ResourceNotebook
 from . import contracts
 
@@ -251,6 +252,7 @@ def create_account_notebook(
     text_content: str | None = None,
     created_by_id: int | None = None,
     last_modified_by_id: int | None = None,
+    can_write_warehouse_tables: bool = False,
 ) -> contracts.NotebookData:
     notebook = logic.create_account_notebook(
         team_id,
@@ -258,6 +260,7 @@ def create_account_notebook(
         title=title,
         content=content,
         text_content=text_content,
+        can_write_warehouse_tables=can_write_warehouse_tables,
         created_by_id=created_by_id,
         last_modified_by_id=last_modified_by_id,
     )

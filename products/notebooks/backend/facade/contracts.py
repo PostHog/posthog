@@ -57,6 +57,9 @@ class NotebookMarkdownContentInvalid(Exception):
     pass
 
 
+WAREHOUSE_SCOPE_REQUIRED = "Saving a warehouse table needs a token with the warehouse_table:write scope."
+
+
 class NotebookContentEditNotAllowed(Exception):
     pass
 

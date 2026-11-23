@@ -4422,6 +4422,23 @@ class TestAccountNoteScope(APIBaseTest):
 
         self.assertEqual(expected, response.status_code, response.content)
 
+    @parameterized.expand(
+        [
+            ("note_writer", "account_note:write", status.HTTP_403_FORBIDDEN),
+            ("warehouse_writer", "account_note:write warehouse_table:write", status.HTTP_201_CREATED),
+        ]
+    )
+    def test_table_publication_in_account_notes_requires_warehouse_write(
+        self, _name: str, scope: str, expected: int
+    ) -> None:
+        self._authenticate(scope)
+        content = '<PythonV2 nodeId="scores" saveToWarehouse={true} warehouseTableName="scores" />'
+        response = self.client.post(self.endpoint_base, {"title": "Scores", "text_content": content}, format="json")
+        self.assertEqual(expected, response.status_code, response.content)
+        self.assertEqual(
+            ResourceNotebook.objects.filter(account=self.account).exists(), expected == status.HTTP_201_CREATED
+        )
+
     def test_note_scope_does_not_reach_the_account_itself(self) -> None:
         self._authenticate("account:read account_note:write")
 

@@ -20,17 +20,58 @@ from posthog.constants import AvailableFeature
 from posthog.models import Team
 from posthog.models.tag import Tag, tagify
 from posthog.models.tagged_item import TaggedItem
+from posthog.notebook_warehouse_tables import NotebookTableError, get_notebook_table_writer
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 
-from .facade.contracts import NotebookContentEditNotAllowed
+from . import markdown_collab
+from .facade.contracts import WAREHOUSE_SCOPE_REQUIRED, NotebookContentEditNotAllowed
 from .markdown_conversion import get_markdown_notebook_markdown, is_markdown_notebook_content
 from .markdown_migration import to_markdown_notebook_content
 from .models import Notebook, ResourceNotebook
-from .sql_v2_state import validate_cell_count
+from .sql_v2_state import extract_cells, validate_cell_count
+from .util import TipTapContent, TipTapNode, iter_prosemirror_nodes
 
 if TYPE_CHECKING:
     from posthog.models import User
+
+
+def authorize_notebook_table_edit(
+    team_id: int,
+    user_id: int | None,
+    previous: TipTapNode | TipTapContent | None,
+    submitted: TipTapNode | TipTapContent | None,
+    *,
+    can_write_warehouse_tables: bool = False,
+    variables_changed: bool = False,
+) -> None:
+    if markdown_collab.get_markdown_notebook_markdown(submitted) is not None:
+        cells = extract_cells(submitted, for_edit_authorization=True)
+        targets = {cell.warehouse_table_name for cell in cells if cell.warehouse_table_name}
+        if not targets or (not variables_changed and cells == extract_cells(previous, for_edit_authorization=True)):
+            return
+    else:
+        # Rich-text notebooks also run individual Python cells in the editor.
+        targets = {
+            name.strip()
+            for node in iter_prosemirror_nodes(submitted)
+            if node.get("type") == "ph-python-v2"
+            and isinstance(attrs := node.get("attrs"), dict)
+            and attrs.get("saveToWarehouse")
+            and isinstance(name := attrs.get("warehouseTableName"), str)
+            and name.strip()
+        }
+        if not targets or (not variables_changed and submitted == previous):
+            return
+
+    # A changed upstream cell can alter every frame the notebook publishes.
+    if not can_write_warehouse_tables:
+        raise NotebookContentEditNotAllowed(WAREHOUSE_SCOPE_REQUIRED)
+    try:
+        for name in sorted(targets):
+            get_notebook_table_writer().validate_notebook_table_name(team_id, name, user_id)
+    except NotebookTableError as error:
+        raise NotebookContentEditNotAllowed(str(error)) from error
 
 
 def _validate_shared_notebook_edit(user: "User", notebook: Notebook, content: dict[str, Any]) -> None:
@@ -103,6 +144,7 @@ async def aupdate_notebook_content(
     # entirely (it is a queryset update, so no save() hook or signal fires either), and it is
     # how Max saves a notebook. A ceiling only the API respects is not a ceiling.
     validate_cell_count(notebook.content, content)
+    await sync_to_async(authorize_notebook_table_edit)(team_id, user.id, notebook.content, content)
     await sync_to_async(_validate_shared_notebook_edit)(user, notebook, content)
     await Notebook.objects.filter(pk=notebook.pk).aupdate(
         content=content,
@@ -130,7 +172,9 @@ async def aupsert_notebook(
     # written the over-limit row by the time the ceiling rejected it. Like the rest of this
     # writer, the read and the write are not atomic — the path has no version CAS at all.
     existing = await aget_notebook(team_id, short_id, include_deleted=True)
-    validate_cell_count(existing.content if existing is not None else None, content)
+    previous = existing.content if existing is not None else None
+    validate_cell_count(previous, content)
+    await sync_to_async(authorize_notebook_table_edit)(team_id, user.id, previous, content)
     notebook, created = await Notebook.objects.aget_or_create(
         team_id=team_id,
         short_id=short_id,
@@ -220,12 +264,16 @@ def create_account_notebook(
     text_content: str | None = None,
     created_by_id: int | None = None,
     last_modified_by_id: int | None = None,
+    can_write_warehouse_tables: bool = False,
 ) -> Notebook:
     if not is_markdown_notebook_content(content):
         organization_id = Team.objects.values_list("organization_id", flat=True).get(id=team_id)
         content = to_markdown_notebook_content(content, organization_id=organization_id)
     # A converted or synthesized document can hold more cells than the editor allows, so count it before saving.
     validate_cell_count(None, content)
+    authorize_notebook_table_edit(
+        team_id, created_by_id, None, content, can_write_warehouse_tables=can_write_warehouse_tables
+    )
     # Search reads text_content, so it mirrors the stored markdown.
     text_content = get_markdown_notebook_markdown(content)
     with transaction.atomic():

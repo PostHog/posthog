@@ -95,6 +95,17 @@ def _access(user: User, team_id: int) -> UserAccessControl:
     return UserAccessControl(user=user, team=Team.objects.get(id=team_id))
 
 
+def lock_notebook_table_version(team_id: int, table_name: str, table_id: str, run_id: str) -> bool:
+    current = (
+        DataWarehouseTable.objects.select_for_update(of=("self",))
+        .filter(team_id=team_id, id=table_id, name=table_name)
+        .exclude(deleted=True)
+        .values_list("url_pattern", flat=True)
+        .first()
+    )
+    return bool(current and current.endswith(f"/versions/{run_id}.parquet"))
+
+
 def validate_notebook_table_name(team_id: int, table_name: str, user_id: int | None) -> None:
     """Raise `NotebookTableError` unless a notebook may write a table with this name.
 

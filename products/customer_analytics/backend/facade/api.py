@@ -5200,6 +5200,7 @@ def create_account_notebook(
     input: contracts.CreateAccountNotebookInput,
     user: "User",
     user_access_control: "UserAccessControl",
+    can_write_warehouse_tables: bool,
 ) -> contracts.AccountNotebookView | None:
     """Create an internal notebook and link it to an accessible account. None when the
     parent account isn't accessible (→ 404). The view supplies ``synthesized_content``
@@ -5214,6 +5215,7 @@ def create_account_notebook(
             title=input.title,
             content=content,
             text_content=input.text_content,
+            can_write_warehouse_tables=can_write_warehouse_tables,
             created_by_id=user.id,
             last_modified_by_id=user.id,
         )

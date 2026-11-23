@@ -148,7 +148,11 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     UserCustomerAnalyticsConfigUpdateSerializer,
 )
 from products.notebooks.backend.facade.content import build_markdown_notebook_content
-from products.notebooks.backend.facade.contracts import NotebookCellLimitExceeded, NotebookContentNotConvertible
+from products.notebooks.backend.facade.contracts import (
+    NotebookCellLimitExceeded,
+    NotebookContentEditNotAllowed,
+    NotebookContentNotConvertible,
+)
 
 # Object-level access levels for the resource ViewSets, matching what
 # ``AccessControlPermission._get_required_access_level`` derives for these scope objects:
@@ -2604,7 +2608,10 @@ class AccountNotebookViewSet(
                 ),
                 user=cast(User, request.user),
                 user_access_control=self.user_access_control,
+                can_write_warehouse_tables=not scopes_caller_lacks(request, ["warehouse_table:write"]),
             )
+        except NotebookContentEditNotAllowed as err:
+            raise PermissionDenied(str(err)) from err
         except (NotebookContentNotConvertible, NotebookCellLimitExceeded) as err:
             raise ValidationError({"content": str(err)})
         if notebook is None:

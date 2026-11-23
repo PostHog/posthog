@@ -6,6 +6,7 @@ from django.db import transaction
 import structlog
 
 from posthog.models import Team
+from posthog.notebook_warehouse_tables import get_notebook_table_writer
 
 from products.data_modeling.backend.logic.saved_query_dag_sync import (
     delete_orphaned_table_nodes,
@@ -17,7 +18,6 @@ from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.edge import CycleDetectionError, Edge
 from products.data_modeling.backend.models.modeling import get_parents_from_model_query
 from products.data_modeling.backend.models.node import NOTEBOOK_SOURCE_KEY, Node, NodeType
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
 
@@ -57,14 +57,7 @@ def sync_notebook_table_to_dag(
     dependencies.discard(table_name)
 
     with transaction.atomic():
-        current = (
-            DataWarehouseTable.objects.select_for_update(of=("self",))
-            .filter(team_id=team_id, id=warehouse_table_id, name=table_name)
-            .exclude(deleted=True)
-            .values_list("url_pattern", flat=True)
-            .first()
-        )
-        if not current or not current.endswith(f"/versions/{run_id}.parquet"):
+        if not get_notebook_table_writer().lock_notebook_table_version(team_id, table_name, warehouse_table_id, run_id):
             logger.info("notebook_table_dag_sync_skipped_stale_run", team_id=team_id, table_name=table_name)
             return []
         lock_dag(team_id, dag.id)

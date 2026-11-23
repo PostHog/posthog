@@ -210,6 +210,24 @@ class TestNotebooksFacadeAsync(BaseTest):
         self.assertEqual(notebook.version, original_version)
 
     @pytest.mark.asyncio
+    async def test_background_notebook_author_cannot_configure_publication(self):
+        notebook = await Notebook.objects.acreate(team=self.team, title="Original", content=self._doc())
+        proposed = content.build_markdown_notebook_content(
+            '<PythonV2 nodeId="scores" saveToWarehouse={true} warehouseTableName="scores" />'
+        )
+        with self.assertRaisesRegex(NotebookContentEditNotAllowed, "warehouse_table:write"):
+            await api.aupdate_notebook_content(
+                self.team.id, notebook.short_id, user=self.user, content=proposed, title="Edited", text_content=None
+            )
+        with self.assertRaisesRegex(NotebookContentEditNotAllowed, "warehouse_table:write"):
+            await api.aupsert_notebook(
+                self.team.id, "new-note", user=self.user, created_by_id=self.user.id, content=proposed, title="New"
+            )
+        await notebook.arefresh_from_db()
+        self.assertEqual(notebook.content, self._doc())
+        self.assertFalse(await api.anotebook_exists(self.team.id, "new-note"))
+
+    @pytest.mark.asyncio
     async def test_anotebook_exists_and_aget(self):
         notebook = await Notebook.objects.acreate(team=self.team, title="async", content=self._doc())
         self.assertTrue(await api.anotebook_exists(self.team.id, notebook.short_id))

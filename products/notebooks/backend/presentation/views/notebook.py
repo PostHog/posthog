@@ -55,8 +55,8 @@ from posthog.models.activity_logging.activity_log import Change, changes_between
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.utils import UUIDT
-from posthog.notebook_warehouse_tables import NotebookTableAttribution, NotebookTableError, get_notebook_table_writer
-from posthog.permissions import get_authenticator_scopes
+from posthog.notebook_warehouse_tables import NotebookTableAttribution, get_notebook_table_writer
+from posthog.permissions import scopes_caller_lacks
 from posthog.renderers import ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.utils import relative_date_parse
@@ -74,7 +74,7 @@ from products.notebooks.backend.analytics import (
     notebook_node_count,
 )
 from products.notebooks.backend.collab import submit_steps
-from products.notebooks.backend.facade.api import to_markdown_notebook_content
+from products.notebooks.backend.facade.api import authorize_notebook_table_edit, to_markdown_notebook_content
 from products.notebooks.backend.facade.compute_pricing import (
     COMPUTE_PRESETS,
     DEFAULT_COMPUTE_PRESET_KEY,
@@ -82,8 +82,9 @@ from products.notebooks.backend.facade.compute_pricing import (
     find_matching_preset,
     get_compute_rates,
 )
-from products.notebooks.backend.facade.content import iter_prosemirror_nodes
 from products.notebooks.backend.facade.contracts import (
+    WAREHOUSE_SCOPE_REQUIRED,
+    NotebookContentEditNotAllowed,
     NotebookContentNotConvertible,
     NotebookRunBusy,
     TeamRunCapacityFull,
@@ -213,7 +214,6 @@ from products.notebooks.backend.sql_v2_serializers import (
 from products.notebooks.backend.sql_v2_state import (
     NotebookCellLimitExceeded,
     build_notebook_cell_state,
-    extract_cells,
     validate_cell_count,
 )
 from products.notebooks.backend.sql_v2_variables import build_notebook_variables
@@ -235,41 +235,23 @@ def _warehouse_table_attribution(request: Request) -> NotebookTableAttribution:
 
 
 def _require_warehouse_write_scope(request: Request) -> None:
-    scopes = get_authenticator_scopes(request.successful_authenticator)
-    if scopes is not None and "*" not in scopes and "warehouse_table:write" not in scopes:
-        raise PermissionDenied("Saving a warehouse table needs a token with the warehouse_table:write scope.")
+    if scopes_caller_lacks(request, ["warehouse_table:write"]):
+        raise PermissionDenied(WAREHOUSE_SCOPE_REQUIRED)
 
 
 def _authorize_notebook_table_edit(
     request: Request, team_id: int, previous: Any, submitted: Any, *, variables_changed: bool = False
 ) -> None:
-    if markdown_collab.get_markdown_notebook_markdown(submitted) is not None:
-        cells = extract_cells(submitted, for_edit_authorization=True)
-        targets = {cell.warehouse_table_name for cell in cells if cell.warehouse_table_name}
-        if not targets or (not variables_changed and cells == extract_cells(previous, for_edit_authorization=True)):
-            return
-    else:
-        # Rich-text notebooks also run individual Python cells in the editor.
-        targets = {
-            name.strip()
-            for node in iter_prosemirror_nodes(submitted)
-            if node.get("type") == "ph-python-v2"
-            and isinstance(attrs := node.get("attrs"), dict)
-            and attrs.get("saveToWarehouse")
-            and isinstance(name := attrs.get("warehouseTableName"), str)
-            and name.strip()
-        }
-        if not targets or (not variables_changed and submitted == previous):
-            return
-
-    # A changed upstream cell can alter every frame the notebook publishes.
-    _require_warehouse_write_scope(request)
     try:
-        for name in sorted(targets):
-            get_notebook_table_writer().validate_notebook_table_name(
-                team_id, name, request.user.id if isinstance(request.user, User) else None
-            )
-    except NotebookTableError as error:
+        authorize_notebook_table_edit(
+            team_id,
+            request.user.id if isinstance(request.user, User) else None,
+            previous,
+            submitted,
+            can_write_warehouse_tables=not scopes_caller_lacks(request, ["warehouse_table:write"]),
+            variables_changed=variables_changed,
+        )
+    except NotebookContentEditNotAllowed as error:
         raise PermissionDenied(str(error)) from error
 
 
