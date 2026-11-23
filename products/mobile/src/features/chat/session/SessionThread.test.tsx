@@ -194,9 +194,9 @@ describe('SessionThread', () => {
 
         expect(screen.getAllByRole('link')).toHaveLength(3)
         await act(async () => {
-            fireEvent.press(screen.getByRole('link', { name: 'the review' }))
-            fireEvent.press(screen.getByRole('link', { name: guide }))
-            fireEvent.press(screen.getByRole('link', { name: status }))
+            fireEvent.press(screen.getByText('the review'))
+            fireEvent.press(screen.getByText(guide))
+            fireEvent.press(screen.getByText(status))
             fireEvent.press(screen.getByLabelText('Copy message text'))
         })
 
