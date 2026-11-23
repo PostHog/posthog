@@ -48,6 +48,7 @@ from posthog.utils import get_instance_realm
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
 from products.authorization.backend.presentation.querysets import filter_visible_projects
+from products.dashboards.backend.facade import api as dashboards_api
 
 from . import integration_config, team_config, team_permissions, team_serializer
 
@@ -440,6 +441,8 @@ class TeamViewSet(
                 snapshot[field_name] = getattr(team, f"{field_name}_id")
             else:
                 snapshot[field_name] = None
+        # Stored on a dashboards extension, not on Team, so the loop above reads None for it.
+        snapshot["home_tab_dashboard"] = dashboards_api.home_tab_dashboard_id(team_id=team.id)
 
         # Fetch Team-scoped activity logs after the target timestamp
         logs = (

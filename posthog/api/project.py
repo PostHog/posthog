@@ -22,7 +22,7 @@ from posthog.schema import ProductKey
 from posthog import cloud_utils
 from posthog.api import project_tags
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.scoped_related_fields import ProjectScopedPrimaryKeyRelatedField, TeamScopedPrimaryKeyRelatedField
+from posthog.api.scoped_related_fields import ProjectScopedPrimaryKeyRelatedField
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 
@@ -68,6 +68,7 @@ from posthog.api.team.team_serializer import (
     REALTIME_COHORTS_FIELD_SCHEMA,
     EvaluationContextSuggestionRequestSerializer,
     EvaluationContextSuggestionResponseSerializer,
+    HomeTabDashboardField,
     TeamSerializer,
     available_error_tracking_ai_features,
     flag_evaluations_read_mode_for,
@@ -148,7 +149,7 @@ from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import Resource
 from products.authorization.backend.facade.enums import Action, ResourceType
 from products.authorization.backend.presentation.querysets import filter_visible_projects
-from products.dashboards.backend.models import Dashboard
+from products.dashboards.backend.facade import api as dashboards_api
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import flag_calls_only_in_flag_evaluations
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
@@ -421,6 +422,8 @@ def team_settings_as_of_view(team: Team, request: request.Request) -> response.R
             snapshot[field_name] = getattr(team, f"{field_name}_id")
         else:
             snapshot[field_name] = None
+    # Stored on a dashboards extension, not on Team, so the loop above reads None for it.
+    snapshot["home_tab_dashboard"] = dashboards_api.home_tab_dashboard_id(team_id=team.id)
 
     logs = (
         ActivityLog.objects.filter(team_id=team.id, scope="Team", item_id=str(team.id), created_at__gt=as_of)
@@ -706,11 +709,9 @@ class ProjectBackwardCompatSerializer(
     )
     # Lives on the passthrough Team's extension too, not a real Team column, so it can't be merged
     # in by ProjectBackwardCompatBasicSerializer.get_fields() like a normal model field.
-    home_tab_dashboard = TeamScopedPrimaryKeyRelatedField(
-        queryset=Dashboard.objects.all(),
+    home_tab_dashboard = HomeTabDashboardField(
         required=False,
         allow_null=True,
-        error_messages={"does_not_exist": "Dashboard does not belong to this team."},
         help_text=(
             "ID of the dashboard shown on the product analytics Home tab. Null shows the built-in generic view."
         ),
@@ -1370,8 +1371,7 @@ class ProjectBackwardCompatSerializer(
         team = instance.passthrough_team
         team_before_update = team.__dict__.copy()
         if "home_tab_dashboard" in validated_data:
-            dashboard = team.home_tab_dashboard
-            team_before_update["home_tab_dashboard"] = dashboard.id if dashboard else None
+            team_before_update["home_tab_dashboard"] = dashboards_api.home_tab_dashboard_id(team_id=team.id)
         project_before_update = instance.__dict__.copy()
 
         # Analytics configs live on related models, not Team columns — handle them via the shared helpers
@@ -1393,8 +1393,8 @@ class ProjectBackwardCompatSerializer(
         # generic passthrough loop below.
         if "home_tab_dashboard" in validated_data:
             dashboard = validated_data.pop("home_tab_dashboard")
-            team.home_tab_dashboard = dashboard
             home_tab_dashboard_id = dashboard.id if dashboard else None
+            dashboards_api.set_home_tab_dashboard(team_id=team.id, dashboard_id=home_tab_dashboard_id)
 
         if "session_recording_retention_period" in validated_data:
             verify_team_session_recording_retention_period(team, validated_data["session_recording_retention_period"])
