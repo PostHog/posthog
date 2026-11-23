@@ -30,6 +30,9 @@ export interface CitationsLookup {
     /** The last day, or null for today. A report passes its own `window_to`. */
     dateTo: string | null
     branded: BrandedSegmentEnumApi
+    /** The engine and topic filters of the report it came from, so the list matches the number it opened from. */
+    engine?: string | null
+    topic?: string | null
 }
 
 export interface CitationsPage {
@@ -176,6 +179,8 @@ export const contentAutopilotCitationsModalLogic = kea<contentAutopilotCitations
                 date_from: lookup.dateFrom,
                 ...(lookup.dateTo !== null ? { date_to: lookup.dateTo } : {}),
                 branded: lookup.branded,
+                ...(typeof lookup.engine === 'string' ? { engine: lookup.engine } : {}),
+                ...(typeof lookup.topic === 'string' ? { topic: lookup.topic } : {}),
                 include_answer_text: true,
                 limit: CITATIONS_PAGE_SIZE,
                 offset,

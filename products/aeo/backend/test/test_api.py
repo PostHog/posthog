@@ -21,7 +21,7 @@ from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal
-from posthog.rate_limit import AEOKeywordReportBurstRateThrottle
+from posthog.rate_limit import AEOKeywordReportBurstRateThrottle, AEOSetReadBurstRateThrottle
 
 from products.aeo.backend import brand, catalog
 from products.aeo.backend.engine_settings import engine_schedule
@@ -1500,6 +1500,35 @@ class TestAEOPromptAPI(APIBaseTest):
                 "change": 3 / 16,
             }
 
+    def test_movers_keep_only_the_pages_that_moved_most_in_each_direction(self) -> None:
+        create_own_brand(self.team, "example.com")
+        prompt_id = self._import_one_prompt()
+        site = "https://example.com"
+        # Ten answers in each window. Page /up-N gains N citing answers and page /down-N loses N, so each side
+        # ranks by N, and there are more pages on each side than the response keeps.
+        for answer in range(10):
+            self._record_check(
+                prompt_id,
+                "exa-answer",
+                minutes_ago=10,
+                cited_urls=[f"{site}/up-{n}" for n in range(1, 8) if answer < n],
+            )
+            self._record_check(
+                prompt_id,
+                "exa-answer",
+                minutes_ago=35 * 24 * 60,
+                cited_urls=[f"{site}/down-{n}" for n in range(1, 8) if answer < n],
+            )
+
+        movers = self.client.get(f"{self.url}movers/").json()
+
+        assert [row["url"].removeprefix(site) for row in movers["page_gainers"]] == [
+            f"/up-{n}" for n in range(7, 2, -1)
+        ]
+        assert [row["url"].removeprefix(site) for row in movers["page_losers"]] == [
+            f"/down-{n}" for n in range(7, 2, -1)
+        ]
+
     @parameterized.expand(
         [
             ("unknown_branded", "overview", "branded=yes"),
@@ -1517,6 +1546,19 @@ class TestAEOPromptAPI(APIBaseTest):
         path = f"{self.url}{endpoint}/" if endpoint else self.url
         assert self.client.get(f"{path}?{query}").status_code == status.HTTP_400_BAD_REQUEST
 
+    @parameterized.expand([("overview",), ("rankings",), ("movers",)])
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_set_reads_are_throttled_for_the_session_authenticated_ui(
+        self, endpoint: str, _rate_limit_enabled: MagicMock
+    ) -> None:
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+        with patch.object(AEOSetReadBurstRateThrottle, "rate", "2/minute"):
+            statuses = [self.client.get(f"{self.url}{endpoint}/").status_code for _ in range(3)]
+
+        assert statuses == [status.HTTP_200_OK, status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS]
+
     @parameterized.expand(
         [
             ("exact_url", "url=https://docs.example.com/funnels", ["best funnel tools?"]),
@@ -1527,6 +1569,8 @@ class TestAEOPromptAPI(APIBaseTest):
             ("longer_window", "domain=example.com&date_from=-60d", ["best funnel tools?", "best funnel tools?"]),
             ("past_range", "domain=example.com&date_from=-60d&date_to=-30d", ["best funnel tools?"]),
             ("engine", "domain=example.com&engine=claude-web-search", []),
+            ("topic", "domain=example.com&topic=Funnels", ["best funnel tools?"]),
+            ("other_topic", "domain=example.com&topic=Replay", []),
             ("search_normalized", "search=%20FUNNEL%20%20tools%20", ["best funnel tools?"]),
             ("search_branded", "search=funnel%20tools%20pricing&branded=branded", ["is example good?"]),
             ("search_non_branded", "search=funnel%20tools%20pricing&branded=non_branded", []),
@@ -1538,7 +1582,9 @@ class TestAEOPromptAPI(APIBaseTest):
         self, _name: str, query: str, expected: list[str] | None
     ) -> None:
         create_own_brand(self.team, "example.com")
-        ids = self._import_prompts([{"prompt": "best funnel tools?"}, {"prompt": "is example good?"}])
+        ids = self._import_prompts(
+            [{"prompt": "best funnel tools?", "topic": "Funnels"}, {"prompt": "is example good?"}]
+        )
         self._record_check(
             ids["best funnel tools?"],
             "exa-answer",

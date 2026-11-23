@@ -907,6 +907,20 @@ class AEOPromptSuggestionsSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "30/hour"
 
 
+# The AEO overview, rankings and movers aggregate every answered check in the window on a cache miss, and each
+# date range is its own cache key. Like the keyword report bucket below, this team bucket bounds how often a
+# browser or a script can start that work. One page view reads all three, so the rate clears a few people
+# changing filters at once.
+class AEOSetReadBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_set_read_burst"
+    rate = "90/minute"
+
+
+class AEOSetReadSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_set_read_sustained"
+    rate = "1200/hour"
+
+
 # AEO keyword suggestions queue the same kind of Celery job, so they get the same limits in a bucket of their own.
 class AEOKeywordSuggestionsBurstRateThrottle(_TeamBucketRateThrottle):
     scope = "aeo_keyword_suggestions_burst"

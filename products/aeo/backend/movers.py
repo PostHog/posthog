@@ -28,22 +28,37 @@ from products.aeo.backend.rankings import registrable_domain
 from products.aeo.backend.scope import NAMED_SCOPE_SQL, CheckScope, named_scope_sql_params, scope_filter
 from products.aeo.backend.window import CheckWindow
 
-# Answered checks that cite each URL on an own domain, in the current window and in the one before.
-# Both tables are narrowed by team and time, so each side is read from its own window index.
+# Answered checks that cite each URL on an own domain, in the current window and in the one before, for the
+# pages whose citation rate gained and lost the most. Both tables are narrowed by team and time, so each side is
+# read from its own window index. The ranking happens here so a site with many cited pages returns only the movers;
+# `_top_movers` ranks the same way, and the "C" collation breaks ties on the URL in the same order Python does.
 _OWN_PAGES_SQL = f"""
-    SELECT citation.url,
-        count(DISTINCT citation.citation_check_id) FILTER (WHERE citation.created_at >= %(window_start)s),
-        count(DISTINCT citation.citation_check_id) FILTER (WHERE citation.created_at < %(window_start)s)
-    FROM posthog_aeo_check_citation AS citation
-    JOIN posthog_aeo_citation_check AS check_row ON check_row.id = citation.citation_check_id
-    WHERE citation.team_id = %(team_id)s
-        AND citation.created_at >= %(previous_start)s AND citation.created_at < %(until)s
-        AND check_row.team_id = %(team_id)s
-        AND check_row.created_at >= %(previous_start)s AND check_row.created_at < %(until)s
-        AND check_row.check_failed = false AND check_row.mode = 'web_search'
-        AND {NAMED_SCOPE_SQL}
-        AND citation.domain = ANY(%(own_domains)s) AND citation.url <> ''
-    GROUP BY citation.url
+    WITH pages AS (
+        SELECT citation.url,
+            count(DISTINCT citation.citation_check_id) FILTER (WHERE citation.created_at >= %(window_start)s) AS citing,
+            count(DISTINCT citation.citation_check_id) FILTER (WHERE citation.created_at < %(window_start)s)
+                AS previous_citing
+        FROM posthog_aeo_check_citation AS citation
+        JOIN posthog_aeo_citation_check AS check_row ON check_row.id = citation.citation_check_id
+        WHERE citation.team_id = %(team_id)s
+            AND citation.created_at >= %(previous_start)s AND citation.created_at < %(until)s
+            AND check_row.team_id = %(team_id)s
+            AND check_row.created_at >= %(previous_start)s AND check_row.created_at < %(until)s
+            AND check_row.check_failed = false AND check_row.mode = 'web_search'
+            AND {NAMED_SCOPE_SQL}
+            AND citation.domain = ANY(%(own_domains)s) AND citation.url <> ''
+        GROUP BY citation.url
+    ),
+    changes AS (
+        SELECT url, citing, previous_citing,
+            citing::float8 / %(answers)s - previous_citing::float8 / %(previous_answers)s AS change
+        FROM pages
+    )
+    (SELECT url, citing, previous_citing FROM changes WHERE change > 0
+        ORDER BY change DESC, url COLLATE "C" LIMIT %(limit)s)
+    UNION ALL
+    (SELECT url, citing, previous_citing FROM changes WHERE change < 0
+        ORDER BY change ASC, url COLLATE "C" LIMIT %(limit)s)
 """
 
 
@@ -172,6 +187,9 @@ def get_movers(team_id: int, *, target_domains: list[str], window: CheckWindow, 
                     "previous_start": previous_start,
                     "until": until,
                     "own_domains": own_domains,
+                    "answers": totals["answers"],
+                    "previous_answers": totals["previous_answers"],
+                    "limit": MAX_MOVERS,
                     **named_scope_sql_params(scope),
                 },
             )

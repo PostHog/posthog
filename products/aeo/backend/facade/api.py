@@ -359,17 +359,19 @@ def list_prompt_set_citations(
     domain: str | None = None,
     search: str | None = None,
     engine: str | None = None,
+    topic: str | None = None,
     branded: BrandedSegment = BrandedSegment.ALL,
     include_answer_text: bool = False,
 ) -> tuple[list[PromptCitation], int]:
     """One page, newest first, of the answered web-search checks from `date_from` to `date_to` that cited
     `url`, cited a host on `domain` or one of its subdomains, or ran `search`, and the total count. Exactly one
-    of the three must be set. Raises InvalidDateRangeError."""
+    of the three must be set. `branded`, `engine` and `topic` keep the checks a set-level read counts, so a
+    drill-through lists the answers behind its number. Raises InvalidDateRangeError."""
     if sum(value is not None for value in (url, domain, search)) != 1:
         raise ValueError("Pass exactly one of url, domain or search.")
     window = _window(timezone_name, date_from, date_to)
     checks = AEOCitationCheck.objects.for_team(team_id).filter(
-        check_segment_filter(branded),
+        scope_filter(CheckScope(segment=branded, engine=engine, topic=topic)),
         created_at__gte=window.start,
         created_at__lt=window.until,
         check_failed=False,
@@ -388,8 +390,6 @@ def list_prompt_set_citations(
             # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql -- constant SQL, the search is a bound parameter
             RawSQL(_RAN_SEARCH_SQL, [_normalize_search(search)], output_field=BooleanField())
         )
-    if engine is not None:
-        checks = checks.filter(engine=engine)
 
     fields = _CHECK_FIELDS if include_answer_text else tuple(f for f in _CHECK_FIELDS if f != "answer_text")
     page = (

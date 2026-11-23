@@ -97,6 +97,8 @@ export const ContentAutopilotMovers = (): JSX.Element | null => {
                             dateFrom={movers.window_from}
                             dateTo={movers.window_to}
                             branded={movers.branded}
+                            engine={movers.engine}
+                            topic={movers.topic}
                         />
                     </div>
                 ) : (

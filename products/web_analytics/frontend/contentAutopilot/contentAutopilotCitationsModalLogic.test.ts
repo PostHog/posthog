@@ -75,6 +75,28 @@ describe('contentAutopilotCitationsModalLogic', () => {
         )
     })
 
+    it.each([
+        [
+            'one engine and topic',
+            { engine: 'exa-answer', topic: 'Funnels' },
+            { engine: 'exa-answer', topic: 'Funnels' },
+        ],
+        ['prompts with no topic', { engine: null, topic: '' }, { topic: '' }],
+        ['every engine and topic', { engine: null, topic: null }, {}],
+    ])('sends the report filters for %s', async (_, filters, expected) => {
+        mockCitations.mockImplementation((_, params) => page(params?.offset ?? 0, 2))
+
+        logic.actions.openCitations({ ...OWN_PAGE, ...filters }, 'movers-pages')
+        await expectLogic(logic).toFinishAllListeners()
+
+        const params = mockCitations.mock.calls[0][1]
+        expect({ engine: params?.engine, topic: params?.topic }).toEqual({
+            engine: undefined,
+            topic: undefined,
+            ...expected,
+        })
+    })
+
     it('drops the previous lookup and ignores its late answer', async () => {
         let resolveFirst: (value: Awaited<ReturnType<typeof aeoPromptsCitations>>) => void = () => {}
         mockCitations
