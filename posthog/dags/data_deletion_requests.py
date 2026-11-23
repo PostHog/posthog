@@ -34,7 +34,6 @@ from posthog.clickhouse.client.connection import ClickHouseUser, NodeRole
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
     LightweightDeleteMutationRunner,
-    Query,
     wait_for_patch_part_replication,
 )
 from posthog.clickhouse.events_json import UNPARSEABLE_PROPERTIES_KEY
@@ -639,18 +638,6 @@ def _verify_swept(
         raise dagster.Failure(description=f"Deletion request {deletion_request.request_id}: {exc}") from exc
 
 
-def _storage_holds_rows(placement: TargetPlacement, predicate: str, params: dict) -> bool:
-    """Whether the target's storage table holds rows that match ``predicate``, read on the cluster that stores it.
-
-    A Distributed proxy reads only the cluster its engine names, so it can read an empty table while
-    the storage table holds the rows.
-    """
-    query = Query(
-        surviving_rows_sql(placement.target.data_table, predicate), params, settings={"max_execution_time": "1800"}
-    )
-    return any(rows and rows[0][0] for rows in placement.cluster.map_one_host_per_shard(query).result().values())
-
-
 def _event_removal_placements(
     cluster: ClickhouseCluster, deletion_request: DeletionRequestContext
 ) -> list[TargetPlacement]:
@@ -679,7 +666,7 @@ def _event_removal_placements(
             continue
         # Mutations serialize per table, so a no-op one would queue in front of real work. The count
         # also runs the compiled fragment on the table before anything is deleted or queued.
-        if target not in EVENTS_TARGETS and not _storage_holds_rows(placement, *criteria):
+        if target not in EVENTS_TARGETS and not count_surviving_rows(cluster, target, *criteria):
             continue
         swept.append(placement)
     return swept
@@ -757,12 +744,6 @@ def _queue_events_for_deferred_deletion(
     for placement, where in reads:
         if placement.cluster is not cluster:
             read_table = placement.target.read_table
-            if not count_surviving_rows(cluster, placement.target, *where):
-                raise dagster.Failure(
-                    description=f"Deletion request {deletion_request.request_id}: {read_table} reads none of the "
-                    f"matching rows that {placement.target.data_table} holds on "
-                    f"{placement.cluster.data_cluster_name!r}, so their uuids cannot be queued. See {COVERAGE_DOC}."
-                )
             context.log.info(f"Queueing {read_table} into {ADHOC_EVENTS_DELETION_TABLE}")
             cluster.any_host_by_role(partial(queue_uuids, source_table=read_table, where=where), NodeRole.DATA).result()
 
