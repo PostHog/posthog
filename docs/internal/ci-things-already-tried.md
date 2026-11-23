@@ -527,6 +527,11 @@ This also explains why the existing `parallel:` group in that job is cheap to ke
 
 Do not retry this on the same runner. It would need `depot-ubuntu-24.04-4` or larger first, and then the extra runner cost has to be weighed against the wall time, the same trade rejected for WebKit in "Run the Storybook WebKit shards on 4-CPU runners".
 
+The runner has since changed. In Nov 2026 the `code-quality` job and the type check beside it moved to `depot-ubuntu-24.04-4` on every event, because on the 2-vCPU runner they are the whole wall of the workflow.
+Over the pull-request runs of 2026-11-23 each CPU-bound step at least halved on the wider machine, and the pair of jobs went 161s to 132s and 166s to 133s.
+The precondition this entry asks for now holds, so the `parallel:` block itself is worth measuring again on 4 vCPU.
+The cost note still applies: the `-4` runner bills at 2x per minute.
+
 Both sides of the comparison ran with every gated pytest suite switched on. A diff that touches `ci-python.yml` matches every path filter in the `changes` job, so its job is not comparable to a typical pull request's.
 
 _Also asked as:_ parallelize mypy and ty, run the static checks at the same time, speed up the python code-quality job, why is mypy slow in CI
