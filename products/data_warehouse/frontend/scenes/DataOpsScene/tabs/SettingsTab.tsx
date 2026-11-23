@@ -5,7 +5,7 @@ import { IconCheck, IconX } from '@posthog/icons'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -13,7 +13,6 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import type {
     WarehouseConnectionApi,
@@ -26,7 +25,6 @@ import { MyHoglakeCredentials } from './MyHoglakeCredentials'
 import { TrinoConnectionDetails } from './TrinoConnectionDetails'
 import { trinoCombinedStatus } from './trinoWarehouseStatus'
 import type { TrinoCombinedState } from './trinoWarehouseStatus'
-import { WarehouseConsoleMovedNotice } from './WarehouseConsoleMovedNotice'
 import { warehouseProvisioningLogic } from './warehouseProvisioningLogic'
 
 function stateToTagType(state: WarehouseStatusResponseStateEnumApi): 'success' | 'warning' | 'danger' | 'default' {
@@ -150,9 +148,6 @@ export function SettingsTab(): JSX.Element {
     })
     const { dataOpsVariant } = useValues(dataWarehouseSceneLogic)
     const isTrino = dataOpsVariant === 'trino'
-    const { featureFlags } = useValues(featureFlagLogic)
-    // With the console on, Connect shows the connection details and Access resets the password.
-    const consoleOwnsAccess = isTrino && !!featureFlags[FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE]
 
     const hasWarehouse = warehouseStatus && warehouseStatus.state !== 'deleted'
     const isReady = warehouseStatus?.state === 'ready'
@@ -162,7 +157,6 @@ export function SettingsTab(): JSX.Element {
 
     return (
         <div className="mt-4 space-y-4 max-w-160">
-            <WarehouseConsoleMovedNotice target="access" />
             <div>
                 <h2 className="mb-2">Managed warehouse</h2>
                 {!isReady && (
@@ -361,27 +355,23 @@ export function SettingsTab(): JSX.Element {
                         )}
                     </div>
 
-                    {consoleOwnsAccess
-                        ? null
-                        : isTrino
-                          ? isReady &&
-                            teamOnboarded &&
-                            trinoStatus?.state === 'ready' &&
-                            (warehouseStatus?.trino?.connection ? (
-                                <TrinoConnectionDetails
-                                    connection={warehouseStatus.trino.connection}
-                                    schemaName={teamSchemaName}
-                                />
-                            ) : (
-                                <p className="text-muted text-xs mb-0">
-                                    Connection details are temporarily unavailable. Refresh to try again.
-                                </p>
-                            ))
-                          : isReady &&
-                            teamOnboarded &&
-                            warehouseStatus?.connection && (
-                                <ConnectionDetails connection={warehouseStatus.connection} />
-                            )}
+                    {isTrino
+                        ? isReady &&
+                          teamOnboarded &&
+                          trinoStatus?.state === 'ready' &&
+                          (warehouseStatus?.trino?.connection ? (
+                              <TrinoConnectionDetails
+                                  connection={warehouseStatus.trino.connection}
+                                  schemaName={teamSchemaName}
+                              />
+                          ) : (
+                              <p className="text-muted text-xs mb-0">
+                                  Connection details are temporarily unavailable. Refresh to try again.
+                              </p>
+                          ))
+                        : isReady &&
+                          teamOnboarded &&
+                          warehouseStatus?.connection && <ConnectionDetails connection={warehouseStatus.connection} />}
 
                     {/* Hoglake credentials reach only a hoglake catalog: a DuckLake one has nothing behind them. */}
                     {isTrino && isReady && trinoStatus?.state === 'ready' && warehouseStatus?.trino?.hoglake && (
@@ -466,7 +456,7 @@ export function SettingsTab(): JSX.Element {
                     )}
 
                     <div className="flex gap-2">
-                        {isReady && teamOnboarded && !consoleOwnsAccess && (
+                        {isReady && teamOnboarded && (
                             <LemonButton
                                 type="secondary"
                                 loading={isResettingPassword}

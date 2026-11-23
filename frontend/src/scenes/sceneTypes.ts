@@ -221,6 +221,7 @@ export enum Scene {
     WarehouseStorage = 'WarehouseStorage',
     WarehouseAccess = 'WarehouseAccess',
     WarehouseConnect = 'WarehouseConnect',
+    WarehouseSettings = 'WarehouseSettings',
     WarehouseProperties = 'WarehouseProperties',
     WebAnalytics = 'WebAnalytics',
     WebAnalyticsPageReports = 'WebAnalyticsPageReports',

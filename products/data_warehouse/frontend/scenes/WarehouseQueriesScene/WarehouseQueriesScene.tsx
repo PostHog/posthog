@@ -10,6 +10,8 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { WarehouseConsoleGate } from '../WarehouseConsole/WarehouseConsoleGate'
 import { warehouseConsoleLogic } from '../WarehouseConsole/warehouseConsoleLogic'
 import { WarehouseConsoleState } from '../WarehouseConsole/WarehouseConsoleState'
+import { type WarehousePageTab, WarehousePageTabs } from '../WarehouseConsole/WarehousePageTabs'
+import { WarehousePerformance } from './WarehousePerformance'
 import { WarehouseQueryHistory } from './WarehouseQueryHistory'
 import { WarehouseRunningQueries } from './WarehouseRunningQueries'
 
@@ -18,6 +20,11 @@ export const scene: SceneExport = {
     productKey: ProductKey.DATA_WAREHOUSE,
 }
 
+const TABS: WarehousePageTab[] = [
+    { value: 'activity', label: 'Activity', 'data-attr': 'warehouse-queries-tab-activity' },
+    { value: 'performance', label: 'Performance', 'data-attr': 'warehouse-queries-tab-performance' },
+]
+
 function WarehouseQueriesContent(): JSX.Element {
     const { consoleState } = useValues(warehouseConsoleLogic)
 
@@ -25,10 +32,18 @@ function WarehouseQueriesContent(): JSX.Element {
         return <WarehouseConsoleState page="queries" />
     }
     return (
-        <>
-            <WarehouseRunningQueries />
-            <WarehouseQueryHistory />
-        </>
+        <WarehousePageTabs tabs={TABS} page="queries">
+            {(tab) =>
+                tab === 'performance' ? (
+                    <WarehousePerformance />
+                ) : (
+                    <>
+                        <WarehouseRunningQueries />
+                        <WarehouseQueryHistory />
+                    </>
+                )
+            }
+        </WarehousePageTabs>
     )
 }
 

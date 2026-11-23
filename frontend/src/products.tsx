@@ -183,6 +183,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/warehouse/storage': ['WarehouseStorage', 'warehouseStorage'],
     '/warehouse/access': ['WarehouseAccess', 'warehouseAccess'],
     '/warehouse/connect': ['WarehouseConnect', 'warehouseConnect'],
+    '/warehouse/settings': ['WarehouseSettings', 'warehouseSettings'],
     '/data-ops': ['DataOps', 'dataOps'],
     '/data-management/sources': ['Sources', 'sources'],
     '/data-management/sources/:sourceId/schemas/:schemaId': ['DataWarehouseSourceSchema', 'dataWarehouseSourceSchema'],
@@ -1026,6 +1027,12 @@ export const productConfiguration: Record<string, any> = {
         description: 'Connect the Trino CLI, Python, dbt, Metabase or Hex to your managed warehouse.',
         iconType: 'data_warehouse',
     },
+    WarehouseSettings: {
+        name: 'Settings',
+        projectBased: true,
+        description: "Set up, check and remove your organization's managed warehouse.",
+        iconType: 'data_warehouse',
+    },
     EarlyAccessFeatures: {
         name: 'Early access features',
         projectBased: true,
@@ -1691,6 +1698,7 @@ export const productUrls = {
     warehouseStorage: (): string => '/warehouse/storage',
     warehouseAccess: (): string => '/warehouse/access',
     warehouseConnect: (): string => '/warehouse/connect',
+    warehouseSettings: (): string => '/warehouse/settings',
     dataOps: (tab?: string): string => {
         const params = new URLSearchParams()
         if (tab) {
@@ -2894,6 +2902,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         searchTabs: [{ name: 'Monitoring', href: urls.dataOps('monitoring') }],
         flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
         alternativeFlags: [FEATURE_FLAGS.MANAGED_TRINO_QUERY],
+        hiddenWhenFlags: [FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE],
         iconType: 'data_warehouse',
         iconColor: ['var(--color-product-data-warehouse-light)', 'var(--color-product-data-warehouse-dark)'],
         sceneKey: 'DataOps',

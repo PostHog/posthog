@@ -2,14 +2,12 @@ import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { humanizeBytes } from 'lib/utils/numbers'
 
@@ -23,7 +21,6 @@ import { TrinoHistoricalCharts } from './TrinoHistoricalCharts'
 import { duration, stateLabel } from './trinoMonitoringFormat'
 import { TrinoMonitoringSummaryCards } from './TrinoMonitoringSummaryCards'
 import { TrinoQueryDetails } from './TrinoQueryDetails'
-import { WarehouseConsoleMovedNotice } from './WarehouseConsoleMovedNotice'
 
 const LONG_RUNNING_MS = 5 * 60 * 1000
 
@@ -111,9 +108,6 @@ export function TrinoMonitoringTab(): JSX.Element {
         monitoringWindow,
     } = useValues(managedWarehouseTrinoMonitoringLogic)
     const { refreshMonitoring, setMonitoringWindow } = useActions(managedWarehouseTrinoMonitoringLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    // With the console on, the live queries and their summary live on the Queries page.
-    const showLiveQueries = !featureFlags[FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE]
     const initialLoading = monitoringSnapshotLoading && !monitoringSnapshot
     const liveDataUnavailable = !!monitoringSnapshot && !monitoringSnapshot.available
 
@@ -135,7 +129,6 @@ export function TrinoMonitoringTab(): JSX.Element {
 
     return (
         <div className="mt-4 space-y-6">
-            <WarehouseConsoleMovedNotice target="queries" />
             <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                     <div className="mb-1 flex items-center gap-2">
@@ -173,12 +166,12 @@ export function TrinoMonitoringTab(): JSX.Element {
                 </div>
             </div>
 
-            {showLiveQueries && monitoringSnapshot && monitoringSnapshotError && (
+            {monitoringSnapshot && monitoringSnapshotError && (
                 <LemonBanner type="warning">
                     Live query data couldn't be refreshed. Showing the most recent available data.
                 </LemonBanner>
             )}
-            {showLiveQueries && liveDataUnavailable && (
+            {liveDataUnavailable && (
                 <LemonBanner type="warning">
                     Live query data is temporarily unavailable. Historical charts may still be up to date.
                 </LemonBanner>
@@ -191,42 +184,40 @@ export function TrinoMonitoringTab(): JSX.Element {
                 </LemonBanner>
             )}
 
-            {showLiveQueries && <TrinoMonitoringSummaryCards snapshot={monitoringSnapshot} loading={initialLoading} />}
+            <TrinoMonitoringSummaryCards snapshot={monitoringSnapshot} loading={initialLoading} />
 
             <TrinoHistoricalCharts
                 monitoringSeries={monitoringSeries}
                 initialLoading={initialMonitoringSeriesLoading}
             />
 
-            {showLiveQueries && (
-                <MonitoringSection
-                    title="Queries in flight"
-                    description="Queries submitted to the warehouse and not yet finished."
-                >
-                    <div className="@container">
-                        <LemonTable
-                            columns={queryColumns}
-                            dataSource={monitoringSnapshot?.queries ?? []}
-                            rowKey="query_id"
-                            loading={initialLoading}
-                            loadingSkeletonRows={3}
-                            pagination={{ pageSize: 20 }}
-                            expandable={{
-                                expandedRowRender: (query) => <TrinoQueryDetails query={query} />,
-                                noIndent: true,
-                            }}
-                            emptyState={
-                                liveDataUnavailable
-                                    ? 'Live query data is not available right now.'
-                                    : 'No queries are running right now.'
-                            }
-                        />
-                    </div>
-                    {monitoringSnapshot?.queries_truncated && (
-                        <p className="mb-0 text-xs text-muted">Showing the 200 longest-running queries.</p>
-                    )}
-                </MonitoringSection>
-            )}
+            <MonitoringSection
+                title="Queries in flight"
+                description="Queries submitted to the warehouse and not yet finished."
+            >
+                <div className="@container">
+                    <LemonTable
+                        columns={queryColumns}
+                        dataSource={monitoringSnapshot?.queries ?? []}
+                        rowKey="query_id"
+                        loading={initialLoading}
+                        loadingSkeletonRows={3}
+                        pagination={{ pageSize: 20 }}
+                        expandable={{
+                            expandedRowRender: (query) => <TrinoQueryDetails query={query} />,
+                            noIndent: true,
+                        }}
+                        emptyState={
+                            liveDataUnavailable
+                                ? 'Live query data is not available right now.'
+                                : 'No queries are running right now.'
+                        }
+                    />
+                </div>
+                {monitoringSnapshot?.queries_truncated && (
+                    <p className="mb-0 text-xs text-muted">Showing the 200 longest-running queries.</p>
+                )}
+            </MonitoringSection>
         </div>
     )
 }

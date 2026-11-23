@@ -48,20 +48,20 @@ export function WarehouseConsoleState({ page }: { page: string }): JSX.Element |
                 </EmptyTitle>
                 <EmptyDescription>
                     {consoleState === 'no_warehouse'
-                        ? 'Set up your managed warehouse in Data ops first. This page works once it is ready.'
-                        : 'Your warehouse is still being set up, or its query engine is not ready. Check its status in Data ops.'}
+                        ? 'Set up your managed warehouse in Settings first. This page works once it is ready.'
+                        : 'Your warehouse is still being set up, or its query engine is not ready. Check its status in Settings.'}
                 </EmptyDescription>
             </EmptyHeader>
             <Button
                 variant="primary"
                 nativeButton={false}
-                render={<LinkPrimitive to={urls.dataOps('settings')} />}
+                render={<LinkPrimitive to={urls.warehouseSettings()} />}
                 onClick={() => {
-                    posthog.capture('warehouse console data ops clicked', { page, state: consoleState })
+                    posthog.capture('warehouse console settings clicked', { page, state: consoleState })
                 }}
-                data-attr="warehouse-console-open-data-ops"
+                data-attr="warehouse-console-open-settings"
             >
-                Open Data ops
+                Open Settings
             </Button>
         </Empty>
     )

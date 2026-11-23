@@ -178,6 +178,10 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadLogins: 'products.data_warehouse.frontend.scenes.WarehouseAccessScene.warehouseLoginsLogic',
     loadOverviewUsage: 'products.data_warehouse.frontend.scenes.WarehouseHomeScene.warehouseConsoleOverviewLogic',
     loadOverviewSettings: 'products.data_warehouse.frontend.scenes.WarehouseHomeScene.warehouseConsoleOverviewLogic',
+    // The console Performance and Data readiness tabs show each failure inline with a retry, and both poll
+    loadMonitoringSeries: 'scenes.data-warehouse.scene.managedWarehouseTrinoMonitoringLogic',
+    loadMonitoringSnapshot: 'scenes.data-warehouse.scene.managedWarehouseTrinoMonitoringLogic',
+    loadManagedWarehouseDataStatus: 'scenes.data-warehouse.scene.managedWarehouseDataStatusLogic',
     loadWorkload: 'products.data_warehouse.frontend.scenes.WarehouseHomeScene.warehouseConsoleOverviewLogic',
 }
 

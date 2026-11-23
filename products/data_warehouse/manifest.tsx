@@ -26,7 +26,7 @@ export const manifest: ProductManifest = {
     scenes: {
         DataOps: {
             name: 'Data ops',
-            import: () => import('./frontend/scenes/DataOpsScene/DataWarehouseScene'),
+            import: () => import('./frontend/scenes/WarehouseDataOpsEntry/DataOpsEntryScene'),
             projectBased: true,
             activityScope: 'DataWarehouse',
             description: "Manage your organization's shared data warehouse.",
@@ -129,6 +129,13 @@ export const manifest: ProductManifest = {
             description: 'Connect the Trino CLI, Python, dbt, Metabase or Hex to your managed warehouse.',
             iconType: 'data_warehouse',
         },
+        WarehouseSettings: {
+            name: 'Settings',
+            import: () => import('./frontend/scenes/WarehouseSettingsScene/WarehouseSettingsScene'),
+            projectBased: true,
+            description: "Set up, check and remove your organization's managed warehouse.",
+            iconType: 'data_warehouse',
+        },
     },
     routes: {
         // pinned: people bookmark this path
@@ -138,6 +145,7 @@ export const manifest: ProductManifest = {
         '/warehouse/storage': ['WarehouseStorage', 'warehouseStorage'],
         '/warehouse/access': ['WarehouseAccess', 'warehouseAccess'],
         '/warehouse/connect': ['WarehouseConnect', 'warehouseConnect'],
+        '/warehouse/settings': ['WarehouseSettings', 'warehouseSettings'],
         '/data-ops': ['DataOps', 'dataOps'],
         '/data-management/sources': ['Sources', 'sources'],
         '/data-management/sources/:sourceId/schemas/:schemaId': [
@@ -182,6 +190,7 @@ export const manifest: ProductManifest = {
         warehouseStorage: (): string => '/warehouse/storage',
         warehouseAccess: (): string => '/warehouse/access',
         warehouseConnect: (): string => '/warehouse/connect',
+        warehouseSettings: (): string => '/warehouse/settings',
         dataOps: (tab?: string): string => {
             const params = new URLSearchParams()
             if (tab) {
@@ -263,6 +272,7 @@ export const manifest: ProductManifest = {
             searchTabs: [{ name: 'Monitoring', href: urls.dataOps('monitoring') }],
             flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
             alternativeFlags: [FEATURE_FLAGS.MANAGED_TRINO_QUERY],
+            hiddenWhenFlags: [FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE],
             iconType: 'data_warehouse',
             iconColor: ['var(--color-product-data-warehouse-light)', 'var(--color-product-data-warehouse-dark)'],
             sceneKey: 'DataOps',

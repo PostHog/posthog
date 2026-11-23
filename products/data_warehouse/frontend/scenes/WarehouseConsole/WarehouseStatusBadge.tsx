@@ -9,6 +9,13 @@ const STATUS_STYLE: Record<string, { variant: BadgeVariant; label: string }> = {
     failed: { variant: 'destructive', label: 'Failed' },
     disabled: { variant: 'default', label: 'Disabled' },
     active: { variant: 'success', label: 'Active' },
+    // Readiness states of warehouse data
+    not_configured: { variant: 'default', label: 'Not configured' },
+    waiting: { variant: 'warning', label: 'Waiting' },
+    backfilling: { variant: 'info', label: 'Backfilling' },
+    up_to_date: { variant: 'success', label: 'Up to date' },
+    needs_attention: { variant: 'destructive', label: 'Needs attention' },
+    sync_paused: { variant: 'default', label: 'Sync paused' },
 }
 
 /** The one status pill of the console. Unknown states render as a muted pill with their own name. */

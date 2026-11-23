@@ -10,6 +10,8 @@ export interface WarehouseStatTileProps {
     /** A second muted line, for a caveat about the figure. */
     note?: string
     meter?: Omit<WarehouseMeterProps, 'label'>
+    /** Sits beside the label, such as a status badge. */
+    badge?: React.ReactNode
     'data-attr'?: string
 }
 
@@ -20,14 +22,18 @@ export function WarehouseStatTile({
     detail,
     note,
     meter,
+    badge,
     'data-attr': dataAttr,
 }: WarehouseStatTileProps): JSX.Element {
     return (
         <Card size="sm" className="h-full" data-attr={dataAttr}>
             <CardContent className="flex h-full min-w-0 flex-col gap-1 px-3">
-                <Text size="xs" variant="muted" render={<div />}>
-                    {label}
-                </Text>
+                <div className="flex items-center justify-between gap-2">
+                    <Text size="xs" variant="muted" render={<div />}>
+                        {label}
+                    </Text>
+                    {badge}
+                </div>
                 <Text size="lg" weight="semibold" className="truncate tabular-nums" render={<div />}>
                     {value}
                 </Text>
