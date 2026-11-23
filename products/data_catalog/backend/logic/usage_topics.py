@@ -515,11 +515,13 @@ async def judge_coverage(client: AsyncAnthropic, question: str, lookups: Session
 
 
 def _topic_definition(topic: Any) -> TopicDefinition | None:
-    """One topic from a model reply, or None when the entry has no name."""
+    """One topic from a model reply, or None when the entry has no name or takes the other topic's name.
+
+    A reader sees the other topic whatever its sessions read, so a named topic must not take that name."""
     if not isinstance(topic, dict):
         return None
     title = str(topic.get("name") or "").strip()
-    if not title:
+    if not title or title.casefold() == OTHER_TOPIC.casefold():
         return None
     return TopicDefinition(title=title, description=str(topic.get("description") or "").strip())
 

@@ -64,7 +64,7 @@ _SOURCES = ReadSources(
         "edited": _saved(_trends(_EVENTS_NODE), _EDITED),
     },
     insight_queries={"abc123": _saved(_HOGQL_INSIGHT), "edited": _saved(_trends(_EVENTS_NODE), _EDITED)},
-    saved_filters=SavedFilters(cohorts={7: True, 8: False}, test_account_tables=frozenset({"crm_users"})),
+    saved_filters=SavedFilters(cohorts={7: True, 8: False}, test_account_tables=frozenset()),
     joins={"stripe": frozenset({"stripe_customers"})},
 )
 
@@ -175,11 +175,6 @@ class TestSessionTables(SimpleTestCase):
                 ],
                 None,
             ),
-            (
-                "test_account_filters",
-                [_call("query-trends", {**_trends(_EVENTS_NODE), "filterTestAccounts": True})],
-                {"crm_users"},
-            ),
             ("cut_typed_input", [_call("query-trends", '{"kind": "TrendsQuery", "ser')], None),
             ("hogql_metric_run", [_call("data-catalog-metric-run", {"name": "mrr"})], {"billing"}),
             ("markdown_metric_run", [_call("data-catalog-metric-run", {"name": "steps"})], set()),
@@ -279,6 +274,24 @@ class TestSessionTables(SimpleTestCase):
 
         assert session_tables([call], {"query-trends"}, _SOURCES) is not None
         assert session_tables([call], {"query-trends"}, changed) is None
+
+    @parameterized.expand(
+        [
+            ("set", {"filterTestAccounts": True}, {"crm_users"}),
+            ("omitted_so_the_project_default_can_set_it", {}, {"crm_users"}),
+            ("turned_off", {"filterTestAccounts": False}, set()),
+        ]
+    )
+    def test_a_typed_query_reads_what_the_test_account_filters_read(
+        self, _name: str, flag: dict[str, bool], expected: set[str]
+    ) -> None:
+        sources = dataclasses.replace(
+            _SOURCES,
+            saved_filters=dataclasses.replace(_SOURCES.saved_filters, test_account_tables=frozenset({"crm_users"})),
+        )
+        call = _call("query-trends", {**_trends(_EVENTS_NODE), **flag})
+
+        assert session_tables([call], {"query-trends"}, sources) == frozenset(expected)
 
     def test_one_unknown_session_makes_the_topic_unknown(self) -> None:
         tables = {"a": frozenset({"billing"}), "b": frozenset({"plans"}), "c": None}

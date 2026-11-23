@@ -433,6 +433,16 @@ class TestGroupIntoTopics(SimpleTestCase):
         with self.assertRaises(TopicAssignmentUnavailable):
             async_to_sync(group_into_topics)(client, sessions[1:], _no_heartbeat)  # type: ignore[arg-type]
 
+    @parameterized.expand([("title_case", "Other"), ("any_case", " other ")])
+    def test_the_topic_list_drops_a_topic_that_takes_the_other_topics_name(self, _name: str, title: str) -> None:
+        reply = json.dumps(
+            {"topics": [{"name": title, "description": "Payroll costs."}, {"name": "Revenue", "description": "Money."}]}
+        )
+
+        definitions = async_to_sync(name_topic_list)(_FakeClient(lambda _prompt: reply), ["q"])  # type: ignore[arg-type]
+
+        assert [definition.title for definition in definitions] == ["Revenue"]
+
     @parameterized.expand(
         [
             ("a_topic_number", "Topic 2", "Flags"),

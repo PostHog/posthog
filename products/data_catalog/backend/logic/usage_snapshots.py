@@ -217,7 +217,7 @@ def _topic_visible(topic: TopicCluster, denied_tables: set[str]) -> bool:
     """A topic title sums up the questions of its sessions, so a topic that read a denied table stays hidden.
     A topic whose tables the scan could not trace counts as one that read a denied table. The other topic
     has a fixed title and no description, so it says nothing about its sessions' questions."""
-    if not denied_tables or topic.title == OTHER_TOPIC:
+    if not denied_tables or (topic.title == OTHER_TOPIC and not topic.description):
         return True
     return topic.tables is not None and not references_denied_table(topic.tables, denied_tables)
 

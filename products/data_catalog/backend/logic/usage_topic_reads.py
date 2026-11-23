@@ -406,7 +406,12 @@ def _direct_tables(call: ReadCall, current: ReadSources) -> frozenset[str] | Non
         insight = current.insight_queries.get(_payload_field(call, "insightId"))
         return insight_tables(insight, overrides, current.saved_filters)
     if call.tool.startswith(DATA_TOOL_PREFIX):
-        return query_tables(call.payload, current.saved_filters)
+        # The MCP server fills an omitted `filterTestAccounts` from the project default, which the log does not
+        # hold, so an omitted flag counts as set. That can only add the tables of the test account filters.
+        query = call.payload
+        if isinstance(query, dict) and query.get("filterTestAccounts") is None:
+            query = {**query, "filterTestAccounts": True}
+        return query_tables(query, current.saved_filters)
     # A dashboard run reads the insights on the dashboard as it is now, which can differ from the run.
     return None
 
