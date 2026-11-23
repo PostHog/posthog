@@ -65127,29 +65127,6 @@ export namespace Schemas {
       version?: number | null;
     }
 
-    export interface TagDefinition {
-      /**
-         * Tag identifier
-         * @maxLength 100
-         */
-      name: string;
-      /**
-         * Description to help the LLM classify
-         * @maxLength 500
-         */
-      description?: string;
-    }
-
-    export interface HogTaggerConfig {
-      /**
-         * Hog source code to classify a generation into tags.
-         * @minLength 1
-         */
-      source: string;
-      /** Optional tag whitelist. Leave empty to allow any tag returned by the Hog code. */
-      tags?: TagDefinition[];
-    }
-
     export interface HoglakeConnect {
       /** The hoglake catalog (warehouse) these credentials reach */
       catalog: string;
@@ -68951,32 +68928,6 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    /**
-     * * `openai` - Openai
-     * * `anthropic` - Anthropic
-     * * `gemini` - Gemini
-     * * `openrouter` - Openrouter
-     * * `fireworks` - Fireworks
-     * * `azure_openai` - Azure OpenAI
-     * * `together_ai` - Together AI
-     * * `minimax` - MiniMax
-     * * `openai_compatible` - OpenAI-compatible
-     */
-    export type LLMCompletionProviderEnum = typeof LLMCompletionProviderEnum[keyof typeof LLMCompletionProviderEnum];
-
-
-    export const LLMCompletionProviderEnum = {
-      Openai: 'openai',
-      Anthropic: 'anthropic',
-      Gemini: 'gemini',
-      Openrouter: 'openrouter',
-      Fireworks: 'fireworks',
-      AzureOpenai: 'azure_openai',
-      TogetherAi: 'together_ai',
-      Minimax: 'minimax',
-      OpenaiCompatible: 'openai_compatible',
-    } as const;
-
     export interface LLMModelInfo {
       /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
       id: string;
@@ -68989,7 +68940,7 @@ export namespace Schemas {
       provider: string;
       /** How many of this provider's models appear in `models`. */
       model_count: number;
-      /** True when this provider's models can only be listed by passing `key_id` for one of the team's provider keys, so `model_count` is 0 until a key is supplied. False means PostHog funds some of the provider's models in the playground. LLM-judge evaluations and LLM taggers always run on one of the team's own provider keys, whatever this value is. */
+      /** True when this provider's models can only be listed by passing `key_id` for one of the team's provider keys, so `model_count` is 0 until a key is supplied. False means PostHog funds some of the provider's models in the playground. LLM-judge evaluations always run on one of the team's own provider keys, whatever this value is. */
       requires_provider_key: boolean;
     }
 
@@ -69872,27 +69823,6 @@ export namespace Schemas {
       generations: number;
       /** Number of $ai_generation events in attributed_cost_usd. */
       attributed_generations: number;
-    }
-
-    export interface LLMTaggerConfig {
-      /**
-         * Prompt instructing the LLM how to tag generations
-         * @minLength 1
-         */
-      prompt: string;
-      /** Available tags the LLM can assign */
-      tags: TagDefinition[];
-      /**
-         * Minimum number of tags to apply
-         * @minimum 0
-         */
-      min_tags?: number;
-      /**
-         * Maximum number of tags to apply (null = no limit)
-         * @minimum 1
-         * @nullable
-         */
-      max_tags?: number | null;
     }
 
     export interface LabelSummary {
@@ -86390,96 +86320,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: TaggedItem[];
-    }
-
-    /**
-     * * `llm` - LLM
-     * * `hog` - Hog
-     */
-    export type TaggerTypeEnum = typeof TaggerTypeEnum[keyof typeof TaggerTypeEnum];
-
-
-    export const TaggerTypeEnum = {
-      Llm: 'llm',
-      Hog: 'hog',
-    } as const;
-
-    export type TaggerConfig = LLMTaggerConfig | HogTaggerConfig;
-
-    export type TaggerConditionPropertiesItem = { [key: string]: unknown };
-
-    export interface TaggerCondition {
-      /**
-         * Stable identifier for this condition
-         * @maxLength 100
-         */
-      id: string;
-      /**
-         * Percentage of matching events to apply this condition to
-         * @minimum 0
-         * @maximum 100
-         */
-      rollout_percentage?: number;
-      /** Property filters that scope when this condition fires */
-      properties?: TaggerConditionPropertiesItem[];
-    }
-
-    export interface TaggerModelConfiguration {
-      /** LLM provider to use for this tagger.
-       *
-       * * `openai` - Openai
-       * * `anthropic` - Anthropic
-       * * `gemini` - Gemini
-       * * `openrouter` - Openrouter
-       * * `fireworks` - Fireworks
-       * * `azure_openai` - Azure OpenAI
-       * * `together_ai` - Together AI
-       * * `minimax` - MiniMax
-       * * `openai_compatible` - OpenAI-compatible */
-      provider: LLMCompletionProviderEnum;
-      /**
-         * Provider model identifier to use for this tagger.
-         * @maxLength 100
-         */
-      model: string;
-      /**
-         * LLM provider key UUID pinned for this tagger, or null when none is pinned.
-         * @nullable
-         */
-      provider_key_id: string | null;
-      /** @nullable */
-      readonly provider_key_name: string | null;
-    }
-
-    export interface Tagger {
-      readonly id: string;
-      readonly name: string;
-      readonly description: string;
-      readonly enabled: boolean;
-      readonly tagger_type: TaggerTypeEnum;
-      /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-      readonly tagger_config: TaggerConfig;
-      /** Conditions that scoped when the tagger ran */
-      readonly conditions: readonly TaggerCondition[];
-      readonly model_configuration: TaggerModelConfiguration | null;
-      readonly created_at: string;
-      readonly updated_at: string;
-      readonly created_by: UserBasic;
-      readonly deleted: boolean;
-      /**
-         * The evaluation that replaced this tagger when it was migrated. Null until then.
-         * @nullable
-         */
-      readonly migrated_to_evaluation_id: string | null;
-    }
-
-    export interface PaginatedTaggerList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: Tagger[];
     }
 
     /**
@@ -151165,44 +151005,6 @@ export namespace Schemas {
      * Optional end date: an ISO 8601 timestamp (e.g. 2024-01-31T23:59:59Z) or a relative date such as -1d
      */
     date_to?: string;
-    };
-
-    export type TaggersListParams = {
-    /**
-     * Filter by enabled status
-     */
-    enabled?: boolean;
-    /**
-     * Multiple values may be separated by commas.
-     */
-    id__in?: string[];
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * Only the tagger that was migrated to this evaluation
-     */
-    migrated_to_evaluation_id?: string;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Ordering
-     *
-     * * `created_at` - Created At
-     * * `-created_at` - Created At (descending)
-     * * `updated_at` - Updated At
-     * * `-updated_at` - Updated At (descending)
-     * * `name` - Name
-     * * `-name` - Name (descending)
-     */
-    order_by?: string[];
-    /**
-     * Search in name or description
-     */
-    search?: string;
     };
 
     export type TagsListParams = {
