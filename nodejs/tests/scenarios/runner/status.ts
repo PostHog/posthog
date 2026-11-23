@@ -217,7 +217,13 @@ function withRamp(
           }
 }
 
-function judgedOf(verdict: Verdict): { status: Status; statusReason: string } {
+const withoutUnreadLosses = (verdict: Verdict): Verdict =>
+    verdict.convergence.unread === undefined
+        ? verdict
+        : { ...verdict, invariants: verdict.invariants.filter(({ name }) => name !== 'at_least_once') }
+
+function judgedOf(judged: Verdict): { status: Status; statusReason: string } {
+    const verdict = withoutUnreadLosses(judged)
     if (!verdict.ramp) {
         return unrampedStatusOf(verdict)
     }
@@ -312,7 +318,7 @@ function unrampedStatusOf({
         ...(convergence.unread === undefined ? [] : [unreadReasonOf(convergence.unread)]),
     ]
     const failures = [
-        ...(convergence.converged
+        ...(convergence.converged || convergence.unread !== undefined
             ? []
             : [
                   `not converged: ${convergence.unfinishedJobs ?? 'an unread number of'} unfinished jobs, ${convergence.unrecorded.length} units without a delivery record`,

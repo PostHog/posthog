@@ -90,7 +90,6 @@ export function createJudge({
         }
     }
 
-    // A failed read must not abort the run: it is judged on what was read before, and the failed read is named.
     const read = async <T>(what: () => Promise<T>): Promise<T | undefined> => {
         try {
             const value = await what()
@@ -132,18 +131,22 @@ export function createJudge({
 
         async converge(withinMs, signal) {
             const startedAt = now()
-            let unfinishedJobs: number | null = null
             for (;;) {
                 const polled = await read(async () => {
                     await pullTruth()
                     return probe.unfinishedJobs({ teams, queues: ['hogflow', 'email'] })
                 })
-                unfinishedJobs = polled ?? unfinishedJobs
                 const unrecorded = unrecordedUnits()
                 const tookMs = now() - startedAt
                 const converged = polled === 0 && unrecorded.length === 0 && tookMs <= withinMs
                 if (converged || tookMs >= withinMs || signal.aborted) {
-                    return { converged, unfinishedJobs, unrecorded, tookMs, ...(unread !== undefined && { unread }) }
+                    return {
+                        converged,
+                        unfinishedJobs: polled ?? null,
+                        unrecorded,
+                        tookMs,
+                        ...(unread !== undefined && { unread }),
+                    }
                 }
                 await sleep(Math.min(pollMs, withinMs - tookMs), undefined, { signal }).catch(() => undefined)
             }
