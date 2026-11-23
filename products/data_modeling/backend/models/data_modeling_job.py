@@ -65,6 +65,28 @@ class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     usage_updated_at = models.DateTimeField(
         null=True, blank=True, help_text="When usage was last measured. Null means unmeasured."
     )
+    # Measured by the worker during the ClickHouse materialize activity. Null means unmeasured: the
+    # run is older than these columns, ran on another engine, or stopped before the step.
+    result_bytes_received = models.BigIntegerField(
+        null=True, blank=True, help_text="Bytes of ClickHouse response body the worker read, including retries."
+    )
+    delta_files_written = models.IntegerField(
+        null=True, blank=True, help_text="Data files added to the Delta table, including compaction and retries."
+    )
+    delta_bytes_written = models.BigIntegerField(
+        null=True,
+        blank=True,
+        help_text="Bytes of data files added to the Delta table, including compaction and retries.",
+    )
+    delta_table_files = models.IntegerField(
+        null=True, blank=True, help_text="Live data files in the Delta table after the run. Publishing copies each."
+    )
+    delta_table_bytes = models.BigIntegerField(
+        null=True, blank=True, help_text="Bytes of live data files in the Delta table after the run."
+    )
+    activity_seconds = models.FloatField(
+        null=True, blank=True, help_text="Seconds the materialize activity ran, including retries."
+    )
 
     class Meta:
         db_table = "posthog_datamodelingjob"

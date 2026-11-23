@@ -7,7 +7,7 @@ import datetime as dt
 import contextlib
 import collections
 import dataclasses
-from collections.abc import Collection, Iterator
+from collections.abc import Callable, Collection, Iterator
 
 from django.conf import settings
 from django.db import transaction
@@ -90,6 +90,7 @@ from products.data_modeling.backend.temporal.activities.incremental_write import
     upsert_batch,
     upsert_stats_fields,
 )
+from products.data_modeling.backend.temporal.activities.run_usage import RunUsage, live_file_sizes, record_run_usage
 from products.data_modeling.backend.temporal.activities.utils import (
     bind_data_modeling_log_context,
     strip_hostname_from_error,
@@ -866,6 +867,7 @@ async def hogql_table(
     logger: FilteringBoundLogger,
     view_name: str | None = None,
     window: "IncrementalWindow | None" = None,
+    on_bytes_received: Callable[[int], None] | None = None,
 ):
     """Execute a HogQL query and yield batches of results.
 
@@ -1091,6 +1093,7 @@ async def hogql_table(
                 query_parameters=context.values,
                 on_schema=capture_arrow_schema,
                 external_tables=list(context.external_tables.values()),
+                on_bytes_received=on_bytes_received,
             ):
                 batches_size = batches_size + batch.nbytes
                 batches.append(batch)
@@ -1294,6 +1297,7 @@ async def _materialize_fully(
     storage_options: dict[str, str],
     logger: FilteringBoundLogger,
     cdp_sink: "_CDPRowSink",
+    usage: RunUsage,
     person_property_sink: PersonPropertyRowSink | None = None,
 ) -> tuple[int, list[str]]:
     """Rebuild the whole table from the query. The only path that creates a Delta table, and the
@@ -1334,7 +1338,9 @@ async def _materialize_fully(
     batch_index = 0
     key_columns = _key_columns(plan)
     try:
-        async for batch, ch_types in hogql_table(hogql_query, objects.team, logger):
+        async for batch, ch_types in hogql_table(
+            hogql_query, objects.team, logger, on_bytes_received=usage.add_received
+        ):
             batch = _transform_unsupported_decimals(batch)
             batch = _replace_invalid_utf8(batch, key_columns=key_columns)
             batch = _transform_date_and_datetimes(batch, ch_types)
@@ -1376,13 +1382,18 @@ async def _materialize_fully(
     finally:
         if tracker is not None:
             tracker.close()
+        if delta_table is not None:
+            # The rebuild started from an empty location, so every live file is one this attempt
+            # wrote. Counted here so that an attempt that fails partway still reports its writes.
+            usage.add_written(await live_file_sizes(delta_table))
 
     await logger.ainfo(f"Finished writing to delta table. row_count={row_count}")
     file_uris: list[str] = []
     if delta_table is not None:
         await logger.ainfo("Compacting delta table")
-        await _compact(delta_table)
+        usage.add_compaction(await _compact(delta_table))
         await _vacuum(delta_table, logger)
+        usage.set_table(await live_file_sizes(delta_table))
         file_uris = delta_table.file_uris()
         if not file_uris and row_count == 0 and pa_schema is not None:
             # delta-rs writes no parquet for an empty batch. emit one so the
@@ -1412,6 +1423,7 @@ async def _materialize_incrementally(
     storage_options: dict[str, str],
     logger: FilteringBoundLogger,
     cdp_sink: "_CDPRowSink",
+    usage: RunUsage,
     person_property_sink: PersonPropertyRowSink | None = None,
 ) -> tuple[int, list[str]]:
     """Upsert only the rows at or after the watermark into the existing table.
@@ -1429,6 +1441,7 @@ async def _materialize_incrementally(
     # compare equal to pyarrow's. arro3 exposes the Arrow PyCapsule interface, which pa.schema()
     # consumes at runtime even though its stubs don't advertise it.
     target_schema = pa.schema(typing.cast(typing.Any, delta_table.schema().to_arrow()))
+    files_before = await live_file_sizes(delta_table)
     window = IncrementalWindow(incremental_key=config.incremental_key, since=plan.since)
 
     row_count = 0
@@ -1440,7 +1453,9 @@ async def _materialize_incrementally(
     key_columns = _key_columns(plan)
 
     try:
-        async for batch, ch_types in hogql_table(hogql_query, objects.team, logger, window=window):
+        async for batch, ch_types in hogql_table(
+            hogql_query, objects.team, logger, window=window, on_bytes_received=usage.add_received
+        ):
             batch = _transform_unsupported_decimals(batch)
             batch = _replace_invalid_utf8(batch, key_columns=key_columns)
             batch = _transform_date_and_datetimes(batch, ch_types)
@@ -1503,12 +1518,14 @@ async def _materialize_incrementally(
     # snapshot from before the upserts. Maintaining or listing files off the stale handle would
     # publish the pre-run file set and lose everything this run wrote.
     delta_table = await _open_delta_table(table_uri, storage_options)
+    usage.add_written(await live_file_sizes(delta_table), already_there=files_before)
 
     file_uris = delta_table.file_uris()
     if len(file_uris) > INCREMENTAL_COMPACT_FILE_THRESHOLD:
         await logger.ainfo(f"Compacting delta table ({len(file_uris)} files)")
-        await _compact(delta_table)
+        usage.add_compaction(await _compact(delta_table))
     await _vacuum(delta_table, logger)
+    usage.set_table(await live_file_sizes(delta_table))
 
     # Re-listed after maintenance: compaction rewrites files, so the pre-compaction list would
     # name parquet the publish can no longer copy.
@@ -1516,8 +1533,8 @@ async def _materialize_incrementally(
 
 
 @tracer.start_as_current_span("materialize_view.compact")
-async def _compact(delta_table: deltalake.DeltaTable) -> None:
-    await asyncio.to_thread(delta_table.optimize.compact)
+async def _compact(delta_table: deltalake.DeltaTable) -> dict[str, typing.Any]:
+    return await asyncio.to_thread(delta_table.optimize.compact)
 
 
 @tracer.start_as_current_span("materialize_view.vacuum")
@@ -1592,6 +1609,24 @@ def _watermark_table_uri(objects: MatviewInputObjects) -> str:
 @activity.defn
 async def materialize_view_activity(inputs: MaterializeViewInputs) -> MaterializeViewResult:
     """Materialize a view by executing its query and writing to delta lake."""
+    usage = RunUsage()
+    started = time.monotonic()
+    try:
+        return await _materialize_view(inputs, usage)
+    finally:
+        # Recorded for a failed or cancelled attempt too, because it cost the same resources.
+        try:
+            await record_run_usage(
+                team_id=inputs.team_id,
+                job_id=inputs.job_id,
+                usage=usage,
+                activity_seconds=time.monotonic() - started,
+            )
+        except Exception as error:
+            capture_exception(error)
+
+
+async def _materialize_view(inputs: MaterializeViewInputs, usage: RunUsage) -> MaterializeViewResult:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
@@ -1675,6 +1710,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                             storage_options,
                             logger,
                             cdp_sink,
+                            usage,
                             person_property_sink,
                         )
                     else:
@@ -1686,6 +1722,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                             storage_options,
                             logger,
                             cdp_sink,
+                            usage,
                             person_property_sink,
                         )
             except (Exception, asyncio.CancelledError):

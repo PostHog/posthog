@@ -152,8 +152,13 @@ class ChunkBytesAsyncStreamIterator:
     when to stop iteration.
     """
 
-    def __init__(self, stream: aiohttp.StreamReader) -> None:
+    def __init__(
+        self,
+        stream: aiohttp.StreamReader,
+        on_bytes_received: collections.abc.Callable[[int], None] | None = None,
+    ) -> None:
         self._stream = stream
+        self._on_bytes_received = on_bytes_received
 
     def __aiter__(self) -> "ChunkBytesAsyncStreamIterator":
         return self
@@ -163,6 +168,9 @@ class ChunkBytesAsyncStreamIterator:
 
         if data == b"" and end_of_chunk is False and self._stream.at_eof():
             raise StopAsyncIteration
+
+        if self._on_bytes_received is not None and data:
+            self._on_bytes_received(len(data))
 
         return data
 
@@ -1039,16 +1047,22 @@ class ClickHouseClient:
         query_id: str | None = None,
         on_schema: collections.abc.Callable[[pa.Schema], None] | None = None,
         external_tables: collections.abc.Sequence["ClickHouseExternalTable"] | None = None,
+        on_bytes_received: collections.abc.Callable[[int], None] | None = None,
     ) -> typing.AsyncGenerator[pa.RecordBatch]:
         """Execute the given query in ClickHouse and stream back the response as Arrow record batches.
 
         This method makes sense when running with FORMAT ArrowStream, although we currently do not enforce this.
+
+        ``on_bytes_received`` is called with the size of each piece of the response body as it is
+        read, which is the size on the wire. It includes the bytes of a response that later fails.
         """
         query_id = query_id or str(uuid.uuid4())
         async with self.apost_query(
             query, *data, query_parameters=query_parameters, query_id=query_id, external_tables=external_tables
         ) as response:
-            reader = asyncpa.AsyncRecordBatchReader(ChunkBytesAsyncStreamIterator(response.content))
+            reader = asyncpa.AsyncRecordBatchReader(
+                ChunkBytesAsyncStreamIterator(response.content, on_bytes_received=on_bytes_received)
+            )
             try:
                 if on_schema is not None:
                     on_schema(await reader.get_schema())
