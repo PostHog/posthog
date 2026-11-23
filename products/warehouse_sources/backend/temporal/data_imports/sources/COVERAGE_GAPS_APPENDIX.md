@@ -7233,10 +7233,10 @@ Note: Parsed all requests and response examples in the vendor's published Postma
 
 Re-audited 2026-11-19 against: <https://documenter.gw.postman.com/api/collections/23808049/2sA2xb5F75?segregateAuth=true&versionTag=latest>
 
-- [ ] `Campaign sequence (GET /api/public/campaign/GetCampaignSequence)` — Message steps and delays of each campaign we sync, to compare sequence design with reply rates (medium)
-- [ ] `Blacklisted leads (POST /api/public/blacklist/GetLeads)` — Leads excluded from outreach, to audit suppression against campaign leads (medium)
-- [ ] `Blacklisted companies (POST /api/public/blacklist/GetCompanies)` — Companies excluded from outreach, for the same suppression audit (medium)
-- [ ] `Lead tags (POST /api/public/lead/GetTags)` — Tags on each lead, to segment campaign results by tag (low)
+- [x] `Campaign sequence (GET /api/public/campaign/GetCampaignSequence)` — Message steps and delays of each campaign we sync, to compare sequence design with reply rates (medium)
+- [x] `Blacklisted leads (POST /api/public/blacklist/GetLeads)` — Leads excluded from outreach, to audit suppression against campaign leads (medium)
+- [x] `Blacklisted companies (POST /api/public/blacklist/GetCompanies)` — Companies excluded from outreach, for the same suppression audit (medium)
+- [ ] `Lead tags (POST /api/public/lead/GetTags)` — Tags on each lead, to segment campaign results by tag (low) Skipped: list_leads rows already carry tags, and this needs one request per lead profile.
 
 Note (2026-11-19): Listed every request in the vendor Postman collection and diffed against the synced tables. GetCampaignSequence takes a campaignId, so it fans out over campaigns. Blacklist reads are POST routes that page with offset and limit. Lead tags are read per lead profile, so they need a large fan-out. Excluded: writes, webhooks, enrichment jobs, connection checks and the organization management routes, which need an organization key.
 
