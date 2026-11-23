@@ -47,7 +47,6 @@ def visit_after_grouping(node: ast.SelectQuery, visit: Callable[[Any], Any]) -> 
     return rebuilt
 
 
-# One key read as text or as a number. The key's text gives these the result that its stored value gives.
 _TEXT_EXTRACTIONS = frozenset({"JSONExtractString", "JSONExtractInt", "JSONExtractUInt", "JSONExtractFloat"})
 
 
