@@ -11082,6 +11082,80 @@ export namespace Schemas {
          */
         activation: string | null;
     };
+    /**
+     * * `bayesian` - bayesian
+     * * `frequentist` - frequentist
+     */
+    export type StatsMethodEnum = "bayesian" | "frequentist";
+    /**
+     * * `exclude` - exclude
+     * * `first_seen` - first_seen
+     */
+    export type ExperimentWatchMultipleVariantHandlingEnum =
+        | "exclude"
+        | "first_seen";
+    export type ExperimentHealthAnalysisSetup = {
+        /**
+         * The statistical method of the results.
+         *
+         * * `bayesian` - bayesian
+         * * `frequentist` - frequentist
+         */
+        stats_method: StatsMethodEnum;
+        /**
+         * The Bayesian credible interval, or 1 - alpha for the frequentist test, as a fraction such as 0.95.
+         */
+        confidence_level: number;
+        /**
+         * Whether the frequentist test uses sequential testing. Null for the Bayesian method.
+         */
+        sequential_testing: boolean | null;
+        /**
+         * Whether the experiment leaves sequential testing unset, so the project's default applies.
+         */
+        sequential_testing_from_project_default: boolean;
+        /**
+         * Whether the results apply CUPED variance reduction to the metrics that support it.
+         */
+        cuped: boolean;
+        /**
+         * The days before exposure that CUPED reads. Null when CUPED is off.
+         */
+        cuped_lookback_days: number | null;
+        /**
+         * Whether the experiment leaves CUPED unset, so the project's default applies.
+         */
+        cuped_from_project_default: boolean;
+        /**
+         * Whether the results leave out internal and test users with the project's test account filters. Null when the exposure criteria can't be read.
+         */
+        filters_test_accounts: boolean | null;
+        /**
+         * How many of the project's test account filters the results apply. 0 when they count test accounts.
+         */
+        test_account_filter_count: number;
+        /**
+         * What the results do with users exposed to more than one variant. Null when the exposure criteria can't be read.
+         *
+         * * `exclude` - exclude
+         * * `first_seen` - first_seen
+         */
+        multiple_variant_handling:
+            | ExperimentWatchMultipleVariantHandlingEnum
+            | NullEnum;
+        /**
+         * Whether a user counts only after their conversion or retention window is complete.
+         */
+        only_count_matured_users: boolean;
+        /**
+         * The variant that the others are compared against.
+         */
+        baseline_variant: string;
+        /**
+         * The variants that the results leave out.
+         */
+        excluded_variants: Array<string>;
+    };
     export type ExperimentHealthSetup = {
         /**
          * The flag's condition sets as stored, in the order the flag evaluates them. Whether a set can serve a request depends on the sets before it and on `early_exit`.
@@ -11122,6 +11196,10 @@ export namespace Schemas {
          * What the exposure criteria count as an exposure. Null when they can't be read, or when the exposures come from a data warehouse table.
          */
         exposure: ExperimentHealthExposureSetup | null;
+        /**
+         * What the results calculation reads besides the metrics, with the project's defaults applied.
+         */
+        analysis: ExperimentHealthAnalysisSetup;
     };
     export type ExperimentHealth = {
         /**
