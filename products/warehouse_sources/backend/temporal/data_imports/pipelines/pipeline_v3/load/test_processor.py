@@ -853,10 +853,11 @@ class TestCdcLoadMetrics:
 
     @parameterized.expand(
         [
-            ("cdc_batch", "cdc", "incremental_merge", True),
-            ("incremental_batch", "incremental", None, False),
+            ("cdc_batch", "cdc", "incremental_merge", True, [1, 1, 1, 1]),
+            ("cdc_batch_with_string_commit_times", "cdc", "incremental_merge", False, [0, 1, 1, 1]),
+            ("incremental_batch", "incremental", None, True, [0, 0, 0, 0]),
             # An incremental history lane writes in scd2_append mode, but its rows are not changes.
-            ("incremental_history_batch", "incremental", "scd2_append", False),
+            ("incremental_history_batch", "incremental", "scd2_append", True, [0, 0, 0, 0]),
         ]
     )
     @time_machine.travel(_NOW, tick=False)
@@ -874,7 +875,8 @@ class TestCdcLoadMetrics:
         _case: str,
         sync_type: str,
         cdc_write_mode: str | None,
-        expect_recorded: bool,
+        timestamp_commit_times: bool,
+        expected_observations: list[int],
         mock_job_model: MagicMock,
         mock_helper_cls: MagicMock,
         mock_writer_cls: MagicMock,
@@ -885,13 +887,14 @@ class TestCdcLoadMetrics:
         _analytics: MagicMock,
         mock_stage_history: AsyncMock,
     ) -> None:
+        commit_times = [self._NOW - dt.timedelta(seconds=s) for s in (300, 600, 60)]
         mock_read.return_value = pa.table(
             {
                 "id": pa.array([1, 2, 3], pa.int64()),
                 CDC_OP_COLUMN: ["U", "I", "U"],
-                CDC_TIMESTAMP_COLUMN: pa.array(
-                    [self._NOW - dt.timedelta(seconds=s) for s in (300, 600, 60)], pa.timestamp("us", tz="UTC")
-                ),
+                CDC_TIMESTAMP_COLUMN: pa.array(commit_times, pa.timestamp("us", tz="UTC"))
+                if timestamp_commit_times
+                else pa.array([t.isoformat() for t in commit_times]),
             }
         )
         written = MagicMock()
@@ -920,8 +923,9 @@ class TestCdcLoadMetrics:
         )
 
         counts_after = [_observation_count(histogram) for histogram in histograms]
-        assert [after - before for before, after in zip(counts_before, counts_after)] == [int(expect_recorded)] * 4
-        if expect_recorded:
+        assert mock_writer_cls.return_value.write.await_count + mock_stage_history.await_count == 1
+        assert [after - before for before, after in zip(counts_before, counts_after)] == expected_observations
+        if expected_observations == [1, 1, 1, 1]:
             freshness = REGISTRY.get_sample_value("warehouse_load_cdc_freshness_seconds_sum", labels)
             file_count = REGISTRY.get_sample_value("warehouse_load_cdc_table_file_count_sum", labels)
             rows = REGISTRY.get_sample_value("warehouse_load_cdc_batch_rows_sum", labels)
@@ -945,8 +949,14 @@ class TestCdcLoadMetrics:
 
         assert _cdc_freshness_seconds(table) == expected
 
-    def test_a_batch_without_commit_timestamps_has_no_freshness(self) -> None:
-        assert _cdc_freshness_seconds(pa.table({"id": [1]})) is None
+    @parameterized.expand(
+        [
+            ("no_commit_time_column", pa.table({"id": [1]})),
+            ("string_commit_times", pa.table({CDC_TIMESTAMP_COLUMN: ["2026-11-23T11:50:00+00:00"]})),
+        ]
+    )
+    def test_a_batch_without_timestamp_commit_times_has_no_freshness(self, _case: str, table: pa.Table) -> None:
+        assert _cdc_freshness_seconds(table) is None
 
 
 class TestFileCountAfterWrite:

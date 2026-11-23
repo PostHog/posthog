@@ -572,7 +572,10 @@ def _cdc_freshness_seconds(pa_table: pa.Table) -> float | None:
     """Seconds since the source committed the batch's oldest change, or None when no row carries a commit time."""
     if CDC_TIMESTAMP_COLUMN not in pa_table.column_names:
         return None
-    oldest = pc.min(pa_table.column(CDC_TIMESTAMP_COLUMN)).as_py()
+    column = pa_table.column(CDC_TIMESTAMP_COLUMN)
+    if not pa.types.is_timestamp(column.type):
+        return None
+    oldest = pc.min(column).as_py()
     if oldest is None:
         return None
     if oldest.tzinfo is None:
@@ -1932,14 +1935,21 @@ def _process_message_reported(
             internal_schema.add_pyarrow_table(pa_table)
 
         if export_signal.sync_type == "cdc":
-            _record_cdc_load_metrics(
-                pa_table,
-                schema=schema,
-                cdc_write_mode=cdc_write_mode,
-                rows=source_rows,
-                write_seconds=timer.seconds("write"),
-                file_count=file_count,
-            )
+            # The batch is already committed, so a metric error must not fail its load.
+            try:
+                _record_cdc_load_metrics(
+                    pa_table,
+                    schema=schema,
+                    cdc_write_mode=cdc_write_mode,
+                    rows=source_rows,
+                    write_seconds=timer.seconds("write"),
+                    file_count=file_count,
+                )
+            except Exception as e:
+                logger.warning(
+                    "cdc_load_metrics_failed", external_data_schema_id=export_signal.schema_id, exc_info=True
+                )
+                capture_exception(e)
 
         logger.debug(
             "batch_written_to_delta_lake",
