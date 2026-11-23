@@ -29,7 +29,7 @@ from products.signals.backend.monitor_pr import (
     load_pull_request,
     monitor_key,
 )
-from products.signals.backend.monitor_pr_research import _context
+from products.signals.backend.monitor_pr_research import _context, research_pull_request
 from products.signals.backend.pull_requests import update_pull_request_state
 from products.signals.backend.report_claims import get_active_claim
 from products.signals.backend.tasks import refresh_linked_pull_request_state
@@ -149,8 +149,11 @@ class TestMonitorPR(APIBaseTest):
     def test_request_assigns_initiator_and_retries_preserve_original_note(self, note, dispatch_fails):
         if dispatch_fails:
             with patch("products.signals.backend.temporal.monitor_pr.async_connect", side_effect=ConnectionError):
-                assert self.client.post(self.url, {"pr_url": PR_URL, "note": note}).status_code == 503
-        report, inputs = self.request_report(note, expected_status=200 if dispatch_fails else 202)
+                failed_res = self.client.post(self.url, {"pr_url": PR_URL, "note": note})
+                assert failed_res.status_code == 503
+            assert SignalReport.objects.get(id=failed_res.json()["report_id"]).status == SignalReport.Status.FAILED
+        report, inputs = self.request_report(note, expected_status=202)
+        first_workflow_id = self.dispatched[-1][0]
         assert report.created_by_id == self.user.id
         claim = get_active_claim(team_id=self.team.id, report_id=str(report.id))
         assert claim is not None
@@ -170,16 +173,22 @@ class TestMonitorPR(APIBaseTest):
         assert response.json()["idempotent_replay"] is True
         assert response.json()["report_id"] == str(report.id)
         assert SignalReport.objects.filter(team=self.team).count() == 1
-        assert self.dispatched[-1][1].note == note
+        assert self.dispatched[-1] == (first_workflow_id, inputs)
 
-    @parameterized.expand([("merged",), ("open",), ("draft",), ("closed",), ("unmeasurable",)])
+    @parameterized.expand(
+        [("merged",), ("merged_during_research",), ("open",), ("draft",), ("closed",), ("unmeasurable",)]
+    )
     def test_research_and_merge_follow_monitoring_lifecycle(self, scenario):
         merged_at = timezone.now() - timedelta(hours=2)
         if scenario == "merged":
             self.pr.update(state="closed", merged=True, merged_at=merged_at.isoformat())
         elif scenario == "draft":
             self.pr.update(state="open", draft=True)
-        with patch("products.signals.backend.tasks.send_pull_request_ready_push.delay") as push_delay:
+        pushes: list[tuple] = []
+        with patch(
+            "products.signals.backend.tasks.send_pull_request_ready_push.delay",
+            side_effect=lambda *a, **kw: pushes.append((a, kw)),
+        ):
             with self.captureOnCommitCallbacks(execute=True):
                 report, inputs = self.request_report()
             if scenario == "draft":
@@ -187,9 +196,11 @@ class TestMonitorPR(APIBaseTest):
                     repository="example/widget", number=42
                 )
                 assert stored_pr.state == SignalReportPullRequest.State.DRAFT
-                push_delay.assert_not_called()
-            elif scenario == "open":
-                push_delay.assert_called_once()
+                assert pushes == []
+            elif scenario in {"open", "merged_during_research"}:
+                assert len(pushes) == 1
+        if scenario == "merged_during_research":
+            self.pr.update(state="closed", merged=True, merged_at=merged_at.isoformat())
         pr = load_pull_request(self.team.id, PR_URL)
         output = self.output()
         if scenario == "unmeasurable":
@@ -199,7 +210,11 @@ class TestMonitorPR(APIBaseTest):
                 inspected_commit="a" * 40,
                 unavailable_reason="Instrument checkout completion first.",
             )
-        with patch("products.signals.backend.tasks.refresh_linked_pull_request_state.delay") as refresh_delay:
+        refreshes: list[tuple] = []
+        with patch(
+            "products.signals.backend.tasks.refresh_linked_pull_request_state.delay",
+            side_effect=lambda *a: refreshes.append(a),
+        ):
             with self.captureOnCommitCallbacks(execute=True):
                 finish_monitoring_research(inputs, output, pr)
         report.refresh_from_db()
@@ -213,8 +228,8 @@ class TestMonitorPR(APIBaseTest):
             report.refresh_from_db()
             assert report.status == SignalReport.Status.PENDING_INPUT
             return
-        if scenario != "merged":
-            refresh_delay.assert_called_once_with(self.team.id, PR_URL)
+        if scenario not in {"merged", "merged_during_research"}:
+            assert refreshes == [(self.team.id, PR_URL)]
             assert report.status == SignalReport.Status.READY
             check = SignalReportCheck.objects.for_team(self.team.id).get(report=report)
             assert check.status == SignalReportCheck.Status.PENDING
@@ -283,6 +298,7 @@ class TestMonitorPR(APIBaseTest):
         child_url = f"/api/projects/{child.id}/signals/monitor_pr/"
 
         report, inputs = self.request_report(note="Keep original note", url=child_url)
+        first_workflow_id = self.dispatched[-1][0]
         assert report.team_id == self.team.id
         assert inputs.team_id == self.team.id
 
@@ -291,6 +307,7 @@ class TestMonitorPR(APIBaseTest):
         assert report.status == SignalReport.Status.FAILED
 
         restarted, retried_inputs = self.request_report(note="Ignored note", expected_status=202, url=child_url)
+        assert self.dispatched[-1][0] != first_workflow_id
         assert restarted.id == report.id
         assert restarted.status == SignalReport.Status.IN_PROGRESS
         assert retried_inputs.note == "Keep original note"
@@ -393,7 +410,7 @@ class TestMonitorPR(APIBaseTest):
                 patch.object(
                     GitHubIntegration,
                     "list_all_cached_repositories",
-                    lambda gh: (
+                    lambda gh, **_: (
                         [{"full_name": "second-org/app"}]
                         if gh.integration.id == second.id
                         else [{"full_name": "example/widget"}]
@@ -437,3 +454,42 @@ class TestMonitorPR(APIBaseTest):
         response = self.client.get(f"/api/projects/{child.id}/signals/pull_requests/")
         assert response.status_code == 200
         assert response.data["github_login"] is None
+
+    def test_research_protects_traces_with_analytics_context_and_refreshes_stale_repo_cache(self):
+        from asgiref.sync import async_to_sync, sync_to_async
+
+        cache.clear()
+        queued_refreshes: list[tuple[int, int]] = []
+        captured_start: dict = {}
+
+        async def fake_start(**kwargs):
+            captured_start.update(kwargs)
+            session = AsyncMock()
+            return session, self.output()
+
+        with (
+            patch(
+                "products.signals.backend.tasks.refresh_signals_github_repository_cache.delay",
+                side_effect=lambda team_id, integration_id: queued_refreshes.append((team_id, integration_id)),
+            ),
+            patch(
+                "products.signals.backend.monitor_pr_research.database_sync_to_async_pool",
+                side_effect=lambda fn: sync_to_async(fn, thread_sensitive=True),
+            ),
+            patch(
+                "products.signals.backend.monitor_pr_research.get_or_create_signals_sandbox_env",
+                return_value="env-1",
+            ),
+            patch("products.signals.backend.monitor_pr_research.MultiTurnSession.start", side_effect=fake_start),
+        ):
+            report, inputs = self.request_report()
+            load_pull_request(self.team.id, PR_URL)
+            integration_id = Integration.objects.get(team=self.team, kind="github").id
+            assert queued_refreshes == [(self.team.id, integration_id)]
+
+            async_to_sync(research_pull_request)(inputs)
+            assert captured_start["analytics_query_context"] == [{}]
+            assert captured_start["context"].github_read_access is True
+            assert captured_start["context"].github_token_scope == "read"
+            report.refresh_from_db()
+            assert report.status == SignalReport.Status.READY

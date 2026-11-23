@@ -1,12 +1,17 @@
+/* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper. */
 import { expectLogic } from 'kea-test-utils'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import * as api from 'products/signals/frontend/generated/api'
 import type { PRBrowserItemApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { monitoringTabLogic } from './monitoringTabLogic'
 import { pullRequestsLogic } from './pullRequestsLogic'
+
+const PULL_REQUESTS_URL = '/api/projects/:team_id/signals/pull_requests/'
+const MONITOR_PR_URL = '/api/projects/:team_id/signals/monitor_pr/'
+const REPORTS_URL = '/api/projects/:team_id/signals/reports/'
 
 const makePR = (number: number, overrides: Partial<PRBrowserItemApi> = {}): PRBrowserItemApi => ({
     url: `https://github.com/example/widget/pull/${number}`,
@@ -24,30 +29,60 @@ const makePR = (number: number, overrides: Partial<PRBrowserItemApi> = {}): PRBr
 
 describe('pullRequestsLogic', () => {
     let logic: ReturnType<typeof pullRequestsLogic.build>
+    let listRequests: number
+    let monitorPayloads: Record<string, unknown>[]
+    let reportLoads: number
 
     beforeEach(() => {
         localStorage.clear()
         initKeaTests()
-        jest.spyOn(api, 'signalsPullRequestsList').mockResolvedValue({
-            results: [
-                makePR(1, { state: 'open' }),
-                makePR(2, { state: 'merged', report: { id: 'rep-2', status: 'monitoring' } }),
-                makePR(3, { state: 'merged', report: { id: 'rep-3', status: 'failed' } }),
-            ],
-            github_login: 'example-author',
-            has_integration: true,
-        })
-        jest.spyOn(api, 'signalsReportsList').mockResolvedValue({
-            results: [],
-            count: 0,
-            next: null,
-            previous: null,
+        listRequests = 0
+        monitorPayloads = []
+        reportLoads = 0
+        useMocks({
+            get: {
+                [PULL_REQUESTS_URL]: () => {
+                    listRequests += 1
+                    return [
+                        200,
+                        {
+                            results: [
+                                makePR(1, { state: 'open' }),
+                                makePR(2, { state: 'merged' }),
+                                makePR(3, { state: 'merged', report: { id: 'rep-3', status: 'failed' } }),
+                                makePR(4, { state: 'merged', report: { id: 'rep-4', status: 'monitoring' } }),
+                            ],
+                            github_login: 'example-author',
+                            has_integration: true,
+                        },
+                    ]
+                },
+                [REPORTS_URL]: () => {
+                    reportLoads += 1
+                    return [200, { results: [], count: 0, next: null, previous: null }]
+                },
+            },
+            post: {
+                [MONITOR_PR_URL]: async ({ request }) => {
+                    const body = (await request.json()) as { pr_url: string }
+                    monitorPayloads.push(body)
+                    const suffix = body.pr_url.split('/').pop()
+                    return [
+                        202,
+                        {
+                            report_id: `rep-${suffix}`,
+                            report_url: `http://localhost:8000/project/997/inbox/reports/rep-${suffix}`,
+                            status: 'in_progress',
+                            idempotent_replay: false,
+                        },
+                    ]
+                },
+            },
         })
     })
 
     afterEach(() => {
         logic?.unmount()
-        jest.restoreAllMocks()
     })
 
     it('filters loaded PRs client-side by monitoring and GitHub state without refetching', async () => {
@@ -55,70 +90,62 @@ describe('pullRequestsLogic', () => {
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadPullRequestsSuccess'])
 
-        expect(logic.values.filteredPRs.map((pr) => pr.number)).toEqual([1, 2, 3])
+        expect(logic.values.filteredPRs.map((pr) => pr.number)).toEqual([1, 2, 3, 4])
 
         logic.actions.setFilter('unmonitored')
-        expect(logic.values.filteredPRs.map((pr) => pr.number)).toEqual([1])
+        expect(logic.values.filteredPRs.map((pr) => pr.number)).toEqual([1, 2])
 
         logic.actions.setFilter('monitored')
         logic.actions.setStateFilter('merged')
-        expect(logic.values.filteredPRs.map((pr) => pr.number)).toEqual([2, 3])
+        expect(logic.values.filteredPRs.map((pr) => pr.number)).toEqual([3, 4])
 
         logic.actions.setFilter('all')
         logic.actions.setStateFilter('open')
         expect(logic.values.filteredPRs.map((pr) => pr.number)).toEqual([1])
-        expect(api.signalsPullRequestsList).toHaveBeenCalledTimes(1)
+        expect(listRequests).toBe(1)
     })
 
-    it('starts monitoring in one click, updates the PR report status, and refreshes the monitoring list', async () => {
-        const monitor = jest.spyOn(api, 'signalsMonitorPrCreate').mockResolvedValue({
-            report_id: '01950000-0000-7000-8000-000000000001',
-            report_url: 'http://localhost:8000/project/997/inbox/reports/01950000-0000-7000-8000-000000000001',
-            status: 'in_progress',
-            idempotent_replay: false,
-        })
+    it('preserves concurrent monitoring submissions across multiple PRs and refreshes the monitoring list', async () => {
         const monitoringLogic = monitoringTabLogic()
         monitoringLogic.mount()
-        const loadReportsSpy = jest.spyOn(monitoringLogic.actions, 'loadReports')
+        await expectLogic(monitoringLogic).toFinishAllListeners()
+        const loadsBefore = reportLoads
 
         logic = pullRequestsLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadPullRequestsSuccess'])
 
-        const targetUrl = 'https://github.com/example/widget/pull/1'
-        logic.actions.monitorPR(targetUrl)
-        await expectLogic(logic).toDispatchActions(['monitorPRDone'])
+        const url1 = 'https://github.com/example/widget/pull/1'
+        const url2 = 'https://github.com/example/widget/pull/2'
+        logic.actions.monitorPR(url1)
+        logic.actions.monitorPR(url2)
+        expect(logic.values.monitoringUrls).toEqual({ [url1]: true, [url2]: true })
 
-        expect(monitor).toHaveBeenCalledWith('997', { pr_url: targetUrl })
-        expect(logic.values.page?.results[0].report).toEqual({
-            id: '01950000-0000-7000-8000-000000000001',
-            status: 'in_progress',
-        })
-        expect(loadReportsSpy).toHaveBeenCalled()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(monitorPayloads).toEqual([{ pr_url: url1 }, { pr_url: url2 }])
+        expect(logic.values.monitoringUrls).toEqual({})
+        expect(logic.values.page?.results[0].report).toEqual({ id: 'rep-1', status: 'in_progress' })
+        expect(logic.values.page?.results[1].report).toEqual({ id: 'rep-2', status: 'in_progress' })
+        expect(reportLoads).toBeGreaterThan(loadsBefore)
         monitoringLogic.unmount()
     })
 
     it('skips loading PRs while collapsed, loads when expanded, and retries failed research', async () => {
-        const monitor = jest.spyOn(api, 'signalsMonitorPrCreate').mockResolvedValue({
-            report_id: 'rep-3',
-            report_url: 'http://localhost:8000/project/997/inbox/reports/rep-3',
-            status: 'in_progress',
-            idempotent_replay: false,
-        })
         localStorage.setItem('products.signals.inbox.pullRequestsLogic.panelOpen', JSON.stringify(false))
 
         logic = pullRequestsLogic()
         logic.mount()
         expect(logic.values.panelOpen).toBe(false)
-        expect(api.signalsPullRequestsList).not.toHaveBeenCalled()
+        expect(listRequests).toBe(0)
 
         logic.actions.setPanelOpen(true)
         await expectLogic(logic).toDispatchActions(['loadPullRequestsSuccess'])
-        expect(api.signalsPullRequestsList).toHaveBeenCalledTimes(1)
+        expect(listRequests).toBe(1)
 
         logic.actions.monitorPR('https://github.com/example/widget/pull/3')
         await expectLogic(logic).toDispatchActions(['monitorPRDone'])
-        expect(monitor).toHaveBeenCalledWith('997', { pr_url: 'https://github.com/example/widget/pull/3' })
+        expect(monitorPayloads).toEqual([{ pr_url: 'https://github.com/example/widget/pull/3' }])
         expect(logic.values.page?.results[2].report?.status).toBe('in_progress')
     })
 })

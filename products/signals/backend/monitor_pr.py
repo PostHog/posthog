@@ -1,5 +1,6 @@
 import re
 import hashlib
+from contextlib import suppress
 from datetime import datetime
 from functools import partial
 from typing import Any, Literal
@@ -72,6 +73,7 @@ class MonitorPRInput:
     user_id: int
     pr_url: str
     note: str = ""
+    attempt_key: int = 0
 
 
 @frozen
@@ -186,6 +188,14 @@ def _installation_owner(github: GitHubIntegration) -> str | None:
     return name if isinstance(name, str) and GITHUB_LOGIN_PATTERN.fullmatch(name) else None
 
 
+def _schedule_repo_cache_refresh(team_id: int, integration_id: int) -> None:
+    from products.signals.backend.tasks import refresh_signals_github_repository_cache  # noqa: PLC0415
+
+    with suppress(Exception):
+        if cache.add(f"signals:github-repo-refresh:{integration_id}", 1, timeout=60):
+            refresh_signals_github_repository_cache.delay(team_id, integration_id)
+
+
 def _registered_installations(
     team_id: int, *, source: str, priority: Priority = Priority.NORMAL
 ) -> list[_RegisteredGitHubInstallation]:
@@ -195,9 +205,11 @@ def _registered_installations(
         github = GitHubIntegration(integration, source=source, priority=priority)
         repositories = {
             str(repo["full_name"]).lower()
-            for repo in github.list_all_cached_repositories()
+            for repo in github.list_all_cached_repositories(allow_refresh=False)
             if isinstance(repo, dict) and repo.get("full_name")
         }
+        if github.repository_cache_is_stale():
+            _schedule_repo_cache_refresh(team_id, integration.id)
         result.append(
             _RegisteredGitHubInstallation(
                 id=integration.id,
@@ -505,12 +517,18 @@ def request_pr_monitoring(*, team: Team, user: User, pr_url: str, note: str = ""
 
     if report.status == SignalReport.Status.IN_PROGRESS:
         inputs = MonitorPRInput(
-            team_id=team.id, report_id=str(report.id), user_id=user.id, pr_url=pr_url, note=report.summary or ""
+            team_id=team.id,
+            report_id=str(report.id),
+            user_id=user.id,
+            pr_url=pr_url,
+            note=report.summary or "",
+            attempt_key=int(report.last_run_at.timestamp() * 1_000_000) if report.last_run_at else 0,
         )
         try:
             async_to_sync(start_pr_monitoring)(inputs)
         except Exception as error:
             logger.exception("signals_monitor_pr_dispatch_failed", team_id=team.id, report_id=str(report.id))
+            fail_monitoring_research(inputs)
             raise PRMonitoringUnavailable(
                 "Could not start PR research. Retry this request; the report has been saved.", report_id=report.id
             ) from error
@@ -575,11 +593,28 @@ class PRMonitoringOutput(BaseModel):
         return self
 
 
-def finish_monitoring_research(inputs: MonitorPRInput, output: PRMonitoringOutput, pr: MonitoredPullRequest) -> None:
+def _reconcile_researched_pr(report: SignalReport, pr: MonitoredPullRequest, actor: ArtefactAttribution) -> None:
     from products.signals.backend.tasks import (
         refresh_linked_pull_request_state,  # noqa: PLC0415 -- keeps Celery task module off import path
     )
 
+    active_claim = get_active_claim(team_id=report.team_id, report_id=str(report.id))
+    link_pull_request(
+        report=report,
+        details=pr.details(),
+        actor=actor,
+        claim_id=str(active_claim.claim_id) if active_claim else None,
+        notify_reviewers=False,
+    )
+    apply_report_completion(report)
+    if pr.state != "merged":
+        transaction.on_commit(
+            partial(refresh_linked_pull_request_state.delay, report.team_id, pr.url),
+            robust=True,
+        )
+
+
+def finish_monitoring_research(inputs: MonitorPRInput, output: PRMonitoringOutput, pr: MonitoredPullRequest) -> None:
     if output.inspected_commit != pr.head_sha:
         raise ValueError("The research did not inspect the requested pull request commit")
     with transaction.atomic():
@@ -616,12 +651,7 @@ def finish_monitoring_research(inputs: MonitorPRInput, output: PRMonitoringOutpu
             content=CheckAuthoringStatus(status="succeeded", reason="PR monitoring measurement created."),
             attribution=actor,
         )
-        apply_report_completion(report)
-        if pr.state != "merged":
-            transaction.on_commit(
-                partial(refresh_linked_pull_request_state.delay, report.team_id, pr.url),
-                robust=True,
-            )
+        _reconcile_researched_pr(report, pr, actor)
 
 
 def fail_monitoring_research(inputs: MonitorPRInput) -> None:

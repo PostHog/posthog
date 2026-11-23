@@ -111,8 +111,6 @@ RESEARCH_WITHOUT_REPORT = replace(RESEARCH, key="signals.research_without_report
 PR_MONITORING = replace(
     RESEARCH,
     key="signals.pr_monitoring",
-    github_access=GithubAccess.READ,
-    create_pr=False,
     mcp_scopes="signals_assessment",
     mcp_store_servers=False,
 )

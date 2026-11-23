@@ -218,6 +218,28 @@ def refresh_linked_pull_request_state(self: Task, team_id: int, pr_url: str) -> 
 @shared_task(
     bind=True,
     ignore_result=True,
+    autoretry_for=(GitHubEgressBudgetExhausted, GitHubIntegrationError, OperationalError),
+    retry_backoff=True,
+    max_retries=3,
+)
+@with_team_scope()
+def refresh_signals_github_repository_cache(self: Task, team_id: int, integration_id: int) -> None:
+    from posthog.integrations import IntegrationManager  # noqa: PLC0415
+
+    integration = IntegrationManager.github.oauth.get_many(team_id, [integration_id]).get(integration_id)
+    if integration is None:
+        return
+    try:
+        GitHubIntegration(integration, source="signals_pr_browser", priority=Priority.BATCH).sync_repository_cache(
+            min_refresh_interval_seconds=60, priority=Priority.BATCH
+        )
+    except GitHubRateLimitError as error:
+        raise self.retry(exc=error, countdown=max(error.retry_after or 0, 60))
+
+
+@shared_task(
+    bind=True,
+    ignore_result=True,
     queue=CeleryQueue.LONG_RUNNING.value,
     autoretry_for=(Exception,),
     retry_backoff=True,

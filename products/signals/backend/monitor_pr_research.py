@@ -93,6 +93,7 @@ def _context(inputs: MonitorPRInput) -> CustomPromptSandboxContext | None:
         reasoning_effort=runtime.reasoning_effort,
         service_tier=runtime.service_tier,
         disable_repo_hooks=True,
+        github_read_access=True,
         github_token_scope="read",
         initial_permission_mode="full-access" if runtime.runtime_adapter == "codex" else "bypassPermissions",
         custom_image_id=resolve_custom_image_id(inputs.team_id, SignalAgentRole.RESEARCH),
@@ -150,6 +151,7 @@ async def research_pull_request(inputs: MonitorPRInput) -> None:
         max_poll_seconds=1800,
         json_retry_prompt='Return only JSON matching the schema. In check.config, comparison is an object such as {"operator":"lte","value":0}, not a string; there is no threshold field. Preserve your observed evidence and metric, and do not invent a measurement.',
         output_schema=PRMonitoringOutput.model_json_schema(),
+        analytics_query_context=[{}],
     )
     try:
         await database_sync_to_async_pool(finish_monitoring_research)(inputs, output, pr)

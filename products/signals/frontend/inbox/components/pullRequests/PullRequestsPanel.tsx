@@ -42,9 +42,10 @@ function pullRequestStateMeta(pr: PRBrowserItemApi): { label: string; color: str
 }
 
 function PullRequestRow({ pr }: { pr: PRBrowserItemApi }): JSX.Element {
-    const { monitoringUrl } = useValues(pullRequestsLogic)
+    const { monitoringUrls } = useValues(pullRequestsLogic)
     const { monitorPR } = useActions(pullRequestsLogic)
     const { label, color } = pullRequestStateMeta(pr)
+    const isMonitoring = Boolean(monitoringUrls[pr.url])
     const reportStatus = pr.report ? (pr.report.status as SignalReportStatus) : null
     const reportId = pr.report && reportStatus !== SignalReportStatus.FAILED ? pr.report.id : null
 
@@ -95,7 +96,8 @@ function PullRequestRow({ pr }: { pr: PRBrowserItemApi }): JSX.Element {
                         <LemonButton
                             size="xsmall"
                             type="secondary"
-                            loading={monitoringUrl === pr.url}
+                            loading={isMonitoring}
+                            disabled={isMonitoring}
                             data-attr="inbox-pr-retry"
                             onClick={() => monitorPR(pr.url)}
                         >
@@ -110,7 +112,8 @@ function PullRequestRow({ pr }: { pr: PRBrowserItemApi }): JSX.Element {
                     <LemonButton
                         size="xsmall"
                         type="secondary"
-                        loading={monitoringUrl === pr.url}
+                        loading={isMonitoring}
+                        disabled={isMonitoring}
                         data-attr="inbox-pr-monitor"
                         onClick={() => monitorPR(pr.url)}
                     >

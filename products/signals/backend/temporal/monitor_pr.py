@@ -54,7 +54,7 @@ async def start_pr_monitoring(inputs: MonitorPRInput) -> None:
         await client.start_workflow(
             MonitorPRWorkflow.run,
             inputs,
-            id=f"signals-monitor-pr-{inputs.team_id}-{inputs.report_id}",
+            id=f"signals-monitor-pr-{inputs.team_id}-{inputs.report_id}-{inputs.attempt_key}",
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
             id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
