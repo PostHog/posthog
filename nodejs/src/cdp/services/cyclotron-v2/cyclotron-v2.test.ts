@@ -1248,27 +1248,29 @@ describe('Cyclotron V2', () => {
             it('bulkCreateJobs with overwriteExisting flag upserts every row in the batch', async () => {
                 const ids = [uuidv7(), uuidv7()]
                 // Seed both as completed.
-                await manager.bulkCreateJobs(ids.map((id) => ({ id, teamId: 1, queueName: QUEUE })))
+                await manager.bulkCreateJobs(ids.map((id) => ({ id, teamId: 1, queueName: QUEUE, fileBytes: 700 })))
                 const worker = createWorker()
                 const dequeued = await dequeueOneBatch(worker)
                 await Promise.all(dequeued.map((j) => j.ack()))
 
-                // Re-create both via bulk upsert.
+                // Re-create both via bulk upsert, one with other files and one with none.
+                const rerunFileBytes = [300, undefined]
                 const resultIds = await manager.bulkCreateJobs(
-                    ids.map((id) => ({
+                    ids.map((id, i) => ({
                         id,
                         teamId: 1,
                         queueName: QUEUE,
                         state: Buffer.from('rerun'),
+                        fileBytes: rerunFileBytes[i],
                         overwriteExisting: true,
                     }))
                 )
                 expect(resultIds).toEqual(ids)
-                for (const id of ids) {
-                    const row = await queryJob(id)
-                    expect(row.status).toBe('available')
-                    expect(row.state).toEqual(Buffer.from('rerun'))
-                }
+                const rows = await Promise.all(ids.map((id) => queryJob(id)))
+                expect(rows.map(({ status, state, file_bytes }) => ({ status, state, file_bytes }))).toEqual([
+                    { status: 'available', state: Buffer.from('rerun'), file_bytes: '300' },
+                    { status: 'available', state: Buffer.from('rerun'), file_bytes: null },
+                ])
             })
 
             it('without overwriteExisting, re-creating with the same id throws on the PK conflict', async () => {
