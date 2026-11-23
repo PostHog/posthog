@@ -987,6 +987,8 @@ class Resolver(CloningVisitor):
                     first_type.columns = {
                         new_name: initial.select[i].type or ast.UnknownType() for i, new_name in enumerate(node.columns)
                     }
+                    if cte_expr.type.columns:
+                        cte_expr.type.columns = dict(zip(node.columns, cte_expr.type.columns.values()))
 
         if node.using_key is not None:
             if node.columns:
@@ -1505,11 +1507,14 @@ class Resolver(CloningVisitor):
             return clone_expr(cached)
 
         def resolve(
-            query: ast.SelectQuery | ast.SelectSetQuery, *, join_sources: JoinSources | None = None
+            query: ast.SelectQuery | ast.SelectSetQuery,
+            *,
+            join_sources: JoinSources | None = None,
+            scopes: list[ast.SelectQueryType] | None = None,
         ) -> ast.SelectQuery | ast.SelectSetQuery:
             # The swap catches a resolution error and keeps the original body. A visit that raises leaves its scope
             # and CTEs on this resolver, so this function restores them.
-            scopes, ctes, view_depth, cte_counter, outer_join_sources = (
+            outer_scopes, ctes, view_depth, cte_counter, outer_join_sources = (
                 list(self.scopes),
                 self.ctes,
                 self.current_view_depth,
@@ -1523,11 +1528,16 @@ class Resolver(CloningVisitor):
             # The swap's check reads `join_sources` for the joins of this body. A trial tree is not part of the
             # enclosing query, so the enclosing query's record does not get its joins.
             self.join_sources = join_sources
+            # The swap gives `scopes` to resolve a moved persons filter as the lazy-table pass does. That pass uses
+            # a new resolver, which holds none of the CTEs of this one.
+            if scopes is not None:
+                self.scopes[:] = scopes
+                self.ctes = {}
             try:
                 resolved = self.visit(self._copy(query))
             finally:
                 self._resolving_saved_views.remove(view_name)
-                self.scopes[:] = scopes
+                self.scopes[:] = outer_scopes
                 self.ctes, self.current_view_depth, self.cte_counter = ctes, view_depth, cte_counter
                 self.join_sources = outer_join_sources
             return resolved
@@ -2896,6 +2906,11 @@ class Resolver(CloningVisitor):
                 type=ast.FieldAliasType(alias=property_alias, type=node.type),
             )
 
+        return node
+
+    def visit_property_access(self, node: ast.PropertyAccess):
+        node = super().visit_property_access(node)
+        node.type = ast.StringType(nullable=True)
         return node
 
     def visit_array_access(self, node: ast.ArrayAccess):

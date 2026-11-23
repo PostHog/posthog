@@ -8,7 +8,10 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union, cast
 
 from django.utils import timezone
 
-from clickhouse_driver.errors import SocketTimeoutError
+from clickhouse_driver.errors import (
+    Error as ClickHouseDriverError,
+    SocketTimeoutError,
+)
 from opentelemetry import trace
 
 from posthog.schema import (
@@ -49,9 +52,11 @@ from posthog.hogql.database.warehouse_usage import (
 )
 from posthog.hogql.direct_connection import (
     INVALID_CONNECTION_ID_ERROR,
+    RAW_QUERY_COLUMN_RESTRICTED_ERROR,
     RAW_QUERY_TABLE_DENIED_ERROR,
     get_direct_connection_source,
     get_direct_connection_source_none_or_raise,
+    raw_query_denied_by_column_restriction,
     raw_query_denied_by_table_access,
 )
 from posthog.hogql.direct_sql import (
@@ -103,10 +108,16 @@ from posthog.errors import (
     CHQueryErrorS3FileChangedDuringRead,
     CHQueryErrorUnknownIdentifier,
     CHQueryErrorUnknownType,
-    ExposedCHQueryError,
+    clickhouse_error_message,
     unknown_type_error,
 )
-from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQuerySizeExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.models.event.new_events_schema import events_route_scope, use_new_events_schema
 from posthog.models.team import Team
@@ -904,10 +915,7 @@ class HogQLQueryExecutor:
         except Exception as e:
             if self.debug:
                 self.clickhouse_sql = ""
-                if isinstance(e, ExposedCHQueryError | ExposedHogQLError):
-                    self.error = str(e)
-                else:
-                    self.error = "Unknown error"
+                self.error = _debug_error_message(e)
             else:
                 raise
 
@@ -1063,6 +1071,8 @@ class HogQLQueryExecutor:
             bypass_warehouse_access_control=self.context.bypass_warehouse_access_control if self.context else False,
         ):
             raise ExposedHogQLError(RAW_QUERY_TABLE_DENIED_ERROR)
+        if raw_query_denied_by_column_restriction(source):
+            raise ExposedHogQLError(RAW_QUERY_COLUMN_RESTRICTED_ERROR)
         self.direct_dialect = adapter.dialect
         self.direct_sql = adapter.prepare_raw_sql(str(self.query))
         self._execute_direct_sql_query(adapter)
@@ -1162,10 +1172,7 @@ class HogQLQueryExecutor:
             except Exception as e:
                 if self.debug:
                     self.results = []
-                    if isinstance(e, ExposedCHQueryError | ExposedHogQLError):
-                        self.error = str(e)
-                    else:
-                        self.error = "Unknown error"
+                    self.error = _debug_error_message(e)
                 else:
                     raise
             finally:
@@ -1422,6 +1429,24 @@ def _restriction_key(restricted: set[RestrictedProperty] | None) -> tuple[str, .
 
 
 _MISSING_COLUMN_MESSAGES = (UNRESOLVED_FIELD_MESSAGE, FIELD_NOT_FOUND_MESSAGE)
+
+
+def _debug_error_message(error: Exception) -> str:
+    if isinstance(error, ClickHouseDriverError):
+        return clickhouse_error_message(error)
+    if isinstance(
+        error,
+        (
+            ExposedHogQLError,
+            ClickHouseAtCapacity,
+            ClickHouseEstimatedQueryExecutionTimeTooLong,
+            ClickHouseQueryMemoryLimitExceeded,
+            ClickHouseQuerySizeExceeded,
+            ClickHouseQueryTimeOut,
+        ),
+    ):
+        return str(error)
+    return "Unknown error"
 
 
 def _names_a_missing_column(error: Exception) -> bool:

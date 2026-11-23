@@ -252,10 +252,6 @@ export const signalsAnomaliesSearchRetrieveQueryIncludePointsDefault = false
 export const signalsAnomaliesSearchRetrieveQueryLimitDefault = 25
 export const signalsAnomaliesSearchRetrieveQueryLimitMax = 100
 
-export const signalsAnomaliesSearchRetrieveQueryMaxAnomalyRateDefault = 0.1
-export const signalsAnomaliesSearchRetrieveQueryMaxAnomalyRateMin = 0
-export const signalsAnomaliesSearchRetrieveQueryMaxAnomalyRateMax = 1
-
 export const signalsAnomaliesSearchRetrieveQueryOffsetDefault = 0
 export const signalsAnomaliesSearchRetrieveQueryOffsetMin = 0
 export const signalsAnomaliesSearchRetrieveQueryOffsetMax = 10000
@@ -301,14 +297,6 @@ export const SignalsAnomaliesSearchRetrieveQueryParams = () => zod.object({
         .max(signalsAnomaliesSearchRetrieveQueryLimitMax)
         .default(signalsAnomaliesSearchRetrieveQueryLimitDefault)
         .describe('The most rows to return.'),
-    max_anomaly_rate: zod
-        .number()
-        .min(signalsAnomaliesSearchRetrieveQueryMaxAnomalyRateMin)
-        .max(signalsAnomaliesSearchRetrieveQueryMaxAnomalyRateMax)
-        .default(signalsAnomaliesSearchRetrieveQueryMaxAnomalyRateDefault)
-        .describe(
-            'The noise filter: hide flagged series whose anomaly rate over the chart window of their interval is above this share, from 0 to 1. The chart window is the one `include_points` describes, not the requested range. A series flagged in many of its buckets is noisy, not unusual. Defaults to 0.1. Pass 1 to turn the filter off. A series with fewer than 10 scored buckets in its chart window is always shown, because its rate means little. `hidden_series` in the response counts the series it hid.'
-        ),
     offset: zod
         .number()
         .min(signalsAnomaliesSearchRetrieveQueryOffsetMin)
@@ -324,16 +312,22 @@ export const SignalsAnomaliesSearchRetrieveQueryParams = () => zod.object({
             'Only series, or insights, with at least one flagged bucket in the range. Set false to also list quiet ones.'
         ),
     order: zod
-        .enum(['unusual', 'recent', 'rate'])
+        .enum(['unusual', 'recent'])
         .default(signalsAnomaliesSearchRetrieveQueryOrderDefault)
         .describe(
-            '`unusual` puts flagged series first, and among them the series that flagged the smallest share of the scored buckets in the chart window of its interval, because a flag on a series that rarely flags is the surprising one. A series with fewer than 10 scored buckets in its chart window sorts after the series with a share. The chart window ends at `date_to` and does not follow `date_from`. `recent` puts the series whose newest flagged bucket ended last first, whatever its interval, so an hour flagged this morning sorts above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.\n\n\* `unusual` - Unusual\n\* `recent` - Recent\n\* `rate` - Rate'
+            '`unusual` puts flagged series first, and among them the series that flagged the smallest share of the scored buckets in the chart window of its interval, because a flag on a series that rarely flags is the surprising one. A series with fewer than 10 scored buckets in its chart window sorts after the series with a share. The chart window ends at `date_to` and does not follow `date_from`. `recent` puts the series whose newest flagged bucket ended last first, whatever its interval, so an hour flagged this morning sorts above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as `unusual`. With `group_by: insight`, each insight sorts by its first series.\n\n\* `unusual` - Unusual\n\* `recent` - Recent'
         ),
     search: zod
         .string()
         .max(signalsAnomaliesSearchRetrieveQuerySearchMax)
         .optional()
         .describe('Only insights whose name contains this text, ignoring case.'),
+    viewed_within_days: zod
+        .union([zod.literal(7), zod.literal(14), zod.literal(30), zod.literal(45), zod.literal(90)])
+        .optional()
+        .describe(
+            'Only the insights the caller viewed in this many days: insights they opened, and insights on the dashboards they opened, with the tiles those dashboards have now. Views count only in the web app, not through the API or an MCP tool. Without it the search covers every insight in the project. When the caller viewed no insight in the window, the search covers every insight and `viewed_scope_empty` is true.\n\n\* `7` - 7\n\* `14` - 14\n\* `30` - 30\n\* `45` - 45\n\* `90` - 90'
+        ),
 })
 
 /**
@@ -651,6 +645,12 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .describe(
             'Keep only the steps of this plan report, in plan order: the same reports, in the same order, as `plan.steps` on the plan report. Archived steps are included without `include_all_statuses`. Other filters still apply. A report with no steps returns an empty page.'
         ),
+    pr_targets: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Requires task_id. When true, keeps only the reports that the task's pull requests and commits link to: its source report, the reports the task attached a pull request to, and its pipeline, legacy and assignment associations. A report that the task only claimed is kept only when the task has no other report."
+        ),
     priority: zod
         .string()
         .optional()
@@ -738,7 +738,7 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .boolean()
         .optional()
         .describe(
-            'Filter by whether the report has no owner and no draft, open, or unknown PR. Resolved reports are never unclaimed.'
+            'Filter by whether the report has no active claim and no draft, open, or unknown PR. True returns the reports with no work in progress. Suggested reviewers do not count as a claim. Resolved reports are never unclaimed. A suppressed report can be unclaimed, but it cannot be claimed until it is restored.'
         ),
     unread: zod.boolean().optional().describe("Filter by the current user's report read state."),
     use_priority_preference: zod

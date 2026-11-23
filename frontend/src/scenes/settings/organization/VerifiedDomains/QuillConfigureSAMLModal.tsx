@@ -19,9 +19,9 @@ import {
 } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { QuillCopyField } from 'scenes/settings/components/QuillCopyField'
 import { QuillSettingFormField } from 'scenes/settings/components/QuillSettingFormField'
 
-import { QuillCopyField } from './QuillCopyField'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 
 export function QuillConfigureSAMLModal({

@@ -156,14 +156,14 @@ export interface TopicPreferencesApi {
 export type SendEmailApiMessageData = { [key: string]: unknown }
 
 /**
- * What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and captures engagement events, and tracks clicks only when the email isn't sensitive (see `sensitive`). Turn on `clicks` for a sensitive email only when its links are safe to send through a redirect. A link with `data-ph-no-track` keeps its own address either way. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body.
+ * What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and clicks and captures engagement events, for sensitive emails too. A link with `data-ph-no-track` keeps its own address, so an app link still opens the app. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body.
  */
 export type SendEmailApiTracking =
     | boolean
     | {
           /** Whether PostHog adds its open pixel to the email. Defaults to true. */
           opens?: boolean
-          /** Whether the email's links go through a redirect that counts clicks. Defaults to true when the email isn't sensitive and false when it is. Needs `opens`. A link with `data-ph-no-track` keeps its own address. */
+          /** Whether the email's links go through a redirect that counts clicks. Defaults to true, for sensitive emails too. Needs `opens`. A link with `data-ph-no-track` keeps its own address. */
           clicks?: boolean
           /** Whether the email's engagement events (sent, delivered, opened, clicked, bounced) are captured as analytics events of the recipient. Defaults to true. */
           engagement?: boolean
@@ -237,14 +237,14 @@ export interface SendEmailApi {
      * @deprecated
      */
     capture_engagement?: boolean
-    /** What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and captures engagement events, and tracks clicks only when the email isn't sensitive (see `sensitive`). Turn on `clicks` for a sensitive email only when its links are safe to send through a redirect. A link with `data-ph-no-track` keeps its own address either way. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body. */
+    /** What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and clicks and captures engagement events, for sensitive emails too. A link with `data-ph-no-track` keeps its own address, so an app link still opens the app. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body. */
     tracking?: SendEmailApiTracking
     /**
      * When to send the email, as `YYYY-MM-DDThh:mm:ss.sss` followed by a UTC offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. Seconds and their fraction are optional. PostHog holds the email until then, at most 7 days after the request, and rounds a finer time up to the next millisecond. A time that has passed sends the email now. Leave it out or send null to send now. Send it once: a JSON body that repeats it keeps the last value, and a form body that repeats it gets a 400. Scheduling is on only in some projects so far, and a project without it refuses a time with a 400.
      * @nullable
      */
     scheduled_at?: string | null
-    /** Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails keep their links unchanged unless `tracking` turns clicks on, leave the subject off engagement events, and keep the content out of logs. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive. */
+    /** Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails leave the subject off engagement events, record only the site address of a clicked link, and keep the content out of logs. They are tracked like any other email unless `tracking` turns tracking off. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive. */
     sensitive?: boolean
     /**
      * Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default. A project with no verified sending domain can send from the PostHog test sender only when PostHog offers that sender to its organization, and then only to members of the organization. That sender ignores this field and says so in the response's `warnings`.
@@ -508,6 +508,7 @@ export type ProviderImportRunApiSettings = { [key: string]: string }
  * * `postmark` - Postmark
  * * `sendgrid` - SendGrid
  * * `mailgun` - Mailgun
+ * * `mailchimp` - Mailchimp
  */
 export type ImportProviderKeyEnumApi = (typeof ImportProviderKeyEnumApi)[keyof typeof ImportProviderKeyEnumApi]
 
@@ -517,6 +518,7 @@ export const ImportProviderKeyEnumApi = {
     Postmark: 'postmark',
     Sendgrid: 'sendgrid',
     Mailgun: 'mailgun',
+    Mailchimp: 'mailchimp',
 } as const
 
 /**
@@ -617,11 +619,11 @@ export interface ImportStepProgressApi {
     last_error: string | null
     /** A breakdown of what the step did. Only counts above zero appear. */
     counts: ImportStepCountApi[]
-    /** The objects the step handled, with anything to review. */
+    /** The objects the step handled, with anything to review. Always empty in the list of runs; get the run for them. */
     items: ImportStepItemApi[]
     /** How many more warnings there were than `warnings` holds. */
     warnings_omitted: number
-    /** How many more objects there were than `items` holds. */
+    /** How many more objects there were than `items` holds. In the list of runs, this counts every object. */
     items_omitted: number
 }
 
@@ -634,7 +636,8 @@ export interface ProviderImportRunApi {
      * * `resend` - Resend
      * * `postmark` - Postmark
      * * `sendgrid` - SendGrid
-     * * `mailgun` - Mailgun */
+     * * `mailgun` - Mailgun
+     * * `mailchimp` - Mailchimp */
     provider: ImportProviderKeyEnumApi
     /** `queued` until the first step starts, `running`, then `completed` when every step completed or `failed` when any step failed.
      *
@@ -673,7 +676,8 @@ export interface StartProviderImportApi {
      * * `resend` - Resend
      * * `postmark` - Postmark
      * * `sendgrid` - SendGrid
-     * * `mailgun` - Mailgun */
+     * * `mailgun` - Mailgun
+     * * `mailchimp` - Mailchimp */
     provider: ImportProviderKeyEnumApi
     /**
      * Keys of the steps to run, from the `providers` endpoint. They run in the provider's order, whatever order you send.
@@ -682,7 +686,7 @@ export interface StartProviderImportApi {
      */
     steps: string[]
     /**
-     * The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. For SendGrid, a key with read access to the selected steps. For Mailgun, an account key that can read suppressions. PostHog deletes a Resend, Postmark, SendGrid or Mailgun key when the run ends, so send it every time.
+     * The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. For SendGrid, a key with read access to the selected steps. For Mailgun, an account key that can read suppressions. For Mailchimp, a Marketing API key ending in its data center, such as -us21. PostHog deletes a Resend, Postmark, SendGrid, Mailgun or Mailchimp key when the run ends, so send it every time.
      * @maxLength 512
      */
     api_key?: string
@@ -697,6 +701,10 @@ export interface ImportStepOptionApi {
     label: string
     /** What the step imports and where it lands in PostHog. */
     description: string
+    /** Keys of the steps that must be selected too for this one to run, such as `contacts`. Often empty. */
+    needs: string[]
+    /** Whether the step creates or updates people. Each of those counts as one event on the bill. */
+    counts_as_events: boolean
 }
 
 export interface ImportSettingChoiceApi {
@@ -729,7 +737,8 @@ export interface ImportProviderOptionApi {
      * * `resend` - Resend
      * * `postmark` - Postmark
      * * `sendgrid` - SendGrid
-     * * `mailgun` - Mailgun */
+     * * `mailgun` - Mailgun
+     * * `mailchimp` - Mailchimp */
     key: ImportProviderKeyEnumApi
     /** Display name of the provider. */
     label: string
@@ -1427,7 +1436,7 @@ export interface CodeEmailApi {
     description: string
     /** Tags for organizing transactional emails. */
     tags: string[]
-    /** True when PostHog keeps no copy of each sent email's body and doesn't track link clicks. */
+    /** True when PostHog keeps no copy of each sent email's body and records only the site address of a clicked link. */
     sensitive: boolean
     /**
      * A link to the file in your repository that sends this email. Null when unlinked.
@@ -1733,7 +1742,7 @@ export interface TransactionalEmailImpactApi {
     clicked: number
     /** Delivered sends nobody clicked. */
     not_clicked: number
-    /** Sends that went out with open and click tracking off, as sensitive emails do, counted by when they were queued like the other counts. They can't record an open or a click. */
+    /** Sends that went out with open and click tracking off, counted by when they were queued like the other counts. They can't record an open or a click. */
     untracked: number
     /** How many days after the click or the send the event counts. */
     window_days: number
@@ -1910,6 +1919,18 @@ export interface WorkflowEmailDetailApi {
     clicked: boolean
     /** The send, then deliveries, bounces, opens and clicks in the 7 days after it, oldest first. */
     timeline: TransactionalEmailLogEventApi[]
+}
+
+export type MessagingEmailsStatusRetrieveParams = {
+    /**
+     * The `idempotency_key` the send was made with, when you don't have its `message_id`, for example after a lost response.
+     * @minLength 1
+     */
+    idempotency_key?: string
+    /**
+     * The `message_id` that the send returned.
+     */
+    message_id?: string
 }
 
 export type MessagingCategoriesListParams = {

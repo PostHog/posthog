@@ -12,11 +12,9 @@ from collections import defaultdict
 from collections.abc import Mapping
 from functools import lru_cache
 from typing import Any
-from zoneinfo import ZoneInfo
 
 from django.db import connection
 from django.db.models import Count, Q, QuerySet
-from django.utils import timezone
 
 import tldextract
 
@@ -39,6 +37,7 @@ from products.aeo.backend.facade.contracts import (
 )
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck
 from products.aeo.backend.scope import SCOPE_SQL, CheckScope, scope_filter, scope_sql_params
+from products.aeo.backend.window import CheckWindow
 
 # Registrable names of sites answers cite whatever the brand, so they are never a competitor.
 NON_BRAND_NAMES = frozenset(
@@ -112,16 +111,10 @@ def registrable_domain(host: str) -> str:
 
 
 def get_rankings(
-    team_id: int, *, target_domains: list[str], timezone_name: str, days: int, scope: CheckScope
+    team_id: int, *, target_domains: list[str], timezone_name: str, window: CheckWindow, scope: CheckScope
 ) -> PromptSetRankings:
-    tz = ZoneInfo(timezone_name)
-    window_to = timezone.now().astimezone(tz).date()
-    window_from = window_to - dt.timedelta(days=days - 1)
-    window_start = dt.datetime.combine(window_from, dt.time.min, tzinfo=tz)
-    previous_start = window_start - dt.timedelta(days=days)
-
-    # Every read stops at the same instant, so a check written mid-request can't make the counts disagree.
-    until = timezone.now()
+    window_from, window_to = window.window_from, window.window_to
+    window_start, previous_start, until = window.start, window.previous_start, window.until
     answered = AEOCitationCheck.objects.for_team(team_id).filter(
         scope_filter(scope),
         created_at__gte=window_start,
@@ -182,7 +175,7 @@ def get_rankings(
     )
     return PromptSetRankings(
         competitors_confirmed=bool(confirmed),
-        days=days,
+        days=window.days,
         window_from=window_from,
         window_to=window_to,
         branded=scope.segment,

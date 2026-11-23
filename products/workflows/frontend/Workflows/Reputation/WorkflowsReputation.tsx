@@ -17,7 +17,9 @@ import type {
 } from 'products/workflows/frontend/generated/api.schemas'
 
 import { EmailMetricsIncidentBanner } from '../../EmailMetricsIncidentBanner'
+import { EmailInfrastructureCard } from './EmailInfrastructureCard'
 import { RATE_LEVEL_TAG, RATE_THRESHOLDS, classifyRate, minimumVolumeToClassify } from './emailRateLevels'
+import { MetricLabel } from './MetricLabel'
 import { workflowsReputationLogic } from './workflowsReputationLogic'
 
 function formatRate(rate: number): string {
@@ -108,33 +110,6 @@ const FINDING_TYPE_LABELS: Record<string, string> = {
 // (HogFlowViewSet.WORKFLOW_REPUTATION_LIMIT).
 const WINDOW_TOOLTIP = 'Calculated over your workflow email from the last 30 days.'
 const WORKFLOW_LIMIT = 50
-
-function MetricLabel({
-    label,
-    tooltip,
-    description,
-}: {
-    label: string
-    tooltip: string
-    description?: string
-}): JSX.Element {
-    const labelNode = (
-        <Tooltip title={tooltip}>
-            <div className="text-secondary text-xs border-b border-dotted border-current inline-block cursor-default">
-                {label}
-            </div>
-        </Tooltip>
-    )
-    if (!description) {
-        return labelNode
-    }
-    return (
-        <div>
-            {labelNode}
-            <div className="text-secondary text-xs mt-1">{description}</div>
-        </div>
-    )
-}
 
 function AwsFindings({ aws }: { aws: AwsTenantReputationApi }): JSX.Element | null {
     if (aws.findings.length === 0) {
@@ -590,6 +565,7 @@ export function WorkflowsReputation(): JSX.Element {
                     },
                 ]}
             />
+            <EmailInfrastructureCard />
         </div>
     )
 }
