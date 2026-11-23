@@ -362,6 +362,18 @@ export class RecordingApi {
             return
         }
 
+        // A staff token names its team in the path, so the key must come from that session's own listing.
+        if (res.locals.staffRead) {
+            const listed = await this.recordingService.listBlocks(sessionId, teamId)
+            const inListing = listed.some(
+                (block) => block.key === key && block.start_byte <= startByte && endByte <= block.end_byte
+            )
+            if (!inListing) {
+                res.status(403).json({ error: 'Forbidden: block is not part of this recording' })
+                return
+            }
+        }
+
         // Call service
         try {
             const result = await this.recordingService.getBlock({

@@ -20,7 +20,7 @@ describe('createRecordingApiAuthMiddleware', () => {
     ) => new JWT(secret).sign(claims, PosthogJwtAudience.RECORDING_API, { expiresIn })
 
     const mockResponse = () => {
-        const res = {} as Response
+        const res = { locals: {} } as Response
         res.status = jest.fn().mockReturnValue(res)
         res.json = jest.fn().mockReturnValue(res)
         return res
@@ -271,6 +271,12 @@ describe('deployed signing keys', () => {
         ['all', { blocksJwtSecret: 'new,dev-recording-api-blocks-jwt-secret' }, /dev RECORDING_API_BLOCKS_JWT_SECRET/],
         ['internal', { jwtSecret: 'dev-recording-api-jwt-secret' }, /dev RECORDING_API_JWT_SECRET/],
         ['internal', { staffJwtSecret: 'dev-recording-api-staff-jwt-secret' }, /dev RECORDING_API_STAFF_JWT_SECRET/],
+        ['internal', { staffJwtSecret: 's'.repeat(31) }, /STAFF_JWT_SECRET keys must be at least 32 bytes/],
+        [
+            'internal',
+            { jwtSecret: 'k'.repeat(32), staffJwtSecret: `${'s'.repeat(32)},${'k'.repeat(32)}` },
+            /must not share a key/,
+        ],
         ['public', { blocksJwtSecret: 'x'.repeat(31) }, /at least 32 bytes/],
         ['all', { blocksJwtSecret: `${'x'.repeat(32)},short` }, /at least 32 bytes/],
     ] as const)('refuses a deployed %s process holding a dev or short key', (role, secrets, error) => {

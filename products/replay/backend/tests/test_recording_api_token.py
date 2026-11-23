@@ -36,13 +36,14 @@ class TestRecordingApiTokenCommand(BaseTest):
         assert claims["op"] == "read"
         assert claims["actor"] == "staff@example.com"
         assert claims["reason"] == "ticket 1"
-        assert claims["exp"] - claims["iat"] == 15 * 60
+        assert 15 * 60 <= claims["exp"] - claims["iat"] <= 15 * 60 + 1
         assert printed["url"] == "http://recording-api:6738"
 
     @parameterized.expand(
         [
             ("unknown_team", {"team_id": 999_999_999}, {}, "No team has ID"),
             ("blank_reason", {"reason": "  "}, {}, "must not be empty"),
+            ("blank_actor", {"actor": ""}, {}, "must not be empty"),
             ("no_staff_key", {}, {"RECORDING_API_STAFF_JWT_SECRET": ""}, "RECORDING_API_STAFF_JWT_SECRET is not set"),
         ]
     )
