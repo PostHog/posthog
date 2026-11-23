@@ -329,12 +329,6 @@ describe('load', () => {
             'profile.settings.toString: not a setting the roles or the load producer read',
         ],
         [
-            'a second cdp-api, which no offer would reach',
-            card,
-            { ...profile, replicas: { 'cdp-api': 2 } },
-            'profile.replicas.cdp-api: cdp-api runs once, since every intake offer goes to replica 0',
-        ],
-        [
             'a backlog whose state sizes shrink toward p99',
             card,
             {
@@ -688,6 +682,7 @@ describe('load', () => {
                 load: { targets: { claimsPerSecond: { hogflow: 4 } }, tolerance: 0.1 },
             },
         ],
+        ['a profile that runs more than one cdp-api', card, { ...profile, replicas: { 'cdp-api': 3 } }],
     ])('loads %s', (_name, content, profileContent) => {
         expect(loadCard(content, profileContent).card.id).toBe(card.id)
     })
