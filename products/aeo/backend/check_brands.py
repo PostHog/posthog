@@ -22,7 +22,8 @@ from functools import reduce
 from urllib.parse import urlparse
 
 from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db.models import Exists, OuterRef, Q, QuerySet, TextField
+from django.db.models.functions import Cast, Concat
 from django.utils import timezone
 
 import tldextract
@@ -411,6 +412,46 @@ def _pages(
         yield page
 
 
+# fold() lowercases the Kelvin sign to an ASCII k, which Postgres does not, so an answer holding one
+# may name a brand that no case-insensitive match in SQL finds.
+_FOLDS_TO_ASCII = "\u212a"
+
+
+def _could_match(
+    checks: QuerySet[AEOCitationCheck], identities: list[BrandIdentity], team_id: int
+) -> QuerySet[AEOCitationCheck]:
+    """The checks the matcher could find any of these brands in, or that have rows for them to remove.
+
+    Every identifier the matcher looks for appears in the stored values as a case-insensitive substring:
+    a name in the text, a domain in the text, the cited hosts or the retrieved URLs. So a substring
+    match in SQL selects a superset of the checks the matcher matches, and a pass over a long history
+    reads and matches only those. An identifier outside ASCII folds differently in Postgres, so it
+    keeps every check."""
+    terms = {term for identity in identities for term, _ in identity.terms}
+    domains = {identity.domain for identity in identities}
+    if not all(value.isascii() for value in terms | domains):
+        return checks
+    # One case-insensitive regex per column reads each text once, where a LIKE per term reads it once a
+    # term. re.escape only escapes punctuation, which a Postgres regex reads as the character itself.
+    names = "|".join(re.escape(term) for term in sorted(terms | domains))
+    hosts = "|".join(re.escape(domain) for domain in sorted(domains))
+    rows = AEOCheckBrand.objects.for_team(team_id, canonical=True).filter(
+        citation_check_id=OuterRef("pk"), brand_id__in=[identity.brand_id for identity in identities]
+    )
+    return checks.annotate(
+        has_rows=Exists(rows),
+        # Both lists of cited hosts: a host cited past the stored URLs is only in `top_cited_domains`.
+        cited_text=Concat(Cast("cited_urls", TextField()), Cast("top_cited_domains", TextField())),
+        retrieved_text=Cast("retrieved_urls", TextField()),
+    ).filter(
+        Q(has_rows=True)
+        | Q(answer_text__contains=_FOLDS_TO_ASCII)
+        | Q(answer_text__iregex=names)
+        | Q(cited_text__iregex=hosts)
+        | Q(retrieved_text__iregex=hosts)
+    )
+
+
 @frozen
 class ResolveResult:
     checks: int
@@ -439,7 +480,8 @@ def resolve_run(team_id: int, run_id: str) -> ResolveResult:
 def resolve_stale_brands(team_id: int) -> ResolveResult:
     """Resolve again, over the team's whole history, the brands whose name, aliases or domain changed
     since their rows were written, and the brands that never had any. Only those brands' rows are
-    rewritten, so an edit to one brand never rewrites the rows of the others.
+    rewritten, so an edit to one brand never rewrites the rows of the others, and only the checks that
+    could name, cite or have retrieved them are read.
 
     The pass saves its place after every page, so one that its task's time limit stops resumes there.
     A brand gets its new key only when its identity is still the one the pass matched, so an edit
@@ -490,7 +532,7 @@ def resolve_stale_brands(team_id: int) -> ResolveResult:
         resolving = reduce(
             operator.or_, (Q(id=identity.brand_id, mentions_resolving_key=identity.key) for identity in identities)
         )
-        for page in _pages(resolved, after=resume):
+        for page in _pages(_could_match(resolved, identities, team_id), after=resume):
             # A pass that outlived its lock may run beside a newer one. Each page writes only the brands
             # still resolving this pass's identity, and locks them until it commits, so a newer pass takes
             # a brand over only between pages and its own writes land after this one's.
