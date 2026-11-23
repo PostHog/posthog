@@ -1,40 +1,51 @@
 import re
-from typing import Any, cast
+from typing import Any
 from uuid import UUID
 
 from django import forms
 from django.contrib import messages
-from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
+from django.db import transaction
+from django.http import HttpRequest, HttpResponse
 
-from posthog.admin.console.organization_shutdown import (
-    JOB_NOT_STARTED,
-    RUN_FOLLOW_UP,
-    RUN_PAGE_PATH,
-    STOP_NOTICE,
-    UNDO_HINT,
-    OrganizationShutdownForm,
-    ShutdownRuns,
-    deactivate_organizations,
-    inventory_table,
-    planned_action,
-    run_id_of,
-    run_page_url,
-    run_table,
-    shut_down_organizations,
-    start_background_stop,
-    take_inventory,
-)
+from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
-from posthog.admin.console.tools import ConsoleTool, Live, Notice, Page, Table, ToolOperation
+from posthog.admin.console.tools import Cell, ConsoleTool, Notice, Page, Row, Table, ToolOperation
 from posthog.models.organization import Organization
-from posthog.models.user import User
 from posthog.utils import pluralize
 
-TOOL_URL = RUN_PAGE_PATH
-RUN_REFRESH_SECONDS = 3
+
+class DeactivationReasonForm(forms.Form):
+    CUSTOM_REASON = "__custom__"
+
+    reason = forms.ChoiceField(
+        label="Reason",
+        choices=[*Organization.DeactivationReason.choices, (CUSTOM_REASON, "Custom reason")],
+        initial=Organization.DeactivationReason.TERMS_OF_SERVICE_VIOLATION_SECURITY,
+        help_text="Members of the organization see this reason.",
+    )
+    custom_reason = forms.CharField(
+        label="Custom reason",
+        required=False,
+        max_length=Organization._meta.get_field("is_not_active_reason").max_length,
+        widget=forms.Textarea(attrs={"rows": 3}),
+        help_text="Used only when the reason is Custom reason.",
+    )
+
+    def clean(self) -> dict[str, Any]:
+        cleaned_data = super().clean() or {}
+        reason = cleaned_data.get("reason")
+        custom_reason = (cleaned_data.get("custom_reason") or "").strip()
+        if reason == self.CUSTOM_REASON:
+            if not custom_reason:
+                self.add_error("custom_reason", "Enter a custom reason.")
+                return cleaned_data
+            cleaned_data["resolved_reason"] = custom_reason
+        elif reason:
+            cleaned_data["resolved_reason"] = reason
+        return cleaned_data
 
 
-class BulkDeactivateOrganizationsForm(OrganizationShutdownForm):
+class BulkDeactivateOrganizationsForm(DeactivationReasonForm):
     MAX_ORGANIZATIONS = 100
 
     organization_ids = forms.CharField(
@@ -44,7 +55,7 @@ class BulkDeactivateOrganizationsForm(OrganizationShutdownForm):
         ),
         help_text=f"Up to {MAX_ORGANIZATIONS} organization IDs, separated by new lines, commas or spaces.",
     )
-    field_order = ["organization_ids", "reason", "custom_reason", "stop_background_work"]
+    field_order = ["organization_ids", "reason", "custom_reason"]
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -84,23 +95,29 @@ class BulkDeactivateOrganizationsForm(OrganizationShutdownForm):
 class BulkDeactivation:
     """Which of the pasted organizations a bulk deactivation changes, skips, or cannot find."""
 
-    def __init__(self, organization_ids: list[UUID], *, stop_background_work: bool) -> None:
-        found = Organization.objects.in_bulk(organization_ids)
-        self.matched = [found[organization_id] for organization_id in organization_ids if organization_id in found]
-        self.to_deactivate = [organization for organization in self.matched if organization.is_active is not False]
-        self.already_inactive = [organization for organization in self.matched if organization.is_active is False]
+    def __init__(self, organization_ids: list[UUID]) -> None:
+        found = Organization.objects.only("id", "name", "is_active", "is_not_active_reason").in_bulk(organization_ids)
+        matched = [found[organization_id] for organization_id in organization_ids if organization_id in found]
+        self.to_deactivate = [organization for organization in matched if organization.is_active is not False]
+        self.already_inactive = [organization for organization in matched if organization.is_active is False]
         self.missing_ids = [
             str(organization_id) for organization_id in organization_ids if organization_id not in found
         ]
-        # An organization that is already inactive can still run work in the background, so stopping that work
-        # acts on it too. Without that, it is skipped as before.
-        self.acted_on = self.matched if stop_background_work else self.to_deactivate
+
+
+def _organization_row(organization: Organization, status: str) -> Row:
+    return Row(
+        cells=(
+            Cell(text=organization.name, href=RECORD_TYPES["organization"].url(organization)),
+            Cell(text=str(organization.id), mono=True),
+            Cell(text=status),
+        )
+    )
 
 
 def preview_bulk_deactivation(request: HttpRequest, form: forms.Form) -> Page:
-    stop_background_work = form.cleaned_data["stop_background_work"]
-    deactivation = BulkDeactivation(form.cleaned_data["organization_ids"], stop_background_work=stop_background_work)
-    if not deactivation.acted_on:
+    deactivation = BulkDeactivation(form.cleaned_data["organization_ids"])
+    if not deactivation.to_deactivate:
         message = (
             "All matched organizations are already inactive."
             if deactivation.already_inactive
@@ -109,70 +126,60 @@ def preview_bulk_deactivation(request: HttpRequest, form: forms.Form) -> Page:
         form.add_error("organization_ids", message)
         return Page(blocks=())
 
+    rows = [_organization_row(organization, "Deactivates") for organization in deactivation.to_deactivate]
+    rows += [
+        _organization_row(organization, f"Skipped, already inactive: {organization.is_not_active_reason or '-'}")
+        for organization in deactivation.already_inactive
+    ]
     blocks: list[Notice | Table] = [
         Notice(
             text=(
                 f"Deactivates {pluralize(len(deactivation.to_deactivate), 'organization')} "
                 f"with the reason: {form.cleaned_data['resolved_reason']}"
             )
-        )
+        ),
+        Table(columns=("Organization", "ID", "What happens"), rows=tuple(rows)),
     ]
-    if stop_background_work:
-        blocks.append(Notice(text=STOP_NOTICE))
-    actions = {
-        organization.id: planned_action(organization, stop_background_work=stop_background_work)
-        for organization in deactivation.matched
-    }
-    blocks.append(inventory_table([take_inventory(organization) for organization in deactivation.matched], actions))
     if deactivation.missing_ids:
         blocks.append(Notice(text=f"Not found, skipped: {', '.join(deactivation.missing_ids)}"))
     return Page(blocks=tuple(blocks))
 
 
+def deactivate_organizations(organization_ids: list[UUID], reason: str) -> int:
+    """Deactivates each organization that is still active, and returns how many it deactivated."""
+    with transaction.atomic():
+        # Read the active state again under a lock, so an organization deactivated since the preview keeps
+        # its existing reason. No-key, because only plain columns change and child rows may keep inserting.
+        locked = list(
+            Organization.objects.select_for_update(no_key=True)
+            .only("id", "is_active", "is_not_active_reason")
+            .filter(id__in=organization_ids)
+            .exclude(is_active=False)
+        )
+        for organization in locked:
+            organization.is_active = False
+            organization.is_not_active_reason = reason
+            organization.save(update_fields=["is_active", "is_not_active_reason", "updated_at"])
+    return len(locked)
+
+
 def bulk_deactivate(request: HttpRequest, form: forms.Form | None) -> HttpResponse | Page | None:
     assert form is not None
-    stop_background_work = form.cleaned_data["stop_background_work"]
-    deactivation = BulkDeactivation(form.cleaned_data["organization_ids"], stop_background_work=stop_background_work)
-    organization_ids = [organization.id for organization in deactivation.acted_on]
-    reason = form.cleaned_data["resolved_reason"]
-    triggered_by = cast(User, request.user).email
+    deactivation = BulkDeactivation(form.cleaned_data["organization_ids"])
+    deactivated = deactivate_organizations(
+        [organization.id for organization in deactivation.to_deactivate], form.cleaned_data["resolved_reason"]
+    )
+
+    if deactivated:
+        messages.success(request, f"Deactivated {pluralize(deactivated, 'organization')}.")
     if deactivation.missing_ids:
         messages.warning(
             request, f"Skipped {pluralize(len(deactivation.missing_ids), 'organization ID')} that were not found."
         )
-
-    if stop_background_work:
-        deactivated = deactivate_organizations(organization_ids, reason)
-        run_id = run_id_of(request)
-        if not start_background_stop(
-            run_id, organization_ids, deactivated=deactivated, reason=reason, triggered_by=triggered_by
-        ):
-            messages.error(request, JOB_NOT_STARTED)
-            return HttpResponse(status=502)
-        messages.success(
-            request,
-            f"Deactivated {pluralize(len(deactivated), 'organization')}. Their background work stops in a background "
-            "job, and this page follows it.",
-        )
-        return HttpResponseRedirect(run_page_url(run_id))
-
-    results = shut_down_organizations(
-        organization_ids, reason=reason, stop_background_work=False, triggered_by=triggered_by
-    )
-    deactivated_count = sum(result.deactivated for result in results)
-    if deactivated_count:
-        messages.success(request, f"Deactivated {pluralize(deactivated_count, 'organization')}.")
-    skipped = len(deactivation.matched) - deactivated_count
+    skipped = len(deactivation.already_inactive) + len(deactivation.to_deactivate) - deactivated
     if skipped:
         messages.warning(request, f"Skipped {pluralize(skipped, 'already inactive organization')}, reason unchanged.")
     return None
-
-
-def _requested_run(request: HttpRequest) -> str | None:
-    try:
-        return str(UUID(request.GET.get("run", "")))
-    except ValueError:
-        return None
 
 
 @console.register_tool
@@ -181,31 +188,19 @@ class OrganizationBulkDeactivationTool(ConsoleTool):
     title = "Bulk deactivate organizations"
     owner = None
     group = "Organizations"
-    description = (
-        "Deactivates organizations from a list of pasted IDs and stops their background work, after a preview."
-    )
+    description = "Deactivates organizations from a list of pasted IDs, after a preview."
 
     def page(self, request: HttpRequest) -> Page:
-        intro = Notice(
-            text=(
-                "Members of a deactivated organization cannot use PostHog until staff reactivate it. "
-                "You see the organizations, the work each runs in the background, and what happens to each "
-                "before anything changes."
+        return Page(
+            blocks=(
+                Notice(
+                    text=(
+                        "Members of a deactivated organization cannot use PostHog until staff reactivate it. "
+                        "You see the organizations and what happens to each before anything changes."
+                    )
+                ),
             )
         )
-        run = self.live(request, "run")
-        if run is None:
-            return Page(blocks=(intro,))
-        return Page(blocks=(Notice(text=RUN_FOLLOW_UP, link_text="Start another", href=TOOL_URL), run))
-
-    def live(self, request: HttpRequest, key: str) -> Live | None:
-        run_id = _requested_run(request)
-        if key != "run" or run_id is None:
-            return None
-        run = ShutdownRuns.read(run_id)
-        if run is None:
-            return Live(key="run", block=Notice(text="This run is unknown or too old to show. The audit log keeps it."))
-        return Live(key="run", block=run_table(run), refresh_seconds=None if run.finished else RUN_REFRESH_SECONDS)
 
     def operations(self, request: HttpRequest) -> list[ToolOperation]:
         return [
@@ -215,13 +210,9 @@ class OrganizationBulkDeactivationTool(ConsoleTool):
                 handler=bulk_deactivate,
                 preview=preview_bulk_deactivation,
                 danger=True,
-                description=(
-                    "Deactivates every pasted organization that is still active, and stops the background work "
-                    "of each one unless you turn that off."
-                ),
+                description="Deactivates every pasted organization that is still active.",
                 form_class=BulkDeactivateOrganizationsForm,
-                undo_hint=UNDO_HINT,
-                pending_label="Deactivating...",
+                undo_hint="To undo, reactivate each organization on its Django admin page.",
             )
         ]
 
@@ -229,5 +220,5 @@ class OrganizationBulkDeactivationTool(ConsoleTool):
 console.register_moved_page(
     old_path="admin/posthog/organization/bulk-deactivate/",
     title="Bulk deactivation",
-    url=TOOL_URL,
+    url="/admin/console/tools/bulk-deactivate-organizations/",
 )

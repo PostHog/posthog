@@ -1,40 +1,32 @@
 from datetime import UTC, datetime
-from typing import cast
 
 from django import forms
 from django.contrib import messages
 from django.db.models import Model
-from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
+from django.http import HttpRequest, HttpResponse
 
 import structlog
 
-from posthog.admin.console.organization_shutdown import (
-    JOB_NOT_STARTED,
-    STOP_NOTICE,
-    UNDO_HINT,
-    OrganizationShutdownForm,
-    deactivate_organizations,
-    find_background_work,
-    inventory_table,
-    planned_action,
-    run_id_of,
-    run_page_url,
-    shut_down_organizations,
-    start_background_stop,
-    take_inventory,
-)
+from posthog.admin.console.organization_tools import DeactivationReasonForm, deactivate_organizations
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Operation, Owner, Panel, Tone
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
-from posthog.admin.console.tools import Notice, Page
 from posthog.models.organization import Organization
-from posthog.models.user import User
 
 from ee.billing.quota_limiting import QuotaResource
 
 logger = structlog.get_logger(__name__)
 
 BILLING = Owner(name="Billing", crest="billing", staff_group="Billing Team")
+
+
+def deactivate_organization(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
+    assert isinstance(obj, Organization) and form is not None
+    if deactivate_organizations([obj.id], form.cleaned_data["resolved_reason"]):
+        messages.success(request, f"Deactivated '{obj.name}'.")
+    else:
+        messages.warning(request, f"'{obj.name}' was already inactive. Its reason did not change.")
+    return None
 
 
 @console.register_panel
@@ -62,6 +54,22 @@ class OrganizationOverviewPanel(Panel):
             facts.append(Fact(label="Deletion", value="Pending", tone=Tone.WARNING))
         return facts
 
+    def operations(self, obj: Model) -> list[Operation]:
+        assert isinstance(obj, Organization)
+        if obj.is_active is False:
+            return []
+        return [
+            Operation(
+                key="deactivate",
+                label="Deactivate organization",
+                handler=deactivate_organization,
+                danger=True,
+                description="Members cannot use PostHog until staff reactivate it. They see the reason you pick.",
+                form_class=DeactivationReasonForm,
+                undo_hint="To undo, reactivate the organization on its Django admin page.",
+            )
+        ]
+
 
 @console.register_panel
 class OrganizationTeamsPanel(Panel):
@@ -85,84 +93,6 @@ class OrganizationTeamsPanel(Panel):
             hidden = obj.teams.count() - len(shown)
             facts.append(Fact(label="More", value=f"{hidden} more teams. Look up the organization name to see all."))
         return facts
-
-
-def preview_shutdown(request: HttpRequest, obj: Model, form: forms.Form) -> Page:
-    assert isinstance(obj, Organization)
-    stop_background_work = form.cleaned_data["stop_background_work"]
-    action = planned_action(obj, stop_background_work=stop_background_work)
-    blocks = [
-        Notice(
-            text=f"Deactivates the organization with the reason: {form.cleaned_data['resolved_reason']}"
-            if obj.is_active is not False
-            else "The organization is already inactive and keeps its reason."
-        )
-    ]
-    if stop_background_work:
-        blocks.append(Notice(text=STOP_NOTICE))
-    return Page(blocks=(*blocks, inventory_table([take_inventory(obj)], {obj.id: action})))
-
-
-def shut_down(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | Page | None:
-    assert isinstance(obj, Organization) and form is not None
-    reason = form.cleaned_data["resolved_reason"]
-    triggered_by = cast(User, request.user).email
-    if not form.cleaned_data["stop_background_work"]:
-        results = shut_down_organizations(
-            [obj.id], reason=reason, stop_background_work=False, triggered_by=triggered_by
-        )
-        if any(result.deactivated for result in results):
-            messages.success(request, f"Deactivated '{obj.name}'.")
-        else:
-            messages.warning(request, f"'{obj.name}' was already inactive. Its reason did not change.")
-        return None
-    deactivated = deactivate_organizations([obj.id], reason)
-    run_id = run_id_of(request)
-    if not start_background_stop(run_id, [obj.id], deactivated=deactivated, reason=reason, triggered_by=triggered_by):
-        messages.error(request, JOB_NOT_STARTED)
-        return HttpResponse(status=502)
-    messages.success(request, f"Stopping the background work of '{obj.name}' in a background job.")
-    return HttpResponseRedirect(run_page_url(run_id))
-
-
-@console.register_panel
-class OrganizationBackgroundWorkPanel(Panel):
-    record = "organization"
-    key = "background-work"
-    title = "Background work"
-    owner = None
-    order = 25
-
-    def facts(self, obj: Model) -> list[Fact]:
-        assert isinstance(obj, Organization)
-        listing = find_background_work(list(obj.teams.values_list("id", flat=True)))
-        facts = [Fact(label=work.label, value=str(len(work.ids))) for work in listing.running]
-        facts += [Fact(label=kind, value="Could not list", tone=Tone.WARNING) for kind in listing.unlisted]
-        if not facts:
-            return [Fact(label="Running", value="Nothing", tone=Tone.SUCCESS)]
-        if len(facts) <= MAX_FACTS_PER_PANEL:
-            return facts
-        shown = facts[: MAX_FACTS_PER_PANEL - 1]
-        more = Fact(label="More", value=f"{len(facts) - len(shown)} more kinds. The shutdown preview lists all.")
-        return [*shown, more]
-
-    def operations(self, obj: Model) -> list[Operation]:
-        return [
-            Operation(
-                key="shut-down",
-                label="Shut down organization",
-                handler=shut_down,
-                preview=preview_shutdown,
-                danger=True,
-                description=(
-                    "Deactivates the organization and stops its background work. Members see the reason. "
-                    "Nothing is deleted."
-                ),
-                form_class=OrganizationShutdownForm,
-                undo_hint=UNDO_HINT,
-                pending_label="Shutting down. This can take a minute...",
-            )
-        ]
 
 
 class QuotaLimits:

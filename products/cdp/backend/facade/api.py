@@ -26,7 +26,6 @@ from products.actions.backend.facade.enums import ACTIONS_ARRAY_JSONPATH
 from products.cdp.backend.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions import HogFunction
-from products.cdp.backend.models.plugin import PluginConfig
 
 _B = "products.cdp.backend."
 
@@ -37,10 +36,6 @@ __all__ = [
     "HogFunctionActionReference",
     "count_hog_functions_referencing_actions",
     "create_hog_functions",
-    "disable_hog_function",
-    "disable_plugin_config",
-    "enabled_hog_function_ids_by_type",
-    "enabled_plugin_config_ids",
     "has_enabled_hog_function_for_warehouse_table",
     "hog_functions_referencing_action",
     "is_hog_function_template_available",
@@ -124,51 +119,6 @@ def warehouse_tables_with_enabled_hog_functions(
         for table in (filters or {}).get("data_warehouse") or []
         if isinstance(table, dict) and isinstance(table.get("table_name"), str) and table["table_name"] in names
     }
-
-
-def enabled_hog_function_ids_by_type(team_ids: Collection[int]) -> dict[str, list[str]]:
-    """The ids of the enabled hog functions of these teams, grouped by function type."""
-    by_type: dict[str, list[str]] = {}
-    rows = (
-        HogFunction.objects.filter(team_id__in=team_ids, enabled=True, deleted=False)
-        .order_by("type", "created_at")
-        .values_list("type", "id")
-    )
-    for function_type, hog_function_id in rows:
-        by_type.setdefault(function_type or "", []).append(str(hog_function_id))
-    return by_type
-
-
-def disable_hog_function(hog_function_id: str, *, team_id: int) -> bool:
-    """Disables one enabled hog function of the team. Returns False when it is no longer enabled.
-
-    It saves the row instead of a bulk update, because the save signal is what makes the CDP workers drop it.
-    """
-    hog_function = HogFunction.objects.filter(team_id=team_id, id=hog_function_id, enabled=True, deleted=False).first()
-    if hog_function is None:
-        return False
-    hog_function.enabled = False
-    hog_function.save(update_fields=["enabled"])
-    return True
-
-
-def enabled_plugin_config_ids(team_ids: Collection[int]) -> list[str]:
-    """The ids of the enabled legacy plugin configs of these teams."""
-    rows = PluginConfig.objects.filter(team_id__in=team_ids, enabled=True).order_by("id").values_list("id", flat=True)
-    return [str(plugin_config_id) for plugin_config_id in rows]
-
-
-def disable_plugin_config(plugin_config_id: str, *, team_id: int) -> bool:
-    """Disables one enabled legacy plugin config of the team. Returns False when it is no longer enabled.
-
-    It saves the row instead of a bulk update, because the save signal is what makes the plugin server reload.
-    """
-    plugin_config = PluginConfig.objects.filter(team_id=team_id, id=int(plugin_config_id), enabled=True).first()
-    if plugin_config is None:
-        return False
-    plugin_config.enabled = False
-    plugin_config.save(update_fields=["enabled"])
-    return True
 
 
 @frozen
