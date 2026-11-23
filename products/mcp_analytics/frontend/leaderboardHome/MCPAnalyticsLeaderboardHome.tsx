@@ -319,6 +319,20 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         onRetry={() => loadSections([MCPDashboardSection.ToolRows])}
                         theme={theme}
                         onToolClick={openToolReport}
+                        action={
+                            <LemonButton
+                                className="-my-1"
+                                type="secondary"
+                                size="xsmall"
+                                to={mcpToolQualityUrlWithDates(dateFilter, null, {
+                                    column: 'error_rate_pct',
+                                    direction: 'DESC',
+                                })}
+                                data-attr="mcp-dashboard-error-rate-tools-view-all"
+                            >
+                                View all tools
+                            </LemonButton>
+                        }
                     />
                     <ToolLatencyChart
                         rows={rankToolsByP95(toolRows)}
