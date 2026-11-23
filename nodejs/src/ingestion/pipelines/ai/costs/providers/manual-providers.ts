@@ -26,7 +26,7 @@ const manualProviderCosts: ModelCostRow[] = [
             default: {
                 prompt_token: 0.0000025,
                 completion_token: 0.000015,
-                cache_read_token: 0.000000625,
+                cache_read_token: 0.00000025,
             },
         },
     },
@@ -70,8 +70,9 @@ const manualProviderCosts: ModelCostRow[] = [
         model: 'mistral-large-latest',
         cost: {
             default: {
-                prompt_token: 0.000002,
-                completion_token: 0.000006,
+                prompt_token: 0.0000007,
+                completion_token: 0.0000021,
+                cache_read_token: 0.00000007,
             },
         },
     },

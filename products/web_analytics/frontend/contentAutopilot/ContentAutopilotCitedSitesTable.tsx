@@ -13,11 +13,14 @@ import { ContentAutopilotSiteLabel } from './ContentAutopilotSiteLabel'
 /** The sites the engines cite most. A site opens the answers that cite it. */
 export const ContentAutopilotCitedSitesTable = ({
     domains,
-    days,
+    dateFrom,
+    dateTo,
     branded,
 }: {
     domains: AEOPromptSetDomainApi[]
-    days: number
+    /** The window of the report, so a row opens the same answers the report counted. */
+    dateFrom: string
+    dateTo: string
     branded: BrandedSegmentEnumApi
 }): JSX.Element => (
     <LemonTable<AEOPromptSetDomainApi>
@@ -33,7 +36,7 @@ export const ContentAutopilotCitedSitesTable = ({
                 render: (_, { domain, is_target }) => (
                     <ContentAutopilotSiteLabel domain={domain} isTarget={is_target}>
                         <ContentAutopilotCitationsLink
-                            lookup={{ kind: 'domain', value: domain, days, branded }}
+                            lookup={{ kind: 'domain', value: domain, dateFrom, dateTo, branded }}
                             source="overview-sites"
                         >
                             {domain}

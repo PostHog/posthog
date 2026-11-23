@@ -125,6 +125,7 @@ export type SettingId =
     | 'activity-log-settings'
     | 'ai-observability-byok'
     | 'ai-observability-parser-recipes'
+    | 'ai-observability-eval-suggestions'
     | 'allow-impersonation'
     | 'approval-policies'
     | 'authentication-domains'
