@@ -1,4 +1,5 @@
 import sys
+import enum
 import math
 import uuid
 import socket
@@ -7,6 +8,7 @@ import asyncio
 import datetime as dt
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
+from string import Template
 
 from django.conf import settings
 
@@ -573,6 +575,61 @@ async def compute_num_partitions(
     return max(min_partitions, min(n, max_partitions))
 
 
+class EventsSource(enum.Enum):
+    """The events table a run of the events model reads."""
+
+    # `events`, `events_recent` or `distributed_events_recent`, as the legacy query template says.
+    LEGACY = "legacy"
+    EVENTS_JSON = "events_json"
+    EVENTS_JSON_RECENT = "events_json_recent"
+
+
+def _select_events_query_template(
+    full_range: tuple[dt.datetime | None, dt.datetime],
+    backfill_details: BackfillDetails | None,
+    is_workflows: bool,
+) -> Template:
+    """The legacy query a run of the events model would use."""
+    is_backfill = backfill_details is not None
+    # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
+    # may not be able to handle the load from all batch exports
+    if is_5_min_batch_export(full_range=full_range) and not is_backfill and not is_workflows:
+        LOGGER.info("Using events_recent table for 5 min batch export")
+        return EXPORT_TO_S3_FROM_EVENTS_RECENT
+    # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
+    # which is a distributed table that sits in front of the `events_recent` table
+    if not is_workflows and use_distributed_events_recent_table(
+        is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=full_range[0]
+    ):
+        LOGGER.info("Using distributed_events_recent table for batch export")
+        return EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT
+    if is_workflows:
+        LOGGER.info("Using workflows events query for batch export")
+        return EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS
+    if is_backfill:
+        LOGGER.info("Using events_batch_export_backfill query for batch export")
+        return EXPORT_TO_S3_FROM_EVENTS_BACKFILL
+    LOGGER.info("Using events table for batch export")
+    return EXPORT_TO_S3_FROM_EVENTS
+
+
+def _select_events_source(query_template: Template, range_start: dt.datetime | None) -> EventsSource:
+    """Whether a run reads one of the new events tables in place of the legacy one its query template reads.
+
+    The lookback query on `events` has no new equivalent, so it always reads the legacy table.
+    """
+    if not batch_exports_read_new_events_table():
+        return EventsSource.LEGACY
+    if query_template in (EXPORT_TO_S3_FROM_EVENTS_BACKFILL, EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS):
+        return EventsSource.EVENTS_JSON
+    if query_template in (
+        EXPORT_TO_S3_FROM_EVENTS_RECENT,
+        EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT,
+    ) and is_covered_by_events_json_recent(range_start):
+        return EventsSource.EVENTS_JSON_RECENT
+    return EventsSource.LEGACY
+
+
 async def _get_query(
     model_name: str,
     backfill_details: BackfillDetails | None,
@@ -590,8 +647,6 @@ async def _get_query(
     is_workflows: bool = False,
     **parameters,
 ):
-    logger = LOGGER.bind(model_name=model_name)
-
     if fields is None:
         if destination_default_fields is None:
             fields = default_fields()
@@ -645,30 +700,8 @@ async def _get_query(
         else:
             parameters["include_events"] = []
 
-        # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
-        # may not be able to handle the load from all batch exports
-        if is_5_min_batch_export(full_range=full_range) and not is_backfill and not is_workflows:
-            logger.info("Using events_recent table for 5 min batch export")
-            query_template = EXPORT_TO_S3_FROM_EVENTS_RECENT
-        # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
-        # which is a distributed table that sits in front of the `events_recent` table
-        elif (
-            use_distributed_events_recent_table(
-                is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=full_range[0]
-            )
-            and not is_workflows
-        ):
-            logger.info("Using distributed_events_recent table for batch export")
-            query_template = EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT
-        elif is_workflows:
-            logger.info("Using workflows events query for batch export")
-            query_template = EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS
-        elif is_backfill:
-            logger.info("Using events_batch_export_backfill query for batch export")
-            query_template = EXPORT_TO_S3_FROM_EVENTS_BACKFILL
-        else:
-            logger.info("Using events table for batch export")
-            query_template = EXPORT_TO_S3_FROM_EVENTS
+        query_template = _select_events_query_template(full_range, backfill_details, is_workflows)
+        if query_template is EXPORT_TO_S3_FROM_EVENTS:
             lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
             parameters["lookback_days"] = lookback_days
 
@@ -676,10 +709,8 @@ async def _get_query(
             EXPORT_TO_S3_FROM_EVENTS_RECENT,
             EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT,
         )
-        native_source = (
-            query_template in (EXPORT_TO_S3_FROM_EVENTS_BACKFILL, EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS)
-            or (reads_recent_events and is_covered_by_events_json_recent(full_range[0]))
-        ) and batch_exports_read_new_events_table()
+        events_source = _select_events_source(query_template, full_range[0])
+        native_source = events_source is not EventsSource.LEGACY
 
         # The stored fields of a custom schema read the legacy tables, so a run on the native table recompiles them.
         # TODO: Temporary. Once `events_json_recent` serves the recent paths, choose the table once up front and
@@ -700,7 +731,7 @@ async def _get_query(
                 filters, team_id=team_id, values=extra_query_parameters, use_new_events_schema=native_source
             )
 
-        if native_source and reads_recent_events:
+        if events_source is EventsSource.EVENTS_JSON_RECENT:
             query = native_recent_events_export_query(
                 fields,
                 filters_str,
@@ -708,7 +739,7 @@ async def _get_query(
                 includes_feature_flag_called=exports_feature_flag_called_events(team_id),
                 s3_function=s3_function,
             )
-        elif native_source:
+        elif events_source is EventsSource.EVENTS_JSON:
             query = native_events_export_query(fields, filters_str, s3_function=s3_function)
         else:
             query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields)
