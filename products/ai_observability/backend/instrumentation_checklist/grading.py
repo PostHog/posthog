@@ -3,14 +3,13 @@ from enum import StrEnum
 
 from posthog.dataclasses import frozen
 
-VOLUME_FLOOR = 20
-
 # A check gets its own page where one covers the instrumentation it asks for, and the installation
 # page otherwise. Sending a reader to a page that does not answer the question the check just raised
 # is worse than leaving them on installation.
-_INSTALLATION_DOCS_URL = "https://posthog.com/docs/ai-observability/installation"
-_SESSIONS_DOCS_URL = "https://posthog.com/docs/ai-observability/sessions"
-_TOOLS_DOCS_URL = "https://posthog.com/docs/ai-observability/tools"
+from products.ai_observability.backend.logic.docs_urls import INSTALLATION_DOCS_URL, SESSIONS_DOCS_URL, TOOLS_DOCS_URL
+from products.ai_observability.backend.logic.instrumentation.signals import SignalGrade, answers_session, grade_signal
+
+VOLUME_FLOOR = 20
 
 _PENDING_GENERATIONS = f"Still collecting data. This check runs once there are {VOLUME_FLOOR} generations."
 _PENDING_AI_EVENTS = f"Still collecting data. This check runs once there are {VOLUME_FLOOR} AI events."
@@ -90,7 +89,9 @@ def _sessions(stats: ChecklistStats) -> _CheckInputs:
         key=CheckKey.SESSIONS,
         title="Sessions",
         denominator=stats.generations,
-        has_signal=stats.events_with_session > 0 or stats.events_declining_session > 0,
+        has_signal=answers_session(
+            with_session=stats.events_with_session, declining_session=stats.events_declining_session
+        ),
         warning_detail=(
             "No traces include $ai_session_id. If your product has multi-turn conversations, setting it lets us "
             "group them into sessions. Workloads that are complete in one trace, like batch jobs or one-shot "
@@ -98,7 +99,7 @@ def _sessions(stats: ChecklistStats) -> _CheckInputs:
         ),
         ok_detail=ok_detail,
         pending_detail=_PENDING_GENERATIONS,
-        docs_url=_SESSIONS_DOCS_URL,
+        docs_url=SESSIONS_DOCS_URL,
         stats={
             "generations": stats.generations,
             "events_with_session": stats.events_with_session,
@@ -129,7 +130,7 @@ def _tool_calls(stats: ChecklistStats) -> _CheckInputs:
         warning_detail=warning_detail,
         ok_detail="Tool calls are being recorded.",
         pending_detail=_PENDING_GENERATIONS,
-        docs_url=_TOOLS_DOCS_URL,
+        docs_url=TOOLS_DOCS_URL,
         stats={
             "generations": stats.generations,
             "generations_with_tool_calls": stats.generations_with_tool_calls,
@@ -152,7 +153,7 @@ def _user_identity(stats: ChecklistStats) -> _CheckInputs:
             f"This check runs once there are {VOLUME_FLOOR} generations from a PostHog SDK. Generations sent over "
             "OpenTelemetry are not counted, because we cannot tell whether they are identified."
         ),
-        docs_url=_INSTALLATION_DOCS_URL,
+        docs_url=INSTALLATION_DOCS_URL,
         stats={
             "sdk_generations": stats.sdk_generations,
             "sdk_generations_identified": stats.sdk_generations_identified,
@@ -174,7 +175,7 @@ def _trace_structure(stats: ChecklistStats) -> _CheckInputs:
         # event, so the copy cannot name spans.
         ok_detail="Traces show the steps around your LLM calls.",
         pending_detail=_PENDING_AI_EVENTS,
-        docs_url=_INSTALLATION_DOCS_URL,
+        docs_url=INSTALLATION_DOCS_URL,
         stats={
             "total_events": stats.total_events,
             "spans": stats.spans,
@@ -184,15 +185,13 @@ def _trace_structure(stats: ChecklistStats) -> _CheckInputs:
 
 
 def _grade(inputs: _CheckInputs, *, dismissed: bool) -> GradedCheck:
-    if inputs.denominator < VOLUME_FLOOR:
-        graded_status = CheckStatus.PENDING
-        detail = inputs.pending_detail
-    elif not inputs.has_signal:
-        graded_status = CheckStatus.WARNING
-        detail = inputs.warning_detail
-    else:
-        graded_status = CheckStatus.OK
-        detail = inputs.ok_detail
+    match grade_signal(events=inputs.denominator, floor=VOLUME_FLOOR, has_signal=inputs.has_signal):
+        case SignalGrade.PENDING:
+            graded_status, detail = CheckStatus.PENDING, inputs.pending_detail
+        case SignalGrade.MISSING:
+            graded_status, detail = CheckStatus.WARNING, inputs.warning_detail
+        case SignalGrade.PRESENT:
+            graded_status, detail = CheckStatus.OK, inputs.ok_detail
 
     # Dismissal only overrides the status. The detail stays the one the counts earned, so a muted row
     # still says what the user silenced and what "Recheck" would re-evaluate.
