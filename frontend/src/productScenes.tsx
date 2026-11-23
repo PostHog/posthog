@@ -36,8 +36,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/ai_observability/frontend/evaluations/AIObservabilityEvaluation'),
     AIObservabilityEvaluationTemplates: () =>
         import('../../products/ai_observability/frontend/evaluations/EvaluationTemplates'),
-    AIObservabilityTags: () => import('../../products/ai_observability/frontend/tags/AIObservabilityTagsScene'),
-    AIObservabilityTag: () => import('../../products/ai_observability/frontend/tags/AIObservabilityTagScene'),
     AIObservabilityPrompts: () => import('../../products/ai_observability/frontend/prompts/LLMPromptsScene'),
     AIObservabilityPrompt: () => import('../../products/ai_observability/frontend/prompts/LLMPromptScene'),
     AIObservabilityClusters: () =>
