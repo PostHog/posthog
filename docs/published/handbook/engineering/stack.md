@@ -4,7 +4,7 @@ sidebar: Docs
 showTitle: true
 ---
 
-> **Note:** This page refers to our [main product repository](https://github.com/PostHog/posthog), not our website.
+> **Note:** This page refers to our [main product repository](https://github.com/PostHog/posthog) and the infrastructure that runs PostHog Cloud, not our website.
 
 ### Frontend
 
@@ -31,6 +31,24 @@ showTitle: true
 - Containerization: [Docker](https://www.docker.com/) and [Docker Compose](https://docs.docker.com/compose/)
 - Linter (frontend): [ESLint](https://eslint.org/)
 - Formatter (backend): [Black](https://pypi.org/project/black/)
+
+### Infrastructure
+
+PostHog Cloud runs on [AWS](https://aws.amazon.com/), with separate production environments in the US and EU, plus a dev environment.
+
+- Compute: [Kubernetes](https://kubernetes.io/) on [Amazon EKS](https://aws.amazon.com/eks/), with [Karpenter](https://karpenter.sh/) for node autoscaling and [Cilium](https://cilium.io/) for networking
+- Infrastructure as code: [Terraform](https://www.terraform.io/) and [Terragrunt](https://terragrunt.gruntwork.io/), in the private `posthog-cloud-infra` repository
+- Deployment: [Argo CD](https://argoproj.github.io/cd/) (GitOps) with [Helm](https://helm.sh/) charts, in the private `charts` repository. A merge to `master` builds new images, which roll out to dev first and then to prod.
+- Ingress: [Contour](https://projectcontour.io/) and [Envoy](https://www.envoyproxy.io/)
+- Databases: self-managed ClickHouse clusters on EC2, and PostgreSQL on [Amazon Aurora](https://aws.amazon.com/rds/aurora/)
+- Caches: Redis and [Valkey](https://valkey.io/) on [Amazon ElastiCache](https://aws.amazon.com/elasticache/)
+- Event streaming: Kafka-compatible [WarpStream](https://www.warpstream.com/) clusters, and [Amazon MSK](https://aws.amazon.com/msk/) for some workloads
+- Workflow orchestration: [Temporal Cloud](https://temporal.io/cloud) and [Dagster+](https://dagster.io/plus)
+- Observability: [Grafana](https://grafana.com/), [VictoriaMetrics](https://victoriametrics.com/) (metrics, alerts, and traces), [Loki](https://grafana.com/oss/loki/) (logs), and [OpenTelemetry](https://opentelemetry.io/)
+- Secrets: [AWS Secrets Manager](https://aws.amazon.com/secrets-manager/), synced into Kubernetes with [External Secrets](https://external-secrets.io/)
+- Network access: [Tailscale](https://tailscale.com/)
+
+To get access, see [working with cloud providers](/handbook/engineering/cloud-providers) and [how to access PostHog Cloud infra](/handbook/engineering/how-to-access-posthog-cloud-infra).
 
 ### Workflow orchestration
 
