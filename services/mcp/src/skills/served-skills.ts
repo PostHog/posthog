@@ -5,7 +5,6 @@ import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import servedSkillsJson from './served-skills.json'
 
 const ServedSkillSchema = z.strictObject({
-    /** PostHog feature flag key that the caller must have on to load the skill. */
     feature_flag: z.string().min(1).optional(),
 })
 
