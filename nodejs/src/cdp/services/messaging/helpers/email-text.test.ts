@@ -61,6 +61,22 @@ describe('plainTextFromHtml', () => {
             'Current code 482913',
         ],
         [
+            'hidden styles behind a comment or marked important',
+            '<div style="margin:0; /* preview */ display:none">Old code 123456</div>' +
+                '<div style="display:none !important; display:block">Old</div><p>Current code 482913</p>',
+            'Current code 482913',
+        ],
+        [
+            'a hidden style that a later declaration undoes',
+            '<p style="display:none;display:block">482913</p>',
+            '482913',
+        ],
+        [
+            'a list item that starts with a hidden list',
+            '<ul><li><ul style="display:none"><li>Preview</li></ul>Code 482913</li></ul>',
+            '- Code 482913',
+        ],
+        [
             'styled elements that stay visible',
             '<p style="margin:0;text-decoration:none">Reset</p><a style="color:red" href="https://example.com/r">here</a>',
             'Reset\n\nhere (https://example.com/r)',

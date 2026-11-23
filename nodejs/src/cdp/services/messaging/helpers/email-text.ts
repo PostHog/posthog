@@ -1,8 +1,40 @@
 import { DomNode, compile } from 'html-to-text'
 
-const SKIPPED_SELECTORS = ['head', 'script', 'style', 'title', 'noscript', 'template', '[hidden]']
+const SKIPPED_TAGS = new Set(['head', 'script', 'style', 'title', 'noscript', 'template'])
 
-const HIDDEN_DISPLAY = /(?:^|;)\s*display\s*:\s*none(?![\w-])/i
+const DISPLAY_DECLARATION = /^display\s*:\s*([a-z-]+)(\s*!\s*important)?$/i
+
+// A scan with indexOf, since the usual comment regex turns quadratic on many unclosed comments.
+const withoutComments = (style: string): string => {
+    let result = ''
+    let position = 0
+    for (;;) {
+        const start = style.indexOf('/*', position)
+        if (start < 0) {
+            return result + style.slice(position)
+        }
+        result += style.slice(position, start)
+        const end = style.indexOf('*/', start + 2)
+        if (end < 0) {
+            return result
+        }
+        position = end + 2
+    }
+}
+
+// Follows the cascade within one style attribute: the last display declaration wins, unless an earlier one is important.
+const isHiddenStyle = (style: string): boolean => {
+    let display = ''
+    let important = false
+    for (const declaration of withoutComments(style).split(';')) {
+        const match = DISPLAY_DECLARATION.exec(declaration.trim())
+        if (match && (match[2] || !important)) {
+            display = match[1].toLowerCase()
+            important = Boolean(match[2])
+        }
+    }
+    return display === 'none'
+}
 
 // Bounds the work per send. Longer html goes out without a text part, as html-only emails always did.
 const MAX_HTML_CHARACTERS = 1 << 20
@@ -29,13 +61,30 @@ const linkTarget = (path: string): string => {
     return target.replace(INVISIBLE_SEPARATORS, encodeURIComponent)
 }
 
-const hasReadableContent = (node: DomNode): boolean =>
-    node.type === 'text'
-        ? VISIBLE_CHARACTER.test(node.data ?? '')
-        : node.name === 'img'
-          ? Boolean(node.attribs?.alt?.trim())
-          : (node.name === 'a' && Boolean(linkTarget(node.attribs?.href ?? ''))) ||
-            (node.children ?? []).some(hasReadableContent)
+const isReadable = (node: DomNode): boolean => {
+    if (node.type === 'text') {
+        return VISIBLE_CHARACTER.test(node.data ?? '')
+    }
+    const attribs = node.attribs ?? {}
+    if (SKIPPED_TAGS.has(node.name ?? '') || 'hidden' in attribs || isHiddenStyle(attribs.style ?? '')) {
+        return false
+    }
+    if (node.name === 'img') {
+        return Boolean(attribs.alt?.trim())
+    }
+    return (node.name === 'a' && Boolean(linkTarget(attribs.href ?? ''))) || node.children.some(hasReadableContent)
+}
+
+// Nested list items ask about the same descendants, so each node is answered once.
+const readable = new WeakMap<DomNode, boolean>()
+const hasReadableContent = (node: DomNode): boolean => {
+    let result = readable.get(node)
+    if (result === undefined) {
+        result = isReadable(node)
+        readable.set(node, result)
+    }
+    return result
+}
 
 const toText = compile({
     wordwrap: false,
@@ -45,7 +94,7 @@ const toText = compile({
     baseElements: { selectors: [], returnDomByDefault: true },
     limits: { maxInputLength: MAX_HTML_CHARACTERS },
     selectors: [
-        ...SKIPPED_SELECTORS.map((selector) => ({ selector, format: 'skip' })),
+        ...[...SKIPPED_TAGS, '[hidden]'].map((selector) => ({ selector, format: 'skip' })),
         { selector: '[style]', format: 'styled' },
         ...HEADINGS.map((selector) => ({ selector, options: { uppercase: false } })),
         ...EXTRA_BLOCKS.map((selector) => ({
@@ -74,7 +123,7 @@ const toText = compile({
         // A visible element loses its style and is walked again, which renders it with its own formatter.
         styled: (elem, walk, builder) => {
             const { style, ...attribs } = elem.attribs
-            if (HIDDEN_DISPLAY.test(style)) {
+            if (isHiddenStyle(style)) {
                 return
             }
             elem.attribs = attribs
