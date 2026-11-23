@@ -2710,21 +2710,41 @@ describe('EmailService', () => {
             )
 
             it.each([
-                ['retries a small send', 0, retriedLoad, 0],
-                ['sends a send at the size limit', LARGEST_SEND_FILE_BYTES, sent, 1],
+                ['retries a small send', () => Promise.resolve(pdf), retriedLoad, 0],
+                [
+                    'sends a send of a tenth of the size limit, whose deadline grows with its bytes',
+                    () => uploadAttachment(team.id, { filename: 'a.pdf' }, Buffer.alloc(LARGEST_SEND_FILE_BYTES / 10)),
+                    sent,
+                    1,
+                ],
             ])(
-                'given a download slower than the deadline of a small send, %s',
-                async (_case, declaredBytes, expected, deliveries) => {
+                'given a download that takes 1.1 s, past the 1 s deadline of a small send, %s',
+                async (_case, file, expected, deliveries) => {
                     const emailService = sender({ attachmentSendDeadlineMs: 1_000 })
-                    bucket.downloadDelayMs = 1_500
-                    send([
-                        { ...pdf, metadata: { ...pdf.metadata, sizeBytes: declaredBytes || pdf.metadata.sizeBytes } },
-                    ])
+                    send([await file()])
+                    const timers: { ms: number; controller: AbortController }[] = []
+                    const timeouts = jest.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
+                        const controller = new AbortController()
+                        timers.push({ ms, controller })
+                        return controller.signal
+                    })
+                    bucket.answer = 'hold'
+                    try {
+                        const sending = emailService.executeSendEmail(invocation)
+                        await waitForExpect(() => expect(bucket.heldRequests).toBeGreaterThan(0))
+                        for (const { controller } of timers.filter(({ ms }) => ms <= 1_100)) {
+                            controller.abort(
+                                new DOMException('The operation was aborted due to timeout', 'TimeoutError')
+                            )
+                        }
+                        bucket.release()
+                        const result = await sending
 
-                    const result = await emailService.executeSendEmail(invocation)
-
-                    expect(outcomeOf(result)).toEqual(expected)
-                    expect(deliveredTo(ses, recipient)).toHaveLength(deliveries)
+                        expect(outcomeOf(result)).toEqual(expected)
+                        expect(deliveredTo(ses, recipient)).toHaveLength(deliveries)
+                    } finally {
+                        timeouts.mockRestore()
+                    }
                 }
             )
 
