@@ -41,6 +41,10 @@ const TEST_EMAIL_FAILURE_REASONS: [RegExp, string][] = [
     [/^The selected email integration domain is not verified/, 'domain_not_verified'],
     [/^The selected email integration is not configured correctly/, 'sender_misconfigured'],
     [/^Skipping send: the recipient has no email address/, 'missing_recipient'],
+    [/^Recipient has opted out/, 'recipient_opted_out'],
+    [/^Skipping send: the domain ".*" has no reachable mail servers/s, 'recipient_unreachable'],
+    [/^Skipping send: ".*" is not a valid email address/s, 'recipient_invalid'],
+    [/^Skipping send: PostHog doesn't deliver to the domain/, 'recipient_domain_blocked'],
     [/^Skipping send: .* on the suppression list/s, 'suppressed_recipient'],
     [
         /^Skipping send: (email sending is suspended|our email provider paused sending) for this project/,
@@ -350,6 +354,7 @@ export const emailDomainSenderLogic = kea<emailDomainSenderLogicType>([
                 const saved = await integrationsEmailPartialUpdate(String(currentTeamId), integrationId, {
                     config: { ...senderConfig, name: values.senderName },
                 })
+                posthog.capture('email sender name saved')
                 actions.senderSaved(saved)
             } catch (error) {
                 actions.saveSenderFailed()
@@ -365,7 +370,6 @@ export const emailDomainSenderLogic = kea<emailDomainSenderLogicType>([
         },
         senderSaved: () => {
             actions.loadIntegrations()
-            posthog.capture('email sender name saved')
             lemonToast.success('Sender name saved')
         },
         sendTestEmailSuccess: ({ testSendResult }) => {

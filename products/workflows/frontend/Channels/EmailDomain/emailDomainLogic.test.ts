@@ -167,7 +167,19 @@ describe('emailDomainLogic', () => {
             false,
             'sending_suspended',
         ],
-        [{ status: 'skipped', reason: 'The recipient has no reachable mail servers.' }, false, 'other'],
+        [
+            { status: 'skipped', reason: 'Recipient has opted out, skipping message delivery.' },
+            false,
+            'recipient_opted_out',
+        ],
+        [
+            {
+                status: 'skipped',
+                reason: 'Skipping send: the domain "acme.com" has no reachable mail servers, so this message would hard bounce.',
+            },
+            false,
+            'recipient_unreachable',
+        ],
         [{ status: 'failed', reason: 'The provider refused the message.' }, false, 'other'],
         [
             { status: 'failed', reason: 'The selected email integration is not configured correctly' },
