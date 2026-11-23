@@ -2632,7 +2632,13 @@ describe('EmailService', () => {
                 const result = await sender({ textPartTeams: String(team.id) }).executeSendEmail(invocation)
 
                 expect(result.error).toBeUndefined()
-                expect(ses.sent).toEqual([expect.objectContaining({ text: expectedText, html: expect.any(String) })])
+                expect(ses.sent).toEqual([
+                    expect.objectContaining({
+                        text: expectedText,
+                        html: expect.any(String),
+                        attachments: [expect.objectContaining({ filename: file.metadata.filename })],
+                    }),
+                ])
             })
 
             it.each([

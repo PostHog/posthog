@@ -23,16 +23,6 @@ const VISIBLE_CHARACTER = /[^\s\p{Cf}\p{M}]/u
 // without showing, so a code copied from the text part would differ from the one the html shows.
 const INVISIBLE_SEPARATORS = /[\u00ad\u200b\u2060\ufeff]/g
 
-const BLOCK_TAGS = new Set([
-    'p',
-    'div',
-    'table',
-    'blockquote',
-    'pre',
-    'center',
-    'section',
-    ...['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
-])
 const LIST_TAGS = new Set(['ul', 'ol'])
 
 const SCRIPT_URL = /^javascript:/i
@@ -83,18 +73,11 @@ const toText = compile({
                 return
             }
             builder.openBlock({ leadingLineBreaks: 1 })
-            if (first.name && LIST_TAGS.has(first.name)) {
-                // An item that only holds a nested list gets no marker of its own.
-                walk(elem.children, builder)
-            } else if (first.name && BLOCK_TAGS.has(first.name)) {
-                // The marker goes before the first block's text, not on a line of its own above it.
+            // An item that opens with a nested list gets no marker of its own.
+            if (!first.name || !LIST_TAGS.has(first.name)) {
                 builder.addInline('- ')
-                walk(first.children, builder)
-                walk(elem.children.slice(elem.children.indexOf(first) + 1), builder)
-            } else {
-                builder.addInline('- ')
-                walk(elem.children, builder)
             }
+            walk(elem.children, builder)
             builder.closeBlock({ trailingLineBreaks: 1 })
         },
         altText: (elem, _walk, builder) => {

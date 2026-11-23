@@ -67,7 +67,17 @@ describe('plainTextFromHtml', () => {
         ['html longer than the converter reads', '<p>Hi</p>' + ' '.repeat(1 << 20), ''],
         ['nested lists', '<ul><li>One<ul><li>Two</li></ul></li><li>Three</li></ul>', '- One\n- Two\n\n- Three'],
         ['lists nested many levels deep', '<ul><li>'.repeat(200) + 'Hi' + '</li></ul>'.repeat(200), '- Hi'],
-        ['a list item that starts with a paragraph', '<ul><li><p>Step one</p></li></ul>', '- Step one'],
+        ['a list item that starts with a paragraph', '<ul><li><p>Step one</p></li></ul>', '-\n\nStep one'],
+        [
+            'a list item with text after its first paragraph',
+            '<ul><li><p>Use 482913</p>Expires in 10 minutes</li></ul>',
+            '-\n\nUse 482913\n\nExpires in 10 minutes',
+        ],
+        [
+            'a list item that starts with a hidden preheader',
+            '<ul><li><div style="display:none">Preview</div>Code 482913</li></ul>',
+            '- Code 482913',
+        ],
         [
             'a list item that holds only a linked image',
             '<ul><li><a href="https://example.com/reset"><img src="button.png"></a></li></ul>',
