@@ -2709,44 +2709,85 @@ describe('EmailService', () => {
                 }
             )
 
+            const aFifthOfTheSizeLimit = (): Promise<StoredFile> =>
+                uploadAttachment(team.id, { filename: 'a.pdf' }, Buffer.alloc(LARGEST_SEND_FILE_BYTES / 5))
             it.each([
-                ['retries a small send', () => Promise.resolve(pdf), retriedLoad, 0],
                 [
-                    'sends a send of a tenth of the size limit, whose deadline grows with its bytes',
-                    () => uploadAttachment(team.id, { filename: 'a.pdf' }, Buffer.alloc(LARGEST_SEND_FILE_BYTES / 10)),
+                    'a download answered after 19 s, a small send, whose deadline is 17 s, sends nothing and retries',
+                    () => Promise.resolve(pdf),
+                    19_000,
+                    retriedLoad,
+                    0,
+                ],
+                [
+                    'a download answered after 19 s, a send of a fifth of the size limit, whose deadline is 22.6 s, sends',
+                    aFifthOfTheSizeLimit,
+                    19_000,
                     sent,
                     1,
                 ],
-            ])(
-                'given a download that takes 1.1 s, past the 1 s deadline of a small send, %s',
-                async (_case, file, expected, deliveries) => {
-                    const emailService = sender({ attachmentSendDeadlineMs: 1_000 })
-                    send([await file()])
-                    const timers: { ms: number; controller: AbortController }[] = []
-                    const timeouts = jest.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
-                        const controller = new AbortController()
-                        timers.push({ ms, controller })
-                        return controller.signal
-                    })
-                    bucket.answer = 'hold'
-                    try {
-                        const sending = emailService.executeSendEmail(invocation)
-                        await waitForExpect(() => expect(bucket.heldRequests).toBeGreaterThan(0))
-                        for (const { controller } of timers.filter(({ ms }) => ms <= 1_100)) {
+                [
+                    'a download answered after 24 s, a send of a fifth of the size limit, whose deadline is 22.6 s, sends nothing and retries',
+                    aFifthOfTheSizeLimit,
+                    24_000,
+                    retriedLoad,
+                    0,
+                ],
+            ])('on the default send deadline, given %s', async (_case, file, answeredAfterMs, expected, deliveries) => {
+                send([await file()])
+                const emailService = sender()
+                bucket.answer = 'hold'
+                jest.useFakeTimers({
+                    doNotFake: [
+                        'nextTick',
+                        'setImmediate',
+                        'clearImmediate',
+                        'queueMicrotask',
+                        'hrtime',
+                        'performance',
+                    ],
+                })
+                const timeouts = jest.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
+                    const controller = new AbortController()
+                    setTimeout(
+                        () =>
                             controller.abort(
                                 new DOMException('The operation was aborted due to timeout', 'TimeoutError')
-                            )
+                            ),
+                        ms
+                    )
+                    return controller.signal
+                })
+                // The send waits on real I/O and on short batching timers, so the fake clock follows real time
+                // until the condition holds; only the held download jumps it.
+                const untilOnTheFakeClock = async (done: () => boolean): Promise<void> => {
+                    const givesUpAt = performance.now() + 10_000
+                    let clockAt = performance.now()
+                    while (!done()) {
+                        if (performance.now() > givesUpAt) {
+                            throw new Error('the send did not get there in 10 real seconds')
                         }
-                        bucket.release()
-                        const result = await sending
-
-                        expect(outcomeOf(result)).toEqual(expected)
-                        expect(deliveredTo(ses, recipient)).toHaveLength(deliveries)
-                    } finally {
-                        timeouts.mockRestore()
+                        await new Promise((resolve) => setImmediate(resolve))
+                        const passedMs = Math.floor(performance.now() - clockAt)
+                        clockAt += passedMs
+                        await jest.advanceTimersByTimeAsync(passedMs)
                     }
                 }
-            )
+                try {
+                    let outcome: ReturnType<typeof outcomeOf> | undefined
+                    void emailService.executeSendEmail(invocation).then((result) => (outcome = outcomeOf(result)))
+                    await untilOnTheFakeClock(() => bucket.heldRequests > 0)
+                    await jest.advanceTimersByTimeAsync(answeredAfterMs)
+                    bucket.release()
+                    await untilOnTheFakeClock(() => outcome !== undefined)
+
+                    expect(outcome).toEqual(expected)
+                    expect(deliveredTo(ses, recipient)).toHaveLength(deliveries)
+                } finally {
+                    timeouts.mockRestore()
+                    jest.useRealTimers()
+                }
+            })
 
             it('when a flow sends its next email inline after the email before abandoned a download mid-body, it loads its files and sends', async () => {
                 const emailService = sender({ attachmentSendDeadlineMs: 2_000 })
