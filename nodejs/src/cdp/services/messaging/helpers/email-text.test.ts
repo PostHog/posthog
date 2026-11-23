@@ -20,6 +20,11 @@ describe('plainTextFromHtml', () => {
             'https://example.com or help@example.com',
         ],
         [
+            'a link whose label is its target before link tagging',
+            '<a href="https://example.com/reset?t=1&amp;utm_source=posthog">https://example.com/reset?t=1</a>',
+            'https://example.com/reset?t=1',
+        ],
+        [
             'an image-only link',
             '<a href="https://example.com/app"><img src="logo.png" alt="Logo"></a>',
             'https://example.com/app',
@@ -48,6 +53,8 @@ describe('plainTextFromHtml', () => {
         ],
         ['a literal less-than sign', '<p>1 < 2 and 3 > 2</p>', '1 < 2 and 3 > 2'],
         ['lists and line breaks', '<ul><li>One</li><li>Two</li></ul>Line<br>Next', '- One\n- Two\n\nLine\nNext'],
+        ['joiners in visible text', '<p>👩&#8205;💻 می&#8204;خواهم</p>', '👩\u200d💻 می\u200cخواهم'],
+        ['preformatted text', '<pre>export FOO=1\nrun-command</pre><p>Done</p>', 'export FOO=1\nrun-command\n\nDone'],
         ['table cells', '<table><tr><td>Total</td><td>$5</td></tr></table>', 'Total $5'],
     ])('renders %s', (_case, html, expected) => {
         expect(plainTextFromHtml(html)).toBe(expected)

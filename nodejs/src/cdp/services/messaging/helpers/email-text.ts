@@ -2,12 +2,13 @@ import { Parser } from 'htmlparser2'
 
 const SKIPPED_ELEMENTS = new Set(['head', 'script', 'style', 'title', 'noscript', 'template'])
 const LINE_BREAK_ELEMENTS = new Set(['div', 'tr', 'table', 'section', 'article', 'header', 'footer', 'center'])
-const PARAGRAPH_ELEMENTS = new Set(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'blockquote', 'hr'])
+const PARAGRAPH_ELEMENTS = new Set(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'blockquote', 'hr', 'pre'])
 const CELL_ELEMENTS = new Set(['td', 'th'])
 
 const HIDDEN_STYLE = /display\s*:\s*none/i
-const INVISIBLE_CHARACTERS = /[\u00ad\u034f\u200b-\u200d\u2060\ufeff]/g
+const INVISIBLE_CHARACTERS = /[\u00ad\u034f\u200b\u2060\ufeff]/g
 const WHITESPACE = /\s+/g
+const URL_SCHEME = /^[a-z][a-z0-9+.-]*:/i
 
 const isSkipped = (name: string, attributes: Record<string, string>): boolean =>
     SKIPPED_ELEMENTS.has(name) || HIDDEN_STYLE.test(attributes.style ?? '')
@@ -38,7 +39,8 @@ const linkSuffix = (label: string, target: string): string => {
     if (!label) {
         return shownTarget
     }
-    return label === shownTarget || label === target ? '' : ` (${shownTarget})`
+    const labelIsTheLink = label === shownTarget || (URL_SCHEME.test(label) && target.startsWith(label))
+    return labelIsTheLink ? '' : ` (${shownTarget})`
 }
 
 const tidyLines = (text: string): string =>
@@ -54,6 +56,7 @@ type OpenLink = { target: string; labelStart: number }
 export const plainTextFromHtml = (html: string): string => {
     const out: string[] = []
     let depth = 0
+    let preDepth = 0
     let skippedAt: number | null = null
     let link: OpenLink | null = null
 
@@ -67,6 +70,9 @@ export const plainTextFromHtml = (html: string): string => {
                 skippedAt = depth
                 return
             }
+            if (name === 'pre') {
+                preDepth++
+            }
             if (name === 'a') {
                 const target = linkTarget(attributes.href)
                 link = target ? { target, labelStart: out.length } : null
@@ -75,7 +81,8 @@ export const plainTextFromHtml = (html: string): string => {
         },
         ontext(text) {
             if (skippedAt === null) {
-                out.push(text.replace(INVISIBLE_CHARACTERS, '').replace(WHITESPACE, ' '))
+                const visible = text.replace(INVISIBLE_CHARACTERS, '')
+                out.push(preDepth > 0 ? visible.replace(/\r\n?/g, '\n') : visible.replace(WHITESPACE, ' '))
             }
         },
         onclosetag(name) {
@@ -83,6 +90,9 @@ export const plainTextFromHtml = (html: string): string => {
                 if (name === 'a' && link) {
                     out.push(linkSuffix(tidyLines(out.slice(link.labelStart).join('')), link.target))
                     link = null
+                }
+                if (name === 'pre') {
+                    preDepth--
                 }
                 out.push(breakFor(name, false))
             } else if (skippedAt === depth) {
