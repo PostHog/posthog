@@ -35,7 +35,7 @@ export function TodayMonitorSidebar(): JSX.Element {
             <SidebarSearchList
                 query={searchQuery}
                 onQueryChange={setSearchQuery}
-                searchLabel="Search Observe"
+                searchLabel="Search Monitor"
                 dataAttr="monitor-sidebar-search"
             >
                 {matchingTools.length > 0 && (
@@ -52,7 +52,7 @@ export function TodayMonitorSidebar(): JSX.Element {
                 )}
                 {noMatches && (
                     <div className="px-2 py-1 text-sm text-muted-foreground">
-                        Nothing in Observe matches your search.
+                        Nothing in Monitor matches your search.
                     </div>
                 )}
                 <TodayPinnedRecentSections
