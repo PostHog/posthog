@@ -39,6 +39,14 @@ export interface ContentWidget {
     refreshedAt?: string
     /** The pieces placed in the tile's footer, shown in this order. No pieces means no footer. */
     footer?: TileFooterItem[]
+    /** Which parts of the tile show. A part that is missing shows. */
+    parts?: ContentWidgetParts
+}
+
+export interface ContentWidgetParts {
+    header?: boolean
+    description?: boolean
+    footer?: boolean
 }
 
 export type TileFooterItem =
@@ -83,4 +91,12 @@ export type SectionTile = Tile & { widget: SectionWidget }
 
 export function isSection(tile: Tile): tile is SectionTile {
     return tile.widget.type === 'section'
+}
+
+/** Whether a content tile shows a part. The description lives in the header, so hiding the header hides it too. */
+export function showsPart(widget: ContentWidget, part: keyof ContentWidgetParts): boolean {
+    if (part === 'description' && widget.parts?.header === false) {
+        return false
+    }
+    return widget.parts?.[part] !== false
 }
