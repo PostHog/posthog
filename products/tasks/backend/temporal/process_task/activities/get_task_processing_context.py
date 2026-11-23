@@ -19,6 +19,7 @@ from posthog.temporal.common.utils import asyncify, close_db_connections
 
 from products.context_layer.backend.facade import api as context_layer_facade
 from products.tasks.backend.constants import (
+    AGENT_EGRESS_ENROLLMENT_FEATURE_FLAG,
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_SERVER_SHADOW_FEATURE_FLAG,
     BAKED_REPO_CLONE_FEATURE_FLAG,
@@ -53,6 +54,7 @@ from products.tasks.backend.facade.api import ensure_task_run_session
 from products.tasks.backend.facade.profiles import NetworkAccess, NetworkPolicy
 from products.tasks.backend.feature_flags import own_subscription_cloud_enabled
 from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
+from products.tasks.backend.logic.services.agent_egress_enrollment import AgentEgressEnrollmentConfig
 from products.tasks.backend.logic.services.agent_egress_probe import AgentEgressProbeConfig
 from products.tasks.backend.logic.services.agent_instructions import (
     agent_instructions_state_update,
@@ -165,6 +167,7 @@ class TaskProcessingContext:
     baked_repo_clone_enabled: bool = False
     agent_shadow_enabled: bool = False
     agent_egress_observation_config: str | None = None
+    agent_egress_enrollment_enabled: bool = False
     agent_proxy_keep_stream_open: bool = True  # Temporal payload compatibility
     # Set only when the run resolved to the VM runtime — custom images layer on the VM base.
     custom_image_name: str | None = None
@@ -453,6 +456,7 @@ RUN_FEATURE_FLAG_KEYS: list[str] = [
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
     BAKED_REPO_CLONE_FEATURE_FLAG,
     AGENT_SERVER_SHADOW_FEATURE_FLAG,
+    AGENT_EGRESS_ENROLLMENT_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
     HOGLAND_SANDBOX_FEATURE_FLAG,
     HOGLAND_HOTPLUG_GOLDEN_FEATURE_FLAG,
@@ -959,19 +963,45 @@ def _compile_effective_network_policy(allowed_domains: list[str]) -> EffectiveNe
     )
 
 
+def _agent_egress_eligible(context: TaskProcessingContext, *, resumed: bool) -> bool:
+    return (
+        not resumed
+        and not context.is_snapshot_resume
+        and context.environment == "cloud"
+        and context.mode != "interactive"
+        and context.sandbox_backend == "modal"
+        and context.use_modal_vm_sandbox
+        and context.allowed_domains is None
+        and context.sandbox_resource_overrides().get("memory_gb", 2) >= 2
+    )
+
+
+def _agent_egress_enrollment_selected(
+    context: TaskProcessingContext, *, flags: FlagsAndPayloads, resumed: bool
+) -> bool:
+    if not _agent_egress_eligible(context, resumed=resumed) or not _flag_enabled(
+        flags, AGENT_EGRESS_ENROLLMENT_FEATURE_FLAG
+    ):
+        return False
+    if not settings.AGENT_EGRESS_ENROLLMENT_CONFIG:
+        return False
+    try:
+        AgentEgressEnrollmentConfig.load()
+    except ValueError:
+        get_bound_logger(run_id=context.run_id, team_id=context.team_id).warning(
+            "agent_egress_enrollment_disabled", reason="invalid_configuration"
+        )
+        return False
+    return True
+
+
 def _agent_egress_observation_config(context: TaskProcessingContext, *, resumed: bool) -> str | None:
     path = settings.AGENT_EGRESS_OBSERVATION_CONFIG
     if (
         not path
         or not settings.DEBUG
         or settings.SANDBOX_PROVIDER != "MODAL_DOCKER"
-        or resumed
-        or context.is_snapshot_resume
-        or context.environment != "cloud"
-        or context.mode == "interactive"
-        or context.sandbox_backend != "modal"
-        or not context.use_modal_vm_sandbox
-        or context.allowed_domains is not None
+        or not _agent_egress_eligible(context, resumed=resumed)
     ):
         return None
     try:
@@ -1488,7 +1518,12 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         and _flag_enabled(flags, PERSIST_AGENT_MEMORY_FEATURE_FLAG),
     )
     if input.launches_agent:
-        context.agent_egress_observation_config = _agent_egress_observation_config(
-            context, resumed=input.resumed_sandbox_id is not None
+        context.agent_egress_enrollment_enabled = _agent_egress_enrollment_selected(
+            context, flags=flags, resumed=input.resumed_sandbox_id is not None
+        )
+        context.agent_egress_observation_config = (
+            settings.AGENT_EGRESS_ENROLLMENT_CONFIG
+            if context.agent_egress_enrollment_enabled
+            else _agent_egress_observation_config(context, resumed=input.resumed_sandbox_id is not None)
         )
     return context

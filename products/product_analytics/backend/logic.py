@@ -220,6 +220,16 @@ def insight_ids_modified_since(*, team_ids: Collection[int], since: datetime) ->
     )
 
 
+def insight_ids_by_short_ids(*, team_id: int, short_ids: Collection[str]) -> set[int]:
+    if not short_ids:
+        return set()
+    return set(
+        Insight.objects.filter(team_id=team_id, short_id__in=list(short_ids), deleted=False).values_list(
+            "id", flat=True
+        )
+    )
+
+
 def insight_ids_named_like(*, team_id: int, search: str) -> set[int]:
     unnamed = Q(name__isnull=True) | Q(name="")
     return set(
