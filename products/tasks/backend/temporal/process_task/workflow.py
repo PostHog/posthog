@@ -2990,6 +2990,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         await self._stop_egress_observation()
         self._resume_snapshot_invalidated = False
         self.context.agent_egress_observation_config = None
+        self.context.agent_egress_enrollment_enabled = False
         activity_count = self._sandbox_activity_count
         # A replacement built from a snapshot without a baseline (its restore failed) restores from
         # storage, so storage must hold the snapshot's memory first. Taken after the activity count,
@@ -3323,6 +3324,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     team_id=self.context.team_id,
                     run_id=self.context.run_id,
                     sandbox_id=sandbox_id,
+                    enrollment=self.context.agent_egress_enrollment_enabled,
                 ),
                 id=f"agent-egress-observation-{self.context.run_id}-{workflow.uuid4()}",
                 task_queue=workflow.info().task_queue,
