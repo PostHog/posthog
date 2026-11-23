@@ -408,6 +408,7 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
             "precompute_shadow_checked": self._shadow is not None,
             "precompute_shadow_max_rel_diff": self._shadow.max_relative_difference if self._shadow else None,
             "precompute_shadow_mismatched_points": self._shadow.mismatched_points if self._shadow else None,
+            "precompute_reasons": list(self._provenance.reasons),
         }
 
     @cached_property

@@ -502,6 +502,7 @@ class TestMetricsQueryRunnerPromQLPrecompute(APIBaseTest):
         assert first.provenance is not None and first.provenance.mode == "raw"
         assert first_properties["precompute_provenance"] == "raw"
         assert first_properties["precompute_shadow_checked"] is False
+        assert first_properties["precompute_reasons"] == ["precomputing started"]
         assert response.provenance is not None and response.provenance.mode == response_mode
         assert properties["precompute_provenance"] == event_provenance
         assert properties["precompute_shadow_checked"] is True
