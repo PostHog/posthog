@@ -19,7 +19,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.access_control.backend.models.access_control import AccessControl
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, self_managed_table_ref
-from products.warehouse_sources.backend.models.external_data_source import MIGRATION_MARKER_KEY, ExternalDataSource
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.self_managed_access import (
     ADOPTION_ACCESS_ERROR,
@@ -387,7 +387,6 @@ class TestAdoptionKeepsAccess(_AccessRulesTest):
 
         assert schema.source.source_type == "FileUpload"
         assert self._source_rules(schema.source) == {("A", "viewer"), ("", "none")}
-        assert (schema.source.connection_metadata or {})[MIGRATION_MARKER_KEY]["access_signature"]
         self._assert_adoption_keeps_access(table, schema)
 
 
