@@ -40,7 +40,6 @@ from .trace_expression_queries import (
     NODE_EVENT_NAMES,
     TRACE_EVENT_NAMES,
     grouped,
-    over_trace,
     trace_cost,
     trace_latency,
     trace_person_id,
@@ -243,31 +242,78 @@ _TRACE_TOTALS = {
 }
 
 
-def _trace_total_columns() -> list[ast.Alias]:
-    over = over_trace(ast.Field(chain=["trace_id"]))
-    return [ast.Alias(alias=alias, expr=build(AI_EVENTS_COLUMNS, over)) for alias, build in _TRACE_TOTALS.items()]
+# Only the columns the totals read, so the totals read stays narrow however wide the capped rows are.
+_TRACE_TOTAL_INPUTS = ("event", "timestamp", "latency", "parent_id", "distinct_id", "session_id", "total_cost_usd")
+
+
+def _trace_totals_query(rows: ast.SelectQuery) -> ast.SelectQuery:
+    """Each trace's latency, cost, person and session over every deduplicated event `rows` filters to. A window over the
+    wide rows would hold every row of a trace in memory before the cap, and this read holds one row per trace."""
+    trace_id = ast.Field(chain=["trace_id"])
+    narrow = replace(
+        rows,
+        select=[*_select({column: _SELECTED[column] for column in _TRACE_TOTAL_INPUTS}), trace_id],
+        order_by=None,
+        limit=None,
+    )
+    return ast.SelectQuery(
+        select=[
+            trace_id,
+            *(ast.Alias(alias=alias, expr=build(AI_EVENTS_COLUMNS, grouped)) for alias, build in _TRACE_TOTALS.items()),
+        ],
+        select_from=ast.JoinExpr(table=narrow),
+        group_by=[trace_id],
+    )
+
+
+def _join_trace_totals(
+    capped: ast.SelectQuery, rows: ast.SelectQuery, *, before: Sequence[str], after: Sequence[str]
+) -> ast.SelectQuery:
+    """Selects the `before` columns of each capped row, its trace's totals over every row of `rows`, then the `after`
+    columns, in the capped read's order. The capped read selects `trace_id`."""
+
+    def side(alias: str, column: str) -> ast.Field:
+        return ast.Field(chain=[alias, column])
+
+    return ast.SelectQuery(
+        select=[
+            *(side("capped", column) for column in before),
+            *(side("totals", alias) for alias in _TRACE_TOTALS),
+            *(side("capped", column) for column in after),
+        ],
+        select_from=ast.JoinExpr(
+            table=capped,
+            alias="capped",
+            next_join=ast.JoinExpr(
+                join_type="JOIN",
+                table=_trace_totals_query(rows),
+                alias="totals",
+                constraint=ast.JoinConstraint(
+                    expr=ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=side("capped", "trace_id"),
+                        right=side("totals", "trace_id"),
+                    ),
+                    constraint_type="ON",
+                ),
+            ),
+        ),
+        order_by=capped.order_by,
+        limit=capped.limit,
+    )
 
 
 def with_trace_totals(rows: ast.SelectQuery, *, limit: int | None, extra: Sequence[ast.Alias] = ()) -> ast.SelectQuery:
-    """Wraps deduplicated rows so each carries its trace's latency, cost, person and session, computed over every row
-    of the trace before `limit` cuts the read. The `extra` columns come after the totals."""
+    """Gives each deduplicated row its trace's latency, cost, person and session, computed over every row of the trace
+    before `limit` cuts the read. The `extra` columns come after the totals."""
     columns = [_column_name(expr) for expr in rows.select]
-    trace_id = ast.Field(chain=["trace_id"])
-    inner_select = [*rows.select, *extra] if "trace_id" in columns else [*rows.select, *extra, trace_id]
-    inner = replace(rows, select=inner_select, order_by=None, limit=None)
-    return ast.SelectQuery(
-        select=[
-            *(ast.Field(chain=[column]) for column in columns),
-            *_trace_total_columns(),
-            *(ast.Field(chain=[column.alias]) for column in extra),
-        ],
-        select_from=ast.JoinExpr(table=inner),
-        order_by=[
-            ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="ASC"),
-            ast.OrderExpr(expr=ast.Field(chain=["uuid"]), order="ASC"),
-        ],
+    trace_id = [] if "trace_id" in columns else [ast.Field(chain=["trace_id"])]
+    capped = replace(
+        rows,
+        select=[*rows.select, *extra, *trace_id],
         limit=ast.Constant(value=limit) if limit is not None else None,
     )
+    return _join_trace_totals(capped, rows, before=columns, after=[column.alias for column in extra])
 
 
 def _git_stamps_query() -> ast.SelectQuery:
@@ -752,12 +798,8 @@ def _page_rows_query(trace_count: int, cap: int) -> ast.SelectQuery:
     deduplicated = replace(
         trace_rows, select=[*trace_rows.select, ast.Field(chain=["trace_id"])], order_by=None, limit=None
     )
-    return ast.SelectQuery(
-        select=[
-            *(ast.Field(chain=[column]) for column in _SELECTED),
-            *_trace_total_columns(),
-            ast.Field(chain=["trace_id"]),
-        ],
+    capped = ast.SelectQuery(
+        select=[*(ast.Field(chain=[column]) for column in _SELECTED), ast.Field(chain=["trace_id"])],
         select_from=ast.JoinExpr(table=deduplicated),
         order_by=[
             ast.OrderExpr(expr=equals("event", "$ai_trace"), order="DESC"),
@@ -767,6 +809,7 @@ def _page_rows_query(trace_count: int, cap: int) -> ast.SelectQuery:
         limit_by=ast.LimitByExpr(n=ast.Constant(value=cap + 1), exprs=[ast.Field(chain=["trace_id"])]),
         limit=ast.Constant(value=trace_count * (cap + 1)),
     )
+    return _join_trace_totals(capped, trace_rows, before=list(_SELECTED), after=["trace_id"])
 
 
 def _page_rows_settings() -> HogQLGlobalSettings:
