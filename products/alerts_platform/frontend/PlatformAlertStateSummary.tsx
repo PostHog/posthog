@@ -1,6 +1,6 @@
-import { IconCheckCircle, IconCircleDashed, IconClock, IconPause, IconXCircle } from '@posthog/icons'
+import { IconBug, IconCheckCircle, IconCircleDashed, IconClock, IconPause, IconXCircle } from '@posthog/icons'
 
-import { IconCancel, IconErrorOutline } from 'lib/lemon-ui/icons'
+import { IconErrorOutline } from 'lib/lemon-ui/icons'
 
 import { PlatformAlertConfigurationApi } from './generated/api.schemas'
 import { PlatformAlertConfigurationStatus, configurationStateCounts } from './platformAlertFormat'
@@ -9,7 +9,7 @@ const STATUS_CONFIG: Record<PlatformAlertConfigurationStatus, { label: string; i
     not_firing: { label: 'OK', icon: <IconCheckCircle className="text-success" /> },
     firing: { label: 'Firing', icon: <IconErrorOutline className="text-danger" /> },
     errored: { label: 'Errored', icon: <IconXCircle className="text-warning" /> },
-    broken: { label: 'Broken', icon: <IconCancel className="text-warning" /> },
+    broken: { label: 'Broken', icon: <IconBug className="text-warning" /> },
     snoozed: { label: 'Snoozed', icon: <IconClock className="text-muted" /> },
     disabled: { label: 'Disabled', icon: <IconPause className="text-muted" /> },
     not_checked: { label: 'Not checked yet', icon: <IconCircleDashed className="text-muted" /> },
