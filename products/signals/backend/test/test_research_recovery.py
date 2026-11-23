@@ -12,6 +12,7 @@ from temporalio.client import WorkflowExecutionStatus
 from temporalio.service import RPCError, RPCStatusCode
 
 from products.signals.backend.models import SignalReport
+from products.signals.backend.monitor_pr import attempt_key, monitor_pr_workflow_id
 from products.signals.backend.research_recovery import STUCK_RESEARCH_CUTOFF, recover_stuck_research_reports
 from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow
 
@@ -93,9 +94,16 @@ class TestRecoverStuckResearchReports(BaseTest):
                 None,
             ),
             (
-                "monitor_pr_report_ignored",
+                "monitor_pr_abandoned_marked_failed",
                 STUCK_RESEARCH_CUTOFF + timedelta(minutes=1),
-                None,
+                WorkflowExecutionStatus.TERMINATED,
+                SignalReport.Status.FAILED,
+                "monitor-pr:1:abc",
+            ),
+            (
+                "monitor_pr_running_preserved",
+                STUCK_RESEARCH_CUTOFF + timedelta(minutes=1),
+                WorkflowExecutionStatus.RUNNING,
                 SignalReport.Status.IN_PROGRESS,
                 "monitor-pr:1:abc",
             ),
@@ -112,13 +120,18 @@ class TestRecoverStuckResearchReports(BaseTest):
         report = self._in_progress_report(started_ago, scout_idempotency_key=scout_idempotency_key)
         workflows = {}
         if workflow_status is not None:
-            workflows[SignalReportSummaryWorkflow.workflow_id_for(self.team.id, str(report.id))] = workflow_status
+            workflow_id = (
+                monitor_pr_workflow_id(self.team.id, str(report.id), attempt_key(report))
+                if scout_idempotency_key
+                else SignalReportSummaryWorkflow.workflow_id_for(self.team.id, str(report.id))
+            )
+            workflows[workflow_id] = workflow_status
 
         recovered = self._sweep(_FakeTemporal(workflows))
 
         report.refresh_from_db()
         assert report.status == expected_status
-        assert recovered == (1 if expected_status == SignalReport.Status.CANDIDATE else 0)
+        assert recovered == (0 if expected_status == SignalReport.Status.IN_PROGRESS else 1)
         # run_count feeds Temporal workflow IDs and must never roll back.
         assert report.run_count == 2
 

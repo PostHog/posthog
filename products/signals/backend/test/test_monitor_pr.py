@@ -475,7 +475,7 @@ class TestMonitorPR(APIBaseTest):
         async def fake_start(**kwargs):
             captured_start.update(kwargs)
             session = AsyncMock()
-            return session, self.output()
+            return session, fake_output
 
         with (
             patch(
@@ -492,6 +492,36 @@ class TestMonitorPR(APIBaseTest):
             ),
             patch("products.signals.backend.monitor_pr_research.MultiTurnSession.start", side_effect=fake_start),
         ):
+            duration_output = PRMonitoringOutput.model_validate(
+                {
+                    **_valid_output_payload(),
+                    "metric": {
+                        **_valid_output_payload()["metric"],
+                        "kind": "duration",
+                        "value_format": "duration",
+                        "unit": "ms",
+                        "query": trends_metric_query(
+                            series=[
+                                {
+                                    "kind": "EventsNode",
+                                    "event": "checkout_completed",
+                                    "math": "avg",
+                                    "math_property": "duration_ms",
+                                }
+                            ]
+                        ),
+                    },
+                    "check": {
+                        **_valid_output_payload()["check"],
+                        "config": {
+                            "metric_id": "checkout",
+                            "comparison": {"operator": "lte", "value": 500},
+                            "monitoring": {"reference_period_minutes": 1440, "threshold_scaling": "fixed"},
+                        },
+                    },
+                }
+            )
+            fake_output = duration_output
             report, inputs = self.request_report()
             load_pull_request(self.team.id, PR_URL)
             integration_id = Integration.objects.get(team=self.team, kind="github").id
@@ -504,9 +534,11 @@ class TestMonitorPR(APIBaseTest):
             report.refresh_from_db()
             assert report.status == SignalReport.Status.READY
             assert "baseline" not in report.summary
+            assert report.metrics[0]["unit"] == "ms"
             check = SignalReportCheck.objects.for_team(self.team.id).get(report=report)
             assert check.title == "Post-merge check for example/widget#42"
             assert check.rationale == ""
+            assert check.config["unit"] == "ms"
             teammate = User.objects.create_and_join(self.organization, email="teammate@example.com", password="test")
             self.client.force_login(teammate)
             artefacts = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/").json()[

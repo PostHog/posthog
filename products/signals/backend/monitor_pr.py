@@ -389,8 +389,16 @@ def _ensure_pr_monitoring_permitted(team: Team, user: User) -> None:
         raise PermissionError("You need permission to start tasks in this project.")
 
 
+def attempt_key_from_timestamp(timestamp: datetime | None) -> int:
+    return int(timestamp.timestamp() * 1_000_000) if timestamp else 0
+
+
 def attempt_key(report: SignalReport) -> int:
-    return int(report.last_run_at.timestamp() * 1_000_000) if report.last_run_at else 0
+    return attempt_key_from_timestamp(report.last_run_at)
+
+
+def monitor_pr_workflow_id(team_id: int, report_id: str, attempt: int) -> str:
+    return f"signals-monitor-pr-{team_id}-{report_id}-{attempt}"
 
 
 def _stored_initiator_note(report: SignalReport, user_id: int) -> str:
@@ -662,19 +670,22 @@ def _record_research_note(
 
 def _sanitized_measurement(output: PRMonitoringOutput, pr: MonitoredPullRequest) -> tuple[dict[str, Any], CheckSpec]:
     assert output.metric is not None and output.check is not None
+    raw_unit = output.metric.unit
+    safe_unit = raw_unit if isinstance(raw_unit, str) and re.fullmatch(r"ms|s|[A-Z]{3}", raw_unit) else None
     metric = ReportMetric(
         metric_id="primary_metric",
         title=f"Impact metric for {pr.repository}#{pr.number}",
         kind=output.metric.kind,
         role="primary",
         value_format=output.metric.value_format,
+        unit=safe_unit,
         query=output.metric.query,
     )
     check = output.check.model_copy(
         update={
             "title": f"Post-merge check for {pr.repository}#{pr.number}",
             "rationale": "",
-            "config": output.check.config.model_copy(update={"metric_id": "primary_metric", "unit": None}),
+            "config": output.check.config.model_copy(update={"metric_id": "primary_metric", "unit": safe_unit}),
         }
     )
     return metric.model_dump(mode="json", exclude_none=True), check.as_spec()
@@ -738,3 +749,26 @@ def fail_monitoring_research(inputs: MonitorPRInput) -> None:
                     error="PR monitoring research failed before a measurement was saved.",
                 )
             )
+
+
+def fail_stale_pr_monitoring(team_id: int, report_id: str, *, started_before: datetime) -> bool:
+    with transaction.atomic():
+        report = (
+            SignalReport.objects.select_for_update()
+            .filter(
+                team_id=team_id,
+                id=report_id,
+                status=SignalReport.Status.IN_PROGRESS,
+                last_run_at__lt=started_before,
+            )
+            .first()
+        )
+        if report is None:
+            return False
+        report.save(
+            update_fields=report.transition_to(
+                SignalReport.Status.FAILED,
+                error="PR monitoring research stopped before a measurement was saved.",
+            )
+        )
+        return True

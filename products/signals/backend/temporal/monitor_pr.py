@@ -11,7 +11,7 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.heartbeat import Heartbeater
 
-from products.signals.backend.monitor_pr import MonitorPRInput, fail_monitoring_research
+from products.signals.backend.monitor_pr import MonitorPRInput, fail_monitoring_research, monitor_pr_workflow_id
 
 
 @activity.defn
@@ -54,7 +54,7 @@ async def start_pr_monitoring(inputs: MonitorPRInput) -> None:
         await client.start_workflow(
             MonitorPRWorkflow.run,
             inputs,
-            id=f"signals-monitor-pr-{inputs.team_id}-{inputs.report_id}-{inputs.attempt_key}",
+            id=monitor_pr_workflow_id(inputs.team_id, inputs.report_id, inputs.attempt_key),
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
             id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
