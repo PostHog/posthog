@@ -1,9 +1,12 @@
 import { LemonCheckbox, LemonDialog, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { BACK_BUTTON_DEFAULT_TEXT, NewSurvey } from 'scenes/surveys/constants'
 
 import { Survey, SurveyAppearance } from '~/types'
+
+import { QuillSurveyBehaviorOptions } from './QuillSurveyBehaviorOptions'
 
 interface SurveyBehaviorOptionsProps {
     survey: Survey | NewSurvey
@@ -21,51 +24,68 @@ export function SurveyBehaviorOptions({
     hasBranchingLogic,
     deleteBranchingLogic,
 }: SurveyBehaviorOptionsProps): JSX.Element {
+    const quillSurface = useQuillSurface()
+
+    const onShuffleQuestionsChange = (checked: boolean): void => {
+        if (checked && hasBranchingLogic) {
+            onAppearanceChange({ shuffleQuestions: false })
+
+            LemonDialog.open({
+                title: 'Your survey has active branching logic',
+                description: (
+                    <p className="py-2">
+                        Enabling this option will remove your branching logic. Are you sure you want to continue?
+                    </p>
+                ),
+                primaryButton: {
+                    children: 'Continue',
+                    status: 'danger',
+                    onClick: () => {
+                        deleteBranchingLogic?.()
+                        onAppearanceChange({ shuffleQuestions: true })
+                    },
+                },
+                secondaryButton: {
+                    children: 'Cancel',
+                },
+            })
+        } else {
+            onAppearanceChange({ shuffleQuestions: checked })
+        }
+    }
+
+    const onAllowGoBackChange = (checked: boolean): void => {
+        onAppearanceChange({
+            allowGoBack: checked,
+            backButtonText: checked ? survey.appearance?.backButtonText : undefined,
+        })
+    }
+
+    if (quillSurface) {
+        return (
+            <QuillSurveyBehaviorOptions
+                survey={survey}
+                onAppearanceChange={onAppearanceChange}
+                disabledReason={disabledReason}
+                onShuffleQuestionsChange={onShuffleQuestionsChange}
+                onAllowGoBackChange={onAllowGoBackChange}
+            />
+        )
+    }
+
     return (
         <div className="flex flex-col gap-3">
             <LemonCheckbox
                 disabledReason={disabledReason}
                 label="Shuffle questions"
-                onChange={(checked) => {
-                    if (checked && hasBranchingLogic) {
-                        onAppearanceChange({ shuffleQuestions: false })
-
-                        LemonDialog.open({
-                            title: 'Your survey has active branching logic',
-                            description: (
-                                <p className="py-2">
-                                    Enabling this option will remove your branching logic. Are you sure you want to
-                                    continue?
-                                </p>
-                            ),
-                            primaryButton: {
-                                children: 'Continue',
-                                status: 'danger',
-                                onClick: () => {
-                                    deleteBranchingLogic?.()
-                                    onAppearanceChange({ shuffleQuestions: true })
-                                },
-                            },
-                            secondaryButton: {
-                                children: 'Cancel',
-                            },
-                        })
-                    } else {
-                        onAppearanceChange({ shuffleQuestions: checked })
-                    }
-                }}
+                onChange={onShuffleQuestionsChange}
                 checked={survey.appearance?.shuffleQuestions}
             />
             <LemonDivider className="my-0" />
             <LemonCheckbox
                 disabledReason={disabledReason}
                 label="Allow going back to previous questions"
-                onChange={(checked) =>
-                    onAppearanceChange({
-                        allowGoBack: checked,
-                        backButtonText: checked ? survey.appearance?.backButtonText : undefined,
-                    })
-                }
+                onChange={onAllowGoBackChange}
                 checked={survey.appearance?.allowGoBack}
             />
             {survey.appearance?.allowGoBack && (

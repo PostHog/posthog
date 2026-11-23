@@ -153,6 +153,139 @@ def test_unauthorized_response_fails_the_sync() -> None:
 
 
 @pytest.mark.parametrize(
+    ("schema", "parent_path", "child_path", "parent_key"),
+    [
+        ("invoice_item_positions", "/2.0/kb_invoice", "/2.0/kb_invoice/{}/kb_position_article", "invoice_id"),
+        ("quote_item_positions", "/2.0/kb_offer", "/2.0/kb_offer/{}/kb_position_article", "quote_id"),
+        ("order_item_positions", "/2.0/kb_order", "/2.0/kb_order/{}/kb_position_article", "order_id"),
+        ("invoice_payments", "/2.0/kb_invoice", "/2.0/kb_invoice/{}/payment", "invoice_id"),
+    ],
+)
+def test_document_children_fan_out_over_each_document(
+    schema: str, parent_path: str, child_path: str, parent_key: str
+) -> None:
+    result = _driver().run(
+        schema,
+        [
+            ScriptedResponse(json=[{"id": 4}, {"id": 7}]),
+            ScriptedResponse(json=[{"id": 40, "amount": "1.000000"}, {"id": 41, "amount": "2.000000"}]),
+            ScriptedResponse(json=[{"id": 70, "amount": "3.000000"}]),
+        ],
+    )
+
+    assert result.raised is None
+    assert result.paths == [parent_path, child_path.format(4), child_path.format(7)]
+    assert result.params("order_by") == ["id", None, None]
+    assert result.params("limit") == ["2000", "2000", "2000"]
+    assert [(row[parent_key], row["id"]) for row in result.rows] == [(4, 40), (4, 41), (7, 70)]
+    assert all(f"_{schema}_id" not in row for row in result.rows)
+    assert result.response is not None
+    assert result.response.primary_keys == [parent_key, "id"]
+
+
+def test_item_positions_resume_skips_documents_already_read() -> None:
+    result = _driver().run(
+        "invoice_item_positions",
+        [ScriptedResponse(json=[{"id": 4}, {"id": 7}]), ScriptedResponse(json=[{"id": 70}])],
+        resume_state=BexioResumeConfig(completed=["/2.0/kb_invoice/4/kb_position_article"]),
+    )
+
+    assert result.raised is None
+    assert result.paths == ["/2.0/kb_invoice", "/2.0/kb_invoice/7/kb_position_article"]
+    assert [row["invoice_id"] for row in result.rows] == [7]
+
+
+def test_outgoing_payments_page_through_each_bill() -> None:
+    def payments_page(page: int, page_count: int, ids: list[str], bill_id: str) -> ScriptedResponse:
+        return ScriptedResponse(
+            json={
+                "data": [{"id": payment_id, "bill_id": bill_id, "amount": 10.5} for payment_id in ids],
+                "paging": {"page": page, "page_size": 500, "page_count": page_count, "item_count": len(ids)},
+            }
+        )
+
+    result = _driver().run(
+        "outgoing_payments",
+        [
+            _bills_page(1, 1, ["b1", "b2"]),
+            payments_page(1, 2, ["p1", "p2"], "b1"),
+            payments_page(2, 2, ["p3"], "b1"),
+            payments_page(1, 0, [], "b2"),
+        ],
+    )
+
+    assert result.raised is None
+    assert result.paths == ["/4.0/purchase/bills"] + ["/4.0/purchase/outgoing-payments"] * 3
+    assert result.params("bill_id") == [None, "b1", "b1", "b2"]
+    assert result.params("page") == ["1", "1", "2", "1"]
+    assert result.params("limit") == ["500"] * 4
+    assert [(row["bill_id"], row["id"]) for row in result.rows] == [("b1", "p1"), ("b1", "p2"), ("b1", "p3")]
+    assert result.response is not None
+    assert result.response.primary_keys == ["bill_id", "id"]
+
+
+def test_invoice_reminders_read_one_unpaged_request_per_invoice() -> None:
+    result = _driver().run(
+        "invoice_reminders",
+        [
+            ScriptedResponse(json=[{"id": 4}, {"id": 7}]),
+            ScriptedResponse(json=[{"id": i, "kb_invoice_id": 4, "reminder_level": 1} for i in range(1, 2001)]),
+            ScriptedResponse(json=[]),
+        ],
+    )
+
+    assert result.raised is None
+    assert result.paths == ["/2.0/kb_invoice", "/2.0/kb_invoice/4/kb_reminder", "/2.0/kb_invoice/7/kb_reminder"]
+    assert result.params("limit") == ["2000", None, None]
+    assert result.params("offset") == ["0", None, None]
+    assert len(result.rows) == 2000
+    assert {row["invoice_id"] for row in result.rows} == {4}
+    assert result.response is not None
+    assert result.response.primary_keys == ["invoice_id", "id"]
+
+
+def test_bank_payments_page_through_the_results_envelope_until_an_empty_page() -> None:
+    def payments_page(page: int, ids: list[int]) -> ScriptedResponse:
+        return ScriptedResponse(
+            json={
+                "query": None,
+                "sort-by": None,
+                "pagination": {"page": page, "per-page": 500, "max-results": 3},
+                "results": [{"id": payment_id, "status": "paid", "amount": 10.5} for payment_id in ids],
+            }
+        )
+
+    result = _driver().run("bank_payments", [payments_page(1, [1, 2]), payments_page(2, [3]), payments_page(3, [])])
+
+    assert result.raised is None
+    assert result.paths == ["/4.0/banking/payments"] * 3
+    assert result.params("page") == ["1", "2", "3"]
+    assert result.params("per-page") == ["500"] * 3
+    assert result.params("limit") == [None] * 3
+    assert [row["id"] for row in result.rows] == [1, 2, 3]
+
+
+@pytest.mark.parametrize(
+    ("schema", "path", "order_by", "envelope"),
+    [
+        ("project_states", "/2.0/pr_project_state", None, None),
+        ("project_types", "/2.0/pr_project_type", "id", None),
+        ("payroll_employees", "/4.0/payroll/employees", None, "data"),
+    ],
+)
+def test_unpaginated_lookups_read_one_page(schema: str, path: str, order_by: str | None, envelope: str | None) -> None:
+    rows = [{"id": i, "name": f"State {i}"} for i in range(1, 2001)]
+    result = _driver().run(schema, [ScriptedResponse(json={envelope: rows} if envelope else rows)])
+
+    assert result.raised is None
+    assert result.paths == [path]
+    assert result.params("offset") == [None]
+    assert result.params("limit") == [None]
+    assert result.params("order_by") == [order_by]
+    assert len(result.rows) == 2000
+
+
+@pytest.mark.parametrize(
     ("value", "expected"),
     [
         (datetime(2026, 3, 4, 5, 6, 7, 891000, tzinfo=UTC), "2026-03-04 05:06:07"),

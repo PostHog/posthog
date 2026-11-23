@@ -17,7 +17,15 @@ from parameterized import parameterized
 from posthog.models import Team
 
 from products.data_catalog.backend.facade.enums import HOGQL_DEFINITION_KIND, JudgeRelation, MetricStatus
-from products.data_catalog.backend.logic.agent_sessions import StitchUnavailable
+from products.data_catalog.backend.logic.agent_sessions import Piece, PieceCall, StitchUnavailable
+from products.data_catalog.backend.logic.conversation_classifier import (
+    ConversationEvidence,
+    Deliverable,
+    MotiveReading,
+    Scope,
+    build_evidence as build_conversation_evidence,
+    extract_motive,
+)
 from products.data_catalog.backend.logic.effectiveness import (
     AssetKind,
     CatalogListing,
@@ -26,8 +34,10 @@ from products.data_catalog.backend.logic.effectiveness import (
     MatchedQuery,
     MissedReason,
     OutcomeRow,
+    SearchKind,
     SessionEvidence,
     SessionOutcome,
+    SessionReadsUnavailable,
     SkipReason,
     TeamEffectiveness,
     TeamSkipped,
@@ -39,6 +49,7 @@ from products.data_catalog.backend.logic.effectiveness import (
     merge_candidate_groups,
     missed_reason,
     nominate_read_metrics,
+    search_kind,
     split_by_question,
 )
 from products.data_catalog.backend.logic.effectiveness_capture import (
@@ -66,9 +77,16 @@ def _query(sql: str = SQL, *, trace: str = "s1") -> AgentQuery:
     return AgentQuery(occurred_at=AT, trace_id=trace, distinct_id="d1", intent="signups", sql=sql, is_scout=False)
 
 
-def _call(tool: str, metric_name: str = "", *, failed: bool = False, minutes: int = -1) -> CatalogCall:
+def _call(
+    tool: str, metric_name: str = "", *, failed: bool = False, minutes: int = -1, searched_tables: bool = False
+) -> CatalogCall:
     return CatalogCall(
-        trace_id="s1", occurred_at=AT + timedelta(minutes=minutes), tool=tool, metric_name=metric_name, failed=failed
+        trace_id="s1",
+        occurred_at=AT + timedelta(minutes=minutes),
+        tool=tool,
+        metric_name=metric_name,
+        failed=failed,
+        searched_tables=searched_tables,
     )
 
 
@@ -101,7 +119,7 @@ def _outcomes(
         session_id="s1",
         client="claude",
         source="mcp",
-        asked=bool(calls),
+        searched=search_kind(calls),
         used_metric_ids=used,
         used_table=used_table,
         matches=matches,
@@ -116,33 +134,74 @@ class TestSessionOutcomes(SimpleTestCase):
                 "ran_a_metric",
                 {"calls": [_call("data-catalog-metric-run", "signups")], "used": frozenset({SIGNUPS_ID})},
                 SessionOutcome.USED,
+                SearchKind.CATALOG,
             ),
-            ("read_a_described_table", {"calls": [_call("execute-sql")], "used_table": True}, SessionOutcome.USED),
+            (
+                "read_a_described_table",
+                {"calls": [_call("execute-sql", searched_tables=True)], "used_table": True},
+                SessionOutcome.USED,
+                SearchKind.TABLES,
+            ),
             (
                 "read_then_wrote_sql",
                 {"calls": [_call("metric-describe", "signups")], "matches": (_match(),)},
                 SessionOutcome.ADAPTED,
+                SearchKind.CATALOG,
             ),
-            ("listed_then_wrote_sql", {"calls": [_call("metric-list")], "matches": (_match(),)}, SessionOutcome.MISSED),
+            (
+                "listed_then_wrote_sql",
+                {"calls": [_call("metric-list")], "matches": (_match(),)},
+                SessionOutcome.MISSED,
+                SearchKind.CATALOG,
+            ),
             (
                 "read_another_metric_then_wrote_sql",
                 {"calls": [_call("metric-describe", "revenue")], "matches": (_match(),)},
                 SessionOutcome.MISSED,
+                SearchKind.CATALOG,
             ),
             (
-                "searched_tables_then_wrote_sql",
+                "searched_the_metrics_table_then_wrote_sql",
                 {"calls": [_call("execute-sql")], "matches": (_match(),)},
                 SessionOutcome.MISSED,
+                SearchKind.CATALOG,
             ),
-            ("never_asked", {"calls": [], "matches": (_match(),)}, SessionOutcome.DID_NOT_ASK),
-            ("asked_and_nothing_fit", {"calls": [_call("metric-list")]}, SessionOutcome.ASKED_NO_MATCH),
-            ("never_asked_and_nothing_fit", {"calls": []}, SessionOutcome.DID_NOT_ASK),
+            (
+                "wrote_sql_then_listed",
+                {"calls": [_call("metric-list", minutes=1)], "matches": (_match(),)},
+                SessionOutcome.DID_NOT_ASK,
+                SearchKind.CATALOG,
+            ),
+            (
+                "searched_tables_then_wrote_sql_then_listed",
+                {
+                    "calls": [_call("execute-sql", searched_tables=True), _call("metric-list", minutes=1)],
+                    "matches": (_match(),),
+                },
+                SessionOutcome.DID_NOT_ASK,
+                SearchKind.CATALOG,
+            ),
+            (
+                "asked_and_nothing_fit",
+                {"calls": [_call("metric-list")]},
+                SessionOutcome.ASKED_NO_MATCH,
+                SearchKind.CATALOG,
+            ),
+            (
+                "searched_tables_and_nothing_fit",
+                {"calls": [_call("execute-sql", searched_tables=True)]},
+                SessionOutcome.DID_NOT_ASK,
+                SearchKind.TABLES,
+            ),
+            ("never_asked_and_nothing_fit", {"calls": []}, SessionOutcome.DID_NOT_ASK, SearchKind.NONE),
         ]
     )
-    def test_each_kind_of_session_gets_its_outcome(self, _name: str, evidence: dict, expected: SessionOutcome) -> None:
+    def test_each_kind_of_session_gets_its_outcome(
+        self, _name: str, evidence: dict, expected: SessionOutcome, searched: SearchKind
+    ) -> None:
         rows = _outcomes(**evidence)
 
-        assert [row.outcome for row in rows] == [expected]
+        assert [(row.outcome, row.searched) for row in rows] == [(expected, searched)]
         assert rows[0].is_headline
 
     def test_a_run_metric_that_is_also_derived_again_stays_used(self) -> None:
@@ -168,45 +227,38 @@ class TestSessionOutcomes(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("judge_says_it_fits", FitVerdict(metric_names=frozenset({"signups"})), False, {SIGNUPS_ID}),
-            ("judge_says_it_does_not_fit", FitVerdict(), False, set()),
-            ("judge_failed", FitVerdict(failed=True), False, {SIGNUPS_ID, REVENUE_ID}),
-            ("no_verdict", None, False, {SIGNUPS_ID, REVENUE_ID}),
-            ("the_run_failed", FitVerdict(metric_names=frozenset({"signups"})), True, set()),
-            ("only_an_adapted_read_fits", FitVerdict(metric_names=frozenset({"cohorts"})), False, set()),
+            ("the_run_worked", False, {SIGNUPS_ID, REVENUE_ID}),
+            ("the_run_failed", True, {REVENUE_ID}),
         ]
     )
-    def test_a_run_counts_as_used_when_it_worked_and_fits(
-        self, _name: str, verdict: FitVerdict | None, failed: bool, expected: set[UUID]
-    ) -> None:
+    def test_a_run_counts_as_used_when_it_worked(self, _name: str, failed: bool, expected: set[UUID]) -> None:
         evidence = build_evidence(
             SessionText(session_id="s1", person="d1", notes=(), tools=frozenset()),
             calls=[
                 _call("data-catalog-metric-run", "signups", failed=failed),
                 _call("data-catalog-metric-run", "revenue"),
             ],
-            verdict=verdict,
+            verdict=None,
             matches=[],
             metric_ids_by_name=IDS,
         )
 
         assert evidence.used_metric_ids == expected
-        assert evidence.asked
+        assert evidence.searched == SearchKind.CATALOG
 
     @parameterized.expand(
         [
-            (
-                "names_the_metrics_that_fit",
-                '{"metrics": ["signups"], "description": true}',
-                FitVerdict(metric_names=frozenset({"signups"}), description=True),
-            ),
-            ("a_bare_name_fails", '{"metrics": "signups", "description": false}', FitVerdict(failed=True)),
-            ("a_reply_without_names_fails", '{"metric": true, "description": false}', FitVerdict(failed=True)),
+            ("a_description_fits", '{"description": true}', FitVerdict(description=True)),
+            ("no_description_fits", '{"description": false}', FitVerdict()),
+            ("a_word_fails", '{"description": "yes"}', FitVerdict(failed=True)),
+            ("a_reply_without_the_field_fails", '{"metrics": ["signups"]}', FitVerdict(failed=True)),
         ]
     )
-    def test_the_coverage_judge_names_the_metrics_that_fit(self, _name: str, reply: str, expected: FitVerdict) -> None:
+    def test_the_coverage_judge_decides_whether_a_description_fit(
+        self, _name: str, reply: str, expected: FitVerdict
+    ) -> None:
         client = SimpleNamespace(messages=SimpleNamespace(stream=lambda **_kwargs: _Stream(reply)))
-        lookups = SessionLookups(ran_metric=True, read_descriptions=False, steps=("Ran metric signups",))
+        lookups = SessionLookups(ran_metric=False, read_descriptions=True, steps=("Metadata search",))
 
         assert async_to_sync(judge_fit)(client, "Weekly signups?", lookups) == expected  # type: ignore[arg-type]
 
@@ -307,6 +359,107 @@ class TestSessionOutcomes(SimpleTestCase):
 
         assert first.end == second.start == datetime(2026, 11, 2, tzinfo=UTC)
         assert (first.start, second.end) == (datetime(2026, 10, 26, tzinfo=UTC), datetime(2026, 11, 9, tzinfo=UTC))
+
+
+def _piece(*calls: PieceCall) -> Piece:
+    return Piece(piece_id="p1", person="d1", source="mcp", client="claude", calls=calls)
+
+
+class TestConversationClassifier(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "a_learn_command_keeps_its_kind",
+                "learn load metric-skill",
+                "exec learn load metric-skill: find the signups metric",
+                ("exec learn load", "execute-sql"),
+            ),
+            (
+                "a_command_of_only_whitespace_shows_the_tool",
+                "\x85",
+                "exec: find the signups metric",
+                ("exec", "execute-sql"),
+            ),
+        ]
+    )
+    def test_an_exec_call_shows_its_command(
+        self, _name: str, detail: str, exec_note: str, tool_names: tuple[str, ...]
+    ) -> None:
+        evidence = build_conversation_evidence(
+            "s1",
+            [
+                _piece(
+                    PieceCall(at=AT, tool="exec", note="find the signups metric", detail=detail),
+                    PieceCall(at=AT + timedelta(minutes=1), tool="execute-sql", note="count weekly signups"),
+                )
+            ],
+        )
+
+        assert (evidence.exec_note, evidence.first_calls, evidence.tool_names) == (
+            exec_note,
+            ("execute-sql: count weekly signups",),
+            tool_names,
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "a_full_reply",
+                '{"motive": " Weekly signups. ", "deliverable": "number", "scope": "all", '
+                '"given_definition": "a saved signups insight", "scheduled": true, "unclear": false}',
+                MotiveReading(
+                    motive="Weekly signups.",
+                    deliverable=Deliverable.NUMBER,
+                    scope=Scope.ALL,
+                    given_definition="a saved signups insight",
+                    scheduled=True,
+                ),
+            ),
+            (
+                "answers_in_another_case_and_spacing",
+                '{"motive": "Signups of one customer.", "deliverable": "Number", "scope": " one  Customer ", '
+                '"given_definition": "n/a", "scheduled": false, "unclear": false}',
+                MotiveReading(
+                    motive="Signups of one customer.", deliverable=Deliverable.NUMBER, scope=Scope.ONE_CUSTOMER
+                ),
+            ),
+            (
+                "no_unclear_flag",
+                '{"motive": "Weekly signups.", "deliverable": "number", "scope": "all", "given_definition": "n/a", '
+                '"scheduled": false}',
+                MotiveReading(motive="", failed=True),
+            ),
+            (
+                "a_word_for_the_scheduled_flag",
+                '{"motive": "Weekly signups.", "deliverable": "number", "scope": "all", "given_definition": "n/a", '
+                '"scheduled": "no", "unclear": false}',
+                MotiveReading(motive="", failed=True),
+            ),
+            (
+                "an_empty_motive",
+                '{"motive": " ", "deliverable": "number", "scope": "all", "given_definition": "n/a", '
+                '"scheduled": false, "unclear": false}',
+                MotiveReading(motive="", failed=True),
+            ),
+            (
+                "a_deliverable_outside_the_allowed_answers",
+                '{"motive": "Weekly signups.", "deliverable": "chart", "scope": "all", "given_definition": "n/a", '
+                '"scheduled": false, "unclear": false}',
+                MotiveReading(motive="", failed=True),
+            ),
+            (
+                "no_given_definition",
+                '{"motive": "Weekly signups.", "deliverable": "number", "scope": "all", "scheduled": false, '
+                '"unclear": false}',
+                MotiveReading(motive="", failed=True),
+            ),
+        ]
+    )
+    def test_the_motive_reply_must_hold_every_field(self, _name: str, reply: str, expected: MotiveReading) -> None:
+        client = SimpleNamespace(messages=SimpleNamespace(stream=lambda **_kwargs: _Stream(reply)))
+        evidence = ConversationEvidence(session_id="s1", exec_note="", first_calls=(), tool_names=())
+
+        assert async_to_sync(extract_motive)(client, evidence) == expected  # type: ignore[arg-type]
 
 
 def _team() -> Team:
@@ -425,25 +578,45 @@ class TestTeamEffectiveness(SimpleTestCase):
 
 
 class _JudgeMessages:
-    def __init__(self, *, join_pieces: bool, stitch_down: bool, coverage_down: bool) -> None:
+    def __init__(
+        self, *, join_pieces: bool, stitch_down: bool, coverage_down: bool, motive_down: bool, classify_down: bool
+    ) -> None:
         self.judged_sql: list[str] = []
         self.join_pieces = join_pieces
         self.stitch_down = stitch_down
         self.coverage_down = coverage_down
+        self.motive_down = motive_down
+        self.classify_down = classify_down
 
     def stream(self, *, model: str, max_tokens: int, messages: list[dict[str, str]]) -> "_Stream":
         prompt = messages[0]["content"]
         if "<steps" in prompt:
-            return _Stream("{}" if self.coverage_down else '{"metrics": ["signups"], "description": false}')
+            return _Stream("{}" if self.coverage_down else '{"description": false}')
         if "<pieces>" in prompt:
             if self.stitch_down:
                 return _Stream("{}")
             count = len(re.findall(r"^P\d+ at", prompt, re.MULTILINE))
             labels = ["C1"] * count if self.join_pieces else [f"C{number}" for number in range(1, count + 1)]
             return _Stream(json.dumps({"labels": labels}))
-        kind = "lookup" if "open the ticket thread" in prompt else "analysis"
+        if "<motive>" in prompt:
+            if self.classify_down:
+                return _Stream("{}")
+            return _Stream(json.dumps({"needs_measure": "open the ticket thread" not in prompt}))
+        if self.motive_down:
+            return _Stream("{}")
+        first_note = re.search(r"<first_calls[^>]*>\n- [^:]+: (.*)", prompt)
+        motive = first_note.group(1) if first_note else ""
         return _Stream(
-            json.dumps({"kind": kind, "question": "How many signups happen each week?", "catalog_check": True})
+            json.dumps(
+                {
+                    "motive": motive,
+                    "deliverable": "number",
+                    "scope": "all",
+                    "given_definition": "n/a",
+                    "scheduled": "scheduled" in motive,
+                    "unclear": "unclear" in motive,
+                }
+            )
         )
 
     async def create(
@@ -457,7 +630,7 @@ class _JudgeMessages:
     ) -> SimpleNamespace:
         prompt = messages[0]["content"]
         self.judged_sql.append(prompt)
-        asks_for_signups = "<session_question>\nHow many signups happen each week?\n</session_question>" in prompt
+        asks_for_signups = "<session_question>\nweekly signups\n</session_question>" in prompt
         relation = "serves" if asks_for_signups and "page_views" not in prompt else "different"
         reply = json.dumps({"reasoning": "It counts signups.", "relation": relation, "confidence": 0.9})
         return SimpleNamespace(content=[SimpleNamespace(type="text", text=reply)])
@@ -478,8 +651,22 @@ class _Stream:
 
 
 class _FakeClient:
-    def __init__(self, *, join_pieces: bool = False, stitch_down: bool = False, coverage_down: bool = False) -> None:
-        self.messages = _JudgeMessages(join_pieces=join_pieces, stitch_down=stitch_down, coverage_down=coverage_down)
+    def __init__(
+        self,
+        *,
+        join_pieces: bool = False,
+        stitch_down: bool = False,
+        coverage_down: bool = False,
+        motive_down: bool = False,
+        classify_down: bool = False,
+    ) -> None:
+        self.messages = _JudgeMessages(
+            join_pieces=join_pieces,
+            stitch_down=stitch_down,
+            coverage_down=coverage_down,
+            motive_down=motive_down,
+            classify_down=classify_down,
+        )
 
     async def __aenter__(self) -> "_FakeClient":
         return self
@@ -517,6 +704,8 @@ class TestMeasureTeam(ClickhouseTestMixin, BaseTest):
         *catalog_tools: str,
         tool: str = "execute-sql",
         minutes: int = 0,
+        span_query: str | None = None,
+        asked_after: bool = False,
     ) -> None:
         at = self.END - timedelta(hours=6) + timedelta(minutes=minutes)
         shared = {"$mcp_project_uuid": str(self.team.uuid), "$session_id": session, "$ai_trace_id": session}
@@ -538,11 +727,11 @@ class TestMeasureTeam(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 event="$ai_span",
                 distinct_id="d1",
-                timestamp=at - timedelta(minutes=offset),
+                timestamp=at + timedelta(minutes=offset if asked_after else -offset),
                 properties={
                     **shared,
                     "$ai_span_name": tool,
-                    "$ai_input_state": json.dumps({"name": "signups"}),
+                    "$ai_input_state": json.dumps({"name": "signups", **({"query": span_query} if span_query else {})}),
                     "$ai_output_state": "{}",
                 },
             )
@@ -582,6 +771,17 @@ class TestMeasureTeam(ClickhouseTestMixin, BaseTest):
         self._session("ticket", "open the ticket thread", "SELECT uniq(person_id) FROM page_views")
         self._session("saved", "weekly signups", None, tool="insight-query")
         self._session("metadata", "weekly signups", "SELECT name FROM system.information_schema.metrics")
+        self._session("listonly", "weekly signups", None, "metric-list", tool="metric-list")
+        self._session("late", "weekly signups", self.SIGNUPS_SQL, "metric-list", asked_after=True)
+        self._session("routine", "scheduled weekly signups report", self.SIGNUPS_SQL, "metric-list")
+        self._session("vague", "unclear request", self.SIGNUPS_SQL)
+        self._session(
+            "tables",
+            "weekly signups",
+            self.SIGNUPS_SQL,
+            "execute-sql",
+            span_query="SELECT table_name, description FROM system.information_schema.tables",
+        )
         # The session starts at the window start, and its catalog listing comes a minute before it.
         self._session("early", "weekly signups", self.SIGNUPS_SQL, "metric-list", minutes=-42 * 60)
         # Its chain reaches into the window, but this conversation ends before the window starts.
@@ -598,7 +798,7 @@ class TestMeasureTeam(ClickhouseTestMixin, BaseTest):
         result = self._measure(_FakeClient())
 
         assert isinstance(result, TeamEffectiveness)
-        assert result.analysis_sessions == 7
+        assert (result.analysis_sessions, result.scheduled_sessions, result.unclear_sessions) == (10, 1, 1)
         assert {row.session_id: (row.outcome, row.client) for row in result.rows if row.is_headline} == {
             "ran": (SessionOutcome.USED, "claude"),
             "read": (SessionOutcome.ADAPTED, "claude"),
@@ -607,20 +807,40 @@ class TestMeasureTeam(ClickhouseTestMixin, BaseTest):
             "silent": (SessionOutcome.DID_NOT_ASK, "claude"),
             "nofit": (SessionOutcome.DID_NOT_ASK, "claude"),
             "asked": (SessionOutcome.ASKED_NO_MATCH, "claude"),
+            "listonly": (SessionOutcome.ASKED_NO_MATCH, "claude"),
+            "tables": (SessionOutcome.DID_NOT_ASK, "claude"),
+            "late": (SessionOutcome.DID_NOT_ASK, "claude"),
         }
         assert next(row for row in result.rows if row.session_id == "early").missed_reason == MissedReason.UNKNOWN
-        assert result.served_share == 2 / 7
+        assert result.served_share == 2 / 10
+        late = next(row for row in result.rows if row.session_id == "late")
+        assert (late.asset_kind, late.metric_name, late.searched) == (AssetKind.METRIC, "signups", SearchKind.CATALOG)
+        searched = {row.session_id: row.searched for row in result.rows if row.is_headline}
+        assert (searched["listed"], searched["tables"], searched["silent"]) == (
+            SearchKind.CATALOG,
+            SearchKind.TABLES,
+            SearchKind.NONE,
+        )
         silent = next(row for row in result.rows if row.session_id == "silent")
-        assert (silent.metric_name, silent.is_example, silent.reasoning) == ("signups", True, "It counts signups.")
-        assert silent.question == "How many signups happen each week?"
+        assert (silent.metric_name, silent.asset_kind, silent.reasoning) == ("", AssetKind.NONE, "")
+        assert silent.question == "weekly signups"
         assert silent.started_at == self.END - timedelta(hours=6)
         assert silent.source == "posthog_ai"
 
-    @parameterized.expand([("joined", True, SessionOutcome.MISSED), ("kept_apart", False, SessionOutcome.DID_NOT_ASK)])
+    @parameterized.expand(
+        [
+            ("joined", True, {"a-listed": SessionOutcome.MISSED}),
+            (
+                "kept_apart",
+                False,
+                {"a-listed": SessionOutcome.ASKED_NO_MATCH, "b-query": SessionOutcome.DID_NOT_ASK},
+            ),
+        ]
+    )
     # One piece per batch, so the call and the query of a joined conversation arrive in different batches.
     @patch("products.data_catalog.backend.logic.effectiveness._LOOKUP_BATCH", 1)
     def test_a_catalog_call_counts_when_the_model_joins_its_piece_to_the_query(
-        self, _name: str, join_pieces: bool, expected: SessionOutcome
+        self, _name: str, join_pieces: bool, expected: dict[str, SessionOutcome]
     ) -> None:
         self._session("a-listed", "weekly signups", None, "metric-list", tool="metric-list", minutes=-5)
         self._session("b-query", "weekly signups", self.SIGNUPS_SQL, minutes=-4)
@@ -631,12 +851,14 @@ class TestMeasureTeam(ClickhouseTestMixin, BaseTest):
         assert isinstance(result, TeamEffectiveness)
         assert result.pieces_read == 2
         headline = {row.session_id: row.outcome for row in result.rows if row.is_headline}
-        assert headline == ({"a-listed": expected} if join_pieces else {"b-query": expected})
+        assert headline == expected
 
     @parameterized.expand(
         [
             ("stitch", _FakeClient(stitch_down=True), StitchUnavailable),
             ("coverage_judge", _FakeClient(coverage_down=True), CoverageUnavailable),
+            ("motive", _FakeClient(motive_down=True), SessionReadsUnavailable),
+            ("classifier", _FakeClient(classify_down=True), SessionReadsUnavailable),
         ]
     )
     def test_a_model_outage_fails_the_measure_instead_of_reporting_a_skewed_week(
@@ -645,6 +867,13 @@ class TestMeasureTeam(ClickhouseTestMixin, BaseTest):
         self._session("a-listed", "weekly signups", None, "metric-list", tool="metric-list", minutes=-5)
         self._session("b-query", "weekly signups", self.SIGNUPS_SQL, minutes=-4)
         self._session("ran", "weekly signups", None, "data-catalog-metric-run", tool="data-catalog-metric-run")
+        self._session(
+            "described",
+            "weekly signups",
+            self.SIGNUPS_SQL,
+            "execute-sql",
+            span_query="SELECT table_name, description FROM system.information_schema.tables",
+        )
         flush_persons_and_events()
 
         with self.assertRaises(error):

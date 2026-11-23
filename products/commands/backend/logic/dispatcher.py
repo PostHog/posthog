@@ -27,7 +27,15 @@ from posthog.exceptions_capture import capture_exception
 from posthog.github.requesters import Requester, members_with_resource_access, resolve_requester
 from posthog.models.user import User
 
-from .commands import SUBJECT_NAMES, Answer, CommandContext, CommandRequest, DispatchOutcome, FollowUpAddress
+from .commands import (
+    CHANNEL_NAMES,
+    SUBJECT_NAMES,
+    Answer,
+    CommandContext,
+    CommandRequest,
+    DispatchOutcome,
+    FollowUpAddress,
+)
 from .registry import COMMANDS, CommandSpec, Invocation, help_text
 from .schema import HELP_VERB, ArgumentError, resolve_verb, usage
 from .subjects import Subject
@@ -122,6 +130,9 @@ class CommandDispatcher:
             return Answer(
                 outcome="unknown_command", message="I don't know that command.\n\n" + help_text(request.subject)
             )
+        if self._channel.name not in spec.declaration.channels:
+            only = " or ".join(CHANNEL_NAMES[channel] for channel in spec.declaration.channels)
+            return Answer(outcome="wrong_channel", message=f"`{spec.declaration.verb}` only runs from {only}.")
         if request.subject.kind not in spec.declaration.subject_kinds:
             return Answer(
                 outcome="wrong_subject",

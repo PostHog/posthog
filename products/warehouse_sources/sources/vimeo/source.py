@@ -20,7 +20,13 @@ from products.warehouse_sources.sources.sdk import (
 )
 from products.warehouse_sources.sources.vimeo._config import VimeoSourceConfig
 from products.warehouse_sources.sources.vimeo.canonical_descriptions import CANONICAL_DESCRIPTIONS
-from products.warehouse_sources.sources.vimeo.settings import AUTH_ERROR, ENDPOINTS, FANOUT_ENDPOINTS, PERMISSION_ERROR
+from products.warehouse_sources.sources.vimeo.settings import (
+    AUTH_ERROR,
+    ENDPOINTS,
+    FANOUT_ENDPOINTS,
+    NESTED_ENDPOINTS,
+    PERMISSION_ERROR,
+)
 from products.warehouse_sources.sources.vimeo.vimeo import (
     VimeoResumeConfig,
     validate_credentials as validate_vimeo_credentials,
@@ -66,7 +72,7 @@ class VimeoSource(ResumableSource[VimeoSourceConfig, VimeoResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas([*ENDPOINTS, *FANOUT_ENDPOINTS], {}, names)
+        return build_endpoint_schemas([*ENDPOINTS, *FANOUT_ENDPOINTS, *NESTED_ENDPOINTS], {}, names)
 
     def validate_credentials(
         self,

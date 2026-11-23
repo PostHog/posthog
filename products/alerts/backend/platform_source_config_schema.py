@@ -106,6 +106,7 @@ INSIGHT_SOURCE_CONFIG = SourceConfigSpec(
     # insight cadence, daily by default.
     native=NativeAlertLifecycle(
         check_interval_minutes=MINUTES_PER_DAY,
+        platform_destinations=False,
         check_intervals=dict(RECURRENCE.values()),
         remove_destinations=remove_alert_destinations,
         creates=True,

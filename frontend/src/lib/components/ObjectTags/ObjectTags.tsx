@@ -6,8 +6,10 @@ import { IconPencil, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonInputSelect, LemonTag, LemonTagType, Popover } from '@posthog/lemon-ui'
 
 import { objectTagsLogic } from 'lib/components/ObjectTags/objectTagsLogic'
+import { QuillObjectTags } from 'lib/components/ObjectTags/QuillObjectTags'
 import { LoadTags } from 'lib/components/tagSelectLogic'
 import { TagsInputSelect } from 'lib/components/TagsInputSelect'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { colorForString } from 'lib/utils/colors'
 
 interface ObjectTagsPropsBase {
@@ -92,6 +94,7 @@ export function ObjectTags({
     const logic = objectTagsLogic({ id: objectTagId, onChange })
     const { editingTags } = useValues(logic)
     const { setEditingTags, setTags } = useActions(logic)
+    const quillSurface = useQuillSurface()
 
     /** Displaying nothing is confusing, so in case of empty static tags we use a dash as a placeholder */
     const showPlaceholder = staticOnly && !tags?.length
@@ -104,6 +107,43 @@ export function ObjectTags({
     const [showOverflowTags, setShowOverflowTags] = useState(false)
     const visibleTags = maxVisibleTags === undefined ? displayTags : displayTags.slice(0, maxVisibleTags)
     const overflowTags = maxVisibleTags === undefined ? [] : displayTags.slice(maxVisibleTags)
+
+    const stopEditing = (): void => {
+        setEditingTags(false)
+        onBlur?.()
+    }
+
+    if (quillSurface) {
+        return (
+            <QuillObjectTags
+                tags={tags}
+                visibleTags={visibleTags}
+                overflowTags={overflowTags}
+                showPlaceholder={showPlaceholder}
+                hasTags={hasTags}
+                editing={editingTags}
+                canEdit={!staticOnly && !!onChange && saving !== undefined}
+                onStartEditing={() => setEditingTags(true)}
+                onStopEditing={stopEditing}
+                onChange={setTags}
+                saving={saving}
+                tagsAvailable={tagsAvailable}
+                loadTags={loadTags}
+                addLabel={addLabel}
+                editLabel={editLabel}
+                inputPlaceholder={inputPlaceholder}
+                onTagClick={onTagClick}
+                showOverflowTags={showOverflowTags}
+                onShowOverflowTagsChange={setShowOverflowTags}
+                showOverflowLabel={showOverflowLabel}
+                compact={compact}
+                wrap={wrap}
+                editorFullWidth={editorFullWidth}
+                className={className}
+                data-attr={dataAttr}
+            />
+        )
+    }
 
     return (
         <div
@@ -126,10 +166,7 @@ export function ObjectTags({
                         value={tags}
                         options={tagsAvailable.map((t) => ({ key: t, label: t }))}
                         onChange={setTags}
-                        onBlur={() => {
-                            setEditingTags(false)
-                            onBlur?.()
-                        }}
+                        onBlur={stopEditing}
                         loading={saving}
                         data-attr="new-tag-input"
                         placeholder={inputPlaceholder}
@@ -141,10 +178,7 @@ export function ObjectTags({
                     <TagsInputSelect
                         value={tags}
                         onChange={setTags}
-                        onBlur={() => {
-                            setEditingTags(false)
-                            onBlur?.()
-                        }}
+                        onBlur={stopEditing}
                         saving={saving}
                         loadTags={loadTags}
                         data-attr="new-tag-input"
