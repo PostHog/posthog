@@ -3626,6 +3626,11 @@ def test_grouping_does_not_replace_different_or_nested_expressions(query: str, s
             "WITH items AS (SELECT tuple(1, 'a') AS pair) SELECT intDiv(pair.1, 2) FROM items",
             '(CAST(("items"."pair")[1] AS BIGINT) / CAST(2 AS BIGINT))',
         ),
+        (
+            "WITH items(xs, flag) AS (SELECT [1] AS flag, true AS xs UNION ALL SELECT [2], false)"
+            " SELECT arrayFirst(x -> x > 0, xs) FROM items",
+            'filter("items"."xs", "x" -> ("x" > 0))',
+        ),
     ],
 )
 def test_preserves_array_types_across_cte_boundaries(query: str, expected: str) -> None:
