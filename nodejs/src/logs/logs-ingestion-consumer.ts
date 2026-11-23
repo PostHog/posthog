@@ -77,6 +77,7 @@ import {
     SECRET_KEY_PREFIX,
     SecretKeyTeams,
     isSecretKey,
+    isSecretKeyDigest,
 } from './secret-key-teams'
 import { LogsRateLimiterService } from './services/logs-rate-limiter.service'
 import { LogsTransformerService, TransformationBatchBudget } from './transformations/logs-transformer.service'
@@ -1538,7 +1539,8 @@ export class LogsIngestionConsumer {
                         recordLogMessageDropped('missing_token', 'unknown')
                         return
                     }
-                    const sentSecretKey = isSecretKey(token)
+                    const sentSecretKey = isSecretKeyDigest(token)
+                    const sentUnhashedKey = isSecretKey(token)
 
                     let team
                     try {
@@ -1549,7 +1551,9 @@ export class LogsIngestionConsumer {
                                 ? this.deps.teamManager.getTeam(1)
                                 : sentSecretKey
                                   ? (this.deps.secretKeyTeams?.getTeam(token) ?? Promise.resolve(null))
-                                  : this.deps.teamManager.getTeamByToken(token)
+                                  : sentUnhashedKey
+                                    ? Promise.resolve(null)
+                                    : this.deps.teamManager.getTeamByToken(token)
                         )
                     } catch (e) {
                         logger.error('team_lookup_error', { error: e })
@@ -1563,18 +1567,17 @@ export class LogsIngestionConsumer {
                         // service fault. capture-logs accepts any well-formed token shape and defers team
                         // resolution to here because it has no Postgres access, so this fires on every
                         // dropped message for a bad token. Already tracked via the metrics below.
-                        // A secret key is never logged or recorded, because a real key without the scope also lands here.
                         logger.warn('team_not_found', {
-                            token_with_no_team: sentSecretKey ? SECRET_KEY_PREFIX : token,
+                            token_with_no_team: sentUnhashedKey ? SECRET_KEY_PREFIX : token,
                         })
-                        if (!sentSecretKey) {
+                        if (!sentUnhashedKey) {
                             this.unknownTokens.record(token)
                         }
                         logMessageDroppedCounter.inc({ reason: 'team_not_found', team_id: 'unknown' })
                         recordLogMessageDropped('team_not_found', 'unknown')
                         return
                     }
-                    // Everything after this point sees the public token, so the secret key stays out of the outputs.
+                    // Quota, output headers and the DLQ are keyed by the public token.
                     if (sentSecretKey) {
                         token = team.api_token
                     }

@@ -186,8 +186,8 @@ async fn team_manager_reads_teams_and_writes_ingested_event_once() {
 async fn a_secret_key_resolves_its_team_only_with_the_logs_write_scope() {
     let Some(pool) = pool().await else { return };
     let team = SeededTeam::create(pool.clone(), "null").await;
-    let with_scope = format!("phs_rust_logs_write_{}", team.id);
-    let without_scope = format!("phs_rust_logs_read_{}", team.id);
+    let with_scope = format!("sha256$rust_logs_write_{}", team.id);
+    let without_scope = format!("sha256$rust_logs_read_{}", team.id);
     for (key, scope) in [(&with_scope, "logs:write"), (&without_scope, "logs:read")] {
         sqlx::query(
             "INSERT INTO posthog_projectsecretapikey (id, team_id, label, secure_value, created_at, scopes) \
@@ -195,7 +195,7 @@ async fn a_secret_key_resolves_its_team_only_with_the_logs_write_scope() {
         )
         .bind(key)
         .bind(team.id)
-        .bind(logs_ingestion::secret_key::hash_secret_key(key))
+        .bind(key)
         .bind(scope)
         .execute(&pool)
         .await
@@ -214,7 +214,7 @@ async fn a_secret_key_resolves_its_team_only_with_the_logs_write_scope() {
     );
     assert_eq!(
         manager
-            .get_team_by_secret_key("phs_rust_logs_no_such_key")
+            .get_team_by_secret_key("sha256$rust_logs_no_such_key")
             .await
             .unwrap(),
         None

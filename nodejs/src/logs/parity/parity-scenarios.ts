@@ -803,20 +803,38 @@ export async function buildParityScenarios(): Promise<ParityScenario[]> {
         const f = new MessageFactory(new Rng(12))
         const keyed = baseScenario(
             'secret-key',
-            'A project secret API key as the token sets auth-type, and the output carries the public token.'
+            'The digest of a project secret API key as the token sets auth-type, and the output carries the public token.'
         )
-        keyed.secret_key_teams = { phs_parity_plain: 101, phs_parity_pii: 103 }
+        keyed.secret_key_teams = { sha256$parity_plain: 101, sha256$parity_pii: 103 }
         keyed.quota_limited_tokens = [pii.api_token]
         keyed.batches = [
             [
-                await f.logs('phs_parity_plain', 2),
-                await f.logs('phs_parity_plain', 1, { headers: { 'auth-type': 'spoofed' } }),
+                await f.logs('sha256$parity_plain', 2),
+                await f.logs('sha256$parity_plain', 1, { headers: { 'auth-type': 'spoofed' } }),
                 await f.logs(plain, 2, { headers: { 'auth-type': 'secret_key' } }),
-                await f.logs('phs_parity_no_such_key', 2),
-                await f.logs('phs_parity_pii', 2),
+                await f.logs('sha256$parity_no_such_key', 2),
+                await f.logs('sha256$parity_pii', 2),
+                await f.logs('phs_parity_unhashed', 2),
             ],
         ]
         scenarios.push(finish(keyed))
+
+        const rng = new Rng(13)
+        const traces = baseScenario(
+            'secret-key-traces',
+            'The traces consumer drops the digest of a secret key, because the key scope covers logs only.'
+        )
+        traces.consumer = 'traces'
+        traces.secret_key_teams = { sha256$parity_plain: 101 }
+        const spans = Array.from({ length: 2 }, (_, i) => makeSpanRecord(rng, rng.int(1_000_000) + i))
+        const tf = new MessageFactory(rng, 'traces_ingestion')
+        traces.batches = [
+            [
+                await tf.make('sha256$parity_plain', spans, { schema: 'traces' }),
+                await tf.make(plain, spans, { schema: 'traces' }),
+            ],
+        ]
+        scenarios.push(finish(traces))
     }
     {
         const rng = new Rng(11)

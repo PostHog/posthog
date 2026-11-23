@@ -482,6 +482,22 @@ describe('LogsIngestionConsumer', () => {
             expect(record).toHaveBeenCalledWith('phc_belongs_to_no_team')
         })
 
+        it.each([
+            ['records the digest of a secret key with no team', 'sha256$belongs_to_no_team', 1],
+            ['never records or looks up a secret key that arrived unhashed', 'phs_unhashed_key', 0],
+            ['never records a secret key behind a leading space', ' phs_unhashed_key', 0],
+        ])('%s', async (_, token, recorded) => {
+            const record = jest.spyOn((consumer as any).unknownTokens, 'record')
+            const lookup = jest.spyOn(hub.teamManager, 'getTeamByToken')
+            const messages = await createKafkaMessages([createLogMessage()], { token })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            expect(getProducedKafkaMessages()).toHaveLength(0)
+            expect(record).toHaveBeenCalledTimes(recorded)
+            expect(lookup).not.toHaveBeenCalled()
+        })
+
         it('should drop messages when team lookup fails and record unknown team_id', async () => {
             jest.spyOn(hub.teamManager, 'getTeamByToken').mockRejectedValueOnce(new Error('Database error'))
 

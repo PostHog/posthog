@@ -1,5 +1,3 @@
-import { createHash } from 'crypto'
-
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { LazyLoader } from '~/common/utils/lazy-loader'
 import type { TeamManager } from '~/common/utils/team-manager'
@@ -10,16 +8,19 @@ export const AUTH_TYPE_HEADER = 'auth-type'
 export const AUTH_TYPE_SECRET_KEY = 'secret_key'
 export const SECRET_KEY_SCOPE = 'logs:write'
 
+// capture-logs replaces a secret key with this digest, which has the form of `secure_value`.
+export const SECRET_KEY_DIGEST_PREFIX = 'sha256$'
+
+export function isSecretKeyDigest(token: string): boolean {
+    return token.startsWith(SECRET_KEY_DIGEST_PREFIX)
+}
+
+/** A key that no capture service hashed. It is never looked up, logged or recorded. */
 export function isSecretKey(token: string): boolean {
-    return token.startsWith(SECRET_KEY_PREFIX)
+    return token.trimStart().startsWith(SECRET_KEY_PREFIX)
 }
 
-// Must match `hash_key_value` in posthog/models/utils.py, which writes `secure_value`.
-export function hashSecretKey(secretKey: string): string {
-    return `sha256$${createHash('sha256').update(secretKey).digest('hex')}`
-}
-
-/** Resolves a project secret API key to its team. The cache holds the hash of a key, never the key. */
+/** Resolves the digest of a project secret API key to its team. */
 export class SecretKeyTeams {
     private readonly teamIds: LazyLoader<number>
 
@@ -35,8 +36,8 @@ export class SecretKeyTeams {
         })
     }
 
-    public async getTeam(secretKey: string): Promise<Team | null> {
-        const teamId = await this.teamIds.get(hashSecretKey(secretKey))
+    public async getTeam(digest: string): Promise<Team | null> {
+        const teamId = await this.teamIds.get(digest)
         return teamId === null ? null : this.teamManager.getTeam(teamId)
     }
 

@@ -1844,6 +1844,18 @@
    "sha256": "feb5b5d5f9ef4359ee6012918bfc0616ff866ef7663c6ae1a2ee43cedce27dd2"
   }
  ],
+ "secret-key-traces.json": [
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "071ab56fddb72890235a72f198e5e8b1da51c9242b457f0823a7ec5ccd33cbfb"
+  },
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "071ab56fddb72890235a72f198e5e8b1da51c9242b457f0823a7ec5ccd33cbfb"
+  }
+ ],
  "secret-key.json": [
   {
    "codec": "zstandard",
@@ -1869,6 +1881,11 @@
    "codec": "zstandard",
    "count": 2,
    "sha256": "1421f687893796138381df78862f587bd4ef4c3a05f29d0349cd5e7b030f570f"
+  },
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "e3ec553e8e600a3b8274292286e5453df88a13b85676115ab8fc83f601b7b7cb"
   }
  ],
  "traces-no-config-cache.json": [

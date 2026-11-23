@@ -337,10 +337,16 @@ export function buildParityConsumer(
 
     const deps: TracesIngestionConsumerDeps = {
         teamManager: teamManager as unknown as LogsIngestionConsumerDeps['teamManager'],
-        secretKeyTeams: {
-            getTeam: (secretKey: string) =>
-                Promise.resolve((teamsById.get(scenario.secret_key_teams?.[secretKey] ?? NaN) ?? null) as Team | null),
-        },
+        // Only the logs server gets this resolver, so a secret key does not authenticate a trace.
+        secretKeyTeams:
+            scenario.consumer === 'traces'
+                ? undefined
+                : {
+                      getTeam: (digest: string) =>
+                          Promise.resolve(
+                              (teamsById.get(scenario.secret_key_teams?.[digest] ?? NaN) ?? null) as Team | null
+                          ),
+                  },
         quotaLimiting: {
             isTeamTokenQuotaLimited: (token: string, resource: string) => {
                 if (!options.discard) {
