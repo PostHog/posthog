@@ -6,7 +6,6 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import field, replace
 
 import dns.rdata
-import tldextract
 import dns.resolver
 import dns.exception
 from dns.rdtypes.ANY.CNAME import CNAME
@@ -17,6 +16,7 @@ from dns.rdtypes.IN.A import A
 
 from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
+from posthog.domain_connect import organizational_domain
 from posthog.security.oob_domains import matched_oob_domain
 
 from products.workflows.backend.facade.contracts import EmailDomainStatusRecord
@@ -31,11 +31,11 @@ LOOKUP_TIMEOUT_SECONDS = 3
 MAX_AUTHORITATIVE_NAMESERVERS = 2
 MAX_PARALLEL_LOOKUPS = 8
 ABSENT_ERRORS = (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer)
-_DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_domains=True)
 _DMARC_VERSION = re.compile(r"[vV]\s*=\s*DMARC1\s*(;|$)")
 _DMARC_REQUEST = r"none|quarantine|reject"
 _DMARC_URI = re.compile(
-    r"mailto:(?:[^\s,;!@?%]|%[0-9a-f]{2})+@[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:\?(?:[^\s,;!%]|%[0-9a-f]{2})*)?(?:![0-9]+[kmgt]?)?",
+    r"mailto:(?:[^\s,;!@?%.]|%[0-9a-f]{2})+(?:\.(?:[^\s,;!@?%.]|%[0-9a-f]{2})+)*@[a-z0-9-]+(?:\.[a-z0-9-]+)+"
+    r"(?:\?(?:[^\s,;!%]|%[0-9a-f]{2})*)?(?:!(?P<size>[0-9]{1,20})[kmgt]?)?",
     re.IGNORECASE,
 )
 _DMARC_URI_TAGS = frozenset({"rua", "ruf"})
@@ -91,10 +91,10 @@ def find_published_records(domain: str, records: Sequence[EmailDomainStatusRecor
 
 
 def inherited_dmarc_record(domain: str, record: EmailDomainStatusRecord) -> EmailDomainStatusRecord | None:
-    organizational_domain = _organizational_domain(domain)
-    if organizational_domain == domain:
+    parent = organizational_domain(domain)
+    if parent == domain:
         return None
-    return replace(record, hostname=f"_dmarc.{organizational_domain}")
+    return replace(record, hostname=f"_dmarc.{parent}")
 
 
 def dmarc_record_in_force(
@@ -118,10 +118,6 @@ def _with_published_value(
 ) -> tuple[EmailDomainStatusRecord, PublishedRecords]:
     in_force = replace(record, value=_policy_in_force(published.dmarc_policies[record][0]) or record.value)
     return in_force, replace(published, records=(published.records - {record}) | {in_force})
-
-
-def _organizational_domain(domain: str) -> str:
-    return _DOMAIN_PARTS(domain).top_domain_under_public_suffix or domain
 
 
 def _published_with(resolver: dns.resolver.Resolver, records: Sequence[EmailDomainStatusRecord]) -> PublishedRecords:
@@ -249,11 +245,16 @@ def _policy_in_force(policy: str) -> str | None:
 
 def _valid_tag_value(name: str, value: str) -> str | None:
     if name in _DMARC_URI_TAGS:
-        return ",".join(uri.strip() for uri in value.split(",") if _DMARC_URI.fullmatch(uri.strip())) or None
+        return ",".join(uri for uri in (part.strip() for part in value.split(",")) if _is_report_uri(uri)) or None
     if name == "ri":
         return value if re.fullmatch(r"[0-9]{1,10}", value) and int(value) < 2**32 else None
     known = _DMARC_TAG_VALUES.get(name)
     return value if known is not None and known.fullmatch(value) else None
+
+
+def _is_report_uri(uri: str) -> bool:
+    match = _DMARC_URI.fullmatch(uri)
+    return match is not None and int(match["size"] or 0) < 2**64
 
 
 def _is_spf(answer: str) -> bool:

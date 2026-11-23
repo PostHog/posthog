@@ -717,6 +717,8 @@ class TestEmailDomainDnsLookups(EmailDomainApiTestCase):
             ),
             ("policy_after_another_tag", [], ["v=DMARC1; adkim=s; p=reject"]),
             ("report_address_without_a_domain", [], ["v=DMARC1; rua=mailto:reports@.example.net"]),
+            ("report_address_with_consecutive_dots", [], ["v=DMARC1; rua=mailto:reports..team@example.net"]),
+            ("report_size_over_64_bits", [], ["v=DMARC1; rua=mailto:reports@example.net!18446744073709551616"]),
             ("subdomain_record_without_a_policy", ["v=DMARC1"], ["v=DMARC1; p=reject"]),
             ("policy_wrapped_in_literal_quotes", [], ['\\"v=DMARC1; p=reject\\"']),
             ("two_policies_at_the_subdomain", ["v=DMARC1; p=none", "v=DMARC1; p=quarantine"], ["v=DMARC1; p=reject"]),
