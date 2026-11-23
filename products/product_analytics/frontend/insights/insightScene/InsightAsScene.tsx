@@ -7,7 +7,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { insightSceneLogic, insightSceneTabId } from 'scenes/insights/insightSceneLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -52,6 +52,7 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
         cachedInsight: hasOverrides && insight?.short_id === insightId ? insight : null,
         filtersOverride,
         variablesOverride,
+        tabId: insightSceneTabId(dashboardId),
     })
     const { insightProps, accessDeniedToInsight, insightLoading } = useValues(logic)
 

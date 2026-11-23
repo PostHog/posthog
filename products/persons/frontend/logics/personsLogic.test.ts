@@ -683,6 +683,7 @@ describe('personsLogic', () => {
             teamLogic.actions.loadCurrentTeamSuccess({
                 ...MOCK_DEFAULT_TEAM,
                 flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number2,
+                flag_calls_only_in_flag_evaluations: true,
             })
             const current = logic.values.flagCallsQuery!
             logic.actions.setFlagCallsQuery({ ...current, source: { ...current.source, after } as any })

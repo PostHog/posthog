@@ -177,7 +177,7 @@ export class TaskToolsApiClient {
       .filter((artifact): artifact is TaskRunArtifact => !!artifact);
   }
 
-  async getSignalReportIdsForTask(
+  async getPrTargetReportIdsForTask(
     taskId: string,
     signal?: AbortSignal,
   ): Promise<string[]> {
@@ -185,7 +185,7 @@ export class TaskToolsApiClient {
     const response = await this.http.request<{
       results?: { id: string }[];
     }>(
-      `/api/projects/${teamId}/signals/reports/?task_id=${encodeURIComponent(taskId)}&limit=100`,
+      `/api/projects/${teamId}/signals/reports/?task_id=${encodeURIComponent(taskId)}&pr_targets=true&limit=100`,
       { signal },
     );
     return (response.results ?? []).map((r) => r.id);
