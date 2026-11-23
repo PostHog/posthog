@@ -3,7 +3,11 @@ import { useState } from 'react'
 
 import { LemonBanner, LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { passkeySettingsLogic } from './passkeySettingsLogic'
+import { QuillPasskeyAddForm } from './QuillPasskeyAddForm'
+import { QuillPasskeyAddFormEmpty } from './QuillPasskeyAddFormEmpty'
 
 function RegistrationBanners(): JSX.Element | null {
     const { registrationStep, error } = useValues(passkeySettingsLogic)
@@ -37,12 +41,17 @@ function RegistrationBanners(): JSX.Element | null {
 export function PasskeyAddFormEmpty(): JSX.Element {
     const { registrationStep } = useValues(passkeySettingsLogic)
     const { beginRegistration } = useActions(passkeySettingsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const handleAddPasskey = (): void => {
         beginRegistration('My Passkey')
     }
 
     const isRegistering = registrationStep === 'registering' || registrationStep === 'verifying'
+
+    if (todayRailNav) {
+        return <QuillPasskeyAddFormEmpty isRegistering={isRegistering} onAddPasskey={handleAddPasskey} />
+    }
 
     return (
         <div className="flex flex-col items-start space-y-4">
@@ -73,6 +82,7 @@ export function PasskeyAddForm(): JSX.Element {
     const { beginRegistration } = useActions(passkeySettingsLogic)
 
     const [newPasskeyLabel, setNewPasskeyLabel] = useState('')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const handleAddPasskey = (): void => {
         const label = newPasskeyLabel.trim() || 'My Passkey'
@@ -81,6 +91,17 @@ export function PasskeyAddForm(): JSX.Element {
     }
 
     const isRegistering = registrationStep === 'registering' || registrationStep === 'verifying'
+
+    if (todayRailNav) {
+        return (
+            <QuillPasskeyAddForm
+                label={newPasskeyLabel}
+                onLabelChange={setNewPasskeyLabel}
+                isRegistering={isRegistering}
+                onAddPasskey={handleAddPasskey}
+            />
+        )
+    }
 
     return (
         <div className="space-y-4">

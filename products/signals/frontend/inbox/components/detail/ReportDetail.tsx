@@ -28,13 +28,16 @@ import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxDetailLayoutLogic } from '../../logics/inboxDetailLayoutLogic'
+import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
 import { SignalReport, SignalReportStatus } from '../../types'
+import { inboxReportBackLabel } from '../../utils/inboxReportUrls'
 import { canCreateImplementationPr } from '../../utils/reportActions'
 import { displayConventionalCommitTitle, parsePrUrlParts, safeHttpUrl } from '../../utils/reportPresentation'
 import { reportPullRequests } from '../../utils/reportPullRequests'
 import { parseReportSummary } from '../../utils/reportSummary'
+import { ReportTagChips } from '../badges/ReportTagChips'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
@@ -231,11 +234,7 @@ export function InboxDetailFrame({
     const rawBack = searchParams.back
     const backOverride =
         typeof rawBack === 'string' && rawBack.startsWith('/') && !rawBack.startsWith('//') ? rawBack : null
-    const backLabel = backOverride
-        ? backOverride.startsWith(urls.inboxTriage())
-            ? 'Triage'
-            : 'Back'
-        : 'Self-driving inbox'
+    const backLabel = backOverride ? inboxReportBackLabel(backOverride) : 'Self-driving inbox'
     const logicProps = { reportId: report.id, report }
     const {
         reportSignals,
@@ -269,6 +268,7 @@ export function InboxDetailFrame({
         selectPullRequest,
     } = useActions(inboxReportDetailLogic(logicProps))
     const { evidenceRailCollapsed } = useValues(inboxDetailLayoutLogic)
+    const { tagFilterAvailable } = useValues(inboxFiltersLogic)
     const { toggleEvidenceRail } = useActions(inboxDetailLayoutLogic)
     const { linkImplementReportId } = useValues(inboxSceneLogic)
     const { setLinkImplementReportId } = useActions(inboxSceneLogic)
@@ -409,6 +409,7 @@ export function InboxDetailFrame({
             )}
             <div className="flex flex-col gap-2">
                 {titleHeading}
+                {tagFilterAvailable && <ReportTagChips report={report} surface="detail" />}
                 {claimPill}
             </div>
 

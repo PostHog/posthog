@@ -160,11 +160,14 @@ export function handleCatchError(error: unknown, props: RequestProperties): Resp
     }
     try {
         if (error instanceof Error) {
-            getPostHogClient().captureException(error, props.userHash, {
-                team: 'posthog_ai',
-                source: 'mcp_hono_request',
-                mcp_transport: props.transport,
-                suppress_analytics: props.suppressAnalytics === true,
+            getPostHogClient().captureException(error, {
+                distinctId: props.userHash,
+                properties: {
+                    team: 'posthog_ai',
+                    source: 'mcp_hono_request',
+                    mcp_transport: props.transport,
+                    suppress_analytics: props.suppressAnalytics === true,
+                },
             })
         }
     } catch {}

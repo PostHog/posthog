@@ -108,7 +108,7 @@ export interface playerMetaLogicValues {
         width: number
     } | null // sessionRecordingPlayerLogic
     scale: number // sessionRecordingPlayerLogic
-    recordingPropertiesById: Record<string, SessionRecordingPropertiesType[]> // sessionRecordingsListPropertiesLogic
+    recordingPropertiesById: Record<string, SessionRecordingPropertiesType['properties']> // sessionRecordingsListPropertiesLogic
     recordingPropertiesLoading: boolean // sessionRecordingsListPropertiesLogic
     allOverviewItems: OverviewItem[]
     currentWindowIndex: number
@@ -181,7 +181,7 @@ export interface playerMetaLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         loading: (
             sessionPlayerMetaData: SessionRecordingType | null,
-            recordingPropertiesById: Record<string, SessionRecordingPropertiesType[]>
+            recordingPropertiesById: Record<string, Record<string, any> | undefined>
         ) => boolean
         sessionPerson: (sessionPlayerData: SessionPlayerData) => PersonType | null
         resolutionDisplay: (
@@ -194,7 +194,7 @@ export interface playerMetaLogicMeta {
         startTime: (sessionPlayerData: SessionPlayerData) => Dayjs | null
         endTime: (sessionPlayerData: SessionPlayerData) => Dayjs | null
         snapshotAt: (startTime: Dayjs | null) => any
-        currentWindowIndex: (currentSegment: null | import('@common/replay-shared/src').RecordingSegment) => number
+        currentWindowIndex: (currentSegment: null | RecordingSegment) => number
         lastPageviewEvent: (
             sessionEventsData: RecordingEventType[] | null,
             currentPlayerTime: number
@@ -202,14 +202,14 @@ export interface playerMetaLogicMeta {
         allOverviewItems: (
             sessionPlayerMetaData: SessionRecordingType | null,
             startTime: Dayjs | null,
-            recordingPropertiesById: Record<string, SessionRecordingPropertiesType[]>,
+            recordingPropertiesById: Record<string, Record<string, any> | undefined>,
             pinnedProperties: string[]
         ) => OverviewItem[]
         displayOverviewItems: (allOverviewItems: OverviewItem[], pinnedProperties: string[]) => OverviewItem[]
         overviewItemsByTab: (displayOverviewItems: OverviewItem[]) => Record<OverviewTab, OverviewItem[]>
         locationDisplay: (
             sessionPlayerMetaData: SessionRecordingType | null,
-            recordingPropertiesById: Record<string, SessionRecordingPropertiesType[]>
+            recordingPropertiesById: Record<string, Record<string, any> | undefined>
         ) => string
     }
 }

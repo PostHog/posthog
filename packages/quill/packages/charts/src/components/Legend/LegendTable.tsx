@@ -3,6 +3,7 @@ import React, { useMemo, useState } from 'react'
 
 import { buildYTickFormatter } from '../../utils/y-formatters'
 import type { LegendProps, LegendTableConfig, LegendValue } from './Legend'
+import { LegendTag } from './LegendTag'
 
 const HEADERS: Record<'label' | LegendValue, string> = {
     label: 'Name',
@@ -132,6 +133,7 @@ export function LegendTable({
                                     {item.secondaryLabel}
                                 </span>
                             )}
+                            {item.tag && <LegendTag tag={item.tag} />}
                         </span>
                         {cells.get(item.key)?.map((text, i) => (
                             <span

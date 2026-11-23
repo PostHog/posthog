@@ -30,9 +30,18 @@ function RecentObjectRow({
     position: number
     frequent: boolean
 }): JSX.Element {
-    const preview = useMemo(() => objectPreview(entry, 'jump_back'), [entry])
-    const { jumpBackOpened } = useActions(todayLogic)
+    const { jumpBackOpened, toggleJumpBackPin } = useActions(todayLogic)
+    const { jumpBackPinScope } = useValues(todayLogic)
     const pinned = entry.jumpBackReason === 'pinned'
+    const preview = useMemo(
+        () => ({
+            ...objectPreview(entry, 'jump_back'),
+            pin: jumpBackPinScope
+                ? { pinned, toggle: () => toggleJumpBackPin(jumpBackPinScope, entry, 'card') }
+                : undefined,
+        }),
+        [entry, pinned, jumpBackPinScope, toggleJumpBackPin]
+    )
     return (
         <li className="TodayJumpRow">
             <TodayObjectIcon type={entry.type} className="TodayJumpRow__icon" />

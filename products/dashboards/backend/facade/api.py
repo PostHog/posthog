@@ -18,7 +18,7 @@ subscriptions facade, which loads the exports facade, and the exports facade imp
 """
 
 import re
-from collections.abc import Collection, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterator, Sequence
 from contextlib import contextmanager
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -64,12 +64,17 @@ from products.dashboards.backend.logic import (
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.query_sharing_stream import DashboardQuerySharingCachedEvent
 from products.dashboards.backend.v2 import (
+    board_stream as v2_board_stream,
+    cached_tiles as v2_cached_tiles,
     first_load as v2_first_load,
     flag as v2_flag,
 )
+from products.dashboards.backend.v2.cached_tiles import CachedTileStatus
 
 if TYPE_CHECKING:
+    from posthog.api.services.query import PlannedQuery
     from posthog.models.team import Team
 
     from products.product_analytics.backend.facade.models import Insight
@@ -1013,6 +1018,7 @@ def insight_placements(
 
 
 __all__ = [
+    "CachedTileStatus",
     "CannotAddToDashboard",
     "CannotRemoveFromDashboard",
     "DashboardInsightTile",
@@ -1100,3 +1106,33 @@ def shared_tile_work(team: "Team", distinct_id: str) -> Iterator[None]:
     """Tiles serialized inside the block share their per-tile setup when `dashboard-v2` is on for the team."""
     with v2_first_load.shared_tile_work(team, distinct_id):
         yield
+
+
+def read_cached_tiles(
+    *,
+    team: "Team",
+    distinct_id: str,
+    tile_ids: Sequence[int],
+    found_tile_ids: Collection[int],
+    forbidden_tile_ids: Collection[int],
+    plan_tile: Callable[[int], "PlannedQuery | None"],
+    serialize_tile: Callable[[int], dict[str, Any]],
+    context: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """The `dashboard-v2` batched cached-tiles read. The caller looks the tiles up, checks access, and passes in
+    how to plan and serialize one tile by ID."""
+    return v2_cached_tiles.read_cached_tiles(
+        team=team,
+        distinct_id=distinct_id,
+        tile_ids=tile_ids,
+        found_tile_ids=found_tile_ids,
+        forbidden_tile_ids=forbidden_tile_ids,
+        plan_tile=plan_tile,
+        serialize_tile=serialize_tile,
+        context=context,
+    )
+
+
+def board_stream_cached_event(cached: list[dict[str, Any]], *, force: bool) -> DashboardQuerySharingCachedEvent:
+    """The first event of a `dashboard-v2` board stream, built from `read_cached_tiles` output."""
+    return v2_board_stream.cached_event(cached, force=force)

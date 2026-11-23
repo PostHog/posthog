@@ -456,13 +456,15 @@ export class StateManager {
         try {
             // This also reports key-refresh failures, so resolving the key again can recurse.
             const apiKey = await this._cache.get('apiKey').catch(() => undefined)
-            getPostHogClient().captureException(error, undefined, {
-                tag: 'mcp',
-                team: 'posthog_ai',
-                context,
-                transport_failure: findTransportError(error)?.failure,
-                ...extra,
-                suppress_analytics: apiKey?.suppress_analytics === true,
+            getPostHogClient().captureException(error, {
+                properties: {
+                    tag: 'mcp',
+                    team: 'posthog_ai',
+                    context,
+                    transport_failure: findTransportError(error)?.failure,
+                    ...extra,
+                    suppress_analytics: apiKey?.suppress_analytics === true,
+                },
             })
         } catch {
             // Never let observability break the request.

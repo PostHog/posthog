@@ -2,7 +2,8 @@
 
 One workflow with a rotten list or a spammy message can poison the shared SES account every customer sends through.
 An hourly detector pauses that workflow's email when its spam complaint or hard bounce rate crosses a threshold, and warns the project's admins one band earlier.
-Only the workflow's email stops: its other steps keep running, and every other workflow keeps sending.
+Only the workflow's email stops: in a running workflow its other steps keep running, and a transactional send to it is refused, usually with `sending_paused` (a project suspension answers `sending_suspended` first, and an async send can be refused later by the worker).
+Other workflows keep sending unless they are paused too or the project's sending is suspended.
 This complements the [email sending tiers](workflows-email-sending-tiers.md): the detector handles the acute per-workflow case in hours, the tiers handle chronic per-team trust in days.
 
 ## Where the pieces live

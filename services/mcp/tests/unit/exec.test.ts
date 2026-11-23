@@ -396,6 +396,25 @@ describe('exec tool', () => {
             expect((result as string).endsWith(`\n\n${CHART_DATA_PREAMBLE}\n${block}`)).toBe(appended)
         })
 
+        it('tells the agent how to read the next page of a partial list', async () => {
+            const handlerResult = {
+                count: 230,
+                next: 'https://example.com/api/projects/1/things/?limit=100&offset=100',
+                previous: null,
+                results: [{ id: 1 }, { id: 2 }, { id: 3 }],
+            }
+            const exec = createExec([makeMockTool({ handler: async () => handlerResult })])
+
+            const text = await exec.handler(mockContext, { command: 'call mock-tool' })
+            const json = await exec.handler(mockContext, { command: 'call --json mock-tool' })
+
+            expect(text).toBe(
+                `${formatResponse(handlerResult.results)}\n\nShowing 3 of 230 results. More results exist: call mock-tool again with the same arguments and set offset=100 and limit=100 to get the next page.`
+            )
+            // JSON output keeps `next` and `count`, so it needs no footer.
+            expect(json).toBe(JSON.stringify(handlerResult))
+        })
+
         it('returns raw JSON when --json flag is passed in command', async () => {
             const exec = createExec()
             const result = await exec.handler(mockContext, { command: 'call --json mock-tool' })
@@ -2064,6 +2083,38 @@ describe('exec tool', () => {
         })
     })
 
+    describe('refusing writes', () => {
+        const writeAnnotations = {
+            destructiveHint: false,
+            idempotentHint: false,
+            openWorldHint: true,
+            readOnlyHint: false,
+        }
+        const readOnlyConnectedTool = makeMockTool({ name: 'linear__list_issues' })
+        const exec = createExec(
+            [
+                makeMockTool({ name: 'dashboard-get' }),
+                makeMockTool({ name: 'dashboard-delete', annotations: writeAnnotations }),
+            ],
+            undefined,
+            { refuseWrites: true, gatewayToolsProvider: async () => [readOnlyConnectedTool] }
+        )
+
+        it.each(['call dashboard-delete {}', 'call --confirm dashboard-delete {}', 'call linear__list_issues {}'])(
+            'sends %s to exec-write',
+            async (command) => {
+                await expect(exec.handler(mockContext, { command })).rejects.toMatchObject({
+                    reason: 'needs_write_tool',
+                    message: expect.stringContaining('exec-write'),
+                })
+            }
+        )
+
+        it('runs a read-only PostHog tool', async () => {
+            await expect(exec.handler(mockContext, { command: 'call dashboard-get {}' })).resolves.toBeDefined()
+        })
+    })
+
     describe('flag-gated tool redirects', () => {
         const notebooksCreateMarkdown = makeMockTool({ name: 'notebooks-update-cell' })
 
@@ -2182,13 +2233,12 @@ describe('exec tool', () => {
             await expect(exec.handler(mockContext, { command: 'call query-run {}' })).rejects.toThrow(/query-trends/)
         })
 
-        // The entity-search redirect must only steer at `system.information_schema.metrics`
-        // when the governed-metrics tool is actually registered — otherwise flag-off orgs
-        // get pointed at a catalog table they can't query.
-        it('adds governed-metrics steering to the entity-search redirect only when data-catalog-metric-run is registered', async () => {
-            const withCatalog = createExec([makeMockTool({ name: 'data-catalog-metric-run' })])
+        // The entity-search redirect must only steer at `metric-list` when that tool is
+        // actually registered — otherwise flag-off orgs get pointed at a tool they can't call.
+        it('adds governed-metrics steering to the entity-search redirect only when metric-list is registered', async () => {
+            const withCatalog = createExec([makeMockTool({ name: 'metric-list' })])
             await expect(withCatalog.handler(mockContext, { command: 'call entity-search {}' })).rejects.toThrow(
-                /system\.information_schema\.metrics/
+                /call "metric-list"/
             )
 
             const withoutCatalog = createExec([makeMockTool()])
@@ -2196,7 +2246,7 @@ describe('exec tool', () => {
                 /was removed/
             )
             await expect(withoutCatalog.handler(mockContext, { command: 'call entity-search {}' })).rejects.not.toThrow(
-                /system\.information_schema\.metrics/
+                /metric-list/
             )
         })
     })

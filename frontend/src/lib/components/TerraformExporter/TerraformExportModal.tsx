@@ -26,7 +26,7 @@ interface TerraformExportModalProps {
     'data-attr'?: string
 }
 
-function getBaseName(resource: TerraformExportResource): string {
+export function getBaseName(resource: TerraformExportResource): string {
     if (resource.type === 'dashboard') {
         return resource.data.name || `dashboard_${resource.data.id}`
     }
@@ -36,7 +36,21 @@ function getBaseName(resource: TerraformExportResource): string {
     return resource.data.name || resource.data.derived_name || 'insight'
 }
 
-function getDescription(resource: TerraformExportResource, result: TerraformExportResult | null): JSX.Element {
+type DescriptionLink = (props: { to: string; children: React.ReactNode }) => JSX.Element
+
+function LemonDescriptionLink({ to, children }: { to: string; children: React.ReactNode }): JSX.Element {
+    return (
+        <Link to={to} target="_blank">
+            {children}
+        </Link>
+    )
+}
+
+export function getDescription(
+    resource: TerraformExportResource,
+    result: TerraformExportResult | null,
+    DescriptionLink: DescriptionLink = LemonDescriptionLink
+): JSX.Element {
     const providerDocsUrl = 'https://posthog.com/docs/terraform'
     const exampleRepoUrl =
         'https://github.com/PostHog/posthog/tree/master/terraform/us/project-2/team-analytics-platform'
@@ -48,10 +62,8 @@ function getDescription(resource: TerraformExportResource, result: TerraformExpo
                 project access, role and member project access, and rules for whole resource types. Rules on single
                 objects, such as one dashboard, are not included yet. The import blocks let Terraform take over the
                 existing rules without recreating them. See the{' '}
-                <Link to={providerDocsUrl} target="_blank">
-                    PostHog Terraform provider
-                </Link>{' '}
-                docs for every option.
+                <DescriptionLink to={providerDocsUrl}>PostHog Terraform provider</DescriptionLink> docs for every
+                option.
             </>
         )
     }
@@ -77,13 +89,8 @@ function getDescription(resource: TerraformExportResource, result: TerraformExpo
     return (
         <>
             {prefix} Use this configuration with the{' '}
-            <Link to={providerDocsUrl} target="_blank">
-                PostHog Terraform provider
-            </Link>{' '}
-            to manage this {resource.type} as code. See{' '}
-            <Link to={exampleRepoUrl} target="_blank">
-                how we use it internally
-            </Link>{' '}
+            <DescriptionLink to={providerDocsUrl}>PostHog Terraform provider</DescriptionLink> to manage this{' '}
+            {resource.type} as code. See <DescriptionLink to={exampleRepoUrl}>how we use it internally</DescriptionLink>{' '}
             for an example.
         </>
     )

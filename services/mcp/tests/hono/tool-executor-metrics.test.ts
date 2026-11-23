@@ -214,7 +214,7 @@ describe('ToolExecutor metrics', () => {
             expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool, error_type: type })
             expect(captureException).toHaveBeenCalledTimes(['validation', 'permission'].includes(type) ? 0 : 1)
             if (filtered) {
-                expect(captureException.mock.calls[0]?.[2]).toMatchObject({ suppress_analytics: true })
+                expect(captureException.mock.calls[0]?.[1]?.properties).toMatchObject({ suppress_analytics: true })
             }
             expect(capture).not.toHaveBeenCalled()
             const properties = trackToolCallExtras(tool)
