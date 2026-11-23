@@ -255,8 +255,9 @@ describe('SandboxSenderChoiceProvider', () => {
         fireEvent.click(screen.getByText('Cancel'))
 
         await waitFor(() =>
-            expect(storedStep()).toMatchObject({ type: 'function_email', config: { run_link_tag_enabled: false } })
+            expect(screen.queryByText('Connecting clicks to sessions turned off')).not.toBeInTheDocument()
         )
+        expect(storedStep()).toMatchObject({ type: 'function_email', config: { run_link_tag_enabled: false } })
     })
 
     it.each<[string, string, HogFlowAction, IntegrationType[], string, string]>([
