@@ -64,7 +64,7 @@ jest.mock('react-email-editor', () => {
     }
 })
 
-const LOGIC_PROPS: WorkflowLogicProps = { id: 'flow-1' }
+const LOGIC_PROPS: WorkflowLogicProps = { id: '01a1fd90-70c5-7d67-a6be-f302e3c6f41c' }
 const STEP_ID = 'email_step'
 
 const SANDBOX_STATUS = {
@@ -237,7 +237,8 @@ describe('SandboxSenderChoiceProvider', () => {
                 '/api/projects/:team_id/hog_function_templates': { results: [EMAIL_TEMPLATE], count: 1 },
                 '/api/projects/:team_id/integrations/': { results: [OWN_SENDER], next: null },
                 '/api/projects/:team_id/workflow_email_sandbox/status/': SANDBOX_STATUS,
-                '/api/projects/:team_id/hog_flows/:id/': () => [200, savedWorkflow()],
+                '/api/projects/:team_id/hog_flows/:id/': ({ params }) =>
+                    params.id === LOGIC_PROPS.id ? [200, savedWorkflow()] : [404, { detail: 'Not found.' }],
             },
             patch: {
                 '/api/projects/:team_id/hog_flows/:id/': async ({ request }) => [

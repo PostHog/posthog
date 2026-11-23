@@ -388,7 +388,12 @@ describe('hogFlowEditorLogic', () => {
                 {
                     type: 'email_sandbox',
                     config: expect.objectContaining({
-                        inputs: { email: expect.objectContaining({ templating: 'liquid' }) },
+                        inputs: {
+                            email: {
+                                templating: 'liquid',
+                                value: expect.objectContaining({ to: { email: '{{ person.properties.email }}' } }),
+                            },
+                        },
                     }),
                 },
             ],
@@ -399,7 +404,12 @@ describe('hogFlowEditorLogic', () => {
                 {
                     type: 'email_sandbox',
                     config: expect.objectContaining({
-                        inputs: { email: expect.objectContaining({ templating: 'hog' }) },
+                        inputs: {
+                            email: {
+                                templating: 'hog',
+                                value: expect.objectContaining({ to: { email: '{person.properties.email}' } }),
+                            },
+                        },
                     }),
                 },
             ],
@@ -451,6 +461,18 @@ describe('hogFlowEditorLogic', () => {
                 post: {
                     '/api/projects/:team_id/hog_flows/': async ({ request }) => {
                         const body = (await request.json()) as Partial<HogFlow>
+                        // The sandbox validator compiles a step without templating as Hog, which rejects Liquid tags.
+                        const rejected = body.actions?.some((action) => {
+                            const email = (action.config as any).inputs?.email
+                            return (
+                                action.type === 'email_sandbox' &&
+                                (email?.templating ?? 'hog') === 'hog' &&
+                                JSON.stringify(email?.value).includes('{{')
+                            )
+                        })
+                        if (rejected) {
+                            return [400, { attr: 'actions', detail: 'Invalid template' }]
+                        }
                         created.push(body)
                         return [201, { ...body, id: 'flow-1' }]
                     },

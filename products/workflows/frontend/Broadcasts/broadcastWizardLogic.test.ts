@@ -1450,10 +1450,14 @@ describe('broadcastWizardLogic', () => {
         await waitFor(() => expect(createdDrafts).toBe(1))
         await expectLogic(logic).toFinishAllListeners()
 
-        logic.actions.setEmail({ ...logic.values.email, subject: 'Spring sale' })
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(patchedSenders.at(-1)).toEqual({ integrationId: 2 })
+        jest.useFakeTimers()
+        try {
+            logic.actions.setEmail({ ...logic.values.email, subject: 'Spring sale' })
+            await jest.advanceTimersByTimeAsync(1000)
+            await waitFor(() => expect(patchedSenders).toEqual([{ integrationId: 2 }]))
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('resumes a saved draft on the step in its URL and drops the step from the URL', async () => {
