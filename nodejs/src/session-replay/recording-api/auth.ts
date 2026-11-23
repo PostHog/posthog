@@ -90,15 +90,15 @@ function refuseDevKey(secret: string | undefined, devKey: string, name: string):
     }
 }
 
-// A short staff key, or one shared with the service key, would let the toolbox sign more than staff reads.
-function refuseWeakStaffKey(staffJwtSecret: string | undefined, jwtSecret: string): void {
+// A short staff key, or one shared with another key, would let the toolbox sign more than staff reads.
+function refuseWeakStaffKey(staffJwtSecret: string | undefined, otherSecrets: string[]): void {
     const staffKeys = parseJwtKeys(staffJwtSecret || '')
     if (staffKeys.some((key) => Buffer.byteLength(key) < MIN_HMAC_SECRET_BYTES)) {
         throw new Error(`RECORDING_API_STAFF_JWT_SECRET keys must be at least ${MIN_HMAC_SECRET_BYTES} bytes`)
     }
-    const serviceKeys = new Set(parseJwtKeys(jwtSecret || ''))
-    if (staffKeys.some((key) => serviceKeys.has(key))) {
-        throw new Error('RECORDING_API_STAFF_JWT_SECRET must not share a key with RECORDING_API_JWT_SECRET')
+    const otherKeys = new Set(otherSecrets.flatMap((secret) => parseJwtKeys(secret || '')))
+    if (staffKeys.some((key) => otherKeys.has(key))) {
+        throw new Error('RECORDING_API_STAFF_JWT_SECRET must not share a key with another recording-api secret')
     }
 }
 
@@ -116,7 +116,6 @@ export function assertRecordingApiAuthConfigured(opts: {
     if (opts.deployed) {
         refuseDevKey(opts.jwtSecret, DEV_RECORDING_API_JWT_SECRET, 'RECORDING_API_JWT_SECRET')
         refuseDevKey(opts.staffJwtSecret, DEV_RECORDING_API_STAFF_JWT_SECRET, 'RECORDING_API_STAFF_JWT_SECRET')
-        refuseWeakStaffKey(opts.staffJwtSecret, opts.jwtSecret)
     }
     if (hasJwtKeys(opts.jwtSecret || '')) {
         return
@@ -153,6 +152,7 @@ export function assertRecordingApiRoleAuthConfigured(opts: {
             throw new Error(`RECORDING_API_BLOCKS_JWT_SECRET keys must be at least ${MIN_HMAC_SECRET_BYTES} bytes`)
         }
     }
+    refuseWeakStaffKey(opts.staffJwtSecret, [opts.jwtSecret, opts.blocksJwtSecret])
     if (opts.role !== 'public') {
         assertRecordingApiAuthConfigured(opts)
     }
@@ -234,6 +234,8 @@ export function createRecordingApiAuthMiddleware(options: RecordingApiAuthOption
 
 // A staff token older than this is refused whatever its exp, matching the lifetime the minter gives it.
 const STAFF_TOKEN_MAX_AGE = '15m'
+// jsonwebtoken lets iat 0 through maxAge, so isStaffReadForTeam also bounds iat itself.
+const STAFF_TOKEN_MAX_AGE_SECONDS = 15 * 60
 
 // Staff tokens read blocks only, so a GET route added later is not readable with one.
 const STAFF_READ_PATH = /^\/api\/projects\/[^/]+\/recordings\/[^/]+\/blocks?$/
@@ -244,8 +246,17 @@ function requestPath(req: Request): string {
 
 // Only picks which key verifies the token; the verify call that follows checks the signature and audience.
 function unverifiedAudience(token: string): unknown {
-    const decoded = jsonwebtoken.decode(token)
-    return decoded && typeof decoded === 'object' ? decoded.aud : undefined
+    try {
+        const decoded = jsonwebtoken.decode(token)
+        return decoded && typeof decoded === 'object' ? decoded.aud : undefined
+    } catch {
+        return undefined
+    }
+}
+
+function isRecentIssue(iat: number): boolean {
+    const age = Date.now() / 1000 - iat
+    return age >= -CLOCK_TOLERANCE_SECONDS && age <= STAFF_TOKEN_MAX_AGE_SECONDS + CLOCK_TOLERANCE_SECONDS
 }
 
 function isStaffReadForTeam(claims: Record<string, unknown>, requestTeamId: number): boolean {
@@ -254,7 +265,7 @@ function isStaffReadForTeam(claims: Record<string, unknown>, requestTeamId: numb
         claims.team_id === requestTeamId &&
         claims.op === 'read' &&
         typeof claims.iat === 'number' &&
-        claims.iat <= Date.now() / 1000 + CLOCK_TOLERANCE_SECONDS &&
+        isRecentIssue(claims.iat) &&
         nonEmpty(claims.actor) &&
         nonEmpty(claims.reason)
     )
