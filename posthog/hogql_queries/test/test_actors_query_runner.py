@@ -1014,10 +1014,16 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             organization=self.organization,
             defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},
         )
-        person = _create_person(
+        caller = _create_person(
             properties={"email": "flag-caller@example.com"},
             team=self.team,
             distinct_ids=["flag-caller"],
+            is_identified=True,
+        )
+        other_flag_caller = _create_person(
+            properties={"email": "flag-caller-other@example.com"},
+            team=self.team,
+            distinct_ids=["flag-caller-other"],
             is_identified=True,
         )
         flush_persons_and_events()
@@ -1032,13 +1038,17 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 (
                     str(uuid4()),
                     "$feature_flag_called",
-                    json.dumps({"$feature_flag": "checkout", "$feature_flag_response": "true"}),
+                    json.dumps({"$feature_flag": flag, "$feature_flag_response": "true"}),
                     called_at,
                     self.team.pk,
-                    "flag-caller",
+                    distinct_id,
                     called_at,
                     str(person.uuid),
                 )
+                for distinct_id, person, flag in [
+                    ("flag-caller", caller, "checkout"),
+                    ("flag-caller-other", other_flag_caller, "other-flag"),
+                ]
             ],
         )
 

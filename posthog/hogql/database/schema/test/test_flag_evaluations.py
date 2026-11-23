@@ -1352,6 +1352,17 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 ["probe-distinct-id"],
             ),
             (
+                "mode_2_persons_join_filter_over_a_persons_column",
+                {
+                    "calls": "SELECT e.distinct_id FROM events AS e JOIN persons AS p ON e.person_id = p.id "
+                    "AND p.id IN JSONExtract(properties, 'allowed_ids', 'Array(UUID)') "
+                    "WHERE e.event = '$feature_flag_called' AND e.timestamp >= now() - INTERVAL 7 DAY"
+                },
+                "SELECT distinct_id FROM calls",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                [],
+            ),
+            (
                 "mode_2_under_an_enclosing_cte_named_events",
                 {"calls": "SELECT distinct_id FROM events WHERE event = '$feature_flag_called'"},
                 "WITH events AS (SELECT distinct_id, event FROM posthog.flag_evaluations) SELECT distinct_id FROM calls",
