@@ -419,6 +419,9 @@ export const clickableHrefs = (body: string): string[] => {
         if (!top || top.ns === 'html' || top.integration === 'html') {
             return true
         }
+        if (top.ns === 'math' && top.tag === 'annotation-xml' && tagName === 'svg') {
+            return true
+        }
         return top.integration === 'math-text' && !MATH_MGLYPH_MALIGNMARK.has(tagName)
     }
 
