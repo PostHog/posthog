@@ -141,8 +141,10 @@ class CloudzeroSource(ResumableSource[CloudzeroSourceConfig, CloudzeroResumeConf
                 "Enter your CloudZero API key. Grant it `billing:read_dimensions` so PostHog can check "
                 "the connection, then add a scope for each table you want to sync: `billing:read_costs` "
                 "for costs, `budgets:read_budgets` for budgets, `insights:read_insights` for insights, "
-                "and `optimize:list_recommendations` plus `optimize:list_recommendation_types` for "
-                "recommendations. You set these in CloudZero under Settings > API Keys."
+                "`insights:read_insights` plus `insights:read_insight_comments` for insight comments, "
+                "`views:read_views` for views, and `optimize:list_recommendations` plus "
+                "`optimize:list_recommendation_types` for recommendations. You set these in CloudZero "
+                "under Settings > API Keys."
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/cloudzero",
             iconPath="/static/services/cloudzero.png",

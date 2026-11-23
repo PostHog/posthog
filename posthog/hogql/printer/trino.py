@@ -10,7 +10,7 @@ from posthog.hogql.database.direct_trino_table import DirectTrinoTable
 from posthog.hogql.database.models import DatabaseField, UUIDDatabaseField
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.numbers import NumbersTable
-from posthog.hogql.database.trino_locator import resolve_trino_table_locator
+from posthog.hogql.database.trino_locator import missing_trino_locator_error_code, resolve_trino_table_locator
 from posthog.hogql.database.trino_unnest_table import TrinoUnnestTable
 from posthog.hogql.errors import ImpossibleASTError
 from posthog.hogql.escape_sql import escape_trino_identifier, escape_trino_string
@@ -208,6 +208,15 @@ _TRINO_REGEX_PATTERN_ARGUMENTS = {
 
 # Printed as a Trino date, though the function registry declares no return type for them.
 _DATE_FUNCTIONS = frozenset({"tomonday", "tolastdayofmonth", "tolastdayofweek"})
+_SCALAR_ARRAY_ITEM_TYPES = (
+    ast.BooleanType,
+    ast.DateTimeType,
+    ast.DateType,
+    ast.DecimalType,
+    ast.FloatType,
+    ast.IntegerType,
+    ast.StringType,
+)
 
 _POSIX_CLASS_PATTERN = re.compile(r"\[:\^?[a-z]+:\]")
 
@@ -620,6 +629,16 @@ class TrinoPrinter(PostgresPrinter):
             else:
                 branches.append(branch)
         return branches
+
+    def visit_constant(self, node: ast.Constant):
+        if isinstance(node.value, str):
+            return self._string_literal(node.value)
+        return super().visit_constant(node)
+
+    def _string_literal(self, value: str) -> str:
+        if "\0" in value:
+            return self.context.add_value(value)
+        return escape_trino_string(value)
 
     def visit_alias(self, node: ast.Alias) -> str:
         parent = self.stack[-2] if len(self.stack) > 1 else None
@@ -1694,6 +1713,13 @@ class TrinoPrinter(PostgresPrinter):
                 self._is_dynamic_property(arg) for arg in node.args
             ):
                 return ast.BooleanType()
+            if node.name.lower() != "nullif" and any(self._is_dynamic_property(arg) for arg in node.args):
+                read_types = [
+                    ast.StringType(nullable=True) if self._is_dynamic_property(arg) else self._resolve_type(arg)
+                    for arg in node.args
+                ]
+                if all(isinstance(read_type, ast.StringType) for read_type in read_types):
+                    return ast.StringType(nullable=all(read_type.nullable for read_type in read_types if read_type))
             argument_types = [self._resolve_type(arg) for arg in node.args]
             if any(isinstance(arg_type, ast.StringType) for arg_type in argument_types) and any(
                 self._is_numeric(arg) for arg in node.args
@@ -1777,6 +1803,11 @@ class TrinoPrinter(PostgresPrinter):
         if isinstance(resolved, ast.StringArrayType):
             if isinstance(value_type, ast.FieldType) and self._is_text_backed_warehouse_column(value_type):
                 return ast.StringType(nullable=True)
+            stored_array = (
+                self._stored_warehouse_array_type(value_type) if isinstance(value_type, ast.FieldType) else None
+            )
+            if stored_array is not None:
+                return replace(stored_array, nullable=resolved.nullable)
             return ast.ArrayType(item_type=ast.StringType(), nullable=resolved.nullable)
         # A set query merges branch column types, which turns a curated string array into a plain array.
         if (
@@ -1823,17 +1854,30 @@ class TrinoPrinter(PostgresPrinter):
 
     def _is_text_backed_warehouse_column(self, field_type: ast.FieldType) -> bool:
         # Curated source schemas type some JSON text columns as arrays, but the synced column is text.
+        stored_type = self._stored_warehouse_column_type(field_type)
+        return stored_type is not None and not stored_type.removeprefix("Nullable(").startswith("Array(")
+
+    def _stored_warehouse_array_type(self, field_type: ast.FieldType) -> ast.ArrayType | None:
+        stored_type = self._stored_warehouse_column_type(field_type)
+        if stored_type is None:
+            return None
+        array_type = infer_cast_constant_type(stored_type, ast.UnknownType(), "clickhouse")
+        if not isinstance(array_type, ast.ArrayType) or not isinstance(array_type.item_type, _SCALAR_ARRAY_ITEM_TYPES):
+            return None
+        return array_type
+
+    def _stored_warehouse_column_type(self, field_type: ast.FieldType) -> str | None:
         backing_type = self._backing_field_type(field_type)
         if backing_type is None or not isinstance(backing_type.table_type, ast.BaseTableType):
-            return False
+            return None
         table = backing_type.table_type.resolve_database_table(self.context)
         if not isinstance(table, S3Table) or not table.structure:
-            return False
+            return None
         field = backing_type.resolve_database_field(self.context)
         if not isinstance(field, DatabaseField):
-            return False
-        match = re.search(rf"(?:^|,)\s*`{re.escape(field.name)}`\s+(\S+)", table.structure)
-        return match is not None and not match.group(1).removeprefix("Nullable(").startswith("Array(")
+            return None
+        match = re.search(rf"(?:^|,)\s*`{re.escape(field.name)}`\s+(.+?)(?=,\s*`|$)", table.structure)
+        return match.group(1).strip() if match is not None else None
 
     def _backing_field_type(self, field_type: ast.FieldType) -> ast.FieldType | None:
         # Derived tables (explicit subqueries, CTEs, ANY JOIN dedupe wrappers) hide the stored column behind projections.
@@ -1870,16 +1914,7 @@ class TrinoPrinter(PostgresPrinter):
         if join is None or not join.table_args or not join.column_aliases or column not in join.column_aliases:
             return None
         rows_expr = join.table_args[0]
-        rows = self._resolve_type(rows_expr)
         index = join.column_aliases.index(column)
-        if (
-            isinstance(rows, ast.ArrayType)
-            and isinstance(rows.item_type, ast.TupleType)
-            and index < len(rows.item_type.item_types)
-        ):
-            item_type = rows.item_type.item_types[index]
-            if not isinstance(item_type, ast.UnknownType):
-                return item_type
         # `arrayJoin(arr)` lowers to `arrayMap(v -> tuple(v), arr)`, typed before a CTE source column was known.
         if (
             index == 0
@@ -1895,6 +1930,15 @@ class TrinoPrinter(PostgresPrinter):
             source = self._resolve_type(rows_expr.args[1])
             if isinstance(source, ast.ArrayType) and not isinstance(source.item_type, ast.UnknownType):
                 return source.item_type
+        rows = self._resolve_type(rows_expr)
+        if (
+            isinstance(rows, ast.ArrayType)
+            and isinstance(rows.item_type, ast.TupleType)
+            and index < len(rows.item_type.item_types)
+        ):
+            item_type = rows.item_type.item_types[index]
+            if not isinstance(item_type, ast.UnknownType):
+                return item_type
         return None
 
     def _unnest_join(self, table_type: ast.ColumnAliasedTableType) -> ast.JoinExpr | None:
@@ -2580,8 +2624,8 @@ class TrinoPrinter(PostgresPrinter):
         if len(node.args) not in {1, 2}:
             self._invalid_function_arguments(node, "parseDateTimeBestEffort expects a string and optional timezone.")
         value = self.visit(node.args[0])
-        timezone = self.visit(node.args[1]) if len(node.args) == 2 else self.context.add_value(self._get_timezone())
-        day_month_year = self.context.add_value("%e-%b-%y")
+        timezone = self.visit(node.args[1]) if len(node.args) == 2 else self._string_literal(self._get_timezone())
+        day_month_year = self._string_literal("%e-%b-%y")
         # ClickHouse accepts offsets without a colon (+0000); normalize them before Trino's ISO-8601 parser.
         iso_value = f"regexp_replace({value}, '([+-][0-9]{{2}})([0-9]{{2}})$', '$1:$2')"
         parsed = (
@@ -2716,11 +2760,9 @@ class TrinoPrinter(PostgresPrinter):
             else:
                 escaped = str(member).replace("\\", "\\\\").replace('"', '\\"')
                 path += f'["{escaped}"]'
-        if "\0" in path:
-            return self.context.add_value(path)
         # Inlined, because Trino treats every bound `?` as distinct, so a grouped JSON property
         # would never match the same property in the projection.
-        return escape_trino_string(path)
+        return self._string_literal(path)
 
     def _visit_lambda_array_call(self, node: ast.Call, target: str) -> str:
         if (
@@ -3677,7 +3719,7 @@ class TrinoPrinter(PostgresPrinter):
             self._invalid_function_arguments(node, "tupleToNameValuePairs requires a resolved non-empty tuple type.")
         names = tuple_type.field_names
         entries = [
-            f"ROW({self.context.add_value(names[index] if index < len(names) and names[index] else str(index + 1))}, "
+            f"ROW({self._string_literal((names[index] if index < len(names) else None) or str(index + 1))}, "
             f"__hogql_named_tuple[{index + 1}])"
             for index in range(len(tuple_type.item_types))
         ]
@@ -3735,7 +3777,7 @@ class TrinoPrinter(PostgresPrinter):
             )
         value = self.visit(node.args[0])
         if not replacing:
-            regex = self.context.add_value("(?s)" + pattern.value)
+            regex = self._string_literal("(?s)" + pattern.value)
             if indexed:
                 default_group = 1 if groups else 0
                 group_index_node = node.args[2] if len(node.args) == 3 else ast.Constant(value=default_group)
@@ -3802,10 +3844,10 @@ class TrinoPrinter(PostgresPrinter):
                     parts.append(f"coalesce(__hogql_match[{int(char) + 2}], '')")
                     index += 1
                     continue
-            parts.append(self.context.add_value(char))
+            parts.append(self._string_literal(char))
             index += 1
         parts.append(f"__hogql_match[{groups + 3}]")
-        regex = self.context.add_value(r"(?s)\A(.*?)(" + pattern.value + r")(.*)\z")
+        regex = self._string_literal(r"(?s)\A(.*?)(" + pattern.value + r")(.*)\z")
         substitute = " || ".join(parts)
         return f"regexp_replace({value}, {regex}, __hogql_match -> {substitute})"
 
@@ -4589,7 +4631,7 @@ class TrinoPrinter(PostgresPrinter):
         if locator is not None:
             return ".".join(escape_trino_identifier(part) for part in locator)
         self._unsupported(
-            "TRINO_TABLE_LOCATOR_MISSING",
+            missing_trino_locator_error_code(table),
             f"Table '{table.name or table.__class__.__name__}' has no Trino physical locator.",
         )
 

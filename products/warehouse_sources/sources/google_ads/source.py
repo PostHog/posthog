@@ -83,8 +83,8 @@ def _oauth_accounts_cache_key(team_id: int, integration_id: int) -> str:
 # nothing it asks for will be authorized. The wizard and the sync both surface this, and
 # reconnecting is the only fix, so both paths read from one string.
 _SCOPE_INSUFFICIENT_ERROR = (
-    "Your Google Ads connection is missing the access PostHog needs. Reconnect your Google Ads "
-    "account and allow access to your Google Ads data."
+    "Your Google connection doesn't include Google Ads access. Reconnect your Google account and "
+    "allow Google Ads access when Google asks."
 )
 
 
@@ -306,7 +306,11 @@ class GoogleAdsSource(
             featured=True,
             keywords=["adwords"],
             label="Google Ads",
-            caption="Ensure you have granted PostHog access to your Google Ads account, learn how to do this in [the docs](https://posthog.com/docs/cdp/sources/google-ads).",
+            caption=(
+                "When Google asks what PostHog can access, allow Google Ads access. Without it, PostHog can't "
+                "list your Google Ads accounts. See [the docs](https://posthog.com/docs/cdp/sources/google-ads) "
+                "for the full setup."
+            ),
             releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/google-ads.png",
             docsUrl="https://posthog.com/docs/cdp/sources/google-ads",

@@ -334,7 +334,7 @@ export interface notebookLogicValues {
     findNodeLogicById: (id: string) => BuiltLogic<notebookNodeLogicType> | null
     frameNodeSummaries: NotebookFrameNodeSummary[]
     getSharedCachedInlineQueryResults: (nodeId: string | null | undefined) => AnyResponseType | null
-    getSharedCachedInsight: (shortId: string | null | undefined) => InsightModel<Node<Record<string, any>>> | null
+    getSharedCachedInsight: (shortId: string | null | undefined) => InsightModel | null
     hasUnsavedVariables: boolean
     isEditable: boolean
     isLocalOnly: boolean
@@ -739,7 +739,7 @@ export interface notebookLogicMeta {
         getSharedCachedInsight: (
             isShared: boolean,
             cachedInsightsByShortId: Record<string, InsightModel<Node<Record<string, any>>>>
-        ) => (shortId: string | null | undefined) => InsightModel<Node<Record<string, any>>> | null
+        ) => (shortId: string | null | undefined) => InsightModel | null
         getSharedCachedInlineQueryResults: (
             isShared: boolean,
             cachedInlineQueryResultsByNodeId: Record<string, AnyResponseType>

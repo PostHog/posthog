@@ -37,7 +37,7 @@ Image annotations and consumer `source.repo` keep canonical `PostHog/posthog` id
 
 Move each reused filter into `.github/shared-image-releases.yaml` once. The legacy action's `shared-image-policy` input calls `loadPolicy(text)` and `projectLegacyFilters(policy, inlineYaml)`. Preserve legacy endpoint comparisons, output names, ordering and compound dispatch conditions, including Python dependency analysis and coverage-added checks.
 
-Keep a `dataWarehouse: null` reference at that rule's original inline position. The projection fills it from the manifest while preserving every non-null inline rule. Unresolved references fail; nonempty duplicate definitions are rejected. `dataWarehouseMetadata` is an active channel filter, distinct from the broader `dataWarehouse` rule that still gates two legacy workers, with its `bootstrapPolicyDigest` pinned at adoption.
+Keep a `dataWarehouse: null` reference at that rule's original inline position. The projection fills it from the manifest while preserving every non-null inline rule. Unresolved references fail; nonempty duplicate definitions are rejected. `dataWarehouseMetadata` is an active channel filter, distinct from the broader `dataWarehouse` rule that still gates the legacy data warehouse worker's deploy, with its `bootstrapPolicyDigest` pinned at adoption. `dataWarehouse` is deprecated: the data warehouse worker's channel uses `dataWarehouseWorker`.
 
 Version 1 has `version`, `filters` and `images`; images contain `channels`. Each channel has `repository`, `filter` and optional `bootstrapPolicyDigest`. `loadPolicy` validates the closed shape, references, positive patterns and nonempty channel status qualifiers limited to `added`, `modified` and `deleted`. The vendored matcher owns extglob/negation semantics; legacy-only veto and status rules retain prior behavior. Structural validation does not authorize publication.
 
@@ -86,7 +86,7 @@ Find a worker's own rows from its task queue:
 
 Stop at code the base lists and at code the worker does not run. The base lists what every worker runs at start. It does not list every module a worker loads.
 
-The table shows the waits on 2026-11-19 at `master` tip `adf1f847400`. It covers the 20,643 first-parent commits on `master` in the previous 90 days. For each commit that no row matches, the wait is the committer time from that commit to the next commit that a row matches. Unmatched commits after the last matching commit have no wait and are left out, 20 of them for the base alone. The table measures the time to the next matching commit, not the time to a publication.
+The table shows the waits on 2026-11-19 at `master` tip `adf1f847400`. It covers the 20,646 first-parent commits on `master` in the previous 90 days. For each commit that no row matches, the wait is the committer time from that commit to the next commit that a row matches. Unmatched commits after the last matching commit have no wait and are left out, 20 of them for the base alone. The table measures the time to the next matching commit, not the time to a publication.
 
 | Filter                              | Commits that match | Median wait | 90th percentile | 99th percentile | Longest wait |
 | ----------------------------------- | -----------------: | ----------: | --------------: | --------------: | -----------: |
@@ -98,6 +98,13 @@ The table shows the waits on 2026-11-19 at `master` tip `adf1f847400`. It covers
 | `alertsPlatformSharedOrchestration` |              17.3% |      15 min |           1.5 h |          13.1 h |       32.8 h |
 | `alertsPlatformEvaluation`          |              40.5% |       6 min |          52 min |           6.3 h |       21.0 h |
 | `alertsPlatformDelivery`            |              25.4% |       9 min |           1.1 h |           7.8 h |       27.3 h |
+| `webAnalyticsWorker`                |              12.6% |      21 min |           1.9 h |          17.1 h |       37.9 h |
+| `signupEnrichmentWorker`            |              15.4% |      16 min |           1.7 h |          15.7 h |       37.9 h |
+| `healthCheckWorker`                 |              35.4% |       8 min |           1.0 h |           6.9 h |       21.0 h |
+| `batchExportsWorker`                |              16.3% |      15 min |           1.7 h |          14.4 h |       36.3 h |
+| `dataWarehouseWorker`               |              28.6% |      11 min |           1.3 h |          12.7 h |       25.5 h |
+| `dataWarehouseCdpProducerWorker`    |              13.5% |      19 min |           1.9 h |          15.7 h |       36.3 h |
+| `generalPurposeWorker`              |              25.6% |       9 min |           1.1 h |           9.2 h |       33.1 h |
 
 When a change must reach a worker now, force its channel. Run `container-images-cd.yml` through `workflow_dispatch` on the default branch, with `shared-image-force` set to a JSON array of channel keys, for example `["posthog-cloud/wizard"]`. Force qualifies a newer build that the publication job evaluates when no row matches. The publisher's frontier, image identity and newer-revision checks still apply, as for any publication (see [Selective publication](#selective-publication)). A force dispatch runs the CD workflow under its manual-dispatch conditions, which skip the image boot check, so a successful force is not evidence that the image passed that check. No scheduled job forces a publication.
 

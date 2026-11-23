@@ -60,6 +60,8 @@ export const DEFAULT_TABLES_FILTERS: TablesFilters = { kind: 'any', problem: 'an
 export const TABLES_FILTER_PARAM = 'filter'
 export const TABLES_SEARCH_PARAM = 'table'
 export const PROPOSED_TABLES_FILTER = 'proposed'
+/** A link with this value opens the Metrics tab with no search and no filter, so the suggested metrics show. */
+export const SUGGESTED_METRICS_FILTER = 'suggested'
 export const DATA_QUALITY_TAB = 'data-quality'
 
 export function dataQualityUrl(tableName: string): string {

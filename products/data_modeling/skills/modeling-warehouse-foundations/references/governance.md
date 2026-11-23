@@ -8,13 +8,11 @@ PostHog has a data catalog with a semantic layer of **canonical metrics**. Befor
 headline number (MRR, activation rate, conversion rate, active users), check whether an approved definition
 already exists — reuse it instead of inventing a second, subtly-different number.
 
-```sql
-SELECT name, display_name, description, status, is_drifted, unit
-FROM system.information_schema.metrics
-WHERE name ILIKE '%mrr%' OR description ILIKE '%revenue%'
-```
+Call `posthog:metric-list` and follow pagination until you have checked the complete catalog.
+Call `posthog:metric-describe` to read a candidate's full definition.
+Do not query `system.information_schema.metrics` with SQL for this check.
 
-- The table is often empty — that just means no governed definition exists, so derive normally.
+- The catalog is often empty — that just means no governed definition exists, so derive normally.
 - A result is canonical **only** when `status = 'approved'` AND `is_drifted = false`. Never present a
   `proposed` or drifted metric as authoritative. Run an approved metric with
   `posthog:data-catalog-metric-run` and cite it rather than re-deriving.

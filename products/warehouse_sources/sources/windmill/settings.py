@@ -20,9 +20,20 @@ class WindmillEndpointConfig:
     stop_on_short_page: bool = True
     # ``listWorkspaces`` lives at the API root rather than under ``/w/{workspace}``.
     workspace_scoped: bool = True
-    # Detail path fetched once per listed row, with ``{name}`` bound to the row's ``name``. Used
-    # where the list endpoint omits fields the detail carries (group members).
+    # Detail path fetched once per listed row, with ``{<detail_key>}`` bound to that row field. Used
+    # where the list endpoint omits fields the detail carries (group members), and for per-runnable
+    # version history.
     detail_path: Optional[str] = None
+    detail_key: str = "name"
+    # Child column that carries the parent's ``detail_key`` value, for detail responses that don't
+    # repeat it (history rows don't name the runnable they belong to).
+    parent_key_column: Optional[str] = None
+    # JSON path to the row list when the response wraps it in an object.
+    data_selector: Optional[str] = None
+    # ``listAssets`` pages with a ``next_cursor`` object in the body instead of page numbers.
+    body_cursor: bool = False
+    # Explode each listed row into one row per entry of this list field, keeping the other fields.
+    explode_field: Optional[str] = None
     # Whether the endpoint accepts the ``order_desc`` param. When it does we request ascending
     # order (``order_desc=false``) so newly inserted rows land at the end of the result set and
     # don't shift the offsets of pages we've already walked mid-sync.
@@ -146,6 +157,81 @@ WINDMILL_ENDPOINTS: dict[str, WindmillEndpointConfig] = {
         paginated=False,
         workspace_scoped=False,
         description="Workspaces visible to the token's user, with name, owner and domain.",
+    ),
+    # Version history is one request per runnable, so it is opt-in. The history routes return the
+    # whole list when no page is asked for, and the path wildcard keeps a runnable path's slashes.
+    # The script, flow and app lists drop rows outside a scoped token's paths after LIMIT/OFFSET, so
+    # only an empty page ends the parent walk.
+    "script_versions": WindmillEndpointConfig(
+        name="script_versions",
+        path="/scripts/list",
+        primary_keys=["script_path", "script_hash"],
+        supports_order_desc=True,
+        detail_path="/scripts/history/p/{path}",
+        detail_key="path",
+        parent_key_column="script_path",
+        stop_on_short_page=False,
+        partition_key="created_at",
+        should_sync_default=False,
+        description="Every deployed version of each script, with its hash, deployment message, author and time. Fetches the history of each script once.",
+    ),
+    "flow_versions": WindmillEndpointConfig(
+        name="flow_versions",
+        path="/flows/list",
+        primary_keys=["flow_path", "id"],
+        supports_order_desc=True,
+        detail_path="/flows/history/p/{path}",
+        detail_key="path",
+        parent_key_column="flow_path",
+        stop_on_short_page=False,
+        partition_key="created_at",
+        should_sync_default=False,
+        description="Every deployed version of each flow, with its deployment message, author and time. Fetches the history of each flow once.",
+    ),
+    "app_versions": WindmillEndpointConfig(
+        name="app_versions",
+        path="/apps/list",
+        primary_keys=["app_path", "version"],
+        supports_order_desc=True,
+        detail_path="/apps/history/p/{path}",
+        detail_key="path",
+        parent_key_column="app_path",
+        stop_on_short_page=False,
+        partition_key="created_at",
+        should_sync_default=False,
+        description="Every deployed version of each app, with its deployment message, author and time. Fetches the history of each app once.",
+    ),
+    "assets": WindmillEndpointConfig(
+        name="assets",
+        path="/assets/list",
+        primary_keys=["path", "kind"],
+        data_selector="assets",
+        body_cursor=True,
+        description="Data assets (S3 objects, resources, database tables) that scripts, flows and jobs read or write, with each usage.",
+    ),
+    # Instance-level, not workspace-scoped. Windmill returns an empty list to non-admin tokens when
+    # the instance hides workers.
+    "workers": WindmillEndpointConfig(
+        name="workers",
+        path="/workers/list",
+        primary_keys=["worker"],
+        workspace_scoped=False,
+        should_sync_default=False,
+        description="Workers that pinged the instance in the last 5 minutes, with worker group, tags, version, jobs executed and occupancy.",
+    ),
+    # Requires the instance devops role (a superadmin on self-hosted). Windmill keeps 14 days of
+    # samples and the endpoint has no time filter, so each sync replaces the table.
+    "queue_metrics": WindmillEndpointConfig(
+        name="queue_metrics",
+        path="/workers/queue_metrics",
+        primary_keys=["id", "created_at"],
+        paginated=False,
+        workspace_scoped=False,
+        explode_field="values",
+        partition_key="created_at",
+        partition_format="day",
+        should_sync_default=False,
+        description="Queue depth and wait time samples per worker tag over the last 14 days. Requires the instance devops role.",
     ),
     # Audit logs are a Windmill Enterprise Edition feature and require a workspace-admin token; the
     # endpoint returns an empty list on Community Edition. Ordering is not part of the public API,

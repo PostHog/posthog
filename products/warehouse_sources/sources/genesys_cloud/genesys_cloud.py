@@ -54,7 +54,7 @@ class InvalidGenesysCloudRegionError(ValueError):
 class GenesysCloudResumeConfig:
     # Analytics endpoints: start of the next window to read (ISO 8601).
     window_start: Optional[str] = None
-    # Listing endpoints: next page number to read.
+    # Listing endpoints: next page number to read. Unpaged endpoints: 1-based index of the next param set to read.
     page_number: Optional[int] = None
     # Scan endpoints: cursor of the next page to read. Genesys Cloud keeps a cursor for 24 hours.
     cursor: Optional[str] = None
@@ -301,6 +301,31 @@ def _iter_listing_rows(
         page_number += 1
 
 
+def _iter_unpaged_rows(
+    session: requests.Session,
+    base_url: str,
+    config: GenesysCloudEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[GenesysCloudResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    start_index = resume.page_number - 1 if resume is not None and resume.page_number else 0
+
+    url = f"{base_url}{config.path}"
+    for index in range(start_index, len(config.param_sets)):
+        response = session.get(
+            url, params={**config.params, **config.param_sets[index]}, timeout=REQUEST_TIMEOUT_SECONDS
+        )
+        response.raise_for_status()
+        entities = (response.json() or {}).get("entities") or []
+        if index + 1 < len(config.param_sets):
+            resumable_source_manager.save_state(GenesysCloudResumeConfig(page_number=index + 2))
+        if entities:
+            yield entities
+        else:
+            resumable_source_manager.safe_point()
+    resumable_source_manager.clear_state()
+
+
 def _next_cursor(data: dict[str, Any], cursor_param: str) -> Optional[str]:
     cursor = (data.get("cursors") or {}).get("after")
     if cursor:
@@ -485,6 +510,8 @@ def genesys_cloud_source(
             yield from _iter_scan_rows(session, base_url, config, resumable_source_manager)
         elif config.kind == "fan_out":
             yield from _iter_fan_out_rows(session, base_url, config, resumable_source_manager)
+        elif config.kind == "unpaged":
+            yield from _iter_unpaged_rows(session, base_url, config, resumable_source_manager)
         else:
             yield from _iter_listing_rows(session, base_url, config, resumable_source_manager)
 
@@ -543,6 +570,12 @@ def validate_credentials(
             )
         elif config.kind == "fan_out":
             response = _probe_fan_out(session, base_url, config)
+        elif config.kind == "unpaged":
+            response = session.get(
+                f"{base_url}{config.path}",
+                params={**config.params, **config.param_sets[0]},
+                timeout=VALIDATION_TIMEOUT_SECONDS,
+            )
         else:
             response = session.get(
                 f"{base_url}{config.path}",

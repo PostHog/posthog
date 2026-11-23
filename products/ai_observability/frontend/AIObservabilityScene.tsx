@@ -62,6 +62,7 @@ import { TraceDrawerQueryHost } from './redesign/trace/TraceDrawerQueryHost'
 import { withoutTraceDrawerParams } from './redesign/trace/traceDrawerRows'
 import { useTraceDrawerRows } from './redesign/trace/TraceDrawerRowsHost'
 import { TraceListRow } from './redesign/trace/traceListRows'
+import { TracesListHost } from './redesign/traces/TracesListHost'
 import { AIObservabilitySelfDriving } from './selfDriving/AIObservabilitySelfDriving'
 import { aiObservabilityDashboardLogic } from './tabs/aiObservabilityDashboardLogic'
 import { aiObservabilityErrorsLogic } from './tabs/aiObservabilityErrorsLogic'
@@ -568,11 +569,7 @@ function AIObservabilitySceneContent(): JSX.Element {
     if (activeTab === 'self-driving' && !featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_SELF_DRIVING]) {
         return <NotFound object="page" />
     }
-    return (
-        <ShellHost>
-            <TabBody tab={activeTab} />
-        </ShellHost>
-    )
+    return <ShellHost>{activeTab === 'traces' ? <TracesListHost /> : <TabBody tab={activeTab} />}</ShellHost>
 }
 
 function AIObservabilityTabbedContent(): JSX.Element {
