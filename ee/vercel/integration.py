@@ -360,7 +360,7 @@ class VercelIntegration:
                 organization=organization, partner=OrganizationProvisioning.Partner.VERCEL
             )
 
-            existing_user = User.objects.filter(email=config.account.contact.email).first()
+            existing_user = EmailLookupHandler.get_user_by_email(config.account.contact.email, is_active=None)
 
             if existing_user:
                 user = existing_user
