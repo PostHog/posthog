@@ -1475,7 +1475,12 @@ class MissingStaticFileMiddleware:
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
         if request.path_info.startswith(settings.STATIC_URL):
-            return HttpResponseNotFound()
+            response = HttpResponseNotFound(content_type="text/plain")
+            # This response skips CSPMiddleware and XFrameOptionsMiddleware, which sit below this
+            # middleware, so it sets the headers that they give every other response without a document.
+            response.headers["Content-Security-Policy"] = "default-src 'none'"
+            response.headers["X-Frame-Options"] = settings.X_FRAME_OPTIONS
+            return response
         return self.get_response(request)
 
 

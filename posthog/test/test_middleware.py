@@ -828,6 +828,9 @@ class TestMissingStaticFileMiddleware(SimpleTestCase):
         response = self.client.get(path)
 
         assert response.status_code == 404
+        # The middleware that sets these headers on other responses sits below this one.
+        assert response.headers["Content-Security-Policy"] == "default-src 'none'"
+        assert response.headers["X-Frame-Options"] == "SAMEORIGIN"
 
     @parameterized.expand(
         [
