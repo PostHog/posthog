@@ -80,7 +80,7 @@ async def plan_eval_suggestions_activity() -> CoordinatorPlan:
 
 
 @activity.defn(name="llma-eval-suggestions-start-run")
-async def start_eval_suggestions_run_activity(inputs: StartRunInputs) -> str:
+async def start_eval_suggestions_run_activity(inputs: StartRunInputs) -> str | None:
     return await on_asyncify_pool(api.start_eval_suggestions_run)(
         inputs.run.team_id, inputs.run.trigger, inputs.run.batch_id, inputs.run_id
     )
@@ -145,11 +145,15 @@ class EvalSuggestionsTeamWorkflow(PostHogWorkflow):
         run_id = inputs.run_id or str(uuid.uuid5(uuid.NAMESPACE_URL, f"{info.workflow_id}/{info.run_id}"))
         stage = StageInputs(team_id=inputs.team_id, run_id=run_id, include_paid=inputs.include_paid)
         try:
-            await workflow.execute_activity(
+            started = await workflow.execute_activity(
                 start_eval_suggestions_run_activity,
                 StartRunInputs(run=inputs, run_id=run_id),
                 **_options(START_RUN, heartbeat=False),
             )
+            if started is None:
+                # The team was deleted after it was queued, so there is no run to work on or to fail.
+                workflow.logger.info("eval_suggestions_team_deleted", extra={"team_id": inputs.team_id})
+                return 0
             await workflow.execute_activity(measure_eval_suggestions_activity, stage, **_options(MEASURE))
             paid: list[tuple[Callable, ActivityLimits]] = [
                 (screen_eval_suggestions_activity, SCREEN),
