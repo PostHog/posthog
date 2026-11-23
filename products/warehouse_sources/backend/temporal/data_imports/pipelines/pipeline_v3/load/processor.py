@@ -1453,7 +1453,9 @@ def _process_external_destinations_only(
 
     report_phase("finalize")
     # Sources read initial_sync_complete to switch from a full read to an incremental one, so
-    # without it every run extracts the whole table again.
+    # without it every run extracts the whole table again. The flag also moves a CDC table to
+    # streaming, so a run with an undelivered batch must fail before the flag is set.
+    _refuse_incomplete_run(export_signal)
     async_to_sync(finalize_sync_bookkeeping)(job, schema, None, None, logger)
     _mark_job_completed(export_signal)
 

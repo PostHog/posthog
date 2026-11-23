@@ -38,9 +38,13 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     destination_named_in_failure,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
+    IncompleteRunError,
     process_message,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
+from products.warehouse_sources_queue.backend.core.jobs_db import UnfinishedEarlierBatches
+
+_PROCESSOR = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor"
 
 
 class RecordingWriter:
@@ -127,7 +131,6 @@ class DeliveryTestCase(BaseTest):
         batch_index: int = 0,
         is_final: bool = False,
         schema_id: str | None = None,
-        job_id: str | None = None,
         primary_keys: list[str] | None = None,
         job_id: str | None = None,
     ) -> ExportSignalMessage:
@@ -336,23 +339,31 @@ class TestDelivery(DeliveryTestCase):
 
 
 class TestExternalOnlyRunCompletion(DeliveryTestCase):
-    def test_the_final_batch_marks_the_schema_synced(self) -> None:
+    def setUp(self) -> None:
+        super().setUp()
         source = ExternalDataSource.objects.create(
             team=self.team, source_id="src", connection_id="conn", source_type="Hubspot"
         )
-        schema = ExternalDataSchema.objects.create(
+        self.schema = ExternalDataSchema.objects.create(
             team=self.team,
             source=source,
             name="contacts",
             sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
             initial_sync_complete=False,
         )
-        job = ExternalDataJob.objects.create(
-            team=self.team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING, rows_synced=0
+        self.job = ExternalDataJob.objects.create(
+            team=self.team, pipeline=source, schema=self.schema, status=ExternalDataJob.Status.RUNNING, rows_synced=0
         )
-        a = self._destination("customer redshift")
-        signal = self._signal([str(a.id)], is_final=True, schema_id=str(schema.id), job_id=str(job.id))
+        self.destination = self._destination("customer redshift")
 
+    def _process_final_batch(self, batch_index: int = 0) -> None:
+        signal = self._signal(
+            [str(self.destination.id)],
+            batch_index=batch_index,
+            is_final=True,
+            schema_id=str(self.schema.id),
+            job_id=str(self.job.id),
+        )
         # The pooled helpers run on another thread, which cannot see this test's uncommitted rows, and
         # closing old connections would close the test's own connection.
         with (
@@ -360,17 +371,31 @@ class TestExternalOnlyRunCompletion(DeliveryTestCase):
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync.database_sync_to_async_pool",
                 sync_to_async,
             ),
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.close_old_connections"
-            ),
+            mock.patch(f"{_PROCESSOR}.close_old_connections"),
         ):
             process_message(signal.to_dict())
 
-        schema.refresh_from_db()
-        job.refresh_from_db()
-        assert job.status == ExternalDataJob.Status.COMPLETED
-        assert schema.initial_sync_complete is True
-        assert schema.last_synced_at == job.created_at
+    def test_the_final_batch_marks_the_schema_synced(self) -> None:
+        self._process_final_batch()
+
+        self.schema.refresh_from_db()
+        self.job.refresh_from_db()
+        assert self.job.status == ExternalDataJob.Status.COMPLETED
+        assert self.schema.initial_sync_complete is True
+        assert self.schema.last_synced_at == self.job.created_at
+
+    def test_a_run_with_an_undelivered_earlier_batch_leaves_the_schema_unsynced(self) -> None:
+        unfinished = UnfinishedEarlierBatches(count=1, first_batch_index=0, states=("failed",))
+
+        with (
+            mock.patch(f"{_PROCESSOR}.BatchQueue.get_unfinished_earlier_batches_sync", return_value=unfinished),
+            self.assertRaises(IncompleteRunError),
+        ):
+            self._process_final_batch(batch_index=1)
+
+        self.schema.refresh_from_db()
+        assert self.schema.initial_sync_complete is False
+        assert self.schema.last_synced_at is None
 
 
 class TestAbortDestinations(DeliveryTestCase):
