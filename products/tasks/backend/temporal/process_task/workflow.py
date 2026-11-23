@@ -612,7 +612,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     run_id=self.context.run_id,
                     message=followup.message,
                     actor_user_id=followup.actor_user_id,
-                    live=True,
                 )
             )
         outcome = await self._send_followup_to_sandbox(
@@ -1251,9 +1250,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         agent_shadow_task: asyncio.Task[None] | None = None
         self._agent_boot_interaction_telemetry_enabled = input.resumed_sandbox is None
         try:
-            if _check_switch_model_from_message_patch() and input.resumed_sandbox is None:
-                # Before the context load, so the agent starts on the model the first message asks for.
-                await self._switch_model_from_message(SwitchModelFromMessageInput(run_id=input.run_id))
             self._context = await self._get_task_processing_context(input)
             if self._stream_generation is not None:
                 self._context.stream_generation = self._stream_generation

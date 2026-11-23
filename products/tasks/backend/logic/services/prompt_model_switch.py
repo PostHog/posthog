@@ -1,0 +1,155 @@
+"""The model or reasoning effort that a PostHog AI message asks its run to use, such as "use opus for this".
+
+A new or resumed run reads it before the run exists, so any harness is open. A live run reads it
+before the agent gets the follow-up, and stays on its harness, because the harness process is
+fixed when the sandbox starts.
+"""
+
+import hashlib
+from collections.abc import Mapping
+from typing import Any
+
+from django.core.cache import cache
+
+import structlog
+
+from posthog.models import Team, User
+
+from products.tasks.backend.feature_flags import get_model_access_error, prompt_model_switch_enabled
+from products.tasks.backend.logic.model_override import (
+    ModelOverride,
+    ModelOverrideAttribution,
+    classify_model_override,
+    may_request_model_override,
+)
+from products.tasks.backend.logic.services.gateway_model_pin import pinned_run_allows_model
+from products.tasks.backend.logic.services.model_catalogue import (
+    TASK_RUN_GATEWAY_PRODUCT,
+    available_model_choices,
+    filter_unsupported_effort,
+    runtime_adapter_for,
+)
+from products.tasks.backend.logic.services.run_actor import get_actor_distinct_id
+
+logger = structlog.get_logger(__name__)
+
+# The task create and the run create of one new chat carry the same message. The answer is kept
+# long enough for the second request to reuse it, rather than pay for a second classifier call.
+_CACHE_TTL_SECONDS = 120
+_NO_SWITCH = "none"
+
+
+def _cache_key(team: Team, user: User, runtime_adapter: str | None, text: str) -> str:
+    digest = hashlib.sha256(f"{team.id}:{user.id}:{runtime_adapter}:{text}".encode()).hexdigest()
+    return f"tasks:prompt_model_switch:{digest}"
+
+
+def _cached(key: str) -> ModelOverride | None | str:
+    # The cache only saves a classifier call, so an unreachable cache must not fail the request.
+    try:
+        cached = cache.get(key)
+    except Exception:
+        logger.exception("prompt_model_switch_cache_read_failed")
+        return None
+    if cached == _NO_SWITCH:
+        return _NO_SWITCH
+    return ModelOverride(**cached) if isinstance(cached, dict) else None
+
+
+def _remember(key: str, override: ModelOverride | None) -> None:
+    value: Any = (
+        _NO_SWITCH if override is None else {"model": override.model, "reasoning_effort": override.reasoning_effort}
+    )
+    try:
+        cache.set(key, value, timeout=_CACHE_TTL_SECONDS)
+    except Exception:
+        logger.exception("prompt_model_switch_cache_write_failed")
+
+
+def requested_model_switch(
+    message: str,
+    *,
+    team: Team,
+    user: User,
+    runtime_adapter: str | None = None,
+    run_state: Mapping[str, Any] | None = None,
+) -> ModelOverride | None:
+    """The switch a message asks for, or ``None``. ``runtime_adapter`` limits the answer to the models of one harness."""
+    from products.posthog_ai.backend.turn_suggestions.transcript import (  # noqa: PLC0415 — keeps PostHog AI off the tasks import path
+        strip_context_blocks,
+    )
+
+    from ee.hogai.utils.feature_flags import is_privacy_mode_enabled  # noqa: PLC0415
+
+    # The composer puts page context in front of the person's text. The context is not an
+    # instruction, and its untrusted part can hold any text, so the classifier never reads it.
+    text = strip_context_blocks(message)
+    if not text:
+        return None
+    catalogue = tuple(
+        choice
+        for choice in available_model_choices(TASK_RUN_GATEWAY_PRODUCT)
+        if runtime_adapter in (None, choice.runtime_adapter)
+    )
+    # The flag and model access checks are network calls, so the free word check goes first.
+    if not may_request_model_override(text, catalogue) or not prompt_model_switch_enabled(team, user):
+        return None
+
+    key = _cache_key(team, user, runtime_adapter, text)
+    cached = _cached(key)
+    if cached == _NO_SWITCH:
+        return None
+    if isinstance(cached, ModelOverride):
+        return cached
+
+    distinct_id = get_actor_distinct_id(user)
+    choices = tuple(
+        choice
+        for choice in catalogue
+        if get_model_access_error(choice.model, distinct_id=distinct_id) is None
+        and pinned_run_allows_model(dict(run_state) if run_state is not None else None, choice.model)
+    )
+    override = classify_model_override(
+        text,
+        choices,
+        ModelOverrideAttribution(
+            ai_product="posthog_ai",
+            properties={"posthog_ai_feature": "model_override"},
+            distinct_id=distinct_id,
+            privacy_mode=is_privacy_mode_enabled(team),
+        ),
+    )
+    _remember(key, override)
+    return override
+
+
+def apply_to_run_selection(data: dict[str, Any], *, team: Team, user: User) -> None:
+    """Point a new run's model selection at the model its first message asks for.
+
+    The message wins over the picker, because it is the later instruction. The harness follows
+    the model, so the permission mode is clamped to what the new harness offers.
+    """
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keeps the sandbox config off the api import path
+        clamp_initial_permission_mode,
+    )
+
+    message = data.get("pending_user_message")
+    if not isinstance(message, str):
+        return
+    override = requested_model_switch(message, team=team, user=user)
+    if override is None:
+        return
+    if override.model:
+        runtime_adapter = runtime_adapter_for(override.model)
+        data["runtime_adapter"] = runtime_adapter
+        data["model"] = override.model
+        data["reasoning_effort"] = filter_unsupported_effort(
+            runtime_adapter, override.model, override.reasoning_effort or data.get("reasoning_effort")
+        )
+        if data.get("initial_permission_mode"):
+            data["initial_permission_mode"] = clamp_initial_permission_mode(
+                runtime_adapter, data["initial_permission_mode"]
+            )
+    elif override.reasoning_effort:
+        data["reasoning_effort"] = override.reasoning_effort
+    logger.info("prompt_model_switch_applied", model=data.get("model"), reasoning_effort=data.get("reasoning_effort"))

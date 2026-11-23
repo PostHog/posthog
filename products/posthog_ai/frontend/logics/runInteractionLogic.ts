@@ -39,7 +39,6 @@ import {
 import {
     tasksRunCreate,
     tasksRunsClearConversationCreate,
-    tasksRunsRetrieve,
     tasksRunsCommandCreate,
 } from 'products/tasks/frontend/generated/api'
 import {
@@ -342,9 +341,6 @@ export interface runInteractionLogicActions {
     } // runStreamLogic
     markPermissionRequestResolved: (requestId: string) => {
         requestId: string
-    } // runStreamLogic
-    markRunStarted: () => {
-        value: true
     } // runStreamLogic
     markTurnComplete: (isReplay?: boolean | undefined) => {
         isReplay: boolean
@@ -774,7 +770,6 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 'cancelRun',
                 'markTurnComplete',
                 'setCurrentMode',
-                'markRunStarted',
                 'setSessionConfig',
                 'handleTerminalStatus',
                 'markPermissionRequestResolved',
@@ -1701,30 +1696,6 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             },
 
             // The agent finished a turn — drain any staged follow-ups.
-            // The workflow can switch the model before the agent starts, when the first message asks for one, and
-            // the agent reports no config at boot. So the run record is the one place that names the start model.
-            markRunStarted: async () => {
-                const { taskId, runId } = props
-                if (!taskId || !runId || values.isTerminal || values.currentProjectId == null) {
-                    return
-                }
-                try {
-                    const run = await tasksRunsRetrieve(String(values.currentProjectId), taskId, runId)
-                    if (cache.disposables.isDisposed || props.runId !== runId) {
-                        return
-                    }
-                    const state = (run.state ?? {}) as Record<string, unknown>
-                    const stateValue = (key: string): string | null =>
-                        typeof state[key] === 'string' ? (state[key] as string) : null
-                    actions.setSessionConfig(
-                        run.model ?? stateValue('model'),
-                        run.reasoning_effort ?? stateValue('reasoning_effort')
-                    )
-                } catch {
-                    // The picker keeps the model it had, which is the model the run started on unless switched.
-                }
-            },
-
             markTurnComplete: ({ isReplay }) => {
                 if (!isReplay) {
                     actions.flushQueue()
