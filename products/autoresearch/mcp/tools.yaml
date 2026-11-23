@@ -511,8 +511,8 @@ tools:
             (recreate the pipeline). Also returns 400 on a draft pipeline when the project already has its limit of live
             pipelines (bootstrapping, running or converged): tell the user to pause or delete one first, and do not
             retry. Returns 403 from inside a sandbox, such as a PostHog AI cloud task: do not retry, and ask the user to
-            start training from the pipeline's page in PostHog. Needs PostHog Desktop access, because the run is a cloud
-            sandbox. After a run promotes a champion, the daily 02:00 UTC scoring job scores the inference population
+            start training from the pipeline's page in PostHog. Also returns 403 when the organization is deactivated (code
+            'organization_deactivated'): do not retry. After a run promotes a champion, the daily 02:00 UTC scoring job scores the inference population
             and emits autoresearch_prediction events. To score now instead, call autoresearch-score-create once. The run
             uses the pipeline's iterations_per_run unless you override iteration_budget for this run, and the project's
             iteration limit per run can lower either. Returns 429 when the project has used its daily limit of training
