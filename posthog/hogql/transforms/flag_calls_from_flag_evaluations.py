@@ -345,6 +345,7 @@ def _resolve_with_swaps(
                 context.flag_called_union_spans.update(union.literal_spans)
             if swapper.swapped:
                 context.flag_calls_read.add("flag_evaluations")
+            context.cap_flag_call_memory = swapper.reads_unkeyed_feature_property
             return FlagCallSwap(source=rewritten, resolved=swapped)
     if only_in_flag_evaluations:
         # events gets no new flag calls, so the original query would return only calls from before the move.
@@ -1124,16 +1125,6 @@ class ScanVisitor(SyntaxVisitor):
         raise NotImplementedError
 
 
-def _unkeyed_feature_refusal(scan: EventsScan, node: ast.SelectQuery, conjuncts: list[ast.Expr]) -> str | None:
-    name = scan.unkeyed_feature_property(node, conjuncts)
-    if name is None:
-        return None
-    return (
-        f"it reads {name} without a $feature_flag filter that names the flag, which would read every flag call "
-        "the project has. Filter on $feature_flag and $feature_flag_response to find calls that returned a value"
-    )
-
-
 class _FeaturePropertyFinder(SyntaxVisitor):
     """Finds a read of `properties.$feature/<key>` from `scan` in its own SELECT, not in a subquery."""
 
@@ -1186,6 +1177,8 @@ class _EventsScanSwapper(ScanVisitor):
         self.only_in_flag_evaluations = only_in_flag_evaluations
         self.flag_key_compares_as_string = flag_key_compares_as_string
         self.swapped = False
+        # A swapped scan reads `properties.$feature/<key>` with no `flag_key` predicate to prune rows.
+        self.reads_unkeyed_feature_property = False
         self.flag_key_predicates = 0
         # Why each scan that reads only flag calls has a shape that flag_evaluations cannot stand in for.
         self.refusals: list[str] = []
@@ -1198,9 +1191,6 @@ class _EventsScanSwapper(ScanVisitor):
         if _qualifies(
             scan, node, conjuncts, self.now, self.timezone, only_in_flag_evaluations=self.only_in_flag_evaluations
         ):
-            if self.only_in_flag_evaluations and (name := _unkeyed_feature_refusal(scan, node, conjuncts)):
-                self.refusals.append(name)
-                return
             self._swap(node, scan, conjuncts)
         else:
             # On mode 2 the union reads a scan with a ratio SAMPLE, so this refuses only the other shapes.
@@ -1215,6 +1205,8 @@ class _EventsScanSwapper(ScanVisitor):
             self.flag_key_predicates += 1
         point_scan_at(node, scan, ["posthog", "flag_evaluations"], flag_key)
         self.swapped = True
+        if self.only_in_flag_evaluations and scan.unkeyed_feature_property(node, conjuncts):
+            self.reads_unkeyed_feature_property = True
 
     def swap_scans_found_by_type(self, resolved: ast.AST, sources: JoinSources, clones: "_JoinClones") -> str | None:
         """Swap each events scan in the clone whose counterpart in `resolved`, the resolved original, has a WHERE or
@@ -1262,10 +1254,7 @@ class _EventsScanSwapper(ScanVisitor):
         refusal = events_scan.shape_refusal(clone.select)
         if refusal is not None:
             return refusal
-        conjuncts = filter_conjuncts(clone.select)
-        if refusal := _unkeyed_feature_refusal(events_scan, clone.select, conjuncts):
-            return refusal
-        self._swap(clone.select, events_scan, conjuncts)
+        self._swap(clone.select, events_scan, filter_conjuncts(clone.select))
         return None
 
 

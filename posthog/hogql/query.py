@@ -25,6 +25,7 @@ from posthog.schema import (
 from posthog.hogql import ast, query_stats
 from posthog.hogql.compilation import bounded_compilation
 from posthog.hogql.constants import (
+    FLAG_CALLS_UNKEYED_FEATURE_READ_MAX_MEMORY_BYTES,
     HogQLDialect,
     HogQLGlobalSettings,
     LimitContext,
@@ -863,6 +864,12 @@ class HogQLQueryExecutor:
                     context=self.clickhouse_context,
                     dialect="clickhouse",
                     settings=settings,
+                )
+
+            if self.clickhouse_context.cap_flag_call_memory and isinstance(settings, HogQLGlobalSettings):
+                settings.max_memory_usage = min(
+                    settings.max_memory_usage or FLAG_CALLS_UNKEYED_FEATURE_READ_MAX_MEMORY_BYTES,
+                    FLAG_CALLS_UNKEYED_FEATURE_READ_MAX_MEMORY_BYTES,
                 )
 
             if self.clickhouse_context.workload in PINNED_CLUSTER_WORKLOADS and self.query_type == "HogQLQuery":
