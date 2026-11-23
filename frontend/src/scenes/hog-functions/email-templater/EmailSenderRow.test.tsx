@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
 import { useMocks } from '~/mocks/jest'
@@ -14,7 +14,7 @@ describe('EmailSenderRow', () => {
         useMocks({
             get: {
                 '/api/projects/:team_id/integrations/': {
-                    count: 1,
+                    count: 2,
                     next: null,
                     results: [
                         {
@@ -31,6 +31,15 @@ describe('EmailSenderRow', () => {
                             created_at: '2026-01-01T00:00:00Z',
                             errors: '',
                         },
+                        {
+                            id: 2,
+                            kind: 'email',
+                            display_name: 'hello@example.net',
+                            icon_url: '',
+                            config: { email: 'hello@example.net', domain: 'example.net', verified: true },
+                            created_at: '2026-01-01T00:00:00Z',
+                            errors: '',
+                        },
                     ],
                 },
                 '/api/environments/:team_id/messaging_templates/': { results: [] },
@@ -42,8 +51,8 @@ describe('EmailSenderRow', () => {
 
     afterEach(cleanup)
 
-    it('shows the sending stopped warning next to an address error', async () => {
-        render(
+    function renderRow(from: Record<string, unknown>): HTMLElement {
+        return render(
             <BindLogic
                 logic={emailTemplaterLogic}
                 props={{
@@ -52,7 +61,7 @@ describe('EmailSenderRow', () => {
                         html: '<div>Hello</div>',
                         text: 'Hello',
                         subject: 'Welcome',
-                        from: { integrationId: 1, email: 'hello@example.org' },
+                        from,
                         to: '{{ person.properties.email }}',
                     },
                     onChange: jest.fn(),
@@ -61,8 +70,23 @@ describe('EmailSenderRow', () => {
             >
                 <EmailSenderRow />
             </BindLogic>
-        )
+        ).container
+    }
+
+    it('shows the sending stopped warning next to an address error', async () => {
+        renderRow({ integrationId: 1, email: 'hello@example.org' })
 
         expect(await screen.findByText(/^Sending stopped for example\.com:.* Use an address/)).toBeInTheDocument()
+    })
+
+    it('marks a stopped sender in the sender list', async () => {
+        const container = renderRow({})
+
+        await waitFor(() => expect(container.querySelector('[data-attr$="-sender-select"]')).not.toBeNull())
+        fireEvent.click(container.querySelector('[data-attr$="-sender-select"]') as HTMLElement)
+
+        const marks = await screen.findAllByText('Sending stopped')
+        expect(marks).toHaveLength(1)
+        expect(marks[0].parentElement).toHaveTextContent(/^hello@example\.comSending stopped$/)
     })
 })

@@ -11,6 +11,7 @@ import {
     sandboxSenderInputOptions,
     selectedSenderValue,
 } from './sandboxSenderOptions'
+import { SenderOptionLabel } from './SenderOptionLabel'
 import { EmailTemplateFrom, MAX_WORKFLOW_EMAIL_SENDERS } from './types'
 
 const ADD_SENDER = -1
@@ -63,6 +64,7 @@ export function EmailSenderPicker({
                 ...senders.map((candidate) => ({
                     key: String(candidate.id),
                     label: senderLabel(candidate),
+                    labelComponent: <SenderOptionLabel label={senderLabel(candidate)} sender={candidate} />,
                     value: candidate.id,
                 })),
                 ...sandboxSenderInputOptions(sandbox),
@@ -82,7 +84,13 @@ export function EmailSenderPicker({
             value={selectedSenderValue(sandbox, from.integrationId)}
             onChange={(id) => (id === ADD_SENDER ? openSenderSetup() : changeSenders([id]))}
             options={[
-                { options: senders.map((candidate) => ({ value: candidate.id, label: senderLabel(candidate) })) },
+                {
+                    options: senders.map((candidate) => ({
+                        value: candidate.id,
+                        label: senderLabel(candidate),
+                        labelInMenu: <SenderOptionLabel label={senderLabel(candidate)} sender={candidate} />,
+                    })),
+                },
                 ...sandboxSenderGroups(sandbox),
                 { options: [{ value: ADD_SENDER, label: 'Add new email sender', icon: <IconExternal /> }] },
             ]}

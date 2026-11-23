@@ -67,6 +67,7 @@ import {
     sandboxSenderInputOptions,
     selectedSenderValue,
 } from './sandboxSenderOptions'
+import { SenderOptionLabel } from './SenderOptionLabel'
 import { EmailFieldErrors, EmailTemplateFrom, MAX_WORKFLOW_EMAIL_SENDERS } from './types'
 
 export type EmailEditorMode = 'full' | 'preview'
@@ -378,6 +379,9 @@ export function NativeEmailIntegrationChoice({
                                 ...(integrationsOfKind || []).map((integration) => ({
                                     key: String(integration.id),
                                     label: integration.display_name,
+                                    labelComponent: (
+                                        <SenderOptionLabel label={integration.display_name} sender={integration} />
+                                    ),
                                     value: integration.id,
                                 })),
                                 ...sandboxSenderInputOptions(sandbox),
@@ -410,6 +414,9 @@ export function NativeEmailIntegrationChoice({
                                 title: 'Email senders',
                                 options: (integrationsOfKind || []).map((integration) => ({
                                     label: integration.display_name,
+                                    labelInMenu: (
+                                        <SenderOptionLabel label={integration.display_name} sender={integration} />
+                                    ),
                                     value: integration.id,
                                 })),
                             },

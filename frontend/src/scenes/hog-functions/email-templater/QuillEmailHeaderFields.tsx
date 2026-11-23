@@ -44,6 +44,7 @@ import {
 } from './emailSenderFields'
 import { EMAIL_TYPE_SUPPORTED_FIELDS, emailTemplaterLogic } from './emailTemplaterLogic'
 import { LiquidSupportedText } from './LiquidSupportedText'
+import { SenderOptionLabel } from './SenderOptionLabel'
 import { EmailTemplate, MAX_WORKFLOW_EMAIL_SENDERS } from './types'
 
 function senderLabel(sender: EmailSender): string {
@@ -373,7 +374,7 @@ function SenderField(): JSX.Element {
                 <SelectContent>
                     {senders.map((sender) => (
                         <SelectItem key={sender.id} value={String(sender.id)}>
-                            {senderLabel(sender)}
+                            <SenderOptionLabel label={senderLabel(sender)} sender={sender} />
                         </SelectItem>
                     ))}
                 </SelectContent>
