@@ -27,7 +27,9 @@ from posthog.rate_limit import (
 
 from products.metrics.backend.facade.api import (
     check_dashboard_panel_queries,
+    dismiss_dashboard_import,
     get_dashboard_import,
+    get_dashboard_import_input,
     list_dashboard_imports,
     start_dashboard_import,
 )
@@ -175,6 +177,22 @@ class DashboardImportSerializer(serializers.Serializer):
     panels = DashboardImportPanelSerializer(many=True, help_text="The outcome for each panel, when the import ended.")
 
 
+class DashboardImportInputSerializer(serializers.Serializer):
+    source = serializers.ChoiceField(  # type: ignore[assignment]
+        choices=DashboardImportSource.choices, help_text="What the failed import read."
+    )
+    name = serializers.CharField(
+        allow_null=True, help_text="The dashboard name the user gave. Null when the user gave none."
+    )
+    grafana_json = serializers.CharField(
+        allow_null=True, help_text="The Grafana dashboard JSON model, when the source is 'grafana'."
+    )
+    image_base64 = serializers.CharField(
+        allow_null=True,
+        help_text="The screenshot as base64 PNG, without a data URL prefix, when the source is 'screenshot'.",
+    )
+
+
 class PanelFilterSerializer(serializers.Serializer):
     key = serializers.CharField(max_length=255, help_text="Attribute name, for example 'service.name'.")
     op = serializers.ChoiceField(choices=Op.choices, help_text="Comparison. Regex operators use RE2.")
@@ -275,6 +293,8 @@ class MetricsDashboardImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
         if self.action == "create":
             return ["metrics:read", "dashboard:write", "insight:write"]
+        if self.action == "dismiss":
+            return ["metrics:write"]
         return ["metrics:read"]
 
     def get_throttles(self) -> list[Any]:
@@ -353,6 +373,41 @@ class MetricsDashboardImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if result is None:
             raise NotFound("No dashboard import with this id.")
         return Response(DashboardImportSerializer(asdict(result)).data)
+
+    @extend_schema(
+        responses={
+            200: DashboardImportInputSerializer,
+            404: OpenApiResponse(description="No failed import with this id, or its input expired."),
+        }
+    )
+    @action(detail=True, methods=["GET"], url_path="input")
+    def retry_input(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
+        """What one of the user's failed imports read, so that a retry can start from it. Kept for 30 days."""
+        self._require_import_flag(request)
+        result = get_dashboard_import_input(team=self.team, user=cast(User, request.user), import_id=str(pk))
+        if result is None:
+            raise NotFound("No input is kept for this import.")
+        return Response(DashboardImportInputSerializer(asdict(result)).data)
+
+    @extend_schema(
+        request=None,
+        responses={
+            204: OpenApiResponse(description="The import no longer shows in the recent imports."),
+            404: OpenApiResponse(description="No dashboard import with this id."),
+            409: OpenApiResponse(description="The import is still running."),
+        },
+    )
+    @action(detail=True, methods=["POST"])
+    def dismiss(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
+        """Hide one of the user's ended imports from the recent imports and delete what it read."""
+        self._require_import_flag(request)
+        try:
+            found = dismiss_dashboard_import(team=self.team, user=cast(User, request.user), import_id=str(pk))
+        except DashboardImportInProgress as error:
+            raise Conflict(str(error))
+        if not found:
+            raise NotFound("No dashboard import with this id.")
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(request=PanelQueryCheckRequestSerializer, responses={200: PanelQueryCheckResponseSerializer})
     @action(detail=False, methods=["POST"])

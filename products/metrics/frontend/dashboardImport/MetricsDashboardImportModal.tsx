@@ -19,9 +19,9 @@ const TITLES: Record<DashboardImportSourceEnumApi, string> = {
 }
 
 export function MetricsDashboardImportModal(): JSX.Element {
-    const { isModalOpen, step, source, starting, importDisabledReason, currentImport } =
+    const { isModalOpen, step, source, starting, retrying, importDisabledReason, currentImport } =
         useValues(metricsDashboardImportLogic)
-    const { closeImportModal, startImport, resetImport, backToInput, openImportedDashboard } =
+    const { closeImportModal, startImport, resetImport, retryImport, dismissImport, openImportedDashboard } =
         useActions(metricsDashboardImportLogic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
 
@@ -87,14 +87,29 @@ export function MetricsDashboardImportModal(): JSX.Element {
                 </LemonButton>
             </>
         ) : (
-            <>
-                <LemonButton type="secondary" onClick={closeImportModal}>
-                    Close
+            <div className="flex flex-1 items-center justify-between gap-2">
+                <LemonButton
+                    type="tertiary"
+                    onClick={() => currentImport && dismissImport(currentImport)}
+                    disabledReason={currentImport?.id ? undefined : 'This import is not saved'}
+                    data-attr="metrics-dashboard-import-dismiss"
+                >
+                    Dismiss
                 </LemonButton>
-                <LemonButton type="primary" onClick={backToInput} data-attr="metrics-dashboard-import-retry">
-                    Try again
-                </LemonButton>
-            </>
+                <div className="flex gap-2">
+                    <LemonButton type="secondary" onClick={closeImportModal}>
+                        Close
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        onClick={() => currentImport && retryImport(currentImport)}
+                        loading={retrying}
+                        data-attr="metrics-dashboard-import-retry"
+                    >
+                        Try again
+                    </LemonButton>
+                </div>
+            </div>
         )
 
     return (

@@ -21,6 +21,7 @@ from __future__ import annotations
 import io
 import json
 import uuid
+import base64
 import hashlib
 import datetime as dt
 import dataclasses
@@ -96,6 +97,7 @@ from products.metrics.backend.facade.contracts import (
     DashboardImportAgentActivity,
     DashboardImportError,
     DashboardImportInProgress,
+    DashboardImportInput,
     DashboardImportNotAllowed,
     DashboardImportPanel,
     DashboardImportPanelProgress,
@@ -360,7 +362,9 @@ class DashboardImporter:
             layout_rounds=MAX_LAYOUT_ROUNDS if state.layout_check else None,
         )
 
-    def status(self, import_id: str, *, finalize: bool = True) -> DashboardImportStatus | None:
+    def status(
+        self, import_id: str, *, finalize: bool = True, skip_dismissed: bool = False
+    ) -> DashboardImportStatus | None:
         """The import's status. With `finalize`, an ended run that nothing finalized yet is finalized in the request."""
         run = tasks_facade.get_owner_origin_latest_run(
             task_id=import_id,
@@ -371,7 +375,7 @@ class DashboardImporter:
         if run is None:
             return None
         state = _parse_state(tasks_facade.read_task_state_entry(import_id, self._team.id, IMPORT_STATE_KEY))
-        if state is None:
+        if state is None or (skip_dismissed and state.dismissed):
             return None
         # An import that another worker holds costs nothing here, so it does not stop the next one from finalizing.
         if (
@@ -424,8 +428,60 @@ class DashboardImporter:
         )
         # Each finalization checks every query again, so one list request finalizes at most one import.
         # The next poll of the list finalizes the next one.
-        statuses = (self.status(str(task_id), finalize=self._inline_finalizations == 0) for task_id in task_ids)
+        statuses = (
+            self.status(str(task_id), finalize=self._inline_finalizations == 0, skip_dismissed=True)
+            for task_id in task_ids
+        )
         return [status for status in statuses if status is not None]
+
+    def input(self, import_id: str) -> DashboardImportInput | None:
+        """What a failed import read. Its stored files expire after STORAGE_TTL_DAYS."""
+        state = self._owned_state(import_id)
+        if state is None or state.dismissed or state.result is None or state.result.status != "failed":
+            return None
+        paths = {path.rsplit("/", 1)[-1]: path for path in state.input_paths}
+        name = state.dashboard_name if state.named_by_user else None
+        source = DashboardImportSource(state.source)
+        try:
+            if source == DashboardImportSource.GRAFANA and GRAFANA_FILE_NAME in paths:
+                grafana_json = object_storage.read(paths[GRAFANA_FILE_NAME], missing_ok=True)
+                if grafana_json:
+                    return DashboardImportInput(source=source, name=name, grafana_json=grafana_json)
+            if source == DashboardImportSource.SCREENSHOT and SCREENSHOT_FILE_NAME in paths:
+                image = object_storage.read_bytes(paths[SCREENSHOT_FILE_NAME], missing_ok=True)
+                if image:
+                    return DashboardImportInput(source=source, name=name, image_base64=base64.b64encode(image).decode())
+        except Exception:
+            logger.warning("metrics_dashboard_import_input_read_failed", team_id=self._team.id, exc_info=True)
+        return None
+
+    def dismiss(self, import_id: str) -> bool:
+        state = self._owned_state(import_id)
+        if state is None:
+            return False
+        if state.result is None:
+            raise DashboardImportInProgress("This import is still running. Wait for it to finish.")
+        updated = _update_state(
+            self._team.id,
+            import_id,
+            lambda current: (
+                None if current.dismissed else current.model_copy(update={"dismissed": True, "input_paths": []})
+            ),
+        )
+        if updated is not None:
+            _delete_inputs(state.input_paths)
+        return True
+
+    def _owned_state(self, import_id: str) -> ImportState | None:
+        run = tasks_facade.get_owner_origin_latest_run(
+            task_id=import_id,
+            team_id=self._team.id,
+            created_by_id=self._user.id,
+            origin_product=tasks_facade.TaskOriginProduct.METRICS_IMPORT,
+        )
+        if run is None:
+            return None
+        return _parse_state(tasks_facade.read_task_state_entry(import_id, self._team.id, IMPORT_STATE_KEY))
 
     def _check_allowed(self) -> None:
         if self._team.organization.is_ai_data_processing_approved is not True:
@@ -982,7 +1038,9 @@ def finalize_import(*, team_id: int, task_id: str, background: bool) -> bool:
     except Exception:
         logger.exception("metrics_dashboard_import_record_failed", team_id=team_id)
         result = importer.record(task_id, state, None, "The import failed while it built the dashboard. Try again.")
-    _delete_inputs(state.input_paths)
+    # A failed import keeps its input until it expires or the user dismisses it, so a retry can start from it.
+    if result is not None and result.status == "completed":
+        _delete_inputs(state.input_paths)
     if result is not None:
         importer.capture_finished(state, result, path="agent", background=background)
     return True
@@ -1179,7 +1237,8 @@ def _end_layout_check(
     # The run ends here, so the agent sandbox stops. Without a result, the task run receiver then builds one.
     tasks_facade.signal_workflow_completion(run.id, tasks_facade.TaskRunStatus.COMPLETED, None)
     if state is not None and state.result is not None:
-        _delete_inputs(state.input_paths)
+        if state.result.status == "completed":
+            _delete_inputs(state.input_paths)
         importer.capture_finished(state, state.result, path="agent", background=True)
 
 

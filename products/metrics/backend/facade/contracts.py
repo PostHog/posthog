@@ -583,6 +583,16 @@ class DashboardImportStatus:
 
 
 @dataclass(frozen=True, slots=True)
+class DashboardImportInput:
+    """What a failed import read, so the user can retry it. `name` is None when the user gave no name."""
+
+    source: DashboardImportSource
+    name: str | None = None
+    grafana_json: str | None = None
+    image_base64: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class PanelQueryCheckRequest:
     """One panel query for the import agent to check. `builder` holds the builder query as JSON."""
 

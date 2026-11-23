@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheckCircle, IconChevronDown, IconWarning } from '@posthog/icons'
+import { IconCheckCircle, IconChevronDown, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItem, Spinner } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -44,7 +44,8 @@ export function importStatusLine(dashboardImport: DashboardImportApi): string {
 
 function recentImportItem(
     dashboardImport: DashboardImportApi,
-    openImport: (dashboardImport: DashboardImportApi) => void
+    openImport: (dashboardImport: DashboardImportApi) => void,
+    dismissImport: (dashboardImport: DashboardImportApi) => void
 ): LemonMenuItem {
     return {
         label: (
@@ -62,13 +63,23 @@ function recentImportItem(
                 <IconWarning className="text-danger" />
             ),
         onClick: () => openImport(dashboardImport),
+        sideAction:
+            dashboardImport.status === 'running'
+                ? undefined
+                : {
+                      icon: <IconX />,
+                      tooltip: 'Dismiss',
+                      'aria-label': 'Dismiss import',
+                      onClick: () => dismissImport(dashboardImport),
+                      'data-attr': 'metrics-dashboard-import-recent-dismiss',
+                  },
         'data-attr': 'metrics-dashboard-import-recent',
     }
 }
 
 export function MetricsDashboardActions(): JSX.Element | null {
     const { recentImports, runningImports } = useValues(metricsDashboardImportLogic)
-    const { openImportModal, openImport } = useActions(metricsDashboardImportLogic)
+    const { openImportModal, openImport, dismissImport } = useActions(metricsDashboardImportLogic)
     const importEnabled = useFeatureFlag('METRICS_DASHBOARD_IMPORT')
     const suggestionsEnabled = useFeatureFlag('METRICS_SUGGESTED_DASHBOARDS')
 
@@ -105,7 +116,9 @@ export function MetricsDashboardActions(): JSX.Element | null {
                                       title: 'Recent imports',
                                       items: recentImports
                                           .slice(0, MAX_LISTED_IMPORTS)
-                                          .map((dashboardImport) => recentImportItem(dashboardImport, openImport)),
+                                          .map((dashboardImport) =>
+                                              recentImportItem(dashboardImport, openImport, dismissImport)
+                                          ),
                                   },
                               ]
                             : []),

@@ -13,6 +13,7 @@ import type {
     AppMetricsTotalsResponseApi,
     DashboardImportApi,
     DashboardImportCreateApi,
+    DashboardImportInputApi,
     MetricsAttributeValuesRetrieveParams,
     MetricsAttributesRetrieveParams,
     MetricsCreatedDashboardApi,
@@ -243,6 +244,42 @@ export const metricsDashboardImportsRetrieve = async (
     options?: RequestInit
 ): Promise<DashboardImportApi> => {
     return apiMutator<DashboardImportApi>(getMetricsDashboardImportsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMetricsDashboardImportsDismissCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/metrics/dashboard_imports/${id}/dismiss/`
+}
+
+/**
+ * Hide one of the user's ended imports from the recent imports and delete what it read.
+ */
+export const metricsDashboardImportsDismissCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getMetricsDashboardImportsDismissCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getMetricsDashboardImportsInputRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/metrics/dashboard_imports/${id}/input/`
+}
+
+/**
+ * What one of the user's failed imports read, so that a retry can start from it. Kept for 30 days.
+ */
+export const metricsDashboardImportsInputRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DashboardImportInputApi> => {
+    return apiMutator<DashboardImportInputApi>(getMetricsDashboardImportsInputRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

@@ -6,7 +6,12 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { metricsDashboardImportsCreate, metricsDashboardImportsList } from 'products/metrics/frontend/generated/api'
+import {
+    metricsDashboardImportsCreate,
+    metricsDashboardImportsDismissCreate,
+    metricsDashboardImportsInputRetrieve,
+    metricsDashboardImportsList,
+} from 'products/metrics/frontend/generated/api'
 import type {
     DashboardImportApi,
     DashboardImportCreateApi,
@@ -19,6 +24,8 @@ jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
     metricsDashboardImportsCreate: jest.fn(),
     metricsDashboardImportsList: jest.fn(),
+    metricsDashboardImportsInputRetrieve: jest.fn(),
+    metricsDashboardImportsDismissCreate: jest.fn(),
 }))
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: { success: jest.fn(), error: jest.fn() },
@@ -129,6 +136,34 @@ describe('metricsDashboardImportLogic', () => {
         const calls = mockList.mock.calls.length
         await jest.advanceTimersByTimeAsync(30000)
         expect(mockList).toHaveBeenCalledTimes(calls)
+    })
+
+    it('starts a retry from what the failed import read', async () => {
+        jest.mocked(metricsDashboardImportsInputRetrieve).mockResolvedValue({
+            source: 'grafana',
+            name: 'Orders',
+            grafana_json: '{"panels": [1]}',
+            image_base64: null,
+        })
+        logic.actions.openImport(importStatus({ status: 'failed' }))
+
+        await expectLogic(logic, () => logic.actions.retryImport(importStatus({ status: 'failed' }))).toDispatchActions(
+            ['retryImportDone']
+        )
+
+        expect(logic.values).toMatchObject({ step: 'input', grafanaJson: '{"panels": [1]}', dashboardName: 'Orders' })
+    })
+
+    it('a dismissed import leaves the list and closes its dialog', async () => {
+        jest.mocked(metricsDashboardImportsDismissCreate).mockResolvedValue(undefined as never)
+        const failed = importStatus({ status: 'failed' })
+        mockList.mockResolvedValue([failed])
+        await expectLogic(logic, () => logic.actions.loadRecentImports()).toDispatchActions(['setRecentImports'])
+        logic.actions.openImport(failed)
+
+        await expectLogic(logic, () => logic.actions.dismissImport(failed)).toDispatchActions(['dismissImportSuccess'])
+
+        expect(logic.values).toMatchObject({ recentImports: [], isModalOpen: false })
     })
 
     it('blocks a fourth import while three run', async () => {

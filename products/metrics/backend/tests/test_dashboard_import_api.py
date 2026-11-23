@@ -74,6 +74,12 @@ class TestDashboardImportAPI(APIBaseTest):
         self.enterContext(override_settings(SNUFFLE_METRICS_URL="http://snuffle.test"))
         self.workflow = self.enterContext(patch(WORKFLOW))
         self.storage = self.enterContext(patch(f"{IMPORTER}.object_storage"))
+        self.stored: dict[str, bytes] = {}
+        self.storage.write.side_effect = lambda path, content: self.stored.__setitem__(path, content)
+        self.storage.read.side_effect = lambda path, missing_ok=False: (
+            self.stored[path].decode() if path in self.stored else None
+        )
+        self.storage.delete.side_effect = lambda path: self.stored.pop(path, None)
         self.enterContext(
             patch(f"{IMPORTER}.MetricCatalog.load", side_effect=lambda team: MetricCatalog(CATALOG, complete=True))
         )
@@ -277,7 +283,8 @@ class TestDashboardImportAPI(APIBaseTest):
     def test_a_failed_agent_run_creates_no_dashboard(
         self, _name: str, run_status: str, output: dict[str, Any] | None, error: str
     ) -> None:
-        started = self._start(source="grafana", grafana_json=_grafana("rate(payments_total[5m])"))
+        grafana_json = _grafana("rate(payments_total[5m])")
+        started = self._start(source="grafana", grafana_json=grafana_json)
 
         self._finish_run(started["id"], run_status=run_status, output=output)
         body = self.client.get(f"{self.url}{started['id']}/").json()
@@ -285,6 +292,21 @@ class TestDashboardImportAPI(APIBaseTest):
         assert (body["status"], body["dashboard_id"]) == ("failed", None)
         assert error in body["error"]
         assert not Dashboard.objects.filter(team=self.team).exists()
+        retry = self.client.get(f"{self.url}{started['id']}/input/").json()
+        assert (retry["source"], retry["name"], retry["grafana_json"]) == ("grafana", None, grafana_json)
+
+    def test_a_dismissed_import_leaves_the_list_and_its_input(self) -> None:
+        started = self._start(source="grafana", grafana_json=_grafana("rate(payments_total[5m])"))
+        dismiss_url = f"{self.url}{started['id']}/dismiss/"
+
+        assert self.client.post(dismiss_url).status_code == status.HTTP_409_CONFLICT
+
+        self._finish_run(started["id"], run_status=TaskRun.Status.FAILED, output=None)
+        assert self.client.post(dismiss_url).status_code == status.HTTP_204_NO_CONTENT
+
+        assert self.client.get(self.url).json() == []
+        assert self.client.get(f"{self.url}{started['id']}/input/").status_code == status.HTTP_404_NOT_FOUND
+        assert self.stored == {}
 
     def test_screenshot_import_places_the_panels_that_the_agent_read(self) -> None:
         started = self._start(source="screenshot", image_base64=_png())
