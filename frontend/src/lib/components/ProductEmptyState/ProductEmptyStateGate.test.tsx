@@ -49,7 +49,7 @@ jest.mock('lib/utils/bootTiming', () => ({
     markBootPhase: (...args: unknown[]) => mockMarkBootPhase(...args),
 }))
 
-const bootPhasesMarked = (): string[] => mockMarkBootPhase.mock.calls.map(([phase]) => phase)
+const bootPhasesByFirstMark = (): string[] => [...new Set(mockMarkBootPhase.mock.calls.map(([phase]) => phase))]
 
 describe('ProductEmptyStateGate', () => {
     beforeEach(() => {
@@ -83,7 +83,7 @@ describe('ProductEmptyStateGate', () => {
         await act(async () => {})
         expect(scene.getReadyVersion()).toBeNull()
         expect(screen.queryByText('the real scene')).toBeNull()
-        expect(bootPhasesMarked()).toEqual(['empty_state_gate_mounted', 'empty_state_gate_flags_ready'])
+        expect(bootPhasesByFirstMark()).toEqual(['empty_state_gate_mounted', 'empty_state_gate_flags_ready'])
 
         await act(async () => setup.actions.setDetectedStatus('has-data'))
         expect(scene.getReadyVersion()).not.toBeNull()
@@ -91,6 +91,19 @@ describe('ProductEmptyStateGate', () => {
         expect(mockMarkBootPhase).toHaveBeenLastCalledWith('empty_state_gate_resolved', {
             empty_state_gate_render: 'scene',
         })
+    })
+
+    it('marks the gate phases in order when the status is known at mount', () => {
+        render(
+            <ProductEmptyStateGate emptyState={emptyState}>
+                <div>the real scene</div>
+            </ProductEmptyStateGate>
+        )
+        expect(bootPhasesByFirstMark()).toEqual([
+            'empty_state_gate_mounted',
+            'empty_state_gate_flags_ready',
+            'empty_state_gate_resolved',
+        ])
     })
 
     it.each([

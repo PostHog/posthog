@@ -1,6 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { type ComponentType, type ReactNode, useLayoutEffect } from 'react'
+import type { ComponentType, ReactNode } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -62,16 +62,12 @@ export function ProductEmptyStateGate({ emptyState, params, children }: ProductE
         forcedMode,
     })
     useSceneContentReady(activation !== 'awaiting-flags')
-    useLayoutEffect(() => markBootPhase('empty_state_gate_mounted'), [])
-    useLayoutEffect(() => {
-        if (activation !== 'awaiting-flags') {
-            markBootPhase('empty_state_gate_flags_ready')
-        }
-        if (activation === 'off') {
-            markBootPhase('empty_state_gate_resolved', { empty_state_gate_render: 'scene' })
-        }
-    }, [activation])
+    markBootPhase('empty_state_gate_mounted')
+    if (activation !== 'awaiting-flags') {
+        markBootPhase('empty_state_gate_flags_ready')
+    }
     if (activation === 'off') {
+        markBootPhase('empty_state_gate_resolved', { empty_state_gate_render: 'scene' })
         return <>{children}</>
     }
     if (activation === 'awaiting-flags') {
@@ -100,11 +96,9 @@ function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateG
     const gateRender = activeProductEmptyStateGateRender({ config, forcedMode, status, skipped })
 
     useSceneContentReady(gateRender !== 'loading')
-    useLayoutEffect(() => {
-        if (gateRender !== 'loading') {
-            markBootPhase('empty_state_gate_resolved', { empty_state_gate_render: gateRender })
-        }
-    }, [gateRender])
+    if (gateRender !== 'loading') {
+        markBootPhase('empty_state_gate_resolved', { empty_state_gate_render: gateRender })
+    }
 
     if (gateRender === 'setup') {
         return (
