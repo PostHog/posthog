@@ -1179,7 +1179,20 @@ class UserAccessControl:
             )
 
         rows = self._get_access_controls(self._access_controls_filters_for_resource(resource))
-        return self._resource_access_from_rows(resource, rows)
+        row = self._rows_decision(resource, rows)
+        if row:
+            return ResolvedAccess(
+                access_level=row.access_level,
+                source="resource",
+                source_subject=self._row_subject(row),
+                source_resource=resource,
+            )
+        return ResolvedAccess(
+            access_level=default_access_level(resource),
+            source="system_default",
+            source_subject=None,
+            source_resource=resource,
+        )
 
     def has_access_levels_for_resource(self, resource: APIScopeObject) -> bool:
         if not self._team:
@@ -1732,21 +1745,6 @@ class UserAccessControl:
         return False, None
 
     @staticmethod
-    def _highest_access_from_rows(resource: APIScopeObject, access_controls: list[_AccessControl]) -> _AccessControl:
-        """Pick the row that supplies the highest access level.
-
-        Several rows can tie at the highest level. The level is the same whichever we pick, but the
-        caller reports which row decided (source_subject, source_resource_id), so the pick must be
-        deterministic: the user's own member row wins over a role row, which wins over the everyone-row.
-        """
-        levels = ordered_access_levels(resource)
-        specificity = {"default": 0, "role": 1, "member": 2}
-        return max(
-            access_controls,
-            key=lambda ac: (levels.index(ac.access_level), specificity[UserAccessControl._row_subject(ac)]),
-        )
-
-    @staticmethod
     def _row_subject(access_control: _AccessControl) -> Literal["member", "role", "default"]:
         if access_control.organization_member_id is not None:
             return "member"
@@ -1907,7 +1905,7 @@ class UserAccessControl:
     # Most-specific-wins resolution (RFC 557).
     #
     # The methods in this section come in two tiers:
-    # - Resolvers (`_*_access_from_rows`): resolve access from rows that are already in memory.
+    # - The resolver (`_object_access_from_rows`): resolves access from rows that are already in memory.
     # - The decision (`_rows_decision`): select the row that decides for one scope.
     #
     # Resolution order, most specific first:
@@ -1991,42 +1989,18 @@ class UserAccessControl:
 
         return resource_access or self._access_without_object_rules(resource, parent)
 
-    def _resource_access_from_rows(self, resource: APIScopeObject, rows: list[_AccessControl]) -> ResolvedAccess:
-        """Resolve access to one resource type from its rows, which are already in memory.
-
-        The deciding row gives the level. Without rows, the system default applies.
-        """
-        row = self._rows_decision(resource, rows)
-        if row:
-            return ResolvedAccess(
-                access_level=row.access_level,
-                source="resource",
-                source_subject=self._row_subject(row),
-                source_resource=resource,
-            )
-        return ResolvedAccess(
-            access_level=default_access_level(resource),
-            source="system_default",
-            source_subject=None,
-            source_resource=resource,
-        )
-
     def _rows_decision(self, resource: APIScopeObject, rows: list[_AccessControl]) -> Optional[_AccessControl]:
         """Select the deciding row for one scope (a single object, or a resource type).
 
-        The most specific subject that has rows decides. The highest of that subject's
-        rows wins. Returns None when `rows` is empty."""
-        for subject_rows in self._rows_by_subject(rows):
-            return self._highest_access_from_rows(resource, subject_rows)
+        The most specific subject that has rows decides: the member's own rows, then the rows of
+        their roles, then the rows that apply to everyone. The highest of that subject's rows
+        wins. Returns None when `rows` is empty."""
+        levels = ordered_access_levels(resource)
+        for subject in ("member", "role", "default"):
+            subject_rows = [row for row in rows if self._row_subject(row) == subject]
+            if subject_rows:
+                return max(subject_rows, key=lambda row: levels.index(row.access_level))
         return None
-
-    def _rows_by_subject(self, rows: list[_AccessControl]) -> list[list[_AccessControl]]:
-        """Group one scope's rows by subject, most specific first: the member's own rows, then
-        the rows of their roles, then the rows that apply to everyone. Empty groups are removed."""
-        by_subject: dict[str, list[_AccessControl]] = {"member": [], "role": [], "default": []}
-        for ac in rows:
-            by_subject[self._row_subject(ac)].append(ac)
-        return [group for group in by_subject.values() if group]
 
 
 def visible_teams_for_user(
