@@ -292,11 +292,12 @@ def render_in_progress_body(
             rows.append((step, f"{done}/{total}" if done is not None and total else "running", ""))
     if failed:
         verb = "couldn't finish reviewing"
-        # A push starts only a Standard review. A Deep review runs only when someone asks for it.
+        # A push starts a Standard review again. A push never retries a failed Deep review: a repository can make
+        # the automatic review of a pull request Deep, but only once, so a person asks for the retry.
         retry = (
             "It runs again on the next push to this pull request."
             if review_mode == REVIEW_MODE_FLASH
-            else "Ask for a Deep review again to retry."
+            else "Ask for a Deep review to retry."
         )
         intro = [f'The review failed at "{steps[current]}". {retry}', ""]
     else:

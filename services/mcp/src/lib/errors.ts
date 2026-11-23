@@ -220,6 +220,7 @@ export type ExecCommandErrorReason =
     | 'invalid_regex'
     | 'unknown_learn_topic'
     | 'needs_confirmation'
+    | 'needs_write_tool'
 
 /**
  * Thrown by the `exec` dispatcher when it rejects a command before any inner
@@ -813,7 +814,7 @@ export function handleToolError(
     }
 
     try {
-        getPostHogClient().captureException(mcpError, distinctId, properties)
+        getPostHogClient().captureException(mcpError, { distinctId, properties })
     } catch {
         // Never let observability break the request.
     }

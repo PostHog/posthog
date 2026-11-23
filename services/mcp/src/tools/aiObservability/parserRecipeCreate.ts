@@ -144,10 +144,12 @@ export const parserRecipeCreateHandler: ToolBase<typeof schema, ParserRecipeCrea
         if (!isPermissionOrLimit) {
             try {
                 const apiKey = await context.stateManager.getApiKey()
-                getPostHogClient().captureException(error, undefined, {
-                    tag: 'mcp',
-                    tool: 'llma-parser-recipe-create',
-                    suppress_analytics: apiKey.suppress_analytics === true,
+                getPostHogClient().captureException(error, {
+                    properties: {
+                        tag: 'mcp',
+                        tool: 'llma-parser-recipe-create',
+                        suppress_analytics: apiKey.suppress_analytics === true,
+                    },
                 })
             } catch {
                 // Observability must never break the request.

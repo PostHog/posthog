@@ -20,7 +20,10 @@ from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRu
 def test_concurrent_claims_have_one_winner() -> None:
     organization = Organization.objects.create(name="Claims test")
     team = Team.objects.create(organization=organization)
-    user = User.objects.create(email="claims@example.com")
+    users = {
+        "agent-one": User.objects.create(email="claims@example.com"),
+        "agent-two": User.objects.create(email="other-claims@example.com"),
+    }
     report = SignalReport.objects.create(team=team, status="ready")
     barrier = Barrier(2)
 
@@ -29,8 +32,8 @@ def test_concurrent_claims_have_one_winner() -> None:
             barrier.wait(timeout=10)
             claim_report(
                 report=report,
-                actor=ArtefactAttribution.from_agent(user.id, agent),
-                user=user,
+                actor=ArtefactAttribution.from_agent(users[agent].id, agent),
+                user=users[agent],
                 was_impersonated=False,
             )
             return True
@@ -47,12 +50,12 @@ def test_concurrent_claims_have_one_winner() -> None:
     assert not SignalReportAssignment.all_teams.filter(report=report).exists()
     artefact = SignalReportArtefact.objects.get(report=report, type="work_claim")
     assert artefact.actor_agent == winning_agent
-    assert artefact.created_by_id == user.id
+    assert artefact.created_by_id == users[winning_agent].id
     claim = get_active_claim(team_id=team.id, report_id=report.id)
     assert claim is not None
     assert claim.claim_id == artefact.id
     assert claim.actor_agent == winning_agent
-    assert claim.actor_user_id == user.id
+    assert claim.actor_user_id == users[winning_agent].id
 
 
 @pytest.mark.django_db(transaction=True)

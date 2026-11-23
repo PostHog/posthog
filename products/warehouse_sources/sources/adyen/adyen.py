@@ -11,7 +11,12 @@ import requests
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.sources.adyen.settings import ADYEN_ENDPOINTS, AdyenApi, AdyenEndpointConfig
-from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceResponse, make_tracked_session
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    format_datetime,
+    make_tracked_session,
+)
 
 ADYEN_ENVIRONMENTS = ("test", "live")
 DEFAULT_ENVIRONMENT = "live"
@@ -109,11 +114,6 @@ def _get_session(api_key: str) -> requests.Session:
         # references the name-based scrubbers can't recognise — keep them out of sample capture.
         capture=False,
     )
-
-
-def _format_timestamp(value: datetime) -> str:
-    dt = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
-    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _to_datetime(value: Any) -> datetime | None:
@@ -314,8 +314,8 @@ def _iter_cursor_pages(
         while True:
             params: dict[str, Any] = {
                 "balancePlatform": balance_platform,
-                "createdSince": _format_timestamp(window_start),
-                "createdUntil": _format_timestamp(window_end),
+                "createdSince": format_datetime(window_start),
+                "createdUntil": format_datetime(window_end),
                 "limit": PAGE_SIZE,
                 "sortOrder": "asc",
             }
@@ -327,10 +327,10 @@ def _iter_cursor_pages(
             page_cursor = next_cursor(payload)
             if page_cursor:
                 manager.save_state(
-                    AdyenResumeConfig(window_start=_format_timestamp(window_start), cursor=page_cursor),
+                    AdyenResumeConfig(window_start=format_datetime(window_start), cursor=page_cursor),
                 )
             else:
-                manager.save_state(AdyenResumeConfig(window_start=_format_timestamp(window_end)))
+                manager.save_state(AdyenResumeConfig(window_start=format_datetime(window_end)))
 
             if items:
                 yield items

@@ -83,8 +83,8 @@ export interface sourcesDataLogicActions {
     }
     updateSourceRevenueAnalyticsConfigSuccess: (
         dataWarehouseSources: {
-            next?: string | null | undefined
-            previous?: string | null | undefined
+            next?: string | null
+            previous?: string | null
             results: ExternalDataSource[]
         },
         payload?: {
@@ -93,8 +93,8 @@ export interface sourcesDataLogicActions {
         }
     ) => {
         dataWarehouseSources: {
-            next?: string | null | undefined
-            previous?: string | null | undefined
+            next?: string | null
+            previous?: string | null
             results: ExternalDataSource[]
         }
         payload?: {
@@ -104,15 +104,15 @@ export interface sourcesDataLogicActions {
     }
     updateSourceSuccess: (
         dataWarehouseSources: {
-            next?: string | null | undefined
-            previous?: string | null | undefined
+            next?: string | null
+            previous?: string | null
             results: ExternalDataSource[]
         },
         payload?: ExternalDataSource
     ) => {
         dataWarehouseSources: {
-            next?: string | null | undefined
-            previous?: string | null | undefined
+            next?: string | null
+            previous?: string | null
             results: ExternalDataSource[]
         }
         payload?: ExternalDataSource

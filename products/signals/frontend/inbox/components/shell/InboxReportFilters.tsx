@@ -8,6 +8,7 @@ import { InboxCreatedWindow, inboxFiltersLogic } from '../../logics/inboxFilters
 import { InboxPriorityFilter } from './InboxPriorityFilter'
 import { InboxSourceFilter } from './InboxSourceFilter'
 import { InboxStateFilter } from './InboxStateFilter'
+import { InboxTagFilter } from './InboxTagFilter'
 
 const ANY_TIME = null
 const CREATED_WINDOW_SELECT_OPTIONS: { value: InboxCreatedWindow | null; label: string }[] = [
@@ -29,17 +30,19 @@ function PanelField({ label, children }: { label: string; children: JSX.Element 
 }
 
 /**
- * What narrows the report list: report state, then priority, then the created-in window, then source.
+ * What narrows the report list: report state, then priority, then the created-in window, then source,
+ * then tags.
  * Filter state is persisted via `inboxFiltersLogic`, and the list reloads on change.
  *
- * Source goes last because its label grows with the selected scout name. Anywhere earlier, a long name
- * pushes the controls after it to the right.
+ * Source and Tags go last because their labels grow with the selection. Anywhere earlier, a long
+ * label pushes the controls after it to the right.
  *
  * Sort and reviewer scope are deliberately not here. Sort orders the list rather than narrowing it,
  * and scope picks whose inbox this is, so both sit after a divider at the end of the row.
  */
 export function InboxReportFilters({ layout = 'row' }: { layout?: 'row' | 'panel' }): JSX.Element {
-    const { timeWindowAvailable, createdWindow, sourceFilterAvailable } = useValues(inboxFiltersLogic)
+    const { timeWindowAvailable, createdWindow, sourceFilterAvailable, tagFilterAvailable } =
+        useValues(inboxFiltersLogic)
     const { setCreatedWindow } = useActions(inboxFiltersLogic)
     const panel = layout === 'panel'
     const field = (label: string, control: JSX.Element): JSX.Element =>
@@ -74,6 +77,7 @@ export function InboxReportFilters({ layout = 'row' }: { layout?: 'row' | 'panel
                     />
                 )}
             {sourceFilterAvailable && field('Source', <InboxSourceFilter />)}
+            {tagFilterAvailable && field('Tags', <InboxTagFilter />)}
         </div>
     )
 }

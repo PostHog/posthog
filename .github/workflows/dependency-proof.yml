@@ -35,6 +35,7 @@ jobs:
         outputs:
             pr: ${{ steps.identify.outputs.pr }}
             merge_base: ${{ steps.identify.outputs.merge_base }}
+            lane: ${{ steps.identify.outputs.lane }}
             eligible: ${{ steps.identify.outputs.eligible }}
             refused: ${{ steps.identify.outputs.refused }}
         steps:
@@ -84,6 +85,7 @@ jobs:
                   sparse-checkout-cone-mode: false
 
             - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              if: needs.identify.outputs.lane == 'npm'
               with:
                   node-version-file: .nvmrc
 
@@ -99,6 +101,7 @@ jobs:
                   MERGE_BASE_DIR: ${{ runner.temp }}/merge-base
                   PULL_REQUEST: ${{ needs.identify.outputs.pr }}
                   MERGE_BASE: ${{ needs.identify.outputs.merge_base }}
+                  LANE: ${{ needs.identify.outputs.lane }}
               run: uv run --frozen --project tools/change-prover python -I tools/change-prover/change_prover/__main__.py prove
 
     scan:

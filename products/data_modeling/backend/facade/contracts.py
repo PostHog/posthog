@@ -175,6 +175,23 @@ class MaterializationAlreadyRunningError(Exception):
     pass
 
 
+@dataclass(frozen=True)
+class SkippedRunNode:
+    """A node that a manual run selected but left out, and the reason it gives the caller."""
+
+    node_id: str
+    name: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class StartedNodeRun:
+    """The nodes a manual run started, and the selected nodes it left out."""
+
+    node_ids: list[str]
+    skipped: list[SkippedRunNode]
+
+
 class MaterializationRanRecentlyError(Exception):
     def __init__(self, message: str, *, retry_after_seconds: int) -> None:
         super().__init__(message)
@@ -383,6 +400,7 @@ class SavedQueryFrequencyBounds:
     max_data_age: timedelta
     speeds_up: dict[timedelta, set[str]]  # cadence -> upstream nodes that would run more often if this were set to it
     pinned: bool
+    floor_pinned: bool  # an upstream view held at its pinned cadence sets the floor, not a source sync
 
 
 def _nameless_refusal(view_name: str) -> str:

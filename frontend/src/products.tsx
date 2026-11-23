@@ -170,6 +170,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     '/data-management/warehouse-properties': ['WarehouseProperties', 'warehouseProperties'],
     '/data-management/warehouse-properties/:tab': ['WarehouseProperties', 'warehouseProperties'],
+    '/dashboard-v2': ['DashboardV2', 'dashboardV2'],
     '/data-catalog': ['DataCatalog', 'dataCatalog'],
     '/data-catalog/metrics/:name': ['DataCatalogMetric', 'dataCatalogMetric'],
     '/data-catalog/new-metric': ['DataCatalogNewMetric', 'dataCatalogNewMetric'],
@@ -929,6 +930,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Add properties to your people and groups from a data warehouse table.',
         iconType: 'data_warehouse',
     },
+    DashboardV2: { name: 'Dashboard v2', projectBased: true },
     DataCatalog: {
         projectBased: true,
         name: 'Data catalog',
@@ -1634,6 +1636,7 @@ export const productUrls = {
     dashboardSubscription: (id: string | number, subscriptionId: string): string =>
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
+    dashboardV2: (): string => '/dashboard-v2',
     dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
     dataCatalogNewMetric: (): string => '/data-catalog/new-metric',
     dataCatalogMetric: (name: string, tab?: 'definition' | 'data-quality' | 'lineage' | 'usage'): string =>
@@ -2793,7 +2796,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             {
                 name: 'Tables & views',
                 href: urls.dataCatalog('tables'),
-                requiredFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+                requiredFlags: [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
                 searchKeywords: [
                     'models',
                     'materialized views',
@@ -2806,33 +2809,25 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             {
                 name: 'Lineage',
                 href: urls.dataCatalog('lineage'),
-                requiredFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+                requiredFlags: [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
                 searchKeywords: ['dag', 'dependencies'],
             },
             {
                 name: 'Data quality',
                 href: urls.dataCatalog('data-quality'),
-                requiredFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+                requiredFlags: [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
                 searchKeywords: ['data tests', 'checks', 'freshness'],
             },
             {
                 name: 'Usage',
                 href: urls.dataCatalog('usage'),
-                requiredFlags: [
-                    FEATURE_FLAGS.TODAY_RAIL_NAV,
-                    FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE,
-                    FEATURE_FLAGS.DATA_MODELING_USAGE,
-                ],
+                requiredFlags: [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE, FEATURE_FLAGS.DATA_MODELING_USAGE],
                 searchKeywords: ['bytes read', 'cpu'],
             },
             {
                 name: 'Governance',
                 href: urls.dataCatalog('governance'),
-                requiredFlags: [
-                    FEATURE_FLAGS.TODAY_RAIL_NAV,
-                    FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE,
-                    FEATURE_FLAGS.DATA_CATALOG_USAGE,
-                ],
+                requiredFlags: [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE, FEATURE_FLAGS.DATA_CATALOG_USAGE],
                 searchKeywords: ['agent topics', 'proposed metrics', 'metric usage'],
             },
             { name: 'Relationships', href: urls.dataCatalog('relationships') },
@@ -2972,11 +2967,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.aiObservabilityEvaluations(),
         searchKeywords: ['evals', 'llm judge', 'llm as a judge', 'grading', 'datasets', 'test sets', 'golden set'],
         searchTabs: [
-            {
-                name: 'Offline evals',
-                href: urls.aiObservabilityOfflineEvaluations(),
-                flag: FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS,
-            },
+            { name: 'Offline evals', href: urls.aiObservabilityOfflineEvaluations() },
             { name: 'Datasets', href: urls.aiObservabilityDatasets(), flag: FEATURE_FLAGS.LLM_ANALYTICS_DATASETS },
             { name: 'Scorers', href: urls.aiObservabilityScorers() },
         ],
@@ -3835,7 +3826,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         ],
         sceneKey: 'Models',
         sceneKeys: ['Models'],
-        hiddenWhenFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+        hiddenWhenFlags: [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
     },
     {
         path: 'Property definitions',

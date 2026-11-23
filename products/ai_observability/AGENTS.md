@@ -30,22 +30,70 @@ The same rule applies to routing via `ai_events` vs `events`. If one
 runner adopts a new code path, the others need the matching change so
 single-trace, list, and session reads don't diverge.
 
-## New backend features follow the product layers
+## How we build AI observability
 
-A new backend feature in `products/ai_observability/backend/` has this shape from its first PR:
+Part of AI observability is built in layers, and part is older.
+Six principles shape the layered code.
+Together they mean a person in the web UI, an agent through MCP and a script on the API all get the same capabilities and the same answers.
+Each principle has a question to ask of a diff in the layered code, and the answer must be yes.
+When no rule covers a case there, answer the question.
 
-- Reads live in `logic/<feature>/*_queries.py` and return row dataclasses, not positional tuples.
-  `logic/evaluations/overview_queries.py` and `overview.py` show the pattern.
-- The feature's rules and calculations are pure functions over those rows in `logic/<feature>/`.
-  Their tests need no database.
-- A view or a workflow calls one function in `facade/api.py`.
-  A view only parses the request, calls the facade and serializes the result.
-- Workflows and activities live in `backend/temporal/`, like the existing `trace_summary.py`.
-- New code does not import from the workflow modules in `posthog/temporal/ai_observability/`.
-  To reuse a helper there, move it into product logic and import it from there in both places.
+| Principle                                                      | Ask of your diff                                                                         |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| A capability has one entry point on the server.                | Could MCP, a workflow and the HTTP view all call this same function?                     |
+| Behavior does no I/O and has one home.                         | Can this behavior be tested without a database, and is there one copy of it?             |
+| I/O code makes no decisions.                                   | Is this query, loader or view free of decisions?                                         |
+| The server decides what data means, and the client renders it. | Would an API caller get the same answer the screen shows?                                |
+| Shapes are typed and stable.                                   | Does the response keep one shape for every parameter, with no `$` or `$ai_` field names? |
+| New code is designed as if old code did not exist.             | If the old code vanished tomorrow, would this still be the design?                       |
 
-Avoid a package that mixes queries, ORM writes and model calls with its rules.
-Read [`products/architecture.md`](../architecture.md) sections 3 to 5 when you place a new module or define a facade contract.
+## Pick one mode for each change
+
+Look at where the code you will change lives, then pick one mode for the whole change.
+A bridge is the one module in the new code that imports an old piece.
+
+| Mode                      | When                                                                                        | What you do                                                                      |
+| ------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| A. Old code, as it is     | The change is a fix or an addition to a resource that lives in an old area, at any size.    | Change it there, in the style around it. Add nothing to a layered area.          |
+| B. New code with a bridge | A new capability replaces old code, or needs something that lives in old code.              | Build the new side in the layers. Connect it to the old side through one bridge. |
+| C. Layered code           | The code already lives in a layered area, or the capability is new and touches no old code. | Follow the layers below in full.                                                 |
+
+| Area                                                                                                                      | Kind    |
+| ------------------------------------------------------------------------------------------------------------------------- | ------- |
+| `backend/presentation/`, `backend/facade/`, `backend/logic/`, `backend/temporal/`, `frontend/redesign/`                   | Layered |
+| `backend/models/`, `backend/migrations/`, `backend/routes.py`, `backend/tests/`, `frontend/generated/`, `shared/`, `mcp/` | Shared  |
+| `backend/api/`, every other module and package directly under `backend/`, every other directory under `frontend/`         | Old     |
+| `posthog/hogql_queries/ai/`, `posthog/temporal/ai_observability/`                                                         | Old     |
+
+- **A change is in one mode.** Old-style code never goes into a layered area, and one URL is never served from both kinds of area.
+- **A new URL names a resource, in every mode.** The HTTP method is the action: `PUT /traces/<id>/review`, not `POST /traces/<id>/add_review`.
+- **Behavior that already exists is called, not copied, in every mode.**
+- **Moving a resource from an old area into the layers is its own PR**, with no behavior change.
+- **A review holds a PR to these rules for the code it adds, moves or extracts**, not for old code it only touches.
+
+Load `/working-on-ai-observability` before a change or a review in mode B or C.
+When you cannot tell which mode applies, say so and ask.
+
+## Where layered code goes
+
+These layers are the repo's product architecture, applied to our use cases.
+[`products/architecture.md`](../architecture.md) defines facades, contracts and presentation for every product, and [`.agents/architecture.md`](../../.agents/architecture.md) holds the repo-wide rules.
+Read them when you define a contract or place a module.
+
+| Layer               | Path                                                             | Does                                                                                                                           | Never                                                         |
+| ------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
+| Presentation        | `backend/presentation/views/`                                    | Parses the request, calls one facade function, serializes the contract.                                                        | Imports `logic/` or `models/`, or decides anything.           |
+| Facade              | `backend/facade/api.py`, `backend/facade/contracts.py`           | One typed function per capability, returning a contract or a callable that builds one. If it writes, it opens the transaction. | Imports DRF, or returns a model or a value the view reshapes. |
+| Logic, behavior     | `backend/logic/<concept>/`                                       | Classes and pure functions that take loaded data (dataclasses, contracts, ORM objects) and return data.                        | Queries, saves, follows a lazy relation, or imports DRF.      |
+| Logic, data access  | `backend/logic/<concept>/*_queries.py`, `*_store.py` for a cache | Reads and writes Postgres, ClickHouse and the cache. Returns row dataclasses or loaded objects, never positional tuples.       | Holds a product decision, or opens a transaction.             |
+| Postgres schema     | `backend/models/`                                                | Fields, constraints and managers scoped by team.                                                                               | Carries behavior.                                             |
+| Jobs                | `backend/temporal/`                                              | Temporal workflows and activities, started by the facade.                                                                      | Is imported by a view.                                        |
+| Frontend logics     | `frontend/redesign/**/*Logic.ts`                                 | Loaders, state and URL sync.                                                                                                   | Decides a label, a default, an outcome or a count.            |
+| Frontend hosts      | `frontend/redesign/**/*Host.tsx`                                 | Binds a logic to components. The only place that may import an older component.                                                | Decides what data means.                                      |
+| Frontend components | `frontend/redesign/**/components/`                               | Render props, with a story.                                                                                                    | Imports kea, or reshapes API data.                            |
+| Frontend modules    | other `.ts` files in `frontend/redesign/`                        | Pure functions that join API data with UI state, tested directly.                                                              | Imports kea or React.                                         |
+
+Layered tests mirror the layers: `backend/tests/logic/<concept>/`, `backend/tests/test_facade_api.py` and `backend/tests/presentation/views/`.
 
 ## Product docs go under `docs/`
 

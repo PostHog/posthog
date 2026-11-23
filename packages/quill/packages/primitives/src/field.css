@@ -48,6 +48,31 @@
         border-radius: var(--radius-sm);
     }
 
+    /* A control's `children` label is all click target. */
+    .quill-field__label[data-slot='control-label'] {
+        cursor: pointer;
+    }
+
+    .quill-field__label[data-slot='control-label']:not([data-disabled]):hover > .quill-checkbox {
+        border-color: color-mix(in oklab, var(--ring) 50%, transparent);
+    }
+
+    .quill-field__label[data-disabled] {
+        cursor: not-allowed;
+    }
+
+    /* Dims only the text: the control already dims itself when disabled. */
+    .quill-field__label[data-disabled] :is([data-slot='control-label-text'], [data-slot='field-content']) {
+        opacity: 0.5;
+    }
+
+    /* A label with a disabled reason joins the tab order, so a keyboard user can open the reason. */
+    .quill-field__label:focus-visible {
+        border-color: var(--ring);
+        outline: none;
+        box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 30%, transparent);
+    }
+
     .quill-field__label:has([data-checked]) {
         background-color: color-mix(in oklab, var(--primary) 5%, transparent);
     }

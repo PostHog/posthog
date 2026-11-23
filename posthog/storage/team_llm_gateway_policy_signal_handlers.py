@@ -131,17 +131,16 @@ def _update_cache_on_save(sender: type[Team], instance: Team, created: bool, **k
 
         try:
             update_team_llm_gateway_policy_cache_task.delay(instance.id)
-            kinds = ["redis"] if settings.TEST else None
             if rotated and old_api_token is not None:
                 # Same on-commit flow as the refresh so the old cache entry
                 # disappears the moment the rotated token becomes live.
-                clear_team_llm_gateway_policy_cache(old_api_token, kinds=kinds)
+                clear_team_llm_gateway_policy_cache(old_api_token)
             if admission_changed:
                 # Invalidate the current token's entry synchronously so the next
                 # gateway request reads the fresh admission state from the DB.
                 # The async refresh task can lag, leaving the stale policy
                 # usable for the full cache TTL.
-                clear_team_llm_gateway_policy_cache(instance, kinds=kinds)
+                clear_team_llm_gateway_policy_cache(instance)
         except Exception as e:
             HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
                 namespace="team_metadata",
@@ -162,8 +161,7 @@ def _clear_cache_on_delete(sender: type[Team], instance: Team, **kwargs: Any) ->
     if not settings.AI_GATEWAY_REDIS_URL:
         return
 
-    kinds = ["redis"] if settings.TEST else None
-    clear_team_llm_gateway_policy_cache(instance, kinds=kinds)
+    clear_team_llm_gateway_policy_cache(instance)
 
 
 def connect_signal_handlers() -> None:

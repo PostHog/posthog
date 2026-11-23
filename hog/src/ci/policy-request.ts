@@ -44,8 +44,11 @@ export const PendingPolicyRequestSchema = PendingApprovalSchema.extend({
     subject: z.string(),
     conditions: z.record(z.string(), z.string()),
     scopes: z.array(z.string()),
+    // Whether the person who ran hog may approve it, as PostHog says.
     canApprove: z.boolean(),
     approvers: z.array(z.string()),
+    // An admin approved it already, so nobody has to, and the first poll returns the policy.
+    approved: z.boolean().default(false),
 })
 
 export interface ApprovedPolicy {
@@ -136,6 +139,7 @@ export function policyRequestFlow(
                 scopes,
                 canApprove: created.can_approve,
                 approvers: created.approvers,
+                approved: false,
             }
         },
         reuse: same,
@@ -145,14 +149,15 @@ export function policyRequestFlow(
                 case 'pending':
                     return { ...existing, canApprove: current.can_approve, approvers: current.approvers }
                 case 'approved':
-                    // Nobody has to approve it again, and the first poll returns the policy.
-                    return { ...existing, canApprove: true }
+                    return { ...existing, approved: true }
                 default:
                     return undefined
             }
         },
         approver: (pending) =>
-            pending.canApprove ? undefined : { who: 'an organization admin', names: pending.approvers },
+            pending.approved
+                ? undefined
+                : { who: 'an organization admin', names: pending.approvers, isUser: pending.canApprove },
     }
 }
 

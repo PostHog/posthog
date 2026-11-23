@@ -8,6 +8,7 @@ on:
             - '.github/workflows/ci-paths-filter.yml'
             - '.github/shared-image-releases.yaml'
             - '.github/workflows/container-images-cd.yml'
+            - '.github/workflows/ci-e2e-playwright.yml'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}

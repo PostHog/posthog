@@ -154,7 +154,7 @@ def _dependencies_query(
         )
         GROUP BY caller, callee, inferred, dependency_kind
         HAVING {{service_where}}
-        ORDER BY requests DESC, caller, callee
+        ORDER BY inferred, requests DESC, caller, callee
         LIMIT {{limit}}
         """,
         placeholders={
@@ -254,18 +254,24 @@ def get_dependencies(
     if not trace_ids:
         return DependenciesResult(edges=[], truncated=False, sampled=False, trace_count=0)
     rows = _run(team, "ApmDependenciesQuery", _dependencies_query(date_from, date_to, environment, service, trace_ids))
-    edges = [
-        DependencyEdge(
-            caller=caller,
-            callee=callee,
-            inferred=bool(inferred),
-            kind=DependencyKind(kind),
-            requests=int(requests),
-            error_count=int(error_count),
-            p95_ms=float(p95_ms) if p95_ms is not None else None,
-        )
-        for caller, callee, inferred, kind, requests, error_count, p95_ms in rows[:DEPENDENCY_EDGES_LIMIT]
-    ]
+    # The query ranks service edges ahead of inferred ones, so a busy window that passes the cap drops
+    # inferred edges first rather than the low-traffic calls between services. The response still lists
+    # the kept edges most requests first.
+    edges = sorted(
+        (
+            DependencyEdge(
+                caller=caller,
+                callee=callee,
+                inferred=bool(inferred),
+                kind=DependencyKind(kind),
+                requests=int(requests),
+                error_count=int(error_count),
+                p95_ms=float(p95_ms) if p95_ms is not None else None,
+            )
+            for caller, callee, inferred, kind, requests, error_count, p95_ms in rows[:DEPENDENCY_EDGES_LIMIT]
+        ),
+        key=lambda edge: (-edge.requests, edge.caller, edge.callee),
+    )
     return DependenciesResult(
         edges=edges,
         truncated=len(rows) > DEPENDENCY_EDGES_LIMIT,

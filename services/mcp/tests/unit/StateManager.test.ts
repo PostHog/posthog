@@ -166,11 +166,9 @@ describe('StateManager', () => {
 
         await (stateManager as any)._reportException(error, 'default_org_project_projects_list_failed')
 
-        expect(capture).toHaveBeenCalledWith(
-            error,
-            undefined,
-            expect.objectContaining({ suppress_analytics: suppressed === true })
-        )
+        expect(capture).toHaveBeenCalledWith(error, {
+            properties: expect.objectContaining({ suppress_analytics: suppressed === true }),
+        })
         expect(lookup).not.toHaveBeenCalled()
         capture.mockRestore()
     })
@@ -1489,7 +1487,7 @@ describe('StateManager', () => {
             vi.useRealTimers()
         })
 
-        it('re-reads an empty catalog after a minute so a newly saved metric counts', async () => {
+        it('keeps an empty catalog for ten minutes, then re-reads it so a newly saved metric counts', async () => {
             vi.useFakeTimers()
             const request = vi
                 .fn()
@@ -1497,6 +1495,8 @@ describe('StateManager', () => {
                 .mockResolvedValueOnce({ has_metrics: true })
             ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
 
+            expect(await stateManager.getOrFetchMetricCatalog('42')).toEqual({ hasMetrics: false })
+            vi.advanceTimersByTime(9 * 60 * 1000)
             expect(await stateManager.getOrFetchMetricCatalog('42')).toEqual({ hasMetrics: false })
             vi.advanceTimersByTime(61 * 1000)
 
@@ -1516,7 +1516,7 @@ describe('StateManager', () => {
             ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
 
             expect(await stateManager.getOrFetchMetricCatalog('42')).toEqual({ hasMetrics: false })
-            vi.advanceTimersByTime(61 * 1000)
+            vi.advanceTimersByTime(10 * 60 * 1000 + 1000)
 
             expect(await stateManager.getOrFetchMetricCatalog('42')).toBeUndefined()
             expect(await stateManager.getOrFetchMetricCatalog('42')).toBeUndefined()

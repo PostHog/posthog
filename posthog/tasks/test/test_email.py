@@ -43,6 +43,7 @@ from posthog.tasks.email import (
     send_email_verification_code,
     send_external_data_failure_digest,
     send_fatal_plugin_error,
+    send_feature_flags_secure_api_key_exposed,
     send_hog_function_disabled,
     send_hog_function_filters_uncompilable,
     send_hog_functions_daily_digest,
@@ -249,6 +250,27 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         assert len(mocked_email_messages) == 2
         assert (mocked_email_messages[0].campaign_key == mocked_email_messages[1].campaign_key) is deduped
+
+    @parameterized.expand([(True, False), (False, True), (False, False)])
+    def test_feature_flags_key_exposed_email_carries_signing_secret_replacement(
+        self, MockEmailMessage: MagicMock, replaced: bool, grace_window_ended: bool
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        send_feature_flags_secure_api_key_exposed(
+            self.team.id, "phs_...abc123", "", signing_secret_replaced=replaced, grace_window_ended=grace_window_ended
+        )
+
+        assert len(mocked_email_messages) == 1
+        message = mocked_email_messages[0]
+        # Cloud sends render from message.properties alone (the Workflows template), so
+        # the flags must reach them, and the Django paragraphs must track them too.
+        assert message.properties["signing_secret_replaced"] is replaced
+        assert message.properties["grace_window_ended"] is grace_window_ended
+        assert ("We replaced it" in message.html_body) is replaced
+        assert ("We removed it immediately" in message.html_body) is grace_window_ended
 
     @parameterized.expand(
         [

@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.activities import (
     cdc_extract_activity,
@@ -41,6 +41,9 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     sync_new_schemas_activity,
 )
 
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
+
 # NOTE: post-sync table-metadata workflows (semantic enrichment, column statistics) intentionally live on
 # their own worker — see table_metadata_settings.py / DATA_WAREHOUSE_METADATA_TASK_QUEUE — not here.
 WORKFLOWS = [
@@ -52,7 +55,7 @@ WORKFLOWS = [
     PostImportWorkflow,
 ]
 
-ACTIVITIES: list[Callable[..., object]] = [
+ACTIVITIES: list[ActivityDefinition] = [
     create_external_data_job_model_activity,
     update_external_data_job_model,
     import_data_activity_sync,

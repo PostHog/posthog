@@ -34,6 +34,7 @@ def build_metric_query_runner(
     quantile: float | None = None,
     metric_type: str | None = None,
     range_function: str | None = None,
+    max_series_fingerprints: int | None = None,
 ) -> MetricQueryRunner:
     """Return the runner for the table that holds all points of the range."""
     runner = MetricQueryRunner(
@@ -48,6 +49,7 @@ def build_metric_query_runner(
         quantile=quantile,
         metric_type=metric_type,
         range_function=range_function,
+        max_series_fingerprints=max_series_fingerprints,
     )
     if not reads_metrics4_only(runner.scan_from):
         return runner
@@ -63,4 +65,5 @@ def build_metric_query_runner(
         quantile=quantile,
         metric_type=metric_type,
         range_function=range_function,
+        max_series_fingerprints=max_series_fingerprints,
     )

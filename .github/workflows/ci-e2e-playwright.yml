@@ -64,6 +64,9 @@ env:
     # Internal API auth needs a non-empty INTERNAL_API_SECRET when DEBUG/TEST are off. The dev value
     # matches the Node plugins container's non-prod default, so Django<->Node internal calls authenticate.
     INTERNAL_API_SECRET: posthog123
+    # Django runs without DEBUG here, so it would default to the Kubernetes CDP address and every
+    # call to the Node CDP API would fail. The plugins container publishes the API on this port.
+    CDP_API_URL: http://localhost:6738
     RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
     # npm's audit blocks the pnpm bootstrap. See .github/actions/pnpm-install for why.
     NPM_CONFIG_AUDIT: 'false'
@@ -180,6 +183,9 @@ jobs:
                         # into the same bundle the suite drives. tools/playwright_area_map.json
                         # narrows the run from here.
                         - 'products/*/frontend/**'
+                        # The hosted message preferences page renders from these templates and views.
+                        # tools/playwright_area_map.json adds its spec to the run.
+                        - 'products/messaging/backend/**'
                         - .github/workflows/ci-e2e-playwright.yml
                         - 'ee/**'
                         - 'posthog/!(temporal/**)/**'
@@ -224,6 +230,9 @@ jobs:
                         - '!posthog/**/conftest.py'
                         - '!ee/**/test_*.py'
                         - '!ee/**/conftest.py'
+                        - '!products/messaging/backend/**/test_*.py'
+                        - '!products/messaging/backend/**/conftest.py'
+                        - '!products/messaging/backend/tests/**'
                         # Dagster code never loads in the E2E stack. No Dagster process runs there,
                         # and no web app or worker module imports posthog.dags, because its
                         # __init__.py calls django.setup() again. ci-dagster.yml runs its tests.
@@ -1130,6 +1139,8 @@ jobs:
                   docker logs posthog-ingestion-logs-1 > playwright/test-results/docker-ingestion-logs.log 2>&1 || echo "No ingestion-logs container" > playwright/test-results/docker-ingestion-logs.log
                   docker logs posthog-ingestion-traces-1 > playwright/test-results/docker-ingestion-traces.log 2>&1 || echo "No ingestion-traces container" > playwright/test-results/docker-ingestion-traces.log
                   docker logs posthog-capture-ai-1 > playwright/test-results/docker-capture-ai.log 2>&1 || echo "No capture-ai container" > playwright/test-results/docker-capture-ai.log
+                  docker logs posthog-valkey-cluster-1 > playwright/test-results/docker-valkey-cluster.log 2>&1 || echo "No valkey-cluster log" >> playwright/test-results/docker-valkey-cluster.log
+                  docker inspect --format '{{.Name}} restarts={{.RestartCount}} state={{json .State}}' posthog-valkey-cluster-1 posthog-plugins-1 > playwright/test-results/docker-container-state.log 2>&1 || echo "No valkey-cluster or plugins container" >> playwright/test-results/docker-container-state.log
 
             - name: Archive test artifacts
               if: always()

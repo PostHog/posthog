@@ -1540,6 +1540,23 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
                 "Project token not provided. You can find your project token in PostHog project settings.",
             )
 
+    def test_early_access_features_answers_cors_preflight_without_token(self):
+        self.client.logout()
+
+        with self.assertNumQueries(0):
+            response = self.client.options(
+                "/api/early_access_features/",
+                headers={
+                    "origin": "https://app.example.com",
+                    "access-control-request-method": "GET",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["Access-Control-Allow-Origin"], "https://app.example.com")
+        self.assertIn("GET", response.headers["Access-Control-Allow-Methods"])
+        self.assertIn("Content-Type", response.headers["Access-Control-Allow-Headers"])
+
     def test_early_access_features_preserves_documentation_and_image_urls(self):
         feature_flag = FeatureFlag.objects.create(
             team=self.team,

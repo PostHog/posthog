@@ -36,6 +36,13 @@ class DesktopAccessReason(LabeledStrEnum):
     PREPAID_CREDITS = "prepaid_credits", "prepaid_credits"
 
 
+class PersonalGitHubRepoAccess(StrEnum):
+    OK = "ok"
+    NOT_CONNECTED = "not_connected"
+    NEEDS_RECONNECT = "needs_reconnect"
+    NO_REPO_ACCESS = "no_repo_access"
+
+
 @dataclass(frozen=True)
 class TaskDTO:
     """A code task."""

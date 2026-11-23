@@ -9,11 +9,11 @@ from products.warehouse_sources.sources.gong._config import GongSourceConfig
 from products.warehouse_sources.sources.gong.gong import (
     GONG_BASE_URL,
     GongResumeConfig,
-    _format_datetime,
     _to_datetime,
     validate_credentials,
 )
 from products.warehouse_sources.sources.gong.source import GongSource
+from products.warehouse_sources.sources.sdk import format_datetime
 from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -24,17 +24,6 @@ from products.warehouse_sources.sources.sdk.testing import (
 
 def _driver() -> SourceDriver:
     return SourceDriver(GongSource(), GongSourceConfig(access_key="key", access_key_secret="secret"))
-
-
-class TestFormatDatetime:
-    @parameterized.expand(
-        [
-            ("utc_aware", datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC), "2026-03-04T02:58:14Z"),
-            ("naive_treated_as_utc", datetime(2026, 3, 4, 2, 58, 14), "2026-03-04T02:58:14Z"),
-        ]
-    )
-    def test_format_datetime(self, _name: str, value: datetime, expected: str) -> None:
-        assert _format_datetime(value) == expected
 
 
 class TestToDatetime:
@@ -140,14 +129,14 @@ class TestWindowedCalls:
         result = _driver().run(
             "calls",
             [ScriptedResponse(json={"calls": [{"id": "c1"}]})],
-            resume_state=GongResumeConfig(window_start=_format_datetime(resume_start)),
+            resume_state=GongResumeConfig(window_start=format_datetime(resume_start, "iso_z")),
             should_use_incremental_field=True,
             db_incremental_field_last_value=last_value,
         )
 
         assert result.raised is None
         # The first request starts from the resumed window, not the DB cursor value.
-        assert result.requests[0].param("fromDateTime") == _format_datetime(resume_start)
+        assert result.requests[0].param("fromDateTime") == format_datetime(resume_start, "iso_z")
 
 
 class TestLibraryFolders400IsNonRetryable:
@@ -324,7 +313,7 @@ class TestExtensiveCalls:
         assert result.requests[0].method == "POST"
         body = result.requests[0].json()
         assert body["contentSelector"] == expected_selector
-        assert body["filter"]["fromDateTime"] == _format_datetime(last_value)
+        assert body["filter"]["fromDateTime"] == format_datetime(last_value, "iso_z")
         assert "cursor" not in body
 
     def test_cursor_travels_in_body(self) -> None:
@@ -408,7 +397,7 @@ class TestTranscripts:
         # Every page of the calls walk drives its own transcript request, so a second page of calls
         # isn't dropped.
         assert result.paths == ["/v2/calls", "/v2/calls/transcript", "/v2/calls", "/v2/calls/transcript"]
-        assert result.requests[0].param("fromDateTime") == _format_datetime(last_value)
+        assert result.requests[0].param("fromDateTime") == format_datetime(last_value, "iso_z")
         assert result.requests[2].param("cursor") == "calls-page2"
         # Each request asks only for the ids on the page that drove it.
         assert [request.json()["filter"]["callIds"] for request in result.requests if request.method == "POST"] == [

@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from .coordinator import (
     BusinessKnowledgeIngestSourceWorkflow,
@@ -22,6 +22,9 @@ from .learning.activities.collect import collect_learning_evidence_activity
 from .learning.coordinator import BusinessKnowledgeLearningCoordinatorWorkflow
 from .learning.workflow import BusinessKnowledgeLearningWorkflow
 
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
+
 WORKFLOWS = [
     BusinessKnowledgeRefreshCoordinatorWorkflow,
     BusinessKnowledgeRefreshCoordinatorWorkflowV2,
@@ -31,7 +34,7 @@ WORKFLOWS = [
     BusinessKnowledgeLearningWorkflow,
 ]
 
-ACTIVITIES: list[Callable[..., object]] = [
+ACTIVITIES: list[ActivityDefinition] = [
     sweep_tombstoned_documents_activity,
     classify_pending_documents_activity,
     reconcile_embeddings_activity,

@@ -74,30 +74,6 @@ database "posthog" {
     }
   }
 
-  table "kafka_cohort_membership" {
-    column "team_id" {
-      type = "Int64"
-    }
-    column "cohort_id" {
-      type = "Int64"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "status" {
-      type = "Enum8('entered'=1, 'left'=2, 'member'=3, 'not_member'=4)"
-    }
-    column "last_updated" {
-      type = "DateTime64(6)"
-    }
-    engine "kafka" {
-      collection = "msk_cluster"
-      topic_list = "cohort_membership_changed"
-      group_name = "clickhouse_cohort_membership_changed"
-      format     = "JSONEachRow"
-    }
-  }
-
   table "kafka_distinct_id_usage" {
     column "team_id" {
       type = "Int64"
@@ -117,56 +93,6 @@ database "posthog" {
     }
   }
 
-  table "kafka_flag_evaluations" {
-    column "uuid" {
-      type = "UUID"
-    }
-    column "event" {
-      type = "LowCardinality(String)"
-    }
-    column "properties" {
-      type = "String"
-    }
-    column "timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "distinct_id" {
-      type = "String"
-    }
-    column "created_at" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "person_properties" {
-      type = "String"
-    }
-    column "person_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "inserted_at" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "person_mode" {
-      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
-    }
-    engine "kafka" {
-      collection           = "warpstream_ingestion"
-      topic_list           = "clickhouse_flag_evaluations"
-      group_name           = "clickhouse_flag_evaluations"
-      format               = "JSONEachRow"
-      num_consumers        = 1
-      max_block_size       = 10000
-      skip_broken_messages = 100
-      poll_timeout_ms      = 10000
-      poll_max_batch_size  = 10000
-      flush_interval_ms    = 7500
-    }
-  }
 
   table "kafka_heatmaps" {
     column "session_id" {
@@ -401,30 +327,6 @@ database "posthog" {
       remote_database = "posthog"
       remote_table    = "sharded_app_metrics2"
       sharding_key    = "rand()"
-    }
-  }
-
-  table "writable_cohort_membership" {
-    column "team_id" {
-      type = "Int64"
-    }
-    column "cohort_id" {
-      type = "Int64"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "status" {
-      type = "Enum8('entered'=1, 'left'=2)"
-    }
-    column "last_updated" {
-      type    = "DateTime64(6)"
-      default = "now64()"
-    }
-    engine "distributed" {
-      cluster_name    = "posthog_single_shard"
-      remote_database = "posthog"
-      remote_table    = "cohort_membership"
     }
   }
 
@@ -775,35 +677,6 @@ SQL
     }
   }
 
-  materialized_view "cohort_membership_mv" {
-    to_table = "posthog.writable_cohort_membership"
-    query    = <<SQL
-SELECT
-  team_id,
-  cohort_id,
-  person_id,
-  multiIf(status = 'member', 'entered', status = 'not_member', 'left', status) AS status,
-  last_updated
-FROM posthog.kafka_cohort_membership
-SQL
-
-    column "team_id" {
-      type = "Int64"
-    }
-    column "cohort_id" {
-      type = "Int64"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "status" {
-      type = "String"
-    }
-    column "last_updated" {
-      type = "DateTime64(6)"
-    }
-  }
-
   materialized_view "distinct_id_usage_mv" {
     to_table = "posthog.writable_distinct_id_usage"
     query    = <<SQL
@@ -825,74 +698,6 @@ SQL
     }
   }
 
-  materialized_view "flag_evaluations_mv" {
-    to_table = "posthog.writable_flag_evaluations"
-    query    = <<SQL
-SELECT
-  uuid,
-  event,
-  properties,
-  timestamp,
-  team_id,
-  distinct_id,
-  created_at,
-  person_id,
-  if(empty(person_properties), '{}', person_properties) AS person_properties,
-  person_created_at,
-  now64() AS inserted_at,
-  person_mode,
-  _timestamp,
-  _offset,
-  _partition
-FROM posthog.kafka_flag_evaluations
-SQL
-
-    column "uuid" {
-      type = "UUID"
-    }
-    column "event" {
-      type = "LowCardinality(String)"
-    }
-    column "properties" {
-      type = "String"
-    }
-    column "timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "distinct_id" {
-      type = "String"
-    }
-    column "created_at" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "person_properties" {
-      type = "String"
-    }
-    column "person_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "inserted_at" {
-      type = "DateTime64(3)"
-    }
-    column "person_mode" {
-      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
-    }
-    column "_timestamp" {
-      type = "Nullable(DateTime)"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-    column "_partition" {
-      type = "UInt64"
-    }
-  }
 
   materialized_view "heatmaps_mv" {
     to_table = "posthog.writable_heatmaps"

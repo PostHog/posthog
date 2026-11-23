@@ -477,11 +477,10 @@ describe('handleToolError with API errors', () => {
         const result = handleToolError(error, 'some-tool', 'user-123', undefined, suppressAnalytics)
 
         expect(captureException).toHaveBeenCalledTimes(1)
-        expect(captureException).toHaveBeenCalledWith(
-            expect.any(Error),
-            'user-123',
-            expect.objectContaining({ suppress_analytics: suppressAnalytics })
-        )
+        expect(captureException).toHaveBeenCalledWith(expect.any(Error), {
+            distinctId: 'user-123',
+            properties: expect.objectContaining({ suppress_analytics: suppressAnalytics }),
+        })
         expect(result.isError).toBe(true)
     })
 })
@@ -504,11 +503,10 @@ describe('handleToolError with transport errors', () => {
 
         const result = handleToolError(wrapError('Failed to list insights', error), 'insights-list')
 
-        expect(captureException).toHaveBeenCalledWith(
-            expect.anything(),
-            undefined,
-            expect.objectContaining({ transport_failure: 'TypeError > Error(ENOTFOUND)' })
-        )
+        expect(captureException).toHaveBeenCalledWith(expect.anything(), {
+            distinctId: undefined,
+            properties: expect.objectContaining({ transport_failure: 'TypeError > Error(ENOTFOUND)' }),
+        })
         const [content] = result.content as Array<{ type: string; text: string }>
         expect(content?.text).not.toContain('ENOTFOUND')
     })
