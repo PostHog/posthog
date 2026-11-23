@@ -1,13 +1,4 @@
-import {
-    DefaultTreeAdapterMap,
-    Parser,
-    ParserOptions,
-    Token,
-    Tokenizer,
-    TokenizerMode,
-    TreeAdapter,
-    defaultTreeAdapter,
-} from 'parse5'
+import { Token, Tokenizer, TokenizerMode } from 'parse5'
 
 export const UNSUBSCRIBE_PLACEHOLDER = /\{\{\s*unsubscribe_url\s*\}\}/g
 
@@ -24,17 +15,9 @@ const TEXT_MODES = new Map<string, Tokenizer['state']>([
     ['plaintext', TokenizerMode.PLAINTEXT],
 ])
 
-const TREE_ONLY_CONTENT = new Set(['svg', 'math', 'select', 'template', 'frameset'])
-
 export const BODY_MAX_LENGTH = 1_500_000
 export const UNSUBSCRIBE_TOKENS_CHECKED = 50
-export const TREE_MAX_DEPTH = 128
-export const TREE_MAX_FORMATTING_ELEMENTS = 128
-export const TREE_MAX_ELEMENTS = 200_000
-export const TREE_MAX_SCANS = 4_000_000
 const TAG_MAX_ATTRIBUTES = 64
-
-type ParentNode = DefaultTreeAdapterMap['parentNode']
 
 class TooComplex extends Error {}
 
@@ -47,60 +30,85 @@ class BoundedTokenizer extends Tokenizer {
     }
 }
 
-class BoundedParser extends Parser<DefaultTreeAdapterMap> {
-    constructor(
-        options: ParserOptions<DefaultTreeAdapterMap>,
-        private readonly scan: (count: number) => void
-    ) {
-        super(options)
-        this.tokenizer = new BoundedTokenizer(this.options, this)
-        const list = this.activeFormattingElements
-        const wrap = <Args extends unknown[], Result>(fn: (...args: Args) => Result) => {
-            return (...args: Args): Result => {
-                this.scan(list.entries.length)
-                const result = fn.apply(list, args)
-                if (list.entries.length > TREE_MAX_FORMATTING_ELEMENTS) {
-                    throw new TooComplex()
-                }
-                return result
-            }
-        }
-        list.insertMarker = wrap(list.insertMarker)
-        list.pushElement = wrap(list.pushElement)
-        list.insertElementAfterBookmark = wrap(list.insertElementAfterBookmark)
-        list.removeEntry = wrap(list.removeEntry)
-        list.clearToLastMarker = wrap(list.clearToLastMarker)
-        list.getElementEntryInScopeWithTagName = wrap(list.getElementEntryInScopeWithTagName)
-        list.getElementEntry = wrap(list.getElementEntry)
-    }
-
-    override _reconstructActiveFormattingElements(): void {
-        this.scan(this.activeFormattingElements.entries.length)
-        super._reconstructActiveFormattingElements()
-    }
-}
-
 const ignore = (): void => {}
 
-const scannedHrefs = (body: string): Set<string> | undefined => {
+export const isTooLargeToCheck = ({ html, text }: { html?: string; text?: string }): boolean =>
+    (html?.length ?? 0) > BODY_MAX_LENGTH || (text?.length ?? 0) > BODY_MAX_LENGTH
+
+export const clickableHrefs = (body: string): string[] => {
+    if (body.length > BODY_MAX_LENGTH) {
+        return []
+    }
     const hrefs = new Set<string>()
-    let followed = true
+    let templateDepth = 0
+    let inSelect = false
+    let svgDepth = 0
+    let mathDepth = 0
+    let foreignObjectDepth = 0
+
+    const inForeign = (): boolean => (svgDepth > 0 || mathDepth > 0) && foreignObjectDepth === 0
+
     const tokenizer: Tokenizer = new BoundedTokenizer(
         {},
         {
             onStartTag: (tag: Token.TagToken) => {
-                if (TREE_ONLY_CONTENT.has(tag.tagName)) {
-                    followed = false
-                    tokenizer.pause()
-                    return
+                const foreign = inForeign()
+                const inRawSelect = inSelect && templateDepth === 0
+                if (!inRawSelect && tag.tagName === 'svg' && !tag.selfClosing) {
+                    svgDepth += 1
+                } else if (!inRawSelect && tag.tagName === 'math' && !tag.selfClosing) {
+                    mathDepth += 1
+                } else if (tag.tagName === 'foreignobject' && svgDepth > 0 && !tag.selfClosing) {
+                    foreignObjectDepth += 1
+                } else if (!foreign && tag.tagName === 'template') {
+                    templateDepth += 1
+                } else if (!foreign && templateDepth === 0 && tag.tagName === 'select') {
+                    inSelect = true
                 }
-                tokenizer.state = TEXT_MODES.get(tag.tagName) ?? tokenizer.state
-                const href = tag.tagName === 'a' ? tag.attrs.find(({ name }) => name === 'href') : undefined
-                if (href) {
-                    hrefs.add(href.value)
+
+                const nowForeign = inForeign()
+                tokenizer.inForeignNode = nowForeign
+
+                if (!nowForeign) {
+                    if (inSelect && templateDepth === 0) {
+                        if (tag.tagName === 'script') {
+                            tokenizer.state = TokenizerMode.SCRIPT_DATA
+                        }
+                    } else {
+                        tokenizer.state = TEXT_MODES.get(tag.tagName) ?? tokenizer.state
+                    }
+                } else if (tag.tagName === 'style' && !tag.selfClosing) {
+                    tokenizer.state = TokenizerMode.RAWTEXT
+                }
+
+                if (tag.tagName === 'a' && templateDepth === 0 && !inSelect) {
+                    const href =
+                        tag.attrs.find(({ name }) => name === 'href') ??
+                        (svgDepth > 0 && foreignObjectDepth === 0
+                            ? tag.attrs.find(({ name }) => name === 'xlink:href')
+                            : undefined)
+                    if (href) {
+                        hrefs.add(href.value)
+                    }
                 }
             },
-            onEndTag: ignore,
+            onEndTag: (tag: Token.TagToken) => {
+                if (tag.tagName === 'foreignobject' && foreignObjectDepth > 0) {
+                    foreignObjectDepth -= 1
+                } else if (tag.tagName === 'svg' && svgDepth > 0) {
+                    svgDepth -= 1
+                    if (svgDepth === 0) {
+                        foreignObjectDepth = 0
+                    }
+                } else if (tag.tagName === 'math' && mathDepth > 0) {
+                    mathDepth -= 1
+                } else if (tag.tagName === 'template' && templateDepth > 0) {
+                    templateDepth -= 1
+                } else if (tag.tagName === 'select' && templateDepth === 0) {
+                    inSelect = false
+                }
+                tokenizer.inForeignNode = inForeign()
+            },
             onComment: ignore,
             onDoctype: ignore,
             onEof: ignore,
@@ -113,98 +121,12 @@ const scannedHrefs = (body: string): Set<string> | undefined => {
         tokenizer.write(body, true)
     } catch (error) {
         if (error instanceof TooComplex) {
-            return new Set()
+            return []
         }
         throw error
     }
-    return followed ? hrefs : undefined
+    return [...hrefs]
 }
-
-const boundedTree = (body: string): ParentNode | undefined => {
-    let depth = 0
-    let elements = 0
-    let scans = 0
-    const scan = (count: number): void => {
-        scans += count
-        if (scans > TREE_MAX_SCANS) {
-            throw new TooComplex()
-        }
-    }
-    const treeAdapter: TreeAdapter<DefaultTreeAdapterMap> = {
-        ...defaultTreeAdapter,
-        insertBefore: (parent, node, reference) => {
-            scan(parent.childNodes.length)
-            defaultTreeAdapter.insertBefore(parent, node, reference)
-        },
-        insertTextBefore: (parent, text, reference) => {
-            scan(parent.childNodes.length)
-            defaultTreeAdapter.insertTextBefore(parent, text, reference)
-        },
-        detachNode: (node) => {
-            scan(node.parentNode?.childNodes.length ?? 0)
-            defaultTreeAdapter.detachNode(node)
-        },
-        adoptAttributes: (recipient, attrs) => {
-            scan(recipient.attrs.length + attrs.length)
-            defaultTreeAdapter.adoptAttributes(recipient, attrs)
-        },
-        createElement: (tagName, namespaceURI, attrs) => {
-            elements += 1
-            if (elements > TREE_MAX_ELEMENTS) {
-                throw new TooComplex()
-            }
-            return defaultTreeAdapter.createElement(tagName, namespaceURI, attrs)
-        },
-        onItemPush: () => {
-            depth += 1
-            if (depth > TREE_MAX_DEPTH) {
-                throw new TooComplex()
-            }
-        },
-        onItemPop: () => {
-            depth -= 1
-        },
-    }
-    try {
-        const parser = new BoundedParser({ treeAdapter }, scan)
-        parser.tokenizer.write(body, true)
-        return parser.document
-    } catch (error) {
-        if (error instanceof TooComplex) {
-            return undefined
-        }
-        throw error
-    }
-}
-
-const treeHrefs = (body: string): Set<string> => {
-    const document = boundedTree(body)
-    const hrefs = new Set<string>()
-    const nodes: ParentNode[] = document ? [document] : []
-    for (let node = nodes.pop(); node; node = nodes.pop()) {
-        if ('tagName' in node && node.tagName === 'a') {
-            const href =
-                node.attrs.find(({ name, namespace }) => name === 'href' && !namespace) ??
-                node.attrs.find(({ name }) => name === 'href')
-            if (href) {
-                hrefs.add(href.value)
-            }
-        }
-        for (let i = node.childNodes.length - 1; i >= 0; i--) {
-            const child = node.childNodes[i]
-            if ('tagName' in child) {
-                nodes.push(child)
-            }
-        }
-    }
-    return hrefs
-}
-
-export const isTooLargeToCheck = ({ html, text }: { html?: string; text?: string }): boolean =>
-    (html?.length ?? 0) > BODY_MAX_LENGTH || (text?.length ?? 0) > BODY_MAX_LENGTH
-
-export const clickableHrefs = (body: string): string[] =>
-    body.length > BODY_MAX_LENGTH ? [] : [...(scannedHrefs(body) ?? treeHrefs(body))]
 
 export const filledUnsubscribeLength = (body: string | undefined, url: string | undefined): number => {
     if (!body || !url) {

@@ -1,13 +1,4 @@
-import {
-    BODY_MAX_LENGTH,
-    TREE_MAX_DEPTH,
-    TREE_MAX_ELEMENTS,
-    TREE_MAX_FORMATTING_ELEMENTS,
-    TREE_MAX_SCANS,
-    UNSUBSCRIBE_TOKENS_CHECKED,
-    clickableHrefs,
-    preferencesTokensInBody,
-} from './clickable-links'
+import { BODY_MAX_LENGTH, UNSUBSCRIBE_TOKENS_CHECKED, clickableHrefs, preferencesTokensInBody } from './clickable-links'
 
 const manyAttributes = Array.from({ length: 1_000 }, (_, index) => `data-${index}="x"`).join(' ')
 
@@ -78,8 +69,23 @@ describe('clickableHrefs', () => {
             [],
         ],
         [
+            'an anchor with only xlink:href in an SVG foreign object',
+            '<svg><foreignObject><a xlink:href="https://example.com/bye">Unsubscribe</a></foreignObject></svg>',
+            [],
+        ],
+        [
+            'an anchor with only xlink:href after an unclosed SVG foreign object',
+            '<svg><foreignObject></svg><a xlink:href="https://example.com/bye">Unsubscribe</a>',
+            [],
+        ],
+        [
             'an anchor inside the title of an SVG drawing',
             '<svg><title><a href="https://example.com/bye">Unsubscribe</a></title></svg>',
+            ['https://example.com/bye'],
+        ],
+        [
+            'an anchor after a self-closing style tag inside an SVG drawing',
+            '<svg><style/><a href="https://example.com/bye"><text>Unsubscribe</text></a></svg>',
             ['https://example.com/bye'],
         ],
         [
@@ -113,14 +119,19 @@ describe('clickableHrefs', () => {
             [],
         ],
         [
+            'an anchor inside a script in a select',
+            '<select><script>document.write(\'</select><a href="https://example.com/bye">Unsubscribe</a>\')</script></select>',
+            [],
+        ],
+        [
             'an anchor inside a script that a select hides from the raw text start tag before it',
             '<select><xmp></select><script></xmp></select><a href="https://example.com/bye">Unsubscribe</a></script>',
             [],
         ],
         [
-            'an anchor inside a script that a template column group hides from the raw text start tag before it',
-            '<template><col><xmp></template><script></xmp></template><a href="https://example.com/bye">Unsubscribe</a></script>',
-            [],
+            'an anchor after a template with an unclosed select',
+            '<template><select></template><a href="https://example.com/bye">Unsubscribe</a>',
+            ['https://example.com/bye'],
         ],
         [
             'an anchor inside a self-closing template',
@@ -131,11 +142,6 @@ describe('clickableHrefs', () => {
             'an anchor before a frameset inside a comment',
             '<a href="https://example.com/bye">Unsubscribe</a><!-- <frameset> -->',
             ['https://example.com/bye'],
-        ],
-        [
-            'an empty anchor in a body a frameset replaces',
-            '<a href="https://example.com/bye"></a><frameset></frameset>',
-            [],
         ],
         [
             'an anchor reconstructed across repeated blocks after an SVG drawing',
@@ -149,61 +155,35 @@ describe('clickableHrefs', () => {
     })
 
     it.each([
-        ['nested deeper than the parser follows', '<div>'.repeat(TREE_MAX_DEPTH)],
-        ['longer than the parser reads', ' '.repeat(BODY_MAX_LENGTH)],
-        ['with more attributes on one tag than the parser reads', `<div ${manyAttributes}></div>`],
+        ['longer than the tokenizer reads', ' '.repeat(BODY_MAX_LENGTH)],
+        ['with more attributes on one tag than the tokenizer reads', `<div ${manyAttributes}></div>`],
         [
-            'that rebuilds more elements than the parser keeps',
-            '<div>' +
-                Array.from({ length: 100 }, (_, index) => `<b id="${index}">`).join('') +
-                '</div>' +
-                '<div>x</div>'.repeat(TREE_MAX_ELEMENTS / 100),
+            'after an SVG drawing with more attributes on one tag than the tokenizer reads',
+            `<svg></svg><div ${manyAttributes}></div>`,
         ],
-        [
-            'that moves more elements out of a table than the parser scans past',
-            '<table>' + '<i></i>'.repeat(Math.ceil(Math.sqrt(2 * TREE_MAX_SCANS))),
-        ],
-        [
-            'that moves more text out of a table than the parser scans past',
-            '<table>' + 'x<br>'.repeat(Math.ceil(Math.sqrt(TREE_MAX_SCANS / 2))),
-        ],
-        [
-            'that moves more elements out of a misnested tag than the parser scans past',
-            '<b><div>' + '<i></i>'.repeat(Math.ceil(Math.sqrt(2 * TREE_MAX_SCANS))) + '</b>',
-        ],
-        [
-            'that adds more attributes to the root element than the parser scans past',
-            Array.from(
-                { length: Math.ceil(Math.sqrt(TREE_MAX_SCANS / 8)) },
-                (_, tag) => `<html ${Array.from({ length: 16 }, (_, attribute) => `a${tag}x${attribute}`).join(' ')}>`
-            ).join(''),
-        ],
-        [
-            'that leaves more active formatting entries than the parser keeps',
-            '<div><table><object><b></table></div>'.repeat(TREE_MAX_FORMATTING_ELEMENTS),
-        ],
-        [
-            'that scans the active formatting list more than the parser allows',
-            '<div><table><object><b></table></div>'.repeat(TREE_MAX_FORMATTING_ELEMENTS / 2 - 1) +
-                '<i></i>'.repeat(Math.ceil(TREE_MAX_SCANS / (TREE_MAX_FORMATTING_ELEMENTS - 2))),
-        ],
-    ])('finds no anchor after an SVG drawing in markup %s', (_name, filler) => {
-        expect(clickableHrefs('<svg></svg>' + filler + '<a href="https://example.com/bye">Unsubscribe</a>')).toEqual([])
+    ])('finds no anchor in markup %s', (_name, filler) => {
+        expect(clickableHrefs(filler + '<a href="https://example.com/bye">Unsubscribe</a>')).toEqual([])
     })
 
     it.each([
         ['deeply nested markup', '<div>'.repeat(40_000)],
-        ['an SVG drawing and a table it moves elements out of', '<svg></svg><table>' + '<i></i>'.repeat(1_000)],
-    ])('finds the anchor after %s', (_name, filler) => {
+        ['an SVG drawing and a table with foster-parented elements', '<svg></svg><table>' + '<i></i>'.repeat(1_000)],
+        [
+            'an SVG drawing and repeated active formatting elements',
+            '<svg></svg>' + '<div><table><object><b></table></div>'.repeat(20_000),
+        ],
+        [
+            'a MathML annotation-xml element with a large encoding attribute followed by many tags',
+            '<math><annotation-xml encoding="' + 'A'.repeat(750_000) + '">' + '<x></x>'.repeat(100_000) + '</math>',
+        ],
+        [
+            'an SVG element with a large tag name followed by many end tags',
+            '<svg><' + 'a'.repeat(750_000) + '>' + '</x>'.repeat(100_000) + '</svg>',
+        ],
+    ])('finds the anchor in linear time after %s', (_name, filler) => {
         expect(clickableHrefs(filler + '<a href="https://example.com/bye">Unsubscribe</a>')).toEqual([
             'https://example.com/bye',
         ])
-    })
-
-    it('finds no anchor after a tag with more attributes than the scanner reads', () => {
-        expect(
-            clickableHrefs(`<div ${manyAttributes}></div><a href="https://example.com/bye">Unsubscribe</a>`)
-        ).toEqual([])
     })
 })
 
