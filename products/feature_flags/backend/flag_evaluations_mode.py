@@ -29,7 +29,8 @@ FLAG_EVALUATIONS_MODES_HELP = (
     "events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside "
     "INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS, unless the organization keeps writing flag calls to events. With "
     "that kept, every reader behaves as described here, and FLAG_EVALUATIONS_READS_FORCE_EVENTS moves the "
-    "organization back to events. On 2, a HogQL query reads flag_evaluations for any date range and "
+    "organization back to events. The events copy starts when that takes effect and holds no earlier calls, so a "
+    "read that moves back to events misses the calls only flag_evaluations holds. On 2, a HogQL query reads flag_evaluations for any date range and "
     "fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless "
     "it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it "
     "is available on 1 and 2."
@@ -44,7 +45,8 @@ class OrganizationModeChange:
     # Teams of the organization, for display only. The write never touches team rows.
     team_count: int
     # Running experiments that read $feature_flag_called from events without its $experiment_exposure copy.
-    # FLAG_EVALUATIONS_ONLY stops those events writes, so those reads find no new calls.
+    # FLAG_EVALUATIONS_ONLY stops those events writes unless they are kept, and events lacks the calls from before the
+    # writes stopped or were kept.
     running_experiments_needing_flag_calls_in_events: int
     current_mode: int
     target_mode: int
@@ -198,9 +200,7 @@ def set_organizations_flag_evaluations_mode(
             organization_created_at=organization.created_at,
             team_count=team_counts.get(organization.id, 0),
             running_experiments_needing_flag_calls_in_events=(
-                count_running_experiments_needing_flag_calls_in_events(organization.id)
-                if count_experiments and not keeps_events_writes
-                else 0
+                count_running_experiments_needing_flag_calls_in_events(organization.id) if count_experiments else 0
             ),
             current_mode=current_configs[organization.id].mode,
             target_mode=mode,

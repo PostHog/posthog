@@ -64,6 +64,9 @@ class TestSetFlagEvaluationsMode(BaseTest):
             organization=organization, defaults={"flag_evaluations_mode": mode}
         )
 
+    def _listed_ids(self, path: str) -> list[str]:
+        return [line.split()[0] for line in Path(path).read_text().splitlines() if line.strip()]
+
     def _ids_file(self, *lines: object) -> str:
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
@@ -107,7 +110,7 @@ class TestSetFlagEvaluationsMode(BaseTest):
             ("flag_evaluations_only", "2", (), True, True),
             ("read_flag_evaluations", "1", (), True, False),
             ("skipped_count", "2", ("--skip-experiment-count",), False, False),
-            ("events_writes_kept", "2", ("--keep-writing-flag-calls-to-events",), False, False),
+            ("events_writes_kept", "2", ("--keep-writing-flag-calls-to-events",), True, True),
         ]
     )
     def test_warns_only_when_the_mode_stops_events_writes_of_flag_calls_an_experiment_reads(
@@ -322,14 +325,12 @@ class TestSetFlagEvaluationsMode(BaseTest):
             FlagEvaluationsMode.READ_FLAG_EVALUATIONS if first_chunk_commits else FlagEvaluationsMode.EVENTS,
         )
         self.assertEqual(get_organization_flag_evaluations_mode(second.id), FlagEvaluationsMode.EVENTS)
-        self.assertEqual(
-            Path(changed_ids_file).read_text().split(), [str(self.organization.id)] if first_chunk_commits else []
-        )
+        self.assertEqual(self._listed_ids(changed_ids_file), [str(self.organization.id)] if first_chunk_commits else [])
 
         self._run(*args)
 
         self.assertEqual(get_organization_flag_evaluations_mode(second.id), FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
-        self.assertEqual(Path(changed_ids_file).read_text().split(), [str(self.organization.id), str(second.id)])
+        self.assertEqual(self._listed_ids(changed_ids_file), [str(self.organization.id), str(second.id)])
 
     @parameterized.expand(
         [
@@ -378,9 +379,7 @@ class TestSetFlagEvaluationsMode(BaseTest):
             )
 
         self.assertEqual(self._stored_mode(self.organization), expected_mode)
-        self.assertEqual(
-            Path(changed_ids_file).read_text().split(), [str(self.organization.id)] if expects_listed else []
-        )
+        self.assertEqual(self._listed_ids(changed_ids_file), [str(self.organization.id)] if expects_listed else [])
 
     def test_all_organizations_skips_the_excluded_ones(self) -> None:
         included, excluded = self._organizations_without_config(2)
@@ -392,6 +391,40 @@ class TestSetFlagEvaluationsMode(BaseTest):
             get_organization_flag_evaluations_mode(self.organization.id), FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
         )
         self.assertEqual(get_organization_flag_evaluations_mode(excluded.id), FlagEvaluationsMode.EVENTS)
+
+    def test_a_restore_puts_each_organization_back_to_its_own_settings(self) -> None:
+        moved_up, only_turned_on, from_read = self._organizations_without_config(3)
+        self._store_mode(only_turned_on, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        self._store_mode(from_read, FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+        changed_ids_file = self._ids_file()
+        ids_file = self._ids_file(moved_up.id, only_turned_on.id, from_read.id)
+
+        self._run(
+            "--mode",
+            "2",
+            "--keep-writing-flag-calls-to-events",
+            "--organization-ids-file",
+            ids_file,
+            "--write-changed-ids",
+            changed_ids_file,
+        )
+        self.assertEqual(
+            {organization: self._keeps_events_writes(organization) for organization in (moved_up, only_turned_on)},
+            {moved_up: True, only_turned_on: True},
+        )
+
+        self._run("--restore-from-changed-ids-file", changed_ids_file)
+
+        self.assertEqual(self._stored_mode(moved_up), FlagEvaluationsMode.EVENTS)
+        self.assertEqual(self._stored_mode(only_turned_on), FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        self.assertFalse(self._keeps_events_writes(only_turned_on))
+        self.assertEqual(self._stored_mode(from_read), FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+
+    def test_a_restore_refuses_a_file_without_the_previous_settings(self) -> None:
+        changed_ids_file = self._ids_file(self.organization.id)
+
+        with self.assertRaises(CommandError):
+            self._run("--restore-from-changed-ids-file", changed_ids_file)
 
     def test_a_rollback_from_the_changed_ids_file_lowers_only_the_organizations_the_run_moved(self) -> None:
         already_on_two, moved, deleted_later = self._organizations_without_config(3)
@@ -455,7 +488,7 @@ class TestSetFlagEvaluationsMode(BaseTest):
 
         self._run("--mode", "1", "--organization-id", str(moved.id), "--write-changed-ids", changed_ids_file)
 
-        self.assertEqual(Path(changed_ids_file).read_text().split(), [str(listed.id), str(moved.id)])
+        self.assertEqual(self._listed_ids(changed_ids_file), [str(listed.id), str(moved.id)])
 
     def test_the_upsert_sends_ids_in_sorted_order(self) -> None:
         organizations = self._organizations_without_config(5)

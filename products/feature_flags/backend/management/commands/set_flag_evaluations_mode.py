@@ -7,7 +7,8 @@ created after an instant, or every organization, less an optional exclude list.
 The command writes the organizations in chunks and commits each chunk in its own transaction.
 A run skips organizations already at --mode, so a run that fails partway resumes when it runs
 again. --write-changed-ids appends the ids of each committed chunk's changed organizations to
-a file. A rollback passes that file to --organization-ids-file.
+a file, each with the mode and the kept events writes that the organization had before the run.
+--restore-from-changed-ids-file puts every listed organization back to its own recorded settings.
 
 On mode 2, ingestion stops writing $feature_flag_called to events for the organization's teams that it
 copies to flag_evaluations, unless --keep-writing-flag-calls-to-events is set.
@@ -59,7 +60,8 @@ def _positive_int(value: str) -> int:
 
 
 def _read_ids_file(path: Path) -> list[UUID]:
-    """One UUID per line. Blank lines are skipped, and any other line that is not a UUID fails the run."""
+    """One UUID per line, optionally followed by other columns. Blank lines are skipped, and any other line whose
+    first column is not a UUID fails the run."""
     ids = []
     try:
         with path.open() as file:
@@ -67,12 +69,40 @@ def _read_ids_file(path: Path) -> list[UUID]:
                 if not (text := line.strip()):
                     continue
                 try:
-                    ids.append(UUID(text))
+                    ids.append(UUID(text.split()[0]))
                 except ValueError as error:
                     raise CommandError(f"{path}:{line_number}: {text!r} is not an organization id") from error
     except OSError as error:
         raise CommandError(f"Cannot read {path}: {error}") from error
     return ids
+
+
+def _read_changed_ids_file(path: Path) -> dict[UUID, FlagEvaluationsConfig]:
+    """The settings each organization had before the run that wrote the file: `<id> <mode> <kept events writes: 0|1>`
+    per line. A line without the settings fails the run, because a restore cannot guess them."""
+    configs: dict[UUID, FlagEvaluationsConfig] = {}
+    for line_number, line in enumerate(_read_lines(path), start=1):
+        if not (text := line.strip()):
+            continue
+        columns = text.split()
+        try:
+            organization_id, mode, kept = UUID(columns[0]), FlagEvaluationsMode(int(columns[1])), columns[2]
+            if len(columns) != 3 or kept not in ("0", "1"):
+                raise ValueError(text)
+        except (ValueError, IndexError) as error:
+            raise CommandError(
+                f"{path}:{line_number}: {text!r} is not `<organization id> <mode> <0|1>`. "
+                "Only a file that a run wrote with --write-changed-ids records the previous settings."
+            ) from error
+        configs[organization_id] = FlagEvaluationsConfig(mode=mode, keeps_events_writes=kept == "1")
+    return configs
+
+
+def _read_lines(path: Path) -> list[str]:
+    try:
+        return path.read_text().splitlines()
+    except OSError as error:
+        raise CommandError(f"Cannot read {path}: {error}") from error
 
 
 def _sync(file: TextIO) -> None:
@@ -87,7 +117,6 @@ class Command(BaseCommand):
         parser.add_argument(
             "--mode",
             type=int,
-            required=True,
             choices=FlagEvaluationsMode.values,
             help=FLAG_EVALUATIONS_MODES_HELP,
         )
@@ -111,6 +140,15 @@ class Command(BaseCommand):
             help="Update every organization created after this ISO 8601 instant. A bare date means midnight UTC.",
         )
         selector.add_argument("--all-organizations", action="store_true", help="Update every organization.")
+        selector.add_argument(
+            "--restore-from-changed-ids-file",
+            type=Path,
+            help=(
+                "Put each organization listed in a --write-changed-ids file back to the mode and kept events writes "
+                "it had before that run, whatever it has now. Takes no --mode. An organization that the run moved up "
+                "keeps the events gap from the time it spent on the higher mode."
+            ),
+        )
         parser.add_argument(
             "--exclude-organization-ids-file",
             type=Path,
@@ -134,7 +172,9 @@ class Command(BaseCommand):
             action="store_true",
             help=(
                 "Only with --mode 2. Ingestion keeps writing $feature_flag_called to the events table, while every "
-                "reader behaves as on mode 2. A run that omits it on an organization that has it turns it off."
+                "reader behaves as on mode 2. The events copy starts when this takes effect and holds no earlier "
+                "calls, so a read that moves back to events misses the calls only flag_evaluations holds. A run that "
+                "omits it on an organization that has it turns it off."
             ),
         )
         parser.add_argument(
@@ -149,8 +189,9 @@ class Command(BaseCommand):
             "--write-changed-ids",
             type=Path,
             help=(
-                "Append the ids of the organizations that the run changed to this file, one per line. Each chunk "
-                "writes its ids before it commits, and removes them again when the chunk rolls back. A rerun with the same path "
+                "Append the organizations that the run changed to this file, one per line: the id, then the mode "
+                "and kept events writes (0 or 1) it had before the run. Each chunk "
+                "writes its lines before it commits, and removes them again when the chunk rolls back. A rerun with the same path "
                 "appends the ids it changes. Refused with --dry-run."
             ),
         )
@@ -174,6 +215,15 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
+        if (restore_path := options["restore_from_changed_ids_file"]) is not None:
+            if options["mode"] is not None:
+                raise CommandError("--restore-from-changed-ids-file takes each organization's mode from the file")
+            self._restore(
+                restore_path, dry_run=options["dry_run"], skip_unknown=options["skip_unknown_organization_ids"]
+            )
+            return
+        if options["mode"] is None:
+            raise CommandError("--mode is required unless --restore-from-changed-ids-file is given")
         mode = FlagEvaluationsMode(options["mode"])
         dry_run: bool = options["dry_run"]
         allow_downgrade: bool = options["allow_downgrade"]
@@ -243,7 +293,8 @@ class Command(BaseCommand):
                                 if change.changed
                             }
                             changed_ids_file.writelines(
-                                f"{organization_id}\n" for organization_id in configs_before_chunk
+                                f"{organization_id} {config.mode} {int(config.keeps_events_writes)}\n"
+                                for organization_id, config in configs_before_chunk.items()
                             )
                             _sync(changed_ids_file)
                 except BaseException:
@@ -276,8 +327,38 @@ class Command(BaseCommand):
         if experiments_needing_flag_calls_count:
             self.stdout.write(
                 f"{experiments_needing_flag_calls_count} running experiment(s) read $feature_flag_called from events "
-                "through an exposure action, an activation, or a metric. Those reads find no new calls on this mode."
+                "through an exposure action, an activation, or a metric. Those reads miss the calls that only "
+                "flag_evaluations holds."
             )
+
+    def _restore(self, path: Path, *, dry_run: bool, skip_unknown: bool) -> None:
+        recorded = _read_changed_ids_file(path)
+        known = set(self._known(recorded, skip_unknown=skip_unknown, source=str(path)))
+        groups: dict[FlagEvaluationsConfig, list[UUID]] = {}
+        for organization_id, config in recorded.items():
+            if organization_id in known:
+                groups.setdefault(config, []).append(organization_id)
+        verb = "Would restore" if dry_run else "Restored"
+        restored_count = 0
+        with transaction.atomic():
+            for config, organization_ids in groups.items():
+                organizations = list(
+                    Organization.objects.filter(id__in=organization_ids)
+                    .only("id", "name", "created_at")
+                    .order_by("created_at", "id")
+                )
+                changes = set_organizations_flag_evaluations_mode(
+                    organizations,
+                    FlagEvaluationsMode(config.mode),
+                    allow_downgrade=True,
+                    dry_run=dry_run,
+                    count_experiments=False,
+                    keep_writing_flag_calls_to_events=config.keeps_events_writes,
+                )
+                for change in changes:
+                    restored_count += change.changed
+                    self._write_organization_line(change, count_experiments=False)
+        self.stdout.write(f"{verb} {restored_count} of {len(known)} organization(s) listed in {path}.")
 
     def _select(self, options: dict[str, Any], *, skip_unknown: bool) -> list[UUID]:
         if options["all_organizations"] or options["created_after"] is not None:

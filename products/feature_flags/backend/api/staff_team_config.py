@@ -192,7 +192,8 @@ class StaffFlagEvaluationsModeMutationSerializer(serializers.Serializer):
         default=False,
         help_text=(
             "Only for mode 2. Ingestion keeps writing $feature_flag_called to the events table, while every reader "
-            "behaves as on mode 2. Any other mode clears it."
+            "behaves as on mode 2. The events copy starts when this takes effect and holds no earlier calls, so a "
+            "read that moves back to events misses the calls only flag_evaluations holds. Any other mode clears it."
         ),
     )
     dry_run = serializers.BooleanField(
@@ -216,7 +217,7 @@ class StaffOrganizationModeChangeSerializer(DataclassSerializer):
             "organization_name": {"help_text": "Organization name."},
             "team_count": {"help_text": "Teams of the organization. They all read the organization's mode."},
             "running_experiments_needing_flag_calls_in_events": {
-                "help_text": "Running experiments of the organization that read $feature_flag_called from events without its $experiment_exposure copy: through an exposure action, an activation, or a metric. Mode 2 stops those events writes, so those reads find no new calls."
+                "help_text": "Running experiments of the organization that read $feature_flag_called from events without its $experiment_exposure copy: through an exposure action, an activation, or a metric. Mode 2 stops those events writes unless they are kept, and either way the events copy lacks the calls from before the writes stopped or were kept."
             },
             "current_keeps_events_writes": {
                 "help_text": "True when ingestion kept writing $feature_flag_called to events for the organization before the write."
