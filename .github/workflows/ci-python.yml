@@ -136,6 +136,10 @@ jobs:
                         - '*.py' # root-level scripts (e.g. manage.py); '**/' alone may not match root
                         - 'pyproject.toml'
                         - '**/pyproject.toml'
+                        # mypy reads a root mypy.ini or .mypy.ini, and the cache-key filter
+                        # that used to list them is gone, so they belong here.
+                        - '**/mypy.ini'
+                        - '.mypy.ini'
                         - '**/ruff.toml'
                         - '**/.ruff.toml'
                         - 'uv.lock'
