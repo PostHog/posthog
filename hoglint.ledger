@@ -295,9 +295,7 @@ export-shape	posthog.temporal.oauth.ScoutScopePosture	products.tasks.backend.fac
 export-shape	posthog.user_permissions.UserPermissions	products.access_control.backend.facade.user_access_control	export-shape(class)	1
 export-shape	posthog.user_permissions.UserPermissions	products.authorization.backend.facade.api	export-shape(class)	1
 export-shape	posthog.week_start_day.WeekStartDay	products.customer_analytics.backend.facade.queries	export-shape(class)	1
-export-shape	products.access_control.backend.facade.subject_access_control.SubjectAccessControl	products.access_control.backend.facade.resolution_preview	export-shape(class)	1
 export-shape	products.access_control.backend.facade.subject_access_control.SubjectAccessControl	products.access_control.backend.facade.subject_access_control	export-shape(class)	1
-export-shape	products.access_control.backend.facade.user_access_control.UserAccessControl	products.access_control.backend.facade.resolution_preview	export-shape(class)	1
 export-shape	products.access_control.backend.facade.user_access_control.UserAccessControl	products.access_control.backend.facade.user_access_control	export-shape(class)	1
 export-shape	products.access_control.backend.facade.user_access_control.UserAccessControl	products.actions.backend.facade.api	export-shape(class)	1
 export-shape	products.access_control.backend.facade.user_access_control.UserAccessControl	products.ai_observability.backend.facade.api	export-shape(class)	1
