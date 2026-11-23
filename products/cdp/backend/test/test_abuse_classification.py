@@ -528,12 +528,7 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                     "inputs_schema": [{"key": "padding", "type": "string"}],
                     "inputs": {"padding": {"value": "B" * 300_000}},
                 },
-                {
-                    "error": "invalid_answer",
-                    "rule_hits": ["oversized_input"],
-                    "would_alert": True,
-                    "would_block": False,
-                },
+                {"error": "invalid_answer", "rule_hits": [], "would_alert": None, "would_block": None},
             ),
             (
                 "secret_input_runs_a_huge_range",

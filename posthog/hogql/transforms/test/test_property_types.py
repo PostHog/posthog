@@ -844,8 +844,9 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                     [native_stored_document(document) for document in documents] if reader == "native" else documents
                 )
                 if expected is None:
-                    with pytest.raises(ServerException, match="not under aggregate function and not in GROUP BY"):
+                    with pytest.raises(ServerException) as failure:
                         sync_execute(sql, {**context.values, "documents": stored})
+                    assert failure.value.code == 215
                 else:
                     rows = sync_execute(sql, {**context.values, "documents": stored})
                     assert rows == expected

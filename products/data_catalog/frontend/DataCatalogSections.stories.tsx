@@ -12,6 +12,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { DataCatalogScene } from './DataCatalogScene'
 import { METRICS_INTRO_SEEN_KEY } from './metricsIntroLogic'
+import { USAGE_SNAPSHOT } from './usageStoryFixtures'
 
 const nodes = [
     {
@@ -315,12 +316,10 @@ const meta: Meta<typeof DataCatalogScene> = {
                         results: proposals,
                         count: 1,
                     },
-                    '/api/projects/:team_id/data_catalog/pending_review/': {
-                        metrics: 0,
-                        relationships: 1,
-                        certifications: 0,
+                    '/api/projects/:team_id/data_catalog/attention/': {
+                        pending_review: { metrics: 0, relationships: 1, certifications: 0 },
+                        failing_models: 0,
                     },
-                    '/api/projects/:team_id/data_modeling_nodes/attention_count/': { count: 0 },
                     '/api/projects/:team_id/data_quality_checks/failing_count/': { count: 0 },
                     '/api/projects/:team_id/data_catalog/metrics/': { results: metrics, count: metrics.length },
                     '/api/projects/:team_id/warehouse_view_links/': { results: viewLinks, count: viewLinks.length },
@@ -403,6 +402,26 @@ export const OverviewWithSuggestions: Story = {
             },
         },
     },
+}
+
+const usageScanParameters = {
+    featureFlags: [
+        FEATURE_FLAGS.TODAY_RAIL_NAV,
+        FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE,
+        FEATURE_FLAGS.DATA_CATALOG_USAGE,
+    ],
+    msw: {
+        mocks: {
+            get: {
+                '/api/projects/:team_id/data_catalog/usage/': [USAGE_SNAPSHOT],
+                '/api/projects/:team_id/data_catalog/usage/latest/': USAGE_SNAPSHOT,
+            },
+        },
+    },
+}
+
+export const OverviewWithSuggestedMetrics: Story = {
+    parameters: usageScanParameters,
 }
 
 export const OverviewWithoutWarehouseAccess: Story = {
@@ -539,6 +558,20 @@ export const MetricsEmpty: Story = {
 
 export const MetricsEmptyNarrow: Story = {
     ...MetricsEmpty,
+    decorators: [inMainContent('w-128')],
+}
+
+export const MetricsSuggested: Story = {
+    parameters: {
+        ...usageScanParameters,
+        // The scan window in the fixture ends in late October.
+        mockDate: '2026-10-30',
+        pageUrl: urls.dataCatalog('metrics'),
+    },
+}
+
+export const MetricsSuggestedNarrow: Story = {
+    ...MetricsSuggested,
     decorators: [inMainContent('w-128')],
 }
 
