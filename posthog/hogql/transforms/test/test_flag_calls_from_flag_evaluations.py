@@ -735,6 +735,7 @@ class TestSwapFlagCallsWithPromotedPersonsFilter(BaseTest):
                 "SELECT person_id FROM flag_called_people",
                 f"WITH flag_called_people AS ({_PROMOTED_SOURCE}) ",
             ),
+            ("array_over_a_persons_column", " AS p", "p", "JSONExtract(properties, 'allowed_ids', 'Array(UUID)')", ""),
             (
                 "beside_a_cte_that_joins_with_using",
                 " AS p",
@@ -754,8 +755,7 @@ class TestSwapFlagCallsWithPromotedPersonsFilter(BaseTest):
         assert "FROM events" not in swap.source.to_hogql()
 
     def test_swaps_when_a_later_cte_has_the_name_of_a_table_that_the_moved_filter_reads(self):
-        source = f"SELECT id FROM persons WHERE id IN ({_PROMOTED_SOURCE})"
-        flag_people = _PROMOTED_OUTER.format(alias=" AS p", name="p", source=source)
+        flag_people = _PROMOTED_OUTER.format(alias=" AS p", name="p", source="SELECT id FROM persons")
         query = f"WITH flag_people AS ({flag_people}), persons AS (SELECT 1 AS unrelated) SELECT * FROM flag_people"
 
         swap = _swap_flag_evaluations_query(self.team, query, only_in_flag_evaluations=True)

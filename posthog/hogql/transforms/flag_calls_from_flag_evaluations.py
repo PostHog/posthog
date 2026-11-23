@@ -1283,7 +1283,7 @@ def _swap_keeps_bindings(
 
     `PersonsTable` moves a join's `persons.id IN (...)` predicate out of the tree into a table attribute while the
     resolver runs. The collector resolves that moved copy with `resolve`, so its names count too. A moved copy that
-    it cannot resolve or recognize makes the check fail.
+    it cannot resolve makes the check fail.
     """
     original_bindings = _bindings(original, resolve)
     swapped_bindings = _bindings(swapped, resolve)
@@ -1302,7 +1302,7 @@ def _posthog_events_qualifiers_read_scans(node: ast.AST, resolve: Resolve[ast.Ex
     column named `posthog`. The field then reads that table in both queries, so `_swap_keeps_bindings` does not see it.
     A field in another SELECT reads whatever it names there, and the swap does not count it.
     """
-    moved = _MovedFilterCollector(resolve)
+    moved = _MovedFilterVisitor(resolve)
     moved.visit(node)
     if moved.unchecked_filter:
         return False
@@ -1383,11 +1383,11 @@ def _bindings(node: ast.AST, resolve: Resolve[ast.Expr]) -> list[_Binding] | Non
 class _MovedFilterVisitor(SyntaxVisitor):
     """Visits the persons filter that `PersonsTable` moves out of a join constraint while the resolver runs.
 
-    The moved predicate is `id IN (<subquery>)`, so the subquery is what binds names. It holds no types until the
-    printer's lazy-table pass, which resolves it inside the persons subquery. There it reads the CTEs that the SELECT
-    of the join declares, and no other name of the enclosing queries. This resolves a clone of it in that scope. A
-    subquery that does not resolve there makes `unchecked_filter` true, because the check cannot show that the filter
-    binds alike.
+    The moved predicate is `id IN (...)`. It holds no types until the printer's lazy-table pass, which puts it in the
+    WHERE of the persons subquery, a SELECT from raw_persons. There it reads the columns of raw_persons and the CTEs
+    that the SELECT of the join declares, and no other name of the enclosing queries. This resolves a clone of it in
+    such a SELECT. A predicate that does not resolve there makes `unchecked_filter` true, because the check cannot
+    show that the filter binds alike.
     """
 
     def __init__(self, resolve: Resolve[ast.Expr], ctes: dict[str, ast.CTE] | None = None) -> None:
@@ -1404,6 +1404,10 @@ class _MovedFilterVisitor(SyntaxVisitor):
         super().visit_select_query(node)
         self.ctes = outer
 
+    def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        self._visit_moved_filter_of(node)
+        super().visit_join_expr(node)
+
     def _visit_moved_filter_of(self, node: ast.JoinExpr) -> None:
         table_type = node.type
         while isinstance(table_type, ast.TableAliasType | ast.ColumnAliasedTableType):
@@ -1414,23 +1418,18 @@ class _MovedFilterVisitor(SyntaxVisitor):
     def _visit_moved_filter(self, moved: ast.Expr | None) -> None:
         if moved is None:
             return
-        for predicate in moved.exprs if isinstance(moved, ast.And) else [moved]:
-            if not (isinstance(predicate, ast.CompareOperation) and predicate.op == ast.CompareOperationOp.In):
-                self.unchecked_filter = True
-                continue
-            try:
-                resolved = self.resolve(clone_expr(predicate.right), scopes=[ast.SelectQueryType(ctes=self.ctes)])
-            except BaseHogQLError:
-                self.unchecked_filter = True
-                continue
-            self.resolved_filters.append(resolved)
-            self.visit(resolved)
-
-
-class _MovedFilterCollector(_MovedFilterVisitor):
-    def visit_join_expr(self, node: ast.JoinExpr) -> None:
-        self._visit_moved_filter_of(node)
-        super().visit_join_expr(node)
+        persons_subquery: ast.Expr = ast.SelectQuery(
+            select=[ast.Constant(value=1)],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["raw_persons"])),
+            where=clone_expr(moved),
+        )
+        try:
+            resolved = self.resolve(persons_subquery, scopes=[ast.SelectQueryType(ctes=self.ctes)])
+        except BaseHogQLError:
+            self.unchecked_filter = True
+            return
+        self.resolved_filters.append(resolved)
+        self.visit(resolved)
 
 
 class _BindingCollector(_MovedFilterVisitor):
@@ -1586,10 +1585,6 @@ class _PropertyReadCollector(_MovedFilterVisitor):
         super().__init__(resolve)
         self.context = context
         self.reads: list[_PropertyRead] = []
-
-    def visit_join_expr(self, node: ast.JoinExpr) -> None:
-        self._visit_moved_filter_of(node)
-        super().visit_join_expr(node)
 
     def visit_field(self, node: ast.Field) -> None:
         if not isinstance(node.type, ast.PropertyType) or not node.type.chain:
