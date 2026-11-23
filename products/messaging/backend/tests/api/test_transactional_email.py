@@ -867,7 +867,8 @@ class TestTransactionalEmail(APIBaseTest):
     ):
         self._cdp_accepts(mock_post)
         client = self._sender_client("secret_key")
-        allow_list = f"1,{self.team.id}" if listed else "1"
+        other_team = self.team.id + 1
+        allow_list = f"{other_team},{self.team.id}" if listed else str(other_team)
         with (
             override_settings(CACHES=lagging_reader_caches(unique_key_prefix("test-send-throttle"))),
             override_instance_config("RATE_LIMIT_ENABLED", True),
