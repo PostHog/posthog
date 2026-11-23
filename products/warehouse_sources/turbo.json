@@ -82,6 +82,7 @@
                 "!backend/temporal/data_imports/sources/stripe/tests/**",
                 "!backend/temporal/data_imports/sources/trino/tests/**",
                 "backend/scopes.py",
+                "backend/activity_log_config.py",
                 "backend/activity_logging.py",
                 "backend/apps.py",
                 "backend/source_icons.py",
