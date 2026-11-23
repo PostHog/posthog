@@ -17,6 +17,7 @@ from posthog.llm.gateway_client import (
     trace_id_from_seed,
 )
 from posthog.llm.managed_decision_model import DEFAULT_DECISION_MODEL
+from posthog.llm.prompt_templates import PromptTemplates
 from posthog.llm.semantic_enrichment import extract_json_object
 from posthog.llm.system_one import NoulAnswer, NoulQuestion, SystemOneRequestFailed
 from posthog.llm.system_one_client import build_system_one_client
@@ -29,7 +30,6 @@ from products.slack_app.backend.facade.run_preferences import ModelChoice, avail
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
 from products.slack_app.backend.models import SlackThreadTaskMapping
-from products.slack_app.backend.prompt_templates import PromptTemplates
 from products.slack_app.backend.services.integration_resolver import format_project_candidate_list, routable_projects
 from products.slack_app.backend.services.slack_messages import SlackThreadMessage
 from products.slack_app.backend.services.slack_user_info import find_addressed_bot_user_id

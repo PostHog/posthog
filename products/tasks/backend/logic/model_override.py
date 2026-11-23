@@ -5,6 +5,7 @@ from a prompt.
 """
 
 from collections.abc import Mapping
+from pathlib import Path
 
 from django.conf import settings
 
@@ -14,11 +15,14 @@ from pydantic import BaseModel, ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import GatewayNotConfiguredError, build_ai_gateway_openai_client
+from posthog.llm.prompt_templates import PromptTemplates
 from posthog.llm.semantic_enrichment import extract_json_object
 
 from products.tasks.backend.logic.services.model_catalogue import ModelChoice, find_model_choice, group_by_runtime
 
 logger = structlog.get_logger(__name__)
+
+prompts = PromptTemplates(Path(__file__).parent / "prompts")
 
 # The classifier runs on a reasoning model, which draws its reasoning from the same token budget as
 # the reply. The reply is one short JSON object; the headroom is for the thinking in front of it, and
@@ -33,45 +37,6 @@ MODEL_OVERRIDE_CLASSIFIER_MODEL = "gpt-6-luna"
 MODEL_OVERRIDE_MAX_COMPLETION_TOKENS = 2048
 MODEL_OVERRIDE_TIMEOUT_SECONDS = 10.0
 MODEL_OVERRIDE_MAX_RETRIES = 1
-
-# `{message_kind}` is how the prompt names the message to the classifier, such as "Slack message".
-MODEL_OVERRIDE_PROMPT = """\
-You are routing a {message_kind} addressed to the PostHog agent. Decide whether the author asked for THIS task to run on a particular model or reasoning effort.
-
-Only these models can be selected — copy the id exactly as written:
-{model_catalogue}
-
-Name a model or effort only when the message instructs how to run this task:
-  - "use fable for this one", "run this on opus 5", "do this with max effort", "investigate this on high".
-  - The instruction can sit alongside the actual request: 'use sonnet and fix the flaky checkout test'.
-
-Once — and only once — you have decided the message is such an instruction, resolve its shorthand to an id from the list. Nobody types a model id:
-  - A bare nickname names a family, not one version: "sol", "luna", "fable".
-  - A runtime or vendor in front of it is only a qualifier, and the name beside it is the answer: "codex sol" and "openai sol" both mean Sol; "claude opus" and "anthropic opus" both mean Opus.
-  - Any name with no version means its newest listed member — a family word like "opus" and a nickname like "luna" alike. Take the highest-numbered entry carrying that name, never the first one you see. Read the versions as decimals: 5 is newer than 4.8, and 6 is newer than 5.6.
-  - A runtime or vendor standing alone names no model: "run this on codex", "use anthropic" → null. A model id that happens to end in "codex" is a different thing, and needs its version said out loud to be chosen.
-
-Answer with nulls when a model or effort is merely part of the subject matter — this is the common mistake, so check for it:
-  - "add claude-fable-5 to our model picker" (a code change that names a model).
-  - "move the summary agents over to sonnet" (a code change that switches something else onto a model, not this task).
-  - "why is gpt-5 slower than opus in our evals?" (a question about models).
-  - "how long does a scout take on sol 6.1, compared with terra?" (a request for data about models: the models are what gets measured, not what runs this task).
-  - "the opus rollout broke the dashboard" (a topic).
-  - "reasoning about this is hard" (the word, not a setting).
-  - "we tried sonnet on this last week and it kept timing out" (an account of a run that already happened, not an instruction for this one — past tense is the tell).
-
-A question or a data request about a model — its cost, speed, token use, error rate, or how it compares with other models — is subject matter. This stays true when the model name comes after "for", "via", "on", or "with". To change the run, the message must also tell you to run this task on that model.
-
-Rules for the fields:
-  - model: an id from the list above, or null if the author named no model (or named one that isn't listed).
-  - reasoning_effort: only when the author explicitly asks for an effort level, and only a value listed for that model. Otherwise null.
-  - An effort can be requested without a model, and a model without an effort.
-
-When you are unsure, answer with nulls — the author's saved default is the right thing to run.
-
-Message: {message}
-
-Answer with the two fields, e.g. {{"model": "claude-fable-5", "reasoning_effort": "high"}} or {{"model": null, "reasoning_effort": null}}"""
 
 
 @frozen
@@ -143,9 +108,15 @@ def request_model_override(
     message_kind: str = "message",
 ) -> ModelOverride | None:
     """Raises on a failed call or a reply that does not parse, so a caller can tell a failure from a
-    message that asks for nothing."""
-    prompt = MODEL_OVERRIDE_PROMPT.format(
-        message_kind=message_kind, model_catalogue=_render_model_catalogue(choices), message=message
+    message that asks for nothing.
+
+    ``message_kind`` is how the prompt names the message to the classifier, such as "Slack message".
+    """
+    prompt = prompts.render(
+        "model_override",
+        message_kind=message_kind,
+        model_catalogue=_render_model_catalogue(choices),
+        message=message,
     )
     client = build_ai_gateway_openai_client(
         settings.AI_GATEWAY_API_KEY,
