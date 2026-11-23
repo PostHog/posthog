@@ -26,7 +26,7 @@ export const azureBlobDefinition: WarehouseDestinationDefinition = {
                     name="prefix"
                     label="Prefix"
                     showOptional
-                    info="Folder to write under. Each table gets its own folder below this."
+                    info="Folder to write under. Each table gets its own folder below this. Use {year}, {month}, {day}, {hour}, {minute} and {second} for when the sync started, in UTC, and {table} to place the table folder yourself."
                 >
                     <LemonInput placeholder="posthog/" disabled={!isNew} data-attr="warehouse-destination-prefix" />
                 </LemonField>
