@@ -81,10 +81,11 @@ tools:
             poll the status until it is verified, and call integrations-email-verify-create once. On not_started, call
             integrations-email-verify-create once, then read the status to get the records to publish. On failed, fix
             the records first, then call integrations-email-verify-create. After about 15 minutes without verified,
-            stop polling. Name any record still pending; if none is, tell the person the records are published, the
-            email provider is still checking, and they can check again later. The setting-up-an-email-domain skill has
-            the details. If this tool returns an error, fall back to adding the records from
-            integrations-email-status-retrieve by hand.
+            stop polling and name any record still pending. If none is, call integrations-email-verify-create once,
+            since it also starts any setup the email provider is missing, read the status, and publish any record it
+            now lists as pending; if it lists none, tell the person the last status and that they can check again
+            later. The setting-up-an-email-domain skill has the details. If this tool returns an error, fall back to
+            adding the records from integrations-email-status-retrieve by hand.
         exclude_params:
             - context
             - proxy_record_id
