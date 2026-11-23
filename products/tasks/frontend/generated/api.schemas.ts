@@ -4831,6 +4831,36 @@ export interface TasksTeamConfigResponseApi {
     agent_instructions: string
 }
 
+export interface TaskModelOverrideRequestApi {
+    /**
+     * The message the person is about to send to the agent, without any context block.
+     * @maxLength 10000
+     */
+    message: string
+    /** Limit the answer to the models of this runtime. A live run cannot change its runtime, so a follow-up to a live run passes the runtime of that run.
+     *
+     * * `claude` - claude
+     * * `codex` - codex */
+    runtime_adapter?: RuntimeAdapterEnumApi | null
+}
+
+export interface TaskModelOverrideResponseApi {
+    /**
+     * Model id that the message asks this task to run on, or null when it asks for no model.
+     * @nullable
+     */
+    model: string | null
+    /** Reasoning effort that the message asks for, or null when it asks for none. Not checked against the model, so the client clamps it to an effort the model supports.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max
+     * * `ultracode` - ultracode */
+    reasoning_effort: ReasoningEffortEnumApi | null
+}
+
 /**
  * One model a run may use. Reads a `ModelChoice` straight off the catalogue facade.
  *

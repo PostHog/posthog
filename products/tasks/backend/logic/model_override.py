@@ -4,6 +4,7 @@ Every surface that takes a message for the agent can read one: Slack from a ment
 from a prompt.
 """
 
+import re
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -44,6 +45,8 @@ class ModelOverrideAttribution:
     ai_product: str
     properties: Mapping[str, str]
     trace_id: str | None = None
+    distinct_id: str | None = None
+    privacy_mode: bool = False
 
 
 @frozen
@@ -122,6 +125,7 @@ def request_model_override(
         settings.AI_GATEWAY_API_KEY,
         ai_product=attribution.ai_product,
         trace_id=attribution.trace_id,
+        distinct_id=attribution.distinct_id,
         properties=dict(attribution.properties),
     ).with_options(timeout=MODEL_OVERRIDE_TIMEOUT_SECONDS, max_retries=MODEL_OVERRIDE_MAX_RETRIES)
     response = client.chat.completions.create(
@@ -129,6 +133,7 @@ def request_model_override(
         messages=[{"role": "user", "content": prompt}],
         max_completion_tokens=MODEL_OVERRIDE_MAX_COMPLETION_TOKENS,
         response_format=_response_format(choices),
+        **({"extra_headers": {"X-PostHog-Privacy-Mode": "true"}} if attribution.privacy_mode else {}),
     )
     # Tolerant parse on top of the schema on purpose: the gateway fronts several
     # providers and does not honour a response format identically on every route, so
@@ -150,6 +155,27 @@ def request_model_override(
     if choice is None and not reply.reasoning_effort:
         return None
     return ModelOverride(model=choice.model if choice else None, reasoning_effort=reply.reasoning_effort)
+
+
+_WORD = re.compile(r"[a-z]+")
+_EFFORT_WORDS = frozenset({"effort", "reasoning"})
+
+
+def may_request_model_override(message: str, choices: tuple[ModelChoice, ...]) -> bool:
+    """Whether the message names a model, a runtime, or an effort from ``choices`` at all.
+
+    A message that names none of them cannot ask for an override, so a caller that waits for the
+    classifier before it sends the message can skip the call. The check is loose on purpose: a
+    false match costs one classifier call, and a missed match drops what the person asked for.
+    """
+    words = set(_WORD.findall(message.lower()))
+    names = {
+        word
+        for choice in choices
+        for word in _WORD.findall(f"{choice.model} {choice.label} {choice.runtime_adapter}".lower())
+    }
+    efforts = {effort for choice in choices for effort in choice.supported_efforts}
+    return not words.isdisjoint(names | efforts | _EFFORT_WORDS)
 
 
 def classify_model_override(

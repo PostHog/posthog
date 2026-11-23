@@ -17,7 +17,9 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import posthog from 'posthog-js'
 
 import { ApiError, readableErrorMessage } from 'lib/api-error'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
@@ -58,6 +60,7 @@ import { rememberAttachmentPreview } from '../utils/attachmentPreviews'
 import type { PendingAttachment } from '../utils/attachments'
 import { extractCommentContexts, withCommentContexts } from '../utils/commentContext'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
+import { type PromptModelSwitchSurface, requestPromptModelSwitch } from '../utils/promptModelSwitch'
 import type { ReplySuggestions } from '../utils/replySuggestions'
 import { submitWithWarmRunRetry } from '../utils/warmRunSubmission'
 import { chatContextLogic, chatSendItems } from './chatContextLogic'
@@ -189,6 +192,7 @@ export interface runInteractionLogicValues {
     picks: AttachedContextItem[] // chatContextLogic
     queuedAttachments: PendingAttachment[] // composerAttachmentsLogic
     stagedAttachments: PendingAttachment[] // composerAttachmentsLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     catalogue: ModelChoiceApi[] // modelCatalogueLogic
     currentProjectId: number | null // projectLogic
     cancellationState: CancellationState // runCancellationLogic
@@ -738,6 +742,8 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             ['dataProcessingAccepted'],
             modelCatalogueLogic,
             ['catalogue'],
+            featureFlagLogic,
+            ['featureFlags'],
             taskRunDefaultsLogic,
             ['defaultModel', 'defaultEffort'],
             runCancellationLogic({ streamKey: props.streamKey ?? props.runId }),
@@ -1299,6 +1305,33 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             actions.setSending(false)
         }
 
+        // Checked before the await, so a send without the switch still starts in the same tick.
+        const promptModelSwitchEnabled = (content: string): boolean =>
+            !!values.featureFlags[FEATURE_FLAGS.PHAI_PROMPT_MODEL_SWITCH] &&
+            values.currentProjectId != null &&
+            !isClearCommand(content)
+
+        // A message that names a model or an effort switches the picker before the send reads it, so the
+        // existing sync (`set_config_option`, or the new run's request) carries the switch to the agent.
+        const applyPromptModelSwitch = async (
+            content: string,
+            surface: PromptModelSwitchSurface,
+            runtimeAdapter: string | null = null
+        ): Promise<void> => {
+            const requested = await requestPromptModelSwitch(
+                String(values.currentProjectId),
+                content,
+                surface,
+                runtimeAdapter
+            )
+            if (requested?.model) {
+                actions.setModel(requested.model)
+            }
+            if (requested?.reasoningEffort) {
+                actions.setEffort(requested.reasoningEffort)
+            }
+        }
+
         const noteTerminalDraft = (): void => {
             // Consent gates warming as it gates sending: a warm boots a cloud sandbox and restores
             // the task's repository snapshot, so typing must not start one before the organization
@@ -1519,6 +1552,13 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 }
                 actions.persistTaskDraft()
                 try {
+                    if (promptModelSwitchEnabled(content)) {
+                        // A live run cannot change its runtime, so the switch stays on the run's runtime.
+                        await applyPromptModelSwitch(content, 'follow_up', props.currentRuntimeAdapter ?? null)
+                        if (!isCurrent()) {
+                            return
+                        }
+                    }
                     // Sync the picked model/effort to the agent session first, but only what the user actually
                     // changed since the last sync — mid-run config lives as session state, so it must go via a
                     // `set_config_option` command before the message rather than ride inside `user_message`. A
@@ -1729,6 +1769,12 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 )
                 actions.claimApplyBackTargets(streamKey)
                 try {
+                    if (promptModelSwitchEnabled(content)) {
+                        await applyPromptModelSwitch(content, 'new_run')
+                        if (!isCurrent()) {
+                            return
+                        }
+                    }
                     // Same endpoint as the "Run again" button, but seeded with the user's message and chained
                     // from the finished run so the new run continues the thread, and carrying the picked model /
                     // reasoning effort (the resume schema can't, so we send the Claude create shape). The response

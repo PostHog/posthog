@@ -1133,6 +1133,26 @@ describe('taskTrackerSceneLogic', () => {
         expect(logic.values.newTaskData.model).toBeNull()
     })
 
+    it('pins the model that a new chat message names when the prompt model switch is on', async () => {
+        const flags = [FEATURE_FLAGS.TASKS, FEATURE_FLAGS.PHAI_SANDBOX_MODE, FEATURE_FLAGS.PHAI_PROMPT_MODEL_SWITCH]
+        featureFlagLogic.actions.setFeatureFlags(flags, Object.fromEntries(flags.map((flag) => [flag, true])))
+        useMocks({
+            get: { '/api/projects/:team/tasks/@me/config/': myConfigResponse(null) },
+            post: {
+                '/api/projects/:team/tasks/model_override/': { model: 'claude-opus-4-8', reasoning_effort: null },
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setNewTaskData({ description: 'use opus for this' })
+        logic.actions.submitNewTask()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(runBody?.model).toEqual('claude-opus-4-8')
+        expect(runBody?.runtime_adapter).toEqual('claude')
+    })
+
     it('bills a codex default to the saved chatgpt plan when the task submits before the defaults load', async () => {
         const flag = FEATURE_FLAGS.PHAI_SANDBOX_MODE
         featureFlagLogic.actions.setFeatureFlags([flag], { [flag]: true })

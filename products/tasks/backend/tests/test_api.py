@@ -20395,6 +20395,65 @@ class TestModelCatalogueAPI(BaseTaskAPITest):
         self.assertEqual(response.json(), {"models": []})
 
 
+class TestModelOverrideAPI(BaseTaskAPITest):
+    GATEWAY_MODELS = (
+        GatewayModel(id="claude-opus-4-8", owned_by="anthropic", context_window=200_000),
+        GatewayModel(id="gpt-5.5", owned_by="openai", context_window=400_000),
+    )
+
+    def _post(self, payload: dict, *, flag_enabled: bool, reply: str) -> tuple[dict, MagicMock]:
+        completion = MagicMock()
+        completion.choices = [MagicMock(message=MagicMock(content=reply))]
+        with (
+            patch(
+                "products.tasks.backend.logic.services.model_catalogue.list_gateway_models",
+                return_value=self.GATEWAY_MODELS,
+            ),
+            patch(
+                "products.tasks.backend.presentation.views.api.prompt_model_switch_enabled",
+                return_value=flag_enabled,
+            ),
+            patch("products.tasks.backend.logic.model_override.build_ai_gateway_openai_client") as build,
+        ):
+            build.return_value.with_options.return_value.chat.completions.create.return_value = completion
+            response = self.client.post("/api/projects/@current/tasks/model_override/", payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return response.json(), build
+
+    @parameterized.expand(
+        [
+            ("any_runtime", None, {"model": "claude-opus-4-8", "reasoning_effort": "high"}),
+            # A live run cannot change its runtime, so a Claude model is no answer for a Codex run.
+            ("other_runtime", "codex", {"model": None, "reasoning_effort": "high"}),
+        ]
+    )
+    def test_returns_the_requested_model_from_the_offered_runtime(self, _name, runtime_adapter, expected) -> None:
+        body, _build = self._post(
+            {"message": "use opus with high effort", "runtime_adapter": runtime_adapter},
+            flag_enabled=True,
+            reply='{"model": "claude-opus-4-8", "reasoning_effort": "high"}',
+        )
+
+        self.assertEqual(body, expected)
+
+    @parameterized.expand(
+        [
+            ("flag_off", "use opus for this", False),
+            ("names_no_model", "why does the retry never stop?", True),
+        ]
+    )
+    def test_skips_the_classifier_without_a_chance_of_a_request(self, _name, message, flag_enabled) -> None:
+        body, build = self._post(
+            {"message": message},
+            flag_enabled=flag_enabled,
+            reply='{"model": "claude-opus-4-8", "reasoning_effort": "high"}',
+        )
+
+        self.assertEqual(body, {"model": None, "reasoning_effort": None})
+        build.assert_not_called()
+
+
 class TestTaskSerializerResponseRoundTrip(BaseTaskAPITest):
     def test_task_response_can_be_read_back(self):
         # `@validated_request` re-reads its own response through `to_internal_value` whenever DEBUG is

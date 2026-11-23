@@ -2,7 +2,9 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
@@ -10,6 +12,7 @@ import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 import { initKeaTests } from '~/test/init'
 
 import {
+    tasksModelOverrideCreate,
     tasksRunCreate,
     tasksRunsCancelCreate,
     tasksRunsClearConversationCreate,
@@ -170,6 +173,7 @@ jest.mock('scenes/projectLogic', () => {
 })
 
 jest.mock('products/tasks/frontend/generated/api', () => ({
+    tasksModelOverrideCreate: jest.fn(),
     tasksRunsCommandCreate: jest.fn(),
     tasksRunCreate: jest.fn(),
     tasksRunsClearConversationCreate: jest.fn(),
@@ -744,6 +748,33 @@ describe('runInteractionLogic', () => {
         expect(logic.values.selectedModel).toBe('claude-opus-4-8')
         expect(logic.values.selectedEffort).toBe('low')
     })
+
+    it.each([
+        [
+            true,
+            [setConfigCommand('model', 'claude-opus-4-8'), userMessageCommand('use opus for this')],
+            'claude-opus-4-8',
+        ],
+        [false, [userMessageCommand('use opus for this')], null],
+    ])(
+        'switches the picker to a model the message names before the send, with the flag %s',
+        async (enabled, expectedCommands, expectedOverride) => {
+            ;(tasksModelOverrideCreate as jest.Mock).mockResolvedValue({
+                model: 'claude-opus-4-8',
+                reasoning_effort: null,
+            })
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_PROMPT_MODEL_SWITCH]: enabled })
+            setThinking(false)
+            logic.actions.setComposerFormValues({ draft: 'use opus for this' })
+
+            await expectLogic(logic, () => {
+                logic.actions.submitComposerForm()
+            }).toFinishAllListeners()
+
+            expect((tasksRunsCommandCreate as jest.Mock).mock.calls).toEqual(expectedCommands)
+            expect(logic.values.modelOverride).toBe(expectedOverride)
+        }
+    )
 
     it('syncs a changed model to the agent right before the message, and only when it changed', async () => {
         setThinking(false)

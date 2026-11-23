@@ -84,6 +84,7 @@ import {
 } from '../../utils/composerModels'
 import { DEFAULT_COMPOSER_MODE, getModesForRuntimeAdapter, type PermissionMode } from '../../utils/composerModes'
 import { wrapWithPosthogContext } from '../../utils/posthogContextBlock'
+import { requestPromptModelSwitch } from '../../utils/promptModelSwitch'
 import { submitWithWarmRunRetry } from '../../utils/warmRunSubmission'
 
 export type { ActiveCreation } from '~/layout/ai/runnerPanelLogic'
@@ -1128,6 +1129,24 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             )
 
             try {
+                // Before anything reads the selection: the switch sets the picker, and the request, the
+                // runtime and the plan check below all follow the picker.
+                if (values.featureFlags[FEATURE_FLAGS.PHAI_PROMPT_MODEL_SWITCH]) {
+                    const requested = await requestPromptModelSwitch(projectId, description, 'new_task')
+                    if (requested) {
+                        actions.setNewTaskData({
+                            ...(requested.model ? { model: requested.model } : {}),
+                            ...(requested.reasoningEffort ? { reasoningEffort: requested.reasoningEffort } : {}),
+                        })
+                        // The pending pane renders this interaction's picker until the run takes over.
+                        if (requested.model) {
+                            interaction.actions.setModel(requested.model)
+                        }
+                        if (requested.reasoningEffort) {
+                            interaction.actions.setEffort(requested.reasoningEffort)
+                        }
+                    }
+                }
                 const codexModelAccess = await codexModelAccessForRun(async () => {
                     if (values.isDefaultSelection && !values.defaultsResolved) {
                         await taskRunDefaultsLogic.asyncActions.loadMyConfig()
