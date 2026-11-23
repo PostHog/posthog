@@ -2493,7 +2493,7 @@ describe('Cyclotron V2', () => {
 
                 const result = await job.bulkCreateAndCheckIn({
                     newJobs: [
-                        { teamId: 1, queueName: 'hogflow', parentRunId: parentId },
+                        { teamId: 1, queueName: 'hogflow', parentRunId: parentId, fileBytes: 700 },
                         { teamId: 1, queueName: 'hogflow', parentRunId: parentId },
                     ],
                     selfDisposition: { kind: 'reschedule', scheduledAt: future, state: newState },
@@ -2510,13 +2510,14 @@ describe('Cyclotron V2', () => {
 
                 // Children exist on their own queue
                 const children = await assertPool.query(
-                    `SELECT id, queue_name, status, parent_run_id FROM cyclotron_jobs
+                    `SELECT id, queue_name, status, parent_run_id, file_bytes::text FROM cyclotron_jobs
                      WHERE parent_run_id = $1 ORDER BY id`,
                     [parentId]
                 )
                 expect(children.rows).toHaveLength(2)
                 expect(children.rows[0].queue_name).toBe('hogflow')
                 expect(children.rows[0].status).toBe('available')
+                expect(children.rows.map((row) => row.file_bytes)).toEqual(expect.arrayContaining(['700', null]))
             })
 
             it('acks self atomically with child inserts', async () => {
