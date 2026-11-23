@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 from django.apps import apps
 from django.core.cache import cache
 from django.db import OperationalError, connection
-from django.http import QueryDict
+from django.http import HttpRequest, QueryDict
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -3123,7 +3123,7 @@ class TestSignalReportListAPI(APIBaseTest):
         view = SignalReportViewSet()
         view.action = "section_counts"
         view.__dict__["team_id"] = self.team.id
-        view.request = SimpleNamespace(query_params=QueryDict())
+        view.request = Request(HttpRequest())
         count_sql = str(view._apply_signal_report_listed_filter(SignalReport.objects.all()).query)
 
         assert "@>" in count_sql
