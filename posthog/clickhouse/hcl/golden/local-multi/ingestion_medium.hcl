@@ -144,6 +144,57 @@ database "posthog" {
     }
   }
 
+  table "kafka_flag_evaluations_json" {
+    column "uuid" {
+      type = "UUID"
+    }
+    column "event" {
+      type = "LowCardinality(String)"
+    }
+    column "properties" {
+      type = "String"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "person_properties" {
+      type = "String"
+    }
+    column "person_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "inserted_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "person_mode" {
+      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
+    }
+    engine "kafka" {
+      collection           = "warpstream_ingestion"
+      topic_list           = "clickhouse_flag_evaluations"
+      group_name           = "clickhouse_flag_evaluations_json"
+      format               = "JSONEachRow"
+      num_consumers        = 1
+      max_block_size       = 10000
+      skip_broken_messages = 100
+      poll_timeout_ms      = 10000
+      poll_max_batch_size  = 10000
+      flush_interval_ms    = 7500
+    }
+  }
+
   table "kafka_heatmaps" {
     column "session_id" {
       type = "String"
@@ -849,6 +900,120 @@ database "posthog" {
     }
   }
 
+  table "writable_flag_evaluations_json" {
+    column "uuid" {
+      type = "UUID"
+    }
+    column "event" {
+      type = "String"
+    }
+    column "properties" {
+      type = "JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String)"
+    }
+    column "temporary_properties" {
+      type = "JSON(max_dynamic_paths=32)"
+    }
+    column "properties_null_keys" {
+      type = "Array(LowCardinality(String))"
+    }
+    column "temporary_properties_null_keys" {
+      type = "Array(LowCardinality(String))"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "created_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "elements_chain" {
+      type = "String"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "person_properties" {
+      type = "JSON(max_dynamic_paths=256, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$device_type` LowCardinality(String), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$initial_browser` LowCardinality(String), `$initial_browser_language` LowCardinality(String), `$initial_browser_version` LowCardinality(String), `$initial_device_type` LowCardinality(String), `$initial_geoip_city_name` LowCardinality(String), `$initial_geoip_continent_code` LowCardinality(String), `$initial_geoip_continent_name` LowCardinality(String), `$initial_geoip_country_code` LowCardinality(String), `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_time_zone` LowCardinality(String), `$initial_os` LowCardinality(String), `$initial_os_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String))"
+    }
+    column "person_properties_null_keys" {
+      type = "Array(LowCardinality(String))"
+    }
+    column "group0_properties" {
+      type = "String"
+    }
+    column "group1_properties" {
+      type = "String"
+    }
+    column "group2_properties" {
+      type = "String"
+    }
+    column "group3_properties" {
+      type = "String"
+    }
+    column "group4_properties" {
+      type = "String"
+    }
+    column "person_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group0_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group1_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group2_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group3_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group4_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "inserted_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "timestamp"
+    }
+    column "person_mode" {
+      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
+    }
+    column "consumer_breadcrumbs" {
+      type = "Array(String)"
+    }
+    column "historical_migration" {
+      type = "Bool"
+    }
+    column "total_event_size" {
+      type = "UInt32"
+    }
+    column "captured_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "posthog"
+      remote_database = "posthog"
+      remote_table    = "sharded_flag_evaluations_json"
+      sharding_key    = "sipHash64(distinct_id)"
+    }
+  }
+
   table "writable_heatmaps" {
     column "session_id" {
       type = "String"
@@ -1137,6 +1302,133 @@ SQL
     }
     column "event_count" {
       type = "UInt8"
+    }
+  }
+
+  materialized_view "flag_evaluations_json_mv" {
+    to_table = "posthog.writable_flag_evaluations_json"
+    query    = <<SQL
+SELECT
+  *,
+  accurateCast(byteSize(*) + byteSize(toUInt32(0)), 'UInt32') AS total_event_size
+FROM
+  (
+    SELECT
+      uuid,
+      event,
+      ifNull(
+        accurateCastOrNull(
+          cleaned.properties,
+          'JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String)'
+        ),
+        CAST(concat('{"$unparseable_properties":', toJSONString(source.properties), '}'), 'JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String)')
+      ) AS properties,
+      ifNull(
+        accurateCastOrNull(cleaned.temporary_properties, 'JSON(max_dynamic_paths = 32)'),
+        CAST('{}', 'JSON(max_dynamic_paths = 32)')
+      ) AS temporary_properties,
+      cleaned.properties_null_keys AS properties_null_keys,
+      cleaned.temporary_properties_null_keys AS temporary_properties_null_keys,
+      now64() AS inserted_at,
+      timestamp,
+      team_id,
+      distinct_id,
+      created_at,
+      person_id,
+      ifNull(
+        accurateCastOrNull(
+          cleaned.person_properties,
+          'JSON(max_dynamic_paths = 256, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$device_type` LowCardinality(String), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$initial_browser` LowCardinality(String), `$initial_browser_language` LowCardinality(String), `$initial_browser_version` LowCardinality(String), `$initial_device_type` LowCardinality(String), `$initial_geoip_city_name` LowCardinality(String), `$initial_geoip_continent_code` LowCardinality(String), `$initial_geoip_continent_name` LowCardinality(String), `$initial_geoip_country_code` LowCardinality(String), `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_time_zone` LowCardinality(String), `$initial_os` LowCardinality(String), `$initial_os_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String))'
+        ),
+        CAST(concat('{"$unparseable_properties":', toJSONString(source.person_properties), '}'), 'JSON(max_dynamic_paths = 256, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$device_type` LowCardinality(String), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$initial_browser` LowCardinality(String), `$initial_browser_language` LowCardinality(String), `$initial_browser_version` LowCardinality(String), `$initial_device_type` LowCardinality(String), `$initial_geoip_city_name` LowCardinality(String), `$initial_geoip_continent_code` LowCardinality(String), `$initial_geoip_continent_name` LowCardinality(String), `$initial_geoip_country_code` LowCardinality(String), `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_time_zone` LowCardinality(String), `$initial_os` LowCardinality(String), `$initial_os_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String))')
+      ) AS person_properties,
+      cleaned.person_properties_null_keys AS person_properties_null_keys,
+      person_created_at,
+      person_mode,
+      created_at AS captured_at,
+      _timestamp,
+      _offset,
+      _partition
+    FROM
+      (
+        SELECT
+          *,
+          _timestamp,
+          _offset,
+          _partition,
+          JSONCleanPostHogEvent(properties, if(empty(person_properties), '{}', person_properties)) AS cleaned
+        FROM posthog.kafka_flag_evaluations_json
+      ) AS source
+  )
+SETTINGS
+  input_format_try_infer_dates = 0,
+  input_format_try_infer_datetimes = 0,
+  json_type_escape_dots_in_keys = 1,
+  type_json_skip_duplicated_paths = 1
+SQL
+
+    column "uuid" {
+      type = "UUID"
+    }
+    column "event" {
+      type = "LowCardinality(String)"
+    }
+    column "properties" {
+      type = "JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String)"
+    }
+    column "temporary_properties" {
+      type = "JSON(max_dynamic_paths=32)"
+    }
+    column "properties_null_keys" {
+      type = "Array(String)"
+    }
+    column "temporary_properties_null_keys" {
+      type = "Array(String)"
+    }
+    column "inserted_at" {
+      type = "DateTime64(3)"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "person_properties" {
+      type = "JSON(max_dynamic_paths=256, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$device_type` LowCardinality(String), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$initial_browser` LowCardinality(String), `$initial_browser_language` LowCardinality(String), `$initial_browser_version` LowCardinality(String), `$initial_device_type` LowCardinality(String), `$initial_geoip_city_name` LowCardinality(String), `$initial_geoip_continent_code` LowCardinality(String), `$initial_geoip_continent_name` LowCardinality(String), `$initial_geoip_country_code` LowCardinality(String), `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_time_zone` LowCardinality(String), `$initial_os` LowCardinality(String), `$initial_os_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String))"
+    }
+    column "person_properties_null_keys" {
+      type = "Array(String)"
+    }
+    column "person_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "person_mode" {
+      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
+    }
+    column "captured_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "_timestamp" {
+      type = "Nullable(DateTime)"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    column "total_event_size" {
+      type = "UInt32"
     }
   }
 

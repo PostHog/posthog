@@ -16,6 +16,7 @@ from posthog.clickhouse.events_json import (
     EVENTS_JSON_INSERT_SETTINGS,
     EVENTS_JSON_RECENT_MV,
     EVENTS_JSON_RECENT_TABLE,
+    EVENTS_JSON_SERIALIZATION_SETTINGS,
     EVENTS_PROPERTIES_JSON_MAX_DYNAMIC_PATHS,
     EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
     KAFKA_EVENTS_JSON_RECENT_TABLE,
@@ -223,6 +224,16 @@ EVENTS_JSON_ELEMENTS_COLUMNS = """
     , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\.|$|:)'))
 """
 
+EVENTS_JSON_INSERTED_AT_DEFAULT = "now64()"
+
+# The Distributed read table declares these plain, where the storage table derives them from elements_chain.
+EVENTS_JSON_PROXY_COMPATIBILITY_COLUMNS = """
+    , elements_chain_href String
+    , elements_chain_texts Array(String)
+    , elements_chain_ids Array(String)
+    , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label'))
+"""
+
 EVENTS_JSON_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
@@ -253,7 +264,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     group2_created_at DateTime64(3),
     group3_created_at DateTime64(3),
     group4_created_at DateTime64(3),
-    inserted_at DateTime64(6, 'UTC') DEFAULT now64(){gcd_codec},
+    inserted_at DateTime64(6, 'UTC') DEFAULT {inserted_at_default}{gcd_codec},
     person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
     consumer_breadcrumbs Array(String),
     historical_migration Bool,
@@ -274,15 +285,17 @@ def EVENTS_JSON_TABLE_SQL(on_cluster: bool = False) -> str:
 PRIMARY KEY (team_id, toDate(timestamp), event, cityHash64(distinct_id))
 ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), timestamp, uuid)
 SAMPLE BY cityHash64(distinct_id)
-SETTINGS index_granularity = 8192, object_serialization_version = 'v3', object_shared_data_serialization_version = 'map_with_buckets', enable_block_offset_column = 1, enable_block_number_column = 1, map_serialization_version = 'with_buckets', string_serialization_version = 'single_stream', propagate_types_serialization_versions_to_nested_types = 1
+SETTINGS index_granularity = 8192, {serialization_settings}
 """
     ).format(
         table_name=EVENTS_JSON_DATA_TABLE,
+        serialization_settings=EVENTS_JSON_SERIALIZATION_SETTINGS,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=EVENTS_JSON_DATA_TABLE_ENGINE(),
         properties_json_type=EVENTS_PROPERTIES_JSON_TYPE(),
         person_properties_json_type=PERSON_PROPERTIES_JSON_TYPE(),
         temporary_properties_json_type=TEMPORARY_PROPERTIES_JSON_TYPE,
+        inserted_at_default=EVENTS_JSON_INSERTED_AT_DEFAULT,
         temporary_properties_storage=" TTL toDateTime(inserted_at) + INTERVAL 60 DAY",
         gcd_codec=" CODEC(GCD, Default)",
         t64_codec=" CODEC(T64, Default)",
@@ -300,6 +313,7 @@ def WRITABLE_EVENTS_JSON_TABLE_SQL(on_cluster: bool = False) -> str:
         properties_json_type=EVENTS_PROPERTIES_JSON_TYPE(),
         person_properties_json_type=PERSON_PROPERTIES_JSON_TYPE(),
         temporary_properties_json_type=TEMPORARY_PROPERTIES_JSON_TYPE,
+        inserted_at_default=EVENTS_JSON_INSERTED_AT_DEFAULT,
         temporary_properties_storage="",
         gcd_codec="",
         t64_codec="",
@@ -317,16 +331,12 @@ def DISTRIBUTED_EVENTS_JSON_TABLE_SQL(on_cluster: bool = False) -> str:
         properties_json_type=EVENTS_PROPERTIES_JSON_TYPE(),
         person_properties_json_type=PERSON_PROPERTIES_JSON_TYPE(),
         temporary_properties_json_type=TEMPORARY_PROPERTIES_JSON_TYPE,
+        inserted_at_default=EVENTS_JSON_INSERTED_AT_DEFAULT,
         temporary_properties_storage="",
         gcd_codec="",
         t64_codec="",
         elements_columns="",
-        compatibility_columns="""
-    , elements_chain_href String
-    , elements_chain_texts Array(String)
-    , elements_chain_ids Array(String)
-    , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label'))
-""",
+        compatibility_columns=EVENTS_JSON_PROXY_COMPATIBILITY_COLUMNS,
         indexes="",
     )
 
@@ -489,7 +499,7 @@ EVENTS_JSON_EXPORT_CLEANER = "JSONCleanPostHogEventForExport"
 EVENTS_JSON_CLEANED_ALIAS = "cleaned"
 
 
-def _cast_cleaned_properties(field: str, raw_column: str, json_type: str) -> str:
+def cast_cleaned_properties(field: str, raw_column: str, json_type: str) -> str:
     # The cleaner quarantines bad input itself; this fallback only covers a document the typed JSON column rejects.
     fallback = f"concat('{{\"{UNPARSEABLE_PROPERTIES_KEY}\":', toJSONString({raw_column}), '}}')"
     cleaned = f"{EVENTS_JSON_CLEANED_ALIAS}.{field}"
@@ -497,7 +507,7 @@ def _cast_cleaned_properties(field: str, raw_column: str, json_type: str) -> str
     return f"ifNull(accurateCastOrNull({cleaned}, {escaped_type}), CAST({fallback}, {escaped_type}))"
 
 
-def _cast_temporary_properties(field: str) -> str:
+def cast_temporary_properties(field: str) -> str:
     # A materialized view converts a String into a JSON column at write time, outside its SELECT, where
     # the SELECT's SETTINGS do not apply. The explicit cast keeps date inference off for this column too.
     escaped_type = escape_clickhouse_string(TEMPORARY_PROPERTIES_JSON_TYPE)
@@ -508,9 +518,9 @@ def _cast_temporary_properties(field: str) -> str:
 
 def _events_json_rows_sql(kafka_table: str, *, export_documents: bool = False) -> str:
     cleaner = EVENTS_JSON_CLEANER
-    properties_expr = _cast_cleaned_properties("properties", "source.properties", EVENTS_PROPERTIES_JSON_TYPE())
-    temporary_properties_expr = _cast_temporary_properties("temporary_properties")
-    person_properties_expr = _cast_cleaned_properties(
+    properties_expr = cast_cleaned_properties("properties", "source.properties", EVENTS_PROPERTIES_JSON_TYPE())
+    temporary_properties_expr = cast_temporary_properties("temporary_properties")
+    person_properties_expr = cast_cleaned_properties(
         "person_properties", "source.person_properties", PERSON_PROPERTIES_JSON_TYPE()
     )
     if export_documents:
@@ -788,6 +798,7 @@ def _events_json_recent_table_sql(table_name: str, engine: Distributed | Replaci
         properties_json_type="String",
         person_properties_json_type="String",
         temporary_properties_json_type="String",
+        inserted_at_default=EVENTS_JSON_INSERTED_AT_DEFAULT,
         temporary_properties_storage="",
         gcd_codec="",
         t64_codec="",

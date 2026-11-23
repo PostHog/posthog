@@ -9,4 +9,13 @@ database "posthog" {
       sharding_key    = "sipHash64(distinct_id)"
     }
   }
+
+  patch_table "flag_evaluations_json" {
+    engine "distributed" {
+      cluster_name    = "flags"
+      remote_database = "posthog"
+      remote_table    = "sharded_flag_evaluations_json"
+      sharding_key    = "sipHash64(distinct_id)"
+    }
+  }
 }
