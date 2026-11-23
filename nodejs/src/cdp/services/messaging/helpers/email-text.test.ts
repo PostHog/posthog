@@ -69,6 +69,7 @@ describe('plainTextFromHtml', () => {
         ],
         ['an image with only joiners beside it', '<img src="banner.png"><p>&#8204;&#8205; </p>', ''],
         ['an image-only list item', '<ul><li><img src="banner.png"></li></ul>', ''],
+        ['html nested deeper than the stack allows', '<div>'.repeat(20000) + 'Hi' + '</div>'.repeat(20000), ''],
         ['table cells', '<table><tr><td>Total</td><td>$5</td></tr></table>', 'Total\n$5'],
     ])('renders %s', (_case, html, expected) => {
         expect(plainTextFromHtml(html)).toBe(expected)

@@ -41,6 +41,13 @@ const toText = compile({
 })
 
 export const plainTextFromHtml = (html: string): string => {
-    const text = toText(html).trim()
+    let text: string
+    try {
+        text = toText(html).trim()
+    } catch {
+        // html-to-text recurses once per element, so deeply nested html overflows the stack.
+        // The email then goes out without a text part, as html-only emails always did.
+        return ''
+    }
     return CONTENT_CHARACTER.test(text) ? text : ''
 }
