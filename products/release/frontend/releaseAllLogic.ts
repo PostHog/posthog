@@ -24,6 +24,7 @@ import { releasesCatalogFlagsRetrieve, releasesCatalogReleasesRetrieve } from '.
 import { releaseImportLogic } from './releaseImportLogic'
 import { releaseLogic } from './releaseLogic'
 import { ReleaseRow, STAGE_LABEL } from './releaseUtils'
+import type { ReleaseStage } from './releaseUtils'
 
 export const ALL_PAGE_SIZE = 50
 const SEARCH_DEBOUNCE_MS = 250
@@ -361,7 +362,7 @@ export interface releaseAllLogicMeta {
         visibleRows: (
             sources: Sources,
             activeTypes: ReleaseAllType[],
-            stageById: Map<string, import('./releaseUtils').ReleaseStage>,
+            stageById: Map<string, ReleaseStage>,
             cutoff: string | null,
             filters: ReleaseAllFilters
         ) => ReleaseAllRow[]

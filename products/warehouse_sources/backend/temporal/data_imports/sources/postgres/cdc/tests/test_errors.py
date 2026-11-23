@@ -9,6 +9,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.errors import (
     classify_postgres_cdc_error,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import SSLRequiredError
 
 
 class TestClassifyPostgresCDCError:
@@ -32,6 +33,17 @@ class TestClassifyPostgresCDCError:
             (
                 "ssl_required",
                 psycopg.OperationalError("server does not support SSL, but SSL was required"),
+                CDCErrorCategory.SSL_REQUIRED,
+            ),
+            (
+                # `_connect_to_postgres` converts the raw psycopg OperationalError above into this
+                # type before the CDC path ever sees it, so the connection must still classify as
+                # SSL_REQUIRED even though it's no longer a psycopg exception.
+                "ssl_required_wrapped_error",
+                SSLRequiredError(
+                    "SSL/TLS connection is required but your database does not support it. "
+                    "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
+                ),
                 CDCErrorCategory.SSL_REQUIRED,
             ),
             (

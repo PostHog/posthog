@@ -1,11 +1,20 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import { Suspense, lazy } from 'react'
 
 import { IconLock } from '@posthog/icons'
 import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
+import { retryImport } from 'lib/utils/retryImport'
+
 import { PayGateMiniLogicProps, payGateMiniLogic } from './payGateMiniLogic'
 import type { payGateMiniLogicType } from './payGateMiniLogic'
+
+// This file ships on every logged-in page, and quill must load only where a page turns it on.
+const QuillPayGateButton = lazy(() =>
+    retryImport(() => import('./QuillPayGateButton')).then((m) => ({ default: m.QuillPayGateButton }))
+)
 
 type UsePayGateButtonReturn = Pick<
     payGateMiniLogicType['values'],
@@ -51,6 +60,23 @@ export const PayGateButton = ({ feature, currentUsage, ...buttonProps }: PayGate
         currentUsage,
         onClick: buttonProps.onClick,
     })
+    const quillSurface = useQuillSurface()
+
+    if (quillSurface) {
+        return (
+            <Suspense fallback={null}>
+                <QuillPayGateButton
+                    type={buttonProps.type}
+                    to={clickHandlerProps.to}
+                    onClick={clickHandlerProps.onClick ?? buttonProps.onClick}
+                    disabledReason={ctaDisabledReason || buttonProps.disabledReason}
+                    dataAttr={buttonProps['data-attr']}
+                >
+                    {ctaLabel}
+                </QuillPayGateButton>
+            </Suspense>
+        )
+    }
 
     return (
         <LemonButton
