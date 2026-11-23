@@ -391,7 +391,6 @@ def _sandbox_refusal(send: dict[str, Any]) -> tuple[int, str] | None:
         send.get("bcc"),
         send.get("replyTo"),
         send.get("attachments"),
-        send.get("message_category"),
     )
     if any(fields) or sender.get("email") or sender.get("name"):
         return 400, "sandbox_fields_unsupported"

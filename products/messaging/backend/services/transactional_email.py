@@ -68,7 +68,6 @@ from products.messaging.backend.facade.contracts import (
     SandboxRecipientNotMember,
     SandboxSenderNotAvailable,
     SendCategory,
-    SendCategoryDefinition,
     SenderNotVerified,
     SenderRequired,
     SenderUnavailable,
@@ -223,8 +222,7 @@ COPIES_NOT_ALLOWED = "A marketing email can't have `cc` or `bcc` recipients. Sen
 
 SANDBOX_FIELDS_UNSUPPORTED = (
     "This project has no verified sending domain, so this email would go out from the PostHog test sender, which "
-    "can't send `cc`, `bcc`, `attachments` or a message category. Remove those fields, or verify a sending domain "
-    "at {setup_url}."
+    "can't send `cc`, `bcc` or `attachments`. Remove those fields, or verify a sending domain at {setup_url}."
 )
 
 # The CDP service names the reason it refused a send in the body's `error`. A retry of the same request gets the
@@ -818,8 +816,7 @@ def send_code_email(
         else:
             kind = requested_kind(email.category)
         _require_marketing_rules(email, kind)
-        categorized = category is not None or isinstance(email.category, SendCategoryDefinition)
-        accepted_send, sandbox_warning = _accepted_send(team, email, kind, categorized=categorized)
+        accepted_send, sandbox_warning = _accepted_send(team, email, kind)
         if template is None:
             maybe_hog_flow_id: UUID | None = None
             with transaction.atomic():
@@ -946,9 +943,9 @@ def _require_marketing_rules(email: CodeEmail, kind: MessageCategoryKind) -> Non
 
 
 def _accepted_send(
-    team: Team, email: CodeEmail, kind: MessageCategoryKind = "transactional", *, categorized: bool = False
+    team: Team, email: CodeEmail, kind: MessageCategoryKind = "transactional"
 ) -> tuple[dict[str, Any], SendWarning | None]:
-    sender, sandbox_warning = _code_send_sender(team, email, categorized=categorized)
+    sender, sandbox_warning = _code_send_sender(team, email)
     accepted: dict[str, Any] = {
         "content": _accepted_content(email, keep_unsubscribe_link=kind == "marketing"),
         "from": _without_empty(sender),
@@ -997,7 +994,7 @@ def _accepted_attachment(attachment: EmailAttachment) -> dict[str, str]:
     )
 
 
-def _code_send_sender(team: Team, email: CodeEmail, *, categorized: bool) -> tuple[dict[str, Any], SendWarning | None]:
+def _code_send_sender(team: Team, email: CodeEmail) -> tuple[dict[str, Any], SendWarning | None]:
     name, address = parseaddr(email.sender) if email.sender else ("", "")
     try:
         sender_id = code_send_sender_id(team_id=team.id, email=address or None)
@@ -1010,7 +1007,7 @@ def _code_send_sender(team: Team, email: CodeEmail, *, categorized: bool) -> tup
             if email.sender:
                 raise NamedSenderNotVerified(f"No verified sender in this project can send from `{address}`.") from e
             raise SenderNotVerified("This project has no verified email sender. Verify a sender domain first.") from e
-        if field := _field_the_sandbox_sender_cannot_send(email, categorized=categorized):
+        if field := _field_the_sandbox_sender_cannot_send(email):
             SANDBOX_FALLBACKS.labels(outcome="fields_unsupported").inc()
             setup_url = sending_domain_setup(team.id).setup_url
             raise SandboxFieldsUnsupported(SANDBOX_FIELDS_UNSUPPORTED.format(setup_url=setup_url), attr=field) from e
@@ -1022,8 +1019,8 @@ def _code_send_sender(team: Team, email: CodeEmail, *, categorized: bool) -> tup
     return {"integrationId": sender_id, "email": address, "name": name}, None
 
 
-def _field_the_sandbox_sender_cannot_send(email: CodeEmail, *, categorized: bool = False) -> str | None:
-    fields = {"cc": email.cc, "bcc": email.bcc, "attachments": email.attachments, "category": categorized}
+def _field_the_sandbox_sender_cannot_send(email: CodeEmail) -> str | None:
+    fields = {"cc": email.cc, "bcc": email.bcc, "attachments": email.attachments}
     return next((field for field, value in fields.items() if value), None)
 
 

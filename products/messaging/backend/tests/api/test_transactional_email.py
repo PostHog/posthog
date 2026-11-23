@@ -1100,13 +1100,32 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("marketing_category", "code", NEWSLETTER),
-            ("transactional_category", "code", {**NEWSLETTER, "type": "transactional"}),
-            ("template_key_in_a_category", "template_key", None),
+            (
+                "marketing_category",
+                "code",
+                {
+                    "category": NEWSLETTER,
+                    "html": UNSUBSCRIBE_HTML,
+                    "from": "Example <hello@example.org>",
+                    "reply_to": ["help@example.com"],
+                },
+                "newsletter",
+                "marketing",
+                "`from` and `reply_to`",
+            ),
+            (
+                "transactional_category",
+                "code",
+                {"category": {"key": "receipts", "type": "transactional", "name": "Receipts"}},
+                "receipts",
+                "transactional",
+                None,
+            ),
+            ("template_key_in_a_category", "template_key", {}, "receipts", "transactional", None),
         ]
     )
-    def test_refuses_a_categorized_code_send_the_sandbox_sender_cannot_send_before_setting_it_up(
-        self, cdp_post, _flag, capture, _name, form, category
+    def test_a_categorized_code_send_from_the_sandbox_sender_carries_its_category(
+        self, cdp_post, _flag, capture, _name, form, extra_fields, expected_key, expected_type, ignored
     ):
         self._use_fakes(cdp_post, capture)
         self._without_a_verified_sender(unverified_sender=False)
@@ -1115,19 +1134,24 @@ class TestTransactionalEmail(APIBaseTest):
             MessageTemplate.objects.filter(id=self.template.id).update(key="password-reset", message_category=receipts)
             fields: dict[str, Any] = {"template_key": "password-reset"}
         else:
-            fields = {"category": category, "html": self.UNSUBSCRIBE_HTML}
+            fields = extra_fields
 
         response = self._psak_client(["transactional_email:write"]).post(
             self.send_email_url, self._code_send(**fields), format="json"
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        body = response.json()
-        assert (body["code"], body["attr"]) == ("sandbox_fields_unsupported", "category")
-        assert self._setup_url(None) in body["detail"]
-        assert self._sandbox_senders() == []
-        assert not MessageCategory.objects.filter(team=self.team, key="newsletter").exists()
-        assert self.cdp.received == []
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        (warning,) = response.json()["warnings"]
+        assert warning["code"] == "sandbox_sender"
+        if ignored:
+            assert f"ignored {ignored}" in warning["message"]
+            assert f"ignored {ignored}" in warning["agent_action"]
+        (sandbox,) = self._sandbox_senders()
+        category = MessageCategory.objects.get(team=self.team, key=expected_key)
+        assert [(send["from"], send["message_category"]) for send in self.cdp.queued_sends] == [
+            ({"integrationId": sandbox.id}, {"id": str(category.id), "type": expected_type})
+        ]
+        assert all("replyTo" not in send for send in self.cdp.queued_sends)
 
     @parameterized.expand(
         [
@@ -1192,6 +1216,12 @@ class TestTransactionalEmail(APIBaseTest):
                 "copies_not_allowed",
             ),
             (
+                "no_unsubscribe_link_on_marketing_from_the_sandbox_sender",
+                lambda test: test._without_a_verified_sender(unverified_sender=False),
+                {"category": NEWSLETTER, "html": "<p>Hi</p>", "text": "Hi"},
+                "unsubscribe_link_required",
+            ),
+            (
                 "category_limit_reached",
                 lambda test: test._category(key="promos"),
                 {"category": NEWSLETTER, "html": UNSUBSCRIBE_HTML},
@@ -1241,6 +1271,7 @@ class TestTransactionalEmail(APIBaseTest):
         )
         keys_before = set(TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).values_list("key"))
         workflows_before = HogFlow.objects.filter(team=self.team).count()
+        sandbox_senders_before = list(self._sandbox_senders())
 
         with patch.object(send_categories, "SEND_CATEGORY_LIMIT", 1):
             response = self._psak_client(["transactional_email:write"]).post(
@@ -1250,6 +1281,7 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["code"] == expected_code
         assert self.cdp.received == []
+        assert self._sandbox_senders() == sandbox_senders_before
         assert (
             set(MessageCategory.objects.filter(team=self.team).values_list("key", "category_type", "deleted"))
             == categories_before

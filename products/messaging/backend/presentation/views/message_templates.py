@@ -1241,7 +1241,7 @@ SEND_RESPONSES: dict[int, ResponseDeclaration] = {
         "category past the project's limit (`too_many_categories`), or a marketing email has no link a reader can "
         "click to `{{ unsubscribe_url }}` (`unsubscribe_link_required`) or has `cc` or `bcc` (`copies_not_allowed`). "
         "When a code send from a project with no verified sending domain would go out from the PostHog test sender, "
-        "that sender refuses `cc`, `bcc`, `attachments` and a `category`"
+        "that sender refuses `cc`, `bcc` and `attachments`"
     ),
     403: OpenApiResponse(
         description="The project has no verified sending domain, and the PostHog test sender isn't available for its "
