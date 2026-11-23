@@ -5,13 +5,15 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 
 import { aeoBrandsCompetitorCandidates, aeoBrandsList, aeoBrandsPartialUpdate } from '../generated/api'
-import type { AEOBrandApi, AEOCompetitorCandidateApi } from '../generated/api.schemas'
+import type { AEOBrandApi, AEOCompetitorCandidateApi, AEOSetupJobApi } from '../generated/api.schemas'
 import { aiVisibilityCompetitorReviewLogic } from './aiVisibilityCompetitorReviewLogic'
+import { contentAutopilotSetupLogic } from './contentAutopilotSetupLogic'
 
 jest.mock('../generated/api', () => ({
     aeoBrandsCompetitorCandidates: jest.fn(),
     aeoBrandsList: jest.fn(),
     aeoBrandsPartialUpdate: jest.fn(),
+    aeoSetupContext: jest.fn(() => new Promise(() => {})),
 }))
 
 const CANDIDATES: AEOCompetitorCandidateApi[] = [
@@ -99,14 +101,58 @@ describe('aiVisibilityCompetitorReviewLogic', () => {
         expect(logic.values.reviewShown).toBe(false)
     })
 
+    const finishedEarlier = async (): Promise<void> => {
+        const earlier = aiVisibilityCompetitorReviewLogic()
+        earlier.mount()
+        await expectLogic(earlier).toDispatchActions(['loadReviewSuccess'])
+        earlier.actions.finishReview()
+        earlier.unmount()
+        jest.mocked(aeoBrandsCompetitorCandidates).mockClear()
+    }
+
     it.each([
-        ['the project already has a confirmed competitor', 1, CANDIDATES],
-        ['there is nothing to suggest', 0, []],
-    ])('is hidden when %s', async (_, confirmed, candidates) => {
-        confirmedCompetitors(confirmed)
-        jest.mocked(aeoBrandsCompetitorCandidates).mockResolvedValue(candidates)
+        ['the project already has a confirmed competitor', async () => confirmedCompetitors(1), false],
+        ['the person finished the review before', finishedEarlier, false],
+        [
+            'there is nothing to suggest',
+            async () => void jest.mocked(aeoBrandsCompetitorCandidates).mockResolvedValue([]),
+            true,
+        ],
+    ])('is hidden when %s', async (_, arrange, scansCandidates) => {
+        await arrange()
         await mountLoaded()
 
         expect(logic.values.reviewShown).toBe(false)
+        expect(aeoBrandsCompetitorCandidates).toHaveBeenCalledTimes(scansCandidates ? 1 : 0)
+    })
+
+    it.each([
+        ['while the first run is in progress', true, true],
+        ['without a first run in progress', false, false],
+    ])('retries an empty review %s', async (_, firstRunQueued, shown) => {
+        jest.useFakeTimers()
+        const setup = contentAutopilotSetupLogic()
+        setup.mount()
+        try {
+            if (firstRunQueued) {
+                setup.actions.setJob({
+                    id: 'job',
+                    status: 'completed',
+                    steps: [{ step: 'first_run', status: 'done' }],
+                } as AEOSetupJobApi)
+            }
+            jest.mocked(aeoBrandsCompetitorCandidates).mockResolvedValueOnce([])
+            logic = aiVisibilityCompetitorReviewLogic()
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(logic.values.reviewShown).toBe(false)
+
+            await jest.advanceTimersByTimeAsync(30 * 1000)
+
+            expect(logic.values.reviewShown).toBe(shown)
+        } finally {
+            setup.unmount()
+            jest.useRealTimers()
+        }
     })
 })

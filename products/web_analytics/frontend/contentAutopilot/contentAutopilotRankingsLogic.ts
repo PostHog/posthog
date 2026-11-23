@@ -161,12 +161,8 @@ export const contentAutopilotRankingsLogic = kea<contentAutopilotRankingsLogicTy
         setTopic: () => actions.loadRankings(),
         setBrandedSegment: () => actions.loadRankings(),
         applyUrlFilters: () => actions.loadRankings(),
-        reviewCandidateSuccess: ({ decision }) => {
-            // Rankings name the confirmed competitors, so a new one changes every row.
-            if (decision === 'confirmed') {
-                actions.loadRankings()
-            }
-        },
+        // Rankings name confirmed competitors and leave out ignored brands, so either decision changes the rows.
+        reviewCandidateSuccess: () => actions.loadRankings(),
     })),
     afterMount(({ actions }) => {
         actions.loadRankings()

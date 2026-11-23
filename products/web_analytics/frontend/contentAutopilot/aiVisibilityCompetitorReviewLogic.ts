@@ -12,7 +12,11 @@ import {
 } from 'products/web_analytics/frontend/generated/api'
 import type { AEOCompetitorCandidateApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { contentAutopilotSetupLogic } from './contentAutopilotSetupLogic'
+
 export const COMPETITOR_CANDIDATE_LIMIT = 20
+const CANDIDATE_RETRY_MS = 30 * 1000
+const CANDIDATE_RETRY_LIMIT_MS = 30 * 60 * 1000
 
 export type CompetitorDecision = 'confirmed' | 'rejected'
 
@@ -48,16 +52,10 @@ export interface aiVisibilityCompetitorReviewLogicActions {
         errorObject?: any
     }
     loadReviewSuccess: (
-        review: {
-            alreadyConfirmed: boolean
-            candidates: AEOCompetitorCandidateApi[]
-        },
+        review: CompetitorReview | null,
         payload?: any
     ) => {
-        review: {
-            alreadyConfirmed: boolean
-            candidates: AEOCompetitorCandidateApi[]
-        }
+        review: CompetitorReview | null
         payload?: any
     }
     reviewCandidate: (
@@ -118,13 +116,20 @@ export const aiVisibilityCompetitorReviewLogic = kea<aiVisibilityCompetitorRevie
         review: [
             null as CompetitorReview | null,
             {
-                loadReview: async () => {
+                loadReview: async (): Promise<CompetitorReview | null> => {
                     const teamId = String(values.currentTeamIdStrict)
-                    const [candidates, confirmed] = await Promise.all([
-                        aeoBrandsCompetitorCandidates(teamId, { limit: COMPETITOR_CANDIDATE_LIMIT }),
-                        aeoBrandsList(teamId, { kind: 'competitor', status: 'confirmed', limit: 1 }),
-                    ])
-                    return { candidates, alreadyConfirmed: confirmed.count > 0 }
+                    // Candidates come from an uncached scan of stored answers, so a project past this step skips it.
+                    if (values.finishedTeamIds.includes(teamId)) {
+                        return null
+                    }
+                    const confirmed = await aeoBrandsList(teamId, { kind: 'competitor', status: 'confirmed', limit: 1 })
+                    if (confirmed.count > 0) {
+                        return { candidates: [], alreadyConfirmed: true }
+                    }
+                    const candidates = await aeoBrandsCompetitorCandidates(teamId, {
+                        limit: COMPETITOR_CANDIDATE_LIMIT,
+                    })
+                    return { candidates, alreadyConfirmed: false }
                 },
             },
         ],
@@ -179,13 +184,26 @@ export const aiVisibilityCompetitorReviewLogic = kea<aiVisibilityCompetitorRevie
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
-        loadReviewSuccess: () => {
+    listeners(({ actions, values, cache }) => ({
+        loadReviewSuccess: ({ review }) => {
             if (values.reviewShown) {
                 // pinned: analytics event name, renaming it breaks dashboards
                 posthog.capture('web analytics ai visibility competitor review shown', {
                     candidates: values.candidates.length,
                 })
+            }
+            // Brands reach the catalog only when a run finishes, so a review loaded after the first run's
+            // early checks finds none until the rest of that run lands.
+            const firstRunQueued = contentAutopilotSetupLogic.findMounted()?.values.firstRunQueued
+            if (!review || review.alreadyConfirmed || review.candidates.length > 0 || !firstRunQueued) {
+                return
+            }
+            cache.retryUntil ??= Date.now() + CANDIDATE_RETRY_LIMIT_MS
+            if (Date.now() < cache.retryUntil) {
+                cache.disposables.add(() => {
+                    const id = setTimeout(() => actions.loadReview(), CANDIDATE_RETRY_MS)
+                    return () => clearTimeout(id)
+                }, 'candidateRetry')
             }
         },
         reviewCandidate: async ({ brandId, decision }) => {
