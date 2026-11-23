@@ -20,7 +20,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models.utils import mask_key_value
 from posthog.permissions import TeamMemberStrictManagementPermission, is_service_auth
-from posthog.plugins.plugin_server_api import reload_evaluations_on_workers, reload_taggers_on_workers
+from posthog.plugins.plugin_server_api import reload_evaluations_on_workers
 from posthog.security.url_validation import strip_userinfo
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
@@ -49,7 +49,6 @@ from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluations import Evaluation, EvaluationStatus
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
-from ..models.taggers import Tagger
 from .metrics import llma_track_latency
 from .proxy import LLMProxyModelInfoSerializer, models_cache_key, provider_key_models
 
@@ -68,19 +67,9 @@ def _reload_model_config_dependents_on_commit(team_id: int, model_config_ids: li
             deleted=False,
         ).values_list("id", flat=True)
     ]
-    tagger_ids = [
-        str(tagger_id)
-        for tagger_id in Tagger.objects.filter(
-            team_id=team_id,
-            model_configuration_id__in=model_config_ids,
-            deleted=False,
-        ).values_list("id", flat=True)
-    ]
 
     if evaluation_ids:
         transaction.on_commit(lambda: reload_evaluations_on_workers(team_id=team_id, evaluation_ids=evaluation_ids))
-    if tagger_ids:
-        transaction.on_commit(lambda: reload_taggers_on_workers(team_id=team_id, tagger_ids=tagger_ids))
 
 
 def validate_provider_key(provider: str, api_key: str, *, team_id: int, **kwargs: str) -> tuple[str, str | None]:

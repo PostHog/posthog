@@ -11519,22 +11519,6 @@
         },
         "feature_flag": "llm-analytics-tags"
     },
-    "llma-tagger-test-hog": {
-        "description": "Test Hog tagger source code against recent $ai_generation events without saving a tagger. The source should return a tag name string, a list of tag name strings, or null. Optionally pass tags as a whitelist; returned tags outside the whitelist are filtered out. Results include input/output previews, selected tags, stdout reasoning, and any execution error for each sampled event.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Test Hog tagger code",
-        "title": "Test Hog tagger code",
-        "required_scopes": ["tagger:read"],
-        "api_operations": ["POST /api/projects/{project_id}/taggers/test_hog/"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "llm-analytics-tags"
-    },
     "llma-trace-review-create": {
         "description": "Save a trace review. Supports an optional comment, an optional scores array, and an optional queue_id to clear a matching pending review-queue item after the review is saved.",
         "category": "AI observability",
@@ -13358,7 +13342,7 @@
         }
     },
     "provider-imports-list": {
-        "description": "List this project's most recent imports from other email tools, newest first. Use it to find a run that is already active before you start another.",
+        "description": "List this project's most recent imports from other email tools, newest first. Use it to find a run that is already active before you start another. Each step's `items` is empty here and `items_omitted` counts them; use provider-imports-get for one run's items and notes.",
         "category": "Messaging",
         "feature": "messaging",
         "summary": "List recent imports",

@@ -95,6 +95,7 @@ Every menu-like list marks its active row the same way: the row that keyboard in
 | Dialog      | Modal, blocking flow — focused forms, multi-step content. `size="wide"`/`"full"` for big content                                        |
 | AlertDialog | Confirmation that must be resolved — destructive/irreversible actions. Backdrop clicks never dismiss, no X button, `role="alertdialog"` |
 | Drawer      | Mobile-first slide-up sheet; touch contexts                                                                                             |
+| Credenza    | A Dialog on a wide viewport and a bottom Drawer on a phone, from one set of parts. Lives in `@posthog/quill-components`                 |
 | Popover     | Non-modal panel anchored to a trigger, with interactive content (filters, pickers)                                                      |
 | Tooltip     | Hover-only text hint; never interactive content, never essential information                                                            |
 | Toast       | Async outcome notification (`toast.success({ title })`) — fire and forget                                                               |
@@ -534,14 +535,17 @@ Same shell as Dialog (shared `quill-dialog__*` styles) but `role="alertdialog"`,
       <DrawerTitle>Title</DrawerTitle>
       <DrawerDescription>Description</DrawerDescription>
     </DrawerHeader>
-    {/* content */}
+    <DrawerBody>{/* content */}</DrawerBody>
     <DrawerFooter>
-      <Button>Submit</Button>
       <DrawerClose render={<Button variant="outline" />}>Cancel</DrawerClose>
+      <Button variant="primary">Submit</Button>
     </DrawerFooter>
   </DrawerContent>
 </Drawer>
 ```
+
+`DrawerBody` works like `DialogBody`: a `ScrollArea` that takes the height the header and footer leave, with `viewportClassName` and `render`.
+`DrawerFooter` stacks its buttons in reverse, so write Cancel first and the main action last, as in a `DialogFooter`. The main action shows on top.
 
 ### Dropdown Menu
 
