@@ -732,7 +732,7 @@ def test_connections_keep_only_safe_fields_in_requests_and_rows() -> None:
     assert "example-" not in serialized
 
     with scripted_network([ScriptedResponse(json={"ConnectionList": []})]) as network:
-        assert glue.validate_credentials(config(), GLUE_API_VERSION, "connections") == (True, None)
+        assert glue.validate_credentials(config(), CREDENTIALS, GLUE_API_VERSION, "connections") == (True, None)
     assert network.requests_log[0].json() == {"MaxResults": 1, "HidePassword": True}
 
 
