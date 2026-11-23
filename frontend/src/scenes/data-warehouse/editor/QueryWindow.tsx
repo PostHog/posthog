@@ -30,6 +30,7 @@ import { VimrcModal } from 'products/data_warehouse/frontend/shared/components/V
 import { sqlEditorVimLogic } from 'products/data_warehouse/frontend/shared/logics/sqlEditorVimLogic'
 import { registerSqlTableHover } from 'products/data_warehouse/frontend/shared/sqlTableHover'
 import { viewEngine } from 'products/data_warehouse/frontend/shared/viewEngine'
+import { ManagedTrinoEstimate } from 'products/data_warehouse/frontend/sql_editor/ManagedTrinoEstimate'
 import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 
 import { FixErrorButton } from './components/FixErrorButton'
@@ -316,6 +317,7 @@ export function QueryWindow({
                             />
                         )}
                         {!hideConnectionSelector && <CollapsedConnectionSelector tabId={tabId} mode={mode} />}
+                        <ManagedTrinoEstimate tabId={tabId} />
                         {mode === SQLEditorMode.FullScene ? (
                             <LemonButton
                                 icon={<IconPlus />}

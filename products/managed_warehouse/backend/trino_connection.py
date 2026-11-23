@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Collection, Iterator, MutableMapping
+from collections.abc import Collection, Iterator, Mapping, MutableMapping
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -35,6 +35,13 @@ if TYPE_CHECKING:
     from trino.dbapi import Connection
 
 LOGGER = structlog.get_logger(__name__)
+
+# The control plane bills the exact source "endpoints" as endpoints usage and any other source as standard usage.
+# It stores the raw value for the usage console, so each caller sends its own tag.
+DEFAULT_TRINO_SOURCE = "posthog"
+TRINO_SOURCE_SQL_EDITOR = "posthog-sql-editor"
+TRINO_SOURCE_MATERIALIZATION = "posthog-materialization"
+TRINO_SOURCE_IMPORT = "posthog-import"
 
 _CREDENTIAL_REFRESH_MARGIN = timedelta(minutes=2)
 _CREDENTIAL_REQUEST_TIMEOUT_SECONDS = 10
@@ -257,7 +264,12 @@ class _TrinoServiceSession(requests.Session):
 
 @contextmanager
 def connect_managed_warehouse_trino(
-    organization_id: str, *, principal: str = "posthog:trino", canary: bool = False
+    organization_id: str,
+    *,
+    principal: str = "posthog:trino",
+    canary: bool = False,
+    source: str = DEFAULT_TRINO_SOURCE,
+    session_properties: Mapping[str, str] | None = None,
 ) -> Iterator[Connection]:
     from trino.dbapi import connect  # noqa: PLC0415 -- keeps the optional driver off startup paths
 
@@ -276,6 +288,8 @@ def connect_managed_warehouse_trino(
             request_timeout=60,
             verify=True,
             http_session=http_session,
+            source=source,
+            session_properties=dict(session_properties) if session_properties else None,
         )
         try:
             yield connection

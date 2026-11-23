@@ -168,9 +168,11 @@ export function SettingsTab(): JSX.Element {
                 <LemonBanner type="warning" onClose={clearInitialPassword}>
                     <div className="space-y-2">
                         <strong>Save your password now — it won't be shown again.</strong>
-                        <CodeSnippet compact thing="password">
-                            {initialPassword}
-                        </CodeSnippet>
+                        <div className="ph-no-capture">
+                            <CodeSnippet compact thing="password">
+                                {initialPassword}
+                            </CodeSnippet>
+                        </div>
                     </div>
                 </LemonBanner>
             )}

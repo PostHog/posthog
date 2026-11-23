@@ -101,6 +101,7 @@ class TestTrinoShadowMaterialization(BaseTest):
         connect.assert_called_once_with(
             str(self.organization.pk),
             principal=f"posthog:trino-materialization:team:{self.team.pk}:view:{self.saved_query_id}",
+            source="posthog-materialization",
         )
         assert self.cursor.execute.call_args_list[0].args == (
             f'CREATE SCHEMA IF NOT EXISTS "org_""catalog"."posthog_data_modeling_team_{self.team.pk}"',

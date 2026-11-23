@@ -98,7 +98,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     DataCatalogNewMetric: () => import('../../products/data_catalog/frontend/DataCatalogNewMetricScene'),
     Models: () => import('../../products/data_modeling/frontend/ModelsScene'),
     NodeDetail: () => import('../../products/data_modeling/frontend/nodeDetail/NodeDetailScene'),
-    DataOps: () => import('../../products/data_warehouse/frontend/scenes/DataOpsScene/DataWarehouseScene'),
+    DataOps: () => import('../../products/data_warehouse/frontend/scenes/WarehouseDataOpsEntry/DataOpsEntryScene'),
     Sources: () => import('../../products/data_warehouse/frontend/scenes/SourcesScene/SourcesScene'),
     DataWarehouseSource: () => import('../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'),
     DataWarehouseSourceNew: () => import('../../products/data_warehouse/frontend/scenes/NewSourceScene/NewSourceScene'),
@@ -112,6 +112,18 @@ export const productScenes: Record<string, () => Promise<any>> = {
     WarehouseDestinationConnect: () =>
         import('../../products/data_warehouse/frontend/scenes/DestinationConnectScene/DestinationConnectScene'),
     WarehouseHome: () => import('../../products/data_warehouse/frontend/scenes/WarehouseHomeScene/WarehouseHomeScene'),
+    WarehouseUsage: () =>
+        import('../../products/data_warehouse/frontend/scenes/WarehouseUsageScene/WarehouseUsageScene'),
+    WarehouseQueries: () =>
+        import('../../products/data_warehouse/frontend/scenes/WarehouseQueriesScene/WarehouseQueriesScene'),
+    WarehouseStorage: () =>
+        import('../../products/data_warehouse/frontend/scenes/WarehouseStorageScene/WarehouseStorageScene'),
+    WarehouseAccess: () =>
+        import('../../products/data_warehouse/frontend/scenes/WarehouseAccessScene/WarehouseAccessScene'),
+    WarehouseConnect: () =>
+        import('../../products/data_warehouse/frontend/scenes/WarehouseConnectScene/WarehouseConnectScene'),
+    WarehouseSettings: () =>
+        import('../../products/data_warehouse/frontend/scenes/WarehouseSettingsScene/WarehouseSettingsScene'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
     EndpointsScene: () => import('../../products/endpoints/frontend/EndpointsScene'),
