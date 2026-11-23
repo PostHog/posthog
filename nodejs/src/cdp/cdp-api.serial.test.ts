@@ -17,9 +17,9 @@ import express from 'ultimate-express'
 import { version as uuidVersion } from 'uuid'
 
 import { insertIntakeBatch } from '~/cdp/intake/intake-batch'
+import { EncodedIntakeRun, IntakeProducer } from '~/cdp/intake/intake-producer'
 import * as intakeMessage from '~/cdp/intake/message'
 import { RunIntake, keyedRunId } from '~/cdp/intake/run-intake'
-import { CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT } from '~/cdp/outputs/outputs'
 import { CyclotronInputType } from '~/cdp/schema/cyclotron'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { IdempotentJobQueue } from '~/cdp/services/job-queue/job-queue.interface'
@@ -30,8 +30,6 @@ import { setupExpressApp } from '~/common/api/router'
 import { KAFKA_EMAIL_STATUS } from '~/common/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { APP_METRICS_OUTPUT } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { IngestionOutputMessage } from '~/common/outputs/types'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
@@ -2872,16 +2870,24 @@ describe('CDP API', () => {
 
         // The intake consumer's insert, onto the queue of the API that produced the run, so each run is in Cyclotron
         // before the route answers, as the sync path left it.
-        const intakeRecords: IngestionOutputMessage[] = []
+        const encodedRuns: EncodedIntakeRun[] = []
         const consumeIntake = async (runIntake: RunIntake, runId: string): Promise<void> => {
-            const record = intakeRecords.filter((message) => String(message.key) === runId).at(-1)
+            const record = encodedRuns.filter((run) => run.runId === runId).at(-1)?.message
             if (!record) {
                 return
             }
             const hogflowQueue: IdempotentJobQueue = runIntake['deps'].hogflowQueue as IdempotentJobQueue
             const opener = new EncryptedFields(hub.CDP_SEALED_STATE_KEYS)
             await insertIntakeBatch(
-                [{ ...record, topic: 'cdp_intake_transactional_email', partition: 0, offset: 0, size: 0 } as Message],
+                [
+                    {
+                        ...record,
+                        topic: 'cdp_intake_transactional_email',
+                        partition: 0,
+                        offset: 0,
+                        size: 0,
+                    } as unknown as Message,
+                ],
                 {
                     cyclotron: {
                         createJobsIdempotently: async (inputs: CyclotronV2IdempotentJobInit[]) =>
@@ -2918,17 +2924,14 @@ describe('CDP API', () => {
         }
 
         beforeEach(async () => {
-            intakeRecords.length = 0
-            const outputsProduce = IngestionOutputs.prototype.produce
-            jest.spyOn(IngestionOutputs.prototype, 'produce').mockImplementation(async function (
-                this: IngestionOutputs<string>,
-                output,
-                message
-            ) {
-                await outputsProduce.call(this, output, message)
-                if (output === CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT) {
-                    intakeRecords.push(message)
+            encodedRuns.length = 0
+            const encode = IntakeProducer.prototype.encode
+            jest.spyOn(IntakeProducer.prototype, 'encode').mockImplementation(function (this: IntakeProducer, run) {
+                const encoded = encode.call(this, run)
+                if (typeof encoded !== 'string') {
+                    encodedRuns.push(encoded)
                 }
+                return encoded
             })
             produceOutput = jest.spyOn(api['emailStatusService']['outputs'], 'produce')
             const produce = RunIntake.prototype.produce
@@ -5499,6 +5502,7 @@ describe('CDP API', () => {
                         }
                     )
                     expect(single.status).toEqual(202)
+                    intakeRecords = kafkaRecordsOn(api['config'].CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC)
                     const release = await arrange()
                     api['hogFlowManager']['onHogFlowsReloaded'](team.id, [hogFlow.id])
 
