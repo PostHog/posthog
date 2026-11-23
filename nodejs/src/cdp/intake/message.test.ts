@@ -240,8 +240,13 @@ describe('intake message', () => {
         const sized = padded(INTAKE_MESSAGE_MAX_BYTES - unpadded.message.value.length + overBytes)
 
         expect(encodeIntakeMessage({ kind: 'transactional-email', job: sized }).status).toBe(status)
-        expect(
-            encodeIntakeMessage({ kind: 'transactional-email', job: { ...sized, fileBytes: 10_000_000 } }).status
-        ).toBe(status)
+        const withFiles = encodeIntakeMessage({
+            kind: 'transactional-email',
+            job: { ...sized, fileBytes: 10_000_000 },
+        })
+        expect(withFiles.status).toBe(status)
+        if (withFiles.status === 'encoded') {
+            expect(insertedFileBytes(withFiles.message.value)).toBe(10_000_000)
+        }
     })
 })
