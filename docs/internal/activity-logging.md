@@ -143,6 +143,7 @@ The config setting names are `FIELD_EXCLUSIONS`, `FIELD_NAME_OVERRIDES`, `FIELD_
 Omit unused settings; the invariant test rejects other uppercase names so a typo cannot silently drop tuning.
 
 Installed product apps load their config automatically through `posthog.products.load_product_modules("activity_log_config")`.
+If the product narrows its `backend:contract-check` inputs, include `backend/activity_log_config.py` in its `turbo.json` so config changes run the shared backend tests.
 For a core model, add the config module to `_SCOPE_CONFIG_MODULES` in `activity_log.py`.
 Keep config modules data only because Django loads them during setup in every process.
 

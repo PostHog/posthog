@@ -95,6 +95,7 @@ FIELD_EXCLUSIONS = {"Thing": ["bookkeeping_field"]}
 Product configs must use exactly `products/<name>/backend/activity_log_config.py`; other names and locations will not load by convention.
 For a core model, put the config beside it, as in `posthog/models/oauth_activity_log_config.py`, and add the config to the model's `owners.yaml` rule's `match` list.
 Installed product apps discover their config automatically.
+If the product narrows its `backend:contract-check` inputs, add `backend/activity_log_config.py` to those inputs in the product's `turbo.json`.
 For a core model, add the module to `_SCOPE_CONFIG_MODULES` in `activity_log.py`.
 A config module holds no imports: `activity_log.py` merges it at `django.setup()`.
 Use only `FIELD_EXCLUSIONS`, `FIELD_NAME_OVERRIDES`, `FIELD_WITH_MASKED_CONTENTS`, and `SIGNAL_EXCLUSIONS`; omit unused settings.
