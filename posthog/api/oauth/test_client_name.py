@@ -85,6 +85,9 @@ class TestValidateClientName(TestCase):
             ("arabic_indic_five_for_o", "P\u0665stHog MCP"),
             ("egyptian_full_blank_prefix", "\U00013441PostHog MCP"),
             ("cyrillic_e_in_blocked_word", "My V\u0435rified App"),
+            ("greek_nu_in_blocked_word", "Acme \u03bderified Client"),
+            ("hyphen_inside_blocked_word", "Acme Veri-fied Client"),
+            ("cyrillic_barred_o", "P\u04e8stHog Wizard"),
             ("unassigned_invisible_in_blocked_word", "Acme Veri\u2065fied"),
         ]
     )
@@ -102,6 +105,7 @@ class TestValidateClientName(TestCase):
             ("cyrillic_name_ending_with_posthog", "\u0410\u043d\u0430\u043b\u0438\u0442\u0438\u043a\u0430 PostHog"),
             ("cjk_name", "\u6570\u636e\u5206\u6790 Client"),
             ("emoji_name", "\U0001f994 Hedgehog Helper"),
+            ("blocked_word_split_across_words", "Trust Edition Sync"),
         ]
     )
     def test_accepts_valid_names(self, _name, value):

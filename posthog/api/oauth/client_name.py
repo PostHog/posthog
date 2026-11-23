@@ -70,6 +70,9 @@ _LETTER_LOOKALIKES = str.maketrans(
         "ଠ": "o",  # Oriya
         "ჿ": "o",  # Georgian
         "𐐬": "o",  # Deseret
+        "θ": "o",  # Greek
+        "ө": "o",  # Cyrillic
+        "ѳ": "o",  # Cyrillic
         "р": "p",  # Cyrillic
         "ρ": "p",  # Greek
         "ⲣ": "p",  # Coptic
@@ -121,6 +124,11 @@ _LETTER_LOOKALIKES = str.maketrans(
         "ԁ": "d",  # Cyrillic
         "е": "e",  # Cyrillic
         "і": "i",  # Cyrillic
+        "ӏ": "l",  # Cyrillic
+        "υ": "u",  # Greek
+        "ս": "u",  # Armenian
+        "ν": "v",  # Greek
+        "ѵ": "v",  # Cyrillic
     }
 )
 
@@ -234,9 +242,11 @@ def _without_leading_symbols(value: str) -> str:
 
 
 def _reject_blocked_words(value: str) -> None:
+    """Punctuation inside a word is dropped, so "Veri-fied" matches. Spaces stay, so "Trust Edition" doesn't."""
     for reading in _readings(value):
+        words = "".join(char for char in reading if char.isalnum() or char == " ")
         for word in BLOCKED_CLIENT_NAME_WORDS:
-            if word in reading:
+            if word in words:
                 raise serializers.ValidationError(f"Client name cannot contain '{word}'")
 
 
