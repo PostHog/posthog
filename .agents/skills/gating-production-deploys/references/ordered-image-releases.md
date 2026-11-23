@@ -134,11 +134,11 @@ Ordinary publication refuses an empty ordered frontier. Review one seed revision
 
 Retry the same seed after newer aliases arrive. The seed must still exist at its expected digest; a missing seed in a repository with an ordered release or a conflicting digest fails. Untagged manifests and non-ordered tags alone do not block a verified seed copy. When the seed predates the channel policy, carry `bootstrapPolicyDigest` in the channel and verify it equals the reviewed current fingerprint before seeding. Preserve that adoption fingerprint across later policy changes.
 
-Before adding the first channel, review the selective role, source reads, origin writes and listing, immutable tags, ECR replication, retention and bootstrap evidence. Onboarding another worker needs its infrastructure entry and policy entry, with no workflow edit while the channel count stays within the workflow's [channel budget](#bound-work-before-activation). Obtain the Charts consumer-binding check and verify consumer pulls and release selection separately. Adding a repository can cause a rollout even at the same digest. This publisher makes no consumer or Charts changes.
+Before adding the first channel, review the selective role, source reads, origin writes and listing, immutable tags, ECR replication, retention and bootstrap evidence. Onboarding another worker needs its infrastructure entry and policy entry, with no workflow edit while the channel count stays within the workflow's [channel and time bounds](#bound-work-before-activation). Obtain the Charts consumer-binding check and verify consumer pulls and release selection separately. Adding a repository can cause a rollout even at the same digest. This publisher makes no consumer or Charts changes.
 
 ## Bound work before activation
 
-The workflow allows forty channels and eight concurrent registry workers. The time bound covers only sixteen channels that all publish in one build at the full channel registry work bound, in two waves of eight. With more channels publishing that slowly, the action total ends the run and blocks every remaining channel: a channel not yet started makes no copy, a channel cut short may already have written its tag, and the next build re-evaluates each from the frontier it finds. The action's tests publish to forty channels with at most eight in progress and refuse a forty-one-channel policy before any registry command; they measure fixture work, not production upload throughput. Recheck these bounds before raising the channel budget or concurrency, or enabling an origin with slower copy or readback behavior.
+The workflow allows forty channels and eight concurrent registry workers. The time bound covers only twenty-four channels that all publish in one build at the full channel registry work bound, in three waves of eight. The action's committed-policy test checks the committed channel count against this bound. With more channels publishing that slowly, the action total ends the run and blocks every remaining channel: a channel not yet started makes no copy, a channel cut short may already have written its tag, and the next build re-evaluates each from the frontier it finds. The action's tests publish to forty channels with at most eight in progress and refuse a forty-one-channel policy before any registry command; they measure fixture work, not production upload throughput. Recheck these bounds before raising the channel budget or concurrency, or enabling an origin with slower copy or readback behavior.
 
 | Work                           | Bound              |
 | ------------------------------ | ------------------ |
@@ -149,8 +149,8 @@ The workflow allows forty channels and eight concurrent registry workers. The ti
 | Registry operation             | 15 seconds         |
 | Selective copy and readback    | 120 and 30 seconds |
 | Channel registry work          | 300 seconds        |
-| Action total                   | 720 seconds        |
-| Publish step and selective job | 13 and 18 minutes  |
+| Action total                   | 1,020 seconds      |
+| Publish step and selective job | 18 and 23 minutes  |
 
 Commands kill their process group on timeout or output exhaustion; the helper's copy and readback stay in the caller's process group so a supervising runner's cancellation reaches them. The helper's own timeout then signals only the client; its descendants remain bounded by the caller's group kill or the step timeout. Bounded policy-blob fetching, unavailable trees and registry timeouts must leave blocked channels unadvanced. The independent common job retains its own attempt and budget. Activation must verify real fallback copy times, replica visibility, quiet intervals and retained rollback images.
 
