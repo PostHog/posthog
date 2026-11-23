@@ -8891,6 +8891,10 @@ export namespace Schemas {
          */
         key: string;
     };
+    export type ErrorTrackingIssueTagsFilter = Partial<{
+        has: Array<string> | null;
+        hasNot: Array<string> | null;
+    }>;
     export type OrderDirection2 = "ASC" | "DESC";
     export type ErrorTrackingPendingFingerprintIssueStateUpdate = {
         assigned_role_id?: (string | null) | undefined;
@@ -8952,6 +8956,7 @@ export namespace Schemas {
         groupTypeIndex?: (number | null) | undefined;
         issueId?: (string | null) | undefined;
         issueTag?: (ErrorTrackingIssueTagFilter | null) | undefined;
+        issueTags?: (ErrorTrackingIssueTagsFilter | null) | undefined;
         kind?: string | undefined;
         limit?: (number | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
@@ -9456,7 +9461,7 @@ export namespace Schemas {
         | "critical";
     export type ErrorTrackingIssueTagRead = {
         /**
-         * Key of the tag. Pass it as `issueTag.key` to filter the issue list.
+         * Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, or in `issueTags.hasNot` to keep the issues that do not.
          */
         key: string;
         /**
