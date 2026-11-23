@@ -18,6 +18,7 @@ from django.utils import timezone
 import structlog
 import dateutil.parser
 import posthoganalytics
+from redis.client import Pipeline
 
 from posthog.cache_utils import cache_for
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -200,6 +201,14 @@ YESTERDAY_FINISHED_TTL = timedelta(days=2)
 # E.g. key: @posthog/quota-limits/recordings, value: {"phc_PWDYpjHUGMyJOmLhQXB4il4So2lWh1BMjgdXi9FIXYK": 1737867600}
 # E.g. key: @posthog/quota-limiting-suspended/recordings, value: {"phc_PWDYpjHUGMyJOmLhQXB4il4So2lWh1BMjgdXi9FIXYK": 1737867600}
 
+# Redis rejects a command with more than this many arguments, counting the command name and the key.
+REDIS_MAX_COMMAND_ARGUMENTS = 1024 * 1024
+
+
+def _queue_zadd(pipe: Pipeline, key: str, tokens: Mapping[str, int]) -> None:
+    for token_batch in batched(tokens.items(), (REDIS_MAX_COMMAND_ARGUMENTS - 2) // 2, strict=False):
+        pipe.zadd(key, dict(token_batch))
+
 
 def replace_limited_team_tokens(
     resource: QuotaResource, tokens: Mapping[str, int], cache_key: QuotaLimitingCaches
@@ -210,8 +219,7 @@ def replace_limited_team_tokens(
     key = f"{cache_key.value}{resource.value}"
     pipe = get_client().pipeline()
     pipe.delete(key)
-    if tokens:
-        pipe.zadd(key, tokens)  # type: ignore[arg-type]
+    _queue_zadd(pipe, key, tokens)
     pipe.execute()
 
 
@@ -241,10 +249,9 @@ def reconcile_limited_team_tokens(
     stale_tokens = [token for token in shared_tokens if token not in tokens]
     pipe = get_client().pipeline()
     pipe.zremrangebyscore(key, "-inf", now)
-    if stale_tokens:
-        pipe.zrem(key, *stale_tokens)
-    if tokens:
-        pipe.zadd(key, tokens)  # type: ignore[arg-type]
+    for stale_batch in batched(stale_tokens, REDIS_MAX_COMMAND_ARGUMENTS - 2, strict=False):
+        pipe.zrem(key, *stale_batch)
+    _queue_zadd(pipe, key, tokens)
     pipe.execute()
 
 

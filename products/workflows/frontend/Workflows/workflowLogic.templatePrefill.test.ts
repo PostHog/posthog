@@ -11,6 +11,7 @@ import { useMocks } from '~/mocks/jest'
 import { MockResolverInfo } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 
+import { draftMessage } from '../MessageAudience/messageDrafts'
 import { EVENT_TRIGGER_WITH_NO_EVENT } from './emailTemplateWorkflowPrefill'
 import { HogFlow } from './hogflows/types'
 import { EXIT_NODE_ID, NEW_WORKFLOW, TRIGGER_NODE_ID, workflowLogic } from './workflowLogic'
@@ -154,6 +155,46 @@ describe('workflowLogic pages opened from a link or a template', () => {
 
         const { id, name, status, version } = logic.values.workflow
         expect({ id, name, status, version }).toEqual({ ...expected, status: 'draft' })
+    })
+
+    it('saves a workflow opened from a link with the sender that can send when the project default stopped', async () => {
+        const created: Partial<HogFlow>[] = []
+        useMocks({
+            get: {
+                '/api/projects/:team_id/integrations/': {
+                    results: [
+                        { id: 1, kind: 'email', config: { verified: true, ses_sending_status: 'failed' } },
+                        { id: 2, kind: 'email', config: { verified: true } },
+                    ],
+                    next: null,
+                },
+            },
+            post: {
+                '/api/projects/:team_id/hog_flows/': async ({ request }) => {
+                    const body = (await request.json()) as Partial<HogFlow>
+                    created.push(body)
+                    return [201, { ...body, id: 'flow-1' }]
+                },
+            },
+        })
+        teamLogic.mount()
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            workflows_config: { default_email_integration_id: 1 },
+        } as any)
+        const logic = workflowLogic({
+            id: 'new',
+            triggerPrefill: JSON.stringify(linkedEventTrigger),
+            emailPrefill: JSON.stringify(draftMessage({ kind: 'issue_hit' })),
+        })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.saveWorkflow(logic.values.workflow)
+        await expectLogic(logic).toFinishAllListeners()
+
+        const email = created[0]?.actions?.find((action) => action.type === 'function_email')
+        expect((email?.config as any)?.inputs.email.value.from).toEqual({ integrationId: 2 })
     })
 
     it('keeps one editor per saved workflow and per template', async () => {

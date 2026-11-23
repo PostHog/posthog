@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { senderAddressError, senderFrom } from 'scenes/hog-functions/email-templater/emailSenderFields'
+import { latestEmailEditSaved } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import type { EmailTemplate } from 'scenes/hog-functions/email-templater/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -245,6 +246,11 @@ export const transactionalEmailWizardLogic = kea<transactionalEmailWizardLogicTy
     }),
     listeners(({ actions, values }) => ({
         createTransactionalEmail: async () => {
+            if (!(await latestEmailEditSaved())) {
+                actions.setStep('content')
+                actions.createTransactionalEmailFinished(false)
+                return
+            }
             const firstInvalidStep = TRANSACTIONAL_EMAIL_WIZARD_STEPS.find((step) => values.stepErrors[step].length > 0)
             if (firstInvalidStep) {
                 actions.setStep(firstInvalidStep)

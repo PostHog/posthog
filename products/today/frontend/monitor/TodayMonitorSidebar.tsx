@@ -5,8 +5,8 @@ import { SidebarSection } from '~/layout/today/sidebar/SidebarSection'
 import { TodayPinnedRecentSections } from '~/layout/today/TodayPinnedRecentSections'
 import { recentRowKey } from '~/layout/today/todayRecents'
 
+import { TodayPaneProductRow } from '../TodayPaneProductRow'
 import { todayMonitorLogic } from './todayMonitorLogic'
-import { TodayMonitorProductRow } from './TodayMonitorProductRow'
 import { TodayMonitorRecentRow } from './TodayMonitorRecentRow'
 
 /** The Monitor sub-nav: the tools engineers start from, their pinned and recent issues, log views and traces, then AI products. */
@@ -41,7 +41,7 @@ export function TodayMonitorSidebar(): JSX.Element {
                 {matchingTools.length > 0 && (
                     <div className="flex flex-col gap-px pb-2">
                         {matchingTools.map((product) => (
-                            <TodayMonitorProductRow
+                            <TodayPaneProductRow
                                 key={product.key}
                                 product={product}
                                 active={activeRow === `product:${product.key}`}
@@ -87,7 +87,7 @@ export function TodayMonitorSidebar(): JSX.Element {
                         dataAttr="monitor-section-products"
                     >
                         {matchingProducts.map((product) => (
-                            <TodayMonitorProductRow
+                            <TodayPaneProductRow
                                 key={product.key}
                                 product={product}
                                 active={activeRow === `product:${product.key}`}

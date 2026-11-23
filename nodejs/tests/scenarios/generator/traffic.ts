@@ -26,7 +26,7 @@ export type SendClock = { now(): number; wait(ms: number, signal: AbortSignal): 
 
 export type OfferContext = {
     emit: Emit
-    cdpApi?: { url: string; jwt: Pick<ScopedServiceJwt, 'mint'>; clock?: SendClock }
+    cdpApi?: { nextUrl: () => string; jwt: Pick<ScopedServiceJwt, 'mint'>; clock?: SendClock }
     sesFeedback?: SesFeedback
 }
 
@@ -45,7 +45,7 @@ export type TrafficKind = Omit<TrafficDefinition, 'profile'> & {
 
 export const SENDER = { email: 'flows@www.example.com', name: 'Scenario runner', domain: 'www.example.com' }
 
-const EMAIL_ACTION = 'email'
+export const EMAIL_ACTION = 'email'
 export const WEBHOOK_ACTION = 'webhook'
 
 const unitAddress = (unit: Unit): string => `${unit.unitId}@${UNIT_EMAIL_DOMAIN}`
@@ -291,7 +291,7 @@ async function postTransactional(
 ): Promise<IntakeAnswer> {
     try {
         const response = await internalFetch(
-            `${cdpApi.url}/api/projects/${unit.teamId}/hog_flows/${unit.flowId}/transactional_email`,
+            `${cdpApi.nextUrl()}/api/projects/${unit.teamId}/hog_flows/${unit.flowId}/transactional_email`,
             {
                 method: 'POST',
                 headers: {
