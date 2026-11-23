@@ -395,6 +395,8 @@ path = "products.groups"
 depends_on = [
     "posthog",
     "products.access_control",
+    # Facade-only: the group type detail dashboard is created through the dashboards facade.
+    "products.dashboards",
     "products.event_definitions",
     "products.notebooks",
     "products.warehouse_sources",

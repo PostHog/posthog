@@ -25,7 +25,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_result import InsightResult
 from posthog.constants import AvailableFeature
-from posthog.helpers.dashboard_templates import create_from_template, create_group_type_mapping_detail_dashboard
+from posthog.helpers.dashboard_templates import create_from_template
 from posthog.ip_restrictions import get_ip_restrictions_for_principal
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -60,6 +60,7 @@ from products.dashboards.backend.presentation.views.dashboard import (
     DashboardTileErrorSerializer,
     serialize_tile_with_context,
 )
+from products.groups.backend.facade.api import create_group_type_detail_dashboard
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.product_analytics.backend.presentation.insight import InsightSerializer
 
@@ -1604,15 +1605,17 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
 
-        dashboard = create_group_type_mapping_detail_dashboard(group_type, self.user)
-        update_group_type_mapping_fields(group_type, fields={"detail_dashboard_id": dashboard.id}, caller_tag="test")
+        dashboard_id = create_group_type_detail_dashboard(
+            self.team, self.user, group_type="organization", name_singular=None, name_plural=None
+        )
+        update_group_type_mapping_fields(group_type, fields={"detail_dashboard_id": dashboard_id}, caller_tag="test")
 
         cache_key = f"{GROUP_TYPES_CACHE_KEY_PREFIX}{self.team.project_id}"
         stale_cache_key = f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{self.team.project_id}"
         cache.set(cache_key, [{"stale": True}], 300)
         cache.set(stale_cache_key, [{"stale": True}], 300)
 
-        self.dashboard_api.soft_delete(dashboard.id, "dashboards", {"delete_insights": True})
+        self.dashboard_api.soft_delete(dashboard_id, "dashboards", {"delete_insights": True})
         self.assertIsNone(cache.get(cache_key))
         self.assertIsNone(cache.get(stale_cache_key))
         # Strong consistency bypasses the cache so this read doesn't re-populate the keys asserted above.

@@ -32,7 +32,6 @@ from posthog.api.shared import SerializedGroupActorSerializer, SerializedPersonA
 from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import GroupTypeIndex
-from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
@@ -217,10 +216,16 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        dashboard = create_group_type_mapping_detail_dashboard(group_type_mapping, request.user)
+        dashboard_id = groups.create_group_type_detail_dashboard(
+            self.team,
+            cast(User, request.user),
+            group_type=group_type_mapping.group_type,
+            name_singular=group_type_mapping.name_singular,
+            name_plural=group_type_mapping.name_plural,
+        )
         update_group_type_mapping_fields(
             group_type_mapping,
-            fields={"detail_dashboard_id": dashboard.id},
+            fields={"detail_dashboard_id": dashboard_id},
             caller_tag="groups/create-detail-dashboard",
         )
         invalidate_group_types_cache(self.team.project_id)
