@@ -233,16 +233,19 @@ def sends_only_transactional_email(actions: object) -> bool:
     )
 
 
+_TRANSACTIONAL_LOOKUP_BATCH_SIZE = 200
+
+
 def _transactional_by_flow(*, team_ids: list[int], flow_ids: list[str]) -> dict[str, bool]:
-    if not flow_ids:
-        return {}
-    return {
-        str(flow_id): sends_only_transactional_email(actions)
+    # Batched because `actions` holds each email step's full HTML, and the sweep's database
+    # connection goes through pgbouncer, where Django cannot stream rows with a server-side cursor.
+    transactional: dict[str, bool] = {}
+    for start in range(0, len(flow_ids), _TRANSACTIONAL_LOOKUP_BATCH_SIZE):
+        batch = flow_ids[start : start + _TRANSACTIONAL_LOOKUP_BATCH_SIZE]
         # nosemgrep: idor-lookup-without-team (internal sweep across teams; ids come from the team-scoped candidate query)
-        for flow_id, actions in HogFlow.objects.filter(team_id__in=team_ids, id__in=flow_ids).values_list(
-            "id", "actions"
-        )
-    }
+        rows = HogFlow.objects.filter(team_id__in=team_ids, id__in=batch).values_list("id", "actions")
+        transactional.update({str(flow_id): sends_only_transactional_email(actions) for flow_id, actions in rows})
+    return transactional
 
 
 def _shown_percent(rate: float) -> float:

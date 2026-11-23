@@ -457,6 +457,7 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
             ),
         ]
     )
+    @patch("products.workflows.backend.services.workflow_email_health._TRANSACTIONAL_LOOKUP_BATCH_SIZE", 1)
     def test_a_transactional_workflow_is_warned_instead_of_paused(
         self,
         _name: str,
