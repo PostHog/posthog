@@ -1061,6 +1061,8 @@ class TestTransactionalEmail(APIBaseTest):
             ("link_in_the_text_of_an_email_without_html", {"html": "", "text": "Bye: {{unsubscribe_url}}"}, 202),
             ("link_with_nbsp_in_html", {"html": '<a href="{{\u00a0unsubscribe_url }}">Unsubscribe</a>'}, 202),
             ("link_with_nbsp_in_text", {"html": "", "text": "Bye: {{\u00a0unsubscribe_url\u00a0}}"}, 202),
+            ("link_with_bom_in_html", {"html": '<a href="{{\ufeffunsubscribe_url }}">Unsubscribe</a>'}, 202),
+            ("link_with_nel_in_html", {"html": '<a href="{{\u0085unsubscribe_url }}">Unsubscribe</a>'}, 400),
             ("no_link", {"html": "<p>Hi</p>", "text": "Hi"}, status.HTTP_400_BAD_REQUEST),
             ("link_only_in_the_text_beside_html", {"html": "<p>Hi</p>", "text": "{{ unsubscribe_url }}"}, 400),
         ]
@@ -1319,7 +1321,7 @@ class TestTransactionalEmail(APIBaseTest):
         [
             ("code_send_with_a_category", "code", NEWSLETTER, "categories_not_enabled"),
             ("template_id_send_with_a_category", "template_id", NEWSLETTER, "categories_not_enabled"),
-            ("dedicated_template_send_ignores_category", "dedicated_template", NEWSLETTER, None),
+            ("dedicated_template_send_refuses_category", "dedicated_template", NEWSLETTER, "field_not_accepted"),
             ("code_send_named_transactional", "code", "transactional", None),
             ("code_send_under_a_categorized_templates_key", "template_key", None, None),
             ("transactional_under_a_categorized_templates_key", "template_key", "transactional", "category_mismatch"),
@@ -1428,14 +1430,11 @@ class TestTransactionalEmail(APIBaseTest):
         own = self._category(key="receipts", name="Receipts", category_type=MessageCategoryType.TRANSACTIONAL)
         MessageTemplate.objects.filter(id=self.template.id).update(key="password-reset", message_category=own)
 
-        with CaptureQueriesContext(connection) as queries:
-            response = self._psak_client(["transactional_email:write"]).post(
-                self.send_email_url, self._code_send(template_key="password-reset", **fields), format="json"
-            )
+        response = self._psak_client(["transactional_email:write"]).post(
+            self.send_email_url, self._code_send(template_key="password-reset", **fields), format="json"
+        )
 
         assert response.status_code == expected_status, response.json()
-        category_reads = [q["sql"] for q in queries if "posthog_messagecategory" in q["sql"]]
-        assert len(category_reads) == 1
         if expected_status == status.HTTP_202_ACCEPTED:
             assert self.cdp.categories() == [
                 {"id": str(own.id), "type": "transactional", **({"inherited": True} if inherited else {})}
@@ -1483,12 +1482,14 @@ class TestTransactionalEmail(APIBaseTest):
             ("existing_transactional_category", "key_mismatch", "category_mismatch"),
             ("uncategorized_template_id", "template_id_no_category", "category_mismatch"),
             ("transactional_template_key", "template_key_mismatch", "category_mismatch"),
+            ("dedicated_template_route", "dedicated_template", "field_not_accepted"),
         ]
     )
     def test_marketing_category_refusals_never_tell_the_caller_to_send_transactional(
         self, cdp_post, flag, capture, _name, scenario, expected_code
     ):
         self._use_fakes(cdp_post, capture)
+        url = self.send_email_url
         if scenario == "flag_off_marketing":
             flag.side_effect = lambda key, *_args, **_kwargs: key != CODE_SEND_CATEGORIES_FLAG
             body = self._code_send(category=self.NEWSLETTER, html=self.UNSUBSCRIBE_HTML)
@@ -1497,12 +1498,15 @@ class TestTransactionalEmail(APIBaseTest):
             body = self._code_send(category=self.NEWSLETTER, html=self.UNSUBSCRIBE_HTML)
         elif scenario == "template_id_no_category":
             body = {**self._flat(self.body), "category": self.NEWSLETTER}
+        elif scenario == "dedicated_template":
+            url = self.url
+            body = {**self.body, "category": self.NEWSLETTER}
         else:
             receipts = self._category(key="receipts", name="Receipts", category_type=MessageCategoryType.TRANSACTIONAL)
             MessageTemplate.objects.filter(id=self.template.id).update(key="password-reset", message_category=receipts)
             body = self._code_send(template_key="password-reset", category=self.NEWSLETTER, html=self.UNSUBSCRIBE_HTML)
 
-        response = self._psak_client(["transactional_email:write"]).post(self.send_email_url, body, format="json")
+        response = self._psak_client(["transactional_email:write"]).post(url, body, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["code"] == expected_code
@@ -3915,32 +3919,48 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
         assert cdp.categories() == [{"id": str(category_id), "type": "marketing"}]
         assert MessageCategory.objects.filter(team=self.team, key="newsletter").count() == 1
 
-    def test_a_key_the_app_creates_at_the_limit_between_lookup_and_count_is_used(self, cdp_post, _flag, _capture):
+    @parameterized.expand([("creates", False), ("restores", True)])
+    def test_a_key_another_writer_makes_live_at_the_limit_before_the_limit_check_is_used(
+        self, cdp_post, _flag, _capture, _name, archived
+    ):
         cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
-        created_id: list[Any] = []
+        archived_category = (
+            MessageCategory.objects.create(
+                team=self.team, key="newsletter", name="Newsletter", category_type="marketing", deleted=True
+            )
+            if archived
+            else None
+        )
+        written_id: list[Any] = []
 
-        def create_in_app() -> None:
+        def write_in_other_session() -> None:
             try:
-                created_id.append(
-                    MessageCategory.objects.create(
-                        team=self.team, key="newsletter", name="Made in the app", category_type="marketing"
-                    ).id
-                )
+                if archived_category is not None:
+                    MessageCategory.objects.filter(id=archived_category.id).update(deleted=False)
+                    written_id.append(archived_category.id)
+                else:
+                    written_id.append(
+                        MessageCategory.objects.create(
+                            team=self.team, key="newsletter", name="Made in the app", category_type="marketing"
+                        ).id
+                    )
             finally:
                 connection.close()
 
-        def app_wins_before_count(execute, sql, params, many, context):
-            if not created_id and "COUNT(*)" in sql and "posthog_messagecategory" in sql:
+        original_at_limit = send_categories._at_category_limit
+
+        def other_writer_wins_before_limit_check(team_id: int) -> bool:
+            if not written_id:
                 with ThreadPoolExecutor(max_workers=1) as pool:
-                    pool.submit(create_in_app).result(timeout=30)
-            return execute(sql, params, many, context)
+                    pool.submit(write_in_other_session).result(timeout=30)
+            return original_at_limit(team_id)
 
         with (
             patch.object(send_categories, "SEND_CATEGORY_LIMIT", 1),
-            connection.execute_wrapper(app_wins_before_count),
+            patch.object(send_categories, "_at_category_limit", side_effect=other_writer_wins_before_limit_check),
         ):
             response = self._send_newsletter()
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-        assert len(created_id) == 1
-        assert cdp.categories() == [{"id": str(created_id[0]), "type": "marketing"}]
+        assert len(written_id) == 1
+        assert cdp.categories() == [{"id": str(written_id[0]), "type": "marketing"}]

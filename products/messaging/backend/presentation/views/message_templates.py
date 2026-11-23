@@ -725,6 +725,23 @@ class SendTransactionalEmailSerializer(TransactionalEmailMessageSerializer):
                     f"{fix} `scheduled_at` to send it now."
                 }
             )
+        if isinstance(data, Mapping) and data.get("category") is not None:
+            team = self.context.get("team")
+            route = (
+                f"/api/projects/{team.id}/messaging/send/email/"
+                if team is not None
+                else "/api/projects/{project_id}/messaging/send/email/"
+            )
+            email = "marketing email" if _requested_category_type(data.get("category")) == "marketing" else "email"
+            raise serializers.ValidationError(
+                {
+                    "category": ErrorDetail(
+                        f"This route doesn't take `category`, so PostHog didn't send this {email}. Send with "
+                        f"`category` on `{route}` instead.",
+                        code="field_not_accepted",
+                    )
+                }
+            )
         return super().to_internal_value(data)
 
 

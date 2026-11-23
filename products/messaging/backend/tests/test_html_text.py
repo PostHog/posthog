@@ -42,6 +42,30 @@ class TestTextFromHtml(SimpleTestCase):
                 True,
                 "Unsubscribe ({{ unsubscribe_url }})",
             ),
+            (
+                "marketing_send_with_bom",
+                '<a href="{{\ufeffunsubscribe_url }}">Unsubscribe</a>',
+                True,
+                "Unsubscribe ({{\ufeffunsubscribe_url }})",
+            ),
+            (
+                "marketing_send_with_surrounding_bom",
+                '<a href="\ufeff{{unsubscribe_url}}\ufeff">Unsubscribe</a>',
+                True,
+                "Unsubscribe (\ufeff{{unsubscribe_url}}\ufeff)",
+            ),
+            (
+                "marketing_send_with_nel",
+                '<a href="{{\u0085unsubscribe_url }}">Unsubscribe</a>',
+                True,
+                "Unsubscribe",
+            ),
+            (
+                "marketing_send_with_surrounding_nel",
+                '<a href="\u0085{{unsubscribe_url}}">Unsubscribe</a>',
+                True,
+                "Unsubscribe",
+            ),
             ("transactional_send", '<a href="{{unsubscribe_url}}">Unsubscribe</a>', False, "Unsubscribe"),
         ]
     )

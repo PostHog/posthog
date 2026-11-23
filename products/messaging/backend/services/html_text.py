@@ -36,7 +36,12 @@ VOID_TAGS = frozenset(
     }
 )
 LINK_SCHEMES = ("http://", "https://", "mailto:")
-UNSUBSCRIBE_PLACEHOLDER = re.compile(r"\{\{\s*unsubscribe_url\s*\}\}")
+# Matches ECMAScript \s so Django and CDP agree on {{ unsubscribe_url }}.
+_JS_WHITESPACE = r"[\t\n\v\f\r \u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]"
+UNSUBSCRIBE_PLACEHOLDER = re.compile(rf"\{{\{{{_JS_WHITESPACE}*unsubscribe_url{_JS_WHITESPACE}*\}}\}}")
+_UNSUBSCRIBE_HREF = re.compile(
+    rf"{_JS_WHITESPACE}*\{{\{{{_JS_WHITESPACE}*unsubscribe_url{_JS_WHITESPACE}*\}}\}}{_JS_WHITESPACE}*"
+)
 BLANK_LINES = re.compile(r"\n{3,}")
 WHITESPACE = re.compile(r"\s+")
 LINE_END = "\x00"
@@ -124,7 +129,7 @@ class _TextParser(HTMLParser):
             self.open_links.append(_OpenLink(depth=len(self.open_tags), href=href, label_start=self.label_length))
 
     def _is_unsubscribe_link(self, href: str) -> bool:
-        return self.keep_unsubscribe_link and UNSUBSCRIBE_PLACEHOLDER.fullmatch(href.strip()) is not None
+        return self.keep_unsubscribe_link and _UNSUBSCRIBE_HREF.fullmatch(href) is not None
 
     def _push(self, tag: str) -> None:
         self.open_tags.append(tag)
