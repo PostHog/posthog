@@ -202,13 +202,14 @@ class Command(BaseCommand):
                 raise CommandError("Not started. Check the quote and destination above, then rerun with --yes.")
             if input("Start the export? [y/N] ").strip().lower() != "y":
                 raise CommandError("Not started")
+        # Written first and fail-closed, so an export never runs without its entry in the organization's activity log.
+        record_export(organization_id, workflow_input, workflow_id, approved_by)
         try:
             asyncio.run(_start_workflow(workflow_input, workflow_id))
         except WorkflowAlreadyStartedError as e:
             raise CommandError(
                 f"{workflow_id} is running or finished. A quote starts again only after a failed run."
             ) from e
-        record_export(organization_id, workflow_input, workflow_id, approved_by)
         self.stdout.write(self.style.SUCCESS(f"Started {workflow_id}"))
 
 
@@ -236,6 +237,7 @@ def record_export(
         item_id=workflow_input.quote_id,
         scope="Replay",
         activity="exported",
+        strict=True,
         detail=Detail(
             name=f"Recordings exported to s3://{destination.bucket}/{destination.prefix}",
             trigger=Trigger(

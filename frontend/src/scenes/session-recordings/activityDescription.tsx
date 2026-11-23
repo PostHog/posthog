@@ -31,6 +31,28 @@ function describeReplayAuthentication(logItem: ActivityLogItem): HumanizedChange
     }
 }
 
+function describeRecordingExport(logItem: ActivityLogItem): HumanizedChange {
+    const payload = logItem.detail.trigger?.payload ?? {}
+    const destination = `s3://${payload.bucket ?? 'unknown bucket'}/${payload.prefix ?? ''}`
+    const approvedBy = payload.approved_by ?? 'unknown'
+
+    return {
+        summary: activityLogSummary(
+            logItem,
+            'Exported session recordings',
+            destination,
+            `Approved by ${approvedBy}`,
+            <strong>PostHog</strong>
+        ),
+        description: (
+            <>
+                <strong>PostHog</strong> exported session recordings to <b>{destination}</b> as role{' '}
+                <code>{payload.role_arn ?? 'unknown role'}</code>, approved by <b>{approvedBy}</b>
+            </>
+        ),
+    }
+}
+
 export function replayActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope !== ActivityScope.REPLAY) {
         console.error('replay describer received a non-replay activity')
@@ -55,6 +77,10 @@ export function replayActivityDescriber(logItem: ActivityLogItem, asNotification
 
     if (logItem.activity === 'share_login_success') {
         return describeReplayAuthentication(logItem)
+    }
+
+    if (logItem.activity === 'exported') {
+        return describeRecordingExport(logItem)
     }
 
     if (logItem.activity === 'share_login_failed') {
