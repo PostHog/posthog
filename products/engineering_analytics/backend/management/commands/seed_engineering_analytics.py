@@ -769,7 +769,7 @@ _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
         ],
     ),
     (
-        "team-product-analytics",
+        "team-analytics",
         "posthog/hogql_queries/insights/trends/test",
         [
             ("TestTrendsQueryRunner", "test_interval_boundary_timezone", 3, 2),
@@ -816,7 +816,7 @@ _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
         ],
     ),
     (
-        "team-web-analytics",
+        "team-analytics",
         "products/web_analytics/backend/test",
         [
             ("TestWebOverview", "test_preaggregated_table_parity", 2, 2),

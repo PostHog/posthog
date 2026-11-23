@@ -10,9 +10,12 @@ from products.warehouse_sources.backend.billing import (
     FREE_PERIOD_START,
     ROWS_SYNCED_USAGE_KEY,
     billed_usage_for_job,
+    get_destination_bytes_exported_by_team,
     get_free_historical_rows_synced_by_team,
     get_rows_synced_by_team,
 )
+from products.warehouse_sources.backend.models.external_data_destination import ExternalDataDestination
+from products.warehouse_sources.backend.models.external_data_destination_delivery import ExternalDataDestinationDelivery
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.types import ExternalDataJobStatus
@@ -109,3 +112,41 @@ class TestWarehouseRowsBilling(BaseTest):
         )
 
         assert self._report_totals() == {}
+
+    def _deliveries(self, job: ExternalDataJob, *bytes_per_batch: int) -> None:
+        destination = ExternalDataDestination.objects.for_team(job.team_id).create(
+            team_id=job.team_id, type=ExternalDataDestination.Type.SNOWFLAKE, name=f"dest {uuid.uuid4()}"
+        )
+        ExternalDataDestinationDelivery.objects.for_team(job.team_id).bulk_create(
+            ExternalDataDestinationDelivery(
+                team_id=job.team_id,
+                job=job,
+                destination=destination,
+                run_uuid="run-a1",
+                batch_index=batch_index,
+                rows_written=1,
+                bytes_exported=bytes_exported,
+            )
+            for batch_index, bytes_exported in enumerate(bytes_per_batch)
+        )
+
+    def test_destination_bytes_are_summed_per_team_over_completed_billable_jobs(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        source_created_at = PERIOD_END - timedelta(days=30)
+        first = self._job(source_created_at=source_created_at)
+        self._deliveries(first, 100, 200)
+        self._deliveries(first, 50)
+        # The free historical window covers rows synced, not egress.
+        self._deliveries(self._job(source_created_at=PERIOD_END - timedelta(days=2)), 400)
+        self._deliveries(self._job(source_created_at=source_created_at, team_id=other_team.pk), 800)
+        # Bill nothing: the report's filters drop each of these.
+        self._deliveries(self._job(source_created_at=source_created_at, billable=False), 1)
+        self._deliveries(self._job(source_created_at=source_created_at, status=ExternalDataJobStatus.FAILED), 2)
+        self._deliveries(self._job(source_created_at=source_created_at, finished_at=None), 4)
+        self._deliveries(self._job(source_created_at=source_created_at, finished_at=PERIOD_END + timedelta(days=1)), 8)
+
+        totals = {
+            row["team_id"]: row["total"] for row in get_destination_bytes_exported_by_team(PERIOD_BEGIN, PERIOD_END)
+        }
+
+        assert totals == {self.team.pk: 750, other_team.pk: 800}

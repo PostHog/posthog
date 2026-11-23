@@ -1259,6 +1259,8 @@ export interface PostHogConnectionTargetApi {
     region: string
     /** Base URL requests through this connection are sent to. */
     base_url: string
+    /** API scopes the user granted to this connection, e.g. `insight:read`. Empty when they are not known. */
+    granted_scopes: string[]
 }
 
 export interface PostHogConnectionTargetErrorApi {

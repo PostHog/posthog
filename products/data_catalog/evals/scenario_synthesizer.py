@@ -100,6 +100,15 @@ MCP_BASE_TOOLS = ("execute-sql", "insight-get", "dashboard-get", "read-data-sche
 MCP_SHARE_CALLS_WITH_EXPORT = 3
 MCP_SHARE_CALLS_WITHOUT_EXPORT = 1
 
+# MCP_TOOL_FAILURES: one tool starts to fail often in the last week, and the other tools never fail.
+MCP_FAILING_TOOL = f"{PACK_TOKEN}-import"
+MCP_FAILURE_WINDOW_DAYS = 28
+MCP_FAILURE_RISE_DAYS = 7
+MCP_FAILING_TOOL_CALLS_PER_SESSION = 3
+# Every Nth call of the failing tool fails: 5% before the rise and about 33% during it.
+MCP_FAILING_TOOL_BASELINE_EVERY = 20
+MCP_FAILING_TOOL_RISE_EVERY = 3
+
 # REVENUE_REP_OUTLIER: a CRM export where one deal and its duplicate decide the ranking.
 CRM_DEALS_SCHEMA = f"crm_deals_{PACK_TOKEN}"
 CRM_DEALS_TABLE = f"postgres_{CRM_DEALS_SCHEMA}"
@@ -655,6 +664,39 @@ def build_mcp_tool_shipped() -> EventNeedle:
                     )
                 )
     return EventNeedle(name="mcp_tool_shipped", persons=persons, events=tuple(events))
+
+
+def build_mcp_tool_failures() -> EventNeedle:
+    persons = tuple(_person("toolagent", index) for index in range(MCP_AGENT_USER_COUNT))
+    tools = (*MCP_BASE_TOOLS, *([MCP_FAILING_TOOL] * MCP_FAILING_TOOL_CALLS_PER_SESSION))
+    events: list[PlantedEvent] = []
+    failing_calls = 0
+    for day in range(MCP_FAILURE_WINDOW_DAYS, 0, -1):
+        every = MCP_FAILING_TOOL_RISE_EVERY if day <= MCP_FAILURE_RISE_DAYS else MCP_FAILING_TOOL_BASELINE_EVERY
+        for session in range(MCP_SESSIONS_PER_DAY):
+            person = persons[(day * MCP_SESSIONS_PER_DAY + session) % len(persons)]
+            session_id = f"{PACK_TOKEN}-failures-{day:03d}-{session}"
+            for step, tool in enumerate(tools):
+                failed = False
+                if tool == MCP_FAILING_TOOL:
+                    failing_calls += 1
+                    failed = failing_calls % every == 0
+                events.append(
+                    PlantedEvent(
+                        event=MCP_TOOL_CALL_EVENT,
+                        distinct_id=person.distinct_id,
+                        days_ago=day,
+                        minute_of_day=120 + session * 240 + step,
+                        properties={
+                            "tool_name": tool,
+                            "$mcp_tool_name": tool,
+                            "$mcp_duration_ms": 400,
+                            "$mcp_is_error": failed,
+                            "$session_id": session_id,
+                        },
+                    )
+                )
+    return EventNeedle(name="mcp_tool_failures", persons=persons, events=tuple(events))
 
 
 def _rep_email(name: str) -> str:
