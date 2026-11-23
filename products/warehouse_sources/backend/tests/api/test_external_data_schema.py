@@ -52,6 +52,7 @@ from products.warehouse_sources.backend.facade.models import (
     WarehouseColumnStatistics,
     update_sync_type_config_keys,
 )
+from products.warehouse_sources.backend.facade.source_management import CDC_RESET_PENDING_KEY
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.external_data_schema import SCHEMA_PINNED_METADATA_KEY
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
@@ -2200,6 +2201,79 @@ class TestExternalDataSchema(APIBaseTest):
         # The missing schedule is created (recovered) with the new cadence, not left absent.
         mock_sync_workflow.assert_called_once()
         assert mock_sync_workflow.call_args.kwargs["create"] is True
+
+    @parameterized.expand(
+        [
+            ("shorter_frequency_syncs_now", {}, {"sync_frequency": "5min"}, timedelta(minutes=5), True),
+            ("longer_frequency_waits", {}, {"sync_frequency": "24hour"}, timedelta(hours=24), False),
+            (
+                "disabled_table_waits",
+                {"should_sync": False},
+                {"sync_frequency": "5min"},
+                timedelta(minutes=5),
+                False,
+            ),
+            (
+                "turning_sync_off_waits",
+                {},
+                {"sync_frequency": "5min", "should_sync": False},
+                timedelta(minutes=5),
+                False,
+            ),
+            (
+                "pending_cdc_reset_waits",
+                {"sync_type_config": {CDC_RESET_PENDING_KEY: True}},
+                {"sync_frequency": "5min"},
+                timedelta(minutes=5),
+                False,
+            ),
+            (
+                "billing_limit_pause_waits",
+                {"status": ExternalDataSchema.Status.PAUSED},
+                {"sync_frequency": "5min"},
+                timedelta(minutes=5),
+                False,
+            ),
+        ]
+    )
+    def test_update_schema_frequency_starts_a_sync_only_when_it_gets_shorter(
+        self, _name, schema_fields, payload, expected_interval, expect_trigger
+    ):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_frequency_interval=timedelta(hours=1),
+            **{"should_sync": True, "status": ExternalDataSchema.Status.COMPLETED, **schema_fields},
+        )
+
+        service = "products.data_warehouse.backend.logic.data_load.service"
+        with (
+            mock.patch(f"{service}.sync_connect"),
+            mock.patch(f"{service}.schedule_exists", return_value=True),
+            mock.patch(f"{service}.update_schedule") as temporal_update,
+            mock.patch(f"{service}.pause_schedule"),
+            mock.patch(f"{service}.unpause_schedule"),
+            mock.patch(f"{service}.trigger_schedule") as temporal_trigger,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data=payload,
+            )
+
+        assert response.status_code == 200, response.content
+        schema.refresh_from_db()
+        assert schema.sync_frequency_interval == expected_interval
+        assert temporal_update.call_args.kwargs["schedule"].spec.intervals[0].every == expected_interval
+        triggered = [call.kwargs["schedule_id"] for call in temporal_trigger.call_args_list]
+        assert triggered == ([str(schema.id)] if expect_trigger else [])
+        assert (schema.status == ExternalDataSchema.Status.RUNNING) is expect_trigger
 
     @parameterized.expand(
         [
