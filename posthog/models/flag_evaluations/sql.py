@@ -195,9 +195,7 @@ def _single_line(pieces: Iterable[str]) -> str:
     return "".join(f"\n    , {' '.join(piece.split())}" for piece in pieces)
 
 
-# The bucketed layout lets a read of one key of a wide map skip most of the map's data.
-# A freshly inserted part keeps the basic layout until its first merge, which comes soon after the insert.
-# A mutation such as MATERIALIZE COLUMN keeps the layout the part already has.
+# A read of one key skips most of a bucketed map. A part gets the bucketed layout at its first merge.
 FLAG_EVALUATIONS_MAP_SERIALIZATION_SETTINGS = "map_serialization_version = 'with_buckets', max_buckets_in_map = 32"
 
 # Property-group maps with the events tables' key filters. On cloud, HogQL reads custom event and
