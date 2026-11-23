@@ -369,48 +369,38 @@ describe('providerImportLogic', () => {
         expect(logic.values.importForm.api_key).toBe('')
     })
 
-    it.each(['workflows', 'templates'] as const)(
-        'offers the Customer.io automation import from the %s page even when Customer.io is the only tool',
-        async (entryPoint) => {
+    it.each([
+        ['workflows', true],
+        ['templates', true],
+        ['transactional', false],
+    ] as const)(
+        'opens straight on Customer.io from the %s page when it is the only tool, with automations: %s',
+        async (entryPoint, showsAutomationImport) => {
             await expectLogic(logic).toFinishAllListeners()
 
             logic.actions.openImportModal(null, entryPoint)
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.showsAutomationImport).toBe(true)
-            expect(logic.values.selectedProvider).toBeNull()
+            expect(logic.values.showsAutomationImport).toBe(showsAutomationImport)
+            expect(logic.values.selectedProvider?.key).toBe('customerio')
         }
     )
 
-    it('opens straight on Customer.io from other pages when it is the only tool', async () => {
-        await expectLogic(logic).toFinishAllListeners()
-
-        logic.actions.openImportModal(null, 'transactional')
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.showsAutomationImport).toBe(false)
-        expect(logic.values.selectedProvider?.key).toBe('customerio')
-    })
-
-    it.each([
-        ['opt-outs', ['customerio', 'postmark', 'sendgrid', 'resend']],
-        ['workflows', ['resend', 'customerio', 'postmark', 'sendgrid']],
-        ['templates', ['postmark', 'resend', 'customerio', 'sendgrid']],
-        ['transactional', ['postmark', 'resend', 'customerio', 'sendgrid']],
-        ['broadcasts', ['sendgrid', 'resend', 'customerio', 'postmark']],
-    ] as const)('lists the tools that bring what the %s page is about first', async (entryPoint, expectedOrder) => {
-        const tool = (key: string, steps: string[]): typeof PROVIDER_OPTION => ({
-            ...PROVIDER_OPTION,
-            key,
-            steps: steps.map((step) => ({ key: step, label: step, description: '' })),
-        })
+    it('lists the tools by name, whatever order the API sends', () => {
+        const tool = (key: string, label: string): typeof PROVIDER_OPTION => ({ ...PROVIDER_OPTION, key, label })
         logic.actions.loadImportProvidersSuccess([
+            tool('sendgrid', 'SendGrid'),
             PROVIDER_OPTION,
-            tool('postmark', ['streams', 'templates']),
-            tool('sendgrid', ['lists', 'suppressions']),
-            tool('resend', ['contacts', 'templates', 'automations']),
+            tool('resend', 'Resend'),
+            tool('mailgun', 'Mailgun'),
+            tool('a-postmark', 'Postmark'),
         ] as any)
 
-        logic.actions.openImportModal(null, entryPoint)
-
-        expect(logic.values.orderedImportProviders.map((provider) => provider.key)).toEqual(expectedOrder)
+        expect(logic.values.orderedImportProviders.map((provider) => provider.label)).toEqual([
+            'Customer.io',
+            'Mailgun',
+            'Postmark',
+            'Resend',
+            'SendGrid',
+        ])
     })
 })
