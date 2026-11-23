@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonTable, LemonTableColumns, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconChevronRight } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonTable, LemonTableColumns, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -12,11 +14,17 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { PlatformAlertConfigurationApi } from './generated/api.schemas'
 import { OptionalTimeLabel } from './OptionalTimeLabel'
-import { SOURCE_KINDS, describeCondition, describeInterval, describeSchedule } from './platformAlertFormat'
-import { PlatformAlertGroupRows } from './PlatformAlertGroupRows'
+import {
+    PlatformAlertListRow,
+    SOURCE_KINDS,
+    describeCondition,
+    describeGroup,
+    describeInterval,
+    describeSchedule,
+} from './platformAlertFormat'
 import { PLATFORM_ALERTS_PAGE_SIZE, PlatformAlertsTab, platformAlertsLogic } from './platformAlertsLogic'
+import { PlatformAlertStateLabel } from './PlatformAlertStateLabel'
 import { PlatformAlertStateSummary } from './PlatformAlertStateSummary'
 import { PlatformAlertRouting } from './routing/PlatformAlertRouting'
 
@@ -25,68 +33,122 @@ export const scene: SceneExport = {
     logic: platformAlertsLogic,
 }
 
-const COLUMNS: LemonTableColumns<PlatformAlertConfigurationApi> = [
-    {
-        title: 'Type',
-        dataIndex: 'source_kind',
-        width: 0,
-        render: (_, configuration) => {
-            const { label, iconType } = SOURCE_KINDS[configuration.source_kind]
-            return (
-                <Tooltip title={label} placement="top-start">
-                    <span
-                        className="group/colorful-product-icons colorful-product-icons-true flex text-xl"
-                        role="img"
-                        aria-label={label}
-                        data-attr="platform-alerts-row-type"
-                    >
-                        {iconForType(iconType)}
-                    </span>
-                </Tooltip>
-            )
+function listColumns(
+    expandedIds: readonly string[],
+    toggleExpanded: (id: string) => void
+): LemonTableColumns<PlatformAlertListRow> {
+    return [
+        {
+            title: 'Type',
+            width: 0,
+            render: (_, { configuration, group }) => {
+                if (group) {
+                    return null
+                }
+                const { label, iconType } = SOURCE_KINDS[configuration.source_kind]
+                return (
+                    <Tooltip title={label} placement="top-start">
+                        <span
+                            className="group/colorful-product-icons colorful-product-icons-true flex text-xl"
+                            role="img"
+                            aria-label={label}
+                            data-attr="platform-alerts-row-type"
+                        >
+                            {iconForType(iconType)}
+                        </span>
+                    </Tooltip>
+                )
+            },
         },
-    },
-    {
-        title: 'Name',
-        dataIndex: 'name',
-        render: (_, configuration) => (
-            <Link to={urls.platformAlert(configuration.id)} data-attr="platform-alerts-row-link">
-                {configuration.name}
-            </Link>
-        ),
-    },
-    {
-        title: 'State',
-        render: (_, configuration) => <PlatformAlertStateSummary configuration={configuration} />,
-    },
-    {
-        title: 'Condition',
-        render: (_, configuration) => describeCondition(configuration),
-    },
-    {
-        title: 'Interval',
-        render: (_, configuration) => (
-            <Tooltip title={describeSchedule(configuration)}>
-                <span className="border-dotted border-b">{describeInterval(configuration)}</span>
-            </Tooltip>
-        ),
-    },
-    {
-        title: 'Groups',
-        render: (_, configuration) => configuration.alerts.length,
-    },
-    {
-        title: 'Next check',
-        dataIndex: 'next_check_at',
-        render: (_, configuration) => <OptionalTimeLabel time={configuration.next_check_at} fallback="Not scheduled" />,
-    },
-]
+        {
+            title: 'Name',
+            render: (_, { configuration, group }) => {
+                if (group) {
+                    const name = describeGroup(group, configuration.grouping.keys ?? [])
+                    return (
+                        <Tooltip title={name}>
+                            <span className="block max-w-[28cqw] truncate pl-7 font-mono text-xs" translate="no">
+                                {name}
+                            </span>
+                        </Tooltip>
+                    )
+                }
+                const expanded = expandedIds.includes(configuration.id)
+                return (
+                    <div className="flex items-center gap-1">
+                        {configuration.alerts.length > 1 ? (
+                            <LemonButton
+                                size="xsmall"
+                                icon={<IconChevronRight className={expanded ? 'rotate-90' : undefined} />}
+                                tooltip={expanded ? 'Hide groups' : 'Show groups'}
+                                aria-expanded={expanded}
+                                onClick={() => toggleExpanded(configuration.id)}
+                                data-attr="platform-alerts-row-toggle-groups"
+                            />
+                        ) : (
+                            <span className="w-6 shrink-0" />
+                        )}
+                        <Link to={urls.platformAlert(configuration.id)} data-attr="platform-alerts-row-link">
+                            {configuration.name}
+                        </Link>
+                    </div>
+                )
+            },
+        },
+        {
+            title: 'State',
+            render: (_, { configuration, group }) =>
+                group ? (
+                    <div className="flex flex-wrap items-center gap-x-2">
+                        <PlatformAlertStateLabel status={group.state} />
+                        {group.firing_started_at && (
+                            <span className="inline-flex items-center gap-1 whitespace-nowrap text-muted">
+                                <span>since</span>
+                                <TZLabel time={group.firing_started_at} />
+                            </span>
+                        )}
+                    </div>
+                ) : (
+                    <PlatformAlertStateSummary configuration={configuration} />
+                ),
+        },
+        {
+            title: 'Condition',
+            render: (_, { configuration, group }) => (group ? null : describeCondition(configuration)),
+        },
+        {
+            title: 'Interval',
+            render: (_, { configuration, group }) =>
+                group ? null : (
+                    <Tooltip title={describeSchedule(configuration)}>
+                        <span className="border-dotted border-b">{describeInterval(configuration)}</span>
+                    </Tooltip>
+                ),
+        },
+        {
+            title: 'Groups',
+            render: (_, { configuration, group }) => (group ? null : configuration.alerts.length),
+        },
+        {
+            title: 'Next check',
+            render: (_, { configuration, group }) =>
+                group ? null : <OptionalTimeLabel time={configuration.next_check_at} fallback="Not scheduled" />,
+        },
+    ]
+}
 
 export function PlatformAlertsScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { configurationsPage, configurationsPageLoading, configurationsError, page, activeTab } =
-        useValues(platformAlertsLogic)
-    const { loadConfigurations, setPage, setActiveTab } = useActions(platformAlertsLogic)
+    const {
+        configurationsPage,
+        configurationsPageLoading,
+        configurationsError,
+        page,
+        activeTab,
+        listRows,
+        expandedIds,
+    } = useValues(platformAlertsLogic)
+    const { loadConfigurations, setPage, setActiveTab, toggleExpanded } = useActions(platformAlertsLogic)
 
     if (!featureFlags[FEATURE_FLAGS.PLATFORM_ALERTS]) {
         return <NotFound object="page" />
@@ -104,25 +166,24 @@ export function PlatformAlertsScene(): JSX.Element {
             Couldn't load alert configurations. Try again in a moment.
         </LemonBanner>
     ) : (
-        <LemonTable
-            dataSource={configurationsPage?.results ?? []}
-            columns={COLUMNS}
-            loading={configurationsPageLoading || configurationsPage === null}
-            rowKey="id"
-            expandable={{
-                rowExpandable: (configuration) => configuration.alerts.length > 1,
-                expandedRowRender: (configuration) => <PlatformAlertGroupRows configuration={configuration} />,
-            }}
-            emptyState="No alert configurations on the platform for this project yet."
-            pagination={{
-                controlled: true,
-                pageSize: PLATFORM_ALERTS_PAGE_SIZE,
-                currentPage: page,
-                entryCount: configurationsPage?.count ?? 0,
-                onForward: configurationsPage?.next ? () => setPage(page + 1) : undefined,
-                onBackward: page > 1 ? () => setPage(page - 1) : undefined,
-            }}
-        />
+        <div className="@container/alerts-list">
+            <LemonTable
+                dataSource={listRows}
+                columns={listColumns(expandedIds, toggleExpanded)}
+                loading={configurationsPageLoading || configurationsPage === null}
+                rowKey={({ configuration, group }) => group?.id ?? configuration.id}
+                rowClassName={({ group }) => (group ? 'bg-surface-secondary' : null)}
+                emptyState="No alert configurations on the platform for this project yet."
+                pagination={{
+                    controlled: true,
+                    pageSize: PLATFORM_ALERTS_PAGE_SIZE,
+                    currentPage: page,
+                    entryCount: configurationsPage?.count ?? 0,
+                    onForward: configurationsPage?.next ? () => setPage(page + 1) : undefined,
+                    onBackward: page > 1 ? () => setPage(page - 1) : undefined,
+                }}
+            />
+        </div>
     )
 
     return (

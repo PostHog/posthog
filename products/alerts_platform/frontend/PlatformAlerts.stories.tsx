@@ -300,8 +300,8 @@ export const ListGroupsExpanded: Story = {
     // A native click rather than userEvent, for the reason in DetailGroupedSnoozeMenuOpen.
     play: async ({ canvasElement }) => {
         await within(canvasElement).findByText('Errors per service above 50')
-        canvasElement.querySelector<HTMLElement>('.LemonTable__toggle button')?.click()
-        await within(canvasElement).findByText('Firing since')
+        canvasElement.querySelector<HTMLElement>('[data-attr="platform-alerts-row-toggle-groups"]')?.click()
+        await within(canvasElement).findByText('service_name=checkout severity_text=error')
     },
 }
 

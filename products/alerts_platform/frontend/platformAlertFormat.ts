@@ -185,6 +185,33 @@ export function groupLabels(alert: PlatformAlertApi, groupingKeys: readonly stri
     }))
 }
 
+export interface PlatformAlertListRow {
+    configuration: PlatformAlertConfigurationApi
+    // Null on the alert's own row. Set on a row for one of its groups.
+    group: PlatformAlertApi | null
+}
+
+// The list's rows: each alert, then its groups when a person opened it.
+export function configurationListRows(
+    configurations: readonly PlatformAlertConfigurationApi[],
+    expandedIds: readonly string[]
+): PlatformAlertListRow[] {
+    return configurations.flatMap((configuration) => [
+        { configuration, group: null },
+        ...(expandedIds.includes(configuration.id)
+            ? configuration.alerts.map((group) => ({ configuration, group }))
+            : []),
+    ])
+}
+
+export function describeGroup(alert: PlatformAlertApi, groupingKeys: readonly string[]): string {
+    if (!alert.grouping_key) {
+        return 'Ungrouped'
+    }
+    const labels = groupLabels(alert, groupingKeys)
+    return labels.length ? labels.map(({ key, value }) => `${key}=${value}`).join(' ') : alert.grouping_key
+}
+
 export function describeOverflow(configuration: PlatformAlertConfigurationApi): string | null {
     const count = configuration.overflowed_groups
     if (count <= 0) {

@@ -11,6 +11,7 @@ import type { TeamPublicType } from '~/types'
 
 import { platformAlertsList } from './generated/api'
 import { PaginatedPlatformAlertConfigurationListApi } from './generated/api.schemas'
+import { PlatformAlertListRow, configurationListRows } from './platformAlertFormat'
 
 export const PLATFORM_ALERTS_PAGE_SIZE = 50
 
@@ -30,6 +31,8 @@ export interface platformAlertsLogicValues {
     configurationsError: boolean
     configurationsPage: PaginatedPlatformAlertConfigurationListApi | null
     configurationsPageLoading: boolean
+    expandedIds: string[]
+    listRows: PlatformAlertListRow[]
     page: number
 }
 
@@ -63,6 +66,9 @@ export interface platformAlertsLogicActions {
     setPage: (page: number) => {
         page: number
     }
+    toggleExpanded: (id: string) => {
+        id: string
+    }
 }
 
 export type platformAlertsLogicType = MakeLogicType<platformAlertsLogicValues, platformAlertsLogicActions>
@@ -76,6 +82,7 @@ export const platformAlertsLogic = kea<platformAlertsLogicType>([
     actions({
         setPage: (page: number) => ({ page }),
         setActiveTab: (activeTab: PlatformAlertsTab) => ({ activeTab }),
+        toggleExpanded: (id: string) => ({ id }),
     }),
     reducers({
         activeTab: ['alerts' as PlatformAlertsTab, { setActiveTab: (_, { activeTab }) => activeTab }],
@@ -84,6 +91,14 @@ export const platformAlertsLogic = kea<platformAlertsLogicType>([
             {
                 setPage: (_, { page }) => page,
                 loadCurrentTeamSuccess: () => 1,
+            },
+        ],
+        expandedIds: [
+            [] as string[],
+            {
+                toggleExpanded: (state, { id }) =>
+                    state.includes(id) ? state.filter((expandedId) => expandedId !== id) : [...state, id],
+                loadCurrentTeamSuccess: () => [],
             },
         ],
     }),
@@ -116,6 +131,11 @@ export const platformAlertsLogic = kea<platformAlertsLogicType>([
     }),
     selectors({
         breadcrumbs: [() => [], (): Breadcrumb[] => [PLATFORM_ALERTS_BREADCRUMB]],
+        listRows: [
+            (s) => [s.configurationsPage, s.expandedIds],
+            (configurationsPage, expandedIds): PlatformAlertListRow[] =>
+                configurationListRows(configurationsPage?.results ?? [], expandedIds),
+        ],
     }),
     listeners(({ actions }) => ({
         setPage: () => {
