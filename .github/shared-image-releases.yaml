@@ -1540,6 +1540,7 @@ filters:
         - 'products/error_tracking/backend/temporal/recommendations_refresh/**'
         - 'products/error_tracking/backend/temporal/weekly_digest/**'
         - 'products/error_tracking/backend/temporal/built_in_filters_refresh/**'
+        - 'products/error_tracking/backend/temporal/tag_rule_sweep/**'
         - '!products/error_tracking/backend/temporal/**/test/**'
         - products/error_tracking/backend/temporal/alerts/__init__.py
         - products/error_tracking/backend/temporal/alerts/activities.py
@@ -1555,6 +1556,8 @@ filters:
         - products/error_tracking/backend/logic/built_in_filters.py
         - products/error_tracking/backend/logic/built_in_filter_definitions.py
         - products/error_tracking/backend/logic/rules.py
+        - 'products/error_tracking/backend/logic/issue_tags/**'
+        - products/error_tracking/backend/logic/team_flags.py
         - products/error_tracking/backend/logic/recommendations/__init__.py
         - products/error_tracking/backend/logic/recommendations/base.py
         - products/error_tracking/backend/logic/recommendations/alerts.py
@@ -1564,6 +1567,7 @@ filters:
         - products/error_tracking/backend/hogvm_stl.py
         - products/error_tracking/backend/weekly_digest.py
         - products/error_tracking/backend/weekly_digest_delivery.py
+        - products/error_tracking/backend/sql.py
         - products/error_tracking/backend/models.py
         - products/error_tracking/backend/facade/contracts.py
         - products/web_analytics/backend/facade/bot_definitions.py
@@ -1583,6 +1587,7 @@ filters:
         - posthog/slack/formatting.py
         - posthog/schema.py
         - posthog/enums.py
+        - posthog/errors.py
         - posthog/helpers/encrypted_fields.py
         - 'posthog/integrations/**'
         - 'posthog/hogql/**'
@@ -2064,7 +2069,7 @@ images:
             error-tracking:
                 repository: posthog-temporal-workers/error-tracking
                 filter: errorTrackingWorker
-                bootstrapPolicyDigest: 2aaa67bfbbb5548af3fc1d2506c8b39311fd3d976e9cb88acc3eb6526c3cfd71
+                bootstrapPolicyDigest: 3078c233dcf28ad67c74f4a8dc9af519211e270710677f0eea4735c786f2885c
             error-tracking-lifecycle:
                 repository: posthog-temporal-workers/error-tracking-lifecycle
                 filter: errorTrackingLifecycleWorker
