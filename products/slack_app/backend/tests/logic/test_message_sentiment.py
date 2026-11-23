@@ -1,0 +1,149 @@
+import json
+
+import pytest
+from unittest.mock import MagicMock, patch
+
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
+from posthoganalytics.types import FeatureFlagResult
+
+from posthog.llm.system_one import ChoiceAnswer, SystemOneResult
+from posthog.models.integration import Integration
+from posthog.models.organization import Organization
+from posthog.models.team.team import Team
+
+from products.slack_app.backend import feature_flags
+from products.slack_app.backend.logic import message_sentiment
+from products.slack_app.backend.logic.message_sentiment import (
+    UNHAPPY_REACTION,
+    Sentiment,
+    SentimentResponseRequest,
+    SentimentVerdict,
+    respond_to_sentiment,
+)
+
+
+class TestSentimentVerdict(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("sure_pick", "confused", 0.8, {}, Sentiment.CONFUSED),
+            ("unsure_pick_reads_neutral", "frustrated", 0.5, {"frustrated": 0.5, "neutral": 0.5}, Sentiment.NEUTRAL),
+            (
+                "unhappy_split_reads_not_happy",
+                "frustrated",
+                0.45,
+                {"frustrated": 0.45, "not_happy": 0.4, "neutral": 0.15},
+                Sentiment.NOT_HAPPY,
+            ),
+            ("unknown_choice_reads_neutral", "angry", 0.99, {"angry": 0.99}, Sentiment.NEUTRAL),
+        ]
+    )
+    def test_sentiment(self, _name, choice, confidence, probabilities, expected):
+        assert SentimentVerdict(choice=choice, confidence=confidence, probabilities=probabilities).sentiment == expected
+
+
+def _model(choice: str) -> MagicMock:
+    client = MagicMock()
+    client.decide.return_value = SystemOneResult(
+        model="m",
+        answers={"sentiment": ChoiceAnswer(choice=choice, confidence=0.9, probabilities={choice: 0.9})},
+        input_tokens=None,
+    )
+    return client
+
+
+def _flags(response: bool, gif_urls: list[str] | None) -> dict[str, FeatureFlagResult]:
+    def result(key: str, enabled: bool, payload: object = None) -> FeatureFlagResult:
+        return FeatureFlagResult(key=key, enabled=enabled, variant=None, payload=payload, reason=None)
+
+    return {
+        feature_flags.SLACK_APP_FRUSTRATION_RESPONSE_FLAG: result(
+            feature_flags.SLACK_APP_FRUSTRATION_RESPONSE_FLAG, response
+        ),
+        feature_flags.SLACK_APP_FRUSTRATION_GIF_FLAG: result(
+            feature_flags.SLACK_APP_FRUSTRATION_GIF_FLAG,
+            gif_urls is not None,
+            json.dumps({"gif_urls": gif_urls}) if gif_urls is not None else None,
+        ),
+    }
+
+
+@pytest.mark.django_db
+class TestRespondToSentiment:
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        organization = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=organization, name="Team")
+        self.integration = Integration.objects.create(
+            team=team, kind="slack", integration_id="T_SENTIMENT", sensitive_config={"access_token": "xoxb-test"}
+        )
+        with (
+            patch.object(message_sentiment, "SlackIntegration") as slack,
+            patch.object(message_sentiment, "capture_slack_event") as self.capture,
+        ):
+            self.slack_client = slack.return_value.client
+            yield
+
+    def _respond(self, flags: dict[str, FeatureFlagResult], choice: str) -> Sentiment | None:
+        with (
+            patch.object(
+                feature_flags.posthoganalytics, "feature_enabled", side_effect=lambda key, *a, **k: flags[key].enabled
+            ),
+            patch.object(
+                feature_flags.posthoganalytics, "get_feature_flag_result", side_effect=lambda key, *a, **k: flags[key]
+            ),
+            patch.object(message_sentiment, "build_system_one_client", return_value=_model(choice)) as build,
+        ):
+            sentiment = respond_to_sentiment(
+                SentimentResponseRequest(
+                    integration=self.integration,
+                    slack_user_id="U_READER",
+                    posthog_user=None,
+                    channel="C1",
+                    thread_ts="1.1",
+                    person_message="third time asking, the signup count is still wrong",
+                    person_message_ts="2.2",
+                    run_id=None,
+                    trace_id=None,
+                )
+            )
+        self.model_built = build.called
+        return sentiment
+
+    def _events(self) -> list[str]:
+        return [call.args[1] for call in self.capture.call_args_list]
+
+    @parameterized.expand(
+        [
+            ("happy", "happy", False, None),
+            ("confused", "confused", False, None),
+            ("not_happy_gets_no_gif", "not_happy", True, None),
+            ("frustrated_gets_a_gif", "frustrated", True, "https://example.com/calm.gif"),
+        ]
+    )
+    def test_reaction_and_gif_follow_the_sentiment(self, _name, choice, reacted, gif_url):
+        gifs = ["http://example.com/plain.gif", "https://example.com/calm.gif"]
+
+        assert self._respond(_flags(True, gifs), choice) == Sentiment(choice)
+
+        assert self.slack_client.reactions_add.called is reacted
+        if reacted:
+            assert self.slack_client.reactions_add.call_args.kwargs["name"] == UNHAPPY_REACTION
+        posted = self.slack_client.chat_postEphemeral.call_args
+        assert (posted.kwargs["blocks"][0]["image_url"] if posted else None) == gif_url
+        assert self.capture.call_args_list[0].kwargs["sentiment"] == choice
+
+    def test_frustrated_without_the_gif_flag_gets_only_the_reaction(self):
+        assert self._respond(_flags(True, None), "frustrated") == Sentiment.FRUSTRATED
+
+        self.slack_client.reactions_add.assert_called_once()
+        self.slack_client.chat_postEphemeral.assert_not_called()
+        assert self._events() == ["slack app message sentiment classified"]
+
+    def test_flag_off_runs_no_model(self):
+        assert self._respond(_flags(False, ["https://example.com/calm.gif"]), "frustrated") is None
+
+        assert self.model_built is False
+        self.slack_client.reactions_add.assert_not_called()
+        assert self._events() == []

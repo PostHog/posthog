@@ -14,9 +14,11 @@ _SCORERS: dict[str, dict[str, OfflineScorer]] = {
         "followup_routing": OfflineScorer(kind="boolean", version=UUID("01a1557c-d1ca-7c68-96eb-5406fd8dde02")),
         "no_unasked_wake": OfflineScorer(kind="boolean", version=UUID("01a1557c-dd52-78d0-a1f1-1854076c09ac")),
     },
-    "interview_sentiment": {
-        "interview_sentiment": OfflineScorer(kind="boolean", version=UUID("01a1783a-9ee4-73a5-bbdf-fe91e943eb96")),
-        "no_unasked_invite": OfflineScorer(kind="boolean", version=UUID("01a1783a-9ee4-73a5-bbdf-fe92235d3e9c")),
+    "message_sentiment": {
+        "message_sentiment": OfflineScorer(kind="boolean", version=UUID("01a20868-eeaf-769d-86f3-eec0dc4ff2a9")),
+        "unhappy_detected": OfflineScorer(kind="boolean", version=UUID("01a20868-eeaf-769d-86f3-eec12bc3d75f")),
+        "no_unasked_reaction": OfflineScorer(kind="boolean", version=UUID("01a20868-eeaf-769d-86f3-eec20c3f60ad")),
+        "no_unasked_gif": OfflineScorer(kind="boolean", version=UUID("01a20868-eeaf-769d-86f3-eec33dc619d3")),
     },
     "model_classifier": {
         "exit_code_zero": OfflineScorer(kind="boolean", version=UUID("01a1557c-e620-710d-82d2-de63990000f1")),

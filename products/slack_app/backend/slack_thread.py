@@ -19,12 +19,13 @@ from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_b
 from products.slack_app.backend.analytics import capture_slack_event, slack_session_id
 from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled
 from products.slack_app.backend.logic.feature_tips.offer import TipRequest, offer_feature_tip
-from products.slack_app.backend.logic.frustration_response import (
-    FrustrationOutcome,
-    FrustrationResponseRequest,
-    respond_to_frustration,
-)
 from products.slack_app.backend.logic.interview_recruitment import FrustrationInviteRequest, offer_frustration_invite
+from products.slack_app.backend.logic.message_sentiment import (
+    UNHAPPY_SENTIMENTS,
+    Sentiment,
+    SentimentResponseRequest,
+    respond_to_sentiment,
+)
 from products.slack_app.backend.logic.reply_suggestions import (
     clear_open_suggestions,
     remember_open_suggestions,
@@ -1187,14 +1188,14 @@ class SlackThreadHandler:
         )
 
     def offer_feature_tip(self) -> None:
-        """Offer one private prompt under the answer: an apology or an interview invitation if the reader is
-        frustrated, else a tip."""
+        """React to how the reader feels, then offer one private prompt under the answer: an interview invitation
+        if the reader is unhappy, else a tip."""
         if not self.actor_slack_user_id:
             return
-        outcome: FrustrationOutcome = "skipped"
+        sentiment: Sentiment | None = None
         try:
-            outcome = respond_to_frustration(
-                FrustrationResponseRequest(
+            sentiment = respond_to_sentiment(
+                SentimentResponseRequest(
                     integration=self._get_integration(),
                     slack_user_id=self.actor_slack_user_id,
                     posthog_user=self._actor_posthog_user,
@@ -1207,9 +1208,7 @@ class SlackThreadHandler:
                 )
             )
         except Exception:
-            logger.warning("slack_app_frustration_response_failed", exc_info=True)
-        if outcome == "responded":
-            return
+            logger.warning("slack_app_sentiment_response_failed", exc_info=True)
         try:
             if offer_frustration_invite(
                 FrustrationInviteRequest(
@@ -1221,7 +1220,7 @@ class SlackThreadHandler:
                     signal="message",
                     person_message=self.turn_person_message,
                     trace_id=self.turn_trace_id,
-                    unhappy={"calm": False, "unhappy": True}.get(outcome),
+                    unhappy=sentiment in UNHAPPY_SENTIMENTS if sentiment is not None else None,
                 )
             ):
                 return

@@ -474,48 +474,76 @@ class NoForcedTip(Scorer):
         )
 
 
-INTERVIEW_SENTIMENT_KEY = "interview_sentiment"
+MESSAGE_SENTIMENT_KEY = "message_sentiment"
+_UNHAPPY = frozenset({"not_happy", "frustrated"})
 
 
-class InterviewSentimentMatch(Scorer):
+def _sentiment_score(name: str, output: dict | None, expected: dict | None, applies: Any, passed: Any) -> Score:
+    want = ((expected or {}).get(MESSAGE_SENTIMENT_KEY) or {}).get("sentiment")
+    if want is None:
+        return Score(name=name, score=None, metadata={"reason": "No expectation for this case"})
+    if not applies(want):
+        return Score(name=name, score=None, metadata={"reason": "Check does not apply to this case"})
+    if output and output.get("error"):
+        return Score(name=name, score=0.0, metadata={"reason": output["error"]})
+    got = (output or {}).get("sentiment")
+    return Score(
+        name=name,
+        score=1.0 if passed(want, got) else 0.0,
+        metadata={"expected": want, "actual": got, "verdict": (output or {}).get("verdict")},
+    )
+
+
+class MessageSentimentMatch(Scorer):
+    """The exact state, after production's confidence rule. The other three scorers grade what the state drives."""
+
     def _name(self) -> str:
-        return INTERVIEW_SENTIMENT_KEY
+        return MESSAGE_SENTIMENT_KEY
 
     def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
-        want = (expected or {}).get(INTERVIEW_SENTIMENT_KEY) or {}
-        if "unhappy" not in want:
-            return Score(name=self._name(), score=None, metadata={"reason": "No expectation for this case"})
-        if output and output.get("error"):
-            return Score(name=self._name(), score=0.0, metadata={"reason": output["error"]})
+        return _sentiment_score(self._name(), output, expected, lambda want: True, lambda want, got: got == want)
 
-        got = (output or {}).get("unhappy")
-        return Score(
-            name=self._name(),
-            score=1.0 if got == want["unhappy"] else 0.0,
-            metadata={"expected": want["unhappy"], "actual": got, "verdict": (output or {}).get("verdict")},
+
+class UnhappyDetected(Scorer):
+    """An unhappy person gets the reaction and the interview checks. ``not_happy`` read as ``frustrated``, or the
+    other way, still passes here, because both get the same reaction."""
+
+    def _name(self) -> str:
+        return "unhappy_detected"
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        return _sentiment_score(
+            self._name(), output, expected, lambda want: want in _UNHAPPY, lambda want, got: got in _UNHAPPY
         )
 
 
-class NoUnaskedInvite(Scorer):
-    """The expensive direction: an interview invitation to a person who is not unhappy reads as spam.
+class NoUnaskedReaction(Scorer):
+    """The expensive direction: a reaction and an interview invitation to a calm person read as spam.
 
-    Skips on unhappy cases, so the score reads as a rate over the calm messages.
+    Skips on unhappy cases, so the score reads as a rate over the calm messages. A failed call reacts to
+    nobody, which is this scorer's passing answer, so an error scores 0 here to keep an outage visible.
     """
 
     def _name(self) -> str:
-        return "no_unasked_invite"
+        return "no_unasked_reaction"
 
     def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
-        want = (expected or {}).get(INTERVIEW_SENTIMENT_KEY) or {}
-        if want.get("unhappy") is not False:
-            return Score(name=self._name(), score=None, metadata={"reason": "Case is unhappy"})
-        if output and output.get("error"):
-            # A failed call invites nobody, this scorer's passing answer, so it would hide an outage.
-            return Score(name=self._name(), score=None, metadata={"reason": output["error"]})
+        return _sentiment_score(
+            self._name(), output, expected, lambda want: want not in _UNHAPPY, lambda want, got: got not in _UNHAPPY
+        )
 
-        got = (output or {}).get("unhappy")
-        return Score(
-            name=self._name(),
-            score=1.0 if got is False else 0.0,
-            metadata={"actual": got, "verdict": (output or {}).get("verdict")},
+
+class NoUnaskedGif(Scorer):
+    """A calming GIF to a person who is only mildly dissatisfied, or not unhappy at all, reads as mockery."""
+
+    def _name(self) -> str:
+        return "no_unasked_gif"
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        return _sentiment_score(
+            self._name(),
+            output,
+            expected,
+            lambda want: want != "frustrated",
+            lambda want, got: got is not None and got != "frustrated",
         )
