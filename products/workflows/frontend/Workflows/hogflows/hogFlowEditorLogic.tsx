@@ -2778,6 +2778,24 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     }
 
                     if (!isHogFlowActionNode && 'template_id' in config && config.template_id === 'template-email') {
+                        // The API sets templating from the template only on save, so a step that moves to the test
+                        // sender first would lose it. The schema type says boolean, but this template names the engine.
+                        const schemaTemplating: unknown = values.hogFunctionTemplatesById[
+                            config.template_id
+                        ]?.inputs_schema?.find((schema) => schema.key === 'email')?.templating
+                        if (
+                            config.inputs?.email &&
+                            !config.inputs.email.templating &&
+                            (schemaTemplating === 'liquid' || schemaTemplating === 'hog')
+                        ) {
+                            config = {
+                                ...config,
+                                inputs: {
+                                    ...config.inputs,
+                                    email: { ...config.inputs.email, templating: schemaTemplating },
+                                },
+                            }
+                        }
                         const emailInput = config.inputs?.email
                         const team = values.currentTeam
                         const sender = resolveDefaultEmailSender(

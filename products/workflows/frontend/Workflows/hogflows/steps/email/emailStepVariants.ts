@@ -80,7 +80,7 @@ export function toSandboxAction(action: OwnEmailAction): SandboxEmailAction {
         type: 'email_sandbox',
         config: {
             ...categoryOf(config),
-            inputs: { email: { templating: templatingOf(email, 'liquid'), value: contentOf(email.value ?? {}) } },
+            inputs: { email: { templating: templatingOf(email), value: contentOf(email.value ?? {}) } },
         },
     } as SandboxEmailAction
 }
@@ -96,7 +96,7 @@ export function toOwnEmailAction(action: SandboxEmailAction, integrationId: numb
             ...categoryOf(config),
             inputs: {
                 email: {
-                    templating: templatingOf(email, 'hog'),
+                    templating: templatingOf(email),
                     value: { ...contentOf(email.value), from: { integrationId } },
                 },
             },
@@ -148,11 +148,9 @@ function categoryOf(config: EmailValue): EmailValue {
     }
 }
 
-// A missing templating means different things per side. A new own step gets the template's Liquid on its first
-// save, so the test sender step it turns into must say Liquid. A test sender step saved without one runs as Hog,
-// so the own step it turns into must keep Hog.
-function templatingOf(email: EmailValue, missing: Templating): Templating {
-    return email.templating === 'hog' || email.templating === 'liquid' ? email.templating : missing
+// A saved email input without templating runs as Hog, so the step it turns into keeps Hog.
+function templatingOf(email: EmailValue): Templating {
+    return email.templating === 'liquid' ? 'liquid' : 'hog'
 }
 
 function contentOf(value: EmailValue): EmailValue {
