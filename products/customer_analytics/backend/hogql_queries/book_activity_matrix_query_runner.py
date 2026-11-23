@@ -17,6 +17,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
 
 from posthog.models.user import User
 
@@ -62,22 +63,21 @@ class BookActivityMatrixQueryRunner(BookActivityRangeQueryRunner[BookActivityMat
             "BookActivityMatrixQuery", self._combinations_query(group_type_index, list(account_by_key))
         )
         results = response.results or []
-        combinations = [
-            BookActivityMatrixCombination(
-                row=account_by_key[str(account_key)],
-                column=day_key(period),
-                mask=int(mask),
-                users=int(users),
-            )
-            for account_key, period, mask, users in results
+        book_results = [
+            (account_by_key[str(account_key)], day_key(period), int(mask), int(users), ui_users, agent_users)
+            for account_key, period, mask, users, ui_users, agent_users in results
             if str(account_key) in account_by_key and int(mask)
+        ]
+        combinations = [
+            BookActivityMatrixCombination(row=row, column=column, mask=mask, users=users)
+            for row, column, mask, users, _ui_users, _agent_users in book_results
         ]
         first_use = self._first_use(group_type_index, account_by_key) if self.query.includeFirstUse else None
         return self._response(
             rows,
             columns,
             combinations,
-            _users_per_product(combinations),
+            _users_per_product(book_results),
             first_use,
             truncated or len(results) >= MAX_COMBINATION_ROWS,
             None,
@@ -125,31 +125,17 @@ class BookActivityMatrixQueryRunner(BookActivityRangeQueryRunner[BookActivityMat
         )
 
     def _combinations_query(self, group_type_index: int, account_keys: list[str]) -> ast.SelectQuery:
-        mask: ast.Expr = ast.Constant(value=0)
-        for index, product in enumerate(POSTHOG_PRODUCTS):
-            uses = ast.Call(
-                name="max",
-                args=[
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["product"]),
-                        right=ast.Constant(value=product.key),
-                    )
-                ],
-            )
-            mask = ast.ArithmeticOperation(
-                op=ast.ArithmeticOperationOp.Add,
-                left=mask,
-                right=ast.ArithmeticOperation(
-                    op=ast.ArithmeticOperationOp.Mult, left=uses, right=ast.Constant(value=1 << index)
-                ),
-            )
+        mask = _product_mask()
+        ui_mask = _product_mask("ui")
+        agent_mask = _product_mask("agent")
         per_person = ast.SelectQuery(
             select=[
                 ast.Field(chain=["account_key"]),
                 ast.Field(chain=["period"]),
                 ast.Field(chain=["person_id"]),
                 ast.Alias(alias="mask", expr=mask),
+                ast.Alias(alias="ui_mask", expr=ui_mask),
+                ast.Alias(alias="agent_mask", expr=agent_mask),
             ],
             select_from=ast.JoinExpr(
                 table=product_events(
@@ -174,6 +160,8 @@ class BookActivityMatrixQueryRunner(BookActivityRangeQueryRunner[BookActivityMat
                 ast.Field(chain=["period"]),
                 ast.Field(chain=["mask"]),
                 ast.Alias(alias="users", expr=ast.Call(name="count", args=[])),
+                ast.Alias(alias="ui_users", expr=_users_per_bit("ui_mask")),
+                ast.Alias(alias="agent_users", expr=_users_per_bit("agent_mask")),
             ],
             select_from=ast.JoinExpr(table=per_person),
             group_by=[ast.Field(chain=["account_key"]), ast.Field(chain=["period"]), ast.Field(chain=["mask"])],
@@ -210,13 +198,62 @@ class BookActivityMatrixQueryRunner(BookActivityRangeQueryRunner[BookActivityMat
         ]
 
 
-def _users_per_product(combinations: list[BookActivityMatrixCombination]) -> list[BookActivityMatrixCell]:
-    totals: dict[tuple[str, str, str], int] = defaultdict(int)
-    for combination in combinations:
+def _product_mask(channel: str | None = None) -> ast.Expr:
+    """One bit per product the person used in the period, optionally through one channel only."""
+    mask: ast.Expr = ast.Constant(value=0)
+    for index, product in enumerate(POSTHOG_PRODUCTS):
+        condition: ast.Expr = ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["product"]), right=ast.Constant(value=product.key)
+        )
+        if channel is not None:
+            condition = ast.And(
+                exprs=[
+                    condition,
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["channel"]),
+                        right=ast.Constant(value=channel),
+                    ),
+                ]
+            )
+        mask = ast.ArithmeticOperation(
+            op=ast.ArithmeticOperationOp.Add,
+            left=mask,
+            right=ast.ArithmeticOperation(
+                op=ast.ArithmeticOperationOp.Mult,
+                left=ast.Call(name="max", args=[condition]),
+                right=ast.Constant(value=1 << index),
+            ),
+        )
+    return mask
+
+
+def _users_per_bit(mask: str) -> ast.Expr:
+    """People per product index in a combination who have that product's bit set in `mask`."""
+    return parse_expr(
+        "sumForEach(arrayMap(index -> toInt(bitTest({mask}, index)), range({product_count})))",
+        placeholders={
+            "mask": ast.Field(chain=[mask]),
+            "product_count": ast.Constant(value=len(POSTHOG_PRODUCTS)),
+        },
+    )
+
+
+def _users_per_product(
+    book_results: list[tuple[str, str, int, int, list[int], list[int]]],
+) -> list[BookActivityMatrixCell]:
+    totals: dict[tuple[str, str, str], list[int]] = defaultdict(lambda: [0, 0, 0])
+    for row, column, mask, users, ui_users, agent_users in book_results:
         for index, product in enumerate(POSTHOG_PRODUCTS):
-            if combination.mask & (1 << index):
-                totals[(combination.row, combination.column, product.key)] += combination.users
+            if not mask & (1 << index):
+                continue
+            counts = totals[(row, column, product.key)]
+            counts[0] += users
+            counts[1] += int(ui_users[index])
+            counts[2] += int(agent_users[index])
     return [
-        BookActivityMatrixCell(row=row, column=column, series=series, users=users)
-        for (row, column, series), users in totals.items()
+        BookActivityMatrixCell(
+            row=row, column=column, series=series, users=users, uiUsers=ui_users, agentUsers=agent_users
+        )
+        for (row, column, series), (users, ui_users, agent_users) in totals.items()
     ]
