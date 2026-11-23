@@ -5,6 +5,7 @@ import { HostSchema } from '@/posthog/host'
 
 import { HogError } from './errors'
 import { JsonObject, parseJson } from './json'
+import { confinedWritePath } from './paths'
 import type { Runtime } from './runtime'
 
 export const CONFIG_FILE = 'posthog.json'
@@ -245,6 +246,16 @@ export async function updateConfig(
             ? { $schema: SCHEMA_URL }
             : parseJson(original, JsonObject, { code: 'invalid_config', context: `${path} is not valid.` })
     change(raw)
-    await runtime.writeFile(path, formatLike(original, raw))
+
+    const target = await confinedWritePath(runtime, dirname(path), path)
+    if (target === undefined) {
+        throw new HogError(
+            'unsafe_config_path',
+            `${path} links to a file outside its folder, so hog won't write there.`,
+            'Replace the link with a posthog.json file, or remove it.'
+        )
+    }
+
+    await runtime.writeFile(target, formatLike(original, raw))
     return path
 }

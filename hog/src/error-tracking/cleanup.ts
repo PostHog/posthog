@@ -11,7 +11,9 @@ import {
     statSync,
     writeSync,
 } from 'node:fs'
-import { dirname, isAbsolute, relative } from 'node:path'
+import { dirname } from 'node:path'
+
+import { isInside } from '@/core/paths'
 
 import { contentHash } from './container'
 import { decodeUtf8 } from './json'
@@ -50,11 +52,7 @@ export function insideRoots(roots: string[], path: string): boolean {
     } catch {
         return false
     }
-    // On Windows, `relative` returns an absolute path for a file on another drive.
-    return roots.some((root) => {
-        const within = relative(root, canonical)
-        return !within.startsWith('..') && !isAbsolute(within)
-    })
+    return roots.some((root) => isInside(root, canonical))
 }
 
 // readPairs already skips JS maps outside the roots. This keeps every deletion inside them too.
@@ -193,6 +191,12 @@ export function cssTargets(
         if (mapPath === undefined || ignored(mapPath)) {
             continue
         }
+        if (!insideRoots(realRoots, mapPath)) {
+            warnings.push(
+                `Skipping CSS sourcemap cleanup for ${mapPath} because it resolves outside the selected paths.`
+            )
+            continue
+        }
         let map
         try {
             map = loadMapContent(decodeUtf8(readFileSync(mapPath)))
@@ -200,12 +204,6 @@ export function cssTargets(
             continue
         }
         if (!map.fields.has('mappings') && !map.fields.has('sections')) {
-            continue
-        }
-        if (!insideRoots(realRoots, mapPath)) {
-            warnings.push(
-                `Skipping CSS sourcemap cleanup for ${mapPath} because it resolves outside the selected paths.`
-            )
             continue
         }
         targets.push({

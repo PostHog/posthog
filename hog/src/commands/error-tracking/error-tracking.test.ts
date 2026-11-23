@@ -236,9 +236,9 @@ describe('hog error-tracking upload', () => {
     test.each([
         [
             'a reference to a JSON file that is not a sourcemap',
-            { 'dist/a.js': 'a();\n//# sourceMappingURL=../settings.json\n', 'settings.json': '{"theme":"dark"}' },
+            { 'dist/a.js': 'a();\n//# sourceMappingURL=settings.json\n', 'dist/settings.json': '{"theme":"dark"}' },
             [],
-            'settings.json',
+            'dist/settings.json',
             "isn't a sourcemap",
         ],
         [
@@ -251,6 +251,13 @@ describe('hog error-tracking upload', () => {
         [
             'a sourcemap outside the selected paths',
             { 'dist/a.js': 'a();\n//# sourceMappingURL=../maps/a.js.map\n', 'maps/a.js.map': MAP },
+            [],
+            'maps/a.js.map',
+            'outside the selected paths',
+        ],
+        [
+            'an unreadable map outside the selected paths',
+            { 'dist/a.js': 'a();\n//# sourceMappingURL=../maps/a.js.map\n', 'maps/a.js.map': 'not json' },
             [],
             'maps/a.js.map',
             'outside the selected paths',
@@ -270,6 +277,22 @@ describe('hog error-tracking upload', () => {
             { path: expect.stringMatching(/dist\/a\.js$/), reason: expect.stringContaining(reason) },
         ])
         expect(readFileSync(join(folder, untouched), 'utf8')).toBe(before)
+    })
+
+    test('process --dry-run keeps a sourcemap in a folder whose name starts with two dots', async () => {
+        const folder = project({
+            'dist/a.js': 'a();\n//# sourceMappingURL=..maps/a.js.map\n',
+            'dist/..maps/a.js.map': MAP,
+        })
+
+        const result = await runHog(['et', 'process', 'dist', '--dry-run'], {
+            env: { CLAUDECODE: '1' },
+            cwd: folder,
+            useDisk: true,
+        })
+
+        expect(result.json(UploadOutput).skipped).toEqual([])
+        expect(result.json(UploadOutput).symbolSets).toHaveLength(1)
     })
 
     test('upload --dry-run calls an empty map a bundler problem only when its file is 4096 bytes or more', async () => {

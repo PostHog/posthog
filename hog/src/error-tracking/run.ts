@@ -184,12 +184,12 @@ function readPairs(
     const owners = new Map<SourcePair, Artifact>()
     const roots = canonicalRoots(selection.roots.map((root) => resolve(selection.cwd, root.path)))
     for (const artifact of selection.artifacts.filter(isBundle)) {
-        const pair = readPair(artifact.path, options.publicPathPrefix, skipped)
-        // A bundle can name any file as its map, and hog rewrites, uploads and may delete that map.
-        if (pair && !insideRoots(roots, pair.mapPath)) {
-            skipped.push({ path: artifact.display, reason: 'its sourcemap is outside the selected paths' })
-            continue
-        }
+        // A bundle can name any file as its map, and hog reads, rewrites, uploads and may delete that map.
+        const pair = readPair(artifact.path, options.publicPathPrefix, skipped, (mapPath) =>
+            insideRoots(roots, mapPath)
+                ? undefined
+                : { path: artifact.display, reason: 'its sourcemap is outside the selected paths' }
+        )
         if (
             pair &&
             isIgnored(

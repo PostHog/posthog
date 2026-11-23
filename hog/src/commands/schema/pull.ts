@@ -1,3 +1,5 @@
+import { basename, dirname } from 'node:path'
+
 import { defineCommand } from '@/core/command'
 import { TYPESCRIPT_SDKS, updateConfig, type SchemaLanguage, type TypeScriptSdk } from '@/core/config'
 import type { Context } from '@/core/context'
@@ -114,6 +116,15 @@ export default defineCommand({
             let target: string | undefined
             if (options.file !== undefined) {
                 file = await chosenFile(ctx, options.file, language, sdk)
+                if (file !== absolutePath(ctx.runtime.cwd(), options.file)) {
+                    target = await confinedOutput(
+                        ctx,
+                        dirname(file),
+                        file,
+                        `${basename(file)} in ${options.file} links to a file outside that folder, so hog won't write there.`,
+                        'Remove the link, or pass the file path to --file.'
+                    )
+                }
             } else if (saved) {
                 file = absolutePath(root, saved.output_path)
                 target = await confinedOutput(

@@ -420,7 +420,13 @@ export class SourcePair {
 // still counts as complete.
 export type Skip = { path: string; reason: string; intended?: true }
 
-export function readPair(path: string, publicPathPrefix: string | undefined, skipped: Skip[]): SourcePair | undefined {
+// `mapProblem` can refuse a map by its path, before hog opens it.
+export function readPair(
+    path: string,
+    publicPathPrefix: string | undefined,
+    skipped: Skip[],
+    mapProblem: (mapPath: string) => Skip | undefined = () => undefined
+): SourcePair | undefined {
     let source: string
     let canonical: string
     try {
@@ -438,6 +444,11 @@ export function readPair(path: string, publicPathPrefix: string | undefined, ski
         return undefined
     }
     if (mapPath === undefined) {
+        return undefined
+    }
+    const problem = mapProblem(mapPath)
+    if (problem) {
+        skipped.push(problem)
         return undefined
     }
     let map: MapContent
