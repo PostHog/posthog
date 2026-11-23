@@ -681,8 +681,8 @@ class _LambdaSet:
         return f"{self.alias}_items"
 
     @property
-    def has_rows_column(self) -> str:
-        return f"{self.alias}_has_rows"
+    def has_null_column(self) -> str:
+        return f"{self.alias}_has_null"
 
 
 class TrinoLambdaSubqueryLowerer(CloningVisitor):
@@ -729,30 +729,34 @@ class TrinoLambdaSubqueryLowerer(CloningVisitor):
         self.set_index += 1
         value = _membership_value(self.visit(node.left), node.right, self.context)
         self.pending_sets.append(ast.JoinExpr(table=self._set_query(node.right, lambda_set), alias=lambda_set.alias))
-        membership = ast.And(
-            exprs=[
-                ast.Field(chain=[lambda_set.alias, lambda_set.has_rows_column]),
-                ast.Call(name="has", args=[ast.Field(chain=[lambda_set.alias, lambda_set.items_column]), value]),
-            ]
+        membership = ast.Call(
+            name="if",
+            args=[
+                ast.Call(name="isNull", args=[value]),
+                ast.Field(chain=[lambda_set.alias, lambda_set.has_null_column]),
+                ast.Call(
+                    name="has", args=[ast.Field(chain=[lambda_set.alias, lambda_set.items_column]), clone_expr(value)]
+                ),
+            ],
         )
         return ast.Not(expr=membership) if negated else membership
 
     def _set_query(self, subquery: ast.SelectQuery | ast.SelectSetQuery, lambda_set: _LambdaSet) -> ast.SelectQuery:
         lowered = self.visit(subquery)
         source_alias = f"{lambda_set.alias}_source"
-        values = ast.Call(
-            name="groupUniqArray",
-            args=[ast.Field(chain=[source_alias, _name_single_column(lowered, lambda_set.alias)])],
-        )
-        has_rows = ast.CompareOperation(
-            op=ast.CompareOperationOp.Gt, left=ast.Call(name="count", args=[]), right=ast.Constant(value=0)
+        column = ast.Field(chain=[source_alias, _name_single_column(lowered, lambda_set.alias)])
+        values = ast.Call(name="groupUniqArrayIf", args=[column, ast.Call(name="isNotNull", args=[clone_expr(column)])])
+        has_null = ast.CompareOperation(
+            op=ast.CompareOperationOp.Gt,
+            left=ast.Call(name="countIf", args=[ast.Call(name="isNull", args=[clone_expr(column)])]),
+            right=ast.Constant(value=0),
         )
         return ast.SelectQuery(
             select=[
                 ast.Alias(
                     alias=lambda_set.items_column, expr=ast.Call(name="coalesce", args=[values, ast.Array(exprs=[])])
                 ),
-                ast.Alias(alias=lambda_set.has_rows_column, expr=has_rows),
+                ast.Alias(alias=lambda_set.has_null_column, expr=has_null),
             ],
             select_from=ast.JoinExpr(table=lowered, alias=source_alias),
         )
@@ -812,7 +816,7 @@ def _group_by_set_read_after_aggregation(query: ast.SelectQuery, join: ast.JoinE
         )
     lambda_set = _LambdaSet(alias=join.alias)
     query.group_by.extend(
-        ast.Field(chain=[join.alias, column]) for column in [lambda_set.items_column, lambda_set.has_rows_column]
+        ast.Field(chain=[join.alias, column]) for column in [lambda_set.items_column, lambda_set.has_null_column]
     )
 
 

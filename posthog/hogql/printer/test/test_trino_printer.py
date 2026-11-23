@@ -2161,6 +2161,12 @@ def test_percentage_limit_rounds_up(percentage: int, offset: int, expected: list
             [(["a", "d"], ["b"], ["a", "b", "d"])],
         ),
         ("SELECT arrayFilter(x -> x NOT IN (SELECT 2 WHERE false), [NULL, 1])", [([None, 1],)]),
+        (
+            "WITH excluded AS (SELECT 'b' AS v UNION ALL SELECT NULL) "
+            "SELECT arrayFilter(x -> x IN (SELECT v FROM excluded), ['a', NULL]), "
+            "arrayFilter(x -> x NOT IN (SELECT v FROM excluded), ['a', NULL])",
+            [([None], ["a"])],
+        ),
         ("SELECT arrayFilter(x -> x IN (SELECT 1), ['1', '2'])", [(["1"],)]),
         ("SELECT arrayFilter(x -> x IN (SELECT arrayFilter(x -> x > 1, [1, 2])), [[2], [3]])", [([[2]],)]),
         (
