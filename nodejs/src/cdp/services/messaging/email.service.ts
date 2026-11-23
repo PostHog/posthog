@@ -259,6 +259,15 @@ const sesRefused = (response: unknown): boolean => {
     return statusCode !== undefined && (statusCode < 200 || statusCode >= 300)
 }
 
+// Node names the failed system call on a network error. A failed DNS lookup or TCP connect means no request byte
+// reached SES. When a host has several addresses, Node tries each and raises an AggregateError of the failures.
+const failedBeforeTheConnectionOpened = (error: unknown): boolean => {
+    const { syscall, errors } = (error ?? {}) as { syscall?: string; errors?: unknown }
+    return Array.isArray(errors)
+        ? errors.length > 0 && errors.every(failedBeforeTheConnectionOpened)
+        : syscall === 'getaddrinfo' || syscall === 'connect'
+}
+
 class SesMayHaveSentError extends Error {
     constructor() {
         super('The connection to SES dropped before SES answered. It may have sent the email, so it is not sent again.')
@@ -276,7 +285,15 @@ function trackAttemptsSesMayHaveAccepted(command: SendEmailCommand, retryOnlyRef
                 throw new SesMayHaveSentError()
             }
             attemptsSesMayHaveAccepted++
-            const httpAnswer = await next(args)
+            let httpAnswer
+            try {
+                httpAnswer = await next(args)
+            } catch (error) {
+                if (failedBeforeTheConnectionOpened(error)) {
+                    attemptsSesMayHaveAccepted--
+                }
+                throw error
+            }
             if (sesRefused(httpAnswer.response)) {
                 attemptsSesMayHaveAccepted--
             }
