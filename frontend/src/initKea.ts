@@ -252,7 +252,8 @@ const VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     updateProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
     loadMatrix: 'products.customer_analytics.accountDotMatrixTileLogic', // Shows SQL mistakes in the tile, so only 5xx are reported
     startImport: 'products.workflows.providerImportLogic', // Shows the refusal inside the import window
-    // Shows Hog and config mistakes in the preview, so only 5xx are reported
+    // The evaluation preview shows a rejected sampling rate, Hog code or judge setting, so only 5xx are reported
+    loadSamples: 'products.ai_observability.frontend.evaluations.evaluationPreviewLogic',
     testRows: 'products.ai_observability.frontend.evaluations.evaluationPreviewLogic',
 }
 
