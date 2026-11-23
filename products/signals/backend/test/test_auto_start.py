@@ -122,13 +122,14 @@ def _reviewer(
     is_skill_owner: bool = False,
     is_research_selected: bool = False,
     source_skill: str | None = None,
+    reason: str | None = None,
 ) -> ReviewerContent:
     return ReviewerContent(
         github_login=login,
         user_uuid=user_uuid,
         github_name=None,
         relevant_commits=[],
-        reason=None,
+        reason=reason,
         is_skill_owner=is_skill_owner,
         is_research_selected=is_research_selected,
         source_skill=source_skill,
@@ -219,14 +220,23 @@ def test_resolve_autostart_assignee_never_runs_as_a_skill_owner(organization, te
 
 
 @pytest.mark.django_db
-def test_resolve_autostart_assignee_skips_research_selected_reviewer(organization, team):
+@pytest.mark.parametrize(
+    "excluded_kwargs",
+    [
+        {"is_research_selected": True},
+        {"reason": "Best match: authored 2 of the last 5 substantive changes to this file."},
+        {"reason": "  best match: on the owning team."},
+    ],
+    ids=["research_selected", "best_match", "best_match_loose_case"],
+)
+def test_resolve_autostart_assignee_skips_reviewer_without_behavior_evidence(organization, team, excluded_kwargs):
     _create_org_member_with_github("research@example.com", organization, "researcher")
     author = _create_org_member_with_github("author@example.com", organization, "author")
 
     assignee = _resolve_autostart_assignee(
         team_id=team.id,
         report_priority=Priority.P0,
-        reviewers_content=[_reviewer("researcher", is_research_selected=True), _reviewer("author")],
+        reviewers_content=[_reviewer("researcher", **excluded_kwargs), _reviewer("author")],
         team_default_priority=Priority.P4,
     )
 
@@ -236,7 +246,7 @@ def test_resolve_autostart_assignee_skips_research_selected_reviewer(organizatio
         _resolve_autostart_assignee(
             team_id=team.id,
             report_priority=Priority.P0,
-            reviewers_content=[_reviewer("researcher", is_research_selected=True)],
+            reviewers_content=[_reviewer("researcher", **excluded_kwargs)],
             team_default_priority=Priority.P4,
         )
         is None

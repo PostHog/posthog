@@ -346,6 +346,7 @@ Research and scouts check each candidate against the affected behavior or entity
 For code reports, they inspect specific ownership rules and substantive implementation or review work.
 When no exact owner is known, scouts route to one best match: first a project member with a substantive change to the affected file, then one member of the team that owns the path or product.
 The saved reason identifies this as a best match and names the signal.
+A best-match reviewer receives the report, but autostart never runs as that reviewer.
 Broad directory activity, commit counts, mechanical changes, and team roster order alone do not establish responsibility or qualify for the fallback.
 Each reason names the affected behavior and cites its source. Responsibility and review expertise are distinct reasons to include someone.
 Recipients are ordered by relevance, with at most three. Scouts return none only when no relevant signal exists or human corrections exclude every candidate.

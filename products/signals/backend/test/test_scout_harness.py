@@ -45,6 +45,7 @@ from posthog.sync import database_sync_to_async
 from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 from products.signals.backend.agent_runtime import AgentRuntime
+from products.signals.backend.constants import BEST_MATCH_REASON_PREFIX
 from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import (
     SignalReport,
@@ -570,6 +571,44 @@ class TestPromptCacheablePrefix(SimpleTestCase):
             assert prompt.index("# Find people who read the work") > prompt.index("# Output format")
 
 
+class TestMemoryUpkeepSkillGate(BaseTest):
+    @parameterized.expand(
+        [
+            ("team_authored_row", None, False, False),
+            ("seeded_then_edited", HARNESS_SEEDED_BY, False, False),
+            ("seeded_unedited", HARNESS_SEEDED_BY, True, True),
+        ]
+    )
+    def test_upkeep_entries_count_only_from_the_unedited_seeded_skill(
+        self, _name: str, seeded_by: str | None, hash_matches: bool, expected: bool
+    ) -> None:
+        from products.signals.backend.scout_harness.tools.scratchpad import remember
+
+        skill = LLMSkill.objects.create(
+            team=self.team,
+            name=MEMORY_UPKEEP_SCOUT,
+            description="Upkeep scout",
+            body="tidy",
+            metadata={"seeded_by": seeded_by} if seeded_by else {},
+        )
+        if seeded_by:
+            skill.metadata["canonical_hash"] = _compute_row_hash(skill, []) if hash_matches else "0" * 64
+            skill.save()
+        SignalScoutConfig.objects.unscoped().create(
+            team_id=self.team.id, skill_name=MEMORY_UPKEEP_SCOUT, status=SignalScoutConfig.Status.ACTIVE, enabled=True
+        )
+        run = SignalScoutRun.objects.create(
+            team=self.team, task_run=_make_task_run(self.team), skill_name=MEMORY_UPKEEP_SCOUT, skill_version=1
+        )
+        remember(team_id=self.team.id, key="learned:person:octocat", content="pattern", run_id=str(run.id))
+
+        with patch(
+            "products.signals.backend.scout_harness.lazy_seed.canonical_skill_names",
+            return_value=frozenset({MEMORY_UPKEEP_SCOUT}),
+        ):
+            assert _memory_upkeep_is_live(self.team) is expected
+
+
 class TestMemoryUpkeepCheck(SimpleTestCase):
     def test_a_failed_check_resolves_false(self) -> None:
         with (
@@ -617,8 +656,21 @@ class TestMemoryUpkeepGate(BaseTest):
                 task_run=_make_task_run(self.team), team=self.team, skill_name=MEMORY_UPKEEP_SCOUT, skill_version=1
             )
             remember(team_id=self.team.id, key="learned:area:checkout", content="pattern", run_id=str(run.id))
+        skill = LLMSkill.objects.create(
+            team=self.team,
+            name=MEMORY_UPKEEP_SCOUT,
+            description="Upkeep scout",
+            body="tidy",
+            metadata={"seeded_by": HARNESS_SEEDED_BY},
+        )
+        skill.metadata["canonical_hash"] = _compute_row_hash(skill, [])
+        skill.save()
 
-        assert _memory_upkeep_is_live(self.team) is expected
+        with patch(
+            "products.signals.backend.scout_harness.lazy_seed.canonical_skill_names",
+            return_value=frozenset({MEMORY_UPKEEP_SCOUT}),
+        ):
+            assert _memory_upkeep_is_live(self.team) is expected
 
 
 class TestActivitySummarySearchAvailability(SimpleTestCase):
@@ -1511,6 +1563,7 @@ class TestPromptBuilder(BaseTest):
 
         assert "No code evidence? Route to the most plausible owner." in strict
         assert "Use one best match when exact ownership is unknown." in strict
+        assert f"`{BEST_MATCH_REASON_PREFIX}" in strict
         assert "Return an empty list only when no relevant signal exists at all" in strict
         assert "git log -S'<symbol-or-literal>'" in strict
         assert 'use `mode: "building"` or the matching `product` filter' in strict
@@ -1604,6 +1657,27 @@ class TestPromptBuilder(BaseTest):
         )
 
         assert "# Memory upkeep" not in prompt
+
+    @parameterized.expand([("signal_channel", [], False), ("report_channel", ["emit_report"], True)])
+    def test_memory_upkeep_person_read_renders_only_for_a_report_scout(
+        self, name: str, allowed_tools: list[str], person_read: bool
+    ) -> None:
+        skill_name = f"signals-scout-upkeep-{name.replace('_', '-')}"
+        LLMSkill.objects.create(
+            team=self.team, name=skill_name, description="d", body="watch", allowed_tools=allowed_tools
+        )
+
+        prompt = build_run_prompt(
+            load_skill_for_run(self.team, skill_name),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=self.team.id,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+            memory_upkeep_is_live=True,
+        )
+
+        assert "# Memory upkeep" in prompt
+        assert ("learned:person:<github-login>" in prompt) is person_read
+        assert "never outranks a human correction" in prompt
 
     @parameterized.expand(
         [
