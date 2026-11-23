@@ -84,7 +84,7 @@ def validate_deploy_url(deploy_url: str) -> str:
         # self-hosted backends are refused here rather than probed.
         raise InvalidDeployUrlError(
             "Enter your deployment's .convex.cloud URL, not a custom domain. "
-            "Copy it from Settings > URL & Deploy Key in your Convex dashboard, then reconnect."
+            "Copy it from your deployment's Settings page in your Convex dashboard, then reconnect."
         )
 
     if parsed.query:
@@ -464,7 +464,8 @@ def validate_credentials(deploy_url: str, deploy_key: str) -> tuple[bool, str | 
                     )
                 return (
                     False,
-                    "Convex rejected your deploy key. Copy a new deploy key from your Convex dashboard, then reconnect.",
+                    "Convex rejected your deploy key. Generate a deploy key with the deployment:data:view "
+                    "permission in your Convex dashboard, then reconnect.",
                 )
             if e.response.status_code == 404:
                 return (
