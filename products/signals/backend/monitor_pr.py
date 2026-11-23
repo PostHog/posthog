@@ -389,6 +389,25 @@ def _ensure_pr_monitoring_permitted(team: Team, user: User) -> None:
         raise PermissionError("You need permission to start tasks in this project.")
 
 
+def _attempt_key(report: SignalReport) -> int:
+    return int(report.last_run_at.timestamp() * 1_000_000) if report.last_run_at else 0
+
+
+def _stored_initiator_note(report: SignalReport, user_id: int) -> str:
+    raw = (
+        SignalReportArtefact.objects.filter(
+            team_id=report.team_id,
+            report_id=report.id,
+            type=SignalReportArtefact.ArtefactType.NOTE,
+            created_by_id=user_id,
+        )
+        .order_by("created_at")
+        .values_list("content", flat=True)
+        .first()
+    )
+    return NoteArtefact.model_validate_json(raw).note if isinstance(raw, str) else ""
+
+
 def prepare_monitoring(*, team: Team, user: User, pr: MonitoredPullRequest, note: str) -> tuple[SignalReport, bool]:
     actor = ArtefactAttribution.from_user(user.id)
     key = monitor_key(user.id, pr.url)
@@ -404,7 +423,7 @@ def prepare_monitoring(*, team: Team, user: User, pr: MonitoredPullRequest, note
                 "user_authored": True,
                 "status": SignalReport.Status.IN_PROGRESS,
                 "title": f"Monitor {pr.title}",
-                "summary": note,
+                "summary": f"Post-merge impact check for {pr.repository}#{pr.number}.",
                 "last_run_at": timezone.now(),
             },
         )
@@ -446,7 +465,10 @@ def prepare_monitoring(*, team: Team, user: User, pr: MonitoredPullRequest, note
         )
         if note:
             SignalReportArtefact.add_log(
-                team_id=team.id, report_id=str(report.id), content=NoteArtefact(note=note), attribution=actor
+                team_id=team.id,
+                report_id=str(report.id),
+                content=NoteArtefact(note=note, analytics_query_context=[], restricted_to_user_id=user.id),
+                attribution=actor,
             )
         link_pull_request(
             report=report, details=pr.details(), actor=actor, claim_id=str(claim.claim_id), notify_reviewers=False
@@ -521,14 +543,15 @@ def request_pr_monitoring(*, team: Team, user: User, pr_url: str, note: str = ""
             report_id=str(report.id),
             user_id=user.id,
             pr_url=pr_url,
-            note=report.summary or "",
-            attempt_key=int(report.last_run_at.timestamp() * 1_000_000) if report.last_run_at else 0,
+            note=_stored_initiator_note(report, user.id),
+            attempt_key=_attempt_key(report),
         )
         try:
             async_to_sync(start_pr_monitoring)(inputs)
         except Exception as error:
             logger.exception("signals_monitor_pr_dispatch_failed", team_id=team.id, report_id=str(report.id))
-            fail_monitoring_research(inputs)
+            if started:
+                fail_monitoring_research(inputs)
             raise PRMonitoringUnavailable(
                 "Could not start PR research. Retry this request; the report has been saved.", report_id=report.id
             ) from error
@@ -614,32 +637,54 @@ def _reconcile_researched_pr(report: SignalReport, pr: MonitoredPullRequest, act
         )
 
 
+def _record_research_note(
+    report: SignalReport, user_id: int, output: PRMonitoringOutput, actor: ArtefactAttribution
+) -> None:
+    body = f"**{output.title}**\n\n{output.summary}"
+    if output.unavailable_reason:
+        body = f"{body}\n\n{output.unavailable_reason}"
+    SignalReportArtefact.add_log(
+        team_id=report.team_id,
+        report_id=str(report.id),
+        content=NoteArtefact(
+            note=body,
+            analytics_query_context=[output.metric.query] if output.metric is not None else [],
+            restricted_to_user_id=user_id,
+        ),
+        attribution=actor,
+    )
+
+
 def finish_monitoring_research(inputs: MonitorPRInput, output: PRMonitoringOutput, pr: MonitoredPullRequest) -> None:
     if output.inspected_commit != pr.head_sha:
         raise ValueError("The research did not inspect the requested pull request commit")
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().get(team_id=inputs.team_id, id=inputs.report_id)
-        if report.status != SignalReport.Status.IN_PROGRESS:
+        if report.status != SignalReport.Status.IN_PROGRESS or _attempt_key(report) != inputs.attempt_key:
             return
         actor = ArtefactAttribution.system()
         if output.unavailable_reason:
+            _record_research_note(report, inputs.user_id, output, actor)
             report.save(
                 update_fields=report.transition_to(
                     SignalReport.Status.PENDING_INPUT,
-                    title=output.title,
-                    summary=output.summary,
-                    error=output.unavailable_reason,
+                    error="PR monitoring research could not identify a measurable metric.",
                 )
             )
             return
         if not team_report_monitoring_enabled(inputs.team_id) or not team_report_metrics_enabled(inputs.team_id):
             raise ValueError("Monitoring is no longer enabled for this project")
         assert output.metric is not None and output.check is not None
+        _record_research_note(report, inputs.user_id, output, actor)
         report.metrics = [output.metric.model_dump(mode="json", exclude_none=True)]
         report.save(
             update_fields=[
                 "metrics",
-                *report.transition_to(SignalReport.Status.READY, title=output.title, summary=output.summary),
+                *report.transition_to(
+                    SignalReport.Status.READY,
+                    title=f"Monitor {pr.title}",
+                    summary=f"Post-merge impact check for {pr.repository}#{pr.number}.",
+                ),
             ]
         )
         result = create_checks_from_specs(report=report, specs=[output.check.as_spec()], attribution=actor)
@@ -657,7 +702,11 @@ def finish_monitoring_research(inputs: MonitorPRInput, output: PRMonitoringOutpu
 def fail_monitoring_research(inputs: MonitorPRInput) -> None:
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().filter(team_id=inputs.team_id, id=inputs.report_id).first()
-        if report is not None and report.status == SignalReport.Status.IN_PROGRESS:
+        if (
+            report is not None
+            and report.status == SignalReport.Status.IN_PROGRESS
+            and _attempt_key(report) == inputs.attempt_key
+        ):
             report.save(
                 update_fields=report.transition_to(
                     SignalReport.Status.FAILED,

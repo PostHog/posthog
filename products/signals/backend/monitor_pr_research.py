@@ -93,7 +93,6 @@ def _context(inputs: MonitorPRInput) -> CustomPromptSandboxContext | None:
         reasoning_effort=runtime.reasoning_effort,
         service_tier=runtime.service_tier,
         disable_repo_hooks=True,
-        github_read_access=True,
         github_token_scope="read",
         initial_permission_mode="full-access" if runtime.runtime_adapter == "codex" else "bypassPermissions",
         custom_image_id=resolve_custom_image_id(inputs.team_id, SignalAgentRole.RESEARCH),

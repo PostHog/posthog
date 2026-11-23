@@ -1,5 +1,10 @@
 [
   {
+    "temporal_workflow_type": "MonitorPRWorkflow",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "MonitoringAssessmentWorkflow",
     "product": "signals",
     "task_queues": "VIDEO_EXPORT_TASK_QUEUE"

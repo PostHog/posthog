@@ -174,6 +174,10 @@ class TestMonitorPR(APIBaseTest):
         assert response.json()["report_id"] == str(report.id)
         assert SignalReport.objects.filter(team=self.team).count() == 1
         assert self.dispatched[-1] == (first_workflow_id, inputs)
+        with patch("products.signals.backend.temporal.monitor_pr.async_connect", side_effect=ConnectionError):
+            assert self.client.post(self.url, {"pr_url": PR_URL}).status_code == 503
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.IN_PROGRESS
 
     @parameterized.expand(
         [("merged",), ("merged_during_research",), ("open",), ("draft",), ("closed",), ("unmeasurable",)]
@@ -313,15 +317,20 @@ class TestMonitorPR(APIBaseTest):
         assert retried_inputs.note == "Keep original note"
 
         pr = load_pull_request(self.team.id, PR_URL)
+        fail_monitoring_research(inputs)
+        finish_monitoring_research(inputs, self.output(), pr)
+        restarted.refresh_from_db()
+        assert restarted.status == SignalReport.Status.IN_PROGRESS
+
         finish_monitoring_research(retried_inputs, self.output(), pr)
         restarted.refresh_from_db()
         assert restarted.status == SignalReport.Status.MONITORING
         assert restarted.monitoring_started_at == merged_at
 
         restarted.save(update_fields=restarted.transition_to(SignalReport.Status.DELETED))
-        fresh, _ = self.request_report(note="Fresh note", expected_status=202, url=child_url)
+        fresh, fresh_inputs = self.request_report(note="Fresh note", expected_status=202, url=child_url)
         assert fresh.id != restarted.id
-        assert fresh.summary == "Fresh note"
+        assert fresh_inputs.note == "Fresh note"
 
     @parameterized.expand([("scopes",), ("ai_consent",), ("sandbox",)])
     def test_unauthorized_request_cannot_start_research(self, denied):
@@ -489,7 +498,15 @@ class TestMonitorPR(APIBaseTest):
 
             async_to_sync(research_pull_request)(inputs)
             assert captured_start["analytics_query_context"] == [{}]
-            assert captured_start["context"].github_read_access is True
+            assert captured_start["context"].github_read_access is False
             assert captured_start["context"].github_token_scope == "read"
             report.refresh_from_db()
             assert report.status == SignalReport.Status.READY
+            assert "baseline" not in report.summary
+            teammate = User.objects.create_and_join(self.organization, email="teammate@example.com", password="test")
+            self.client.force_login(teammate)
+            artefacts = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/").json()[
+                "results"
+            ]
+            notes = [row["content"]["note"] for row in artefacts if row["type"] == "note"]
+            assert notes == ["You don't have access to this assessment's evidence."]
