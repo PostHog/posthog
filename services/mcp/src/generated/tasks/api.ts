@@ -1228,10 +1228,10 @@ export const TasksRunsRetrieveParams = () => zod.object({
 })
 
 /**
- * Fetch session log entries for a task run with optional filtering by timestamp, event type, and limit.
- * @summary Get filtered task run session logs
+ * Fetch the logs for a task run as JSONL. If the run resumes from another (state.resume_from_run_id), each ancestor's log is concatenated first (oldest ancestor → ... → this run) so resume consumers see a single continuous history. A resumed Pi run includes the earlier runs of its task session the same way, each preceded by a pi_run_started entry that names its run. For a live presence-gated run, the request marks the stream as watched before it reads the log, so events after the snapshot reach the live stream. A read with limit, after, event_types, exclude_types or output=json does not mark it. Pass tail_bytes to read only the latest turns first, add before to page back through older turns, or add start to read every entry after the ones a client holds. X-Log-Origin names the first run of the chain: indexes from responses with different origins do not match. With tail_bytes, a Pi run returns its full log without the X-Log headers. Without tail_bytes, pass start and limit to read the log in pages of entries, and after, event_types or exclude_types to read only the matching entries. The type of an entry is the sessionUpdate of a session/update notification, or else its notification method. Pass output=json to read a page as a JSON object. Pass view=thread to drop the duplicate tool response copy that a rendered conversation does not use.
+ * @summary Get task run log entries
  */
-export const TasksRunsSessionLogsRetrieveParams = () => zod.object({
+export const TasksRunsLogEntriesRetrieveParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -1241,27 +1241,60 @@ export const TasksRunsSessionLogsRetrieveParams = () => zod.object({
     task_id: zod.string(),
 })
 
-export const tasksRunsSessionLogsRetrieveQueryLimitDefault = 1000
-export const tasksRunsSessionLogsRetrieveQueryLimitMax = 5000
+export const tasksRunsLogEntriesRetrieveQueryBeforeMin = 0
 
-export const tasksRunsSessionLogsRetrieveQueryOffsetDefault = 0
-export const tasksRunsSessionLogsRetrieveQueryOffsetMin = 0
+export const tasksRunsLogEntriesRetrieveQueryLimitMax = 5000
 
-export const TasksRunsSessionLogsRetrieveQueryParams = () => zod.object({
+export const tasksRunsLogEntriesRetrieveQueryOutputDefault = `jsonl`
+export const tasksRunsLogEntriesRetrieveQueryStartMin = 0
+
+export const tasksRunsLogEntriesRetrieveQueryViewDefault = `full`
+
+export const TasksRunsLogEntriesRetrieveQueryParams = () => zod.object({
     after: zod.iso.datetime({ offset: true }).optional().describe('Only return events after this ISO8601 timestamp'),
+    before: zod
+        .number()
+        .min(tasksRunsLogEntriesRetrieveQueryBeforeMin)
+        .optional()
+        .describe(
+            'With tail_bytes, end the window before this entry index, so a client can page back through older turns: pass the X-Log-Offset of the oldest page it holds.'
+        ),
     event_types: zod.string().min(1).optional().describe('Comma-separated list of event types to include'),
     exclude_types: zod.string().min(1).optional().describe('Comma-separated list of event types to exclude'),
     limit: zod
         .number()
         .min(1)
-        .max(tasksRunsSessionLogsRetrieveQueryLimitMax)
-        .default(tasksRunsSessionLogsRetrieveQueryLimitDefault)
-        .describe('Maximum number of entries to return (default 1000, max 5000)'),
-    offset: zod
+        .max(tasksRunsLogEntriesRetrieveQueryLimitMax)
+        .optional()
+        .describe(
+            'Return at most this many entries from start, which defaults to 0. A page also stops before it passes 16 MiB, so it can hold fewer entries. X-Log-Offset is the index of the first entry, and X-Log-Count is the number of entries, counting only the matching entries when a filter is given. More entries remain while X-Log-Offset plus the number of returned entries is below X-Log-Count. Cannot be combined with tail_bytes or before.'
+        ),
+    output: zod
+        .enum(['jsonl', 'json'])
+        .default(tasksRunsLogEntriesRetrieveQueryOutputDefault)
+        .describe(
+            "'jsonl' returns the entries as JSONL text. 'json' returns a page read as a JSON object with entries, offset and count, for clients that read only JSON. An entry that is not valid JSON comes back as an object with its text in unparseable_line. Cannot be combined with tail_bytes or before.\n\n\* `jsonl` - jsonl\n\* `json` - json"
+        ),
+    start: zod
         .number()
-        .min(tasksRunsSessionLogsRetrieveQueryOffsetMin)
-        .default(tasksRunsSessionLogsRetrieveQueryOffsetDefault)
-        .describe('Zero-based offset into the filtered log entries'),
+        .min(tasksRunsLogEntriesRetrieveQueryStartMin)
+        .optional()
+        .describe(
+            'Return every entry from this index to the end, with no preamble, so a client that holds the entries before it can catch up after a disconnect: pass the X-Log-Count of its last read. With tail_bytes, when those entries are too large, the response holds the latest turns as tail_bytes alone returns them, and X-Log-Offset is greater than start. With after, event_types or exclude_types, the index counts only the matching entries.'
+        ),
+    tail_bytes: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe(
+            'Return only the latest turns of the log: the shortest suffix that starts at a user turn and holds at least this many bytes. The X-Log-Offset and X-Log-Count headers give the index of the first tail entry and the size of the full log. The slice starts with X-Log-Preamble earlier entries that still set run state, such as the run start, usage, mode, commands and open permission requests. X-Log-Turns-Before counts the user turns before the slice, so a client numbers turns the way the full log does.'
+        ),
+    view: zod
+        .enum(['full', 'thread'])
+        .default(tasksRunsLogEntriesRetrieveQueryViewDefault)
+        .describe(
+            "'full' returns every entry as stored. 'thread' drops the duplicate tool response copy in _meta.claudeCode.toolResponse and keeps only its decisionReason and message, for clients that render the conversation. It applies to the full log and to every slice.\n\n\* `full` - full\n\* `thread` - thread"
+        ),
 })
 
 /**

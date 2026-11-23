@@ -1033,6 +1033,11 @@ export const TaskAgentRunCreateSchema = z
     .superRefine(validateTaskAgentRunOptions)
     .transform((input) => ({ ...input, mode: 'background' as const, run_source: 'agent' as const }))
 
+export const TaskRunLogEntriesOutputSchema = z
+    .literal('json')
+    .default('json')
+    .describe('Response format. Always "json" for this tool.')
+
 // Warehouse sync failure alerts. The platform alert API accepts one body shape per source kind. These schemas
 // keep the two warehouse kinds, so a model sees one flat object, and they check the grouping rule early.
 const WarehouseSyncAlertSourceConfigSchema = z

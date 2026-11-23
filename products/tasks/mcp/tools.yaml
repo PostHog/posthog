@@ -517,7 +517,7 @@ tools:
                 - state.sandbox_connect_token
                 - state.sandbox_url
     tasks-runs-session-logs-retrieve:
-        operation: tasks_runs_session_logs_retrieve
+        operation: tasks_runs_log_entries_retrieve
         enabled: true
         scopes:
             - task:read
@@ -527,10 +527,24 @@ tools:
             idempotent: true
         title: Get task run session logs
         description: >
-            Fetch session log events emitted by the agent for a specific run. Supports filtering by `event_types`,
-            `exclude_types`, pagination with `limit`/`offset`, and `after` cursor. Use this instead of the streaming
-            endpoint when invoking from an MCP client.
+            Fetch session log events emitted by the agent for a specific run, in log order. A resumed run starts with
+            the events of the runs it resumed from, oldest first. Supports filtering by `event_types`, `exclude_types`
+            and an `after` timestamp, and pagination with `start`/`limit`. Returns `entries`, `offset` (the index of the
+            first entry) and `count` (the number of matching entries). More entries remain while `offset` plus the
+            number of entries is below `count`.
+        exclude_params:
+            - tail_bytes
+            - before
+            - view
         param_overrides:
+            output:
+                input_schema: TaskRunLogEntriesOutputSchema
+            start:
+                description: >
+                    Zero-based index of the first event to return (default 0). With a filter, it counts only the
+                    matching events.
+                aliases:
+                    - offset
             limit:
                 description: Maximum number of entries to return (default 100, max 5000)
                 default: 100
