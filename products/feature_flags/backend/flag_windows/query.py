@@ -38,7 +38,9 @@ mostly send errors without the flag, and put `$feature/<key>` on their `$feature
 their errors get a value. Only the events of the actors with a counted event are read, and only the events that the
 exposure counts read: events, not `flag_evaluations`, in the range and from the edit on. So an actor with a last value
 is also in the exposure counts with that value, and a rate of errors over exposure compares the same people. An actor
-without such an event gets no value.
+without such an event gets no value. On a team with minimal `$feature_flag_called` events, the SDKs leave
+`$feature/<key>` off the call of a flag without an experiment, so a server error there gets no value, and the call
+doesn't count in the exposure counts either.
 
 One query per team reads every watched edit: a query per edit would read the same events again.
 """
@@ -440,18 +442,7 @@ def last_values(edits: Sequence[WatchedEdit], start: datetime, end: datetime, co
                 },
             ),
         )
-        reads = [(index, edit, read_flag(edit, {})) for index, edit in watched]
-        flag_values = _value_scan(
-            actor=actor,
-            columns=[
-                _ValueColumns(index=index, edited_at=edit.edited_at, carried=read.with_flag, exposed=read.exposed)
-                for index, edit, read in reads
-            ],
-            keep=ast.Or(exprs=[read.with_flag for _, _, read in reads]),
-            counted_actors=counted_actors,
-            start=start,
-            end=end,
-        )
+        flag_values = _value_scan(actor=actor, watched=watched, counted_actors=counted_actors, start=start, end=end)
         subquery = ast.SelectQuery(
             select=[
                 ast.Field(chain=["actor"]),
@@ -499,51 +490,44 @@ def _value_changes(index: int) -> list[ast.Alias]:
     ]
 
 
-@frozen
-class _ValueColumns:
-    index: int
-    edited_at: datetime
-    carried: ast.Expr
-    exposed: ast.Expr
-
-
 def _value_scan(
     *,
     actor: Actor,
-    columns: Sequence[_ValueColumns],
-    keep: ast.Expr,
+    watched: Sequence[tuple[int, WatchedEdit]],
     counted_actors: ast.SelectQuery,
     start: datetime,
     end: datetime,
 ) -> ast.SelectQuery:
-    """One row per event that `keep` holds for, with whether it carries the flag of each edit, and the value."""
+    """One row per event with the flag of any watched edit, with whether it carries the flag of each edit, and the
+    value."""
+    reads = [(index, edit, read_flag(edit, {})) for index, edit in watched]
     return ast.SelectQuery(
         select=[
             ast.Alias(alias="actor", expr=actor.expr),
             ast.Field(chain=["timestamp"]),
             *[
                 alias
-                for column in columns
+                for index, edit, read in reads
                 for alias in (
                     ast.Alias(
-                        alias=f"carried{column.index}",
+                        alias=f"carried{index}",
                         expr=parse_expr(
                             "{carried} AND timestamp >= {edited_at}",
-                            placeholders={"carried": column.carried, "edited_at": ast.Constant(value=column.edited_at)},
+                            placeholders={"carried": read.with_flag, "edited_at": ast.Constant(value=edit.edited_at)},
                         ),
                     ),
-                    ast.Alias(alias=f"exposed{column.index}", expr=column.exposed),
+                    ast.Alias(alias=f"exposed{index}", expr=read.exposed),
                 )
             ],
         ],
         select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
         where=parse_expr(
-            "timestamp >= {start} AND timestamp < {end} AND {present} AND {keep} AND {actor} IN {counted_actors}",
+            "timestamp >= {start} AND timestamp < {end} AND {present} AND {with_flag} AND {actor} IN {counted_actors}",
             placeholders={
                 "start": ast.Constant(value=start),
                 "end": ast.Constant(value=end),
                 "present": actor.present,
-                "keep": keep,
+                "with_flag": ast.Or(exprs=[read.with_flag for _, _, read in reads]),
                 "actor": actor.expr,
                 "counted_actors": clone_expr(counted_actors),
             },
