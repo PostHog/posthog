@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from typing import Any
 
 from django.conf import settings
@@ -11,12 +12,31 @@ from posthog.session_recordings.recordings.recording_api_jwt import mint_recordi
 
 logger = structlog.get_logger(__name__)
 
+# The chart mounts the pod's labels here, and the toolbox claim script labels the pod with the claimer's SSO email.
+POD_LABELS_PATH = Path("/etc/podinfo/labels")
+CLAIM_LABEL = "toolbox-claimed"
+
 USAGE = """\
 List the blocks, then fetch one with a key and byte range from that list:
   curl -H "Authorization: Bearer $TOKEN" "$URL/api/projects/<team_id>/recordings/<session_id>/blocks"
   curl -H "Authorization: Bearer $TOKEN" \\
     "$URL/api/projects/<team_id>/recordings/<session_id>/block?key=<key>&start_byte=<start>&end_byte=<end>&decompress=true"
 """
+
+
+def claimed_by() -> str | None:
+    """The email of whoever claimed this toolbox pod, or None when the pod is unclaimed."""
+    try:
+        lines = POD_LABELS_PATH.read_text().splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        key, _, quoted = line.partition("=")
+        if key == CLAIM_LABEL:
+            # The downward API writes each value as a quoted string, and the claim script spells @ as _at_.
+            value = json.loads(quoted)
+            return value.replace("_at_", "@", 1) if isinstance(value, str) and value else None
+    return None
 
 
 class Command(BaseCommand):
@@ -26,15 +46,16 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--team-id", type=int, required=True)
-        parser.add_argument("--actor", required=True, help="Your email. recording-api logs it on every request.")
         parser.add_argument("--reason", required=True, help="For example the support ticket. recording-api logs it.")
 
     def handle(self, *args: Any, **options: Any) -> None:
         team_id: int = options["team_id"]
-        actor: str = options["actor"].strip()
         reason: str = options["reason"].strip()
-        if not actor or not reason:
-            raise CommandError("--actor and --reason must not be empty.")
+        if not reason:
+            raise CommandError("--reason must not be empty.")
+        actor = claimed_by()
+        if actor is None:
+            raise CommandError("This pod has no toolbox claim, so the token would name nobody. Claim it first.")
         if problem := staff_key_problem():
             raise CommandError(f"{problem}, so this pod cannot mint tokens.")
         if not settings.RECORDING_API_URL:
