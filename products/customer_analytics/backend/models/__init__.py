@@ -13,7 +13,7 @@ from .custom_property_definition import (
     DisplayType,
     TargetType,
 )
-from .custom_property_source import CustomPropertySource, MissingRowBehavior
+from .custom_property_source import CustomPropertySource
 from .custom_property_sync_run import CustomPropertySyncRun, SyncStatus, SyncTrigger
 from .custom_property_value import CustomPropertyValue
 from .customer_journey import CustomerJourney
@@ -83,7 +83,6 @@ __all__ = [
     "MeetingStatus",
     "MembershipCleanupCandidate",
     "MembershipCleanupScan",
-    "MissingRowBehavior",
     "RelationshipDefinition",
     "SlackSummaryCadence",
     "SyncStatus",

@@ -86,26 +86,6 @@ class TestBuildBundles:
         ]
         json.dumps(bundles[0][1])  # the produced bundle round-trips without a default handler
 
-    def test_partial_read_does_not_retain_keys_without_bundles(self):
-        source = PersonPropertySyncSource(
-            source_id="source-1",
-            definition_id="def-1",
-            key_column="distinct_id",
-            column_property_map={"plan": "plan_tier"},
-            remove_when_missing=True,
-        )
-        present_without_bundle: dict[str, set[str]] = {"source-1": set()}
-
-        pps._accumulate_bundles(
-            {"source-1": {}},
-            present_without_bundle,
-            [{"distinct_id": "present", "plan": None}],
-            [source],
-            detect_missing=False,
-        )
-
-        assert present_without_bundle == {"source-1": set()}
-
 
 class TestBundleHash:
     def test_is_order_independent(self):
@@ -275,50 +255,76 @@ class TestRunOrchestration:
         fake = _FakeS3()
         if staged_rows:
             _stage(fake, "chunk_1_000000", staged_rows)
-        with (
-            _fake_s3_patch(fake),
-            patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[source]),
-            patch(f"{_MODULE}.Team") as team_cls,
-            patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(side_effect=lambda *_args: dict(prior))),
-            patch(
-                f"{_MODULE}._filter_existing_ids",
-                side_effect=lambda _team_id, _source, ids: set(ids) & {"present", "left"},
-            ),
-            patch(
-                f"{_MODULE}._sources_with_key_column_for_empty_read",
-                new=AsyncMock(return_value=frozenset({"source-1"}) if empty_read_has_key_column else frozenset()),
-            ),
-            patch(
-                f"{_MODULE}._produce_intents",
-                side_effect=lambda _team_id, _token, _source, bundles, **_kwargs: {
-                    distinct_id for distinct_id, _bundle in bundles
-                },
-            ) as produce,
-            patch(f"{_MODULE}._write_snapshot_chunk", new=AsyncMock()) as write_chunk,
-            patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()),
-            patch(f"{_MODULE}._reconcile_property_definitions"),
-            patch(f"{_MODULE}._clear_staged", new=AsyncMock()),
-        ):
-            team_cls.objects.get.return_value = MagicMock(api_token="tok", project_id=7, uuid="team-uuid")
-            result = await pps.run_person_property_sync(
-                team_id=1,
-                binding=_SCHEMA,
-                job_id="job-1",
-                complete_table_read=complete_table_read,
-            )
+        with _fake_s3_patch(fake), _person_directory({"present": 1, "left": 2}):
+            await pps._write_snapshot_hashes(1, _SCHEMA, "source-1", "earlier-job", prior)
+            with (
+                patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[source]),
+                patch(f"{_MODULE}.Team") as team_cls,
+                patch(
+                    f"{_MODULE}._sources_with_key_column_for_empty_read",
+                    new=AsyncMock(return_value=frozenset({"source-1"}) if empty_read_has_key_column else frozenset()),
+                ),
+                patch(
+                    f"{_MODULE}._produce_intents",
+                    side_effect=lambda _team_id, _token, _source, bundles, **_kwargs: {
+                        distinct_id for distinct_id, _bundle in bundles
+                    },
+                ) as produce,
+                patch(f"{_MODULE}._reconcile_property_definitions"),
+                patch(f"{_MODULE}._clear_staged", new=AsyncMock()),
+            ):
+                team_cls.objects.get.return_value = MagicMock(api_token="tok", project_id=7, uuid="team-uuid")
+                result = await pps.run_person_property_sync(
+                    team_id=1,
+                    binding=_SCHEMA,
+                    job_id="job-1",
+                    complete_table_read=complete_table_read,
+                )
+            snapshot = await pps._read_snapshot_hashes(1, _SCHEMA, "source-1")
 
         assert result.removed == len(expected_removed_ids)
+        removed = {distinct_id for call in produce.call_args_list for distinct_id, _bundle in call.args[3]}
+        assert removed == {*expected_removed_ids}
         if expected_removed_ids:
-            assert produce.call_count == 1
-            assert write_chunk.await_count == 1
-            assert produce.call_args is not None
-            assert dict(produce.call_args.args[3]) == {
-                distinct_id: {"plan_tier": None} for distinct_id in expected_removed_ids
-            }
-            assert write_chunk.await_args is not None
-            assert write_chunk.await_args.args[4] == dict.fromkeys(expected_removed_ids)
-        else:
-            produce.assert_not_called()
+            assert all(call.kwargs["unset_properties"] == ["plan_tier"] for call in produce.call_args_list)
+        assert snapshot == {key: value for key, value in prior.items() if key not in expected_removed_ids}
+
+    @pytest.mark.asyncio
+    async def test_a_person_with_another_distinct_id_still_in_the_table_keeps_their_properties(self) -> None:
+        source = PersonPropertySyncSource(
+            source_id="source-1",
+            definition_id="def-1",
+            key_column="distinct_id",
+            column_property_map={"plan": "plan_tier"},
+            remove_when_missing=True,
+        )
+        bundle_hash = pps.bundle_hash({"plan_tier": "pro"})
+        prior = {"anon-1": bundle_hash, "user@x": bundle_hash, "gone": bundle_hash}
+        fake = _FakeS3()
+        _stage(fake, "chunk_1_000000", [{"distinct_id": "user@x", "plan": "pro"}])
+        with _fake_s3_patch(fake), _person_directory({"anon-1": 1, "user@x": 1, "gone": 2}):
+            await pps._write_snapshot_hashes(1, _SCHEMA, "source-1", "earlier-job", prior)
+            with (
+                patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[source]),
+                patch(f"{_MODULE}.Team") as team_cls,
+                patch(
+                    f"{_MODULE}._produce_intents",
+                    side_effect=lambda _team_id, _token, _source, bundles, **_kwargs: {
+                        distinct_id for distinct_id, _bundle in bundles
+                    },
+                ) as produce,
+                patch(f"{_MODULE}._reconcile_property_definitions"),
+                patch(f"{_MODULE}._clear_staged", new=AsyncMock()),
+            ):
+                team_cls.objects.get.return_value = MagicMock(api_token="tok", project_id=7, uuid="team-uuid")
+                result = await pps.run_person_property_sync(
+                    team_id=1, binding=_SCHEMA, job_id="job-1", complete_table_read=True
+                )
+            snapshot = await pps._read_snapshot_hashes(1, _SCHEMA, "source-1")
+
+        assert result.removed == 1
+        assert [distinct_id for call in produce.call_args_list for distinct_id, _bundle in call.args[3]] == ["gone"]
+        assert snapshot == {"user@x": bundle_hash}
 
     @parameterized.expand([("unconfirmed_delivery", False), ("snapshot_write_failure", True)])
     @pytest.mark.asyncio
@@ -916,6 +922,30 @@ class _FakeS3:
             self.times.pop(key, None)
 
 
+@contextlib.contextmanager
+def _person_directory(person_id_by_distinct_id: dict[str, int]):
+    """Stand in for personhog: each known distinct_id resolves to the person id it maps to."""
+
+    def _persons(_team_id, distinct_ids):
+        return {
+            distinct_id: MagicMock(id=person_id_by_distinct_id[distinct_id])
+            for distinct_id in distinct_ids
+            if distinct_id in person_id_by_distinct_id
+        }
+
+    def _distinct_ids(_team_id, person_ids):
+        return {
+            person_id: [d for d, owner in person_id_by_distinct_id.items() if owner == person_id]
+            for person_id in person_ids
+        }
+
+    with (
+        patch(f"{_MODULE}.get_persons_mapped_by_distinct_id", side_effect=_persons),
+        patch(f"{_MODULE}.get_distinct_ids_for_persons", side_effect=_distinct_ids),
+    ):
+        yield
+
+
 def _fake_s3_patch(fake):
     import contextlib
 
@@ -971,6 +1001,36 @@ class TestSnapshotCompaction:
         # Two producing runs collapse to a single file whose union is newest-wins (b came from job-2).
         assert len(keys) == 1
         assert hashes == {"a": "h1", "b": "h2", "c": "h2"}
+
+    @pytest.mark.asyncio
+    async def test_tombstone_removes_the_id_from_the_snapshot_and_from_compaction(self):
+        fake = _FakeS3()
+        with _fake_s3_patch(fake):
+            await pps._write_snapshot_hashes(1, _SCHEMA, "src", "job-1", {"a": "h1", "b": "h1"})
+            await pps._write_snapshot_chunk(1, _SCHEMA, "src", "job-2", {"a": None})
+
+            before_compaction = await pps._read_snapshot_hashes(1, _SCHEMA, "src")
+            await pps._write_snapshot_hashes(1, _SCHEMA, "src", "job-3", {"c": "h3"})
+            after_compaction = await pps._read_snapshot_hashes(1, _SCHEMA, "src")
+            keys = await pps._list_snapshot_files(fake, pps._snapshot_prefix(1, _SCHEMA, "src"))
+            stored = pq.read_table(io.BytesIO(fake.store[pps._s3_key(keys[0])])).to_pydict()
+
+        assert before_compaction == {"b": "h1"}
+        assert after_compaction == {"b": "h1", "c": "h3"}
+        assert sorted(stored["distinct_id"]) == ["b", "c"]
+
+    @pytest.mark.asyncio
+    async def test_an_id_that_leaves_and_returns_with_the_same_values_is_changed_again(self):
+        fake = _FakeS3()
+        bundle = {"plan_tier": "pro"}
+        with _fake_s3_patch(fake):
+            await pps._write_snapshot_hashes(1, _SCHEMA, "src", "job-1", {"a": pps.bundle_hash(bundle)})
+            await pps._write_snapshot_chunk(1, _SCHEMA, "src", "job-2", {"a": None})
+            prior = await pps._read_snapshot_hashes(1, _SCHEMA, "src")
+
+        changed, _new_hashes = pps.select_changed([("a", bundle)], prior)
+
+        assert changed == [("a", bundle)]
 
     @pytest.mark.asyncio
     async def test_repeated_run_token_overwrites_its_own_file(self):

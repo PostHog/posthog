@@ -23,6 +23,8 @@ from pydantic.dataclasses import dataclass
 
 from posthog.dataclasses import frozen
 
+from products.customer_analytics.backend.facade.enums import WarehousePersonPropertyMissingRowBehavior
+
 if TYPE_CHECKING:
     from posthog.schema import PersonPropertyFilter
 
@@ -1218,7 +1220,7 @@ class CustomPropertySourceView:
     key_column: str = ""
     column_property_map: dict | None = None
     column_descriptions: dict | None = None
-    missing_row_behavior: str = "keep"
+    missing_row_behavior: str = WarehousePersonPropertyMissingRowBehavior.KEEP.value
     is_enabled: bool = True
     consecutive_failures: int = 0
     last_synced_at: datetime | None = None

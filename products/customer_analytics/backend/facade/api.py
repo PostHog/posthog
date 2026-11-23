@@ -2719,12 +2719,11 @@ def update_custom_property_source(
     profile_mapping_fields = {"column_property_map", "column_descriptions", "missing_row_behavior"}.intersection(fields)
     if profile_mapping_fields:
         if source.definition.target_type not in _WAREHOUSE_PROFILE_TARGETS:
-            profile_values = profile_mapping_fields - {"missing_row_behavior"}
-            if (
-                any(fields[field] is not None for field in profile_values)
-                or fields.get("missing_row_behavior", WarehousePersonPropertyMissingRowBehavior.KEEP.value)
-                != WarehousePersonPropertyMissingRowBehavior.KEEP.value
-            ):
+            if "missing_row_behavior" in fields:
+                _validate_missing_row_behavior(
+                    target_type=source.definition.target_type, behavior=fields["missing_row_behavior"]
+                )
+            if any(fields[field] is not None for field in profile_mapping_fields - {"missing_row_behavior"}):
                 raise CustomPropertySourceValidationError(
                     "An account property source uses saved_query + source_column, not external_data_schema."
                 )
@@ -2762,6 +2761,8 @@ def update_custom_property_source(
     # disabled. Existing re-enable/column changes require it when they will trigger a backfill.
     will_be_enabled = fields.get("is_enabled", source.is_enabled) is True
     binding = _profile_binding(source)
+    if fields.get("missing_row_behavior") == source.missing_row_behavior:
+        profile_mapping_fields.discard("missing_row_behavior")
     if binding is not None and (profile_mapping_fields or (will_be_enabled and (reenabling or columns_changed))):
         _assert_warehouse_editor(team_id, binding, user_access_control)
     for attr, value in fields.items():

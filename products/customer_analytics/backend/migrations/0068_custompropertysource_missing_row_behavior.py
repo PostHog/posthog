@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
             model_name="custompropertysource",
             name="missing_row_behavior",
             field=models.CharField(
-                choices=[("keep", "keep"), ("remove", "remove")],
+                choices=[("keep", "Keep the last synced values"), ("remove", "Remove mapped properties")],
                 db_default="keep",
                 default="keep",
                 help_text="What happens to mapped person properties when the key leaves a complete table read.",

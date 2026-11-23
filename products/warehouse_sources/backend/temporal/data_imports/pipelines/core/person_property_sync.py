@@ -50,7 +50,7 @@ from posthog.kafka_client.topics import KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES
 from posthog.models import Team
 from posthog.models.group.util import get_groups_by_identifiers
 from posthog.models.group_type_mapping import get_group_types_for_project
-from posthog.models.person.util import get_persons_mapped_by_distinct_id
+from posthog.models.person.util import get_distinct_ids_for_persons, get_persons_mapped_by_distinct_id
 from posthog.sync import database_sync_to_async
 
 from products.data_warehouse.backend.facade.api import aget_s3_client, get_s3_client
@@ -400,6 +400,8 @@ async def _sources_with_key_column_for_empty_read(
     if uri is None:
         return frozenset()
     delta = await asyncio.to_thread(_open_delta_batches, uri, delta_storage_options(), sources)
+    if not delta.table_exists:
+        return frozenset()
     return frozenset(str(source.source_id) for source in sources) - delta.sources_missing_key_column
 
 
@@ -609,6 +611,19 @@ def _filter_existing_ids(team_id: int, source: PersonPropertySyncSource, ids: li
     return existing
 
 
+def _removable_ids(team_id: int, candidate_ids: list[str], present_ids: set[str]) -> set[str]:
+    """The candidates that resolve to a person who owns no distinct_id in ``present_ids``."""
+    if not candidate_ids:
+        return set()
+    persons = get_persons_mapped_by_distinct_id(team_id, candidate_ids)
+    distinct_ids_by_person = get_distinct_ids_for_persons(team_id, sorted({person.id for person in persons.values()}))
+    return {
+        distinct_id
+        for distinct_id, person in persons.items()
+        if not present_ids.intersection(distinct_ids_by_person.get(person.id, ()))
+    }
+
+
 def _group_type_name(project_id: int, group_type_index: int) -> str | None:
     # $groupidentify carries the group-type *name*; the config stores the index, so resolve it.
     # Group types are project-scoped, and GroupTypeMapping stores the project's root team id, so a
@@ -627,17 +642,17 @@ def _produce_intents(
     *,
     team_uuid: str,
     group_type_name: str | None,
+    unset_properties: list[str] | None = None,
 ) -> set[str]:
     """Produce one property-update intent per entity to Kafka. Person intents map to a `$set` keyed
     by team:distinct_id; group intents map to a `$groupidentify` keyed by team:group_type:group_key so
     per-group ordering is preserved. The consumer branches on ``kind``. Returns the keys Kafka
-    confirmed as delivered."""
+    confirmed as delivered. ``unset_properties`` names person properties to remove, and applies to
+    every item; it is only used by the removal path, which is person-only."""
     is_group = source.target == _GROUP_TARGET
     results: list[tuple[str, ProduceResult]] = []
     with producer_scope(topic=KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES) as producer:
         for key, bundle in items:
-            properties = {property_name: value for property_name, value in bundle.items() if value is not None}
-            unset_properties = [property_name for property_name, value in bundle.items() if value is None]
             if is_group:
                 data = {
                     "team_id": team_id,
@@ -648,7 +663,7 @@ def _produce_intents(
                     "group_type": group_type_name,
                     "group_type_index": source.group_type_index,
                     "group_key": key,
-                    "properties": properties,
+                    "properties": bundle,
                     "event_source": EVENT_SOURCE,
                 }
                 kafka_key = f"{team_id}:{source.group_type_index}:{key}"
@@ -658,8 +673,8 @@ def _produce_intents(
                     "token": token,
                     "kind": "person",
                     "distinct_id": key,
-                    "properties": properties,
-                    "unset_properties": unset_properties,
+                    "properties": bundle,
+                    "unset_properties": unset_properties or [],
                     "event_source": EVENT_SOURCE,
                 }
                 kafka_key = f"{team_id}:{key}"
@@ -730,6 +745,7 @@ class _SourceState:
     # overwrite the files that hold the previous attempt's delivered hashes.
     attempt: str
     detect_missing: bool = False
+    present_ids: set[str] = dataclasses.field(default_factory=set)
     chunks_written: int = 0
 
     @property
@@ -794,8 +810,10 @@ async def _sync_bundles(
     if state.detect_missing:
         for key, _bundle in bundles:
             state.prior.pop(key, None)
+            state.present_ids.add(key)
         for key in present_without_bundle or ():
             state.prior.pop(key, None)
+            state.present_ids.add(key)
     ps.changed += len(changed)
     if not changed or state.group_type_missing:
         return
@@ -864,11 +882,13 @@ async def _sync_removed(run: _RunContext, state: _SourceState) -> None:
     property_names = sorted(set((state.source.column_property_map or {}).values()))
     candidate_ids = iter(state.prior)
     while chunk := list(islice(candidate_ids, _PRODUCE_CHUNK_SIZE)):
+        # Removals are decided per distinct_id but `$unset` lands on the merged person, so a person
+        # that still has another distinct_id in the table keeps its properties.
         with run.timer.phase("existence_lookup"):
-            existing = await database_sync_to_async(_filter_existing_ids, thread_sensitive=False)(
-                run.team_id, state.source, chunk
+            removable = await database_sync_to_async(_removable_ids, thread_sensitive=False)(
+                run.team_id, chunk, state.present_ids
             )
-        removal_items = [(key, dict.fromkeys(property_names)) for key in chunk if key in existing]
+        removal_items = [(key, {}) for key in chunk if key in removable]
         delivered: set[str] = set()
         if removal_items:
             with run.timer.phase("produce"):
@@ -880,8 +900,9 @@ async def _sync_removed(run: _RunContext, state: _SourceState) -> None:
                     removal_items,
                     team_uuid=run.team_uuid,
                     group_type_name=None,
+                    unset_properties=property_names,
                 )
-        missing = set(chunk) - existing
+        missing = set(chunk) - removable
         acknowledged = delivered | missing
         if acknowledged:
             with run.timer.phase("snapshot_write"):
@@ -894,7 +915,7 @@ async def _sync_removed(run: _RunContext, state: _SourceState) -> None:
                 )
             state.chunks_written += 1
         ps.removed += len(delivered)
-        ps.undelivered += len(existing) - len(delivered)
+        ps.undelivered += len(removable) - len(delivered)
         if run.on_progress is not None:
             with run.timer.phase("progress_record"):
                 await run.on_progress(
@@ -1165,6 +1186,7 @@ class _DeltaBatches:
     open_batches: Callable[[list[str]], Iterator["pa.RecordBatch"]]
     columns: list[str]
     sources_missing_key_column: frozenset[str]
+    table_exists: bool = True
 
 
 def _open_delta_batches(
@@ -1181,7 +1203,8 @@ def _open_delta_batches(
         return _DeltaBatches(
             open_batches=lambda _columns: iter(()),
             columns=[],
-            sources_missing_key_column=frozenset(str(source.source_id) for source in sources),
+            sources_missing_key_column=frozenset(),
+            table_exists=False,
         )
 
     dataset = deltalake.DeltaTable(uri, storage_options=storage_options).to_pyarrow_dataset()
@@ -1244,23 +1267,17 @@ def _last_row_of_repeated_keys(
     }
 
 
-@frozen
-class _BatchSourceBundles:
-    bundles: list[tuple[str, dict]]
-    present_without_bundle: set[str]
-
-
 def _batch_bundles(
     batch: "pa.RecordBatch",
     sources: list[PersonPropertySyncSource],
     offset: int,
     repeated: dict[str, dict[str, int]],
-) -> list[_BatchSourceBundles]:
+) -> list[list[tuple[str, dict]]]:
     """Each source's bundles for the batch whose first row is at table position ``offset``, in
     ``sources`` order. A row of a repeated id that isn't the id's last row is dropped, so only each
     id's final value is diffed."""
     rows = batch.to_pylist()
-    bundles_per_source: list[_BatchSourceBundles] = []
+    bundles_per_source = []
     for source in sources:
         last_row = repeated[str(source.source_id)]
         kept = [
@@ -1268,22 +1285,7 @@ def _batch_bundles(
             for position, row in enumerate(rows, start=offset)
             if (key := _bundle_key(row, source)) is None or last_row.get(key, position) == position
         ]
-        bundles = build_bundles(kept, source.key_column, source.column_property_map or {})
-        bundled_keys = {distinct_id for distinct_id, _bundle in bundles}
-        bundles_per_source.append(
-            _BatchSourceBundles(
-                bundles=bundles,
-                present_without_bundle=(
-                    {
-                        str(key)
-                        for row in rows
-                        if (key := row.get(source.key_column)) is not None and str(key) not in bundled_keys
-                    }
-                    if source.remove_when_missing
-                    else set()
-                ),
-            )
-        )
+        bundles_per_source.append(build_bundles(kept, source.key_column, source.column_property_map or {}))
     return bundles_per_source
 
 
@@ -1381,7 +1383,8 @@ async def _backfill_table(
         with timer.phase("read_key_pass"):
             repeated = await asyncio.to_thread(_last_row_of_repeated_keys, delta, active)
     for source in active:
-        states.append(await _open_source(run, source, detect_missing=source.remove_when_missing))
+        # No removals here: the live table is partial while a view rebuild runs or after one failed.
+        states.append(await _open_source(run, source))
     # The key pass and snapshot reads above are counted in the run's timing line, not the first batch's.
     timer.take_batch_fields()
     with timer.phase("read"):
@@ -1401,14 +1404,9 @@ async def _backfill_table(
         with timer.phase("bundle_build"):
             bundles_per_source = await asyncio.to_thread(_batch_bundles, batch, active, offset, repeated)
         del batch
-        for state, source_bundles in zip(states, bundles_per_source):
+        for state, bundles in zip(states, bundles_per_source):
             state.result.rows_read = result.rows_read
-            await _sync_bundles(
-                run,
-                state,
-                source_bundles.bundles,
-                source_bundles.present_without_bundle,
-            )
+            await _sync_bundles(run, state, bundles)
         del bundles_per_source
         _log_run_progress(run, result.rows_read, [state.result for state in states])
         logger.info(

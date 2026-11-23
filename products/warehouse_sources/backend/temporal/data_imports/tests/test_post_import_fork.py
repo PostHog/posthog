@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     CreateSourceTemplateInputs,
     ExternalDataJobWorkflow,
     UpdateExternalDataJobStatusInputs,
+    _reads_complete_table,
     _started_by_own_schedule,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
@@ -396,6 +397,35 @@ async def test_v3_lock_release_rides_the_finalizer(
 )
 def test_only_the_schemas_own_schedule_counts_as_scheduled(search_attributes: dict, expected: bool):
     assert _started_by_own_schedule(search_attributes, _SCHEMA_ID) is expected
+
+
+@pytest.mark.parametrize(
+    "incremental_or_append,scheduled_full_refresh,reset_pipeline,is_resumable_source,expected",
+    [
+        pytest.param(False, False, False, False, True, id="full_refresh"),
+        pytest.param(True, False, False, False, False, id="incremental_or_append"),
+        pytest.param(True, True, False, False, True, id="scheduled_full_refresh"),
+        pytest.param(True, False, True, False, True, id="reset_pipeline"),
+        pytest.param(False, False, False, True, False, id="resumable_full_refresh"),
+        pytest.param(True, True, True, True, False, id="resumable_source_never_complete"),
+    ],
+)
+def test_only_runs_that_staged_the_whole_table_may_remove_person_properties(
+    incremental_or_append: bool,
+    scheduled_full_refresh: bool,
+    reset_pipeline: bool,
+    is_resumable_source: bool,
+    expected: bool,
+):
+    assert (
+        _reads_complete_table(
+            incremental_or_append=incremental_or_append,
+            scheduled_full_refresh=scheduled_full_refresh,
+            reset_pipeline=reset_pipeline,
+            is_resumable_source=is_resumable_source,
+        )
+        is expected
+    )
 
 
 @pytest.mark.asyncio

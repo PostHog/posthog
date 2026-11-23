@@ -3,10 +3,7 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
-
-class MissingRowBehavior(models.TextChoices):
-    KEEP = "keep", "keep"
-    REMOVE = "remove", "remove"
+from products.customer_analytics.backend.facade.enums import WarehousePersonPropertyMissingRowBehavior
 
 
 class CustomPropertySource(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
@@ -45,9 +42,9 @@ class CustomPropertySource(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, Up
 
     missing_row_behavior = models.CharField(
         max_length=20,
-        choices=MissingRowBehavior.choices,
-        default=MissingRowBehavior.KEEP,
-        db_default=MissingRowBehavior.KEEP,
+        choices=WarehousePersonPropertyMissingRowBehavior.choices,
+        default=WarehousePersonPropertyMissingRowBehavior.KEEP.value,
+        db_default=WarehousePersonPropertyMissingRowBehavior.KEEP.value,
         help_text="What happens to mapped person properties when the key leaves a complete table read.",
     )
 

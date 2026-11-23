@@ -1685,10 +1685,10 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     published = False
     try:
         async with Heartbeater():
-            person_property_complete_table_read = person_property_staging_cleared and False
             hogql_query = typing.cast(dict, objects.saved_query.query)["query"]
 
             try:
+                person_property_complete_table_read = False
                 with _rust_panics_as_errors():
                     if plan.incremental:
                         row_count, file_uris = await _materialize_incrementally(
@@ -1702,7 +1702,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                             person_property_sink,
                         )
                     else:
-                        row_count, file_uris = await _materialize_fully(
+                        full_materialization = await _materialize_fully(
                             objects,
                             plan,
                             hogql_query,
@@ -1711,7 +1711,11 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                             logger,
                             cdp_sink,
                             person_property_sink,
+                            person_property_staging_cleared,
                         )
+                        row_count = full_materialization.row_count
+                        file_uris = full_materialization.file_uris
+                        person_property_complete_table_read = full_materialization.person_property_complete_table_read
             except (Exception, asyncio.CancelledError):
                 # A retry stages from scratch and a terminal failure produces nothing, so whatever
                 # this attempt wrote is only ever waste.

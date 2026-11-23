@@ -1935,7 +1935,7 @@ class CustomPropertySourceSerializer(DataclassSerializer):
     missing_row_behavior = serializers.ChoiceField(
         choices=WarehousePersonPropertyMissingRowBehavior.choices,
         required=False,
-        default="keep",
+        default=WarehousePersonPropertyMissingRowBehavior.KEEP.value,
         help_text=(
             "Person sources only: keep the last synced values, or remove mapped properties when a key "
             "is absent from a complete table read. Existing sources default to 'keep'."

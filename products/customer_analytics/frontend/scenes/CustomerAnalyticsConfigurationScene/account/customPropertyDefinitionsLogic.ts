@@ -151,7 +151,7 @@ const DEFAULT_FORM_VALUES: CustomPropertyFormValues = {
     keyColumn: null,
     warehouseSource: null,
     columnMappings: [{ column: '', property: '', description: '' }],
-    missingRowBehavior: 'keep',
+    missingRowBehavior: WarehousePersonPropertyMissingRowBehaviorEnumApi.Keep,
     isEnabled: true,
 }
 
@@ -1357,7 +1357,10 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                       )
                     : [{ column: '', property: '', description: '' }],
                 missingRowBehavior:
-                    targetType === 'person' ? (definition.source?.missing_row_behavior ?? 'keep') : 'keep',
+                    targetType === 'person'
+                        ? (definition.source?.missing_row_behavior ??
+                          WarehousePersonPropertyMissingRowBehaviorEnumApi.Keep)
+                        : WarehousePersonPropertyMissingRowBehaviorEnumApi.Keep,
                 isEnabled: definition.source?.is_enabled ?? true,
             })
         },

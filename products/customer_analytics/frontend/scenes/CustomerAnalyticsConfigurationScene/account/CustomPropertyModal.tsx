@@ -30,7 +30,10 @@ import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
 
-import type { CustomPropertyOptionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+import {
+    type CustomPropertyOptionApi,
+    WarehousePersonPropertyMissingRowBehaviorEnumApi,
+} from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import {
     ColumnPropertyMapping,
@@ -481,12 +484,18 @@ function PersonSourceEditor(): JSX.Element {
                 <LemonField
                     name="missingRowBehavior"
                     label="When a person leaves the table"
-                    help="Choose whether to keep the last synced values or remove this mapping's properties after a complete table read no longer contains the person. Incremental and resumable reads never remove properties."
+                    help="Keep the last synced values, or remove this mapping's properties, once a person's row is gone from the table. Only a full refresh of the table removes properties."
                 >
                     <LemonSelect
                         options={[
-                            { value: 'keep', label: 'Keep the last synced values' },
-                            { value: 'remove', label: 'Remove mapped properties' },
+                            {
+                                value: WarehousePersonPropertyMissingRowBehaviorEnumApi.Keep,
+                                label: 'Keep the last synced values',
+                            },
+                            {
+                                value: WarehousePersonPropertyMissingRowBehaviorEnumApi.Remove,
+                                label: 'Remove mapped properties',
+                            },
                         ]}
                         fullWidth
                     />
