@@ -482,3 +482,22 @@ class AEOCheckSearch(TeamScopedRootMixin, UUIDModel):
 
     def __str__(self) -> str:
         return self.query[:60]
+
+
+class AEOTeamConfig(TeamScopedRootMixin):
+    team = models.OneToOneField(
+        "posthog.Team", on_delete=models.CASCADE, primary_key=True, related_name="+", db_constraint=False
+    )
+    enabled_at = models.DateTimeField(
+        null=True, blank=True, help_text="When a setup first turned on scheduled checks. Null until then."
+    )
+    enabled_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
+
+    class Meta:
+        db_table = "posthog_aeo_team_config"
+        verbose_name = "AEO team config"
+
+    def __str__(self) -> str:
+        return f"AEO config for team {self.team_id}"

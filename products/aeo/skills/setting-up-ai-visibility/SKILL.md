@@ -38,8 +38,8 @@ Each step that writes something ends with a confirmation from the user.
 
 ## Before you start
 
-- **The feature is flag-gated.** Every `aeo-*` tool needs the `aeo-citation-tracking` feature flag for the
-  user's organization. A 403 with "This feature is not available." means the flag is off, not a missing scope.
+- **The feature is flag-gated.** Every `aeo-*` tool needs the `web-analytics-content-autopilot` feature flag
+  for the user. A 403 with the code `feature_flag_required` means the flag is off, not a missing scope.
 - **Some tools may be missing.** A tool that this MCP server does not list is not available yet.
   Do that step in the PostHog app instead: the AI visibility tab under Web analytics (`/web/content-autopilot`).
   Tell the user which step is left for them, and continue with the steps you can do.

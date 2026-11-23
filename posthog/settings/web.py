@@ -1539,8 +1539,7 @@ try:
 except ValueError:
     MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM = {}
 
-# AEO citation-tracking POC (products/aeo). The scheduled runner only covers
-# teams in this allowlist AND with the `aeo-citation-tracking` flag enabled.
+# AEO (products/aeo). Read only by migration aeo 0019, which turned on tracking for these teams.
 AEO_CITATION_TEAM_IDS = get_list(get_from_env("AEO_CITATION_TEAM_IDS", ""))
 AEO_ANTHROPIC_MODEL = get_from_env("AEO_ANTHROPIC_MODEL", "claude-sonnet-5")
 AEO_OPENAI_MODEL = get_from_env("AEO_OPENAI_MODEL", "gpt-5")

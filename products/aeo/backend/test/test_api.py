@@ -40,7 +40,7 @@ class TestAEOPromptAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         flag_patcher = patch(
-            "products.aeo.backend.presentation.views.posthog_feature_flag_enabled",
+            "posthog.permissions.posthog_feature_flag_enabled",
             return_value=True,
         )
         self.feature_enabled = flag_patcher.start()
@@ -102,14 +102,22 @@ class TestAEOPromptAPI(APIBaseTest):
         listed = self.client.get(f"{self.url}?limit=100").json()["results"]
         return {row["prompt"]: row["id"] for row in listed}
 
-    def test_requires_the_rollout_flag(self) -> None:
-        self.feature_enabled.return_value = False
+    def test_requires_the_early_access_flag(self) -> None:
+        self.feature_enabled.side_effect = lambda flag, *args, **kwargs: flag == "aeo-citation-tracking"
 
-        assert self.client.get(self.url).status_code == status.HTTP_403_FORBIDDEN
+        response = self.client.get(self.url)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["code"] == "feature_flag_required"
         response = self.client.post(f"{self.url}bulk_import/", {"prompts": [{"prompt": "q?"}]}, format="json")
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert not AEOPrompt.objects.for_team(self.team.id).exists()
         assert self.client.get(f"/api/projects/{self.team.id}/aeo_brands/").status_code == status.HTTP_403_FORBIDDEN
+        assert (
+            self.client.get(f"/api/projects/{self.team.id}/aeo_setup/context/").status_code == status.HTTP_403_FORBIDDEN
+        )
+
+        self.feature_enabled.side_effect = lambda flag, *args, **kwargs: flag == "web-analytics-content-autopilot"
+        assert self.client.get(self.url).status_code == status.HTTP_200_OK
 
     def test_bulk_import_then_deactivate_survives_a_reimport(self) -> None:
         payload = {
@@ -1755,7 +1763,7 @@ class TestAEOKeywordAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         flag_patcher = patch(
-            "products.aeo.backend.presentation.views.posthog_feature_flag_enabled",
+            "posthog.permissions.posthog_feature_flag_enabled",
             return_value=True,
         )
         self.feature_enabled = flag_patcher.start()

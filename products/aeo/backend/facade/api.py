@@ -50,6 +50,7 @@ from products.aeo.backend import (
     keywords,
     rankings,
     suggestions,
+    tracking,
 )
 from products.aeo.backend.brand import (
     brand_names,
@@ -1489,7 +1490,7 @@ def get_setup_context(team_id: int) -> SetupContext:
     return auto_setup.read_context(Team.objects.select_related("organization").get(id=team_id))
 
 
-def start_setup(team_id: int, request: SetupRequest) -> SetupJob:
+def start_setup(team_id: int, request: SetupRequest, *, user_id: int | None = None) -> SetupJob:
     """Queue setup and return the pending job. Poll get_setup for the steps. Raises SetupRequestError when the
     domain or the engines cannot be used, and SetupAlreadyRunningError while another setup job is pending."""
     domain = ""
@@ -1505,6 +1506,7 @@ def start_setup(team_id: int, request: SetupRequest) -> SetupJob:
     job = auto_setup.create_job(team_id)
     try:
         _apply_setup_engines(team_id, engine_changes)
+        tracking.enable(team_id, user_id=user_id)
         # A task still queued when it could no longer finish in time is dropped by the broker instead of run.
         set_up_aeo_task.apply_async(
             args=(

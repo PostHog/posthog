@@ -150,7 +150,7 @@ def website_candidates(team: Team) -> list[WebsiteCandidate]:
 
 
 def read_context(team: Team) -> SetupContext:
-    from products.aeo.backend.tasks.tasks import citation_tracking_enabled  # noqa: PLC0415 -- import cycle
+    from products.aeo.backend.tasks.tasks import citation_tracking_available  # noqa: PLC0415 -- import cycle
 
     return SetupContext(
         websites=tuple(website_candidates(team)),
@@ -160,7 +160,7 @@ def read_context(team: Team) -> SetupContext:
         keywords=AEOKeyword.objects.for_team(team.id).count(),
         has_checks=AEOCitationCheck.objects.for_team(team.id).exists(),
         ai_data_processing_approved=bool(team.organization.is_ai_data_processing_approved),
-        first_run_available=citation_tracking_enabled(team),
+        first_run_available=citation_tracking_available(team),
         engines=tuple(engine_settings.list_engine_settings(team.id)),
         prompt_target=SETUP_PROMPT_COUNT,
         website_days=SETUP_WEBSITE_DAYS,

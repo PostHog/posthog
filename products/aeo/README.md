@@ -28,11 +28,13 @@ Environment (all default empty — the runner is a no-op until configured):
 | `AI_GATEWAY_URL` / `AI_GATEWAY_API_KEY`    | Existing gateway settings; enable the Claude + OpenAI engines.                                                                 |
 | `EXA_API_KEY`                              | Enables the Exa engine.                                                                                                        |
 | `AEO_PERPLEXITY_ENABLED`                   | Default false. Runs Perplexity via the gateway once legal signs off; dry-run steps in [Perplexity engine](#perplexity-engine). |
-| `AEO_CITATION_TEAM_IDS`                    | Comma-separated team ids the scheduled runner covers.                                                                          |
 | `AEO_ANTHROPIC_MODEL` / `AEO_OPENAI_MODEL` | Engine model overrides.                                                                                                        |
 | `AEO_PERPLEXITY_MODEL`                     | Perplexity model on the gateway (default `posthog/perplexity/sonar`, the gateway id for Perplexity's `perplexity/sonar`).      |
 
-The scheduled task is additionally gated per team by the `aeo-citation-tracking` feature flag.
+The scheduled tasks cover the teams with an enabled `AEOTeamConfig` row whose organization approved AI data processing.
+Setup (`POST aeo_setup/`) creates that row, so anyone the early-access flag lets in turns tracking on by running setup.
+The API, MCP tools and page are gated per user by the `web-analytics-content-autopilot` flag, which the early-access feature controls.
+The `aeo-citation-tracking` feature flag is the ops kill switch, evaluated per organization group: roll it out to 100%, and turn it off for an organization or everyone to stop runs.
 
 Each project decides which domains count as "us" through its own brands: the rows of its brand catalog with kind `own` that nobody ignored.
 Add one before the first run, with `POST /api/projects/<id>/aeo_brands/` (`{"domain": "example.com", "kind": "own"}`) or the `aeo-brands-create` MCP tool.
@@ -54,7 +56,7 @@ python manage.py seed_aeo_prompts --team-id <id> --csv control_prompts.csv --csv
 # 2. Smoke test — 3 prompts, real engine calls, nothing captured:
 python manage.py run_aeo_citation_checks --team-id <id> --limit 3 --dry-run
 
-# 3. Real run (also runs daily via celery beat for allowlisted+flagged teams):
+# 3. Real run (also runs daily via celery beat for enabled teams):
 python manage.py run_aeo_citation_checks --team-id <id>
 
 ```
@@ -72,7 +74,7 @@ The MCP tools for it are `aeo-prompts-suggest` and `aeo-prompts-suggestion-get`.
 
 ### Import over the API
 
-`/api/projects/<id>/aeo_prompts/` lists the prompt set (filter with `?topic=`, `?active=true|false` and `?branded=true|false`; archived prompts are left out unless `?include_archived=true`; each prompt carries `latest_checks`, its newest check per engine, its `current_version` and `version_count`, and `branded`), lists topics with `GET topics/`, sums up the whole set with `GET overview/?date_from=-30d` (prompts tracked, checks, citation and mention rates against the window before, the same per engine and per topic, and the domains the engines cite most), lists the answers across the set that cited a page, cited a site (subdomains included) or ran a search with `GET citations/?url=`, `?domain=` or `?search=` (exactly one, with `date_from`, `date_to`, `branded` and `engine` as filters), returns one prompt's check history with `GET <prompt_id>/checks/` (newest first, filter with `?engine=` and `?version=`) and its per-engine totals and 30-day daily counts with `GET <prompt_id>/stats/`, lists its versions with `GET <prompt_id>/versions/` (newest first), edits a prompt with `PATCH <prompt_id>/`, archives one with `DELETE <prompt_id>/`, and imports prompts with `POST bulk_import/`. It is gated by the `aeo-citation-tracking` flag and accepts personal API keys with `web_analytics:write`:
+`/api/projects/<id>/aeo_prompts/` lists the prompt set (filter with `?topic=`, `?active=true|false` and `?branded=true|false`; archived prompts are left out unless `?include_archived=true`; each prompt carries `latest_checks`, its newest check per engine, its `current_version` and `version_count`, and `branded`), lists topics with `GET topics/`, sums up the whole set with `GET overview/?date_from=-30d` (prompts tracked, checks, citation and mention rates against the window before, the same per engine and per topic, and the domains the engines cite most), lists the answers across the set that cited a page, cited a site (subdomains included) or ran a search with `GET citations/?url=`, `?domain=` or `?search=` (exactly one, with `date_from`, `date_to`, `branded` and `engine` as filters), returns one prompt's check history with `GET <prompt_id>/checks/` (newest first, filter with `?engine=` and `?version=`) and its per-engine totals and 30-day daily counts with `GET <prompt_id>/stats/`, lists its versions with `GET <prompt_id>/versions/` (newest first), edits a prompt with `PATCH <prompt_id>/`, archives one with `DELETE <prompt_id>/`, and imports prompts with `POST bulk_import/`. It is gated by the `web-analytics-content-autopilot` flag and accepts personal API keys with `web_analytics:write`:
 
 ```bash
 curl -X POST "$HOST/api/projects/<id>/aeo_prompts/bulk_import/" \

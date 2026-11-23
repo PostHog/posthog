@@ -11,11 +11,11 @@ import requests
 from parameterized import parameterized
 from rest_framework import status
 
-from products.aeo.backend import auto_setup
+from products.aeo.backend import auto_setup, tracking
 from products.aeo.backend.engine_settings import engine_schedule
 from products.aeo.backend.facade.api import create_keywords, list_engine_settings
 from products.aeo.backend.facade.contracts import BrandKind, BrandSource, BrandStatus, SetupRequest
-from products.aeo.backend.models import AEOBrand, AEOKeyword, AEOPrompt
+from products.aeo.backend.models import AEOBrand, AEOKeyword, AEOPrompt, AEOTeamConfig
 from products.aeo.backend.seeding import prompt_hash
 from products.aeo.backend.suggestions import SUGGESTION_CACHE_ALIAS
 from products.aeo.backend.test.factories import create_citation_check, create_own_brand
@@ -36,7 +36,7 @@ def _answer(items: list[dict]) -> MagicMock:
 class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        flag_patcher = patch("products.aeo.backend.presentation.views.posthog_feature_flag_enabled", return_value=True)
+        flag_patcher = patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True)
         flag_patcher.start()
         self.addCleanup(flag_patcher.stop)
         self.organization.is_ai_data_processing_approved = True
@@ -159,6 +159,9 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
         assert first_run.call_count == (1 if expected_steps[3][1] == "done" else 0)
         if expected_steps[3][1] == "skipped":
             assert job["steps"][3]["detail"] == ("not_available" if run_first_check else "not_requested")
+        config = AEOTeamConfig.objects.for_team(self.team.id).get()
+        assert config.enabled_at is not None
+        assert config.enabled_by_id == self.user.id
 
     def test_setup_skips_every_step_a_project_already_covers(self) -> None:
         create_own_brand(self.team, "example.com")
@@ -168,6 +171,8 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
             )
         create_keywords(self.team.id, [f"keyword {i}" for i in range(10)])
         create_citation_check(self.team, "existing")
+        tracking.enable(self.team.id, user_id=None)
+        enabled_at = AEOTeamConfig.objects.for_team(self.team.id).get().enabled_at
 
         job, post, first_run = self._run([])
 
@@ -180,6 +185,8 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
         ]
         assert post.call_count == 0
         assert first_run.call_count == 0
+        config = AEOTeamConfig.objects.for_team(self.team.id).get()
+        assert (config.enabled_at, config.enabled_by_id) == (enabled_at, None)
 
     @parameterized.expand(
         [

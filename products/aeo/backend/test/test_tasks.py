@@ -15,9 +15,9 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.redis import get_client
 
-from products.aeo.backend import keyword_suggestions
+from products.aeo.backend import keyword_suggestions, tracking
 from products.aeo.backend.facade.api import get_prompt_set_overview
-from products.aeo.backend.models import AEOCitationCheck
+from products.aeo.backend.models import AEOCitationCheck, AEOTeamConfig
 from products.aeo.backend.tasks import tasks
 from products.aeo.backend.tasks.tasks import (
     recompute_aeo_own_citations_task,
@@ -29,13 +29,43 @@ from products.aeo.backend.test.factories import create_citation_check, create_ow
 
 @pytest.fixture
 def team(db: None) -> Team:
-    organization = Organization.objects.create(name="aeo test org")
-    return Team.objects.create(organization=organization, name="aeo test team")
+    organization = Organization.objects.create(name="aeo test org", is_ai_data_processing_approved=True)
+    team = Team.objects.create(organization=organization, name="aeo test team")
+    tracking.enable(team.id, user_id=None)
+    return team
+
+
+@pytest.mark.parametrize(
+    "state, kill_switch_on, dispatched",
+    [
+        ("enabled", True, True),
+        ("kill_switch_off", False, False),
+        ("not_set_up", True, False),
+        ("ai_not_approved", True, False),
+    ],
+)
+def test_dispatch_runs_only_teams_that_setup_turned_on(
+    team: Team, state: str, kill_switch_on: bool, dispatched: bool
+) -> None:
+    if state == "not_set_up":
+        AEOTeamConfig.objects.for_team(team.id).delete()
+    elif state == "ai_not_approved":
+        Organization.objects.filter(id=team.organization_id).update(is_ai_data_processing_approved=False)
+
+    with (
+        patch.object(tasks, "feature_enabled_or_false", return_value=kill_switch_on),
+        patch.object(tasks.run_aeo_citation_checks_for_team_task, "delay") as dispatch,
+        patch.object(tasks, "run_citation_checks", return_value=(Mock(run_id=None), [])) as run,
+    ):
+        tasks.run_aeo_citation_checks_task()
+        run_aeo_citation_checks_for_team_task(team.id)
+
+    assert [call.args for call in dispatch.call_args_list] == ([(team.id,)] if dispatched else [])
+    assert run.call_count == (1 if dispatched else 0)
 
 
 @pytest.mark.parametrize("run_in_progress", [False, True])
-def test_one_run_per_team_at_a_time(team: Team, settings, run_in_progress: bool) -> None:
-    settings.AEO_CITATION_TEAM_IDS = [str(team.id)]
+def test_one_run_per_team_at_a_time(team: Team, run_in_progress: bool) -> None:
     lease = get_client().lock(f"aeo_citation_run:{team.id}", timeout=60)
     if run_in_progress:
         assert lease.acquire(blocking=False)
@@ -52,9 +82,7 @@ def test_one_run_per_team_at_a_time(team: Team, settings, run_in_progress: bool)
     lease.release()
 
 
-def test_a_run_that_outlived_its_lease_still_finishes_cleanly(team: Team, settings) -> None:
-    settings.AEO_CITATION_TEAM_IDS = [str(team.id)]
-
+def test_a_run_that_outlived_its_lease_still_finishes_cleanly(team: Team) -> None:
     def expire_lease(*args: object, **kwargs: object) -> tuple[Mock, list]:
         get_client().delete(f"aeo_citation_run:{team.id}")
         return Mock(run_id=None), []
@@ -69,11 +97,7 @@ def test_a_run_that_outlived_its_lease_still_finishes_cleanly(team: Team, settin
 
 
 @pytest.mark.parametrize("enqueue_fails", [False, True])
-def test_a_recorded_run_queues_an_own_citation_reconcile_without_failing_on_it(
-    team: Team, settings, enqueue_fails: bool
-) -> None:
-    settings.AEO_CITATION_TEAM_IDS = [str(team.id)]
-
+def test_a_recorded_run_queues_an_own_citation_reconcile_without_failing_on_it(team: Team, enqueue_fails: bool) -> None:
     with (
         patch.object(tasks, "feature_enabled_or_false", return_value=True),
         patch.object(tasks, "run_citation_checks", return_value=(Mock(run_id="run-1"), [])),
@@ -166,11 +190,7 @@ def test_keyword_suggestion_task_skips_a_job_that_is_no_longer_pending(team: Tea
 
 
 @pytest.mark.parametrize("flag_on, expected_starts", [(True, 1), (False, 0)], ids=["enabled", "flag_off"])
-def test_sentiment_backlog_pass_scores_each_enabled_team(
-    team: Team, settings, flag_on: bool, expected_starts: int
-) -> None:
-    settings.AEO_CITATION_TEAM_IDS = [str(team.id), "not-a-team"]
-
+def test_sentiment_backlog_pass_scores_each_enabled_team(team: Team, flag_on: bool, expected_starts: int) -> None:
     with (
         patch.object(tasks, "feature_enabled_or_false", return_value=flag_on),
         patch.object(tasks, "start_backlog_sentiment_scoring", side_effect=RuntimeError("temporal down")) as start,

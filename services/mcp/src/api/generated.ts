@@ -1275,7 +1275,7 @@ export namespace Schemas {
       has_checks: boolean;
       /** Whether the organization approved AI data processing. Setup needs it. */
       ai_data_processing_approved: boolean;
-      /** Whether citation checks run for this project. When false, setup saves the brand, prompts and keywords but cannot queue the first run. */
+      /** Whether citation checks can run for this project once setup turns them on. When false, setup saves the brand, prompts and keywords but cannot queue the first run. */
       first_run_available: boolean;
       /** How many prompts setup asks PostHog to suggest. One run makes about this many checks per enabled engine. */
       prompt_target: number;

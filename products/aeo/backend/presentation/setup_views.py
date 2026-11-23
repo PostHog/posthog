@@ -40,8 +40,8 @@ SETUP_DESCRIPTION = (
     "are turned on. A step the project already covers is skipped: an own brand exists, "
     f"{SETUP_ENOUGH_PROMPTS} or more unarchived prompts, {SETUP_ENOUGH_KEYWORDS} or more keywords, or any check "
     "already recorded. With engines, the chosen engines are turned on and every other one off before the "
-    "job starts. Returns a pending job right away; poll GET aeo_setup/<id>/ until it completes, which takes a few "
-    "minutes. Running it again only fills the gaps."
+    "job starts. Every setup turns on scheduled checks for the project. Returns a pending job right away; poll "
+    "GET aeo_setup/<id>/ until it completes, which takes a few minutes. Running it again only fills the gaps."
 )
 
 
@@ -86,8 +86,8 @@ class AEOSetupContextSerializer(DataclassSerializer):
                 "help_text": "Whether the organization approved AI data processing. Setup needs it."
             },
             "first_run_available": {
-                "help_text": "Whether citation checks run for this project. When false, setup saves the brand, "
-                "prompts and keywords but cannot queue the first run."
+                "help_text": "Whether citation checks can run for this project once setup turns them on. When false, "
+                "setup saves the brand, prompts and keywords but cannot queue the first run."
             },
             "website_days": {"help_text": "The window, in days, that pageview hosts among the websites cover."},
             "prompt_target": {
@@ -253,6 +253,7 @@ class AEOSetupViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
                     only_first_run=data["only_first_run"],
                     activate_paused_prompts=data["activate_paused_prompts"],
                 ),
+                user_id=request.user.id,
             )
         except SetupRequestError as error:
             raise ValidationError(str(error))
