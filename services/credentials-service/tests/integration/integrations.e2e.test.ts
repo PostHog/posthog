@@ -202,7 +202,12 @@ async function create(overrides: Record<string, unknown> = {}, opts: CallOptions
     return res.json
 }
 
-function buildApp(kms: Kms, replay?: ReplayStore, changesSettleSeconds = 0): Hono {
+function buildApp(
+    kms: Kms,
+    replay?: ReplayStore,
+    changesSettleSeconds = 0,
+    mirrorBeforeWrite?: (legacyId: number, attempt: number) => Promise<void>
+): Hono {
     const verifier = replay
         ? new IntegrationVerifier(integrationLoader, { replay })
         : new IntegrationVerifier(integrationLoader)
@@ -214,7 +219,7 @@ function buildApp(kms: Kms, replay?: ReplayStore, changesSettleSeconds = 0): Hon
         integrations: {
             verifier,
             service: new IntegrationsService({ pool, envelope, audit, changesSettleSeconds }),
-            mirror: new MirrorService({ pool, envelope }),
+            mirror: new MirrorService({ pool, envelope, beforeWrite: mirrorBeforeWrite }),
         },
     })
 }
@@ -1817,6 +1822,71 @@ describe('mirror', () => {
         })
         const rows = (await auditRows()).filter((row) => row.operation === 'mirror')
         expect(rows.map((row) => row.fields)).toEqual([['access_token']])
+    })
+
+    it('removes the old secret when a newer row has an empty secret', async () => {
+        expect(await outcomes([mirrorRow(515, 1)])).toEqual(['created'])
+        expect(await outcomes([mirrorRow(515, 2, { sensitive_config: {} })])).toEqual(['updated'])
+
+        expect(await stored(515)).toMatchObject({ secret_id: null, source_version: '2' })
+        const res = await call('POST', '/resolve', { body: { refs: ['515'] } })
+        expect(res.json.records['515'].credentials).toEqual({})
+        expect(res.text).not.toContain(ACCESS_TOKEN)
+    })
+
+    describe('a concurrent writer between the lookup and the write', () => {
+        // Commits on another connection, so the mirror's own INSERT or UPDATE hits a unique violation.
+        async function commitRow(legacyId: number, externalId: string): Promise<void> {
+            const inserted = await insertIntegration(pool, {
+                owner: { type: 'team', id: TEAM_A },
+                kind: 'hubspot',
+                externalId,
+                authType: 'oauth',
+                legacyId,
+            })
+            expect(inserted.status).toBe('ok')
+        }
+
+        it('retries once and writes over the row that won the first race', async () => {
+            const target = buildApp(kms, undefined, 0, async (legacyId, attempt) => {
+                if (attempt === 0) {
+                    await commitRow(legacyId, `portal-${legacyId}-concurrent`)
+                }
+            })
+
+            const res = await mirror([mirrorRow(516, 1)], { target })
+
+            expect(res.json.results).toEqual([{ legacy_id: 516, outcome: 'updated', id: expect.any(String) }])
+            expect(await stored(516)).toMatchObject({ source_version: '1', owner_id: String(TEAM_A) })
+            expect(await resolveAccessToken(516)).toBe(ACCESS_TOKEN)
+        })
+
+        it('answers a retryable conflict for a row that loses twice, and the other rows still write', async () => {
+            const target = buildApp(kms, undefined, 0, async (legacyId, attempt) => {
+                if (legacyId !== 517) {
+                    return
+                }
+                // The first attempt loses the legacy id, the retry loses the external id.
+                await (attempt === 0 ? commitRow(517, 'portal-517-concurrent') : commitRow(9517, 'portal-517'))
+            })
+
+            const res = await mirror([mirrorRow(517, 1), mirrorRow(518, 1)], { target })
+
+            expect(res.status).toBe(200)
+            expect(res.json.results).toEqual([
+                { legacy_id: 517, outcome: 'conflict', code: 'concurrent_write' },
+                { legacy_id: 518, outcome: 'created', id: expect.any(String) },
+            ])
+            expect(await stored(517)).toMatchObject({ source_version: null, secret_id: null })
+            const raced = logLines
+                .map((line) => JSON.parse(line))
+                .filter((line) => line.event === 'integrations:mirror_row_changed')
+                .map((line) => [line.fields.legacyId, line.fields.reason])
+            expect(raced).toEqual([
+                [517, 'legacy_id_taken'],
+                [517, 'key_taken'],
+            ])
+        })
     })
 
     it('stores no secret row for an empty blob with no unreadable keys', async () => {

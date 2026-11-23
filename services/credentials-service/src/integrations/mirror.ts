@@ -21,6 +21,7 @@ import {
 } from '../db/mirror'
 import { deleteSecret, putSecret } from '../db/secrets'
 import { withTransaction } from '../db/transaction'
+import { logger } from '../lib/logging'
 import { type AuditEntry, insertAuditRows, logAuditEntries } from './audit'
 import { IntegrationApiError } from './errors'
 import { mirrorRowsTotal } from './metrics'
@@ -52,8 +53,9 @@ export interface MirrorResult {
     legacy_id: number
     outcome: MirrorOutcome
     id?: string
-    /** Set with `conflict`. Null when the row that holds the key did not come from the mirror. */
+    /** Set with a key `conflict`. Null when the row that holds the key did not come from the mirror. */
     conflicting_legacy_id?: number | null
+    /** Set with `rejected`, and with a retryable `conflict` (`concurrent_write`) after two lost races. */
     code?: string
 }
 
@@ -99,8 +101,14 @@ export function decideMirror(
     return { write: 'replace' }
 }
 
-/** The locked row is not the one the decision and the seal were made for. */
-class RowChanged extends Error {}
+type RaceReason = 'row_changed' | 'legacy_id_taken' | 'key_taken'
+
+/** The locked row is not the one the decision and the seal were made for, or a concurrent writer won. */
+class RowChanged extends Error {
+    constructor(readonly reason: RaceReason) {
+        super(reason)
+    }
+}
 
 function sameState(a: MirrorRow | null, b: MirrorRow | null): boolean {
     return a === null || b === null ? a === b : a.id === b.id && a.version === b.version
@@ -114,6 +122,8 @@ function secretOf(row: MirrorUpsertRow): JsonObject | null {
 export interface MirrorDeps {
     pool: Pool
     envelope: Envelope
+    /** Test hook. Runs in the write transaction just before the row's write statement. */
+    beforeWrite?: ((legacyId: number, attempt: number) => Promise<void>) | undefined
 }
 
 export class MirrorService {
@@ -180,9 +190,20 @@ export class MirrorService {
                     const result = await this.writeTransaction(async (tx) => {
                         const locked = await lockByLegacyId(tx, legacyId)
                         if (!sameState(stored, locked)) {
-                            throw new RowChanged()
+                            throw new RowChanged('row_changed')
                         }
-                        return this.write(tx, caller, teamOwner, body, row, decision.write, id, sealed, committed)
+                        return this.write(
+                            tx,
+                            caller,
+                            teamOwner,
+                            body,
+                            row,
+                            decision.write,
+                            id,
+                            sealed,
+                            committed,
+                            attempt
+                        )
                     })
                     logAuditEntries(committed)
                     return result
@@ -190,8 +211,10 @@ export class MirrorService {
                     if (!(err instanceof RowChanged)) {
                         throw err
                     }
+                    logger.warn('integrations:mirror_row_changed', { legacyId, attempt, reason: err.reason })
                     if (attempt >= 1) {
-                        return { legacy_id: legacyId, outcome: 'rejected', code: 'concurrent_write' }
+                        // The sender retries the row later. The other rows of the batch keep their results.
+                        return { legacy_id: legacyId, outcome: 'conflict', code: 'concurrent_write' }
                     }
                 }
             }
@@ -238,7 +261,8 @@ export class MirrorService {
         write: MirrorWrite,
         id: string,
         sealed: SealedSecret | null,
-        committed: AuditEntry[]
+        committed: AuditEntry[],
+        attempt: number
     ): Promise<MirrorResult> {
         const legacyId = row.legacy_id
         let written: MirrorWriteResult
@@ -257,6 +281,7 @@ export class MirrorService {
                     return { legacy_id: legacyId, outcome: 'conflict', conflicting_legacy_id: holder.legacyId }
                 }
             }
+            await this.deps.beforeWrite?.(legacyId, attempt)
             const fields = {
                 kind: upsert.kind,
                 externalId: upsert.integration_id,
@@ -274,6 +299,7 @@ export class MirrorService {
                     : await replaceMirrored(tx, teamOwner, id, fields)
             outcome = write === 'insert' ? 'created' : 'updated'
         } else if (write === 'tombstone') {
+            await this.deps.beforeWrite?.(legacyId, attempt)
             written = await insertMirrored(tx, {
                 id,
                 owner: teamOwner,
@@ -291,12 +317,13 @@ export class MirrorService {
             })
             outcome = 'deleted'
         } else {
+            await this.deps.beforeWrite?.(legacyId, attempt)
             written = await softDeleteMirrored(tx, teamOwner, id, (row as MirrorDeleteRow).source_version ?? null)
             outcome = 'deleted'
         }
         // A concurrent writer took the legacy id or the key after the checks above. The retry sees it.
         if (written.status !== 'ok') {
-            throw new RowChanged()
+            throw new RowChanged(written.status)
         }
 
         if (sealed) {

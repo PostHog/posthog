@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { describe, expect, it } from 'vitest'
 
 import { type MirrorDecision, decideMirror } from '@/integrations/mirror'
 import { type MirrorRowBody, mirrorBody } from '@/integrations/validation'
