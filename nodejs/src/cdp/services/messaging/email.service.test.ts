@@ -2463,9 +2463,13 @@ describe('EmailService', () => {
                 ])
             })
 
-            it('times a send with files apart from plain sends', async () => {
+            it.each([
+                ['with files', (): StoredFile[] => [pdf], 'true', 'false'],
+                ['without files', (): StoredFile[] => [], 'false', 'true'],
+            ])('times a send %s apart from the other kind', async (_case, files, counted, untouched) => {
                 invocation.queue = 'email'
                 invocation.queueDueAt = DateTime.utc().minus({ seconds: 5 })
+                send(files())
                 const latencyCounts = async (withFiles: string): Promise<number[]> => [
                     await metricValue(
                         'cdp_ses_send_duration_ms',
@@ -2478,14 +2482,14 @@ describe('EmailService', () => {
                         'cdp_email_queue_to_send_ms_count'
                     ),
                 ]
-                const withFilesBefore = await latencyCounts('true')
-                const plainBefore = await latencyCounts('false')
+                const countedBefore = await latencyCounts(counted)
+                const untouchedBefore = await latencyCounts(untouched)
 
                 const result = await sender().executeSendEmail(invocation)
 
                 expect(result.error).toBeUndefined()
-                expect(await latencyCounts('true')).toEqual(withFilesBefore.map((count) => count + 1))
-                expect(await latencyCounts('false')).toEqual(plainBefore)
+                expect(await latencyCounts(counted)).toEqual(countedBefore.map((count) => count + 1))
+                expect(await latencyCounts(untouched)).toEqual(untouchedBefore)
             })
 
             describe('team budget across load retries', () => {
