@@ -39,11 +39,20 @@ _FUNCTION_BODY = re.compile(
     r"\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE)\b[^;]*?\bAS\s+(\$\w*\$).*?\1",
     re.IGNORECASE | re.DOTALL,
 )
-_ROUTINE_CALL = re.compile(r"\b(?:CALL|PERFORM)\b|\bSELECT\s+[\w.]+\s*\(", re.IGNORECASE)
+_ROUTINE_NAME = re.compile(
+    r'\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE)\s+(?:"?\w+"?\.)?"?(\w+)', re.IGNORECASE
+)
+_TRIGGER_EXECUTE = re.compile(r"\bEXECUTE\s+(?:FUNCTION|PROCEDURE)\b[^;]*", re.IGNORECASE)
 _TRIGGER_EVENT = r"(?:INSERT|UPDATE|DELETE|TRUNCATE)\b(?:\s+OF\s+[\w\s,\"]+?)?"
 _TRIGGER_EVENTS = re.compile(
     rf"\b(?:BEFORE|AFTER|INSTEAD\s+OF)\s+{_TRIGGER_EVENT}(?:\s+OR\s+{_TRIGGER_EVENT})*\s+ON\b", re.IGNORECASE
 )
+
+
+def _calls_created_routine(sql: str, without_bodies: str) -> bool:
+    # A trigger's EXECUTE FUNCTION names the routine without running it now.
+    outside = _TRIGGER_EXECUTE.sub("", without_bodies)
+    return any(re.search(rf'\b{re.escape(name)}"?\s*\(', outside, re.IGNORECASE) for name in _ROUTINE_NAME.findall(sql))
 
 
 def sql_run_at_migration_time(sql: str) -> str:
@@ -51,11 +60,11 @@ def sql_run_at_migration_time(sql: str) -> str:
 
     A body runs when the function is called, and BEFORE UPDATE ON names the statement that fires the
     trigger. Matching DML keywords in either reads a CREATE TRIGGER as a data change. A DO block runs at
-    once, so its body stays. A body also stays when the same SQL calls a routine (SELECT f(), CALL p()),
-    because the analyzer cannot tell which routine runs.
+    once, so its body stays. A body also stays when the same SQL calls a routine that it creates, in any
+    form (SELECT f(), SELECT * FROM f(), CALL p()).
     """
     without_bodies = _FUNCTION_BODY.sub("CREATE FUNCTION", sql)
-    if not _ROUTINE_CALL.search(without_bodies):
+    if not _calls_created_routine(sql, without_bodies):
         sql = without_bodies
     return _TRIGGER_EVENTS.sub("ON", sql)
 

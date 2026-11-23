@@ -1554,6 +1554,23 @@ class TestCombinationRisks:
                 True,
             ),
             (
+                "function_called_as_table_function",
+                "CREATE FUNCTION f() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; "
+                "SELECT * FROM f();",
+                True,
+            ),
+            (
+                "schema_qualified_function_called",
+                'CREATE FUNCTION public."f"() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; '
+                "SELECT 1 FROM public.f();",
+                True,
+            ),
+            (
+                "unrelated_call_leaves_body_out",
+                "CREATE FUNCTION f() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; SELECT now();",
+                False,
+            ),
+            (
                 "procedure_called_by_call",
                 "CREATE PROCEDURE p() LANGUAGE sql AS $$ DELETE FROM test_table $$; CALL p();",
                 True,
