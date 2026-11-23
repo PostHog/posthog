@@ -1506,10 +1506,10 @@ Today (13): `account_attributes`, `account_limits`, `configuration_sets`, `keywo
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/pinpoint-sms-voice-v2/2022-03-31/service-2.json>
 
-- [ ] `Pool origination identities (ListPoolOriginationIdentities, POST /)` — join table of which phone numbers and sender IDs belong to each synced pool (high)
-- [ ] `Registration associations (ListRegistrationAssociations, POST /)` — join table that links registrations to the phone numbers and sender IDs they cover (high)
-- [ ] `Registration versions (DescribeRegistrationVersions, POST /)` — gives submission, review and approval history for each registration, with denial reasons (medium)
-- [ ] `Registration field values (DescribeRegistrationFieldValues, POST /)` — gives the submitted company and use case details of each registration (medium)
+- [x] `Pool origination identities (ListPoolOriginationIdentities, POST /)` — join table of which phone numbers and sender IDs belong to each synced pool (high) → `pool_origination_identities` (full refresh, fan-out over `pools`)
+- [x] `Registration associations (ListRegistrationAssociations, POST /)` — join table that links registrations to the phone numbers and sender IDs they cover (high) → `registration_associations` (full refresh, fan-out over `registrations`)
+- [x] `Registration versions (DescribeRegistrationVersions, POST /)` — gives submission, review and approval history for each registration, with denial reasons (medium) → `registration_versions` (full refresh, fan-out over `registrations`)
+- [x] `Registration field values (DescribeRegistrationFieldValues, POST /)` — gives the submitted company and use case details of each registration (medium) → `registration_field_values` (full refresh, fan-out over `registrations`)
 - [ ] `Registration attachments (DescribeRegistrationAttachments, POST /)` — lists documents attached to registrations with upload status (low)
 - [ ] `Registration type definitions (DescribeRegistrationTypeDefinitions, POST /)` — lookup for registration types and their supported countries (low)
 - [ ] `RCS agents (DescribeRcsAgents, POST /)` — lists RCS sender agents with their status and registration (low)
