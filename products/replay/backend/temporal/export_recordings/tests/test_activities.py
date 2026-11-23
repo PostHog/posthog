@@ -231,16 +231,25 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
         assert (s3.objects, s3.uploads) == ({}, {})
         assert list(s3.request_args) == [f"customer/exports/{self.team.pk}/run-1/preflight"]
 
-    @parameterized.expand([("denied", 403, True), ("throttled", 503, False)])
-    def test_a_failed_write_check_retries_only_server_errors(self, _: str, status: int, non_retryable: bool) -> None:
+    @parameterized.expand(
+        [
+            ("create_denied", "create_multipart_upload", 403, True),
+            ("part_denied_by_kms", "upload_part", 403, True),
+            ("throttled", "create_multipart_upload", 503, False),
+        ]
+    )
+    def test_a_failed_write_check_retries_only_server_errors(
+        self, _: str, call: str, status: int, non_retryable: bool
+    ) -> None:
         s3 = FakeS3()
         response: Any = {"Error": {"Code": "x"}, "ResponseMetadata": {"HTTPStatusCode": status}}
         error = ClientError(response, "CreateMultipartUpload")
 
-        with patch.object(s3, "create_multipart_upload", side_effect=error), pytest.raises(Exception) as raised:
+        with patch.object(s3, call, side_effect=error), pytest.raises(Exception) as raised:
             self._check_destination(s3)
 
         assert isinstance(raised.value, ApplicationError) == non_retryable
+        assert s3.uploads == {}
 
     def test_exports_listed_sessions_with_a_manifest(self) -> None:
         totals = self._run()

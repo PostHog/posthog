@@ -639,12 +639,16 @@ async def check_destination(input: CheckDestinationInput) -> None:
         )
     except NON_RETRYABLE_ERRORS as e:
         raise ApplicationError(str(e), non_retryable=True) from e
-    # Starting and aborting an upload needs s3:PutObject, s3:AbortMultipartUpload and the KMS key, and leaves no object.
+    # An aborted upload leaves no object. Starting it needs s3:PutObject and kms:GenerateDataKey,
+    # a part needs kms:Decrypt, and the abort needs s3:AbortMultipartUpload.
     key = f"{run_prefix(input.destination, input.team_id)}/{input.run_id}/preflight"
     async with customer_bucket(input.team_id, input.destination, input.run_id) as bucket:
         try:
             upload_id = await bucket.create_multipart_upload(key)
-            await bucket.abort_multipart_upload(key, upload_id)
+            try:
+                await bucket.upload_part(key, upload_id, 1, bytearray(b"preflight"))
+            finally:
+                await bucket.abort_multipart_upload(key, upload_id)
         except ClientError as e:
             status = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode", 500)
             if status < 500 and status != 429:
