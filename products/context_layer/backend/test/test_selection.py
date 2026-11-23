@@ -354,7 +354,7 @@ class TestSelection(SimpleTestCase):
             {**passage, "chunk_id": "copy", "document_id": "copy-doc", "url": copy_url},
         ]
         result = self.selector.prepare(time.monotonic() + 60)
-        reranked = self.model.decide.call_args.kwargs["state"]["candidates"].values()
+        reranked = self.states[-1]["candidates"].values()
         self.assertEqual([c["kind"] for c in reranked].count("business_knowledge"), 1)
         rendered = [json.loads(line) for line in result.context.splitlines() if line.startswith("{")]
         self.assertEqual(
