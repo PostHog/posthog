@@ -62,11 +62,16 @@ const Infotip = React.forwardRef<HTMLButtonElement, InfotipProps>(function Infot
                         variant="default"
                         size="icon-xs"
                         aria-label={label}
-                        className={cn('text-muted-foreground', className)}
+                        // The ::after layer grows the touch target to 24px, the WCAG 2.5.8 minimum, while the
+                        // button stays 20px so it sits on a line of text without pushing it apart.
+                        className={cn(
+                            "relative text-muted-foreground after:absolute after:-inset-0.5 after:content-['']",
+                            className
+                        )}
                     />
                 }
             >
-                <InfoIcon aria-hidden />
+                <InfoIcon aria-hidden className="size-3.5" />
             </PopoverTrigger>
             <PopoverContent
                 side={side}

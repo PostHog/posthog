@@ -114,6 +114,7 @@ Compose from the listed parts only. Part names are shown without their prefix (e
 - Credenza (Trigger, Content, Header, Title, Description, Body, Footer, Close)
 - DataTable (`selectable` for the checkbox variant)
 - DatePicker, DateTimePicker (quickRanges, CUSTOM_RANGE)
+- Infotip
 - useCalendar
 - Metric → import from `@posthog/quill-components/metric` only (pulls in charts)
 
@@ -245,6 +246,9 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
     - Text is left-aligned, never centered. For several lines, pass one `flex flex-col` child; `flex-col` on `TooltipContent` itself centers each line
     - Every surface needs a root `<TooltipProvider>` (Quill setup); it makes adjacent tooltips open instantly once one is visible
     - Add a local `<TooltipProvider>` only to change `delay`/`timeout` for a group (e.g. a toolbar); don't nest one per tooltip
+  - Infotip: an info icon that explains the value beside it, such as a metric title. Never a Tooltip around an info icon, because touch users cannot open a tooltip and a click on it does nothing
+    - `label` names the value it explains ("About average position"), because a page often has several
+    - Short text, optionally with one inline link. Anything longer, or with controls, is a Popover
   - Popover: non-modal, click-triggered, interactive content anchored to a trigger
   - PreviewCard: hover/focus preview of a link destination
   - Credenza: the default for a focused task that blocks the page. A Dialog at 768px and wider, a bottom Drawer below that, from one set of parts
@@ -366,6 +370,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   | `LemonMenu`                            | `DropdownMenu`; nested items → `DropdownMenuSub`                                                             |
   | `LemonModal`                           | `Credenza`                                                                                                   |
   | `LemonTag`                             | `Badge`                                                                                                      |
+  | `Tooltip` around `IconInfo`            | `Infotip`, with the tooltip text as children and a `label` naming the value                                  |
   | `LemonSelect`                          | `Select`                                                                                                     |
   | `LemonSegmentedButton`                 | `ToggleGroup`                                                                                                |
   | `LemonTable`                           | `DataTable`                                                                                                  |

@@ -9,12 +9,17 @@ describe('Infotip', () => {
     it.each([
         { method: 'click', open: (trigger: HTMLElement) => userEvent.click(trigger) },
         {
-            method: 'keyboard',
-            open: async (trigger: HTMLElement) => {
-                trigger.focus()
-                await userEvent.keyboard('{Enter}')
-            },
+            method: 'touch',
+            open: (trigger: HTMLElement) => userEvent.pointer({ keys: '[TouchA]', target: trigger }),
         },
+        ...['{Enter}', ' '].map((key) => ({
+            method: `Tab then ${key === ' ' ? 'Space' : 'Enter'}`,
+            open: async (trigger: HTMLElement) => {
+                await userEvent.tab()
+                expect(document.activeElement).toBe(trigger)
+                await userEvent.keyboard(key)
+            },
+        })),
     ])('opens by $method as a named dialog, then Escape closes it and returns focus', async ({ open }) => {
         render(<Infotip label="About average position">1 means your site is the first source cited.</Infotip>)
         const trigger = screen.getByLabelText('About average position')
@@ -32,6 +37,19 @@ describe('Infotip', () => {
 
         await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
         expect(document.activeElement).toBe(trigger)
+    })
+
+    it('lets a keyboard user reach a link inside the popup', async () => {
+        render(
+            <Infotip label="About mentioned">
+                The answer names your brand. <a href="https://posthog.com/docs">Read the docs</a>
+            </Infotip>
+        )
+
+        await userEvent.tab()
+        await userEvent.keyboard('{Enter}')
+
+        await waitFor(() => expect(document.activeElement).toBe(screen.getByText('Read the docs')))
     })
 
     it('stays open when clicked well after hover opened it, and the next click closes it', async () => {

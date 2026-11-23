@@ -54,7 +54,8 @@ Rules:
 Rules:
 
 - Use `Infotip` for every icon-only info hint. Don't wrap an info icon in a `Tooltip`: a tooltip is hover-only, so touch users can't open it, and a click on it does nothing.
-- Hover opens it after `delay` (100ms by default). A click, Enter or Space opens it and keeps it open until Escape or a click outside, and focus then returns to the icon.
+- Hover opens it after `delay` (100ms by default). A click, tap, Enter or Space opens it and keeps it open until Escape or a click outside, and focus then returns to the icon. A keyboard user lands in the popup, so a link inside it is reachable.
+- The button draws 20px so it fits a line of text, and an invisible layer grows its target to 24px. Don't shrink it with `className`.
 - `label` is required. It names the icon button and the popup for screen readers, so name the value it explains ("About average position"), not "More info". The children are the popup's description.
 - Keep the content to short text, optionally with an inline link. It renders inside a `<p>`, so no block elements. Anything longer, or with controls, is a `Popover`.
 - `side` and `align` place the popup (top and center by default). `className` styles the icon button and `contentClassName` the popup.
