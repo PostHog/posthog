@@ -2,6 +2,7 @@ import '@testing-library/jest-dom'
 
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
+import type { ComponentType } from 'react'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -68,7 +69,8 @@ describe('tagger scene access', () => {
             const props = scene.paramsToProps?.({ params: { id: tagger.id }, searchParams: {}, hashParams: {} }) || {}
             // The router mounts SceneExport.logic before rendering the component.
             const unmountSceneLogic = scene.logic?.(props).mount()
-            const Component = scene.component!
+            // The list scene takes no props and the detail scene takes an id, so widen to one shape.
+            const Component = scene.component as ComponentType<{ id?: string }>
             const logic = buildLogic()
 
             try {
