@@ -1,4 +1,5 @@
 import time
+from dataclasses import field
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
@@ -56,7 +57,7 @@ RECORDING_API_STAFF_JWT_PURPOSE = ScopedServiceJwtPurpose(
 
 @frozen
 class StaffRecordingApiToken:
-    token: str
+    token: str = field(repr=False)
     expires_at: datetime
 
 
