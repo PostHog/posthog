@@ -107,11 +107,10 @@ Call `integrations-email-status-retrieve` with `refresh=true` after the records 
 - `failed`: the provider stopped checking. Fix the records, then call `integrations-email-verify-create` to restart the check.
 - `verified`: call `integrations-email-verify-create` once. When it returns `success`, every sender on this domain in the project can send.
 
-After about 15 minutes without `verified`, stop polling.
-If the status is `not_started`, the email provider has no setup to check: go back to step 3 and start it.
-If a record is still `pending`, tell the person which one and the exact name it must be published at, since a record under the wrong name never resolves.
-Otherwise call `integrations-email-verify-create` once, since it also starts any setup the email provider is missing, then call `integrations-email-status-retrieve` with `refresh=true` and publish any record it now lists as `pending`.
-If it lists none, tell them the last status, and that they can ask you to check again later or watch the sender's status in PostHog.
+After about 15 minutes without `verified`, stop polling and call `integrations-email-verify-create` once, since it also starts any setup the email provider is missing, such as DKIM.
+If it returns `success`, the sender is ready: go to step 6.
+Otherwise call `integrations-email-status-retrieve` with `refresh=true` and publish any record it lists as `pending`, as in step 4.
+Then tell the person the sender is not verified yet: name each record still `pending` and the exact name it must be published at, since a record under the wrong name never resolves, and say they can ask you to check again later or verify the sender in PostHog.
 
 ### 6. Wrap up
 
