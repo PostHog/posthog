@@ -118,12 +118,16 @@ describe('useCarryTile', () => {
         expect(onCarryingChange).toHaveBeenLastCalledWith(null)
     })
 
-    it('ends a dragged resize on the release of its handle', () => {
-        const { onCarryingChange, result } = renderMove(true, 'resize')
+    it.each([
+        { kind: 'move' as const, pressOn: (): HTMLElement => handle },
+        { kind: 'resize' as const, pressOn: (): HTMLElement => resizeHandle },
+    ])('ends a held $kind drag on its release', ({ kind, pressOn }) => {
+        const { onCarryingChange, result } = renderMove(true, kind)
         const inputAtRelease: string[] = []
         document.addEventListener('mouseup', () => inputAtRelease.push(result.current.tileCarryInputRef.current))
 
-        resizeHandle.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 10, clientY: 10 }))
+        pressOn().dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 10, clientY: 10 }))
+        document.body.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 60, clientY: 10 }))
         document.body.dispatchEvent(
             new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0, clientX: 60, clientY: 10 })
         )
