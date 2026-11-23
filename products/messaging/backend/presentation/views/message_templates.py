@@ -1138,7 +1138,7 @@ def _flag_enabled(team: Any, flag: str) -> bool:
 def transactional_email_throttles(
     team_id: int,
 ) -> list[PersonalOrProjectSecretApiKeyRateThrottle | ProjectSecretApiKeyTeamRateThrottle]:
-    if str(team_id) in get_list(get_instance_setting("TRANSACTIONAL_EMAIL_RATE_LIMIT_ALLOW_LIST_TEAMS")):
+    if str(team_id) in get_list(str(get_instance_setting("TRANSACTIONAL_EMAIL_RATE_LIMIT_ALLOW_LIST_TEAMS"))):
         return []
     # Both send routes share these scopes, so a caller can't double its rate by using both.
     return [
