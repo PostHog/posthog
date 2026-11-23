@@ -362,6 +362,22 @@ describe('statusOf', () => {
             'the judge could not read the final state: The operation was aborted due to timeout',
         ],
         [
+            'a ramp that held with a delivery missing after its queue drained, though a later read failed',
+            {
+                convergence: {
+                    converged: false,
+                    unfinishedJobs: 0,
+                    unrecorded: ['run-1'],
+                    tookMs: 120_000,
+                    unread: 'The operation was aborted due to timeout',
+                },
+                invariants: [BROKEN],
+                ramp: { end: 'ceiling', sustainedScale: 10, reason: 'every step held up to the 10x ceiling' },
+            },
+            'failed',
+            'not converged: 0 unfinished jobs, 1 units without a delivery record; at_least_once failed: run-1 email: lost; the judge could not read the final state: The operation was aborted due to timeout',
+        ],
+        [
             'a ramp that stopped at a harness limit before the step whose unit broke an invariant',
             {
                 invariants: [{ ...BROKEN, crossedBy: 'run-1' }],
