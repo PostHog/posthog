@@ -17,6 +17,7 @@ from celery import Task
 from celery.exceptions import Reject, Retry, SoftTimeLimitExceeded
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.hogql.errors import QueryError
 
@@ -38,6 +39,7 @@ from posthog.tasks.calculate_cohort import (
     calculate_cohort_from_list,
     collect_cohort_query_stats,
     enqueue_cohorts_to_calculate,
+    get_cohort_calculation_candidates_queryset,
     increment_version_and_enqueue_calculate_cohort,
     insert_cohort_from_filters,
     insert_cohort_from_query,
@@ -1064,18 +1066,20 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
 
 class TestCohortCalculationTasks(APIBaseTest):
-    @patch("posthog.tasks.calculate_cohort.increment_version_and_enqueue_calculate_cohort")
-    def test_skips_cohorts_of_deactivated_organizations(self, patch_enqueue: MagicMock) -> None:
+    def test_skips_cohorts_of_deactivated_organizations(self) -> None:
         deactivated_organization = Organization.objects.create(name="Deactivated", is_active=False)
         deactivated_team = Team.objects.create(organization=deactivated_organization, name="Deactivated team")
-        stale = timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES + 1)
+        stale = timezone.now() - relativedelta(days=3)
         Cohort.objects.create(team_id=deactivated_team.pk, last_calculation=stale)
         active_cohort = Cohort.objects.create(team_id=self.team.pk, last_calculation=stale)
 
-        enqueue_cohorts_to_calculate(5)
+        candidates = get_cohort_calculation_candidates_queryset()
+        self.assertEqual(list(candidates.values_list("pk", flat=True)), [active_cohort.pk])
 
-        enqueued = [call.args[0].pk for call in patch_enqueue.call_args_list]
-        self.assertEqual(enqueued, [active_cohort.pk])
+        update_cohort_metrics()
+
+        self.assertEqual(REGISTRY.get_sample_value("cohorts_total"), 1)
+        self.assertEqual(REGISTRY.get_sample_value("cohorts_stale", {"hours": "48"}), 1)
 
     def _backfillable_cohort(self) -> Cohort:
         return Cohort.objects.create(
