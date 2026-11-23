@@ -63,6 +63,7 @@ export function LiveFilterSheet({ onClose }: { onClose: () => void }): ReactElem
             paddingHorizontal={20}
             keyboardHeight={keyboard.height}
             scrollGesture={gesture}
+            dragResetKey={editing}
             accessibilityLabel={editing ? LIVE_FILTER_FIELDS[editing] : 'Live filters'}
             testID="live-filter-sheet"
         >
