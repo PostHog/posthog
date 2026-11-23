@@ -1046,7 +1046,6 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
             outcome = {"sent": sent.people, "new_people": sent.new_people, "failed_lists": 0}
         except ContactsCaptureFailed:
             outcome = {"sent": 0, "new_people": 0, "failed_lists": 1}
-        # A worker on the previous release can't load more keys.
         assert set(plan) == {"cohort_id", "storage_prefix", "chunks", "send_events", "created_by_id"}
         [everyone_plan, _] = runs.run_step(self.team.id, run.id, "contacts", attempt=2)
         assert (everyone_plan.provider, everyone_plan.step) == ("resend", "contacts")

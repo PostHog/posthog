@@ -305,7 +305,6 @@ class TestProviderImportRuns(BaseTest):
         assert run.status == expected_run_status
         assert [run.progress[step]["status"] for step in run.steps] == expected_step_statuses
         assert run.finished_at is not None
-        # One event per run, from the person who started it.
         [(user, event, properties)] = [call.args for call in report.call_args_list]
         assert (user, event) == (self.user, "workflows import run")
         assert properties["stage"] == expected_run_status
