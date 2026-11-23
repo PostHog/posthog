@@ -52,8 +52,7 @@ class AgentEgressLifecycle:
         workflow_run_id: str,
         provisioning_deadline: float | None = None,
     ) -> None:
-        if not settings.DEBUG or settings.SANDBOX_PROVIDER != "MODAL_DOCKER":
-            raise ValueError("Egress probes require DEBUG and SANDBOX_PROVIDER=MODAL_DOCKER")
+        config.validate_controller(cleanup=True)
         self.config = config
         self.execution_id = execution_id
         self.workflow_run_id = workflow_run_id
@@ -83,6 +82,7 @@ class AgentEgressLifecycle:
         TaskRun.update_state_atomic(run.id, updates={STATE_KEY: state.model_dump(mode="json")})
 
     def _active(self) -> AgentEgressExecution:
+        self.config.validate_controller()
         state = self._read(self._run())
         if state.closed or state.expires_at <= timezone.now().timestamp():
             raise ValueError("The egress execution has ended")
@@ -260,61 +260,79 @@ class AgentEgressLifecycle:
         return result
 
     def close(self, *, reason: str, sandbox_id: str | None) -> None:
-        run = TaskRun.objects.filter(id=self.config.run_id, team_id=self.config.team_id).first()
+        self.close_execution(
+            team_id=self.config.team_id,
+            run_id=self.config.run_id,
+            execution_id=self.execution_id,
+            workflow_run_id=self.workflow_run_id,
+            provisioning_deadline=self.provisioning_deadline,
+            sandbox_id=self.config.sandbox_id or sandbox_id,
+            owns_sandbox=self.config.sandbox_id is None,
+            reason=reason,
+        )
+
+    @staticmethod
+    def close_execution(
+        *,
+        team_id: int,
+        run_id: UUID,
+        execution_id: UUID,
+        workflow_run_id: str,
+        provisioning_deadline: float | None,
+        sandbox_id: str | None,
+        owns_sandbox: bool,
+        reason: str,
+    ) -> None:
+        run = TaskRun.objects.filter(id=run_id, team_id=team_id).first()
         raw = (run.state or {}).get(STATE_KEY) if run else None
         if raw:
             state = AgentEgressExecution.model_validate(raw)
-            if state.execution_id == self.execution_id and state.workflow_run_id != self.workflow_run_id:
+            if state.execution_id == execution_id and state.workflow_run_id != workflow_run_id:
                 raise ValueError("Another workflow owns this egress probe")
         try:
-            self.registry.revoke(
-                team_id=self.config.team_id,
-                run_id=self.config.run_id,
-                execution_id=self.execution_id,
+            AgentEgressRegistry(region=settings.AGENT_EGRESS_REGION).revoke(
+                team_id=team_id,
+                run_id=run_id,
+                execution_id=execution_id,
                 revoked_by="egress-probe",
                 reason=reason,
             )
         finally:
             try:
                 with transaction.atomic():
-                    run = (
-                        TaskRun.objects.select_for_update()
-                        .filter(id=self.config.run_id, team_id=self.config.team_id)
-                        .first()
-                    )
+                    run = TaskRun.objects.select_for_update().filter(id=run_id, team_id=team_id).first()
                     raw = (run.state or {}).get(STATE_KEY) if run else None
                     if run is not None:
                         current = (
                             AgentEgressExecution.model_validate(raw)
                             if raw
                             else AgentEgressExecution(
-                                execution_id=self.execution_id,
-                                workflow_run_id=self.workflow_run_id,
-                                config_sha256=self.config_sha256,
+                                execution_id=execution_id,
+                                workflow_run_id=workflow_run_id,
+                                config_sha256="",
                                 previous_execution_id=None,
                                 expires_at=timezone.now().timestamp(),
                                 sandbox_id=sandbox_id,
+                                owns_sandbox=owns_sandbox,
                                 closed=True,
                             )
                         )
-                        if (
-                            current.execution_id == self.execution_id
-                            and current.workflow_run_id == self.workflow_run_id
-                        ):
+                        if current.execution_id == execution_id and current.workflow_run_id == workflow_run_id:
                             sandbox_id = current.sandbox_id or sandbox_id
                             current = current.model_copy(update={"closed": True})
                         now = timezone.now().timestamp()
                         closed_executions = {
                             key: expiry for key, expiry in current.closed_executions.items() if expiry > now
                         }
-                        if self.provisioning_deadline is not None and self.provisioning_deadline > now:
-                            closed_executions[str(self.execution_id)] = self.provisioning_deadline
+                        if provisioning_deadline is not None and provisioning_deadline > now:
+                            closed_executions[str(execution_id)] = provisioning_deadline
                         current = current.model_copy(update={"closed_executions": closed_executions})
-                        self._save(run, current)
+                        TaskRun.update_state_atomic(run.id, updates={STATE_KEY: current.model_dump(mode="json")})
             finally:
-                if self.config.sandbox_id:
-                    ModalEgressProbe.close_relay(self.config.sandbox_id, self.relay_name)
+                if not owns_sandbox:
+                    if sandbox_id is not None:
+                        ModalEgressProbe.close_relay(sandbox_id, f"egress-relay-{execution_id.hex}")
                 elif sandbox_id is not None:
                     ModalEgressProbe.close_sandbox(sandbox_id)
                 else:
-                    ModalEgressProbe.close_named(f"egress-probe-{self.execution_id}")
+                    ModalEgressProbe.close_named(f"egress-probe-{execution_id}")

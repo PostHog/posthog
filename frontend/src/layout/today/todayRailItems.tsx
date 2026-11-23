@@ -39,6 +39,7 @@ export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
     monitor: { label: 'Monitor', title: 'Monitor', icon: <IconPulse /> },
     people: { label: 'People', title: 'People', icon: <IconPeople />, action: TodayNewPeopleButton },
     release: { label: 'Release', title: 'Release', icon: <IconFlag /> },
+    data: { label: 'Data', title: 'Data', icon: <IconDatabase /> },
     products: { label: 'Products', title: 'Products', icon: <IconApps /> },
     warehouse: { label: 'Warehouse', title: 'Warehouse', icon: <IconDatabase /> },
     settings: { label: 'Settings', title: 'Settings', icon: <IconGear /> },

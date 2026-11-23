@@ -220,6 +220,55 @@ fn strict_equality_functions_unify_numeric_variants() {
 }
 
 #[test]
+fn ordering_functions_order_numeric_arrays() {
+    assert_both_paths(
+        call(
+            "greater",
+            &[array(&[int(1), int(10)]), array(&[int(1), int(9)])],
+        ),
+        json!(true),
+        "greater([1, 10], [1, 9])",
+    );
+    assert_both_paths(
+        call(
+            "less",
+            &[array(&[int(1), int(2)]), array(&[int(1), int(2), int(0)])],
+        ),
+        json!(true),
+        "less([1, 2], [1, 2, 0])",
+    );
+}
+
+#[test]
+fn array_ordering_treats_signed_zeros_as_equal() {
+    assert_both_paths(
+        call(
+            "less",
+            &[array(&[float(-0.0), int(2)]), array(&[float(0.0), int(1)])],
+        ),
+        json!(false),
+        "less([-0.0, 2], [0.0, 1])",
+    );
+}
+
+#[test]
+fn array_ordering_continues_past_matching_nan_elements() {
+    let nan = || {
+        let mut bc = string("NaN");
+        bc.extend([json!(OP_CALL_GLOBAL), json!("toFloat"), json!(1)]);
+        bc
+    };
+    assert_both_paths(
+        call(
+            "greaterOrEquals",
+            &[array(&[nan(), int(0)]), array(&[nan(), int(1)])],
+        ),
+        json!(false),
+        "greaterOrEquals([NaN, 0], [NaN, 1])",
+    );
+}
+
+#[test]
 fn number_vs_numeric_string_coerces_the_string() {
     // The exact cohort case: `bc_num gt "10"` (threshold compiled as a string).
     assert_eq!(

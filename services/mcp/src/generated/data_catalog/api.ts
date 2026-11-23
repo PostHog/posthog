@@ -389,9 +389,6 @@ export const dataCatalogRelationshipProposalsCreateBodyJoiningTableKeyMax = 400
 
 export const dataCatalogRelationshipProposalsCreateBodyFieldNameMax = 400
 
-export const dataCatalogRelationshipProposalsCreateBodyConfidenceMin = 0
-export const dataCatalogRelationshipProposalsCreateBodyConfidenceMax = 1
-
 export const DataCatalogRelationshipProposalsCreateBody = () => zod.object({
     source_table_name: zod
         .string()
@@ -414,12 +411,6 @@ export const DataCatalogRelationshipProposalsCreateBody = () => zod.object({
         .max(dataCatalogRelationshipProposalsCreateBodyFieldNameMax)
         .describe('Accessor the join adds to the source table.'),
     configuration: zod.unknown().optional().describe('Extra join configuration, e.g. a field mapping.'),
-    confidence: zod
-        .number()
-        .min(dataCatalogRelationshipProposalsCreateBodyConfidenceMin)
-        .max(dataCatalogRelationshipProposalsCreateBodyConfidenceMax)
-        .nullish()
-        .describe('Discovery confidence in this join, 0-1.'),
     reasoning: zod.string().optional().describe('Why this join is proposed.'),
     evidence: zod.unknown().optional().describe('Sampling evidence: match rates, sample values.'),
 })

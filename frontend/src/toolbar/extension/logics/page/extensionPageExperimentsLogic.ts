@@ -7,6 +7,7 @@ import { experimentsTabLogic, restoreOriginalHtmlState } from '~/toolbar/shared/
 import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 import type { WebExperiment, WebExperimentForm } from '~/toolbar/shared/types'
 
+import type { ExperimentIdType } from '../../../../types'
 import type {
     ExperimentFormDraft,
     ExperimentSaveResult,
@@ -88,8 +89,8 @@ export interface extensionPageExperimentsLogicActions {
     removeVariant: (variant: string) => {
         variant: string
     } // experimentsTabLogic
-    selectExperiment: (id: null | import('../../../../types').ExperimentIdType) => {
-        id: null | import('../../../../types').ExperimentIdType
+    selectExperiment: (id: ExperimentIdType | null) => {
+        id: ExperimentIdType | null
     } // experimentsTabLogic
     submitExperimentForm: () => {
         value: boolean

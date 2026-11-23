@@ -56,6 +56,21 @@ The stored-key work must keep this property: a stored key has to include an acce
 A miss is not an error. The client requests that tile the way it does today, which computes on demand.
 If the endpoint fails as a whole (flag off, 5xx), the client falls back to per-tile loading for every tile.
 
+## First load
+
+Building every tile's cached result inside the dashboard GET runs one tile after another, so its time grows with the board.
+On a first load of the dashboard page, the dashboard-v2 client sends `omit_tile_results=true` on the dashboard GET.
+Where dashboard-v2 is on, the server then returns the layout and tile metadata without building any tile's result.
+Elsewhere the parameter is ignored and tiles carry their results as before.
+Insight access is still checked per tile, so a restricted tile keeps its masked shape.
+
+The client then opens one `stream_query_results` stream with `cached_first` for the first screen (the first 12 tiles and any already in view).
+The stream's first `cached` event is this batched read: every hit paints at once, a stale hit included and marked `stale`, and the stream then computes the missing and stale tiles.
+Tiles further down are marked as loading when they scroll into view, and the tiles that scroll in within one short window load through one more stream.
+If a stream fails, the tiles it did not deliver load through the insight endpoint, one request each.
+
+Shared and exported dashboards, other placements, updates after a save, and the streaming load (`stream_tiles`) don't send the parameter and load as before.
+
 ## Rollout
 
 1. Backend endpoint, flag-gated and unused (this PR).

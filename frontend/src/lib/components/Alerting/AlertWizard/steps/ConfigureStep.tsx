@@ -10,6 +10,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { CyclotronJobInputSchemaType } from '~/types'
 
 import { alertWizardLogic } from '../alertWizardLogic'
+import { clearIntegrationFields } from './clearIntegrationFields'
 
 export function ConfigureStep(): JSX.Element {
     const { requiredInputsSchema, configuration, selectedTemplateLoading, submitting, testing } =
@@ -78,11 +79,7 @@ function SchemaInput({
                 schema={schema}
                 value={value}
                 onChange={(newValue) => {
-                    configuration.inputs_schema
-                        .filter((s) => s.type === 'integration_field' && s.integration_key === schema.key)
-                        .forEach((field) => {
-                            onInputChange(field.key, { value: null })
-                        })
+                    clearIntegrationFields(configuration, schema.key, onInputChange)
                     onChange(newValue)
                 }}
             />

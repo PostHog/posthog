@@ -198,7 +198,7 @@ The next delivery skips and dismisses the standing approval, and the engine refu
 ## Attestation issuers (who the publisher is, and what it may lift)
 
 An attestation entry splits who the publisher is from what it may do.
-`check` and `app_id` identify the publisher, and `paths` and `lifts` say what it may lift.
+`check` with an `app_id`, or with a `workflow` (see "Workflow publishers" below), identifies the publisher, and `paths` and `lifts` say what it may lift.
 The default-branch paths the publisher runs from are its own description, kept in one place: an `issuer` manifest that the publisher owns, such as `tools/change-prover/issuer.yml`, which holds only `paths`.
 A key ending in `/` is a directory, which the marker pins by its git tree id, so a file added under it changes the pin too. Any other key is a file pinned by its blob id.
 The manifest must cover its own path, so an edit to it changes a pin as well.
@@ -211,6 +211,21 @@ The policy only names the manifest. It never copies the list, so the two cannot 
 - A result counts only when its `blobs` keys hold every manifest path verbatim and the server confirmed every pinned object still current. `logic/attestation_pins.py` compares a `/` key against the default branch's tree id and any other key against the blob id. A type mismatch, or an object that is gone, is not current. The posting-time `_attest_gates` reads the check runs through the same function, so the final check uses the same comparison.
 - The policy, the manifest and the pins are each read from the default branch by name, not from one resolved commit. The manifest covers itself, so an edit to it changes a pinned id and a proof made before the edit reads as stale. A proof made after it is checked against the copy the run read: it lifts when it pins every path that copy lists, and lifts nothing when the edit dropped one.
 
+## Workflow publishers (identity without an App)
+
+An entry names either an `app_id` or a default-branch `workflow` with its publishing `job` and the `events` it runs on, never both.
+Any job's built-in token can create a check run under any name and edit any check run a workflow wrote, so a workflow entry trusts only a result its publishing job signed with a GitHub Actions OIDC token.
+`logic/workflow_proofs.py` verifies it, and its module docstring lists the accepted limits. Read it before you change how a result is selected or verified. The publisher's side of the contract is in the engine README's attestation section.
+
+A change to the verification keeps these true:
+
+- Every completed check run of the name is read with `filter=all` and verified once per signed content (token, conclusion, marker). No window of the newest check run ids is safe, because a writer orders them. A listing at the API page cap, or on a commit with more than 1000 check suites, proves nothing.
+- The claims name this repository id, one of the entry's events, and the entry's file on the default branch as both `workflow_ref` and `job_workflow_ref`. The expiry is not checked, on purpose.
+- The newest run (`run_id`, `run_attempt`) whose token the Actions API ties to the entry's `job` through `check_run_id` decides, never the newest check run. A token whose key cannot be read and that claims a later run than that result makes the publisher unreadable.
+- A success lifts only while the run's commit (`job_workflow_sha`) and the default branch hold the same workflow file and pinned paths, recorded as `pinned_blobs_current`.
+- A read that fails leaves the entry pending, never a completed result that lifts nothing. The poll wakes only when `verified_result` returns a result, the same test that ends the engine's wait.
+- Both review paths, the context fetch and `_attest_gates`, build the engine's check runs through `proven_check_runs`, and the App pin check skips the verified result.
+
 ## The manual trigger (the one exception to label mode)
 
 `request_manual_review` (`POST code_review/approvals/runs/` and the `code-review-approvals-runs-create` MCP tool) queues a review because a project member asked for it.
@@ -219,6 +234,16 @@ Every other webhook-path gate still refuses: closed PRs, drafts, bot authors, un
 The requester's own GitHub access is not checked; the `code_review_approval:write` scope and the product's access control are the gate.
 The run is stamped `manual_review` provenance and the `manual` trigger, and it enters the workflow through `dismiss_stale_approvals` like every other run.
 A refusal writes nothing to GitHub and creates no run, so it cannot leave or remove an approval.
+
+A request for a head whose covering run is a completed refusal or escalation reviews that head again only on new evidence (`logic/rerun_evidence.py`).
+A gate denial is stored as a GATED WAIT, so it is never re-run this way.
+The evidence is the title, the body, and what people with a trusted association wrote in reviews, the discussion and unresolved threads, plus resolving or reopening a thread, a bot's finding included.
+Bots never count otherwise, stamphog's own verdicts and machine users included, so a verdict posted after the context read, or a new bot finding, cannot unlock a re-run.
+Unlike `decision_fingerprint`, the hash leaves out the engine and the policy, so a deploy never re-rolls a refusal.
+A field that goes into the hash must be one a person changes, or the cap is the only thing between a noisy bot and repeated LLM runs.
+Evidence that a finished review of the head already saw re-runs nothing, and a head gets at most `_EVIDENCE_RERUNS_PER_HEAD` evidence re-runs that did not fail or get superseded, so nobody can re-roll the reviewer by switching between two descriptions.
+Every other case, a failed evidence read included, returns the covering run with `created: false`, as before.
+The workflow reads the context again, so evidence that someone restores between the request and that read is reviewed once more. The cap bounds that, and a pushed commit buys a new review anyway, so the workflow does not check the evidence a second time.
 
 ## The silent trigger (a clean external review)
 
@@ -367,7 +392,7 @@ any failing gate other than the deny-list, and a migrations deny always drags th
 T2-never with it, so it answers False for every PR it exists to catch.
 
 The engine records the checks it waited on in `classification.attestations`, and the server acts on that record, never on the policy.
-After a WAIT whose only cause is those checks, the workflow polls GitHub on a workflow timer (`poll_pending_attestations`) until each one has a completed run from its pinned App, the engine's own test for pending.
+After a WAIT whose only cause is those checks, the workflow polls GitHub on a workflow timer (`poll_pending_attestations`) until each one has a completed run from its pinned App, or for a workflow entry a result the server verified, the engine's own test for pending.
 It then queues a re-review through the same gates as the external re-review, the inbox exclusion included, and at most `_ATTESTATION_WAKES_PER_HEAD` times per head.
 Stamphog subscribes to no `check_run` webhook, because a subscription delivers every check of every PR, and the poll asks GitHub for each pending check by name and App, one request per check.
 A run that no report can wake, an inbox run or one at the per-head cap, does not poll.

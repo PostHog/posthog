@@ -30,6 +30,7 @@ import type {
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 import { NodeDetailTests } from './NodeDetailTests'
 import { NodeDetailTestsTabLabel } from './NodeDetailTestsTabLabel'
+import { NodePlanFloorClampBanner } from './NodePlanFloorClampBanner'
 import { QuillNodeDetailScene } from './QuillNodeDetailScene'
 
 export const scene: SceneExport<NodeDetailSceneLogicProps> = {
@@ -138,6 +139,7 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
     return (
         <SceneContent>
             <NodeDetailHeader id={id} />
+            <NodePlanFloorClampBanner id={id} />
             <NodeDetailOverview id={id} metadata={modelMetadata && <ModelMetadata {...modelMetadata} />} />
             {!effectiveTab ? (
                 <LemonSkeleton className="h-10 w-96" />

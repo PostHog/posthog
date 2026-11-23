@@ -302,12 +302,12 @@ def _record_context(record_type: RecordType, obj: Model) -> dict[str, object]:
     }
 
 
-def _gate(operation: Operation | ToolOperation, owner: Owner) -> Gate | None:
+def _gate(operation: Operation | ToolOperation, owner: Owner | None) -> Gate | None:
     return operation.gate.resolve(owner) if operation.gate is not None else None
 
 
 def _rendered_operation(
-    request: HttpRequest, operation: Operation | ToolOperation, owner: Owner, url: str
+    request: HttpRequest, operation: Operation | ToolOperation, owner: Owner | None, url: str
 ) -> RenderedOperation:
     gate = _gate(operation, owner)
     return RenderedOperation(operation=operation, url=url, gate=gate, allowed=gate is None or gate.allows(request))
@@ -384,7 +384,7 @@ def _find_operation(panel: Panel, obj: Model, operation_key: str) -> Operation:
 
 
 def _require_gate(
-    request: HttpRequest, operation: Operation | ToolOperation, owner: Owner, audit: structlog.BoundLogger
+    request: HttpRequest, operation: Operation | ToolOperation, owner: Owner | None, audit: structlog.BoundLogger
 ) -> None:
     # The page only disables the button. This check is the one that keeps a hand-built request out.
     gate = _gate(operation, owner)
@@ -606,10 +606,13 @@ def run_operation(request: HttpRequest, record: str, pk: object, panel_key: str,
         if form is not None and _is_offered(panel, obj, operation.key):
             return render(request, "admin_console/operation.html", context, status=response.status_code)
         if QueuedMessages.error_count(request) == 0:
+            next_step = "Try again."
+            if panel.owner is not None:
+                next_step = f"Try again, or ask the {panel.owner.name} team if it keeps failing."
             messages.error(
                 request,
                 f"{operation.label} failed with status {response.status_code}. The page below shows the current "
-                f"state. Try again, or ask the {panel.owner.name} team if it keeps failing.",
+                f"state. {next_step}",
             )
         return redirect(record_url)
     return response

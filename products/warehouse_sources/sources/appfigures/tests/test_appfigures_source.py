@@ -15,8 +15,18 @@ class TestAppfiguresSource:
         # get_schemas is a static catalog with no I/O, so the public docs can render the table list.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_retryable_errors_match_transient_status_raise(self):
-        observed_error = "Appfigures API error (retryable): status=503, url=https://api.appfigures.com/v2/products/mine"
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "Appfigures API error (retryable): status=503, url=https://api.appfigures.com/v2/products/mine",
+            # The tracked session's own urllib3 retries can exhaust on a dropped connection or read
+            # timeout before _fetch's tenacity retry ever gets a status code to raise on.
+            "HTTPSConnectionPool(host='api.appfigures.com', port=443): Max retries exceeded with url: "
+            '/v2/aso/stats?products=338134376663 (Caused by ReadTimeoutError("HTTPSConnectionPool'
+            "(host='api.appfigures.com', port=443): Read timed out. (read timeout=14.67)\"))",
+        ],
+    )
+    def test_retryable_errors_match_transient_status_raise(self, observed_error: str):
         retryable_errors = self.source.get_retryable_errors()
         assert any(key in observed_error for key in retryable_errors)
 

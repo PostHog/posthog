@@ -1,5 +1,6 @@
 import { IconInfo } from '@posthog/icons'
 
+import { useComponentPanelState } from 'lib/components/MarkdownNotebook/componentPanelContext'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 // Journey 10: shown on the cell whose run most recently landed, while any of its downstream
@@ -14,7 +15,12 @@ export function NotebookRunDownstreamBanner({
     count: number
     onRun: () => void
     disabledReason?: string
-}): JSX.Element {
+}): JSX.Element | null {
+    const outputOnly = useComponentPanelState()?.outputOnly
+    if (outputOnly) {
+        return null
+    }
+
     return (
         <div className="mx-2 mt-1 flex items-center gap-2 rounded border border-accent bg-accent-highlight-secondary p-2 text-xs">
             <LemonButton type="primary" size="xsmall" onClick={onRun} disabledReason={disabledReason}>
