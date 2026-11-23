@@ -7712,10 +7712,6 @@
         "BookActivityMatrixCombination": {
             "additionalProperties": false,
             "properties": {
-                "agentMask": {
-                    "$ref": "#/definitions/integer",
-                    "description": "The products these people used through AI agents, as a bitmask over `series`."
-                },
                 "column": {
                     "type": "string"
                 },
@@ -7724,10 +7720,6 @@
                 },
                 "row": {
                     "type": "string"
-                },
-                "uiMask": {
-                    "$ref": "#/definitions/integer",
-                    "description": "The products these people used in the app, as a bitmask over `series`."
                 },
                 "users": {
                     "$ref": "#/definitions/integer"

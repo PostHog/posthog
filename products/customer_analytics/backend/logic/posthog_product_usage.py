@@ -7,7 +7,6 @@ REPLAY_WATCH_EVENT = "recording viewed summary"
 PAGE_EVENTS = ("$pageview", "$pageleave")
 STAFF_EMAIL_PATTERN = "%@posthog.com"
 AGENT_EVENT = "$mcp_tool_call"
-OTHER_AGENT_PRODUCT_KEY = "agent_other"
 
 
 @frozen
@@ -314,8 +313,6 @@ POSTHOG_PRODUCTS: tuple[ProductUsageDefinition, ...] = (
             "data catalog metric run",
         ),
     ),
-    # Agent calls that no rule below maps to a product. They stay visible instead of being dropped.
-    ProductUsageDefinition(key=OTHER_AGENT_PRODUCT_KEY, label="Other agent activity", sections=(), actions=()),
 )
 
 PRODUCT_GROUPINGS: tuple[ProductGrouping, ...] = (
@@ -369,6 +366,9 @@ PRODUCT_GROUPINGS: tuple[ProductGrouping, ...] = (
     ),
 )
 
+# Prompt tools carry the Experiments category to group them in the MCP tool list, but they are AI observability.
+AGENT_TOOL_PREFIX_PRODUCTS: dict[str, str] = {"llma-": "llm"}
+
 # Substrings of the effective MCP tool name, checked in order. The first match wins, so narrow rules come first.
 AGENT_TOOL_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("dwh", ("execute-sql", "read-data-schema", "data-warehouse", "external-data", "warehouse", "saved-quer")),
@@ -392,7 +392,6 @@ AGENT_TOOL_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
 )
 
-# The tool category the MCP server sends, for tools no name rule covers.
 AGENT_CATEGORY_PRODUCTS: dict[str, str] = {
     "SQL": "dwh",
     "Data warehouse": "dwh",
@@ -432,11 +431,7 @@ AGENT_CATEGORY_PRODUCTS: dict[str, str] = {
     "Signals": "sd",
 }
 
-
-def agent_tool_product(tool: str | None, category: str | None) -> str:
-    """The product an MCP tool call counts toward. `agent_product_expr` builds the same rule in HogQL."""
-    name = (tool or "").lower()
-    for product, fragments in AGENT_TOOL_RULES:
-        if any(fragment in name for fragment in fragments):
-            return product
-    return AGENT_CATEGORY_PRODUCTS.get(category or "", OTHER_AGENT_PRODUCT_KEY)
+AGENT_PRODUCT_KEYS: frozenset[str] = frozenset(
+    {*AGENT_TOOL_PREFIX_PRODUCTS.values(), *AGENT_CATEGORY_PRODUCTS.values()}
+    | {product for product, _fragments in AGENT_TOOL_RULES}
+)

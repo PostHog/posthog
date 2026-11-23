@@ -23254,13 +23254,9 @@ export namespace Schemas {
     }
 
     export interface BookActivityMatrixCombination {
-      /** The products these people used through AI agents, as a bitmask over `series`. */
-      agentMask?: number | null;
       column: string;
       mask: number;
       row: string;
-      /** The products these people used in the app, as a bitmask over `series`. */
-      uiMask?: number | null;
       users: number;
     }
 

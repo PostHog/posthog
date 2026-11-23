@@ -5610,17 +5610,9 @@ class BookActivityMatrixCombination(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    agentMask: int | None = Field(
-        default=None,
-        description=("The products these people used through AI agents, as a bitmask over `series`."),
-    )
     column: str
     mask: int
     row: str
-    uiMask: int | None = Field(
-        default=None,
-        description=("The products these people used in the app, as a bitmask over `series`."),
-    )
     users: int
 
 

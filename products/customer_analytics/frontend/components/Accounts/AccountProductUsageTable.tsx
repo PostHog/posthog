@@ -1,7 +1,7 @@
 import './AccountProductUsageTable.scss'
 
 import { useActions, useValues } from 'kea'
-import type { ReactNode } from 'react'
+import { type ReactNode, useMemo } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonCheckbox, LemonSegmentedButton } from '@posthog/lemon-ui'
@@ -13,7 +13,7 @@ import type { BookActivityMatrixFirstUse, BookActivityMatrixResult } from '~/que
 
 import { ProductUsageCountCell } from '../ProductActivity/ProductUsageCountCell'
 import {
-    getProductUsageChannelCounts,
+    createProductUsageChannelLookup,
     getProductUsageChannelLabel,
     getProductUsageFirstSeries,
 } from '../ProductActivity/productUsagePresentation'
@@ -46,6 +46,7 @@ export function AccountProductUsageTable({
     const { grouping, presentation } = useValues(logic)
     const { setGrouping } = useActions(logic)
     const rowByKey = new Map(presentation.rows.map((row) => [row.key, row]))
+    const getChannelCounts = useMemo(() => createProductUsageChannelLookup(result.data), [result.data])
     return (
         <div className="AccountProductUsageTable flex flex-col gap-3 min-w-0" data-attr="account-product-usage-table">
             <div className="flex flex-wrap items-center gap-4 px-2">
@@ -97,9 +98,7 @@ export function AccountProductUsageTable({
                     if (row.kind === 'group') {
                         return null
                     }
-                    const channels = row.productKey
-                        ? getProductUsageChannelCounts(result.data, accountId, cell.columnKey, row.productKey)
-                        : null
+                    const channels = row.productKey ? getChannelCounts(accountId, cell.columnKey, row.productKey) : null
                     return (
                         <ProductUsageCountCell
                             agent={!!channels?.agentUsers}
@@ -124,7 +123,7 @@ export function AccountProductUsageTable({
                         return null
                     }
                     const channelLabel = getProductUsageChannelLabel(
-                        getProductUsageChannelCounts(result.data, accountId, cell.columnKey, row.productKey)
+                        getChannelCounts(accountId, cell.columnKey, row.productKey)
                     )
                     const details = renderUserDetails(row.productKey, cell.columnKey)
                     return channelLabel || details ? (

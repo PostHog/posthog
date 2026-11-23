@@ -101,17 +101,17 @@ export interface ProductUsageChannelCounts {
 }
 
 /** People in one cell, split by whether they used the product in the app or through an AI agent. */
-export function getProductUsageChannelCounts(
-    data: BookActivityMatrixCell[],
-    row: string,
-    column: string,
-    series: string
-): ProductUsageChannelCounts {
-    const cell = data.find((item) => item.row === row && item.column === column && item.series === series)
-    return {
-        users: cell?.users ?? 0,
-        uiUsers: cell?.uiUsers ?? cell?.users ?? 0,
-        agentUsers: cell?.agentUsers ?? 0,
+export function createProductUsageChannelLookup(
+    data: BookActivityMatrixCell[]
+): (row: string, column: string, series: string) => ProductUsageChannelCounts {
+    const cells = new Map(data.map((cell) => [`${cell.row}|${cell.column}|${cell.series}`, cell]))
+    return (row, column, series) => {
+        const cell = cells.get(`${row}|${column}|${series}`)
+        return {
+            users: cell?.users ?? 0,
+            uiUsers: cell?.uiUsers ?? cell?.users ?? 0,
+            agentUsers: cell?.agentUsers ?? 0,
+        }
     }
 }
 

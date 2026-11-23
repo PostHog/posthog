@@ -40,10 +40,11 @@ from products.customer_analytics.backend.logic.book_activity_access import valid
 from products.customer_analytics.backend.logic.posthog_product_usage import (
     AGENT_CATEGORY_PRODUCTS,
     AGENT_EVENT,
+    AGENT_PRODUCT_KEYS,
+    AGENT_TOOL_PREFIX_PRODUCTS,
     AGENT_TOOL_RULES,
     ENGAGED_MAX_SECONDS,
     ENGAGED_SECONDS,
-    OTHER_AGENT_PRODUCT_KEY,
     PAGE_EVENTS,
     POSTHOG_PRODUCTS,
     REPLAY_WATCH_EVENT,
@@ -316,7 +317,9 @@ def events_for_products(product_keys: list[str]) -> list[str]:
     events = {event for product in POSTHOG_PRODUCTS if product.key in product_keys for event in product.actions}
     if "replay" in product_keys:
         events.add(REPLAY_WATCH_EVENT)
-    return sorted(events | set(PAGE_EVENTS) | {AGENT_EVENT})
+    if AGENT_PRODUCT_KEYS.intersection(product_keys):
+        events.add(AGENT_EVENT)
+    return sorted(events | set(PAGE_EVENTS))
 
 
 def validated_product_keys(product_keys: list[str] | None) -> list[str]:
@@ -399,18 +402,30 @@ def product_expr() -> ast.Expr:
     return ast.Call(name="multiIf", args=branches)
 
 
-def effective_tool_expr() -> ast.Expr:
-    """Calls through the `exec` wrapper name their real tool in `$mcp_exec_target_tool`."""
-    return parse_expr(
-        "lower(coalesce(nullIf(toString(properties.$mcp_exec_target_tool), ''), toString(properties.$mcp_tool_name), ''))"
-    )
-
-
 def agent_product_expr() -> ast.Expr:
-    """HogQL for `agent_tool_product`, built from the same rule tables."""
-    tool = effective_tool_expr()
+    """The product an MCP tool call counts toward, or '' for calls that are not product use."""
+    tool = parse_expr("lower(toString(properties.$mcp_tool_name))")
     category = parse_expr("toString(properties.$mcp_tool_category)")
-    branches: list[ast.Expr] = []
+    # An `exec` call that ran a tool reports that tool's name. Calls still named `exec` only looked tools up.
+    branches: list[ast.Expr] = [
+        parse_expr(
+            "toString(properties.$mcp_is_error) = 'true' OR lower(toString(properties.$mcp_tool_name)) = 'exec'"
+        ),
+        ast.Constant(value=""),
+    ]
+    for prefix, product in AGENT_TOOL_PREFIX_PRODUCTS.items():
+        branches.extend(
+            [ast.Call(name="startsWith", args=[tool, ast.Constant(value=prefix)]), ast.Constant(value=product)]
+        )
+    for category_label, product in AGENT_CATEGORY_PRODUCTS.items():
+        branches.extend(
+            [
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq, left=category, right=ast.Constant(value=category_label)
+                ),
+                ast.Constant(value=product),
+            ]
+        )
     for product, fragments in AGENT_TOOL_RULES:
         branches.extend(
             [
@@ -427,16 +442,7 @@ def agent_product_expr() -> ast.Expr:
                 ast.Constant(value=product),
             ]
         )
-    for category_label, product in AGENT_CATEGORY_PRODUCTS.items():
-        branches.extend(
-            [
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq, left=category, right=ast.Constant(value=category_label)
-                ),
-                ast.Constant(value=product),
-            ]
-        )
-    branches.append(ast.Constant(value=OTHER_AGENT_PRODUCT_KEY))
+    branches.append(ast.Constant(value=""))
     return ast.Call(name="multiIf", args=branches)
 
 

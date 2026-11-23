@@ -1,13 +1,12 @@
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { TZLabel } from 'lib/components/TZLabel'
-import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
 import type { BookActivityPerson } from '~/queries/schema/schema-general'
 
 import { getProductUsagePersonSummary } from '../ProductActivity/productUsagePresentation'
+import { ProductUsageWeekRange } from '../ProductActivity/ProductUsageWeekRange'
 
 export function AccountProductUsagePeople({
     people,
@@ -28,7 +27,6 @@ export function AccountProductUsagePeople({
     onInspect?: () => void
     disableTooltip?: boolean
 }): JSX.Element {
-    const end = dayjs(columnKey).add(1, 'week')
     if (!showDetails) {
         const names = people.map((person) => person.label).join(', ')
         const remaining = total - people.length
@@ -66,11 +64,7 @@ export function AccountProductUsagePeople({
         <div className="flex flex-col gap-2 text-xs w-72 max-w-full" data-attr="account-product-usage-weekly-summary">
             <strong>{`${productLabel ?? 'Product activity'} · ${total} ${total === 1 ? 'user' : 'users'}`}</strong>
             <div className="text-secondary">
-                <span>Week of </span>
-                <TZLabel time={columnKey} formatDate="MMM D" formatTime="" />
-                <span> to </span>
-                <TZLabel time={end.subtract(1, 'day').format('YYYY-MM-DD')} formatDate="MMM D, YYYY" formatTime="" />
-                {partial && <span> (to date)</span>}
+                <ProductUsageWeekRange columnKey={columnKey} partial={partial} />
             </div>
             {people.map((person) => (
                 <div key={person.personId} className="flex items-baseline justify-between gap-3">

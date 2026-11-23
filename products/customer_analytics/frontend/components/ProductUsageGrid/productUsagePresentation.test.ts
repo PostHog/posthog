@@ -1,6 +1,6 @@
 import { BOOK_ACTIVITY_MATRIX_MOCK } from '../../__mocks__/bookActivityMatrixMock'
 import {
-    getProductUsageChannelCounts,
+    createProductUsageChannelLookup,
     getProductUsageChannelLabel,
     getProductUsageFirstSeries,
     getProductUsageGrouping,
@@ -51,9 +51,8 @@ describe('productUsagePresentation', () => {
         ['no cell', null, null],
     ])('labels the channel split for %s', (_, cell, expected) => {
         const data = cell ? [{ row: 'account', column: '2026-11-02', series: 'pa', ...cell }] : []
-        expect(getProductUsageChannelLabel(getProductUsageChannelCounts(data, 'account', '2026-11-02', 'pa'))).toBe(
-            expected
-        )
+        const getChannelCounts = createProductUsageChannelLookup(data)
+        expect(getProductUsageChannelLabel(getChannelCounts('account', '2026-11-02', 'pa'))).toBe(expected)
     })
 
     it.each([

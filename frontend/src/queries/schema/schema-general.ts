@@ -3642,10 +3642,6 @@ export interface BookActivityMatrixCombination {
     column: string
     mask: integer
     users: integer
-    /** The products these people used in the app, as a bitmask over `series`. */
-    uiMask?: integer
-    /** The products these people used through AI agents, as a bitmask over `series`. */
-    agentMask?: integer
 }
 
 export interface BookActivityMatrixFirstUse {
