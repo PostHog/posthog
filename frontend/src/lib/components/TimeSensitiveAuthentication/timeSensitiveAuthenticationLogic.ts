@@ -61,12 +61,12 @@ export interface timeSensitiveAuthenticationLogicValues {
     precheckResponse: PrecheckResponseType | null
     precheckResponseLoading: boolean
     reauthentication: ReauthenticationForm
-    reauthenticationPrompt: ReauthenticationPrompt | null
     reauthenticationAllErrors: Record<string, any>
     reauthenticationChanged: boolean
     reauthenticationErrors: DeepPartialMap<ReauthenticationForm, ValidationErrorType>
     reauthenticationHasErrors: boolean
     reauthenticationManualErrors: Record<string, any>
+    reauthenticationPrompt: ReauthenticationPrompt | null
     reauthenticationTouched: boolean
     reauthenticationTouches: Record<string, boolean>
     reauthenticationValidationErrors: DeepPartialMap<ReauthenticationForm, ValidationErrorType>
