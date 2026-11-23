@@ -67,6 +67,8 @@ describe('app entry boot', () => {
         delete window.POSTHOG_APP_CONTEXT_REQUEST
         delete window.JS_POSTHOG_API_KEY
         delete window.JS_POSTHOG_HOST
+        delete window.IMPERSONATED_SESSION
+        window.history.replaceState({}, '', '/')
         document.body.innerHTML = ''
         jest.clearAllTimers()
         jest.useRealTimers()
@@ -145,6 +147,8 @@ describe('app entry boot', () => {
         [6000, 'opted-out'],
         [0, 'throws'],
         [6000, 'throws'],
+        [0, 'impersonated'],
+        [6000, 'impersonated'],
     ] as const)('reports a terminal stylesheet failure after %i ms with capture %s', async (stallMs, capture) => {
         if (capture === 'opted-out') {
             delete window.JS_POSTHOG_API_KEY
@@ -152,7 +156,10 @@ describe('app entry boot', () => {
             sendBeacon.mockImplementation(() => {
                 throw new Error('Transport unavailable')
             })
+        } else if (capture === 'impersonated') {
+            window.IMPERSONATED_SESSION = true
         }
+        window.history.replaceState({}, '', '/dashboard/1?metric_prefill=private-sql')
         await loadEntry()
         await act(async () => {
             await jest.advanceTimersByTimeAsync(stallMs)
@@ -163,18 +170,18 @@ describe('app entry boot', () => {
 
         expect(document.querySelector('[role="alert"]')).toHaveTextContent('PostHog failed to load its styles.')
         expect(document.querySelector('[data-attr="boot-test-app"]')).not.toBeInTheDocument()
-        expect(sendBeacon).toHaveBeenCalledTimes(capture === 'opted-out' ? 0 : 1)
+        expect(sendBeacon).toHaveBeenCalledTimes(capture === 'enabled' || capture === 'throws' ? 1 : 0)
         const reports = sendBeacon.mock.calls.map(([url, body]) => ({ url, ...JSON.parse(body) }))
         expect(reports).toMatchObject(
-            capture === 'opted-out'
-                ? []
-                : [
+            capture === 'enabled' || capture === 'throws'
+                ? [
                       {
                           url: 'https://us.example.com/e/',
                           api_key: 'test-api-key',
                           event: '$exception',
                           properties: {
                               $process_person_profile: false,
+                              $current_url: 'http://localhost/dashboard/1',
                               $exception_level: 'fatal',
                               $exception_list: [
                                   { type: 'StylesheetLoadError', value: 'App stylesheet failed after all retries' },
@@ -183,6 +190,7 @@ describe('app entry boot', () => {
                           },
                       },
                   ]
+                : []
         )
     })
 

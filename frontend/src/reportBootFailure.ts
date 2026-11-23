@@ -1,4 +1,5 @@
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
+import { redactMetricVariableUrl } from 'lib/utils/metricVariableUrlRedaction'
 
 /**
  * Report a boot failure straight to the capture API. posthog-js lives inside the App chunk —
@@ -9,7 +10,7 @@ import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 export function reportBootFailure(error: unknown): void {
     try {
         const apiKey = window.JS_POSTHOG_API_KEY
-        if (!apiKey) {
+        if (!apiKey || window.IMPERSONATED_SESSION) {
             return // capture is opted out for this instance
         }
         const host = window.JS_POSTHOG_HOST || window.location.origin
@@ -28,7 +29,7 @@ export function reportBootFailure(error: unknown): void {
             properties: {
                 // Personless event: don't create person profiles from anonymous boot beacons
                 $process_person_profile: false,
-                $current_url: window.location.href,
+                $current_url: redactMetricVariableUrl(window.location.href),
                 $exception_level: 'fatal',
                 $exception_list: [
                     {
