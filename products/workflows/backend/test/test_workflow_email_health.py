@@ -290,7 +290,7 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
             assert pause_workflow_email_sending(
                 team_id=self.team.pk,
                 hog_flow_id=str(self.flow.id),
-                hog_flow_name=self.flow.name,
+                hog_flow_name="Weekly blast",
                 reason="Paused by staff",
                 paused_by=PAUSED_BY_STAFF,
                 now=self.now,
@@ -524,7 +524,9 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         delivered: list[tuple[str, list[str], str]] = []
         for message in mail.outbox:
             [html_part] = [part for part in message.message().walk() if part.get_content_type() == "text/html"]
-            delivered.append((str(message.subject), message.to, html_part.get_payload(decode=True).decode()))
+            html_bytes = html_part.get_payload(decode=True)
+            assert isinstance(html_bytes, bytes)
+            delivered.append((str(message.subject), message.to, html_bytes.decode()))
         assert [
             (
                 next((label for label in ("needs attention", "is paused") if label in subject), subject),

@@ -238,6 +238,7 @@ def _transactional_by_flow(*, team_ids: list[int], flow_ids: list[str]) -> dict[
         return {}
     return {
         str(flow_id): sends_only_transactional_email(actions)
+        # nosemgrep: idor-lookup-without-team (internal sweep across teams; ids come from the team-scoped candidate query)
         for flow_id, actions in HogFlow.objects.filter(team_id__in=team_ids, id__in=flow_ids).values_list(
             "id", "actions"
         )
