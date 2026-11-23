@@ -1236,22 +1236,18 @@ class BillingManager:
 
         return res.json()
 
-    def reload_ai_balance(
-        self, organization: Organization, *, idempotency_key: str, balance_usd: str
-    ) -> dict[str, Any]:
-        """Ask billing to reload the organization's AI balance, for the AI gateway's low-balance call.
+    def reload_ai_balance(self, organization: Organization, envelope: Mapping[str, Any]) -> dict[str, Any]:
+        """Pass the AI gateway's signed reload request to billing, unchanged.
 
-        Billing starts its reload and answers 202 `accepted` before it charges anything. It sends the
-        outcome later on its queue, and PostHog relays that to the gateway. Any other status raises
-        `BillingServiceResponseError`, whose status code tells a refusal (403) from a failure. The same
-        idempotency key starts nothing new.
+        Billing checks the signature, starts its reload and answers 202 `accepted` before it charges anything.
+        It sends the outcome later on its queue, and PostHog relays that to the gateway. Billing charges each
+        reload key in the signed body once. Any other status raises `BillingServiceResponseError`, whose status
+        code tells a refusal (403) from a failure.
         """
-        headers = self.get_auth_headers(organization, service_action="ai_credit_reload")
-        headers["Idempotency-Key"] = idempotency_key
         res = http_session.post(
             f"{BILLING_SERVICE_URL}/api/ai-credits/reload",
-            headers=headers,
-            json={"balance_usd": balance_usd},
+            headers=self.get_auth_headers(organization, service_action="ai_credit_reload"),
+            json=envelope,
             timeout=10,
         )
         handle_billing_service_error(res, valid_codes=(202,))

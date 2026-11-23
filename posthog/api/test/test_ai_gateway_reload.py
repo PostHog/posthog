@@ -1,3 +1,6 @@
+import json
+from typing import Any
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -20,30 +23,39 @@ class TestAIGatewayReload(BaseTest):
         self.client = APIClient()
         self.url = "/api/internal/ai_gateway/reload"
 
-    def _headers(self, key: str | None = "low-balance-1") -> dict:
-        headers = {"HTTP_AUTHORIZATION": "Bearer gateway-token"}
-        if key:
-            headers["HTTP_IDEMPOTENCY_KEY"] = key
-        return headers
+    def _envelope(self, **body: object) -> dict:
+        signed = {
+            "type": "ai_reload_requested",
+            "version": 1,
+            "audience": "billing",
+            "organization_id": str(self.organization.id),
+            "reload_key": "low-balance-1",
+            "balance_micros": 4104512,
+            **body,
+        }
+        return {
+            # The trailing newline that Go's json.Encoder writes is part of what the gateway signed.
+            "body": json.dumps(signed) + "\n",
+            "signed_at": "2026-11-23T18:04:05Z",
+            "key_id": "ai-gateway-us-1",
+            "signature": "5f0c1e",
+        }
 
-    def _reload(self, headers: dict | None = None, organization_id: str | None = None):
-        return self.client.post(
-            self.url,
-            {"organization_id": organization_id or str(self.organization.id), "balance_usd": "4.104512"},
-            format="json",
-            **(headers if headers is not None else self._headers()),
-        )
+    def _reload(self, envelope: dict | None = None, authorization: str | None = "Bearer gateway-token"):
+        headers: dict[str, Any] = {"HTTP_AUTHORIZATION": authorization} if authorization is not None else {}
+        return self.client.post(self.url, envelope or self._envelope(), format="json", **headers)
 
-    def test_asks_billing_to_reload_the_organization(self, manager: MagicMock, license: MagicMock):
+    def test_passes_the_envelope_unchanged_to_billing(self, manager: MagicMock, license: MagicMock):
         reload = manager.return_value.reload_ai_balance
         reload.return_value = {"result": "accepted"}
+        envelope = self._envelope()
 
-        response = self._reload()
+        response = self._reload(envelope)
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(response.json(), {"result": "accepted"})
         manager.assert_called_once_with(license.return_value)
-        reload.assert_called_once_with(self.organization, idempotency_key="low-balance-1", balance_usd="4.104512")
+        reload.assert_called_once_with(self.organization, envelope)
 
     def test_passes_back_only_the_result(self, manager: MagicMock, license: MagicMock):
         manager.return_value.reload_ai_balance.return_value = {"result": "accepted", "detail": "billing's own words"}
@@ -52,8 +64,16 @@ class TestAIGatewayReload(BaseTest):
 
         self.assertEqual(response.json(), {"result": "accepted"})
 
-    def test_needs_an_idempotency_key(self, manager: MagicMock, license: MagicMock):
-        response = self._reload(self._headers(key=None))
+    @parameterized.expand(
+        [
+            ("another_message_type", {"type": "ai_withdrawal_answered"}, {}),
+            ("signature_not_a_string", {}, {"signature": 5}),
+        ]
+    )
+    def test_an_envelope_it_cannot_route_is_a_bad_request(
+        self, manager: MagicMock, license: MagicMock, _name, body, fields
+    ):
+        response = self._reload({**self._envelope(**body), **fields})
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         manager.return_value.reload_ai_balance.assert_not_called()
@@ -64,6 +84,7 @@ class TestAIGatewayReload(BaseTest):
             ("charge_did_not_finish", 503, status.HTTP_503_SERVICE_UNAVAILABLE),
             ("billing_failed", 500, status.HTTP_503_SERVICE_UNAVAILABLE),
             ("billing_refused_the_request", 400, status.HTTP_503_SERVICE_UNAVAILABLE),
+            ("billing_rejected_the_signature", 401, status.HTTP_503_SERVICE_UNAVAILABLE),
         ]
     )
     def test_answers_for_billing_with_its_own_words(
@@ -84,10 +105,10 @@ class TestAIGatewayReload(BaseTest):
         response = self._reload()
 
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
-        self.assertIn("same Idempotency-Key", response.json()["detail"])
+        self.assertIn("same reload key", response.json()["detail"])
 
     def test_an_unknown_organization_is_not_found(self, manager: MagicMock, license: MagicMock):
-        response = self._reload(organization_id="01234567-89ab-cdef-0123-456789abcdef")
+        response = self._reload(self._envelope(organization_id="01234567-89ab-4def-8123-456789abcdef"))
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         manager.return_value.reload_ai_balance.assert_not_called()
@@ -100,12 +121,8 @@ class TestAIGatewayReload(BaseTest):
         ]
     )
     def test_rejected_credentials(self, manager: MagicMock, license: MagicMock, _name, authorization, configured_token):
-        headers = {"HTTP_IDEMPOTENCY_KEY": "low-balance-1"}
-        if authorization is not None:
-            headers["HTTP_AUTHORIZATION"] = authorization
-
         with override_settings(AI_GATEWAY_INTERNAL_TOKEN=configured_token):
-            response = self._reload(headers)
+            response = self._reload(authorization=authorization)
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         manager.return_value.reload_ai_balance.assert_not_called()
