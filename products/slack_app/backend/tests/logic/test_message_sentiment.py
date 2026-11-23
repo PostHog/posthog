@@ -16,6 +16,7 @@ from posthog.models.team.team import Team
 from products.slack_app.backend import feature_flags
 from products.slack_app.backend.logic import message_sentiment
 from products.slack_app.backend.logic.message_sentiment import (
+    DEFAULT_FRUSTRATION_GIF_URLS,
     UNHAPPY_REACTION,
     Sentiment,
     SentimentResponseRequest,
@@ -53,7 +54,7 @@ def _model(choice: str) -> MagicMock:
     return client
 
 
-def _flags(response: bool, gif_urls: list[str] | None) -> dict[str, FeatureFlagResult]:
+def _flags(response: bool, gif_urls: list[str] | None, gif_flag: bool | None = None) -> dict[str, FeatureFlagResult]:
     def result(key: str, enabled: bool, payload: object = None) -> FeatureFlagResult:
         return FeatureFlagResult(key=key, enabled=enabled, variant=None, payload=payload, reason=None)
 
@@ -63,7 +64,7 @@ def _flags(response: bool, gif_urls: list[str] | None) -> dict[str, FeatureFlagR
         ),
         feature_flags.SLACK_APP_FRUSTRATION_GIF_FLAG: result(
             feature_flags.SLACK_APP_FRUSTRATION_GIF_FLAG,
-            gif_urls is not None,
+            gif_urls is not None if gif_flag is None else gif_flag,
             json.dumps({"gif_urls": gif_urls}) if gif_urls is not None else None,
         ),
     }
@@ -140,6 +141,12 @@ class TestRespondToSentiment:
         self.slack_client.reactions_add.assert_called_once()
         self.slack_client.chat_postEphemeral.assert_not_called()
         assert self._events() == ["slack app message sentiment classified"]
+
+    def test_gif_flag_without_a_payload_uses_the_default_gifs(self):
+        assert self._respond(_flags(True, None, gif_flag=True), "frustrated") == Sentiment.FRUSTRATED
+
+        image = self.slack_client.chat_postEphemeral.call_args.kwargs["blocks"][0]["image_url"]
+        assert image in DEFAULT_FRUSTRATION_GIF_URLS
 
     def test_flag_off_runs_no_model(self):
         assert self._respond(_flags(False, ["https://example.com/calm.gif"]), "frustrated") is None

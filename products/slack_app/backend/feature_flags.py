@@ -261,10 +261,10 @@ def is_slack_app_frustration_response_enabled(integration: IntegrationRecord, di
     )
 
 
-def slack_app_frustration_gif_urls(integration: IntegrationRecord, distinct_id: str | None) -> tuple[str, ...]:
-    """The GIFs a frustrated person can get, from the flag payload ``{"gif_urls": [...]}``. Empty when the flag is
-    off. The payload lets the team change the GIFs without a deploy. Only ``https://`` URLs pass, because Slack
-    loads the image from the URL, and a malformed payload gives no GIFs instead of an error."""
+def slack_app_frustration_gif_urls(integration: IntegrationRecord, distinct_id: str | None) -> tuple[str, ...] | None:
+    """The GIFs from the flag payload ``{"gif_urls": [...]}``, or ``None`` when the flag is off. The payload lets the
+    team change the GIFs without a deploy. Only ``https://`` URLs pass, because Slack loads the image from the URL.
+    A missing or malformed payload gives an empty tuple, and the caller then uses its default GIFs."""
     try:
         result = posthoganalytics.get_feature_flag_result(
             SLACK_APP_FRUSTRATION_GIF_FLAG,
@@ -276,9 +276,9 @@ def slack_app_frustration_gif_urls(integration: IntegrationRecord, distinct_id: 
         )
     except Exception:
         logger.exception("slack_app_frustration_gif_feature_flag_check_failed", integration_id=integration.id)
-        return ()
+        return None
     if result is None or not result.enabled:
-        return ()
+        return None
     payload = result.payload
     if isinstance(payload, str):
         try:

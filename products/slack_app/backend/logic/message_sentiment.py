@@ -150,6 +150,13 @@ def is_unhappy(message: str, *, team_id: int, distinct_id: str | None, trace_id:
 
 UNHAPPY_REACTION = "bow"
 GIF_ALT_TEXT = "A calming GIF"
+# Used when the GIF flag is on but its payload names no GIFs.
+DEFAULT_FRUSTRATION_GIF_URLS: tuple[str, ...] = (
+    "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExZnozMjJ4MzRiZjNtaTNvb3NoMTVlODFpaHZrZHM4MnExZms0Mm5xYiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/CJZVh75FehozK/giphy.gif",
+    "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExcXlheHR2dXZtY3l2Y3BzNDJyODFtdjk3YnpvNDlnYnVlY3EyY3VodiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/3o6wNLivpQhzAEdYhq/giphy.gif",
+    "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExN3psNG16cnlvbWtieDhlZjhlbTJjeHB2MnFlMDB6NG45OTQ3eXM1ZiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/ijfxMxbdvLhM8PwHQF/giphy.gif",
+    "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExZnozMjJ4MzRiZjNtaTNvb3NoMTVlODFpaHZrZHM4MnExZms0Mm5xYiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/7OfNbBQHgxYVG/giphy.gif",
+)
 
 
 @frozen
@@ -209,9 +216,9 @@ def respond_to_sentiment(request: SentimentResponseRequest) -> Sentiment | None:
 
 def _send_gif(request: SentimentResponseRequest, client: WebClient, distinct_id: str | None) -> None:
     gif_urls = slack_app_frustration_gif_urls(request.integration, distinct_id)
-    if not gif_urls:
+    if gif_urls is None:
         return
-    gif_url = random.choice(gif_urls)
+    gif_url = random.choice(gif_urls or DEFAULT_FRUSTRATION_GIF_URLS)
     try:
         post_slack_ephemeral(
             client,
