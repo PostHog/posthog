@@ -77,12 +77,13 @@ import {
     parseAddressList,
     parseTierCaps,
     sanitizeEmailSubject,
+    sendDeadlineMsFor,
     teamEmailCapBucket,
 } from './email.service'
 import { MailDevAPI, mailDevWebUrl } from './helpers/maildev'
 import { SesWebhookHandler } from './helpers/ses'
 import { EmailTrackingCodeSigner, MESSAGE_CREATED_HEADER_NAME } from './helpers/tracking-code'
-import { InFlightRegistry } from './in-flight-registry'
+import { InFlightRegistry, LARGEST_SEND_FILE_BYTES } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
 import { MESSAGE_MAX_BYTES } from './message-estimate'
 import { RecipientTokensService } from './recipient-tokens.service'
@@ -172,6 +173,17 @@ function decodeEncodedWord(word: string): string {
               )
     return bytes.toString('utf8')
 }
+
+describe('sendDeadlineMsFor', () => {
+    it.each([
+        ['empty files', 0, 17_000],
+        ['files half the size limit', LARGEST_SEND_FILE_BYTES / 2, 31_000],
+        ['files at the size limit', LARGEST_SEND_FILE_BYTES, 45_000],
+        ['files past the size limit', LARGEST_SEND_FILE_BYTES * 2, 45_000],
+    ])('gives a send with %s its deadline', (_case, fileBytes, deadlineMs) => {
+        expect(sendDeadlineMsFor(fileBytes)).toBe(deadlineMs)
+    })
+})
 
 describe('parseAddressList', () => {
     it.each([

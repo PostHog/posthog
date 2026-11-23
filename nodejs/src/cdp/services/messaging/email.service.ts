@@ -67,7 +67,13 @@ import {
 import { transactionalEmailIdentity, transactionalEmailIdentityTags } from './helpers/transactional-email-identity'
 import { WorkflowRunTag } from './helpers/utm'
 import { parseWorkflowEmailPause } from './helpers/workflow-email-pause'
-import { callsSettledBefore, declaredFileBytes, exceedsLargestSend, settledBeforeAbort } from './in-flight-registry'
+import {
+    LARGEST_SEND_FILE_BYTES,
+    callsSettledBefore,
+    declaredFileBytes,
+    exceedsLargestSend,
+    settledBeforeAbort,
+} from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
 import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
 import {
@@ -215,7 +221,15 @@ const EMAIL_MESSAGE_TOO_LARGE = 'message_too_large'
 const MAX_ATTACHMENT_LOAD_RETRIES = 10
 const MAX_OWNERSHIP_CHECK_RETRIES = 5
 export const ATTACHMENT_SEND_DEADLINE_MS = 17_000
+export const LARGEST_SEND_DEADLINE_MS = 45_000
 const OWNERSHIP_CHECK_TIMEOUT_MS = 5_000
+
+// A larger message takes longer to load and to hand to SES, so the deadline grows with the files, from that of a
+// small send up to LARGEST_SEND_DEADLINE_MS at the size limit.
+export function sendDeadlineMsFor(fileBytes: number): number {
+    const share = Math.min(1, fileBytes / LARGEST_SEND_FILE_BYTES)
+    return Math.round(ATTACHMENT_SEND_DEADLINE_MS + share * (LARGEST_SEND_DEADLINE_MS - ATTACHMENT_SEND_DEADLINE_MS))
+}
 
 class EmailSendDeadlineError extends Error {
     constructor(cause: unknown) {
@@ -889,7 +903,9 @@ export class EmailService {
                   }
                 : paramsWithReplyTo
 
-            const sendDeadlineMs = this.sesConfig.attachmentSendDeadlineMs ?? ATTACHMENT_SEND_DEADLINE_MS
+            const sendDeadlineMs =
+                this.sesConfig.attachmentSendDeadlineMs ??
+                sendDeadlineMsFor(declaredFileBytes(params.attachments ?? []))
             const sendDeadlineAt = Date.now() + sendDeadlineMs
             const deadline = params.attachments?.length ? AbortSignal.timeout(sendDeadlineMs) : undefined
             const files = deadline ? await this.loadAttachments(invocation.teamId, params.attachments!, deadline) : []

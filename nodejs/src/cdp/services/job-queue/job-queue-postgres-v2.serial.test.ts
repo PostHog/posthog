@@ -16,6 +16,7 @@ import { HogInputsService } from '../hog-inputs.service'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { IntegrationSource } from '../managers/integration-source'
 import { CONSUMER_STOP_DEADLINE_MS, CyclotronJobQueuePostgresV2 } from './job-queue-postgres-v2'
+import { ConsumerOptions } from './job-queue.interface'
 
 describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
     const ENCRYPTION_SALT_KEYS = '00beef0000beef0000beef0000beef00'
@@ -144,13 +145,18 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
     async function consume(
         queue: CyclotronJobQueuePostgresV2,
         from: string,
-        work: (invocations: CyclotronJobInvocation[]) => Promise<unknown> = () => Promise.resolve()
+        work: (invocations: CyclotronJobInvocation[]) => Promise<unknown> = () => Promise.resolve(),
+        options?: ConsumerOptions
     ): Promise<{ claimed: (count?: number) => Promise<CyclotronJobInvocation[]> }> {
         const claims: CyclotronJobInvocation[] = []
-        await queue.startAsConsumer(from as CyclotronJobQueueKind, (invocations) => {
-            claims.push(...invocations)
-            return Promise.resolve({ backgroundTask: invocations.length ? work(invocations) : Promise.resolve() })
-        })
+        await queue.startAsConsumer(
+            from as CyclotronJobQueueKind,
+            (invocations) => {
+                claims.push(...invocations)
+                return Promise.resolve({ backgroundTask: invocations.length ? work(invocations) : Promise.resolve() })
+            },
+            options
+        )
         return {
             claimed: (count = 1) =>
                 waitForExpect(
@@ -646,24 +652,30 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         await stopped
     })
 
-    it('returns at the stop deadline, counted from the start of the stop, when the database stops answering mid-write', async () => {
-        const proxy = await startStallableProxy()
-        const queue = await startQueue(proxy.url)
-        await enqueue(queue)
-        const [claimed] = await (await consume(queue, queueName)).claimed()
+    it.each([
+        ['the stop deadline', undefined, CONSUMER_STOP_DEADLINE_MS],
+        ['the stop deadline its consumer sets', CONSUMER_STOP_DEADLINE_MS + 30_000, CONSUMER_STOP_DEADLINE_MS + 30_000],
+    ])(
+        'returns at %s, counted from the start of the stop, when the database stops answering mid-write',
+        async (_name, stopDeadlineMs, deadlineMs) => {
+            const proxy = await startStallableProxy()
+            const queue = await startQueue(proxy.url)
+            await enqueue(queue)
+            const [claimed] = await (await consume(queue, queueName, undefined, { stopDeadlineMs })).claimed()
 
-        proxy.stall()
-        void queue.queueInvocationResults([finished(claimed)]).catch(() => undefined)
-        void enqueue(queue).catch(() => undefined)
-        useFakeClock()
-        const { returned, stopped } = stopBoth(queue)
-        await jest.advanceTimersByTimeAsync(CONSUMER_STOP_DEADLINE_MS - 1)
-        expect(returned()).toBe(false)
-        await jest.advanceTimersByTimeAsync(1 + TIMER_SLACK_MS)
+            proxy.stall()
+            void queue.queueInvocationResults([finished(claimed)]).catch(() => undefined)
+            void enqueue(queue).catch(() => undefined)
+            useFakeClock()
+            const { returned, stopped } = stopBoth(queue)
+            await jest.advanceTimersByTimeAsync(deadlineMs - 1)
+            expect(returned()).toBe(false)
+            await jest.advanceTimersByTimeAsync(1 + TIMER_SLACK_MS)
 
-        expect(returned()).toBe(true)
-        await stopped
-    })
+            expect(returned()).toBe(true)
+            await stopped
+        }
+    )
 
     const leaseRows = [
         {

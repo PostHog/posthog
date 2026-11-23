@@ -13,6 +13,8 @@ export type ConsumerOptions = Pick<KafkaConsumerConfig, 'fetchBatchSize' | 'maxB
     // A factory, because the guard keys its counts by the consumer group, which the queue names. produce goes
     // through the queue's own producer.
     crashGuard?: (consumer: { groupId: string; produce: (message: ProducerMessage) => Promise<void> }) => CrashGuard
+    // Only the Postgres queue reads this: how long its stop waits for the work in progress.
+    stopDeadlineMs?: number
 }
 
 /**

@@ -44,7 +44,11 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
-import { CdpCyclotronWorkerEmail, RESULT_WRITE_MARGIN_MS } from './cdp-cyclotron-worker-email.consumer'
+import {
+    CdpCyclotronWorkerEmail,
+    EMAIL_STOP_DEADLINE_MS,
+    RESULT_WRITE_MARGIN_MS,
+} from './cdp-cyclotron-worker-email.consumer'
 
 jest.setTimeout(60_000)
 
@@ -666,6 +670,22 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
                 }
             }
         }
+
+        it('waits for a result write that hangs until the email stop deadline, past the stop deadline of other queues', async () => {
+            const [id] = await enqueue(transactionalSend(null))
+            const write = cyclotron.hold(writeOf(completes, id))
+            const worker = await startWorker(null)
+            await write
+            useFakeClock()
+
+            let stopReturned = false
+            void worker.stop().then(() => (stopReturned = true))
+            await jest.advanceTimersByTimeAsync(CONSUMER_STOP_DEADLINE_MS + 1_000)
+            expect(stopReturned).toBe(false)
+            await jest.advanceTimersByTimeAsync(EMAIL_STOP_DEADLINE_MS - CONSUMER_STOP_DEADLINE_MS)
+
+            expect(stopReturned).toBe(true)
+        })
 
         it('writes its result once its deadline and the wait for its call passed, before a stop that starts while it runs returns, and keeps its room taken', async () => {
             const [stuck] = await enqueue(transactionalSend([invoice.metadata]))

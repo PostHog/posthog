@@ -5,11 +5,11 @@ import { canSendEmail } from '~/cdp/services/hogflows/hogflow-utils'
 import { logger } from '~/common/utils/logger'
 import { PluginsServerConfig } from '~/types'
 
-import { CONSUMER_STOP_DEADLINE_MS, reportResultWriteFailure } from '../services/job-queue/job-queue-postgres-v2'
-import { JobQueue } from '../services/job-queue/job-queue.interface'
+import { reportResultWriteFailure } from '../services/job-queue/job-queue-postgres-v2'
+import { ConsumerOptions, JobQueue } from '../services/job-queue/job-queue.interface'
 import { LONGEST_WAIT_FOR_ROOM_MS } from '../services/messaging/attachment-horizon'
 import { DAY_MS } from '../services/messaging/attachment-store'
-import { ATTACHMENT_SEND_DEADLINE_MS } from '../services/messaging/email.service'
+import { LARGEST_SEND_DEADLINE_MS } from '../services/messaging/email.service'
 import {
     InFlightRegistry,
     callsSettledWithin,
@@ -29,7 +29,10 @@ export const RESULT_WRITE_MARGIN_MS = 5_000
 const ATTACHMENT_WAIT_EXPIRED = 'attachment_wait_expired'
 const WAITED_TOO_LONG_MESSAGE = `${ATTACHMENT_WAIT_EXPIRED}: this email waited ${LONGEST_WAIT_FOR_ROOM_MS / DAY_MS} days for an email worker with room for its files, so it was not sent before its files could expire. Send it again.`
 const waitedTooLongForRoom = new WeakSet<CyclotronJobInvocation>()
-const CALLS_SETTLE_BEFORE_WRITE_MS = CONSUMER_STOP_DEADLINE_MS - ATTACHMENT_SEND_DEADLINE_MS - RESULT_WRITE_MARGIN_MS
+const CALLS_SETTLE_BEFORE_WRITE_MS = 3_000
+// Long enough for a send at the size limit that starts right before the stop to reach its deadline, wait for its
+// calls, and write its result.
+export const EMAIL_STOP_DEADLINE_MS = LARGEST_SEND_DEADLINE_MS + CALLS_SETTLE_BEFORE_WRITE_MS + RESULT_WRITE_MARGIN_MS
 
 export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
     protected override name = 'CdpCyclotronWorkerEmail'
@@ -168,6 +171,10 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
         )
         const unchecked = invocations.filter((invocation) => !Object.hasOwn(checked, invocation.functionId))
         return { ...(await super.hogFlowsFor(unchecked)), ...checked }
+    }
+
+    protected override consumerOptions(): ConsumerOptions {
+        return { ...super.consumerOptions(), stopDeadlineMs: EMAIL_STOP_DEADLINE_MS }
     }
 
     protected override async queueInvocationResults(results: CyclotronJobInvocationResult[]): Promise<void> {
