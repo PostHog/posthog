@@ -75,12 +75,13 @@ tools:
             supported. If the domain already has a DMARC record, the URL leaves it out and keeps the existing policy.
             You cannot open this URL yourself: give it to the person you work with. They sign in at their DNS host and
             approve the records there; nothing changes until they approve. The URL publishes the email provider's
-            records only: after approval, read integrations-email-status-retrieve and add an organization TXT record by
-            hand when it lists one. Before adding any other record that is still pending, confirm at the DNS host that
-            it is missing, since a lookup can lag and a second SPF or DMARC record breaks both. Then poll
-            integrations-email-status-retrieve until its status is verified, and call integrations-email-verify-create
-            once. If this tool returns an error, fall back to adding the records from integrations-email-status-retrieve
-            by hand.
+            records only. After approval, read integrations-email-status-retrieve. Before adding any record it lists as
+            pending, such as an organization TXT record, confirm at the DNS host that the record is missing, since a
+            lookup can lag and a second SPF or DMARC record breaks both. Then poll integrations-email-status-retrieve
+            until its status is verified, and call integrations-email-verify-create once. If the status is failed or
+            not_started, call integrations-email-verify-create to restart setup instead of polling. Stop polling after
+            about 15 minutes and tell the person which records are still pending. If this tool returns an error, fall
+            back to adding the records from integrations-email-status-retrieve by hand.
         exclude_params:
             - context
             - proxy_record_id
