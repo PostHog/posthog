@@ -228,6 +228,18 @@ def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Colle
     return logic.insights_including_soft_deleted_for_team(team_id=team_id, insight_ids=insight_ids)
 
 
+def insights_in_project(*, project_id: int, insight_ids: Collection[int]) -> list[Insight]:
+    return logic.insights_in_project(project_id=project_id, insight_ids=insight_ids)
+
+
+def insights_including_soft_deleted_in_project(*, project_id: int, insight_ids: Collection[int]) -> list[Insight]:
+    return logic.insights_including_soft_deleted_in_project(project_id=project_id, insight_ids=insight_ids)
+
+
+def live_insights_in_team_by_short_ids(*, team_id: int, short_ids: Collection[str]) -> list[Insight]:
+    return logic.live_insights_in_team_by_short_ids(team_id=team_id, short_ids=short_ids)
+
+
 def live_insight_ids_by_team(*, team_ids: Collection[int], insight_ids: Collection[int]) -> dict[int, set[int]]:
     """Which of the given insights in these teams are not deleted, by team, in one query."""
     live: dict[int, set[int]] = {}

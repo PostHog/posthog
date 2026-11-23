@@ -71,6 +71,7 @@ from posthog.api.sharing_publish_gate import (
     check_can_add_insight_to_dashboard,
     dashboard_filter_leaves,
     dashboard_shared_or_subscribed,
+    insights_denied_to,
     is_publicly_shared,
 )
 from posthog.api.streaming import sse_streaming_response
@@ -237,7 +238,10 @@ from products.notifications.backend.facade.api import (
     create_notification,
     has_been_dispatched,
 )
-from products.product_analytics.backend.facade.api import insight_variables_for_team
+from products.product_analytics.backend.facade.api import (
+    insight_variables_for_team,
+    insights_including_soft_deleted_in_project,
+)
 from products.product_analytics.backend.facade.models import Insight
 from products.product_analytics.backend.presentation.insight import (
     INCLUDE_DASHBOARDS_PARAMETER,
@@ -2832,7 +2836,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         # Un-deleting a tile re-exposes its insight on the dashboard's public link.
         insight = existing.insight
         if became_live and insight is not None:
-            check_can_add_insight_to_dashboard(user, instance, insight.query)
+            check_can_add_insight_to_dashboard(user, instance, insight.query, insight=insight)
 
         marking_changed = any(
             getattr(existing, field) != tile_defaults[field]
@@ -3072,19 +3076,24 @@ class DashboardSerializer(DashboardMetadataSerializer):
         exposure = dashboard_shared_or_subscribed(instance)
         if exposure is None:
             return
-        queries = [
-            query
-            for query in Insight.objects_including_soft_deleted.filter(
-                dashboard_tiles__dashboard_id=instance.id, dashboard_tiles__deleted=True
-            )
-            .distinct()
-            .values_list("query", flat=True)
-            if isinstance(query, dict)
-        ]
-        if denied_resources := denied_query_resources(user, instance.team, queries):
-            denied_names = ", ".join(f"`{name}`" for name in denied_resources)
+        restored = insights_including_soft_deleted_in_project(
+            project_id=instance.team.project_id,
+            insight_ids=set(
+                DashboardTile.objects_including_soft_deleted.filter(dashboard_id=instance.id, deleted=True).values_list(
+                    "insight_id", flat=True
+                )
+            ),
+        )
+        queries = [insight.query for insight in restored if isinstance(insight.query, dict)]
+        denied_resources = denied_query_resources(user, instance.team, queries)
+        denied_insights = insights_denied_to(user_access_control, restored)
+        if denied_resources or denied_insights:
+            denied_parts = [f"`{name}`" for name in denied_resources]
+            if denied_insights:
+                count = len(denied_insights)
+                denied_parts.append(f"{count} insight{'' if count == 1 else 's'}")
             raise serializers.ValidationError(
-                f"Can't restore this dashboard: you don't have access to {denied_names}, and this dashboard is {exposure}."
+                f"Can't restore this dashboard: you don't have access to {', '.join(denied_parts)}, and this dashboard is {exposure}."
             )
 
     @staticmethod
@@ -3833,7 +3842,11 @@ class DashboardsViewSet(
         if tile.insight is not None:
             # The destination's public link must not expose a query the editor can't run.
             check_can_add_insight_to_dashboard(
-                cast(User, request.user), to_dashboard_obj, tile.insight.query, self.user_access_control
+                cast(User, request.user),
+                to_dashboard_obj,
+                tile.insight.query,
+                self.user_access_control,
+                insight=tile.insight,
             )
         try:
             with transaction.atomic():
@@ -3913,7 +3926,11 @@ class DashboardsViewSet(
 
             # The destination's public link must not expose a query the editor can't run.
             check_can_add_insight_to_dashboard(
-                cast(User, request.user), destination, tile.insight.query, user_access_control
+                cast(User, request.user),
+                destination,
+                tile.insight.query,
+                user_access_control,
+                insight=tile.insight,
             )
         elif tile.text is not None:
             if DashboardTile.objects.filter(dashboard=destination, text=tile.text).exists():
@@ -3969,7 +3986,9 @@ class DashboardsViewSet(
                     raise exceptions.ValidationError(
                         "An insight in this group is already on the destination dashboard."
                     )
-                check_can_add_insight_to_dashboard(cast(User, request.user), destination, insight.query, access)
+                check_can_add_insight_to_dashboard(
+                    cast(User, request.user), destination, insight.query, access, insight=insight
+                )
             elif tile.text_id:
                 if DashboardTile.objects.filter(dashboard=destination, text_id=tile.text_id).exists():
                     raise exceptions.ValidationError(
