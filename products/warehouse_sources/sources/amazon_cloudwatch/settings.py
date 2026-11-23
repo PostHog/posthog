@@ -174,6 +174,10 @@ AWS_SESSION_ACTIONS = (
     "cloudwatch:DescribeAlarmHistory",
     "cloudwatch:DescribeAlarms",
     "cloudwatch:GetMetricData",
+    "cloudwatch:ListMetrics",
     "logs:DescribeLogGroups",
+    "logs:DescribeLogStreams",
+    "logs:DescribeMetricFilters",
     "logs:FilterLogEvents",
+    "logs:ListAnomalies",
 )
