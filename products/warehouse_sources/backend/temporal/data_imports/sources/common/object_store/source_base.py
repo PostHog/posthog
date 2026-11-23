@@ -52,6 +52,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     BLOCKED_LOCATION_ERROR,
     DELTA_UNSUPPORTED_ERROR,
     FILE_PARSE_ERROR,
+    FILE_REMOVED_ERROR,
     INVALID_CONFIG_ERROR,
     NO_SUCH_BUCKET_ERROR,
     NO_TABLE_FILES_ERROR,
@@ -212,6 +213,12 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
             FILE_PARSE_ERROR: None,
             DELTA_UNSUPPORTED_ERROR: None,
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # A file listed by `_resolve_files` can be deleted, moved, or replaced by the time
+        # `_iter_files` opens it. The next sync lists again and skips the gone file, so this
+        # self-heals and must not disable the schema or report as a bug.
+        return {FILE_REMOVED_ERROR}
 
     def _discover(
         self, store: ObjectStore, config: ConfigType, logger: FilteringBoundLogger | None = None
@@ -648,3 +655,9 @@ def _iter_files(
                 yield from iter_file_tables(stream, stored, file_format, resolved.csv, logger)
         except PermissionError as e:
             _raise_translated(e, store.root)
+        except FileNotFoundError as e:
+            # Listed moments earlier by `_resolve_files`; gone by the time it's opened here. A bare
+            # FileNotFoundError would otherwise escape untranslated, with only its path as the
+            # message, and `translate_storage_error`'s FileNotFoundError branch means something
+            # else here (a missing bucket from a listing call), so this is raised directly.
+            raise ObjectStorageError(f"{FILE_REMOVED_ERROR} '{store.path(stored.path)}'") from e
