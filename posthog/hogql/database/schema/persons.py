@@ -492,7 +492,8 @@ class PersonsTable(LazyTable):
         """A copy of this table whose `filter` is an unresolved copy of the join's `persons.id IN (...)` conjuncts.
 
         The join keeps its constraint, so the resolved tree still holds the predicate. `take_join_filter` removes the
-        resolved predicate later. `lazy_select` resolves the unresolved copy inside the persons subselect, as it
+        resolved predicate later. A conjunct that reads an unqualified persons field leaves the join here instead,
+        so the resolved tree does not hold it and the checks on the tree do not read it. `lazy_select` resolves the unresolved copy inside the persons subselect, as it
         would resolve the written predicate, so the printed SQL does not depend on how the resolver rewrote it.
         """
         if join.constraint is None or not isinstance(join.constraint.expr, And):
@@ -510,7 +511,7 @@ class PersonsTable(LazyTable):
         moved_indexes = {
             i
             for i in promotable
-            if PersonsTable._reads_unqualified_field(cast(CompareOperation, join.constraint.expr.exprs[i]).right)
+            if self._reads_unqualified_field(cast(CompareOperation, join.constraint.expr.exprs[i]).right)
         }
         moved: list[Expr] = []
         for i in sorted(moved_indexes):
@@ -535,10 +536,13 @@ class PersonsTable(LazyTable):
         p.filter_source_length = len(conjuncts)
         return p
 
-    @staticmethod
-    def _reads_unqualified_field(expr: Expr) -> bool:
-        """Whether the expression names a field without a table, outside any subquery that has a scope of its own."""
+    def _reads_unqualified_field(self, expr: Expr) -> bool:
+        """Whether the expression names a persons field without a table, outside any subquery that has a scope of its own.
+
+        `properties.x` counts, because its first part is a persons field and not a table.
+        """
         found = False
+        persons_fields = self.fields
 
         class _Finder(TraversingVisitor):
             def visit_select_query(self, node):
@@ -549,7 +553,7 @@ class PersonsTable(LazyTable):
 
             def visit_field(self, node):
                 nonlocal found
-                if len(node.chain) == 1:
+                if len(node.chain) == 1 or node.chain[0] in persons_fields:
                     found = True
 
         _Finder().visit(expr)

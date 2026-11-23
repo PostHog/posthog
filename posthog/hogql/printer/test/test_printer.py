@@ -4887,6 +4887,31 @@ class TestPrinter(BaseTest):
         persons_subselect = printed.split("FROM person WHERE")[-1].split(") AS p")[0]
         assert "in(id, JSONExtract(person.properties" in persons_subselect
 
+    def test_inline_persons_filter_reads_an_unqualified_persons_property_chain(self):
+        printed = self._print(
+            """
+            select count() from events as e
+                     join persons as p on e.person_id = p.id and p.id in properties.ids
+            """,
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        assert "in(id, " in printed.split("FROM person WHERE")[-1].split(") AS p")[0]
+
+    def test_inline_persons_moves_an_unqualified_filter_next_to_a_held_one(self):
+        printed = self._print(
+            """
+            select count() from events as e
+                     join persons as p on e.person_id = p.id
+                         and p.id in JSONExtract(properties, 'ids', 'Array(UUID)')
+                         and p.id in (1, 2)
+            """,
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        persons_subselect = printed.split("FROM person WHERE")[-1].split(") AS p")[0]
+        assert "in(id, JSONExtract(person.properties" in persons_subselect
+        assert "in(id, tuple(1, 2))" in persons_subselect
+        assert "in(p.id" not in printed
+
     def test_inline_persons_subquery_that_reads_an_outer_cte(self):
         printed = self._print(
             """
