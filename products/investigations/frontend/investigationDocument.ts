@@ -1,5 +1,11 @@
 import { z } from 'zod'
 
+const documentEncoder = new TextEncoder()
+
+export function isInvestigationWithinSizeLimit(document: InvestigationDocument): boolean {
+    return documentEncoder.encode(JSON.stringify(document)).byteLength <= 500_000
+}
+
 const text = z.string().max(10000)
 const id = z.string().min(1).max(128)
 const cell = z.union([z.string().max(2000), z.number().finite(), z.boolean(), z.null()])
@@ -34,7 +40,9 @@ export const investigationResultSchema = z.object({
 
 export const investigationRunSchema = z.object({
     id,
-    at: z.string().datetime(),
+    at: z.iso
+        .datetime({ offset: true, local: true })
+        .transform((timestamp) => (/(?:Z|[+-]\d\d:\d\d)$/.test(timestamp) ? timestamp : timestamp + 'Z')),
     conclusion: text,
     results: z.array(investigationResultSchema).max(12),
 })

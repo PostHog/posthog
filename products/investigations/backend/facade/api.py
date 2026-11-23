@@ -1,11 +1,15 @@
 from uuid import UUID
 
+from posthog.models import Team, User
+
 from ..logic import operations
 from .contracts import InvestigationDocument, InvestigationSummary, SavedInvestigation
 
 
-def list_investigations(team_id: int, search: str, offset: int, limit: int) -> tuple[list[InvestigationSummary], int]:
-    return operations.list_investigations(team_id, search, offset, limit)
+def list_investigations(
+    team: Team, search: str, offset: int, limit: int, *, user: User | None
+) -> tuple[list[InvestigationSummary], int]:
+    return operations.list_investigations(team, search, offset, limit, user=user)
 
 
 def get_investigation(team_id: int, id: UUID) -> SavedInvestigation:

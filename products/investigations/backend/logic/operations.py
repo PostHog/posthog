@@ -2,8 +2,12 @@ from dataclasses import asdict
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Func, IntegerField, QuerySet
+from django.db.models.fields.json import KT
 
-from posthog.models.utils import strict_fetch
+from posthog.models import Team, User
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 from ..facade.contracts import (
     InvestigationConflict,
@@ -34,13 +38,41 @@ def saved(obj: Investigation) -> SavedInvestigation:
     return SavedInvestigation(**asdict(summary(obj)), document=obj.document)
 
 
-def list_investigations(team_id: int, search: str, offset: int, limit: int) -> tuple[list[InvestigationSummary], int]:
-    queryset = Investigation.objects.for_team(team_id).filter(deleted=False)
+def list_investigations(
+    team: Team, search: str, offset: int, limit: int, *, user: User | None
+) -> tuple[list[InvestigationSummary], int]:
+    queryset: QuerySet[Investigation] = Investigation.objects.for_team(team.pk).filter(deleted=False)
+    if user is not None:
+        user_access_control = UserAccessControl(user=user, team=team)
+        queryset = user_access_control.filter_queryset_by_access_level(queryset, resource="investigation")
     if search:
         queryset = queryset.filter(document__question__icontains=search)
     count = queryset.count()
-    rows = strict_fetch(queryset.order_by("-updated_at", "-id")[offset : offset + limit])
-    return [summary(obj) for obj in rows], count
+    rows = queryset.order_by("-updated_at", "-id").values(
+        "id",
+        "revision",
+        "updated_at",
+        "created_at",
+        "created_by",
+        question=KT("document__question"),
+        status=KT("document__status"),
+        evidence_count=Func("document__evidence", function="jsonb_array_length", output_field=IntegerField()),
+        run_count=Func("document__runs", function="jsonb_array_length", output_field=IntegerField()),
+    )
+    return [
+        InvestigationSummary(
+            id=row["id"],
+            question=row["question"],
+            status=InvestigationStage(row["status"]),
+            revision=row["revision"],
+            evidence_count=row["evidence_count"],
+            run_count=row["run_count"],
+            updated_at=row["updated_at"],
+            created_at=row["created_at"],
+            created_by=row["created_by"],
+        )
+        for row in rows[offset : offset + limit]
+    ], count
 
 
 def get_investigation(team_id: int, id: UUID) -> SavedInvestigation:

@@ -55,6 +55,29 @@ describe('investigation persistence', () => {
         expect(logic.values.record?.revision).toBe(2)
     })
 
+    it('keeps newer edits open when a copy finishes saving', async () => {
+        let finish: () => void = () => {}
+        const pending = new Promise<void>((resolve) => {
+            finish = resolve
+        })
+        useMocks({
+            post: {
+                '/api/projects/:team_id/investigations/': async () => {
+                    await pending
+                    return { ...record, id: '019a0000-0000-7000-8000-000000000002' }
+                },
+            },
+        })
+        logic.actions.saveCopy()
+        logic.actions.changeDocument({ ...record.document, conclusion: 'Added during copy' })
+        finish()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.document?.conclusion).toBe('Added during copy')
+        expect(logic.values.dirty).toBe(true)
+        expect(logic.values.discarded).toBe(false)
+        expect(logic.values.error).toContain('Copy saved')
+    })
+
     it.each(['save', 'archive'] as const)('keeps the local document after a conflicting %s', async (action) => {
         useMocks({
             patch: { '/api/projects/:team_id/investigations/:id/': [409, { detail: 'Newer revision exists' }] },

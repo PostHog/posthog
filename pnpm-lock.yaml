@@ -4359,8 +4359,8 @@ importers:
         specifier: 18.3.1
         version: 18.3.1
       zod:
-        specifier: 4.3.6
-        version: 4.3.6
+        specifier: 4.6.7
+        version: 4.6.7
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'

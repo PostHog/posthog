@@ -7,7 +7,11 @@ import { aiShellLogic } from '~/layout/ai/aiShellLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
-import { InvestigationDocument, investigationDocumentSchema } from './investigationDocument'
+import {
+    InvestigationDocument,
+    investigationDocumentSchema,
+    isInvestigationWithinSizeLimit,
+} from './investigationDocument'
 import { investigationQuerySessionLogic } from './investigationQuerySessionLogic'
 import {
     INVESTIGATION_QUERY_TASKS,
@@ -163,7 +167,7 @@ export const investigationQueryAssistantLogic = kea<investigationQueryAssistantL
                 return
             }
             const { document, evidenceId } = applyQueryProposal(props.document, request, proposal, mode)
-            if (!investigationDocumentSchema.safeParse(document).success || JSON.stringify(document).length > 500_000) {
+            if (!investigationDocumentSchema.safeParse(document).success || !isInvestigationWithinSizeLimit(document)) {
                 actions.setError(
                     'This investigation is too large to save the query. Remove older evidence or shorten the text first.'
                 )

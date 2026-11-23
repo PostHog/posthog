@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, getContext, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
 import posthog from 'posthog-js'
 
+import api, { ApiConfig } from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { uuid } from 'lib/utils/dom'
 
@@ -13,6 +14,7 @@ import {
     InvestigationResult,
     appendInvestigationRun,
     investigationDocumentSchema,
+    isInvestigationWithinSizeLimit,
     snapshotInvestigationResult,
 } from './investigationDocument'
 
@@ -81,7 +83,7 @@ export const investigationLogic = kea<investigationLogicType>([
                 return
             }
             const parsed = investigationDocumentSchema.safeParse(document)
-            if (!parsed.success || JSON.stringify(document).length > 500_000) {
+            if (!parsed.success || !isInvestigationWithinSizeLimit(document)) {
                 actions.setError(
                     'This investigation is too large or contains invalid values. Shorten the text or remove evidence and try again.'
                 )
@@ -129,14 +131,17 @@ export const investigationLogic = kea<investigationLogicType>([
                     }
                     actions.setCompleted(results.length)
                 }
-                actions.changeDocument(
-                    appendInvestigationRun(values.document, {
-                        id: uuid(),
-                        at: new Date().toISOString(),
-                        conclusion,
-                        results,
-                    })
-                )
+                const updated = appendInvestigationRun(values.document, {
+                    id: uuid(),
+                    at: new Date().toISOString(),
+                    conclusion,
+                    results,
+                })
+                if (!isInvestigationWithinSizeLimit(updated)) {
+                    actions.setError('This run is too large to save. Return fewer rows or columns and try again.')
+                    return
+                }
+                actions.changeDocument(updated)
                 actions.setTab('history')
                 posthog.capture('notebook investigation run finished', {
                     query_count: results.length,
@@ -185,15 +190,28 @@ async function executeInvestigationEvidence(
     evidence: InvestigationEvidence,
     signal: AbortSignal
 ): Promise<InvestigationResult> {
-    const response = await performQuery<HogQLQuery>(
-        {
-            kind: NodeKind.HogQLQuery,
-            query: evidence.sql,
-            tags: { productKey: ProductKey.INVESTIGATIONS, name: 'investigation_evidence' },
-        },
-        { signal: signal, queryTelemetry: 'metadata' },
-        'force_async'
-    )
-
-    return snapshotInvestigationResult(evidence, response.columns ?? [], response.results ?? [], response.hasMore)
+    if (signal.aborted) {
+        throw new DOMException('The operation was aborted.', 'AbortError')
+    }
+    const queryId = uuid()
+    const teamId = ApiConfig.getCurrentTeamId()
+    const cancel = (): void => {
+        void api.cancelQuery(queryId, teamId).catch((error) => posthog.captureException(error))
+    }
+    signal.addEventListener('abort', cancel, { once: true })
+    try {
+        const response = await performQuery<HogQLQuery>(
+            {
+                kind: NodeKind.HogQLQuery,
+                query: evidence.sql,
+                tags: { productKey: ProductKey.INVESTIGATIONS, name: 'investigation_evidence' },
+            },
+            { signal, queryTelemetry: 'metadata' },
+            'force_async',
+            queryId
+        )
+        return snapshotInvestigationResult(evidence, response.columns ?? [], response.results ?? [], response.hasMore)
+    } finally {
+        signal.removeEventListener('abort', cancel)
+    }
 }

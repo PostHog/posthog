@@ -262,7 +262,6 @@ export type InvestigationsListParams = {
     offset?: number
     /**
      * Search the investigation question.
-     * @minLength 1
      * @maxLength 500
      */
     search?: string

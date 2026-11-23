@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlay, IconX } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCollapse, LemonTabs, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
 import { aiShellLogic } from '~/layout/ai/aiShellLogic'
 
@@ -137,16 +137,7 @@ export function InvestigationWorkspace(props: InvestigationLogicProps): JSX.Elem
                 </div>
                 {canUseAssistant && (
                     <aside className="min-w-0 pt-4" aria-label="Query assistance">
-                        <LemonCollapse
-                            defaultActiveKey="assistant"
-                            panels={[
-                                {
-                                    key: 'assistant',
-                                    header: 'Query assistance',
-                                    content: <InvestigationQueryAssistant {...assistantProps} />,
-                                },
-                            ]}
-                        />
+                        <InvestigationQueryAssistant {...assistantProps} />
                     </aside>
                 )}
             </div>

@@ -1,11 +1,15 @@
 from copy import deepcopy
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
+
+from django.core.cache.backends.locmem import LocMemCache
 
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.rate_limit import InvestigationWriteBurstRateThrottle
 
 from products.access_control.backend.facade.testing import create_access_control
 
@@ -46,10 +50,11 @@ class TestInvestigationAPI(APIBaseTest):
         self.assertEqual(updated.data["revision"], 2)
         stale_payloads: list[dict[str, object]] = [{"document": document()}, {"deleted": True}]
         for payload in stale_payloads:
-            stale = self.client.patch(url, {"revision": 1, **payload}, format="json")
+            stale = self.client.patch(url, payload, format="json")
             self.assertEqual(stale.status_code, 409)
         retrieved = self.client.get(url)
         self.assertEqual(retrieved.data["document"], edited)
+        self.assertEqual(self.client.get(self.url, {"search": ""}).data["count"], 1)
         self.assertEqual(self.client.get(self.url, {"search": "trial"}).data["count"], 1)
         self.assertEqual(self.client.get(self.url, {"search": "missing"}).data["count"], 0)
         self.assertEqual(self.client.patch(url, {"revision": 2, "deleted": True}, format="json").status_code, 200)
@@ -85,6 +90,67 @@ class TestInvestigationAPI(APIBaseTest):
         record = Investigation.objects.for_team(self.team.id).create(team_id=self.team.id, document=document())
         response = self.client.patch(f"{self.url}{record.id}/", {"document": document()}, format="json")
         self.assertEqual(response.status_code, 400)
+
+    def test_object_rules_narrow_project_access_before_pagination_and_on_detail(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "reader@example.com", "test-password")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        records = Investigation.objects.for_team(self.team.id)
+        visible = records.create(team_id=self.team.id, created_by=self.user, document=document())
+        hidden = records.create(team_id=self.team.id, created_by=self.user, document=document())
+        for record, access_level in [(visible, "viewer"), (hidden, "none")]:
+            create_access_control(
+                team_id=self.team.id,
+                resource="investigation",
+                resource_id=str(record.id),
+                access_level=access_level,
+                organization_member_id=membership.id,
+            )
+        self.client.force_login(member)
+        page = self.client.get(self.url, {"limit": "1", "search": ""})
+        self.assertEqual(page.status_code, 200)
+        self.assertEqual(page.data["count"], 1)
+        self.assertEqual([item["id"] for item in page.data["results"]], [str(visible.id)])
+        self.assertEqual(self.client.get(f"{self.url}{visible.id}/").status_code, 200)
+        self.assertEqual(self.client.get(f"{self.url}{hidden.id}/").status_code, 403)
+        for record in [hidden, visible]:
+            for payload in [{"revision": 1, "document": document()}, {"revision": 1, "deleted": True}]:
+                response = self.client.patch(f"{self.url}{record.id}/", payload, format="json")
+                self.assertEqual(response.status_code, 403)
+            record.refresh_from_db()
+            self.assertEqual(record.revision, 1)
+            self.assertFalse(record.deleted)
+
+    def test_session_write_budget_applies_to_create_and_patch(self):
+        cache = LocMemCache("investigation-write-test", {})
+        with (
+            patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
+            patch("posthog.rate_limit.team_is_allowed_to_bypass_throttle", return_value=False),
+            patch.object(InvestigationWriteBurstRateThrottle, "rate", "1/minute"),
+            patch.object(InvestigationWriteBurstRateThrottle, "cache", cache),
+        ):
+            created = self.client.post(self.url, {"document": document()}, format="json")
+            self.assertEqual(created.status_code, 201)
+            url = f"{self.url}{created.data['id']}/"
+            self.assertEqual(self.client.patch(url, {"revision": 1, "deleted": True}, format="json").status_code, 429)
+            self.assertEqual(self.client.get(url).status_code, 200)
+
+    def test_compact_utf8_document_budget(self):
+        payload = document()
+        payload["hypotheses"] = [
+            {"id": str(i), "title": "", "status": "open", "reasoning": "界" * 10000, "evidenceIds": []}
+            for i in range(12)
+        ]
+        self.assertEqual(self.client.post(self.url, {"document": payload}, format="json").status_code, 201)
+        payload["evidence"] = [
+            {"id": str(i), "reference": i + 1, "title": "", "kind": "query", "sql": "界" * 10000, "url": "", "note": ""}
+            for i in range(5)
+        ]
+        self.assertEqual(self.client.post(self.url, {"document": payload}, format="json").status_code, 400)
 
     def test_resource_viewer_cannot_write_even_with_object_editor_grant(self):
 

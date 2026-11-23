@@ -193,12 +193,15 @@ export const investigationSceneLogic = kea<investigationSceneLogicType>([
             if (values.busy || !values.document) {
                 return
             }
+            const document = values.document
             actions.setBusy(true)
             try {
-                const record = await investigationsCreate(String(teamLogic.values.currentTeamId), {
-                    document: values.document,
-                })
+                const record = await investigationsCreate(String(teamLogic.values.currentTeamId), { document })
                 breakpoint()
+                if (values.document !== document) {
+                    actions.setError('Copy saved. Your newer edits are still open here.', values.conflict)
+                    return
+                }
                 actions.discard()
                 router.actions.push(urls.investigation(record.id))
             } catch {

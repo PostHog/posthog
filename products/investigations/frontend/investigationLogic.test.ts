@@ -98,24 +98,58 @@ describe('investigationLogic', () => {
 
     it('cancels a pending run without persisting partial evidence', async () => {
         let complete: () => void = () => {}
+        let reportSubmitted: (id: string) => void = () => {}
+        let reportCancelled: (id: string) => void = () => {}
+        const submitted = new Promise<string>((resolve) => {
+            reportSubmitted = resolve
+        })
+        const cancelled = new Promise<string>((resolve) => {
+            reportCancelled = resolve
+        })
         const responseReady = new Promise<void>((resolve) => {
             complete = resolve
         })
         useMocks({
             post: {
-                '/api/environments/:team_id/query/:kind': async () => {
+                '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                    const body = (await request.json()) as { client_query_id: string }
+                    reportSubmitted(body.client_query_id)
                     await responseReady
                     return { columns: ['metric'], results: [[42]] }
                 },
             },
+            delete: {
+                '/api/environments/:team_id/query/:id/': ({ params }) => {
+                    reportCancelled(String(params.id))
+                    return [204]
+                },
+            },
         })
         logic.actions.runEvidence()
+        const id = await submitted
         logic.actions.cancelRun()
         complete()
+        expect(await cancelled).toBe(id)
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.document.runs).toEqual([])
         expect(persisted).toEqual([])
         expect(logic.values.running).toBe(false)
+    })
+
+    it('keeps the current document open when the new run exceeds its byte limit', async () => {
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind': {
+                    columns: ['one', 'two', 'three', 'four', 'five', 'six'],
+                    results: Array.from({ length: 50 }, () => Array(6).fill('x'.repeat(2000))),
+                },
+            },
+        })
+        await expectLogic(logic, () => logic.actions.runEvidence()).toFinishAllListeners()
+        expect(logic.values.error).toContain('too large to save')
+        expect(logic.values.tab).toBe('overview')
+        expect(logic.values.document).toEqual(document)
+        expect(persisted).toEqual([])
     })
 
     it('cannot change or execute an investigation through a read-only host', async () => {

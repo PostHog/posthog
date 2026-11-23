@@ -3,6 +3,7 @@ import {
     appendInvestigationRun,
     compareInvestigationResults,
     getInvestigationLink,
+    investigationRunSchema,
     newInvestigation,
     removeInvestigationEvidence,
     snapshotInvestigationResult,
@@ -29,6 +30,13 @@ describe('investigation documents', () => {
         [baseline, undefined, 'new', null],
     ])('compares only complete results with identical definitions (%#)', (current, previous, kind, delta) => {
         expect(compareInvestigationResults(current, previous)).toMatchObject({ kind, delta })
+    })
+
+    it.each([
+        ['2026-11-01T12:30:00+01:00', '2026-11-01T12:30:00+01:00'],
+        ['2026-11-01T12:30:00', '2026-11-01T12:30:00Z'],
+    ])('reads a saved run timestamp %s', (at, expected) => {
+        expect(investigationRunSchema.parse({ id: 'run', at, conclusion: '', results: [] }).at).toBe(expected)
     })
 
     it('retains the pinned baseline when old runs are evicted', () => {

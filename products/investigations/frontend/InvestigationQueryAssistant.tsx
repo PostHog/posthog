@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
 
+import { LemonCollapse } from '@posthog/lemon-ui'
+
 import { aiShellLogic } from '~/layout/ai/aiShellLogic'
 
 import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
@@ -22,5 +24,12 @@ export function InvestigationQueryAssistant(props: InvestigationQueryAssistantPr
         active,
         onApply: (_event, { innerInput }) => receiveProposal(innerInput),
     })
-    return available ? <InvestigationQueryComposer {...props} /> : null
+    return available ? (
+        <LemonCollapse
+            defaultActiveKey="assistant"
+            panels={[
+                { key: 'assistant', header: 'Query assistance', content: <InvestigationQueryComposer {...props} /> },
+            ]}
+        />
+    ) : null
 }

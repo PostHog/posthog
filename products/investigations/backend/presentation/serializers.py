@@ -17,7 +17,11 @@ from ..facade.enums import InvestigationStage
 class InvestigationDocumentField(serializers.Field):
     def to_internal_value(self, data: Any) -> InvestigationDocument:
         data = serializers.JSONField().to_internal_value(data)
-        if len(json.dumps(data)) > 500_000:
+        try:
+            document_bytes = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise serializers.ValidationError("Invalid text in investigation.") from exc
+        if len(document_bytes) > 500_000:
             raise serializers.ValidationError(
                 "This investigation is too large. Remove older runs or shorten evidence notes."
             )
@@ -76,7 +80,7 @@ class InvestigationUpdateSerializer(serializers.Serializer):
 
 class InvestigationListQuerySerializer(serializers.Serializer):
     search = serializers.CharField(
-        required=False, default="", max_length=500, help_text="Search the investigation question."
+        required=False, default="", allow_blank=True, max_length=500, help_text="Search the investigation question."
     )
     offset = serializers.IntegerField(default=0, min_value=0, help_text="Number of investigations to skip.")
     limit = serializers.IntegerField(
