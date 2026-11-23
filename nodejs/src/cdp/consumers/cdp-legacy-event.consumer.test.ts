@@ -745,6 +745,22 @@ describe('CdpLegacyEventsConsumer', () => {
             await consumer.stop()
         })
 
+        it('runs no plugin config of a deactivated organization', async () => {
+            hub.CDP_SKIP_DEACTIVATED_ORGANIZATIONS = true
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                'UPDATE posthog_organization SET is_active = false WHERE id = $1',
+                [team.organization_id],
+                'deactivateOrganization'
+            )
+            const handleBatch = (consumer['kafkaConsumer'].connect as jest.Mock).mock.calls[0][0]
+
+            const { backgroundTask } = await handleBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])
+            await backgroundTask
+
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
+
         it('runs plugins with the configs the parse loaded, so a later config lookup cannot fail the batch', async () => {
             const loader = consumer['pluginConfigsLoader']
             const loadConfigs = loader.get.bind(loader)

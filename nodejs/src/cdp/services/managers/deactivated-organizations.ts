@@ -8,11 +8,15 @@ const counterDeactivatedOrganizationNotLoaded = new Counter({
     labelNames: ['kind'],
 })
 
-export function organizationInactiveColumn(table: string): string {
+export function organizationInactiveCondition(table: string): string {
     return `EXISTS (
         SELECT 1 FROM posthog_team t JOIN posthog_organization o ON o.id = t.organization_id
         WHERE t.id = ${table}.team_id AND o.is_active IS FALSE
-    ) AS organization_inactive`
+    )`
+}
+
+export function organizationInactiveColumn(table: string): string {
+    return `${organizationInactiveCondition(table)} AS organization_inactive`
 }
 
 export function withoutDeactivatedOrganizations<T extends { id: string; team_id: number }>(

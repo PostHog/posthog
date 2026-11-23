@@ -21,6 +21,7 @@ import {
 } from '../../types'
 import { LegacyWebhookService } from '../legacy-webhooks/legacy-webhook-service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
+import { organizationInactiveCondition } from '../services/managers/deactivated-organizations'
 import type {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
@@ -63,7 +64,13 @@ const legacyPluginExecutionResultCounter = new Counter({
 })
 
 export type CdpLegacyEventsConsumerConfig = CdpConsumerBaseConfig &
-    Pick<PluginsServerConfig, 'CDP_LEGACY_EVENT_CONSUMER_TOPIC' | 'CDP_LEGACY_EVENT_CONSUMER_GROUP_ID' | 'SITE_URL'>
+    Pick<
+        PluginsServerConfig,
+        | 'CDP_LEGACY_EVENT_CONSUMER_TOPIC'
+        | 'CDP_LEGACY_EVENT_CONSUMER_GROUP_ID'
+        | 'SITE_URL'
+        | 'CDP_SKIP_DEACTIVATED_ORGANIZATIONS'
+    >
 
 /**
  * This is a temporary consumer that hooks into the existing onevent consumer group
@@ -132,7 +139,8 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
             WHERE posthog_pluginconfig.team_id = ANY($1)
                 AND posthog_pluginconfig.enabled = 't'
                 AND (posthog_pluginconfig.deleted IS NULL OR posthog_pluginconfig.deleted != 't')
-                AND posthog_plugin.capabilities->'methods' @> '["onEvent"]'::jsonb`,
+                AND posthog_plugin.capabilities->'methods' @> '["onEvent"]'::jsonb
+                ${this.config.CDP_SKIP_DEACTIVATED_ORGANIZATIONS ? `AND NOT ${organizationInactiveCondition('posthog_pluginconfig')}` : ''}`,
             [numericTeamIds],
             'loadPluginConfigHogFunctions'
         )
