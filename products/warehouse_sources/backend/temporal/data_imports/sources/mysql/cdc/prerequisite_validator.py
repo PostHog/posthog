@@ -76,23 +76,14 @@ def _variables(conn: pymysql.Connection, names: Iterable[str]) -> dict[str, str]
         return {str(name).lower(): str(value) for name, value in cur.fetchall()}
 
 
-def parse_version(version: str) -> tuple[int, int, int]:
-    numbers = re.match(r"(\d+)\.(\d+)\.(\d+)", version)
-    if numbers is None:
-        raise ValueError(f"Unrecognized MySQL version: {version!r}")
-    major, minor, patch = (int(part) for part in numbers.groups())
-    return major, minor, patch
-
-
 def _check_version(conn: pymysql.Connection) -> list[str]:
     version = str(_scalar(conn, "SELECT VERSION()") or "")
     if "mariadb" in version.lower():
         return ["Change data capture doesn't support MariaDB yet. Use Incremental or Full refresh sync instead."]
-    try:
-        parsed = parse_version(version)
-    except ValueError:
+    numbers = re.match(r"(\d+)\.(\d+)\.(\d+)", version)
+    if numbers is None:
         return [f"Could not determine the MySQL version (the server reported {version!r})."]
-    if parsed < MIN_MYSQL_VERSION:
+    if tuple(int(part) for part in numbers.groups()) < MIN_MYSQL_VERSION:
         return [
             f"Change data capture needs MySQL 8.0.1 or later (the server runs {version}). "
             "Upgrade MySQL, or use Incremental or Full refresh sync instead."

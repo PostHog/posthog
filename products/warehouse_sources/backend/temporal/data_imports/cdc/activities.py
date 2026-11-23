@@ -179,7 +179,7 @@ class CDCExtractInput:
         }
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ValidateCDCPrerequisitesInput:
     team_id: int
     source_id: uuid.UUID
