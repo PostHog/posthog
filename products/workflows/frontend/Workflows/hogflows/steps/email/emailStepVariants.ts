@@ -148,8 +148,10 @@ function categoryOf(config: EmailValue): EmailValue {
     }
 }
 
+// A new email step has no templating until its first save, where the API fills in the template's Liquid.
+// The test sender step has no template to fill it from, so a missing value has to mean Liquid here too.
 function templatingOf(email: EmailValue): Templating {
-    return email.templating === 'liquid' ? 'liquid' : 'hog'
+    return email.templating === 'hog' ? 'hog' : 'liquid'
 }
 
 function contentOf(value: EmailValue): EmailValue {

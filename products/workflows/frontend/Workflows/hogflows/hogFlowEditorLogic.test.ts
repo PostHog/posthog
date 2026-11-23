@@ -368,7 +368,16 @@ describe('hogFlowEditorLogic', () => {
         })
 
         it.each<[string, IntegrationType[], Partial<HogFlowAction>]>([
-            ['the project has no verified sender', [], { type: 'email_sandbox' }],
+            [
+                'the project has no verified sender',
+                [],
+                {
+                    type: 'email_sandbox',
+                    config: expect.objectContaining({
+                        inputs: { email: expect.objectContaining({ templating: 'liquid' }) },
+                    }),
+                },
+            ],
             [
                 'the default sender stopped and another can send',
                 [
