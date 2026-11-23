@@ -581,7 +581,8 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ),
         (
             "multiMatchAnyIndex(max(user_id), ['a', 'b'])",
-            'SELECT CASE WHEN max("users"."user_id") IS NULL THEN NULL WHEN regexp_like(max("users"."user_id"), ',
+            'SELECT element_at(transform(ARRAY[max("users"."user_id")], __hogql_haystack -> '
+            "CASE WHEN __hogql_haystack IS NULL THEN NULL WHEN regexp_like(__hogql_haystack, ",
         ),
         (
             "multiMatchAnyIndex(user_id, [user_id])",

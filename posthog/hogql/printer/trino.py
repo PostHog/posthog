@@ -2634,12 +2634,14 @@ class TrinoPrinter(PostgresPrinter):
         if isinstance(patterns, ast.Array) and all(
             isinstance(pattern, ast.Constant) and isinstance(pattern.value, str) for pattern in patterns.exprs
         ):
-            haystack = self.visit(haystack_expr)
             matches = "".join(
-                f" WHEN regexp_like({haystack}, {self.visit(pattern)}) THEN {index}"
+                f" WHEN regexp_like(__hogql_haystack, {self.visit(pattern)}) THEN {index}"
                 for index, pattern in enumerate(patterns.exprs, start=1)
             )
-            return f"CASE WHEN {haystack} IS NULL THEN NULL{matches} ELSE 0 END"
+            return (
+                f"element_at(transform(ARRAY[{self.visit(haystack_expr)}], __hogql_haystack -> "
+                f"CASE WHEN __hogql_haystack IS NULL THEN NULL{matches} ELSE 0 END), 1)"
+            )
         search = f"ARRAY[ROW({self.visit(haystack_expr)}, {self.visit(patterns)})]"
         position = (
             "array_position(transform(__hogql_match[2], "
