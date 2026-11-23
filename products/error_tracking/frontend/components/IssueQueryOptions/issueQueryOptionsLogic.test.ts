@@ -5,7 +5,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { issueTagDefinitionsLogic } from '../IssueFilters/issueTagDefinitionsLogic'
-import { issueQueryOptionsLogic } from './issueQueryOptionsLogic'
+import { issueListUrlWithTag, issueQueryOptionsLogic } from './issueQueryOptionsLogic'
 
 const LOGIC_KEY = 'test'
 const PERSISTED_KEY_PREFIX = `products.error_tracking.components.IssueQueryOptions.issueQueryOptionsLogic.${LOGIC_KEY}`
@@ -126,6 +126,14 @@ describe('issueQueryOptionsLogic', () => {
         router.actions.push('/error_tracking', { issueTags: { has: ['other_tag'], hasNot: [] } })
         router.actions.push('/error_tracking', params)
         expect(logic.values.issueTags).toEqual(expected)
+    })
+
+    it('filters by the tag that a link from an issue page names', () => {
+        const logic = mountLogic()
+
+        router.actions.push(issueListUrlWithTag('cause_in_trace'))
+
+        expect(logic.values.issueTags).toEqual({ has: ['cause_in_trace'], hasNot: [] })
     })
 
     it('moves a tag between has and has not, and writes the filter to the URL in place of a legacy tag', () => {

@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 
 import { isUUIDLike } from 'lib/utils/guards'
 import { Params } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import {
     ErrorTrackingIssue,
@@ -148,6 +149,10 @@ function issueTagsFromUrl(raw: unknown): IssueTagsFilter | null {
     const issueTags = sanitizeIssueTags(raw)
     const definitions = issueTagDefinitionsLogic.findMounted()?.values.issueTagDefinitions
     return definitions ? withoutUnknownTags(issueTags, definitions) : issueTags
+}
+
+export function issueListUrlWithTag(key: string): string {
+    return urls.errorTracking({ issueTags: { has: [key], hasNot: [] } satisfies IssueTagsFilter })
 }
 
 // pinned: search param of links saved before the filter took several tags, which the URL now holds in `issueTags`
