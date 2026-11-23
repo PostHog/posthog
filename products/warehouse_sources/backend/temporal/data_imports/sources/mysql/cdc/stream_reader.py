@@ -243,19 +243,19 @@ class MySQLCDCStreamReader:
 
     def get_primary_key_columns(self, schema_name: str, table_names: list[str]) -> dict[str, list[str]]:
         return {
-            table: columns
-            for (table, index), columns in self._query_index_columns(schema_name, table_names).items()
-            if index == "PRIMARY"
+            table: indexes["PRIMARY"]
+            for table, indexes in self._query_index_columns(schema_name, table_names).items()
+            if "PRIMARY" in indexes
         }
 
     def get_enforced_unique_keys(self, schema_name: str, table_names: list[str]) -> dict[str, list[frozenset[str]]]:
-        keys: dict[str, list[frozenset[str]]] = {}
-        for (table, _), columns in self._query_index_columns(schema_name, table_names).items():
-            keys.setdefault(table, []).append(frozenset(columns))
-        return keys
+        return {
+            table: [frozenset(columns) for columns in indexes.values()]
+            for table, indexes in self._query_index_columns(schema_name, table_names).items()
+        }
 
-    def _query_index_columns(self, schema_name: str, table_names: list[str]) -> dict[tuple[str, str], list[str]]:
-        """Columns of every primary key and unique index whose columns are all NOT NULL, in index order."""
+    def _query_index_columns(self, schema_name: str, table_names: list[str]) -> dict[str, dict[str, list[str]]]:
+        """Per table, the columns of its primary key and of each unique index whose columns are all NOT NULL."""
         if self._conn is None:
             raise RuntimeError("Not connected. Call connect() first.")
         if not table_names:
@@ -271,14 +271,17 @@ class MySQLCDCStreamReader:
                 [schema_name, *table_names],
             )
             rows = cur.fetchall()
-        indexes: dict[tuple[str, str], list[str]] = {}
-        nullable: set[tuple[str, str]] = set()
+        indexes: dict[str, dict[str, list[str]]] = {}
+        nullable: set[str] = set()
         for table, index, column, is_nullable in rows:
-            indexes.setdefault((str(table), str(index)), []).append(str(column))
+            indexes.setdefault(str(table), {}).setdefault(str(index), []).append(str(column))
             if is_nullable == "YES":
                 # Two rows may both hold NULL in a unique index, so it doesn't identify a row.
-                nullable.add((str(table), str(index)))
-        return {key: columns for key, columns in indexes.items() if key not in nullable}
+                nullable.add(f"{table}.{index}")
+        return {
+            table: {index: columns for index, columns in by_index.items() if f"{table}.{index}" not in nullable}
+            for table, by_index in indexes.items()
+        }
 
     def set_key_change_columns(self, columns_by_table: Mapping[str, Iterable[str]]) -> None:
         self._key_change_columns = {table: frozenset(columns) for table, columns in columns_by_table.items()}
