@@ -146,10 +146,12 @@ class TestOneClickEmailDomainSetup(EmailDomainConnectTestCase):
         [
             ("at_the_sender_domain", f"_dmarc.{DOMAIN}"),
             ("inherited_from_the_organizational_domain", f"_dmarc.{ROOT_DOMAIN}"),
+            ("inherited_with_a_spaced_version_tag", f"_dmarc.{ROOT_DOMAIN}", "V = DMARC1 ; p=reject"),
         ]
     )
-    def test_approved_setup_keeps_an_existing_dmarc_record(self, _name: str, existing_at: str) -> None:
-        existing_dmarc = "v=DMARC1; p=reject; rua=mailto:dmarc@example.com"
+    def test_approved_setup_keeps_an_existing_dmarc_record(
+        self, _name: str, existing_at: str, existing_dmarc: str = "v=DMARC1; p=reject; rua=mailto:dmarc@example.com"
+    ) -> None:
         self.world.dns.publish_txt(existing_at, existing_dmarc)
         sender = self.create_sender(f"hello@{DOMAIN}")
 

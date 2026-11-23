@@ -338,14 +338,6 @@ def _find_published_records(
     return tuple(in_force if record == dmarc else record for record in records), published
 
 
-def _find_published_dmarc_record(
-    domain: str, records: Sequence[EmailDomainStatusRecord]
-) -> EmailDomainStatusRecord | None:
-    dmarc = [record for record in records if record.kind == EmailDomainSetupRecordKind.DMARC]
-    in_force, published = _find_published_records(domain, dmarc)
-    return next((record for record in in_force if record in published.records), None)
-
-
 _UNKNOWN = "Unknown"
 
 
@@ -816,8 +808,19 @@ class SESProvider:
         if refuses_lookups:
             logger.info("security.oob_domain_seen guard=ses_domain_status")
 
-        # DMARC: check via direct DNS lookup since AWS SES doesn't track it
-        dmarc_record = None if refuses_lookups else _find_published_dmarc_record(domain, records)
+        published = PublishedRecords(records=frozenset())
+        if not refuses_lookups:
+            _, published = _find_published_records(
+                domain,
+                [
+                    record
+                    for record in records
+                    if record.kind in (EmailDomainSetupRecordKind.DMARC, EmailDomainSetupRecordKind.SPF)
+                ],
+            )
+        dmarc_record = next(
+            (record for record in published.records if record.kind == EmailDomainSetupRecordKind.DMARC), None
+        )
 
         # Normalize overall status
         overall: EmailDomainVerificationStatus
@@ -839,8 +842,7 @@ class SESProvider:
                 if record.kind == EmailDomainSetupRecordKind.VERIFICATION:
                     r["status"] = "success"
         # SES checks only the _amazonses token, so its success says nothing about the apex SPF record.
-        apex_spf = [record for record in records if record.kind == EmailDomainSetupRecordKind.SPF]
-        if not refuses_lookups and find_published_records(domain, apex_spf).records:
+        if any(record.kind == EmailDomainSetupRecordKind.SPF for record in published.records):
             for record, r in zip(records, dns_records):
                 if record.kind == EmailDomainSetupRecordKind.SPF:
                     r["status"] = "success"
