@@ -14,7 +14,7 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable,
 # combination coverage lives in the harness's oracle tests, not here.
 
 
-class BaseMostSpecificResolutionTest(BaseUserAccessControlTest):
+class BaseAccessResolutionTest(BaseUserAccessControlTest):
     def setUp(self):
         super().setUp()
         self.membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
@@ -43,7 +43,7 @@ class BaseMostSpecificResolutionTest(BaseUserAccessControlTest):
 
 
 @pytest.mark.ee
-class TestResolveObjectAccess(BaseMostSpecificResolutionTest):
+class TestResolveObjectAccess(BaseAccessResolutionTest):
     @parameterized.expand(
         [
             # Within the object scope, the member's own row decides even when it grants less
@@ -130,7 +130,7 @@ class TestResolveObjectAccess(BaseMostSpecificResolutionTest):
 
 
 @pytest.mark.ee
-class TestResolveObjectAccessFallbackParent(BaseMostSpecificResolutionTest):
+class TestResolveObjectAccessFallbackParent(BaseAccessResolutionTest):
     def setUp(self):
         super().setUp()
         self.source = ExternalDataSource.objects.create(
@@ -205,7 +205,7 @@ class TestResolveObjectAccessFallbackParent(BaseMostSpecificResolutionTest):
 
 
 @pytest.mark.ee
-class TestResolveResourceAccess(BaseMostSpecificResolutionTest):
+class TestResolveResourceAccess(BaseAccessResolutionTest):
     def test_resource_without_resource_level_controls_resolves_to_system_default(self):
         resolved = self.user_access_control.access_level_for_resource("project")
 

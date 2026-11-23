@@ -2233,13 +2233,6 @@ class TestUserAccessControlFallbackParent(BaseUserAccessControlTest):
             self._create_access_control(resource=resource, resource_id=resource_id, access_level=level)
         self._clear_uac_caches()
 
-    def _resolve(self, table, uac=None):
-        uac = uac or self.user_with_no_role_access_control
-        rows = uac._get_access_controls(uac._access_controls_filters_for_object("warehouse_table", str(table.id)))
-        return uac._most_specific_object_access_from_rows(
-            "warehouse_table", rows, fallback_parent_id=UserAccessControl._fallback_parent_id(table, "warehouse_table")
-        )
-
     @parameterized.expand(
         [
             ("system_default_when_nothing_set", {}, ("editor", "system_default", None, "warehouse_objects"), None),
@@ -2264,7 +2257,7 @@ class TestUserAccessControlFallbackParent(BaseUserAccessControlTest):
         # reordered or mislabeled tier fails here instead of shipping a wrong "Based on …"
         self._apply_for_everyone(rules, self.sourced_table)
 
-        access = self._resolve(self.sourced_table)
+        access = self.user_with_no_role_access_control._resolved_object_access(self.sourced_table)
         assert access is not None
         actual = (
             access.access_level,
@@ -2371,26 +2364,6 @@ class TestUserAccessControlFallbackParent(BaseUserAccessControlTest):
         )
         assert resolved and access is not None
         assert (access.access_level, access.source) == ("member", "org_membership")
-
-    def test_tie_between_member_and_role_reports_the_member(self):
-        self._create_access_control(
-            resource="warehouse_table",
-            resource_id=str(self.sourced_table.id),
-            access_level="editor",
-            organization_member=self.membership,
-        )
-        self._create_access_control(
-            resource="warehouse_table", resource_id=str(self.sourced_table.id), access_level="editor", role=self.role_a
-        )
-        self._clear_uac_caches()
-
-        access = self._resolve(self.sourced_table, self.user_access_control)
-        assert access is not None
-        assert (access.access_level, access.source, access.source_subject) == (
-            "editor",
-            "object",
-            "member",
-        )
 
     def test_resource_resolution_reports_its_source(self):
         self._create_access_control(resource="warehouse_objects", access_level="viewer")
