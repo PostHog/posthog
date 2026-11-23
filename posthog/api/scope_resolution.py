@@ -69,7 +69,6 @@ def _team_from_token(request: Request, token_team: Callable[[], Team | None]) ->
 
 @frozen
 class TokenOnProjectPath:
-    # False when the token names another project than the path. The routing code then uses the token's project.
     token_matches_path: bool
 
 
@@ -77,7 +76,6 @@ def record_token_on_project_path(
     request: Request, *, token_team: Callable[[], Team | None], path_kwargs: Mapping[str, Any]
 ) -> None:
     """Store on the HttpRequest whether a token decided the project of a route whose path names one."""
-    # Analytics must never fail the request it observes.
     try:
         path_ids = {
             int(value) for name, value in path_kwargs.items() if name in _PATH_PROJECT_KWARGS and str(value).isdigit()
