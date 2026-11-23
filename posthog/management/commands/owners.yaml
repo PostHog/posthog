@@ -1,7 +1,0 @@
-version: 1
-owners: []
-rules:
-    - match:
-          - '/recording_api_token.py'
-          - '/test/test_recording_api_token.py'
-      owners: team-replay

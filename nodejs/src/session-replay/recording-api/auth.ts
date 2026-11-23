@@ -84,7 +84,7 @@ function verifyBearer(
 
 // The dev keys are public in this repo, so anyone could sign with them. A deployed pod refuses them outright. The local and
 // E2E containers run the production image with the dev keys, so they are not deployed.
-function refuseDevKey(secret: string, devKey: string, name: string): void {
+function refuseDevKey(secret: string | undefined, devKey: string, name: string): void {
     if (parseJwtKeys(secret || '').includes(devKey)) {
         throw new Error(`recording-api refuses the public dev ${name} on a deployed environment`)
     }
@@ -103,7 +103,7 @@ export function assertRecordingApiAuthConfigured(opts: {
 }): void {
     if (opts.deployed) {
         refuseDevKey(opts.jwtSecret, DEV_RECORDING_API_JWT_SECRET, 'RECORDING_API_JWT_SECRET')
-        refuseDevKey(opts.staffJwtSecret ?? '', DEV_RECORDING_API_STAFF_JWT_SECRET, 'RECORDING_API_STAFF_JWT_SECRET')
+        refuseDevKey(opts.staffJwtSecret, DEV_RECORDING_API_STAFF_JWT_SECRET, 'RECORDING_API_STAFF_JWT_SECRET')
     }
     if (hasJwtKeys(opts.jwtSecret || '')) {
         return
@@ -169,7 +169,9 @@ export function createRecordingApiAuthMiddleware(options: RecordingApiAuthOption
 
         const bearer = getBearerToken(req)
         if (bearer && staffJwt && unverifiedAudience(bearer) === PosthogJwtAudience.RECORDING_API_STAFF) {
-            const staffClaims = verifyBearer(staffJwt, bearer, PosthogJwtAudience.RECORDING_API_STAFF)
+            const staffClaims = verifyBearer(staffJwt, bearer, PosthogJwtAudience.RECORDING_API_STAFF, {
+                maxAge: STAFF_TOKEN_MAX_AGE,
+            })
             if (!staffClaims) {
                 res.status(401).json({ error: 'Unauthorized' })
                 return
@@ -212,8 +214,8 @@ export function createRecordingApiAuthMiddleware(options: RecordingApiAuthOption
     }
 }
 
-// The minter gives staff tokens 15 minutes and sets no iat, so a token whose exp is further out was not minted by it.
-const STAFF_TOKEN_MAX_LIFETIME_SECONDS = 15 * 60
+// A staff token older than this is refused whatever its exp, matching the lifetime the minter gives it.
+const STAFF_TOKEN_MAX_AGE = '15m'
 
 // Only picks which key verifies the token; the verify call that follows checks the signature and audience.
 function unverifiedAudience(token: string): unknown {
@@ -223,15 +225,7 @@ function unverifiedAudience(token: string): unknown {
 
 function isStaffReadForTeam(claims: Record<string, unknown>, requestTeamId: number): boolean {
     const nonEmpty = (value: unknown): boolean => typeof value === 'string' && value.trim() !== ''
-    return (
-        Number.isInteger(claims.team_id) &&
-        claims.team_id === requestTeamId &&
-        claims.op === 'read' &&
-        typeof claims.exp === 'number' &&
-        claims.exp <= Date.now() / 1000 + STAFF_TOKEN_MAX_LIFETIME_SECONDS + CLOCK_TOLERANCE_SECONDS &&
-        nonEmpty(claims.actor) &&
-        nonEmpty(claims.reason)
-    )
+    return claims.team_id === requestTeamId && claims.op === 'read' && nonEmpty(claims.actor) && nonEmpty(claims.reason)
 }
 
 // A browser block token older than this is refused whatever its exp, so a leaked one stops working soon.

@@ -1,5 +1,4 @@
 import json
-import time
 from io import StringIO
 
 from posthog.test.base import BaseTest
@@ -37,7 +36,7 @@ class TestRecordingApiTokenCommand(BaseTest):
         assert claims["op"] == "read"
         assert claims["actor"] == "staff@example.com"
         assert claims["reason"] == "ticket 1"
-        assert claims["exp"] - time.time() <= 15 * 60
+        assert claims["exp"] - claims["iat"] == 15 * 60
         assert printed["url"] == "http://recording-api:6738"
 
     @parameterized.expand(

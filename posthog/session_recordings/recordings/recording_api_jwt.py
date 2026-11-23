@@ -1,6 +1,8 @@
-from datetime import timedelta
+import time
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 
+from posthog.dataclasses import frozen
 from posthog.jwt import PosthogJwtAudience
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 
@@ -52,6 +54,19 @@ RECORDING_API_STAFF_JWT_PURPOSE = ScopedServiceJwtPurpose(
 )
 
 
-def mint_recording_api_staff_token(team_id: int, actor: str, reason: str) -> str:
+@frozen
+class StaffRecordingApiToken:
+    token: str
+    expires_at: datetime
+
+
+def mint_recording_api_staff_token(team_id: int, actor: str, reason: str) -> StaffRecordingApiToken:
     """Mint a read-only token for one team that recording-api logs with the actor and reason on every request."""
-    return RECORDING_API_STAFF_JWT_PURPOSE.mint({"team_id": team_id, "op": "read", "actor": actor, "reason": reason})
+    now = int(time.time())
+    token = RECORDING_API_STAFF_JWT_PURPOSE.mint(
+        # recording-api checks the token's age against iat, which encode_jwt does not set.
+        {"team_id": team_id, "op": "read", "actor": actor, "reason": reason, "iat": now}
+    )
+    return StaffRecordingApiToken(
+        token=token, expires_at=datetime.fromtimestamp(now, tz=UTC) + STAFF_RECORDING_API_TOKEN_TTL
+    )

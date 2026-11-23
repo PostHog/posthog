@@ -192,12 +192,11 @@ describe('createRecordingApiAuthMiddleware', () => {
     describe('staff read tokens', () => {
         const STAFF_SECRET = 'recording-api-staff-key'
         const staffClaims = { team_id: 123, op: 'read', actor: 'staff@example.com', reason: 'ticket 1' }
+        const nowSeconds = Math.floor(Date.now() / 1000)
         const mintStaffToken = (
             claims: Record<string, unknown> = staffClaims,
-            secret = STAFF_SECRET,
-            audience = PosthogJwtAudience.RECORDING_API_STAFF,
-            expiresIn: string | number = '15m'
-        ) => new JWT(secret).sign(claims, audience, { expiresIn })
+            { secret = STAFF_SECRET, expiresIn = '15m' as string | number, noTimestamp = false } = {}
+        ) => new JWT(secret).sign(claims, PosthogJwtAudience.RECORDING_API_STAFF, { expiresIn, noTimestamp })
 
         it.each([
             ['a staff token on a read route', 'read', '123', mintStaffToken(), 'allowed'],
@@ -219,20 +218,21 @@ describe('createRecordingApiAuthMiddleware', () => {
                 403,
             ],
             [
-                'a staff token that outlives what the minter gives',
+                'a staff token minted over 15 minutes ago, whatever its exp',
                 'read',
                 '123',
-                mintStaffToken(staffClaims, STAFF_SECRET, PosthogJwtAudience.RECORDING_API_STAFF, '1d'),
-                403,
-            ],
-            [
-                'an expired staff token',
-                'read',
-                '123',
-                mintStaffToken(staffClaims, STAFF_SECRET, PosthogJwtAudience.RECORDING_API_STAFF, -60),
+                mintStaffToken({ ...staffClaims, iat: nowSeconds - 16 * 60 }, { expiresIn: '1d' }),
                 401,
             ],
-            ['a staff token signed with the service key', 'read', '123', mintStaffToken(staffClaims, JWT_SECRET), 401],
+            ['a staff token without iat', 'read', '123', mintStaffToken(staffClaims, { noTimestamp: true }), 401],
+            ['an expired staff token', 'read', '123', mintStaffToken(staffClaims, { expiresIn: -60 }), 401],
+            [
+                'a staff token signed with the service key',
+                'read',
+                '123',
+                mintStaffToken(staffClaims, { secret: JWT_SECRET }),
+                401,
+            ],
             [
                 'a delete token signed with the staff key',
                 'delete',
