@@ -4,6 +4,7 @@ from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders
+from posthog.hogql.visitor import TraversingVisitor
 
 from ...facade.enums import CheckType, SubjectType
 from ..contracts import CheckPlan, SubjectRef
@@ -24,7 +25,45 @@ def parse_failing_rows_query(query: str) -> ast.SelectQuery | ast.SelectSetQuery
     found = find_placeholders(parsed)
     if found.has_filters or found.placeholder_fields or found.placeholder_expressions:
         raise CheckConfigError("A custom_sql check cannot use {placeholders} -- nothing supplies them.")
+
+    shadowing = _AliasShadowFinder()
+    shadowing.visit(parsed)
+    if shadowing.name is not None:
+        raise CheckConfigError(
+            f"The alias {shadowing.name} has the same name as a column it is computed from. "
+            f"ClickHouse reads every other {shadowing.name} in the query as the alias, not the column, "
+            "so the check fails or compares the wrong value. Rename the alias."
+        )
     return parsed
+
+
+class _BareColumnNames(TraversingVisitor):
+    def __init__(self) -> None:
+        self.names: set[str] = set()
+
+    def visit_field(self, node: ast.Field) -> None:
+        # A dotted chain such as properties.order_id reads a property or a joined table, not the column
+        # the alias hides, so only a bare name can clash.
+        if len(node.chain) == 1:
+            self.names.add(str(node.chain[0]))
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        # A subquery inside the expression has its own scope, so its columns cannot clash with this alias.
+        return
+
+
+class _AliasShadowFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        self.name: str | None = None
+
+    def visit_alias(self, node: ast.Alias) -> None:
+        # `x AS x` and `t.x AS x` only rename the column, so nothing changes when ClickHouse reads x as the alias.
+        if self.name is None and not isinstance(node.expr, ast.Field):
+            fields = _BareColumnNames()
+            fields.visit(node.expr)
+            if node.alias in fields.names:
+                self.name = node.alias
+        super().visit_alias(node)
 
 
 def parse_custom_sql_query(query: str) -> ast.SelectQuery | ast.SelectSetQuery:
