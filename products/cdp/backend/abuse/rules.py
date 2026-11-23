@@ -163,12 +163,13 @@ _TEAMS_WEBHOOK_DOMAIN = ".webhook.office.com"
 _INTERNAL_HOST_RULES = frozenset({Rule.INTERNAL_HOST, Rule.INTERNAL_HOST_REFERENCE})
 # These rules alert by themselves, and keeping the resource score beside them lets a high score still block.
 _AMPLIFICATION_RULES = frozenset({Rule.HUGE_RANGE, Rule.REPLACE_AMPLIFICATION})
-# The VM charges a builtin's result to the memory cap only after it builds it, and `replaceAll` multiplies its input by
-# the ratio of replacement to search length. A computed or much longer replacement can pass the cap in one step.
+# The VM charges a builtin's result to the memory cap only after it builds it. `replaceAll` multiplies its input by the
+# ratio of replacement to search length, and `arrayStringConcat` copies its separator once per element, so a computed
+# or long replacement or separator can pass the cap in one step.
 _MAX_REPLACEMENT_GROWTH = 8
 # JavaScript's `replaceAll` replaces these with the input before or after each match, which grows the input by its square.
 _WHOLE_INPUT_TOKENS = ("$`", "$'")
-_UNCAPPED_BUILTINS = frozenset({"replaceAll", "sleep"})
+_UNCAPPED_BUILTINS = frozenset({"replaceAll", "arrayStringConcat", "sleep"})
 # Public names that resolve to loopback, or to the address written in them as in `127.0.0.1.nip.io`.
 _ADDRESS_DNS_DOMAINS = frozenset(
     {"localtest.me", "lvh.me", "vcap.me", "nip.io", "sslip.io", "xip.io", "traefik.me", "local.gd", "localhost.direct"}
@@ -658,7 +659,7 @@ class _HogCodeVisitor(TraversingVisitor):
             # The builtin calls the value once per element.
             self._sends()
             self._fans_out = True
-        if node.name == "sleep" or (node.name == "replaceAll" and not _bounded_replacement(node.args)):
+        if node.name in _UNCAPPED_BUILTINS and not _bounded_growth(node.name, node.args):
             self._uncapped_step = True
         if node.name in INTERNAL_FUNCTIONS:
             self.matched.add(Rule.INTERNAL_FUNCTION)
@@ -716,6 +717,23 @@ def _replaces_empty_string(args: list[ast.Expr]) -> bool:
     if len(args) != 3:
         return False
     return _is_empty_string(args[1]) and not _is_empty_string(args[2])
+
+
+def _bounded_growth(name: str, args: list[ast.Expr]) -> bool:
+    if name == "replaceAll":
+        return _bounded_replacement(args)
+    if name == "arrayStringConcat":
+        return _short_separator(args)
+    return False
+
+
+def _short_separator(args: list[ast.Expr]) -> bool:
+    match args:
+        case [_]:
+            return True
+        case [_, ast.Constant(value=str(separator))]:
+            return len(separator) <= _MAX_REPLACEMENT_GROWTH
+    return False
 
 
 def _bounded_replacement(args: list[ast.Expr]) -> bool:

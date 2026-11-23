@@ -919,6 +919,16 @@ class TestAbuseRules(SimpleTestCase):
                 False,
             ),
             (
+                "join_with_a_constant_separator",
+                content(hog="fetch(inputs.url, {'body': arrayStringConcat(inputs.lines, ', ')})"),
+                True,
+            ),
+            (
+                "join_with_a_separator_from_an_input",
+                content(hog="fetch(inputs.url, {'body': arrayStringConcat(range(100), inputs.separator)})"),
+                False,
+            ),
+            (
                 "replace_all_called_through_a_value",
                 content(
                     hog="let expand := replaceAll\nfetch(inputs.url, {'body': expand(inputs.text, 'a', inputs.b)})"
