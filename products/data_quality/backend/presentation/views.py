@@ -207,12 +207,15 @@ class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
             self._denial_context(), self.user_access_control, allowed=self._authorized_subject_types(write=True)
         )
 
+    @cached_property
+    def _object_denial_applies(self) -> bool:
+        # Per-check gates ask this once per check, and its organization admin check reads the membership.
+        return api.can_be_object_denied(self.user_access_control)
+
     def _can_be_object_denied(self) -> bool:
         # Shared with the information_schema loaders, so the two surfaces agree on which callers a
         # gate applies to as well as on what it decides.
-        return api.can_be_object_denied(self.user_access_control) or self._authorized_subject_types() != frozenset(
-            SubjectType
-        )
+        return self._object_denial_applies or self._authorized_subject_types() != frozenset(SubjectType)
 
     def _denial_context(self) -> api.DenialContext:
         """The subjects this caller may read, and the names they are denied. Once per request.
