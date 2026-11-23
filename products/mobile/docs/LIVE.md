@@ -90,7 +90,7 @@ The Live chip on the Web analytics screen reads users online alone: the stats re
 - **A missing scope** (403 naming `query:read`) reports a Views scope error, so the screen shows the sign-in state.
 
 Visitors by country does not run Live's read. Pushing it takes the focus from Live, so Live's poller stops at once, and the screen runs its own poller (`useLiveWorld`) with the `geo` job alone and the same rules: 30 seconds, 60 after 10 minutes, focus, background grace and backoff.
-The map card writes Live's countries and Pause state to `liveWorldStore` as it pushes the screen. Pause cannot change while the screen covers Live. The screen paints those countries first, then reads `geo` at once and every interval after, and clears the store when it closes.
+The map card writes Live's countries, traffic filters, and Pause state to `liveWorldStore` as it pushes the screen. Pause cannot change while the screen covers Live. The screen shows the countries for the current filters immediately, then reads `geo` at once and every interval after if Live is running. It clears the store when it closes.
 It follows Live's Pause: while Live is paused it reads nothing and says "Paused". It has no Pause button or pull to refresh of its own.
 Back on Live, the focus rule above applies: Live reads at once only when its data is older than 30 seconds.
 

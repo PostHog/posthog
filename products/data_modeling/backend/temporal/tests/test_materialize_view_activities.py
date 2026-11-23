@@ -1596,7 +1596,7 @@ class TestPrepareQueryableTableActivity:
         ):
             mock_prepare.return_value = "test-bucket/queryable_folder"
             mock_create_table.return_value = CreateTableResult(
-                table=warehouse_table, storage_delta_mib=None, total_storage_mib=None
+                table=warehouse_table, published=True, storage_delta_mib=None, total_storage_mib=None
             )
             await activity_environment.run(prepare_queryable_table_activity, inputs)
             mock_prepare.assert_called_once()
@@ -1649,7 +1649,7 @@ class TestPrepareQueryableTableActivity:
         ):
             mock_prepare.return_value = "test-bucket/queryable_folder"
             mock_create_table.return_value = CreateTableResult(
-                table=warehouse_table, storage_delta_mib=None, total_storage_mib=None
+                table=warehouse_table, published=True, storage_delta_mib=None, total_storage_mib=None
             )
             await activity_environment.run(prepare_queryable_table_activity, inputs)
 
@@ -1684,7 +1684,7 @@ class TestPrepareQueryableTableActivity:
         ):
             mock_prepare.return_value = "test-bucket/queryable_folder"
             mock_create_table.return_value = CreateTableResult(
-                table=warehouse_table, storage_delta_mib=None, total_storage_mib=None
+                table=warehouse_table, published=True, storage_delta_mib=None, total_storage_mib=None
             )
             await activity_environment.run(prepare_queryable_table_activity, inputs)
             await database_sync_to_async(asaved_query.refresh_from_db)()
@@ -1733,7 +1733,9 @@ class TestPrepareQueryableTableActivity:
             await database_sync_to_async(DataWarehouseSavedQuery.objects.filter(id=asaved_query.id).update)(
                 is_materialized=is_materialized, table=warehouse_table
             )
-            return CreateTableResult(table=warehouse_table, storage_delta_mib=None, total_storage_mib=None)
+            return CreateTableResult(
+                table=warehouse_table, published=True, storage_delta_mib=None, total_storage_mib=None
+            )
 
         with (
             unittest.mock.patch(
@@ -1789,7 +1791,9 @@ class TestPrepareQueryableTableActivity:
             ),
             unittest.mock.patch(
                 "products.data_modeling.backend.temporal.activities.prepare_queryable_table.create_table_from_saved_query",
-                return_value=CreateTableResult(table=warehouse_table, storage_delta_mib=None, total_storage_mib=None),
+                return_value=CreateTableResult(
+                    table=warehouse_table, published=True, storage_delta_mib=None, total_storage_mib=None
+                ),
             ),
             unittest.mock.patch(
                 "products.data_modeling.backend.temporal.activities.prepare_queryable_table.link_table_if_materializing",
