@@ -201,14 +201,14 @@ def _skeleton(value: str) -> str:
     return " ".join("".join(kept).translate(_LETTER_LOOKALIKES).split())
 
 
-def _readings(value: str) -> tuple[str, str]:
+def _readings(value: str) -> list[str]:
     """The skeleton with symbols dropped like punctuation, and with symbols read as the letters they resemble.
 
     "Post•Hog" spells "posthog" only in the first reading, and "P•stHog" only in the second.
     """
     skeleton = _skeleton(value)
 
-    return skeleton, skeleton.translate(_SYMBOL_LOOKALIKES)
+    return [skeleton, skeleton.translate(_SYMBOL_LOOKALIKES)]
 
 
 def _letters_and_digits(reading: str) -> str:
@@ -227,7 +227,7 @@ def _without_leading_symbols(value: str) -> str:
     A symbol that reads as one letter, such as "Ⓟ" or "●", stays.
     """
     for index, char in enumerate(value):
-        if char.isalnum() or len(_letters_and_digits(_readings(char)[1])) == 1:
+        if char.isalnum() or len(_letters_and_digits(_skeleton(char).translate(_SYMBOL_LOOKALIKES))) == 1:
             return value[index:]
 
     return ""
