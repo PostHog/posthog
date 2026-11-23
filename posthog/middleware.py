@@ -1247,6 +1247,8 @@ SESSION_EXPIRED_MESSAGE = "Your session has expired. Please log in again."
 # Login and OAuth endpoints can carry one-time tokens in their query string, which must not be copied into
 # the `/login` page URL, where analytics would record them. Returning to them after logging in is wrong anyway.
 _NO_RETURN_PATH_PREFIXES = ("/api/", "/login", "/agentic/login", "/complete/", "/connect/", "/logout")
+# An OAuth callback can live on any path, so the one-time credential in its query string identifies it.
+_NO_RETURN_QUERY_PARAMS = frozenset({"code", "token"})
 
 
 def session_expired_login_url(request: HttpRequest) -> str:
@@ -1254,7 +1256,8 @@ def session_expired_login_url(request: HttpRequest) -> str:
     next_url = request.get_full_path()
     # The session is already destroyed, so `next` is the only record of the page the person opened.
     # An API call or a form post is not a page to return to, and login lands on `/` without a `next`.
-    if request.method == "GET" and not request.path.startswith(_NO_RETURN_PATH_PREFIXES) and next_url != "/":
+    is_page_load = request.method == "GET" and not request.path.startswith(_NO_RETURN_PATH_PREFIXES)
+    if is_page_load and next_url != "/" and _NO_RETURN_QUERY_PARAMS.isdisjoint(request.GET):
         params["next"] = next_url
     return settings.LOGIN_URL + "?" + urlencode(params, safe="/", quote_via=quote)
 

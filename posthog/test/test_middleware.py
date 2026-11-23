@@ -2465,6 +2465,7 @@ class TestSessionAgeMiddleware(APIBaseTest):
             ),
             ("api_call", "get", "/api/users/@me/", ""),
             ("login_token_link", "get", "/agentic/login?token=one-time-token&team_id=2", ""),
+            ("oauth_callback", "get", "/toolbar_oauth/callback?code=one-time-code&state=signed-state", ""),
             ("form_post", "post", "/logout", ""),
         ]
     )
