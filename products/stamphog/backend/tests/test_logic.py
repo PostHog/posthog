@@ -668,6 +668,7 @@ class GetPrReviewThreadsTests(SimpleTestCase):
         threads = self._fetch(self._threads_page([node], has_next=False))
         assert threads == [
             {
+                "id": "RT_1",
                 "is_resolved": True,
                 "is_outdated": False,
                 "path": "src/util.py",
@@ -1878,6 +1879,7 @@ def _evidence_context() -> dict:
         "discussion": [{"user": member, "author_association": "MEMBER", "body": "Looks fine.", "reactions": {}}],
         "review_threads": [
             {
+                "id": "RT_1",
                 "is_resolved": False,
                 "path": "src/util.py",
                 "line": 3,
@@ -1886,6 +1888,7 @@ def _evidence_context() -> dict:
                 ],
             },
             {
+                "id": "RT_2",
                 "is_resolved": True,
                 "path": "src/app.py",
                 "line": 9,
@@ -1894,6 +1897,7 @@ def _evidence_context() -> dict:
                 ],
             },
             _bot_thread(),
+            {**_bot_thread(), "id": "RT_4", "is_resolved": True},
         ],
         "check_runs": [],
         "policy_files": {},
@@ -1902,7 +1906,7 @@ def _evidence_context() -> dict:
 
 def _bot_thread() -> dict:
     finding = {"author": "posthog", "author_association": "NONE", "author_is_bot": True, "body": "Should fix."}
-    return {"is_resolved": False, "path": "src/db.py", "line": 12, "comments": [finding]}
+    return {"id": "RT_3", "is_resolved": False, "path": "src/db.py", "line": 12, "comments": [finding]}
 
 
 def _bot_comment(login: str) -> dict:
@@ -1931,6 +1935,14 @@ class TestEvidenceFingerprint(SimpleTestCase):
                 False,
             ),
             ("bot_finding_resolved", lambda c: c["review_threads"][2].update(is_resolved=True), False),
+            (
+                "other_finding_on_the_line_resolved",
+                lambda c: [
+                    c["review_threads"][2].update(is_resolved=True),
+                    c["review_threads"][3].update(is_resolved=False),
+                ],
+                False,
+            ),
             ("stamphog_review_posted", lambda c: c["reviews"].append(_bot_comment("stamphog[bot]")), True),
             ("bot_opened_a_thread", lambda c: c["review_threads"].append(_bot_thread()), True),
             (
@@ -1977,6 +1989,7 @@ class TestEvidenceFingerprint(SimpleTestCase):
                 lambda c: c["reviews"].append({**c["reviews"][0], "body": "  "}),
                 True,
             ),
+            ("nul_in_description", lambda c: c["pr"].update(body="Adds a\x00 helper."), True),
             ("label_changed", lambda c: c["pr"]["labels"].append({"name": "stamphog"}), True),
             ("updated_at_moved", lambda c: c["pr"].update(updated_at="t2"), True),
             ("comment_got_a_reaction", lambda c: c["discussion"][0]["reactions"].update({"+1": 1}), True),

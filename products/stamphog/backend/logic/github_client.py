@@ -1003,7 +1003,7 @@ class StamphogGitHubClient:
 
     def get_pr_review_threads(self, repo: str, number: int) -> list[dict]:
         """Fetch the PR's inline review threads via GraphQL, as
-        ``[{is_resolved, is_outdated, path, line,
+        ``[{id, is_resolved, is_outdated, path, line,
         comments: [{author, author_association, author_is_bot, body}]}]``.
 
         Each comment carries the author identity triple (login, association, Bot-ness) because the
@@ -1062,6 +1062,7 @@ class StamphogGitHubClient:
                     )
                 threads.append(
                     {
+                        "id": node.get("id") or "",
                         "is_resolved": bool(node.get("isResolved")),
                         "is_outdated": bool(node.get("isOutdated")),
                         "path": node.get("path") or "",

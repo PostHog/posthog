@@ -17,6 +17,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
@@ -1010,11 +1011,9 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             {"user": user, "author_association": association, "body": body}
         )
 
-    def _answer_but_fail_the_thread_read(self) -> None:
+    def _answer_but_fail_the_thread_read(self, error: Exception) -> None:
         self._comment("The flag is checked upstream.")
-        patcher = patch(
-            f"{_CLIENT}.get_pr_review_threads", side_effect=StamphogGitHubError("GraphQL errors", status_code=502)
-        )
+        patcher = patch(f"{_CLIENT}.get_pr_review_threads", side_effect=error)
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -1029,7 +1028,18 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             ),
             ("author_answered", ReviewVerdict.REFUSED, lambda t: t._comment("The flag is checked upstream."), True),
             ("escalation_answered", ReviewVerdict.ESCALATE, lambda t: t._comment("Owner signed off."), True),
-            ("evidence_unreadable", ReviewVerdict.REFUSED, lambda t: t._answer_but_fail_the_thread_read(), False),
+            (
+                "evidence_unreadable",
+                ReviewVerdict.REFUSED,
+                lambda t: t._answer_but_fail_the_thread_read(StamphogGitHubError("GraphQL errors", status_code=502)),
+                False,
+            ),
+            (
+                "evidence_read_shed",
+                ReviewVerdict.REFUSED,
+                lambda t: t._answer_but_fail_the_thread_read(GitHubEgressBudgetExhausted("budget spent")),
+                False,
+            ),
             ("approval_stands", ReviewVerdict.APPROVED, lambda t: t._comment("Thanks."), False),
             ("wait_stands", ReviewVerdict.WAIT, lambda t: t._comment("Thanks."), False),
         ]

@@ -1943,7 +1943,9 @@ def _evidence_after_refusal(repo_config: StamphogRepoConfig, pr: dict[str, Any])
     if covering is None or not _may_rerun_on_evidence(runs_at_head, covering):
         return None
     repo = repo_config.repository
-    client = StamphogGitHubClient(repo_config.installation_id)
+    # BATCH, because these reads are optional: the egress limiter sheds them before the installation reserve
+    # that dismissals and verdicts need, and a shed read falls back to returning the covering run.
+    client = StamphogGitHubClient(repo_config.installation_id, lane=Priority.BATCH)
     return evidence_fingerprint(
         pr,
         reviews=client.get_pr_reviews(repo, pr["number"]),
@@ -2002,7 +2004,7 @@ def request_manual_review(team_id: int, user_id: int | None, repository: str, pr
 
     try:
         evidence = _evidence_after_refusal(repo_config, pr)
-    except (StamphogGitHubError, *_GITHUB_ERRORS):
+    except (StamphogGitHubError, GitHubEgressBudgetExhausted, *_GITHUB_ERRORS):
         logger.warning("stamphog_manual_review_evidence_failed", repository=repo, pr_number=pr_number, exc_info=True)
         evidence = None
     queued = _queue_review_at_head(

@@ -1942,6 +1942,7 @@ def test_fetch_review_context_carries_inline_review_threads(team, stamphog_chain
     run.refresh_from_db()
     assert run.output["review_threads"] == [
         {
+            "id": "RT_1",
             "is_resolved": False,
             "is_outdated": False,
             "path": "src/util.py",

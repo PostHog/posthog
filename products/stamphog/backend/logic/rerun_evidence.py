@@ -14,6 +14,8 @@ import hashlib
 from collections.abc import Mapping
 from typing import Any
 
+from products.stamphog.backend.logic.jsonb import without_nul
+
 # Mirrors _TRUSTED_ASSOCIATIONS in packages/pr-approval-agent/github.py: the engine shows the reviewer
 # discussion, reviews and inline comments only from these associations.
 _PROMPT_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
@@ -66,13 +68,14 @@ def _review_threads(threads: list[Any]) -> list[dict]:
 
     The engine shows only unresolved threads, so a reply in a resolved thread is no evidence, but
     resolving or reopening a thread is, a bot's finding included. A thread that only a bot or an
-    outsider wrote in counts once somebody resolves it, so a bot opening one moves nothing.
+    outsider wrote in counts once somebody resolves it, so a bot opening one moves nothing. The thread
+    id keeps two threads on one line apart, so resolving one instead of the other moves the hash.
     """
     projected = []
     for thread in threads:
         if not isinstance(thread, dict):
             continue
-        location = {"path": thread.get("path"), "line": thread.get("line")}
+        location = {"id": thread.get("id"), "path": thread.get("path"), "line": thread.get("line")}
         if thread.get("is_resolved"):
             projected.append({**location, "is_resolved": True})
             continue
@@ -97,15 +100,20 @@ def evidence_fingerprint(
     review_threads: list[Any] | None,
 ) -> str:
     """Hash the PR's title and body, and the reviews, discussion and review threads as the GitHub client
-    returns them, whether read now or from a run's stored context."""
-    canonical = {
-        "version": _VERSION,
-        "title": pr.get("title") or "",
-        "body": pr.get("body") or "",
-        "reviews": _reviews(reviews or []),
-        "discussion": _discussion(discussion or []),
-        "review_threads": _review_threads(review_threads or []),
-    }
+    returns them, whether read now or from a run's stored context.
+
+    The stored context lost its NUL characters on the way into jsonb, so the hash drops them from both.
+    """
+    canonical = without_nul(
+        {
+            "version": _VERSION,
+            "title": pr.get("title") or "",
+            "body": pr.get("body") or "",
+            "reviews": _reviews(reviews or []),
+            "discussion": _discussion(discussion or []),
+            "review_threads": _review_threads(review_threads or []),
+        }
+    )
     # ASCII escapes, because a comment can carry a lone surrogate that strict UTF-8 refuses to encode.
     encoded = json.dumps(canonical, sort_keys=True)
     return hashlib.sha256(encoded.encode()).hexdigest()
