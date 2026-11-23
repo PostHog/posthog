@@ -31,6 +31,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
 from posthog.permissions import is_service_auth
+from posthog.scopes.catalog import APIScopeObject
 from posthog.utils import convert_property_value, flatten
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
@@ -338,11 +339,13 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     requires_resource_level_access = False
     serializer_class = _FallbackSerializer
 
-    def _readable(self, queryset: QuerySet) -> QuerySet:
+    def _readable(self, queryset: QuerySet, resource: APIScopeObject | None = None) -> QuerySet:
         # Collection actions never call get_object(), so per-object denies only apply here.
         if is_service_auth(self.request):
             return queryset
-        return self.user_access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
+        return self.user_access_control.filter_queryset_by_access_level(
+            queryset, include_all_if_admin=True, resource=resource
+        )
 
     def _readable_sources(self) -> QuerySet:
         return self._readable(ExternalDataSource.objects.filter(team_id=self.team_id))
@@ -1127,7 +1130,12 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     }
                 )
 
-            for failed_run in batch_exports_api.list_latest_failed_runs(self.team_id):
+            # Runs come back as plain records, so only a deny on the whole resource can apply here.
+            can_read_batch_exports = is_service_auth(self.request) or (
+                self.user_access_control.check_access_level_for_resource("batch_export", "viewer")
+            )
+            failed_runs = batch_exports_api.list_latest_failed_runs(self.team_id) if can_read_batch_exports else []
+            for failed_run in failed_runs:
                 results.append(
                     {
                         "id": str(failed_run.export_id),
@@ -1141,11 +1149,14 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 )
 
             # Get transformations with issues
-            transformations = HogFunction.objects.filter(
-                team_id=self.team_id,
-                deleted=False,
-                type=HogFunctionType.TRANSFORMATION,
-                enabled=True,
+            transformations = self._readable(
+                HogFunction.objects.filter(
+                    team_id=self.team_id,
+                    deleted=False,
+                    type=HogFunctionType.TRANSFORMATION,
+                    enabled=True,
+                ),
+                resource="hog_function",
             )
 
             for transformation in transformations:
@@ -1185,11 +1196,14 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     logger.warning(f"Error processing transformation {transformation.id}", exc_info=e)
 
             # Get destinations with issues
-            hog_destinations = HogFunction.objects.filter(
-                team_id=self.team_id,
-                deleted=False,
-                type__in=[HogFunctionType.DESTINATION, HogFunctionType.SITE_DESTINATION],
-                enabled=True,
+            hog_destinations = self._readable(
+                HogFunction.objects.filter(
+                    team_id=self.team_id,
+                    deleted=False,
+                    type__in=[HogFunctionType.DESTINATION, HogFunctionType.SITE_DESTINATION],
+                    enabled=True,
+                ),
+                resource="hog_function",
             )
 
             for destination in hog_destinations:

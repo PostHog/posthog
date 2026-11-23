@@ -1,7 +1,8 @@
 from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import PropertyMock, patch
 
 from django.utils import timezone
 
@@ -11,6 +12,7 @@ from rest_framework.response import Response
 
 from posthog.models.organization import OrganizationMembership
 
+from products.cdp.backend.facade.models import HogFunction, HogFunctionState
 from products.data_modeling.backend.facade.models import (
     DAG,
     DataModelingJob,
@@ -191,6 +193,37 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
             self.assertIn(token, body)
         for token in blocked_tokens:
             self.assertNotIn(token, body)
+
+    @patch("products.data_warehouse.backend.presentation.views.data_warehouse.batch_exports_api")
+    @patch.object(HogFunction, "status", new_callable=PropertyMock)
+    def test_data_health_issues_hides_denied_transformations_and_batch_exports(self, mock_status, mock_batch_exports):
+        mock_status.return_value = {"state": HogFunctionState.DISABLED.value, "error": "hog_error"}
+        mock_batch_exports.list_latest_failed_runs.return_value = [
+            SimpleNamespace(export_id="export-1", export_name="denied_export", error="export_error", failed_at=None)
+        ]
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self._create_access_control(self.viewer_user, resource="batch_export", access_level="none")
+        functions = {
+            label: HogFunction.objects.create(
+                team=self.team, name=f"{label}_function", type=function_type, enabled=True, hog="return event"
+            )
+            for label, function_type in (
+                ("allowed", "transformation"),
+                ("blocked", "transformation"),
+                ("blocked_destination", "destination"),
+            )
+        }
+        for label in ("blocked", "blocked_destination"):
+            self._create_access_control(
+                self.viewer_user, resource="hog_function", resource_id=str(functions[label].id), access_level="none"
+            )
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.get(self._path("data_health_issues/"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        names = {result["name"] for result in response.json()["results"]}
+        self.assertEqual(names, {"allowed_function"})
 
     @parameterized.expand(["data_health_issues", "running_activity", "completed_activity"])
     def test_collection_actions_hide_a_sync_denied_on_its_table(self, action_path: str):
