@@ -1,5 +1,9 @@
+import operator
 from collections import Counter
 from datetime import UTC, date, datetime, time, timedelta
+from functools import reduce
+
+from django.db.models import Q
 
 import dagster
 
@@ -50,14 +54,15 @@ class JobUsageCollector:
         counts: Counter[tuple[int | None, str | None, str | None]] = Counter()
         for offset in range(0, len(jobs), BATCH_SIZE):
             keys = {(job.team_id, job.workflow_id, job.workflow_run_id) for job in jobs[offset : offset + BATCH_SIZE]}
+            # One exact-key match per job, so Postgres seeks each key in the index instead of
+            # scanning every job of every team in the batch.
             counts.update(
-                key
-                for key in DataModelingJob.objects.filter(
-                    team_id__in={key[0] for key in keys},
-                    workflow_id__in={key[1] for key in keys},
-                    workflow_run_id__in={key[2] for key in keys},
+                DataModelingJob.objects.filter(
+                    reduce(
+                        operator.or_,
+                        (Q(team_id=t, workflow_id=w, workflow_run_id=r) for t, w, r in keys),
+                    )
                 ).values_list("team_id", "workflow_id", "workflow_run_id")
-                if key in keys
             )
         unique = {key: job for job in jobs if counts[key := (job.team_id, job.workflow_id, job.workflow_run_id)] == 1}
         ambiguous = len(jobs) - len(unique)
