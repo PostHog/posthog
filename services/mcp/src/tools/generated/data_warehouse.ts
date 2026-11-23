@@ -8,6 +8,27 @@ import { withToolHooks } from '@/tools/tool-hooks'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const DataWarehouseDataHealthIssuesRetrieveSchema = () => z.object({})
+
+const dataWarehouseDataHealthIssuesRetrieve = (): ToolBase<
+    ReturnType<typeof DataWarehouseDataHealthIssuesRetrieveSchema>,
+    Schemas.DataHealthIssuesResponse
+> => ({
+    name: 'data-warehouse-data-health-issues-retrieve',
+    schema: DataWarehouseDataHealthIssuesRetrieveSchema(),
+    handler: async (
+        context: Context,
+        _params: z.infer<ReturnType<typeof DataWarehouseDataHealthIssuesRetrieveSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.DataHealthIssuesResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_warehouse/data_health_issues/`,
+        })
+        return result
+    },
+})
+
 const ManagedWarehouseMetricHistoryGetSchema = () => {
     const DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveQueryParams =
         orvalSchemas.DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveQueryParams()
@@ -773,6 +794,7 @@ const warehouseTablesRefreshSchemaCreate = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'data-warehouse-data-health-issues-retrieve': dataWarehouseDataHealthIssuesRetrieve,
     'managed-warehouse-metric-history-get': managedWarehouseMetricHistoryGet,
     'managed-warehouse-monitoring-get': managedWarehouseMonitoringGet,
     'managed-warehouse-trino-metric-history-get': managedWarehouseTrinoMetricHistoryGet,

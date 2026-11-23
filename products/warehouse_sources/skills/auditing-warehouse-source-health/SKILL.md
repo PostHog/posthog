@@ -65,9 +65,14 @@ Note the data-health endpoint only reports _active failures_. For source/sync he
 - Schemas that are slow or stale but technically `Completed`
 - **Webhook problems on `sync_type: "webhook"` schemas.** The bulk-sync safety net can succeed while the webhook
   push channel is silently broken (deregistered, disabled on the remote side, failing signature verification).
-  These don't surface in `data-health-issues` — check per-source with `webhook-info-retrieve`.
+  These don't surface in `data-health-issues` — check per-source with `external-data-sources-webhook-info-retrieve`.
 
 If the user asks about staleness or unused items, reach beyond this endpoint — see Step 4.
+
+`data-warehouse-data-health-issues-retrieve` needs read access to sources, views, batch exports and transformations.
+If the token lacks one of those, use `health-issues-list` with `status=active` and `kind=external_data_failure`
+instead. That check runs once a day and reports tables only, not sources in Error. `kind=webhook_subscription_stale`
+covers webhook tables whose events stopped arriving.
 
 ## Workflow
 
@@ -167,6 +172,6 @@ Any fix should be confirmed explicitly before executing.
   the list endpoints. Only do this when the user explicitly asks for a deeper audit.
 - **Webhook health is separate from schema health.** The data-health endpoint doesn't know about webhook state.
   When a user's request mentions "real-time", "Stripe webhook", or "why is data hours behind on a webhook
-  source", go straight to `webhook-info-retrieve` rather than inferring from schema status.
+  source", go straight to `external-data-sources-webhook-info-retrieve` rather than inferring from schema status.
 - **Materialized views, destinations, and transformations are out of scope here.** They share the data-health
   endpoint but belong to other audits/products — route, don't diagnose.

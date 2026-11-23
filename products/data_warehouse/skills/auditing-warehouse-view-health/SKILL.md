@@ -59,6 +59,10 @@ Note the data-health endpoint only reports _active failures_. For views it doesn
 - Non-materialized views with errors (only materialized views are reported)
 - Materialized views that are healthy but unused (costing compute every run) — see Step 4
 
+`data-warehouse-data-health-issues-retrieve` needs read access to sources, views, batch exports and transformations.
+If the token lacks one of those, use `health-issues-list` with `status=active` and `kind=materialized_view_failure`
+instead. That check runs once a day, so a view that failed in the last hours may be missing.
+
 ## Workflow
 
 ### Step 1 — One-shot pull

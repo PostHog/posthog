@@ -721,6 +721,7 @@
         "feature": "data_warehouse",
         "summary": "List sync job history for a source, paged, with date and table filters.",
         "title": "List sync jobs for a source",
+        "search_keywords": ["external-data-jobs", "sync jobs", "job history"],
         "required_scopes": ["external_data_source:read"],
         "annotations": {
             "destructiveHint": false,

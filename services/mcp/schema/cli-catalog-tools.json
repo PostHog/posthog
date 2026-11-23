@@ -15975,6 +15975,38 @@
             "validators": []
         }
     },
+    "data-warehouse-data-health-issues-retrieve": {
+        "name": "data-warehouse-data-health-issues-retrieve",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/data_warehouse/data_health_issues/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "data-warehouse-stored-credentials-list": {
         "name": "data-warehouse-stored-credentials-list",
         "kind": "http",
