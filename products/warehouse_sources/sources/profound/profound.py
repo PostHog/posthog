@@ -84,9 +84,13 @@ def fetch_category_ids(api_key: str) -> list[str]:
 def _reference_endpoint(config: ProfoundEndpointConfig) -> Endpoint:
     endpoint: Endpoint = {
         "path": config.path,
-        # These lists are small and return everything in one response.
-        "paginator": SinglePagePaginator(),
+        # Most of these lists are small and return everything in one response.
+        "paginator": JSONResponseCursorPaginator(cursor_path=config.cursor_path, cursor_param="cursor")
+        if config.cursor_path
+        else SinglePagePaginator(),
     }
+    if config.params:
+        endpoint["params"] = dict(config.params)
     if config.data_key:
         endpoint["data_selector"] = config.data_key
         # A missing wrapper key means the response shape changed; fail loud rather than syncing 0 rows.
@@ -102,7 +106,10 @@ def _category_reference_resource(
 ) -> Any:
     categories = PROFOUND_ENDPOINTS["Categories"]
     endpoint = _reference_endpoint(config)
-    endpoint["params"] = {"category_id": {"type": "resolve", "resource": categories.name, "field": "id"}}
+    endpoint["params"] = {
+        **(endpoint.get("params") or {}),
+        "category_id": {"type": "resolve", "resource": categories.name, "field": "id"},
+    }
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": PROFOUND_BASE_URL,
@@ -296,6 +303,9 @@ def profound_source(
             primary_keys=config.primary_keys,
             partition_count=1,
             partition_size=1,
+            partition_mode="datetime" if config.partition_key else None,
+            partition_format="month" if config.partition_key else None,
+            partition_keys=[config.partition_key] if config.partition_key else None,
             column_hints=resource.column_hints,
         )
 
