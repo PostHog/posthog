@@ -68,6 +68,14 @@ describe('transactional email batch', () => {
             variables: { a: { b: Array.from({ length: BATCH_COPIED_NODES_MAX / 2 - 2 }, (_, i) => i) } },
             recipients: [recipient('ada', own), recipient('bo')],
         })
+        const unwalkable = new Proxy(
+            {},
+            {
+                ownKeys: () => {
+                    throw new Error('walked an element past the node limit')
+                },
+            }
+        )
         it.each([
             {
                 batch: 'shared variables nested to the depth limit',
@@ -98,6 +106,14 @@ describe('transactional email batch', () => {
                         })
                     )
                 ),
+                exceeds: true,
+            },
+            {
+                batch: 'a list wider than the node limit, without walking its elements',
+                body: {
+                    variables: { a: Array(BATCH_COPIED_NODES_MAX + 1).fill(unwalkable) },
+                    recipients: [recipient('ada')],
+                },
                 exceeds: true,
             },
             {

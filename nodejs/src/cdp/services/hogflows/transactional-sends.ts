@@ -641,9 +641,11 @@ export class TransactionalSends {
         if (await suspension) {
             return whole('sending_suspended')
         }
-        const quotaLimited = (await quota).isLimited
+        if ((await quota).isLimited) {
+            return whole('quota_limited')
+        }
         await Promise.all([suppressed, unreachable])
-        return checksOf(lookups, quotaLimited, requests.length)
+        return checksOf(lookups, false, requests.length)
     }
 
     private buildInvocation(

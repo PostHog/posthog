@@ -5325,7 +5325,9 @@ describe('CDP API', () => {
                     held.splice(0).forEach((read) => read())
                 }
                 releaseStalledReads = release
-                return { reached, release }
+                // Later reads go through while the held ones stay held.
+                const pass = () => (holding = false)
+                return { reached, release, pass }
             }
             const setIntakeModes = ({ shadow = '', async = '' }: { shadow?: string; async?: string }) => {
                 api['config'].CDP_INTAKE_KAFKA_SHADOW_TEAMS = shadow
@@ -5417,8 +5419,20 @@ describe('CDP API', () => {
                 const { suppressed, unreachable } = await refusableRecipients()
                 const sendable = recipient(`ada-${new UUIDT().toString()}@example.com`)
                 const read = stallSuppressionReads()
-                // The time runs out once the suppression read hangs, after the mail server lookups answered.
-                api['refusalDeadline'] = () => read.reached.then(() => new Promise<void>((done) => setImmediate(done)))
+                const validation = api['emailValidationService']
+                const skipReason = validation.getRecipientSkipReason.bind(validation)
+                let mxAnswered!: () => void
+                const verdict = new Promise<void>((resolve) => (mxAnswered = resolve))
+                jest.spyOn(validation, 'getRecipientSkipReason').mockImplementation(async (teamId, email) => {
+                    const reason = await skipReason(teamId, email)
+                    if (email === unreachable.to) {
+                        mxAnswered()
+                    }
+                    return reason
+                })
+                // The time runs out once the suppression read hangs and the mail server verdict answered.
+                api['refusalDeadline'] = () =>
+                    Promise.all([read.reached, verdict]).then(() => new Promise<void>((done) => setImmediate(done)))
 
                 const res = await sendBatch(TEMPLATE, {
                     variables: body.variables,
@@ -5589,8 +5603,10 @@ describe('CDP API', () => {
                 }
             )
 
-            it('refuses a whole batch of a marketing email when the team is over its email quota', async () => {
+            it('refuses a whole batch of a marketing email when the team is over its email quota, without waiting on its recipients', async () => {
                 await setTeamQuotaLimited(hub, team, 'workflow_emails', true)
+                stallSuppressionReads()
+                api['refusalDeadline'] = () => new Promise<void>(() => {})
                 try {
                     const marketingFlow = await insertHogFlow(transactionalFlow('api', 'active', 'marketing'))
 
@@ -5692,22 +5708,28 @@ describe('CDP API', () => {
                     'its claim lookup',
                     () => api['hogflowQueue'] as unknown as Record<string, (...args: unknown[]) => unknown>,
                     'findIdempotencyKeys',
+                    1,
                 ],
                 [
+                    // On the second record, so a batch that published the first before encoding the next would fail.
                     'encoding its records',
                     () => intakeMessage as unknown as Record<string, (...args: unknown[]) => unknown>,
                     'encodeIntakeMessage',
+                    2,
                 ],
             ] as const)(
                 'answers 503 and publishes nothing when the batch passes its publish deadline during %s',
-                async (_stage, ownerOf, method) => {
+                async (_stage, ownerOf, method, crossingCall) => {
                     const realNow = performance.now.bind(performance)
                     let skippedMs = 0
                     jest.spyOn(performance, 'now').mockImplementation(() => realNow() + skippedMs)
                     const owner = ownerOf()
                     const original = owner[method].bind(owner)
+                    let calls = 0
                     jest.spyOn(owner, method).mockImplementation((...args: unknown[]) => {
-                        skippedMs = BATCH_PUBLISH_DEADLINE_MS
+                        if (++calls === crossingCall) {
+                            skippedMs = BATCH_PUBLISH_DEADLINE_MS
+                        }
                         return original(...args)
                     })
 
@@ -5838,8 +5860,9 @@ describe('CDP API', () => {
                     const overlapping = await sendBatchTo(one, TEMPLATE, batchOf(recipient('cy@example.com')))
                     expire()
                     const held = await first
-                    read.release()
+                    read.pass()
                     const after = await sendBatchTo(one, TEMPLATE, batchOf(recipient('di@example.com')))
+                    read.release()
 
                     expect([switchedOff.status, switchedOff.body]).toEqual([503, { error: 'over_capacity' }])
                     expect([overlapping.status, overlapping.body]).toEqual([503, { error: 'over_capacity' }])
