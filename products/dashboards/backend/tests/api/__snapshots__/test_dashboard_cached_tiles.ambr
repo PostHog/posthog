@@ -100,7 +100,7 @@
       'end_time': None,
       'error': True,
       'error_code': 'bad_arguments',
-      'error_message': "Column(s) _timestamp, _offset, _partition of the AggregatingMergeTree table are neither part of the sorting key nor aggregate measures (AggregateFunction or SimpleAggregateFunction). During background merges, rows with the same value of the sorting key are collapsed into one, so these columns keep an arbitrary value, which silently produces wrong results for queries that GROUP BY or filter on them. Add them to the sorting key (ORDER BY), or set 'allow_dimensions_outside_sorting_key = 1' if this is intentional (for example, when the columns are functionally dependent on the sorting key)..",
+      'error_message': "Column(s) error_details, _timestamp, _offset, _partition of the AggregatingMergeTree table are neither part of the sorting key nor aggregate measures (AggregateFunction or SimpleAggregateFunction). During background merges, rows with the same value of the sorting key are collapsed into one, so these columns keep an arbitrary value, which silently produces wrong results for queries that GROUP BY or filter on them. Add them to the sorting key (ORDER BY), or set 'allow_dimensions_outside_sorting_key = 1' if this is intentional (for example, when the columns are functionally dependent on the sorting key)..",
       'expiration_time': None,
       'id': '<run id>',
       'insight_id': 115,
