@@ -5459,16 +5459,16 @@ Re-audited 2026-11-19 against <https://developer.eventzilla.net/docs/>: no new g
 
 ## Everflow — gaps
 
-Today (5): `advertisers`, `affiliates`, `conversions`, `daily_performance`, `offers`
+Today (9): `advertisers`, `affiliate_tiers`, `affiliate_users`, `affiliates`, `categories`, `conversions`, `daily_performance`, `offers`, `partner_invoices`
 
 Diffed against: <https://developers.everflow.io/llms.txt>
 
-- [ ] `Categories (GET /networks/categories)` — lookup for offer category ids carried on offers (high)
-- [ ] `Affiliate tiers (GET /networks/affiliatetiers)` — lookup for the tier of each affiliate (high)
+- [x] `Categories (GET /networks/categories)` — lookup for offer category ids carried on offers (high)
+- [x] `Affiliate tiers (GET /networks/affiliatetiers)` — lookup for the tier of each affiliate (high)
 - [ ] `Labels (GET /networks/labels)` — lookup for label ids used on offers and affiliates (medium)
-- [ ] `Affiliate users (GET /networks/affiliates/{affiliateId}/users)` — users per affiliate, fan-out per affiliate we sync (medium)
+- [x] `Affiliate users (GET /networks/affiliates/{affiliateId}/users)` — users per affiliate, fan-out per affiliate we sync (medium)
 - [ ] `Advertiser users (GET /networks/advertisers/{advertiserId}/users)` — users per advertiser, fan-out per advertiser we sync (low)
-- [ ] `Partner invoices (POST /networks/billings/affiliates/invoicestable)` — affiliate payouts and billing status for finance reporting (high)
+- [x] `Partner invoices (POST /networks/billings/affiliates/invoicestable)` — affiliate payouts and billing status for finance reporting (high)
 - [ ] `Reporting adjustments (POST /networks/reportingadjustments/table)` — manual changes to conversion payout and revenue, needed to reconcile reports (medium)
 - [ ] `Creatives (POST /networks/creativestable)` — creative assets per offer for performance breakdowns (medium)
 - [ ] `Traffic sources (GET /networks/trafficsource)` — lookup for traffic sources on clicks and conversions (medium)
