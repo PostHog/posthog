@@ -2852,23 +2852,30 @@ describe('Cyclotron V2', () => {
                 expect(firstBatch).toEqual({ jobs: 4, tokensLeft: 96 })
             })
 
-            it('takes tokens only for the sends with files it has room for when it polls them apart', async () => {
-                await manager.bulkCreateJobs(
-                    Array.from({ length: 5 }, () => ({ teamId: 1, queueName: 'email', fileBytes: 1000 }))
-                )
-                const bucket = tokenBucket(100)
+            it.each([
+                ['the room it has', 100, 2],
+                ['a batch size below its room', 1, 1],
+            ])(
+                'takes tokens only for the sends with files that fit %s when it polls them apart',
+                async (_label, batchMaxSize, taken) => {
+                    await manager.bulkCreateJobs(
+                        Array.from({ length: 5 }, () => ({ teamId: 1, queueName: 'email', fileBytes: 1000 }))
+                    )
+                    const bucket = tokenBucket(100)
 
-                const firstBatch = await firstBatchWithTokensLeft(
-                    createRateLimitedWorker(bucket.take, {
-                        queueName: 'email',
-                        boundedFairDequeue: true,
-                        sendsWithFiles: { room: () => 2 },
-                    }),
-                    bucket
-                )
+                    const firstBatch = await firstBatchWithTokensLeft(
+                        createRateLimitedWorker(bucket.take, {
+                            queueName: 'email',
+                            boundedFairDequeue: true,
+                            batchMaxSize,
+                            sendsWithFiles: { room: () => 2 },
+                        }),
+                        bucket
+                    )
 
-                expect(firstBatch).toEqual({ jobs: 2, tokensLeft: 98 })
-            })
+                    expect(firstBatch).toEqual({ jobs: taken, tokensLeft: 100 - taken })
+                }
+            )
         })
 
         it('turns unhealthy when its poll for sends with files stops while the plain poll keeps going', async () => {

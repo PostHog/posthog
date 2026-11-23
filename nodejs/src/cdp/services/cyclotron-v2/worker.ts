@@ -405,7 +405,7 @@ export class CyclotronV2Worker {
         while (this.isConsuming) {
             try {
                 this.lastFilesPollTime = new Date()
-                const decision = await this.filesBatchLimit(sendsWithFiles.room())
+                const decision = await this.filesBatchLimit(Math.min(sendsWithFiles.room(), this.batchMaxSize))
                 const rows = decision.limit > 0 ? await this.dequeueFiles(decision.limit) : []
                 if (rows.length === 0) {
                     await this.sleepUntilStopped(decision.sleepMs ?? this.pollDelayMaxMs)
