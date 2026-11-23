@@ -1,6 +1,7 @@
-import type {
-    EmailDomainDnsHostApi,
-    EmailDomainStatusRecordApi,
+import {
+    type EmailDomainDnsHostApi,
+    EmailDomainSetupRecordStatusEnumApi,
+    type EmailDomainStatusRecordApi,
 } from 'products/integrations/frontend/generated/api.schemas'
 
 export interface SetupPromptInput {
@@ -16,6 +17,9 @@ export interface SetupPromptInput {
 }
 
 const formatRecord = (record: EmailDomainStatusRecordApi): string => {
+    if (record.status === EmailDomainSetupRecordStatusEnumApi.Verified) {
+        return `- ${record.type}  ${record.hostname}  (already in place, keep it)`
+    }
     const priority = record.priority != null ? ` (priority ${record.priority})` : ''
     return `- ${record.type}  ${record.hostname}  ->  ${record.value}${priority}`
 }
