@@ -94,7 +94,7 @@ import type {
 import { teamLogic } from '../teamLogic'
 import { insightDataTimingLogic } from './insightDataTimingLogic'
 import { insightLogic } from './insightLogic'
-import { insightSceneLogic } from './insightSceneLogic'
+import { insightSceneLogic, insightSceneTabId } from './insightSceneLogic'
 import { insightUsageLogic } from './insightUsageLogic'
 import { crushDraftQueryForLocalStorage, isQueryTooLarge } from './utils'
 
@@ -110,7 +110,8 @@ export const isInsightSceneInstance = (props: InsightLogicProps): boolean => {
     const sceneValues = insightSceneLogic.findMounted()?.values
     return (
         sceneValues?.insightId === props.dashboardItemId &&
-        (sceneValues?.dashboardId ?? null) === (props.dashboardId ?? null)
+        (sceneValues?.dashboardId ?? null) === (props.dashboardId ?? null) &&
+        (props.tabId ?? undefined) === insightSceneTabId(props.dashboardId)
     )
 }
 
