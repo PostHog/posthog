@@ -199,7 +199,7 @@ export function MCPAnalyticsUsers(): JSX.Element {
             {openedUser ? (
                 <MCPDetailDrawer
                     noun="user"
-                    title={openedLabel}
+                    title={<span className="ph-no-capture">{openedLabel}</span>}
                     position={openedPosition}
                     onPrevious={previousUser ? () => openUser(previousUser) : null}
                     onNext={nextUser ? () => openUser(nextUser) : null}

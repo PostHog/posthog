@@ -3,6 +3,7 @@ import { type ReactNode, useMemo, useState } from 'react'
 import { type ChartTheme, type TimeInterval, type TooltipContext } from '@posthog/quill-charts'
 import { Button, ToggleGroup, ToggleGroupItem } from '@posthog/quill-primitives'
 
+import { cn } from 'lib/utils/css-classes'
 import { formatPercentage, sum } from 'lib/utils/numbers'
 
 import { shadeColor } from '../colors'
@@ -62,6 +63,7 @@ export function ShareWidget({
     onSelect,
     unknownLabel = UNKNOWN,
     setupEmptyState,
+    sensitive = false,
 }: {
     title: string
     description?: ReactNode
@@ -79,6 +81,8 @@ export function ShareWidget({
     onSelect?: (label: string, labels: string[]) => void
     unknownLabel?: string
     setupEmptyState?: ReactNode
+    /** Keeps the row labels, such as people's emails, out of session replay. */
+    sensitive?: boolean
 }): JSX.Element {
     const [view, setView] = useState<ShareView>('bars')
     const [expanded, setExpanded] = useState(false)
@@ -173,7 +177,7 @@ export function ShareWidget({
             <CardState
                 loading={loading}
                 isEmpty={totalCalls === 0 || !!setupEmptyState}
-                className="min-h-48"
+                className={cn('min-h-48', sensitive && 'ph-no-capture')}
                 skeleton={<ChartSkeleton kind={view === 'bars' ? 'shares' : 'line'} />}
                 empty={failed ? <LoadErrorMessage /> : (setupEmptyState ?? <NoDataMessage />)}
             >

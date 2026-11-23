@@ -240,6 +240,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         onSelect={openUserActivity}
                         dataAttr="mcp-dashboard-user-share"
                         unknownLabel="Anonymous"
+                        sensitive
                         setupEmptyState={
                             usersAnonymous ? (
                                 <InstrumentationEmptyState

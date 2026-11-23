@@ -260,6 +260,7 @@ export enum Scene {
     Logs = 'Logs',
     MCPAnalytics = 'MCPAnalytics',
     MCPAnalyticsToolDetail = 'MCPAnalyticsToolDetail',
+    MCPAnalyticsUser = 'MCPAnalyticsUser',
     LogsAlertDetail = 'LogsAlertDetail',
     LogsAlertNotificationDetail = 'LogsAlertNotificationDetail',
     LogsSamplingNew = 'LogsSamplingNew',
@@ -521,6 +522,7 @@ export const sceneToAccessControlResourceType: Partial<
     // MCP analytics
     [Scene.MCPAnalytics]: AccessControlResourceType.McpAnalytics,
     [Scene.MCPAnalyticsToolDetail]: AccessControlResourceType.McpAnalytics,
+    [Scene.MCPAnalyticsUser]: AccessControlResourceType.McpAnalytics,
 
     // Skills
     [Scene.Skill]: AccessControlResourceType.LlmSkill,

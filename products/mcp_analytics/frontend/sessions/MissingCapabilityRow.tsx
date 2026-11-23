@@ -49,7 +49,7 @@ export function MissingCapabilityRow({
                     {formatRelativeOffset(sessionStart, report.timestamp)}
                 </span>
             </div>
-            <div className="whitespace-pre-line pl-5 text-xs leading-snug">
+            <div className="ph-no-capture whitespace-pre-line pl-5 text-xs leading-snug">
                 {suggestion ? report.suggestion : report.report}
             </div>
         </li>

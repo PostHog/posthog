@@ -101,7 +101,7 @@ export function SuggestedFixesCard(): JSX.Element {
                                     onClick={() => openFix(row)}
                                     data-attr="mcp-dashboard-suggested-fix-row"
                                 >
-                                    <TableCell expand className="whitespace-normal">
+                                    <TableCell expand className="ph-no-capture whitespace-normal">
                                         <div className="text-sm">{row.suggested_improvement}</div>
                                         {row.intent ? (
                                             <div className="line-clamp-1 text-xs text-secondary">{row.intent}</div>
