@@ -48,7 +48,6 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.facade.source_management import (
     AnySource,
-    ClickHouseSource,
     Config,
     CustomSource,
     MySQLSource,
@@ -485,10 +484,17 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 )
                 if reconciled_deleted_schemas:
                     schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
-            elif isinstance(source, (SQLSource, ClickHouseSource)) and source.supports_column_selection:
+            else:
+                # The ClickHouse source module imports clickhouse_connect, which loads polars, and web
+                # processes import this view at boot. A ClickHouse source object has loaded it already.
+                from products.warehouse_sources.backend.facade.source_management import (  # noqa: PLC0415
+                    ClickHouseSource,
+                )
+
                 # ClickHouse isn't a SQLSource but exposes the same column-selection
                 # capability and reconcile hook, so it reuses this path.
-                source.reconcile_schema_metadata(source=instance, source_schemas=schemas, team_id=self.team_id)
+                if isinstance(source, (SQLSource, ClickHouseSource)) and source.supports_column_selection:
+                    source.reconcile_schema_metadata(source=instance, source_schemas=schemas, team_id=self.team_id)
 
         # Outside the atomic block: schedule creation talks to Temporal, which must not run under
         # the source row lock or against rows that could still roll back. `sync_result.created` holds

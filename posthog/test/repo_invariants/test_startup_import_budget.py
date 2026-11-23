@@ -510,7 +510,12 @@ print("WSGI_PREBUILD_OK")
 # These libraries start threads when they load. bin/granian_preload.py forks the web workers
 # only from a parent without such threads, so code reachable from the web entry imports them
 # inside the function that uses them.
-FORBIDDEN_AT_WEB_ENTRYPOINT = ["duckdb"]
+FORBIDDEN_AT_WEB_ENTRYPOINT = [
+    "duckdb",
+    "polars",
+    # Imports polars at module level, so only the warehouse ClickHouse source may load it.
+    "clickhouse_connect",
+]
 
 
 def test_web_entrypoint_does_not_import_thread_starting_libraries() -> None:

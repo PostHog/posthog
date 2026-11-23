@@ -38,6 +38,7 @@ from products.data_modeling.backend.facade.enums import MaterializationRunTrigge
 from products.data_modeling.backend.graph import Graph
 from products.data_modeling.backend.logic.freshness import SCHEDULABLE_BUCKETS, humanize_cadence
 from products.data_modeling.backend.logic.incremental import TRINO_INCREMENTAL_SCOPE, clear_incremental_state
+from products.data_modeling.backend.logic.managed_warehouse_shadow import is_managed_warehouse_shadow_enabled
 from products.data_modeling.backend.logic.node_suspension import suspended_nodes, unsuspend_nodes
 from products.data_modeling.backend.logic.read_access import assert_user_can_read_saved_query
 from products.data_modeling.backend.models import (
@@ -50,16 +51,13 @@ from products.data_modeling.backend.models import (
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES
 from products.data_modeling.backend.schedule import get_v2_saved_query_ids
-from products.data_modeling.backend.temporal.activities.materialize_view_managed_warehouse import (
-    is_managed_warehouse_shadow_enabled,
-)
-from products.data_modeling.backend.temporal.workflows.execute_dag import (
+from products.data_modeling.backend.temporal.workflow_inputs import (
     TRINO_SHADOW_RUN_TIMEOUT,
     ExecuteDAGInputs,
+    MaterializeViewWorkflowInputs,
     manual_trino_workflow_id,
     trino_build_workflow_id,
 )
-from products.data_modeling.backend.temporal.workflows.materialize_view import MaterializeViewWorkflowInputs
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)

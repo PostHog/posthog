@@ -16,7 +16,7 @@ from products.data_modeling.backend.facade.temporal_metrics import (
     DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS,
     DATA_MODELING_LATENCY_HISTOGRAM_METRICS,
 )
-from products.data_modeling.backend.temporal import (
+from products.data_modeling.backend.temporal.registration import (
     ACTIVITIES,
     SEMANTIC_ENRICHMENT_ACTIVITIES,
     SEMANTIC_ENRICHMENT_WORKFLOWS,
