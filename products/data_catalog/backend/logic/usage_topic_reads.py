@@ -215,8 +215,8 @@ class ReadSources:
     ``field_tables`` maps the name of each warehouse join and saved expression field to the tables that the
     field reads, or to None when the scan cannot tell. ``fields_changed_at`` holds the last change or delete of
     any of those fields. ``table_expressions`` holds the saved expression fields of each table, which `*` expands.
-    ``view_changes`` holds the last change of each saved view or of a view that it reads. ``untraced_views`` holds
-    the views whose body the scan cannot trace. ``views_saved_at`` holds the last save of any saved view, and
+    ``view_changes`` holds the last change of each saved view or of a view that it reads. ``view_reads`` holds
+    the tables that each view reads through a field, or None when the scan cannot tell. ``views_saved_at`` holds the last save of any saved view, and
     ``table_exists`` says whether the team has a table or view with a name now."""
 
     metric_definitions: Mapping[str, SavedDefinition]
@@ -226,7 +226,7 @@ class ReadSources:
     fields_changed_at: datetime | None = None
     table_expressions: Mapping[str, frozenset[str]] | None = None
     view_changes: Mapping[str, datetime] | None = None
-    untraced_views: frozenset[str] = frozenset()
+    view_reads: Mapping[str, frozenset[str] | None] | None = None
     views_saved_at: datetime | None = None
     table_exists: Callable[[str], bool] | None = None
 
@@ -240,7 +240,7 @@ class ReadSources:
             fields_changed_at=self.fields_changed_at,
             table_expressions=self.table_expressions,
             view_changes=self.view_changes,
-            untraced_views=self.untraced_views,
+            view_reads=self.view_reads,
             views_saved_at=self.views_saved_at,
             table_exists=self.table_exists,
         )
@@ -534,9 +534,12 @@ def call_tables(call: ReadCall, sources: ReadSources) -> frozenset[str] | None:
         if expanded is None:
             return None
         tables |= expanded
-    if tables & current.untraced_views or current.view_changed_after(tables, call.at):
-        return None
-    return tables
+    for view in tables & (current.view_reads or {}).keys():
+        through_fields = (current.view_reads or {})[view]
+        if through_fields is None:
+            return None
+        tables |= through_fields
+    return None if current.view_changed_after(tables, call.at) else tables
 
 
 def session_tables(
@@ -845,24 +848,38 @@ def view_changes(views: Sequence[SavedView]) -> dict[str, datetime]:
     return {name: time for name in by_name if (time := last_change(name, ())) is not None}
 
 
-def untraced_views(views: Sequence[SavedView]) -> frozenset[str]:
-    """The views that run a saved cohort or action or do not parse, and the views that read such a view.
+def view_field_reads(views: Sequence[SavedView], fields: ReadSources) -> dict[str, frozenset[str] | None]:
+    """The tables that each view reads through a join or a saved expression field, or None when the scan cannot tell.
 
-    A reader's denial follows the tables that a view body names, and these bodies can read a table that they do
-    not name."""
-    reads = {name: sql_tables(view.sql) for view in views for name in view.names}
-    untraced = {name for name, tables in reads.items() if tables is None}
-    spread = set(untraced)
-    while spread:
-        spread = {name for name, tables in reads.items() if name not in untraced and tables and tables & untraced}
-        untraced |= spread
-    return frozenset(untraced)
+    A reader's denial follows the tables that a view body names. A body also reads the tables of the fields that
+    it names or selects with `*`, and the same tables of each view that it reads. A body that runs a saved cohort
+    or action, a body that does not parse, and a cycle of views count as unknown."""
+    by_name = {name: view for view in views for name in view.names}
+    resolved: dict[str, frozenset[str] | None] = {}
+
+    def reads(name: str, path: tuple[str, ...]) -> frozenset[str] | None:
+        if name in resolved:
+            return resolved[name]
+        sql = by_name[name].sql
+        named = None if name in path else sql_tables(sql)
+        found = None if named is None else fields.field_reads([sql])
+        if named is not None and found is not None and _ASTERISK in named:
+            expanded = fields.asterisk_reads(named - {_ASTERISK})
+            found = None if expanded is None else found | expanded
+        if named is not None and found is not None:
+            for other in ((named | found) & by_name.keys()) - {name}:
+                nested = reads(other, (*path, name))
+                found = None if found is None or nested is None else found | nested
+        resolved[name] = found
+        return found
+
+    return {name: reads(name, ()) for name in by_name}
 
 
 @frozen
 class _SavedViews:
+    views: list[SavedView]
     changes: dict[str, datetime]
-    untraced: frozenset[str]
     saved_at: datetime | None
 
 
@@ -882,7 +899,7 @@ def _load_saved_views(team: Team) -> _SavedViews:
                 changed_at=max(times, default=None),
             )
         )
-    return _SavedViews(changes=view_changes(views), untraced=untraced_views(views), saved_at=max(saves, default=None))
+    return _SavedViews(views=views, changes=view_changes(views), saved_at=max(saves, default=None))
 
 
 def load_read_sources(team: Team, calls: Sequence[ReadCall], since: datetime) -> ReadSources:
@@ -933,6 +950,12 @@ def load_read_sources(team: Team, calls: Sequence[ReadCall], since: datetime) ->
         if saved_views.saved_at is not None
         else None
     )
+    fields = ReadSources(
+        metric_definitions=definitions,
+        insight_queries=queries,
+        field_tables=saved_fields.field_tables,
+        table_expressions=saved_fields.table_expressions,
+    )
     return ReadSources(
         metric_definitions=definitions,
         insight_queries=queries,
@@ -941,7 +964,7 @@ def load_read_sources(team: Team, calls: Sequence[ReadCall], since: datetime) ->
         fields_changed_at=max(field_changes, default=None),
         table_expressions=saved_fields.table_expressions,
         view_changes=saved_views.changes,
-        untraced_views=saved_views.untraced,
+        view_reads=view_field_reads(saved_views.views, fields),
         views_saved_at=saved_views.saved_at,
         table_exists=database.has_table if database is not None else None,
     )

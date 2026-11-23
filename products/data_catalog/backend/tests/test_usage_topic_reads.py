@@ -29,8 +29,8 @@ from products.data_catalog.backend.logic.usage_topic_reads import (
     session_tables,
     topic_tables,
     trace_session_tables,
-    untraced_views,
     view_changes,
+    view_field_reads,
 )
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_tools.backend.facade.models import DataWarehouseExpression, DataWarehouseJoin
@@ -78,7 +78,7 @@ _SOURCES = ReadSources(
     },
     table_expressions={"events": frozenset({"billing_total"})},
     view_changes={"revenue_view": _EDITED, "stable_view": _CALL_AT - timedelta(days=1)},
-    untraced_views=frozenset({"cohort_view"}),
+    view_reads={"cohort_view": None, "stable_view": frozenset(), "wide_view": frozenset({"billing"})},
 )
 
 
@@ -143,6 +143,7 @@ class TestSessionTables(SimpleTestCase):
             ("sql_selecting_fields_by_pattern", [_sql("SELECT COLUMNS('bill.*') FROM events")], {"events", "billing"}),
             ("sql_counting_rows_reads_no_field", [_sql("SELECT count(*) FROM events")], {"events"}),
             ("sql_over_a_view_the_scan_cannot_trace", [_sql("SELECT 1 FROM cohort_view")], None),
+            ("sql_over_a_view_that_reads_through_a_field", [_sql("SELECT 1 FROM wide_view")], {"wide_view", "billing"}),
             ("sql_over_a_view_edited_after_the_run", [_sql("SELECT 1 FROM revenue_view")], None),
             ("sql_over_a_view_edited_before_the_run", [_sql("SELECT 1 FROM stable_view")], {"stable_view"}),
             (
@@ -448,6 +449,8 @@ class TestViewChanges(SimpleTestCase):
                 names=frozenset({"in_cohort"}), sql="SELECT 1 FROM events WHERE person_id IN COHORT 7", changed_at=at(1)
             ),
             SavedView(names=frozenset({"over_in_cohort"}), sql="SELECT 1 FROM in_cohort", changed_at=at(1)),
+            SavedView(names=frozenset({"wide"}), sql="SELECT * FROM events", changed_at=at(1)),
+            SavedView(names=frozenset({"over_wide"}), sql="SELECT person.stripe.email FROM wide", changed_at=at(1)),
         ]
 
         changes = view_changes(views)
@@ -455,7 +458,18 @@ class TestViewChanges(SimpleTestCase):
         assert changes["top"] == at(9)
         assert changes["gone"] == at(5)
         assert changes["ping"] == changes["pong"] == at(4)
-        assert untraced_views(views) == {"in_cohort", "over_in_cohort"}
+        assert view_field_reads(views, _SOURCES) == {
+            "base": frozenset(),
+            "top": frozenset(),
+            "POSTHOG_DELETED_1": frozenset(),
+            "gone": frozenset(),
+            "ping": None,
+            "pong": None,
+            "in_cohort": None,
+            "over_in_cohort": None,
+            "wide": frozenset({"events", "billing"}),
+            "over_wide": frozenset({"events", "billing", "stripe_customers"}),
+        }
 
 
 class TestSavedFieldTables(SimpleTestCase):
