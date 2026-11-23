@@ -128,7 +128,7 @@ Four registries tune it per scope.
 Core keeps them in `activity_log.py` for shared scopes and scopes without clear model ownership.
 Product configs must use exactly `products/<name>/backend/activity_log_config.py`, even when the model lives in a subdirectory.
 Other product config names and locations will not load by convention.
-A core model's config sits beside it, as in `posthog/models/oauth_activity_log_config.py`, and belongs in that model's `owners.yaml` rule's `match` list.
+Place a core config beside its model so it inherits the model's owners. If the ownership rule lists explicit files, add the config to its `match` list.
 That placement is the point: `posthog/models/owners.yaml` and `products/<name>/product.yaml` then give the tuning to the team that owns the model, instead of to whoever owns the activity log.
 `activity_log.py` merges those modules at import and raises if one scope is tuned in two places, and `posthog/test/repo_invariants/test_activity_log_config_ownership.py` fails when a module's owners and its model's owners do not overlap.
 
