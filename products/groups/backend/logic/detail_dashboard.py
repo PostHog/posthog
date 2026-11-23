@@ -6,6 +6,30 @@ from posthog.models.user import User
 from products.dashboards.backend.facade.api import create_dashboard_from_tiles
 
 
+def _active_users_query(*, date_from: str, interval: str) -> dict[str, Any]:
+    return {
+        "kind": "InsightVizNode",
+        "source": {
+            "dateRange": {"date_from": date_from, "explicitDate": False},
+            "filterTestAccounts": False,
+            "interval": interval,
+            "kind": "TrendsQuery",
+            "properties": [],
+            "series": [{"event": None, "kind": "EventsNode", "math": "dau"}],
+            "trendsFilter": {
+                "aggregationAxisFormat": "numeric",
+                "display": "ActionsLineGraph",
+                "showAlertThresholdLines": False,
+                "showLegend": False,
+                "showPercentStackView": False,
+                "showValuesOnSeries": False,
+                "smoothingIntervals": 1,
+                "yAxisScaleType": "linear",
+            },
+        },
+    }
+
+
 def create_group_type_detail_dashboard(
     *, team: Team, user: User, group_type: str, name_singular: str | None, name_plural: str | None
 ) -> int:
@@ -87,52 +111,12 @@ def _detail_dashboard_tiles(singular: str) -> list[dict[str, Any]]:
         {
             "name": "Weekly active users",
             "description": f"Shows the number of unique users from this {singular} in the last 90 days",
-            "query": {
-                "kind": "InsightVizNode",
-                "source": {
-                    "dateRange": {"date_from": "-90d", "explicitDate": False},
-                    "filterTestAccounts": False,
-                    "interval": "week",
-                    "kind": "TrendsQuery",
-                    "properties": [],
-                    "series": [{"event": None, "kind": "EventsNode", "math": "dau"}],
-                    "trendsFilter": {
-                        "aggregationAxisFormat": "numeric",
-                        "display": "ActionsLineGraph",
-                        "showAlertThresholdLines": False,
-                        "showLegend": False,
-                        "showPercentStackView": False,
-                        "showValuesOnSeries": False,
-                        "smoothingIntervals": 1,
-                        "yAxisScaleType": "linear",
-                    },
-                },
-            },
+            "query": _active_users_query(date_from="-90d", interval="week"),
         },
         {
             "name": "Monthly active users",
             "description": f"Shows the number of unique users from this {singular} in the last year",
-            "query": {
-                "kind": "InsightVizNode",
-                "source": {
-                    "dateRange": {"date_from": "-365d", "explicitDate": False},
-                    "filterTestAccounts": False,
-                    "interval": "month",
-                    "kind": "TrendsQuery",
-                    "properties": [],
-                    "series": [{"event": None, "kind": "EventsNode", "math": "dau"}],
-                    "trendsFilter": {
-                        "aggregationAxisFormat": "numeric",
-                        "display": "ActionsLineGraph",
-                        "showAlertThresholdLines": False,
-                        "showLegend": False,
-                        "showPercentStackView": False,
-                        "showValuesOnSeries": False,
-                        "smoothingIntervals": 1,
-                        "yAxisScaleType": "linear",
-                    },
-                },
-            },
+            "query": _active_users_query(date_from="-365d", interval="month"),
         },
         {
             "name": "Retained users",
