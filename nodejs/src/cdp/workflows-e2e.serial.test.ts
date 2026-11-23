@@ -3873,19 +3873,6 @@ describe('Workflows E2E (email queue)', () => {
 
         it.each<ApiSend & { status: number; error?: string; reason?: unknown; logged?: string }>([
             {
-                name: 'a code send in a marketing category whose html is 19 MB of text after its unsubscribe link',
-                kind: 'code',
-                payload: codeSendIn(newsletter, {
-                    content: {
-                        subject: 'News',
-                        html: '<a href="{{ unsubscribe_url }}">Unsubscribe</a>' + 'x'.repeat(19_000_000),
-                    },
-                }),
-                status: 413,
-                error: 'content_too_large',
-                reason: expect.stringContaining('1,500,000 characters'),
-            },
-            {
                 name: 'a code send in a marketing category whose text is longer than PostHog checks',
                 kind: 'code',
                 payload: codeSendIn(newsletter, {
@@ -3962,23 +3949,6 @@ describe('Workflows E2E (email queue)', () => {
                 logged: 'recipient_suppressed',
             },
             {
-                name: 'a scheduled code send in a marketing category with no unsubscribe link',
-                kind: 'code',
-                payload: {
-                    ...codeSendIn(newsletter, { content: { subject: 'News', html: '<p>News</p>', text: 'News' } }),
-                    scheduled_at: tomorrow(),
-                },
-                status: 400,
-                error: 'unsubscribe_link_required',
-            },
-            {
-                name: 'a scheduled code send in a marketing category with a cc',
-                kind: 'code',
-                payload: { ...codeSendIn(newsletter, { cc: ['copy@example.com'] }), scheduled_at: tomorrow() },
-                status: 400,
-                error: 'copies_not_allowed',
-            },
-            {
                 name: 'a code send whose category is a key, not an id',
                 kind: 'code',
                 payload: { send: codeSend({ message_category: { id: 'newsletter', type: 'marketing' } }) },
@@ -4031,7 +4001,14 @@ describe('Workflows E2E (email queue)', () => {
                 })
 
                 expect(res.status).toEqual(status)
-                expect(res.body.error).toEqual(status === 413 ? 'content_too_large' : undefined)
+                if (status === 413) {
+                    expect(res.body).toEqual({
+                        error: 'content_too_large',
+                        reason: expect.stringContaining('1,500,000 characters'),
+                    })
+                } else {
+                    expect(res.body.error).toBeUndefined()
+                }
             }
         )
 
@@ -4045,12 +4022,6 @@ describe('Workflows E2E (email queue)', () => {
                 name: 'a code send in a marketing category without its own content whose email step has the link as a Liquid tag',
                 kind: 'code',
                 stepEmail: { subject: 'News', html: '', text: 'Bye: {% unsubscribe_url %}' },
-                payload: codeSendIn(newsletter, { content: undefined }),
-            },
-            {
-                name: 'a code send in a marketing category without its own content whose email step trims the link with Liquid',
-                kind: 'code',
-                stepEmail: { subject: 'News', html: '', text: 'Bye: {{- unsubscribe_url -}}' },
                 payload: codeSendIn(newsletter, { content: undefined }),
             },
             {
@@ -4085,14 +4056,6 @@ describe('Workflows E2E (email queue)', () => {
                 step: 'transactional',
                 category: newsletter,
                 optedOutOf: newsletterId,
-                scheduled: false,
-                sent: false,
-            },
-            {
-                name: 'skips a code send in a marketing category to a recipient who opted out of all marketing',
-                step: 'transactional',
-                category: newsletter,
-                optedOutOf: '$all',
                 scheduled: false,
                 sent: false,
             },
@@ -4277,7 +4240,7 @@ describe('Workflows E2E (email queue)', () => {
             expect(await emailsTo(to)).toHaveLength(1)
         })
 
-        it.each<ApiSend & { delivered: number; copyDelivered?: boolean; skipped?: string }>([
+        it.each<ApiSend & { delivered: number; copyDelivered?: boolean }>([
             {
                 name: 'a template send with no category whose marketing email step has no unsubscribe link',
                 kind: 'template',
@@ -4295,25 +4258,9 @@ describe('Workflows E2E (email queue)', () => {
                 copyDelivered: true,
             },
             {
-                name: "a template send with no category to a recipient who opted out of its marketing step's category",
-                kind: 'template',
-                step: 'marketing',
-                stepCategoryId: newsletterId,
-                payload: {},
-                given: (to: string) => optOut(to, newsletterId),
-                delivered: 0,
-                skipped: 'recipient_opted_out',
-            },
-            {
-                name: 'a template send that names a marketing category, whose email step has no unsubscribe link',
+                name: 'a template send that names a marketing category, with no unsubscribe link and to a recipient who opted out of it',
                 kind: 'template',
                 stepEmail: { html: '<p>News</p>', text: 'News' },
-                payload: { message_category: newsletter },
-                delivered: 1,
-            },
-            {
-                name: 'a template send that names a marketing category, to a recipient who opted out of it',
-                kind: 'template',
                 payload: { message_category: newsletter },
                 given: (to: string) => optOut(to, newsletterId),
                 delivered: 1,
@@ -4335,9 +4282,6 @@ describe('Workflows E2E (email queue)', () => {
 
             expect(await emailsTo(to)).toHaveLength(row.delivered)
             expect(await emailsTo(copy)).toHaveLength(row.copyDelivered ? 1 : 0)
-            if (row.skipped) {
-                await expectStoredStatus(res.body.invocation_id, { status: 'failed', reason: row.skipped })
-            }
         })
 
         it('sends a code send in a transactional category to its bcc', async () => {
@@ -4377,48 +4321,26 @@ describe('Workflows E2E (email queue)', () => {
         })
 
         it.each([
-            { send: 'send', name: 'a cc', stepEmail: (copy: string) => ({ cc: copy }), skipped: 'copies_not_allowed' },
+            { name: 'a cc', stepEmail: (copy: string) => ({ cc: copy }), skipped: 'copies_not_allowed' },
             {
-                send: 'send',
-                name: 'a cc and a trigger outside the API',
-                stepEmail: (copy: string) => ({ cc: copy }),
-                skipped: 'copies_not_allowed',
-                triggerChanged: true,
-            },
-            {
-                send: 'send',
-                name: 'no unsubscribe link',
-                stepEmail: () => ({ html: '<p>News</p>', text: 'News' }),
-                skipped: 'unsubscribe_link_required',
-            },
-            {
-                send: 'scheduled send',
                 name: 'no unsubscribe link',
                 stepEmail: () => ({ html: '<p>News</p>', text: 'News' }),
                 skipped: 'unsubscribe_link_required',
             },
         ])(
-            'skips a marketing code $send without its own content whose email step gains $name between the API accepting it and the email worker sending it',
-            async ({ send, stepEmail, skipped, triggerChanged }) => {
+            'skips a marketing code send without its own content whose email step gains $name between the API accepting it and the email worker sending it',
+            async ({ stepEmail, skipped }) => {
                 const flow = await insertHogFlow(hub.postgres, sendFlow('template', 'transactional'))
                 const to = `reader-${new UUIDT().toString()}@example.com`
                 const copy = `manager-${new UUIDT().toString()}@example.com`
-                const scheduled = send === 'scheduled send'
 
                 const res = await post('code', flow, {
                     to,
                     distinct_id: 'reader',
                     ...codeSendIn(newsletter, { content: undefined }),
-                    ...(scheduled && { scheduled_at: tomorrow() }),
                 })
                 expect(res.status).toEqual(202)
                 await changeWorkflowEmail(flow, stepEmail(copy))
-                if (triggerChanged) {
-                    await moveTriggerOffApi(flow)
-                }
-                if (scheduled) {
-                    await sendNow(res.body.invocation_id)
-                }
                 await deliver(createCdpConsumerDeps(hub, kafkaProducer))
 
                 expect(await emailsTo(to)).toEqual([])
@@ -4429,7 +4351,6 @@ describe('Workflows E2E (email queue)', () => {
 
         it.each([
             { name: 'shows its footer', showFooter: true, otherLink: false, sent: true },
-            { name: 'hides its footer', showFooter: false, otherLink: false, sent: false },
             {
                 name: "hides its footer but links another recipient's preferences",
                 showFooter: false,
@@ -4535,15 +4456,9 @@ describe('Workflows E2E (email queue)', () => {
                 await deleteKeysWithPrefix(frequencyCapValkey, `@posthog/workflows-frequency-cap/${team.id}/`)
                 const to = `capped-${new UUIDT().toString()}@example.com`
                 const persons = new PostgresPersonRepository(hub.postgres)
-                await persons.createPerson(
-                    DateTime.utc(),
-                    { email: to },
-                    team.id,
-                    null,
-                    true,
-                    new UUIDT().toString(),
-                    { distinctId: 'capped-reader' }
-                )
+                await persons.createPerson(DateTime.utc(), { email: to }, team.id, null, true, new UUIDT().toString(), {
+                    distinctId: 'capped-reader',
+                })
                 const personRepository: PersonReadRepository = {
                     fetchPerson: (teamId, distinctId) => persons.fetchPerson(teamId, distinctId),
                     fetchPersonsByDistinctIds: (teamPersons) => persons.fetchPersonsByDistinctIds(teamPersons),

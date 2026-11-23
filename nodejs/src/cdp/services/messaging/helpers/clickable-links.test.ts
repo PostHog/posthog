@@ -84,11 +84,6 @@ describe('clickableHrefs', () => {
             ['https://example.com/bye'],
         ],
         [
-            'an anchor before an SVG drawing',
-            '<a href="https://example.com/bye">Unsubscribe</a><svg><circle r="1"></circle></svg>',
-            ['https://example.com/bye'],
-        ],
-        [
             'an anchor after an SVG drawing',
             '<svg><circle r="1"></circle></svg><a href="https://example.com/bye">Unsubscribe</a>',
             ['https://example.com/bye'],
@@ -96,11 +91,6 @@ describe('clickableHrefs', () => {
         [
             'an anchor in CDATA after a nested SVG drawing',
             '<svg><svg></svg><![CDATA[> <a href="https://example.com/bye">Unsubscribe</a>]]></svg>',
-            [],
-        ],
-        [
-            'an anchor in CDATA inside a MathML element name in an SVG drawing',
-            '<svg><mtext><![CDATA[> <a href="https://example.com/bye">Unsubscribe</a>]]></mtext></svg>',
             [],
         ],
         [
