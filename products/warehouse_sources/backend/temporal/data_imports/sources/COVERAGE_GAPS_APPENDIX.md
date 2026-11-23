@@ -1521,7 +1521,7 @@ Note: Parsed all List/Get/Describe operations in the botocore model for the SMS 
 
 ## AWS Glue Data Catalog — gaps
 
-Today (14): `column_statistics`, `crawlers`, `crawls`, `data_quality_results`, `data_quality_results_v2`, `databases`, `job_runs`, `jobs`, `partitions`, `sessions`, `table_optimizer_runs`, `table_versions`, `tables`, `workflow_runs`
+Today (20): `column_statistics`, `connections`, `crawlers`, `crawls`, `data_quality_results`, `data_quality_results_v2`, `data_quality_rulesets`, `databases`, `job_runs`, `jobs`, `partitions`, `schema_registries`, `schema_versions`, `schemas`, `sessions`, `table_optimizer_runs`, `table_versions`, `tables`, `triggers`, `workflow_runs`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/glue/2017-03-31/service-2.json>
 
@@ -1538,12 +1538,12 @@ Note: Compared the official botocore operation model with the static table map a
 
 Re-audited 2026-11-19 against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/glue/2017-03-31/service-2.json>
 
-- [ ] `Triggers (GetTriggers, POST /)` — shows the schedules and event conditions that start jobs, crawlers and workflows, which explains why job_runs happen (high)
+- [x] `Triggers (GetTriggers, POST /)` — shows the schedules and event conditions that start jobs, crawlers and workflows, which explains why job_runs happen (high)
 - [ ] `Workflow definitions (BatchGetWorkflows, POST /; ListWorkflows, POST /)` — gives the graph of jobs, crawlers and triggers in each workflow that workflow_runs belongs to (medium)
-- [ ] `Data quality rulesets (ListDataQualityRulesets, POST /)` — lists DQDL rulesets and their target tables, so data_quality_results can be read against the rules (high)
+- [x] `Data quality rulesets (ListDataQualityRulesets, POST /)` — lists DQDL rulesets and their target tables, so data_quality_results can be read against the rules (high). Built 2026-11-21 as metadata only (target table, rule count). The DQDL text needs GetDataQualityRuleset.
 - [ ] `Data quality ruleset evaluation runs (ListDataQualityRulesetEvaluationRuns, POST /)` — tracks when rulesets ran, their status and data source (medium)
-- [ ] `Connections (GetConnections, POST /)` — lists the connections that jobs and crawlers use to reach data sources; hide secrets with HidePassword (medium)
-- [ ] `Schema registry schemas (ListRegistries, POST /; ListSchemas, POST /; ListSchemaVersions, POST /)` — inventory of streaming schemas and their version history (medium)
+- [x] `Connections (GetConnections, POST /)` — lists the connections that jobs and crawlers use to reach data sources; hide secrets with HidePassword (medium). Built 2026-11-21 with HidePassword. Only allowlisted ConnectionProperties keys are kept, URL credentials are removed, and the free-form property maps and OAuth2 token parameters are dropped.
+- [x] `Schema registry schemas (ListRegistries, POST /; ListSchemas, POST /; ListSchemaVersions, POST /)` — inventory of streaming schemas and their version history (medium). Built 2026-11-21 as `schema_registries`, `schemas` and `schema_versions`. ListSchemas without a RegistryId lists all registries, so only versions fan out (by schema ARN).
 - [ ] `Crawler metrics (GetCrawlerMetrics, POST /)` — gives tables created, updated and deleted and last runtime per crawler (low)
 - [ ] `User defined functions (GetUserDefinedFunctions, POST /)` — lists catalog functions per database (low)
 - [ ] `Classifiers (GetClassifiers, POST /)` — lists custom classifiers that crawlers use (low)
