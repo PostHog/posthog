@@ -32,6 +32,7 @@ import {
     EXAMPLE_OPPORTUNITIES,
     EXAMPLE_PROFILE,
     EXAMPLE_PROMPT_SET_CITATION_RESPONSE,
+    EXAMPLE_PROMPT_SET_MOVERS,
     EXAMPLE_PROMPT_SET_OVERVIEW,
     EXAMPLE_PROMPT_SET_RANKINGS,
     EXAMPLE_PROMPT_SET_SOURCES_RESPONSE,
@@ -136,6 +137,10 @@ const workspaceHandlers = ({
             '/api/projects/:team_id/aeo_prompts/rankings/': ({ request }) => [
                 200,
                 { ...EXAMPLE_PROMPT_SET_RANKINGS, ...echoedFilters(request.url) },
+            ],
+            '/api/projects/:team_id/aeo_prompts/movers/': ({ request }) => [
+                200,
+                { ...EXAMPLE_PROMPT_SET_MOVERS, ...echoedFilters(request.url) },
             ],
             '/api/projects/:team_id/aeo_keywords/': () => [200, keywords],
             '/api/projects/:team_id/aeo_keywords/report/': () => [
