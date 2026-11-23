@@ -210,7 +210,11 @@ describe('email domain setup entry points', () => {
         await renderInApp(<WorkflowStoppedSenderBanner id="flow-2" />)
 
         expect(
-            await screen.findByText(new RegExp(`^Sending stopped for ${DOMAIN}\\. An email step in this workflow`))
+            await screen.findByText(
+                new RegExp(
+                    `^Sending stopped for ${DOMAIN}\\. An email step .* or add another sender and switch that step to it\\.$`
+                )
+            )
         ).toBeInTheDocument()
         fireEvent.click(element('workflow-stopped-sender-change-sender'))
         expect(hogFlowEditorLogic({ id: 'flow-2' }).values.selectedNodeId).toEqual('email')

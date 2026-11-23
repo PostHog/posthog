@@ -8,8 +8,10 @@ import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 
 import { captureEmailDomainSetupStarted, emailDomainSetupPath } from '../Channels/EmailDomain/emailDomainSetupLinks'
+import { sandboxSenderLogic } from '../Channels/sandboxSenderLogic'
 import { hogFlowEditorLogic } from './hogflows/hogFlowEditorLogic'
-import { StoppedSenderSteps, stoppedSenderSteps } from './stoppedSenderSteps'
+import { hasDeliverableSender, sandboxSenderAllowed } from './hogflows/steps/email/emailStepVariants'
+import { StoppedSenderSteps, changeSenderAdvice, stoppedSenderSteps } from './stoppedSenderSteps'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 
 export function WorkflowStoppedSenderBanner(props: WorkflowLogicProps): JSX.Element | null {
@@ -29,10 +31,16 @@ export function WorkflowStoppedSenderBanner(props: WorkflowLogicProps): JSX.Elem
 
 // Mounts the editor logic only while the banner shows, because a workflow on another tab has no canvas open.
 function StoppedSenderBanner({ broken, ...props }: WorkflowLogicProps & { broken: StoppedSenderSteps }): JSX.Element {
+    const { originalWorkflow, integrations } = useValues(workflowLogic(props))
+    const { canAdoptSandbox } = useValues(sandboxSenderLogic)
     const { setSelectedNodeId } = useActions(hogFlowEditorLogic(props))
     const stepCount = broken.stepIds.length
     const steps = stepCount === 1 ? 'An email step' : `${stepCount} email steps`
-    const those = stepCount === 1 ? 'that step' : 'those steps'
+    const nextStep = changeSenderAdvice(
+        stepCount,
+        !!hasDeliverableSender(integrations),
+        canAdoptSandbox && !!originalWorkflow && sandboxSenderAllowed(originalWorkflow, !!props.editTemplateId)
+    )
 
     return (
         <div className="shrink-0" data-attr="workflow-stopped-sender-banner">
@@ -47,8 +55,7 @@ function StoppedSenderBanner({ broken, ...props }: WorkflowLogicProps & { broken
             >
                 <p className="mb-2">
                     Sending stopped for {broken.domains.join(', ')}. {steps} in this workflow can't send until the
-                    domain's DNS records are fixed. Fix the domain, or change the sender on {those} to another sender or
-                    the PostHog test sender.
+                    domain's DNS records are fixed. Fix the domain, or {nextStep}.
                 </p>
                 <LemonButton
                     type="secondary"

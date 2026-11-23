@@ -33,3 +33,14 @@ export function stoppedSenderSteps(
     }
     return { domains: [...new Set(stopped.map(senderDomain))], senderId: stopped[0].id, stepIds }
 }
+
+// Names only the senders the step's From picker offers: it shows the test sender only when no own sender can send.
+export function changeSenderAdvice(stepCount: number, otherSenderSends: boolean, canUseTestSender: boolean): string {
+    const those = stepCount === 1 ? 'that step' : 'those steps'
+    if (otherSenderSends) {
+        return `change the sender on ${those} to another sender`
+    }
+    return canUseTestSender
+        ? `switch ${those} to the PostHog test sender`
+        : `add another sender and switch ${those} to it`
+}

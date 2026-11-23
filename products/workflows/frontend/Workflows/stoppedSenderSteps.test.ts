@@ -1,7 +1,7 @@
 import type { IntegrationType } from '~/types'
 
 import type { HogFlow, HogFlowAction } from './hogflows/types'
-import { stoppedSenderSteps } from './stoppedSenderSteps'
+import { changeSenderAdvice, stoppedSenderSteps } from './stoppedSenderSteps'
 
 const sender = (id: number, domain: string, stopped: boolean): IntegrationType =>
     ({
@@ -47,5 +47,13 @@ describe('stoppedSenderSteps', () => {
         ]
     )('for %s', (_, flow, integrations, expected) => {
         expect(stoppedSenderSteps(flow, integrations)).toEqual(expected)
+    })
+
+    it.each<[number, boolean, boolean, string]>([
+        [1, true, true, 'change the sender on that step to another sender'],
+        [2, false, true, 'switch those steps to the PostHog test sender'],
+        [1, false, false, 'add another sender and switch that step to it'],
+    ])('advises %i step(s) with another sender %s and the test sender %s', (count, other, testSender, expected) => {
+        expect(changeSenderAdvice(count, other, testSender)).toEqual(expected)
     })
 })
