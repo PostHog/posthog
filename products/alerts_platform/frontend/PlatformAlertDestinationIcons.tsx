@@ -11,22 +11,41 @@ const DESTINATION_TYPES: Partial<Record<DestinationTypeEnumApi, { label: string;
     webhook: { label: 'Webhook', iconUrl: '/static/services/webhook.svg' },
 }
 
-export function PlatformAlertDestinationIcons({ types }: { types: readonly DestinationTypeEnumApi[] }): JSX.Element {
+export function PlatformAlertDestinationIcons({
+    types,
+    enabled,
+}: {
+    types: readonly DestinationTypeEnumApi[]
+    enabled: boolean
+}): JSX.Element {
     if (!types.length) {
-        return <span className="text-muted">None</span>
+        // An enabled alert that notifies nobody is a likely mistake. A disabled one is not.
+        return <span className={enabled ? 'text-warning' : 'text-muted'}>None</span>
+    }
+    const counts = new Map<DestinationTypeEnumApi, number>()
+    for (const type of types) {
+        counts.set(type, (counts.get(type) ?? 0) + 1)
     }
     return (
         <div className="flex flex-wrap items-center gap-1.5">
-            {[...new Set(types)].map((type) => {
-                const known = DESTINATION_TYPES[type]
+            {[...counts].map(([type, count]) => {
+                const label = DESTINATION_TYPES[type]?.label ?? type
+                const iconUrl = DESTINATION_TYPES[type]?.iconUrl
+                const title = count > 1 ? `${count} ${label}` : label
                 return (
-                    <Tooltip key={type} title={known?.label ?? type}>
-                        <span className="flex" data-attr={`platform-alert-destination-${type}`}>
-                            {known ? (
-                                <img src={known.iconUrl} alt={known.label} className="size-4 object-contain" />
+                    <Tooltip key={type} title={title}>
+                        <span
+                            className="flex h-[22px] items-center gap-1 rounded border border-primary px-1 text-xs text-secondary"
+                            role="img"
+                            aria-label={title}
+                            data-attr={`platform-alert-destination-${type}`}
+                        >
+                            {iconUrl ? (
+                                <img src={iconUrl} alt="" className="size-3.5 rounded-sm object-contain" />
                             ) : (
-                                <IconNotification className="text-base text-muted" role="img" aria-label={type} />
+                                <IconNotification className="text-sm" />
                             )}
+                            {count > 1 && <span>{count}</span>}
                         </span>
                     </Tooltip>
                 )

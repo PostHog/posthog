@@ -92,7 +92,7 @@ const GROUPED_CONFIGURATION: PlatformAlertConfigurationApi = {
     name: 'Errors per service above 100',
     legacy_configuration_id: null,
     owner: 'platform',
-    destination_types: ['slack', 'teams', 'discord', 'pagerduty', 'webhook', 'email'],
+    destination_types: ['slack', 'slack', 'teams', 'pagerduty', 'email'],
     labels: { team: 'checkout', severity: 'page' },
     annotations: {
         runbook_url: 'https://example.com/runbooks/checkout-errors',
