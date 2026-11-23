@@ -71,6 +71,7 @@ export function makeOfflineDetailCells(itemIds: string[], versionIds: string[]):
                 id: `55555555-5555-4555-8555-${String(itemIndex * 1000 + detailSummaries.findIndex((summary) => summary.scorer.id === scorer.id) + 1).padStart(12, '0')}`,
                 item_id: itemId,
                 input_result_ids: null,
+                is_stale: false,
                 scorer_version_id: scorer.id,
                 status:
                     itemIndex === 3 && scorer.id === detailSummaries[0].scorer.id
@@ -86,8 +87,8 @@ export function makeOfflineDetailCells(itemIds: string[], versionIds: string[]):
                             : 0.65 + itemIndex * 0.05,
                 error_code: itemIndex === 3 && scorer.id === detailSummaries[0].scorer.id ? 'evaluator_timeout' : null,
                 evaluator_trace_id: null,
-                evaluated_at: null,
-                accepted_at: detailExperiment.created_at,
+                evaluated_at: detailExperiment.created_at,
+                accepted_at: '2026-09-27T14:35:00Z',
                 payload_state: 'available' as const,
                 payload_expires_at: null,
             }))

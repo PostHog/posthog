@@ -104,6 +104,15 @@ You can find your private API key in the [Vapi dashboard](https://dashboard.vapi
             "400 Client Error: Bad Request for url: https://api.vapi.ai/chat": "Vapi rejected the request to list chats for this account. This looks like an issue on Vapi's side rather than your credentials — contact Vapi support, or disable the chats table if you don't need it.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_fetch` (vapi.py) already retries 429/5xx, timeouts and dropped connections with
+        # backoff. An error that still escapes is transient, and Temporal retries the activity.
+        # Match the host, not the path, so a timeout on any Vapi endpoint is covered.
+        return {
+            "HTTPSConnectionPool(host='api.vapi.ai', port=443)",
+            "Vapi API error (retryable)",
+        }
+
     def get_schemas(
         self,
         config: VapiSourceConfig,

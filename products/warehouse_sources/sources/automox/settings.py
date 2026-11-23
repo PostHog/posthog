@@ -30,6 +30,10 @@ class AutomoxEndpointConfig:
     # `False` for endpoints that answer with the whole collection and take no page/limit params.
     # Sending them anyway risks looping on the same rows if the API ignores them.
     paginated: bool = True
+    # Page with `offset` instead of `page`, and keep paging until a page comes back empty. The
+    # report endpoints do not say whether `limit` counts devices or nested patch operations, so a
+    # short page does not prove the report is exhausted.
+    offset_pagination: bool = False
     # Pass the resolved numeric organization ID as the `o` query param. Most Console API list
     # endpoints take it; without it the API falls back to the key's default organization.
     needs_org_id_param: bool = False
@@ -47,7 +51,7 @@ class AutomoxEndpointConfig:
     incremental_lookback: timedelta | None = None
     # Extra query params sent on every request (e.g. an explicit sort).
     extra_params: dict[str, str] = field(default_factory=dict)
-    sort_mode: SortMode = "asc"
+    sort_mode: SortMode | None = "asc"
     # When True, keep only the single configured organization's row. `/orgs` lists every
     # organization the API key can access, so without this the table would expose metadata for
     # organizations the source owner never selected.
@@ -60,6 +64,9 @@ class AutomoxEndpointConfig:
     # Set when the endpoint is only reachable per parent resource, so the sync walks the parent
     # list first and calls this endpoint once per parent row.
     fan_out: "AutomoxFanOutConfig | None" = None
+    # Walk the endpoint in `start_time`/`end_time` windows of at most 31 days and page inside each
+    # window with the `cursor` from `metadata.next` (the Audit Trail API).
+    cursor_time_windows: bool = False
 
 
 @frozen
@@ -92,6 +99,21 @@ _DEVICES_ENDPOINT = AutomoxEndpointConfig(
 
 
 AUTOMOX_ENDPOINTS: dict[str, AutomoxEndpointConfig] = {
+    # OCSF-formatted console audit trail: who changed which user, role, policy, device or setting.
+    # `start_time` filters on when Automox stored each event, which is never earlier than the event
+    # `time`, so the watermark on `event_time` (derived from `time`) is a safe lower bound. Events are
+    # paged by stored order, not by `event_time`, so the row order is not declared.
+    "audit_events": AutomoxEndpointConfig(
+        path="/audit-service/v1/orgs/{org_uuid}/events",
+        partition_key="event_time",
+        data_selector="data",
+        page_size=1000,
+        cursor_time_windows=True,
+        incremental_fields=[_datetime_incremental_field("event_time")],
+        incremental_param="start_time",
+        incremental_lookback=timedelta(hours=1),
+        sort_mode=None,
+    ),
     # Per-device hardware, health, network, security and system inventory, one row per collected
     # attribute. Automox answers with a nested category tree per device and the categories present
     # vary by OS and by the customer's Automox tier, so the tree is flattened into attribute rows.
@@ -126,6 +148,14 @@ AUTOMOX_ENDPOINTS: dict[str, AutomoxEndpointConfig] = {
     ),
     # Organizations the API key can access. Tiny table, full refresh. `/orgs` returns every
     # accessible organization, so restrict the table to the one this source is configured for.
+    # Devices that need attention because they failed a policy, with the failing policies and
+    # their pending packages nested per device. One row per device, full refresh.
+    "needs_attention_devices": AutomoxEndpointConfig(
+        path="/reports/needs-attention",
+        needs_org_id_param=True,
+        page_size=250,
+        offset_pagination=True,
+    ),
     "organizations": AutomoxEndpointConfig(
         path="/orgs",
         partition_key="create_time",
@@ -168,6 +198,14 @@ AUTOMOX_ENDPOINTS: dict[str, AutomoxEndpointConfig] = {
         primary_keys=["organization_id", "policy_id"],
         needs_org_id_param=True,
         paginated=False,
+    ),
+    # Patches pending on each device before the next policy run, nested per device. One row per
+    # device, full refresh.
+    "prepatch_devices": AutomoxEndpointConfig(
+        path="/reports/prepatch",
+        needs_org_id_param=True,
+        page_size=250,
+        offset_pagination=True,
     ),
     # Hosts named in an uploaded vulnerability report that Automox could not match to a managed
     # device, per remediation action set.

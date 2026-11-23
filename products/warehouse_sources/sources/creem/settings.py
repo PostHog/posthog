@@ -24,6 +24,8 @@ class CreemPagination(StrEnum):
     PAGE_NUMBER = "page_number"
     # `limit`/`starting_after` params, rows under `data`, and a `has_more` body flag.
     CURSOR = "cursor"
+    # One response with every row under `items`, and no paging params.
+    SINGLE_PAGE = "single_page"
 
 
 @frozen
@@ -42,26 +44,32 @@ class CreemEndpointConfig:
     page_size: int = PAGE_NUMBER_PAGE_SIZE
 
     @property
-    def page_size_param(self) -> str:
-        return "page_size" if self.pagination == CreemPagination.PAGE_NUMBER else "limit"
+    def page_size_param(self) -> Optional[str]:
+        if self.pagination == CreemPagination.PAGE_NUMBER:
+            return "page_size"
+        if self.pagination == CreemPagination.CURSOR:
+            return "limit"
+        return None
 
     @property
     def data_selector(self) -> str:
-        return "items" if self.pagination == CreemPagination.PAGE_NUMBER else "data"
+        return "data" if self.pagination == CreemPagination.CURSOR else "items"
 
 
-_DELETED_CUSTOMER_IGNORE: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
+# A parent deleted between its listing and the child fetch drops out of the sync.
+_DELETED_PARENT_IGNORE: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
 
-# Licenses have no store-wide listing. Each customer's licenses come from its own endpoint.
-_LICENSES_FANOUT = DependentEndpointConfig(
-    parent_name="Customers",
-    resolve_param="customer_id",
-    resolve_field="id",
-    include_from_parent=["id"],
-    parent_field_renames={"id": "customer_id"},
-    # A customer deleted between the customer listing and the license fetch drops out of the sync.
-    child_response_actions=_DELETED_CUSTOMER_IGNORE,
-)
+
+def _parent_fanout(parent_name: str, resolve_param: str) -> DependentEndpointConfig:
+    return DependentEndpointConfig(
+        parent_name=parent_name,
+        resolve_param=resolve_param,
+        resolve_field="id",
+        include_from_parent=["id"],
+        parent_field_renames={"id": resolve_param},
+        child_response_actions=_DELETED_PARENT_IGNORE,
+    )
+
 
 CREEM_ENDPOINTS: dict[str, CreemEndpointConfig] = {
     config.name: config
@@ -76,9 +84,16 @@ CREEM_ENDPOINTS: dict[str, CreemEndpointConfig] = {
             path="/v1/customers/{customer_id}/licenses",
             primary_keys=["customer_id", "id"],
             partition_key="created_at",
-            fanout=_LICENSES_FANOUT,
+            # Licenses have no store-wide listing. Each customer's licenses come from its own endpoint.
+            fanout=_parent_fanout("Customers", "customer_id"),
         ),
         CreemEndpointConfig(name="Affiliates", path="/v1/affiliates"),
+        CreemEndpointConfig(
+            name="AffiliateCommissions",
+            path="/v1/affiliates/{affiliate_id}/commissions",
+            primary_keys=["affiliate_id", "id"],
+            fanout=_parent_fanout("Affiliates", "affiliate_id"),
+        ),
         CreemEndpointConfig(name="AffiliateInvites", path="/v1/affiliates/invites"),
         CreemEndpointConfig(name="Splits", path="/v1/splits"),
         CreemEndpointConfig(
@@ -103,6 +118,30 @@ CREEM_ENDPOINTS: dict[str, CreemEndpointConfig] = {
             pagination=CreemPagination.CURSOR,
             partition_key="created_at",
             page_size=CURSOR_PAGE_SIZE,
+        ),
+        CreemEndpointConfig(
+            name="CreditAccountEntries",
+            path="/v1/customer-credits/accounts/{account_id}/entries",
+            pagination=CreemPagination.CURSOR,
+            primary_keys=["account_id", "id"],
+            partition_key="created_at",
+            fanout=_parent_fanout("CreditAccounts", "account_id"),
+            page_size=CURSOR_PAGE_SIZE,
+        ),
+        CreemEndpointConfig(
+            name="ProductGroups",
+            path="/v1/product-groups",
+            pagination=CreemPagination.CURSOR,
+            partition_key="created_at",
+            page_size=CURSOR_PAGE_SIZE,
+        ),
+        CreemEndpointConfig(
+            name="ProductPrices",
+            path="/v1/products/{product_id}/prices",
+            pagination=CreemPagination.SINGLE_PAGE,
+            primary_keys=["product_id", "id"],
+            partition_key="created_at",
+            fanout=_parent_fanout("Products", "product_id"),
         ),
     )
 }

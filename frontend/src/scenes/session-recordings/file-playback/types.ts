@@ -1,5 +1,7 @@
 import { eventWithTime } from 'posthog-js/rrweb-types'
 
+import type { ViewportResolution } from '@posthog/replay-shared'
+
 import { PersonType, RecordingSnapshot, SessionRecordingType } from '~/types'
 
 export type ExportedSessionRecordingFileV1 = {
@@ -18,4 +20,20 @@ export type ExportedSessionRecordingFileV2 = {
         person: SessionRecordingType['person']
         snapshots: RecordingSnapshot[]
     }
+}
+
+export type ExportedViewport = ViewportResolution & { timestamp: number }
+
+// Header line of a raw export: `PHREC1\n`, this JSON on one line, then the stored blocks, each as [u32 BE length][snappy block].
+// The header also carries team_id, distinct_id, start_time, end_time and exported_at, which playback does not read.
+export type ExportedSessionRecordingFileRawHeader = {
+    version: '2026-11-raw'
+    session_id: string
+    person: SessionRecordingType['person']
+    viewports: ExportedViewport[]
+    block_count: number
+}
+
+export type LoadedSessionRecordingFile = ExportedSessionRecordingFileV2['data'] & {
+    viewports?: ExportedViewport[]
 }

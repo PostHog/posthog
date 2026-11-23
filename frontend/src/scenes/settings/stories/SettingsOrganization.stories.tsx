@@ -1,16 +1,15 @@
 import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
-import { router } from 'kea-router'
 
 import { FEATURE_FLAGS, STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
-import { App } from 'scenes/App'
-import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
 import { SettingSectionId } from '../types'
+import { SETTINGS_STORY_TEST_OPTIONS, SettingsStoryApp } from './SettingsStoryApp'
+import { withTodayRailNav } from './withTodayRailNav'
 
 interface StoryProps {
     sectionId: SettingSectionId
@@ -24,6 +23,7 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
         viewMode: 'story',
         mockDate: '2023-05-25',
         featureFlags: STORYBOOK_FEATURE_FLAGS,
+        testOptions: SETTINGS_STORY_TEST_OPTIONS,
     },
     decorators: [
         mswDecorator({
@@ -157,20 +157,15 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
             },
         }),
     ],
-    render: ({ sectionId }: StoryProps) => {
-        // Navigate synchronously before <App /> mounts so it renders the settings scene directly,
-        // never the project homepage. A useEffect push fires after the first paint, so the snapshot
-        // can race and capture the homepage frame instead.
-        router.actions.push(urls.settings(sectionId))
-
-        return <App />
-    },
+    render: ({ sectionId }: StoryProps) => <SettingsStoryApp sectionId={sectionId} />,
 }
 export default meta
 
 // -- Organization --
 
 export const SettingsOrganizationDetails: Story = { args: { sectionId: 'organization-details' } }
+
+export const SettingsOrganizationDetailsQuill: Story = withTodayRailNav(SettingsOrganizationDetails)
 
 // A saved notice shows both the banner every member sees and the filled-in form with its preview.
 // The scene menu bar replaces the notice area, so it is off here to render the banner.
@@ -197,13 +192,23 @@ export const SettingsOrganizationDetailsWithMemberNotice: Story = {
 
 export const SettingsOrganizationMembers: Story = { args: { sectionId: 'organization-members' } }
 
+export const SettingsOrganizationMembersQuill: Story = withTodayRailNav(SettingsOrganizationMembers)
+
 export const SettingsOrganizationRoles: Story = { args: { sectionId: 'organization-roles' } }
+
+export const SettingsOrganizationRolesQuill: Story = withTodayRailNav(SettingsOrganizationRoles)
 
 export const SettingsOrganizationAuthentication: Story = { args: { sectionId: 'organization-authentication' } }
 
+export const SettingsOrganizationAuthenticationQuill: Story = withTodayRailNav(SettingsOrganizationAuthentication)
+
 export const SettingsOrganizationProxy: Story = { args: { sectionId: 'organization-proxy' } }
 
+export const SettingsOrganizationProxyQuill: Story = withTodayRailNav(SettingsOrganizationProxy)
+
 export const SettingsOrganizationDangerZone: Story = { args: { sectionId: 'organization-danger-zone' } }
+
+export const SettingsOrganizationDangerZoneQuill: Story = withTodayRailNav(SettingsOrganizationDangerZone)
 
 export const SettingsOrganizationBilling: Story = { args: { sectionId: 'organization-billing' } }
 
@@ -212,3 +217,7 @@ export const SettingsOrganizationStartupProgram: Story = { args: { sectionId: 'o
 export const SettingsOrganizationCimdVerificationTokens: Story = {
     args: { sectionId: 'organization-cimd-verification-tokens' },
 }
+
+export const SettingsOrganizationCimdVerificationTokensQuill: Story = withTodayRailNav(
+    SettingsOrganizationCimdVerificationTokens
+)
