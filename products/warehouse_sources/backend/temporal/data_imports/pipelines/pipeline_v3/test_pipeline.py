@@ -1107,14 +1107,17 @@ class TestLaneFanOut:
         assert {"name", "_file_name"} <= set(written.column_names)
         assert "id" not in written.column_names
 
-    async def test_only_the_billable_lane_counts_towards_usage(self) -> None:
-        # One read of a change stream is one sync however many tables it keeps.
-        writers = [_lane_writer("users"), _lane_writer("users_cdc", billable=False)]
+    @pytest.mark.parametrize("history_billable,expected", [(False, 3), (True, 5)])
+    async def test_only_the_billable_lanes_count_towards_usage(self, history_billable: bool, expected: int) -> None:
+        writers = [
+            _lane_writer("users"),
+            _lane_writer("users_cdc", billable=history_billable, transform=lambda t: t.slice(0, 2)),
+        ]
         pipeline = self._pipeline(writers)
 
         tracked = await self._process(pipeline, pa.table({"id": pa.array([1, 2, 3], pa.int64())}))
 
-        assert tracked.call_args[0][3] == 3
+        assert tracked.call_args[0][3] == expected
 
     async def test_a_lane_that_already_holds_the_rows_stages_nothing_for_that_index(self) -> None:
         writers = [_lane_writer("users"), _lane_writer("users_cdc", transform=lambda t: t.slice(0, 0))]

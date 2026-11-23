@@ -66,6 +66,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane 
     CDC_SNAPSHOT_POSITION_KEY,
     snapshot_in_buffer,
 )
+from products.warehouse_sources.backend.temporal.data_imports.history_billing import history_lane_billable
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     normalize_column_name,
     safe_parse_datetime,
@@ -377,8 +378,7 @@ async def build_output_lanes(
     One run serves them all from one read of the buffer. Each carries its own replay filter, built
     from its own table, because a failed run can leave one lane ahead of the other.
 
-    The first lane is the billable one: a change stream feeding two tables is one stream, and
-    charging it twice would price the history table as a second sync.
+    The main table always bills; the history table bills as `history_lane_billable` says.
 
     The floor is the lowest position any lane holds — a file below it is settled for every table.
     A lane whose table reports no position holds the floor open, so nothing is deleted until every
@@ -386,7 +386,14 @@ async def build_output_lanes(
     """
     lanes: list[OutputLane] = []
     positions: list[int | None] = []
-    for index, lane in enumerate(served_lanes(schema, history)):
+    served = served_lanes(schema, history)
+    history_billable = (
+        any(lane.history for lane in served)
+        and await database_sync_to_async_pool(
+            lambda: history_lane_billable(schema.team, history_only=schema.cdc_table_mode == CDC_ONLY_TABLE_MODE)
+        )()
+    )
+    for lane in served:
         delta_table = await DeltaTableRef(
             lane.resource_name, job, logger, expect_missing=schema.table_id is None
         ).get_delta_table()
@@ -408,7 +415,7 @@ async def build_output_lanes(
             OutputLane(
                 name=lane.resource_name,
                 cdc_write_mode=lane.write_mode,
-                billable=index == 0,
+                billable=lane.history is None or history_billable,
                 transform=_history_transform(replay, keys, lane.history) if lane.history else replay.apply,
             )
         )

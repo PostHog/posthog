@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.destinations.enabl
     external_destination_ids_for,
     includes_the_warehouse,
 )
+from products.warehouse_sources.backend.temporal.data_imports.history_billing import history_lane_billable
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import resolve_primary_keys
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import normalize_column_name
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta import history_upsert
@@ -125,8 +126,7 @@ def attach_history_lanes(
     history_lane = OutputLane(
         name=companion_resource_name(schema.name, naming),
         cdc_write_mode=SCD2_APPEND_MODE,
-        # One stream bills once: the consolidated lane's rows when it runs, else the history lane's.
-        billable=history_only,
+        billable=history_lane_billable(schema.team, history_only=history_only),
         transform=functools.partial(
             stamp_history_batch,
             schema_name=schema.name,

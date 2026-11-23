@@ -207,6 +207,7 @@ async def _seed_cdc_companion_from_snapshot(
         companion_resource_name as build_companion_resource_name,
     )
     from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import history_naming
+    from products.warehouse_sources.backend.temporal.data_imports.history_billing import history_lane_billable
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.scd2 import Scd2DeltaWriter
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import DeltaWriter
@@ -302,6 +303,13 @@ async def _seed_cdc_companion_from_snapshot(
 
     if total_rows == 0:
         return
+
+    # The snapshot job bills the main table once. Beside it, the history table bills its seed as a table of its own.
+    if (
+        schema.cdc_table_mode == "both"
+        and await database_sync_to_async_pool(lambda: history_lane_billable(schema.team, history_only=False))()
+    ):
+        await update_job_row_count(str(job.id), total_rows, logger)
 
     await run_post_load_operations(
         job=job,

@@ -45,6 +45,7 @@ _LOAD_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelin
 _DB_RETRY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry"
 _PIPELINE_SYNC_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync"
 _REPARTITION_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
+_HISTORY_BILLING_MODULE = "products.warehouse_sources.backend.temporal.data_imports.history_billing"
 _HISTORY_TABLE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.cdc.history_table"
 _DELTA_TABLE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table"
 
@@ -621,30 +622,53 @@ class TestNotifyRevenueAnalyticsThatSyncHasCompleted:
 
 
 class TestSeedHistoryTableFromSnapshot:
-    @pytest.mark.asyncio
-    async def test_a_new_history_table_is_seeded_partitioned_with_every_row_current(self, tmp_path):
-        # Seeded through the plain writer instead, every new history table would start unpartitioned.
+    @staticmethod
+    async def _seed(tmp_path, *, table_mode: str = "both", bills_history: bool = False) -> AsyncMock:
         snapshot_path = str(tmp_path / "snapshot")
         deltalake.write_deltalake(snapshot_path, pa.table({"id": [1, 2], "name": ["a", "b"]}))
-        history_path = str(tmp_path / "history")
-        history_ref = make_local_table_ref(history_path)
+        history_ref = make_local_table_ref(str(tmp_path / "history"))
         history_ref.reset_table = AsyncMock()  # type: ignore[method-assign]
-        schema = MagicMock()
+        schema = MagicMock(cdc_table_mode=table_mode)
         schema.name = "orders"
 
         with (
             patch(f"{_HISTORY_TABLE_MODULE}.history_naming", return_value=HISTORY_NAMING),
             patch(f"{_DELTA_TABLE_MODULE}.DeltaTableRef", return_value=history_ref),
             patch(f"{_LOAD_MODULE}.run_post_load_operations", AsyncMock()),
+            patch(f"{_HISTORY_BILLING_MODULE}.feature_enabled_or_false", return_value=bills_history),
+            patch(f"{_LOAD_MODULE}.update_job_row_count", AsyncMock()) as counted,
         ):
             await _seed_cdc_companion_from_snapshot(
                 schema=schema,
-                job=MagicMock(),
+                job=MagicMock(id="job-1"),
                 source=MagicMock(),
                 snapshot_delta_table_ref=make_local_table_ref(snapshot_path),
                 logger=MagicMock(),
             )
+        return counted
 
-        table = deltalake.DeltaTable(history_path)
+    @pytest.mark.asyncio
+    async def test_a_new_history_table_is_seeded_partitioned_with_every_row_current(self, tmp_path):
+        # Seeded through the plain writer instead, every new history table would start unpartitioned.
+        await self._seed(tmp_path)
+
+        table = deltalake.DeltaTable(str(tmp_path / "history"))
         assert table.metadata().partition_columns == [HISTORY_PARTITION_COLUMN]
         assert table.to_pyarrow_table().column(HISTORY_PARTITION_COLUMN).to_pylist() == ["current", "current"]
+
+    @pytest.mark.parametrize(
+        "table_mode,bills_history,billed_rows",
+        [
+            ("both", False, None),
+            ("both", True, 2),
+            # The snapshot job already bills these rows once, as the one table this mode keeps.
+            ("cdc_only", True, None),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_the_seed_bills_as_its_own_table_beside_the_main_table(
+        self, tmp_path, table_mode: str, bills_history: bool, billed_rows: int | None
+    ):
+        counted = await self._seed(tmp_path, table_mode=table_mode, bills_history=bills_history)
+
+        assert [call.args[:2] for call in counted.await_args_list] == ([("job-1", billed_rows)] if billed_rows else [])

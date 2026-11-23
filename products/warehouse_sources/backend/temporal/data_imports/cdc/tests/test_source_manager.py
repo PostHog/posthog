@@ -814,10 +814,14 @@ class TestFloorDeletion:
 @pytest.mark.asyncio
 class TestBuildOutputLanes:
     @staticmethod
-    async def _build(schema, positions: list[LanePosition]):
+    async def _build(schema, positions: list[LanePosition], *, bills_history: bool = False):
         delta_ref = MagicMock()
         delta_ref.return_value.get_delta_table = AsyncMock(return_value=MagicMock())
         with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.history_billing.feature_enabled_or_false",
+                return_value=bills_history,
+            ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.DeltaTableRef", delta_ref
             ),
@@ -838,16 +842,21 @@ class TestBuildOutputLanes:
         assert [lane.name for lane in lanes] == ["users", "users_history"]
         assert [lane.cdc_write_mode for lane in lanes] == [CONSOLIDATED_WRITE_MODE, COMPANION_WRITE_MODE]
 
-    @parameterized.expand([("consolidated", "consolidated", "users"), ("cdc_only", "cdc_only", "users_history")])
-    async def test_a_single_table_mode_bills_its_only_lane(self, _name, table_mode, expected):
-        lanes, _ = await self._build(_schema(cdc_table_mode=table_mode), [_NO_POSITION])
+    @parameterized.expand(
+        [
+            ("consolidated", "consolidated", False, [("users", True)]),
+            ("cdc_only", "cdc_only", False, [("users_history", True)]),
+            ("cdc_only_billing_history", "cdc_only", True, [("users_history", True)]),
+            ("both", "both", False, [("users", True), ("users_history", False)]),
+            ("both_billing_history", "both", True, [("users", True), ("users_history", True)]),
+        ]
+    )
+    async def test_lanes_bill_by_table_mode(self, _name, table_mode, bills_history, expected):
+        lanes, _ = await self._build(
+            _schema(cdc_table_mode=table_mode), [_NO_POSITION] * len(expected), bills_history=bills_history
+        )
 
-        assert [(lane.name, lane.billable) for lane in lanes] == [(expected, True)]
-
-    async def test_both_bills_the_consolidated_lane_only(self):
-        lanes, _ = await self._build(_schema(cdc_table_mode="both"), [_NO_POSITION, _NO_POSITION])
-
-        assert [(lane.name, lane.billable) for lane in lanes] == [("users", True), ("users_history", False)]
+        assert [(lane.name, lane.billable) for lane in lanes] == expected
 
     async def test_only_the_append_lane_is_asked_for_identity(self):
         # Asserted on the call, not on hand-fed positions: if both lanes asked for identity the

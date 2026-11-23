@@ -318,7 +318,6 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
             batch_result = await asyncio.to_thread(writer.s3_batch_writer.write_batch, lane_table, batch_index)
             writer.batch_results.append(batch_result)
             writer.pg_producer.hold_batch(batch_result, cumulative_row_count=writer.row_count)
-            # One read of a change stream is one sync however many tables it keeps.
             if lane.billable:
                 billable_rows += lane_table.num_rows
         return billable_rows
