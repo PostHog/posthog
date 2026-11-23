@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.core.cache import cache, caches
+from django.core.cache.backends.base import BaseCache
 from django.urls import resolve
 from django.utils import timezone
 from django.utils.connection import ConnectionProxy
@@ -229,11 +230,15 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         finally:
             self.units_to_check = None
 
+    @property
+    def history_cache(self) -> ConnectionProxy[BaseCache] | BaseCache:
+        return self.primary_cache if self.reads_history_from_primary else self.cache
+
     def charge_units(self) -> None:
         if not self.units_to_charge:
             return
         try:
-            self.primary_cache.set(self.key, [self.now] * self.units_to_charge + self.history, self.duration)
+            self.history_cache.set(self.key, [self.now] * self.units_to_charge + self.history, self.duration)
         except Exception as e:
             capture_exception(e)
 
@@ -245,7 +250,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         self.key = self.get_cache_key(request, view)
         if self.key is None:
             return True
-        history = self.primary_cache.get(self.key, [])
+        history = self.history_cache.get(self.key, [])
         self.now = self.timer()
         self.history = [hit for hit in history if hit > self.now - duration]
         self.retry_wait = self._wait_for_room(units + self.DRF_UNITS_PER_REQUEST, num_requests, duration)
