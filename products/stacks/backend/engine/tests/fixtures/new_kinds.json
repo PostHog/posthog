@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "resources": [
+    {"kind": "check", "key": "daily-count", "body": {"subject_type": "view", "subject_uuid": {"$ref": {"kind": "model", "key": "daily_counts"}}, "check_type": "row_count", "config": {"min": 1}}},
+    {"kind": "endpoint", "key": "daily-counts", "body": {"name": "daily-counts", "query": {"kind": "HogQLQuery", "query": "SELECT count() FROM events"}}},
+    {"kind": "event", "key": "checkout recorded", "body": {"name": "checkout recorded", "property_groups": [{"$ref": {"kind": "property_group", "key": "Cart fields"}}]}},
+    {"kind": "metric", "key": "daily_count", "body": {"name": "daily_count", "description": "Number of samples each day."}},
+    {"kind": "model", "key": "daily_counts", "body": {"name": "daily_counts", "query": {"kind": "HogQLQuery", "query": "SELECT count() AS total FROM events"}, "columns": {"total": "number"}}},
+    {"kind": "property_group", "key": "Cart fields", "body": {"name": "Cart fields", "properties": [{"name": "items", "property_type": "Numeric", "is_required": true}]}},
+    {"kind": "source", "key": "sample", "body": {"source_type": "Postgres", "payload": {"host": "example.com", "password": {"$secret": "WAREHOUSE_PASSWORD"}}}}
+  ]
+}

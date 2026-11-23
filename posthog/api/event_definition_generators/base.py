@@ -1,5 +1,6 @@
 import hashlib
 from abc import ABC, abstractmethod
+from datetime import datetime
 
 from django.db.models import Exists, OuterRef, Q, QuerySet
 
@@ -10,6 +11,22 @@ from posthog.taxonomy.taxonomy import CORE_EVENTS
 
 from products.event_definitions.backend.models import EventDefinition, EventSchema, SchemaPropertyGroupProperty
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
+
+
+def doc_comment_of(item: object) -> str | None:
+    """The text to render as a doc comment on an event or property, as one line.
+
+    Only inputs built from a stack description offer it, through `doc_comment`. Database rows have a
+    `description` too, which the modules generated from them have never shown, so it isn't read.
+    """
+    text = getattr(item, "doc_comment", None)
+    return " ".join(text.split()) if text else None
+
+
+def enum_of(prop: object) -> tuple[str, ...] | None:
+    """The members of an enum property, which only a stack description declares."""
+    members = getattr(prop, "enum", None)
+    return tuple(members) if members else None
 
 
 class EventDefinitionGenerator(ABC):
@@ -40,6 +57,14 @@ class EventDefinitionGenerator(ABC):
         Generate (multiline) code for the given event definitions and their schemas.
         """
         pass
+
+    # What the header's "Generated at" line names. A module generated from the database names the time it was
+    # generated. One generated from a stack description names its schema hash instead, so the same description
+    # always gives the same file and `hog stack generate --check` can compare the two.
+    generated_at: str | None = None
+
+    def generated_at_text(self) -> str:
+        return self.generated_at or datetime.now().isoformat()
 
     def hash_inputs(self) -> dict[str, str]:
         """

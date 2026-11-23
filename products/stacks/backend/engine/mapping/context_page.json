@@ -1,0 +1,29 @@
+{
+    "kind": "context_page",
+    "scopes": { "read": ["organization"], "write": ["organization"] },
+    "ownership_scope": "organization",
+    "key_sources": [
+        "products/context_layer/backend/pages.py",
+        "products/context_layer/backend/repo_lint.py",
+        "products/context_layer/backend/presentation/serializers.py"
+    ],
+    "key_pattern": "^(?![^\\x00]*(?:/\\.{1,2}/|/\\.git/|//|/index\\.md$))(?:AGENTS\\.md|(?:org|areas|projects)/(?:[^/\\x00]+/)*[^/\\x00]+\\.md|decisions/(?:[^/\\x00]+/)*[0-9]{4}-[0-9]{2}-[0-9]{2}-[a-z0-9][a-z0-9-]*\\.md)$",
+    "key_max_length": 512,
+    "read_api": { "collection": "context_layer/agent/pages", "organization_tree": "context_layer/tree" },
+    "resource_type": "posthog_context_page",
+    "id_type": "string",
+    "api_schema": {
+        "file": "products/context_layer/frontend/generated/api.zod.ts",
+        "name": "ContextLayerAgentPagesUpdateBody"
+    },
+    "fields": { "path": "path", "content": "content" },
+    "json_fields": [],
+    "set_fields": [],
+    "unmanaged": {},
+    "gaps": { "base_head": "PostHog supplies the wiki revision observed when preparing the diff." },
+    "removal": "prevent",
+    "natural_key": { "field": "path", "lookup": "context_layer/agent/pages" },
+    "import_id": "{name}",
+    "hook": "context_page",
+    "loses": "The original page stays in PostHog at its old path. Links to it continue to open that page."
+}

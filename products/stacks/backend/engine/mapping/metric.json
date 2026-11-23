@@ -1,0 +1,52 @@
+{
+    "kind": "metric",
+    "scopes": {
+        "read": ["data_catalog", "insight"],
+        "write": ["data_catalog"]
+    },
+    "key_sources": [
+        "products/data_catalog/backend/models/metric.py",
+        "products/data_catalog/backend/presentation/views.py"
+    ],
+    "read_api": { "collection": "data_catalog/metrics", "detail_key": "name" },
+    "resource_type": "posthog_data_catalog_metric",
+    "id_type": "string",
+    "api_schema": {
+        "product": "data_catalog",
+        "name": "DataCatalogMetricsCreateBody"
+    },
+    "fields": {
+        "name": "name",
+        "display_name": "display_name",
+        "description": "description",
+        "unit": "unit",
+        "owner": "owner",
+        "definition": "definition_json",
+        "source_insight_short_id": "source_insight_short_id",
+        "ai_model": "ai_model",
+        "reasoning": "reasoning"
+    },
+    "json_fields": ["definition"],
+    "set_fields": [],
+    "unmanaged": {},
+    "gaps": {
+        "overwrite": "An existing metric must be adopted before changing it."
+    },
+    "removal": "allow",
+    "natural_key": {
+        "field": "name",
+        "lookup": "data_catalog/metrics"
+    },
+    "import_id": "{name}",
+    "hook": null,
+    "null_values": {
+        "owner": ""
+    },
+    "accepted_defaults": {
+        "overwrite": false
+    },
+    "key_max_length": 128,
+    "key_pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+    "reserved_keys": ["bulk_approve", "bulk_delete"],
+    "loses": "The new metric needs its own review. Links by ID still point to the original metric."
+}

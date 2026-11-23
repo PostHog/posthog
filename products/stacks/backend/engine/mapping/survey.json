@@ -1,0 +1,73 @@
+{
+    "kind": "survey",
+    "scopes": {
+        "read": ["survey"],
+        "write": ["feature_flag", "survey"]
+    },
+    "read_api": { "collection": "surveys" },
+    "resource_type": "posthog_survey",
+    "id_type": "string",
+    "api_schema": {
+        "product": "surveys",
+        "name": "SurveysCreateBody"
+    },
+    "fields": {
+        "name": "name",
+        "description": "description",
+        "type": "type",
+        "start_date": "start_date",
+        "end_date": "end_date",
+        "schedule": "schedule",
+        "linked_flag_id": "linked_flag_id",
+        "linked_insight_id": "linked_insight_id",
+        "targeting_flag_id": "targeting_flag_id",
+        "responses_limit": "responses_limit",
+        "iteration_count": "iteration_count",
+        "iteration_frequency_days": "iteration_frequency_days",
+        "response_sampling_start_date": "response_sampling_start_date",
+        "response_sampling_interval_type": "response_sampling_interval_type",
+        "response_sampling_interval": "response_sampling_interval",
+        "response_sampling_limit": "response_sampling_limit",
+        "enable_partial_responses": "enable_partial_responses",
+        "enable_iframe_embedding": "enable_iframe_embedding",
+        "targeting_flag_filters": "targeting_flag_filters_json",
+        "questions": "questions_json",
+        "conditions": "conditions_json",
+        "appearance": "appearance_json",
+        "response_sampling_daily_limits": "response_sampling_daily_limits_json",
+        "translations": "translations_json",
+        "form_content": "form_content_json",
+        "_create_in_folder": "create_in_folder"
+    },
+    "json_fields": [
+        "targeting_flag_filters",
+        "questions",
+        "conditions",
+        "appearance",
+        "response_sampling_daily_limits",
+        "translations",
+        "form_content"
+    ],
+    "set_fields": [],
+    "managed_when_set": ["start_date", "end_date", "response_sampling_start_date", "appearance"],
+    "unmanaged": {
+        "archived": "archived",
+        "iteration_start_dates": null,
+        "current_iteration": null,
+        "current_iteration_start_date": null
+    },
+    "gaps": {
+        "remove_targeting_flag": "This version cannot remove a targeting flag as a side effect.",
+        "repeat_until_stopped": "This version requires a finite count for repeated surveys.",
+        "base_language": "This version cannot select the survey's base language."
+    },
+    "removal": "prevent",
+    "natural_key": {
+        "field": "name",
+        "lookup": "surveys",
+        "definition_key": false
+    },
+    "import_id": "{entity_id}",
+    "hook": null,
+    "loses": "Responses and links belong to the original survey."
+}

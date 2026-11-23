@@ -58,7 +58,7 @@ from posthog.models.event_filter_config import add_event_name_drop
 from posthog.models.tagged_item_registry import content_type_for
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
-from posthog.permissions import is_scout_sandbox_request, is_service_auth
+from posthog.permissions import is_scout_sandbox_request, is_service_auth, managed_write_refusals
 from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.definition_listing import (
     DEFINITION_LIST_STATEMENT_TIMEOUT_MS,
@@ -938,6 +938,19 @@ class EventDefinitionViewSet(
 
         found_ids = {obj.id for obj in objects}
         skipped = [{"id": obj_id, "reason": "Not found"} for obj_id in validated_ids if obj_id not in found_ids]
+        managed = managed_write_refusals(
+            request,
+            team_id=self.team_id,
+            model_label="event_definitions.EventDefinition",
+            object_ids=[obj.id for obj in objects],
+            changed=["tags"],
+            action="bulk_update_tags",
+            attributes={str(obj.id): {"name": obj.name} for obj in objects},
+        )
+        skipped.extend(
+            {"id": obj.id, "reason": managed[str(obj.id)].detail} for obj in objects if str(obj.id) in managed
+        )
+        objects = [obj for obj in objects if str(obj.id) not in managed]
 
         activity_context = BulkTagActivityContext(
             scope="EventDefinition",
@@ -989,12 +1002,26 @@ class EventDefinitionViewSet(
         verified = serializer.validated_data["verified"]
 
         # Base rows are authoritative for existence and project scoping.
-        found_ids = set(
+        names = dict(
             EventDefinition.objects.filter(id__in=validated_ids, team__project_id=self.project_id).values_list(
-                "id", flat=True
+                "id", "name"
             )
         )
+        found_ids = set(names)
         skipped = [{"id": obj_id, "reason": "Not found"} for obj_id in validated_ids if obj_id not in found_ids]
+        managed = managed_write_refusals(
+            request,
+            team_id=self.team_id,
+            model_label="event_definitions.EventDefinition",
+            object_ids=sorted(found_ids, key=str),
+            changed=["verified", "hidden"],
+            action="bulk_update_verified",
+            attributes={str(obj_id): {"name": name} for obj_id, name in names.items()},
+        )
+        skipped.extend(
+            {"id": obj_id, "reason": managed[str(obj_id)].detail} for obj_id in validated_ids if str(obj_id) in managed
+        )
+        found_ids -= {obj_id for obj_id in found_ids if str(obj_id) in managed}
 
         # Current verified state comes from existing enterprise rows; a base row without one is
         # unverified by default, so a missing entry means verified=False. `found_ids` is already

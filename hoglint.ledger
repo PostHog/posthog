@@ -2062,6 +2062,7 @@ level:isolated	ml_inference	1
 level:isolated	release	1
 level:isolated	review_hog	1
 level:isolated	security	1
+level:isolated	stacks	1
 level:isolated	stamphog	1
 level:isolated	streamlit_apps	1
 level:isolated	ui_customization	1

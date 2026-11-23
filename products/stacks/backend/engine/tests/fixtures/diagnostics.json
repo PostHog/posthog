@@ -1,0 +1,98 @@
+{
+  "cycle": [
+    {
+      "severity": "error",
+      "summary": "Cycle: terraform_data.b, terraform_data.a",
+      "detail": ""
+    }
+  ],
+  "reference": [
+    {
+      "severity": "error",
+      "summary": "Reference to undeclared resource",
+      "detail": "There is no managed resource \"terraform_data\" \"missing\" definition in the root module."
+    }
+  ],
+  "invalid": [
+    {
+      "severity": "error",
+      "summary": "Extraneous JSON object property",
+      "detail": "No argument or block type is named \"unsupported\"."
+    }
+  ],
+  "stale": [
+    {
+      "severity": "error",
+      "summary": "Saved plan is stale",
+      "detail": "The given plan file can no longer be applied because the state was changed by another operation after the plan was created."
+    }
+  ],
+  "lock": [
+    {
+      "severity": "error",
+      "summary": "Error acquiring the state lock",
+      "detail": "Error message: 2 errors occurred:\n\t* resource temporarily unavailable\n\t* open .terraform.tfstate.lock.info: no such file or directory\n\n\n\nOpenTofu acquires a state lock to protect the state from being written\nby multiple users at the same time. Please resolve the issue above and try\nagain. For most commands, you can disable locking with the \"-lock=false\"\nflag, but this is not recommended."
+    }
+  ],
+  "auth401": [
+    {
+      "severity": "error",
+      "summary": "Error creating Insight",
+      "detail": "failed to send POST request: API error (status 401): {\"type\":\"authentication_error\",\"detail\":\"Check this key.\"}",
+      "address": "posthog_insight.stack_example"
+    }
+  ],
+  "auth": [
+    {
+      "severity": "error",
+      "summary": "Error creating Insight",
+      "detail": "failed to send POST request: API error (status 403): {\"type\":\"authentication_error\",\"detail\":\"Check this key.\"}",
+      "address": "posthog_insight.stack_example"
+    }
+  ],
+  "missing": [
+    {
+      "severity": "error",
+      "summary": "Error reading Insight during import",
+      "detail": "failed to send GET request: API error (status 404): {\"type\":\"not_found\",\"detail\":\"Not found.\"}"
+    }
+  ],
+  "validation": [
+    {
+      "severity": "error",
+      "summary": "Error creating Insight",
+      "detail": "failed to send POST request: API error (status 400): {\"type\":\"validation_error\",\"attr\":\"query\",\"detail\":\"A query is required.\"}",
+      "address": "posthog_insight.stack_example"
+    }
+  ],
+  "conflict": [
+    {
+      "severity": "error",
+      "summary": "Error creating Insight",
+      "detail": "failed to send POST request: API error (status 409): {\"type\":\"conflict\",\"detail\":\"A definition with this name already exists.\"}",
+      "address": "posthog_insight.stack_example"
+    }
+  ],
+  "timeout": [
+    {
+      "severity": "error",
+      "summary": "Error creating Insight",
+      "detail": "failed to send POST request: API error (status 408): {\"type\":\"timeout\",\"detail\":\"Request timed out.\"}",
+      "address": "posthog_insight.stack_example"
+    }
+  ],
+  "crash": [
+    {
+      "severity": "error",
+      "summary": "Plugin did not respond",
+      "detail": "The plugin encountered an error, and failed to respond to the plugin6.(*GRPCProvider).ApplyResourceChange call. The plugin logs may contain more details."
+    }
+  ],
+  "tls_timeout": [
+    {
+      "severity": "error",
+      "summary": "Error creating Insight",
+      "detail": "failed to send POST request: failed to send request: Post \"https://127.0.0.1:59750/api/projects/1/insights/\": (attempt: 1) not retried, POST may already have been applied: net/http: TLS handshake timeout"
+    }
+  ]
+}

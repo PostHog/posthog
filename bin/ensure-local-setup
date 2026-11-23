@@ -97,6 +97,7 @@ STEPS = [
     # Local migrate runs use --scope=postgres, which skips bin/migrate's tasks-oauth scope, so seed the sandbox agent OAuth apps here.
     ("task sandbox OAuth apps", lambda: call_command("setup_tasks_oauth")),
     ("PostHog CIMD apps", lambda: call_command("setup_posthog_cimd_apps")),
+    ("stacks OAuth app", lambda: call_command("provision_stacks_oauth_app")),
 ]
 
 

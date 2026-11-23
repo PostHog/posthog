@@ -67,6 +67,7 @@ _ORIGIN_TO_GATEWAY_PRODUCT: dict[str, str] = {
     "signals_chat": "signals",
     "signals_scout": "signals",
     "slack": "slack_app",
+    "stacks": "posthog_ai",
     "support_reply": "conversations",
     "workflow": "workflows",
 }

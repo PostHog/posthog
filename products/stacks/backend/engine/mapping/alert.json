@@ -1,0 +1,63 @@
+{
+    "kind": "alert",
+    "scopes": {
+        "read": ["alert", "insight"],
+        "write": ["alert"]
+    },
+    "read_api": {
+        "collection": "alerts",
+        "scope": "environments",
+        "id_fields": ["insight", "subscribed_users"]
+    },
+    "resource_type": "posthog_alert",
+    "id_type": "string",
+    "api_schema": {
+        "product": "alerts",
+        "name": "AlertsCreateBody"
+    },
+    "fields": {
+        "name": "name",
+        "enabled": "enabled",
+        "calculation_interval": "calculation_interval",
+        "skip_weekend": "skip_weekend",
+        "insight": "insight",
+        "subscribed_users": "subscribed_users",
+        "schedule_restriction": "schedule_restriction",
+        "condition.type": "condition_type",
+        "threshold.configuration.type": "threshold_type",
+        "threshold.configuration.bounds.lower": "threshold_lower",
+        "threshold.configuration.bounds.upper": "threshold_upper",
+        "config.series_index": "series_index",
+        "config.check_ongoing_interval": "check_ongoing_interval",
+        "config.evaluation": "evaluation",
+        "config.column": "column",
+        "config.label_column": "label_column"
+    },
+    "json_fields": [],
+    "set_fields": ["subscribed_users", "schedule_restriction.blocked_windows"],
+    "unmanaged": {
+        "snoozed_until": null,
+        "threshold.id": null,
+        "threshold.created_at": null
+    },
+    "gaps": {
+        "threshold.name": "Threshold names cannot be configured separately.",
+        "config.metric": "Funnel alerts are unavailable in this version.",
+        "config.funnel_step": "Funnel alerts are unavailable in this version.",
+        "config.variables": "Metric alert variables are unavailable in this version.",
+        "detector_config": "This version can configure threshold alerts only.",
+        "investigation_agent_enabled": "Automated alert investigations are unavailable in this version.",
+        "investigation_gates_notifications": "Investigation notification gating is unavailable in this version.",
+        "investigation_inconclusive_action": "Investigation outcomes are unavailable in this version.",
+        "schedule_start_time": "A custom check start time is unavailable in this version.",
+        "evaluation_delay_intervals": "A check delay is unavailable in this version."
+    },
+    "removal": "prevent",
+    "natural_key": null,
+    "import_id": "{entity_id}",
+    "hook": "alert_config",
+    "loses": "Notification history and links belong to the original alert.",
+    "hook_fields": {
+        "config.type": null
+    }
+}

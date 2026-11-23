@@ -1,17 +1,21 @@
 import os
+import json
 import time
 import uuid
 from collections.abc import Iterable
+from datetime import UTC
 from typing import Any, Optional, cast
 
 from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ImproperlyConfigured
 from django.db.models import Model
+from django.utils.dateparse import parse_datetime
 
 import posthoganalytics
 from loginas.utils import is_impersonated_session
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.fields import BooleanField
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
 from rest_framework.request import Request
 from rest_framework.views import APIView
@@ -36,6 +40,7 @@ from posthog.constants import AvailableFeature
 from posthog.exceptions import Conflict, EnterpriseFeatureException, InsufficientScope, PaidFeatureException
 from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, is_enforcement_disable_request
+from posthog.managed_writes import ObjectWrite, WriteRefusal, guarded_model_labels, refusal_for
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Project, Team, User
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -1758,3 +1763,211 @@ class DenyWorkloadAccessToken(BasePermission):
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         return not isinstance(request.successful_authenticator, WorkloadAccessTokenAuthentication)
+
+
+class ManagedWriteRefused(Conflict):
+    def __init__(self, code: str, detail: str, extra: dict[str, Any]) -> None:
+        super().__init__(detail=detail, code=code)
+        # drf-exceptions-hog adds `extra` to the error body.
+        self.extra = extra
+
+
+def _normalized(value: Any) -> Any:
+    """A value as a write would store it: `1` and `1.0` are one number, and one instant is one date-time however
+    it is spelled. Lists keep their order, because most ordered fields mean something by it."""
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        parsed = parse_datetime(value) if "T" in value or " " in value else None
+        if parsed is not None and parsed.tzinfo is not None:
+            return parsed.astimezone(UTC).isoformat()
+        return value
+    if isinstance(value, list | tuple):
+        return [_normalized(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _normalized(item) for key, item in value.items()}
+    return str(value)
+
+
+def _comparable(value: Any) -> str:
+    return json.dumps(_normalized(value), sort_keys=True, default=str)
+
+
+_MISSING = object()
+
+
+def _path_value(data: Any, path: str) -> Any:
+    value = data
+    for part in path.split("."):
+        if not isinstance(value, dict) or part not in value:
+            return _MISSING
+        value = value[part]
+    return value
+
+
+def _sent(data: Any, path: str) -> bool:
+    """Whether a write sets this path: the path itself, or a parent it replaces whole."""
+    parts = path.split(".")
+    return any(_path_value(data, ".".join(parts[:end])) is not _MISSING for end in range(1, len(parts) + 1))
+
+
+def _is_soft_delete(data: dict) -> bool:
+    if "deleted" not in data:
+        return False
+    try:
+        return BooleanField().to_internal_value(data["deleted"]) is True
+    except ValidationError:
+        return False
+
+
+def changed_paths(data: Any, current: Any, candidates: frozenset[str]) -> list[str]:
+    """The candidate paths a write that sends `data` changes on an object whose current form is `current`.
+
+    A parent sent whole replaces every child under it, so an owned child the parent omits is a change.
+    """
+    return sorted(
+        path
+        for path in candidates
+        if _sent(data, path) and _comparable(_path_value(data, path)) != _comparable(_path_value(current, path))
+    )
+
+
+def _oauth_provenance(request: Request) -> tuple[str | None, str | None]:
+    authenticator = getattr(request, "successful_authenticator", None)
+    if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+        return None, None
+    token = authenticator.access_token
+    application = getattr(token, "application", None)
+    client_id = application.client_id if application and application.is_first_party else None
+    return client_id, str(token.id)
+
+
+def managed_write_refusals(
+    request: Request,
+    *,
+    team_id: int,
+    model_label: str,
+    object_ids: Iterable[Any],
+    changed: Iterable[str] | None = None,
+    is_delete: bool = False,
+    action: str | None = None,
+    attributes: dict[str, dict[str, str]] | None = None,
+) -> dict[str, WriteRefusal]:
+    """The objects of a write that another system owns, by object id, for a route that does not load its
+    objects through `get_object`, such as a bulk action. A bulk route skips these and reports them.
+
+    Call it after the route's own authorization and before it writes. `changed` names the fields the write sets
+    on every object as dotted paths, or None when it may set any of them, such as a restore. `is_delete` marks a
+    delete, and `attributes` gives an object's natural id attributes by object id, such as an event's `name`.
+    """
+    if model_label not in guarded_model_labels():
+        return {}
+    changed_set = None if changed is None else frozenset(changed)
+
+    def touched(candidates: frozenset[str]) -> list[str]:
+        if changed_set is None:
+            return sorted(candidates)
+        return sorted(
+            path
+            for path in candidates
+            if any(
+                path == field or path.startswith(f"{field}.") or field.startswith(f"{path}.") for field in changed_set
+            )
+        )
+
+    client_id, token_id = _oauth_provenance(request)
+    refusals: dict[str, WriteRefusal] = {}
+    for object_id in object_ids:
+        known = (attributes or {}).get(str(object_id), {})
+        refusal = refusal_for(
+            ObjectWrite(
+                team_id=team_id,
+                model_label=model_label,
+                object_id=str(object_id),
+                action=action,
+                is_delete=is_delete,
+                first_party_client_id=client_id,
+                oauth_token_id=token_id,
+                attribute=known.get,
+                changed_fields=touched,
+            )
+        )
+        if refusal is not None:
+            refusals[str(object_id)] = refusal
+    return refusals
+
+
+def enforce_managed_writes(request: Request, **write: Any) -> None:
+    """Refuse the whole write with 409 `managed_in_code` if any object of it is owned elsewhere. Takes the
+    arguments of `managed_write_refusals`."""
+    refusals = managed_write_refusals(request, **write)
+    if refusals:
+        refusal = next(iter(refusals.values()))
+        raise ManagedWriteRefused(refusal.code, refusal.detail, refusal.extra)
+
+
+def _guarded_label(obj: Any) -> str | None:
+    """The model label of an object a view loaded: a model instance, or a product facade's contract for that model.
+
+    A view that reads through a facade gets a contract such as `products.actions.backend.facade.contracts.Action`,
+    which names the model `actions.Action`.
+    """
+    meta = getattr(obj, "_meta", None)
+    if meta is not None:
+        return getattr(meta, "label", None)
+    module = type(obj).__module__.split(".")
+    if len(module) > 3 and module[0] == "products" and module[2:4] == ["backend", "facade"]:
+        return f"{module[1]}.{type(obj).__name__}"
+    return None
+
+
+class ManagedWritePermission(BasePermission):
+    """Runs the write guards of `posthog/managed_writes.py` on each object an unsafe request loads.
+
+    Part of every `TeamAndOrgViewSetMixin` permission chain, so a write route of a guarded model cannot skip
+    it. A model no guard names costs one set lookup.
+    """
+
+    def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
+        if request.method in SAFE_METHODS:
+            return True
+        label = _guarded_label(obj)
+        if label is None or label not in guarded_model_labels():
+            return True
+        data = request.data if isinstance(request.data, dict) else {}
+
+        def attribute(name: str) -> str | None:
+            value = getattr(obj, name, None)
+            return None if value is None else str(value)
+
+        def changed_fields(candidates: frozenset[str]) -> list[str]:
+            # A candidate may be a dotted path into a nested object, such as "query.source".
+            if not any(_sent(data, field) for field in candidates):
+                return []
+            try:
+                current = view.get_serializer(obj).data  # type: ignore[attr-defined]
+            except Exception:
+                return sorted(field for field in candidates if _sent(data, field))
+            return changed_paths(data, current, candidates)
+
+        team_id = getattr(obj, "team_id", None)
+        if team_id is None:
+            return True
+        client_id, token_id = _oauth_provenance(request)
+        write = ObjectWrite(
+            team_id=team_id,
+            model_label=label,
+            object_id=str(getattr(obj, "pk", None) or getattr(obj, "id", "")),
+            action=getattr(view, "action", None),
+            is_delete=request.method == "DELETE" or _is_soft_delete(data),
+            first_party_client_id=client_id,
+            oauth_token_id=token_id,
+            attribute=attribute,
+            changed_fields=changed_fields,
+        )
+        refusal = refusal_for(write)
+        if refusal is not None:
+            raise ManagedWriteRefused(refusal.code, refusal.detail, refusal.extra)
+        return True

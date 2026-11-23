@@ -85,12 +85,13 @@ def _oauth_application_for_task(task: Task, state: dict[str, Any] | None) -> San
     profile = task.stored_profile
     if profile is not None:
         return cast(SandboxOAuthApplication, profile.oauth_app.value)
-    # Metrics import and feature flag tasks bill the `posthog_ai` gateway product, which accepts only this
-    # application.
+    # Metrics import, feature flag and stack change request tasks bill the `posthog_ai` gateway product, which
+    # accepts only this application.
     if task.origin_product in (
         Task.OriginProduct.POSTHOG_AI,
         Task.OriginProduct.METRICS_IMPORT,
         Task.OriginProduct.FEATURE_FLAGS,
+        Task.OriginProduct.STACKS,
     ):
         return "posthog_ai"
     if task.origin_product in SIGNALS_ORIGIN_PRODUCTS:

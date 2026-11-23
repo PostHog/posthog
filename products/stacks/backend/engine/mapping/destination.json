@@ -1,0 +1,78 @@
+{
+    "kind": "destination",
+    "scopes": {
+        "read": ["hog_function", "inbox"],
+        "write": ["hog_function", "logs"]
+    },
+    "read_api": {
+        "collection": "hog_functions",
+        "scope": "environments",
+        "omit": ["inputs", "inputs_schema", "mappings"]
+    },
+    "resource_type": "posthog_hog_function",
+    "id_type": "string",
+    "api_schema": {
+        "product": "cdp_functions",
+        "name": "HogFunctionsCreateBody"
+    },
+    "fields": {
+        "type": "type",
+        "name": "name",
+        "description": "description",
+        "enabled": "enabled",
+        "hog": "hog",
+        "icon_url": "icon_url",
+        "template_id": "template_id",
+        "execution_order": "execution_order",
+        "inputs": "inputs_json",
+        "inputs_schema": "inputs_schema_json",
+        "filters": "filters_json",
+        "masking": "masking_json",
+        "mappings": "mappings_json"
+    },
+    "json_fields": ["inputs", "inputs_schema", "filters", "masking", "mappings"],
+    "set_fields": [],
+    "unmanaged": {},
+    "gaps": {},
+    "removal": "allow",
+    "natural_key": null,
+    "import_id": "{entity_id}",
+    "hook": "destination_inputs",
+    "secret_inputs": {
+        "inputs": "inputs",
+        "schema": "inputs_schema",
+        "groups": "mappings",
+        "template_inputs": {
+            "plugin-customerio-plugin": ["customerioSiteId"],
+            "plugin-posthog-anonymization": ["salt"],
+            "plugin-posthog-engage-so-plugin": ["publicKey"],
+            "plugin-posthog-gcs-plugin": ["googleCloudKeyJson"],
+            "plugin-posthog-laudspeaker-app": ["writeKey"],
+            "plugin-pubsub-plugin": ["googleCloudKeyJson"],
+            "plugin-rudderstack-posthog-plugin": ["writeKey"],
+            "plugin-salesforce-plugin": ["consumerKey"],
+            "segment-actions-clevertap": ["clevertapPasscode"],
+            "segment-actions-insider-cloud": ["ucd_key"],
+            "template-aws-kinesis": ["aws_access_key_id"],
+            "template-engage-so": ["public_key"],
+            "template-hash-properties": ["salt"],
+            "template-klime": ["writeKey"],
+            "template-log-transformation-redact-attributes": ["salt"],
+            "template-pagerduty": ["routing_key"],
+            "template-pii-hashing": ["salt"],
+            "template-retain": ["writeKey"],
+            "template-source-vercel-log-drain": ["auth_header"],
+            "template-source-webhook": ["auth_header"],
+            "template-unify": ["write_key"],
+            "template-userlist": ["push_key"],
+            "template-warehouse-source-mailjet": ["authorization_header"],
+            "template-warehouse-source-revenuecat": ["authorization_header"],
+            "template-warehouse-source-sparkpost": ["authorization_header"],
+            "template-warehouse-source-webflow": ["signing_secrets"],
+            "template-warehouse-source-zapsign": ["authorization_header"]
+        },
+        "name_pattern": "(?:password|passwd|secret|token|(?:api|private|access|secret)[_-]?key|credentials?)$|^secret[_-](?:headers|inputs|params)$|^(?:proxy[_-]?)?authorization$|^webhook[_-]?url$"
+    },
+    "sensitive_inputs_attribute": "sensitive_inputs_json",
+    "loses": "Delivery history and links belong to the original destination."
+}

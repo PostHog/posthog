@@ -1370,6 +1370,21 @@
     "task_queues": "BATCH_EXPORTS_TASK_QUEUE,SYNC_BATCH_EXPORTS_TASK_QUEUE"
   },
   {
+    "temporal_workflow_type": "stacks-cleanup",
+    "product": "stacks",
+    "task_queues": "STACKS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "stacks-diff",
+    "product": "stacks",
+    "task_queues": "STACKS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "stacks-push",
+    "product": "stacks",
+    "task_queues": "STACKS_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "stage-warehouse-account-properties",
     "product": "customer_analytics",
     "task_queues": "DATA_WAREHOUSE_METADATA_TASK_QUEUE"
