@@ -1,6 +1,9 @@
 // A salted digest of an integration row's content. The Django side computes the same digest in
 // posthog/integrations/mirror/canonical.py, so the two stores can be reconciled without plaintext
 // leaving the service. tests/fixtures/content-digest-vectors.json pins both implementations.
+// canonicalJson prints strings as JSON.stringify does, so a lone surrogate becomes `\udxxx` where
+// RFC 8785 would reject it. The Python side also rejects an integer a double cannot hold exactly,
+// which JSON.parse would already have rounded here.
 
 import { createHmac } from 'node:crypto'
 

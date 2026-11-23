@@ -91,15 +91,15 @@
         "digest": "3d7f96e4b7b8b4d7ee8d5b9fd0b6697bf6832228fd314c2eb9a9bf567c0a2113"
     },
     {
-        "name": "2^53 + 1",
-        "value": 9007199254740993,
+        "name": "2^53 + 1 written as a float rounds to 2^53",
+        "value": 9007199254740993.0,
         "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
         "canonical": "9007199254740992",
         "digest": "fb2de6d19f388e201b9d39ec827eb24e1b97996180718f47f785ade914e14357"
     },
     {
         "name": "mixed numbers",
-        "value": [-1.5,123.456,1.5e300,-2.5e-8,100,0.1,1E2,12345678901234567890],
+        "value": [-1.5,123.456,1.5e300,-2.5e-8,100,0.1,1E2,12345678901234567168],
         "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
         "canonical": "[-1.5,123.456,1.5e+300,-2.5e-8,100,0.1,100,12345678901234567000]",
         "digest": "dfc6d27a05f47986296cb516c5b00096dc7a1649f5778e546252fa67044147c9"
@@ -226,7 +226,7 @@
     },
     {
         "name": "rfc 8785 4430000000000000",
-        "value": 295147905179352830000,
+        "value": 295147905179352825856,
         "ieee_hex": "4430000000000000",
         "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
         "canonical": "295147905179352830000",
@@ -258,7 +258,7 @@
     },
     {
         "name": "rfc 8785 444b1ae4d6e2ef4e",
-        "value": 999999999999999700000,
+        "value": 999999999999999737856,
         "ieee_hex": "444b1ae4d6e2ef4e",
         "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
         "canonical": "999999999999999700000",
@@ -266,7 +266,7 @@
     },
     {
         "name": "rfc 8785 444b1ae4d6e2ef4f",
-        "value": 999999999999999900000,
+        "value": 999999999999999868928,
         "ieee_hex": "444b1ae4d6e2ef4f",
         "salt_b64": "dGVzdC1zYWx0LWEtMDEyMzQ1Njc4OWFiY2RlZjAxMjM=",
         "canonical": "999999999999999900000",

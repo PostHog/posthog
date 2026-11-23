@@ -1,8 +1,13 @@
-"""Canonical JSON (RFC 8785) and the salted content digest of an integration row.
+"""JavaScript-compatible canonical JSON and the salted content digest of an integration row.
 
 Must give the same bytes as `canonicalJson` and `contentDigest` in the credentials service
 (`services/credentials-service/src/integrations/digest.ts`). The shared vectors in
 `services/credentials-service/tests/fixtures/content-digest-vectors.json` pin both sides.
+
+The output follows RFC 8785 (JCS) with two exceptions:
+- A lone surrogate is escaped as `\\udxxx`, as JSON.stringify does. RFC 8785 rejects it.
+- An integer that an IEEE double cannot hold exactly raises ValueError. JavaScript would round it,
+  and the digest would then hide a changed value.
 """
 
 import re
@@ -10,6 +15,7 @@ import hmac
 import math
 import hashlib
 from collections.abc import Mapping, Sequence
+from dataclasses import field
 from decimal import Decimal
 from typing import Any
 
@@ -27,7 +33,7 @@ class DigestParts:
     config: Mapping[str, Any]
     errors: str
     external_id: str | None
-    sensitive_config: Mapping[str, Any]
+    sensitive_config: Mapping[str, Any] = field(repr=False)
     unreadable_keys: Sequence[str]
 
 
@@ -69,7 +75,10 @@ def content_digest(salt: bytes, parts: DigestParts) -> str:
         raise ValueError("errors must be a string")
     if parts.external_id is not None and not isinstance(parts.external_id, str):
         raise ValueError("external_id must be a string or None")
-    if isinstance(parts.unreadable_keys, str) or not all(isinstance(key, str) for key in parts.unreadable_keys):
+    if not isinstance(parts.unreadable_keys, Sequence) or isinstance(parts.unreadable_keys, str | bytes):
+        raise ValueError("unreadable_keys must be a sequence of strings")
+    unreadable_keys = list(parts.unreadable_keys)
+    if not all(isinstance(key, str) for key in unreadable_keys):
         raise ValueError("unreadable_keys must be a sequence of strings")
     payload = {
         "v": CONTENT_DIGEST_VERSION,
@@ -77,7 +86,7 @@ def content_digest(salt: bytes, parts: DigestParts) -> str:
         "errors": parts.errors,
         "external_id": parts.external_id,
         "sensitive_config": dict(parts.sensitive_config),
-        "unreadable_keys": _utf16_sorted(parts.unreadable_keys),
+        "unreadable_keys": _utf16_sorted(unreadable_keys),
     }
     return hmac.new(salt, canonical_json(payload).encode("utf-8"), hashlib.sha256).hexdigest()
 
@@ -109,6 +118,8 @@ def _number(value: int | float) -> str:
         raise ValueError("canonical JSON cannot encode an integer outside the double range")
     if not math.isfinite(number):
         raise ValueError("canonical JSON cannot encode a non-finite number")
+    if isinstance(value, int) and int(number) != value:
+        raise ValueError("canonical JSON cannot encode an integer that a double cannot hold exactly")
     if number == 0:
         return "0"
     # repr gives the shortest digits that round-trip, the same digits ECMAScript picks.

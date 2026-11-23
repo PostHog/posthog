@@ -71,7 +71,8 @@ def test_content_digest_matches_vector(vector: dict[str, Any]) -> None:
     "value,expected",
     [
         (-0.0, "0"),
-        (2**53 + 1, "9007199254740992"),
+        (2**53, "9007199254740992"),
+        (-(2**68), "-295147905179352830000"),
         (10**21, "1e+21"),
         (1e-6, "0.000001"),
         (1e-7, "1e-7"),
@@ -97,6 +98,10 @@ def test_canonical_json_python_only_inputs(value: Any, expected: str) -> None:
         float("inf"),
         float("-inf"),
         10**400,
+        2**53 + 1,
+        -(2**53 + 1),
+        10**21 + 1,
+        json.loads('{"account_id": 9007199254740993}'),
         (1, 2),
         {1, 2},
         b"bytes",
@@ -110,6 +115,10 @@ def test_canonical_json_python_only_inputs(value: Any, expected: str) -> None:
         "inf",
         "-inf",
         "int-out-of-double-range",
+        "2^53+1",
+        "-(2^53+1)",
+        "10^21+1",
+        "inexact-int-in-object",
         "tuple",
         "set",
         "bytes",
@@ -122,6 +131,13 @@ def test_canonical_json_python_only_inputs(value: Any, expected: str) -> None:
 def test_canonical_json_rejects(value: Any) -> None:
     with pytest.raises(ValueError):
         canonical_json(value)
+
+
+def test_digest_parts_repr_hides_sensitive_config() -> None:
+    parts = _replace(sensitive_config={"access_token": "fake-secret-value"})
+
+    assert "fake-secret-value" not in repr(parts)
+    assert "sensitive_config" not in repr(parts)
 
 
 def test_content_digest_changes_with_salt() -> None:
@@ -163,6 +179,11 @@ def test_content_digest_changes_with_each_part(changes: dict[str, Any]) -> None:
         (b"salt-a", _replace(external_id=1)),
         (b"salt-a", _replace(unreadable_keys="ab")),
         (b"salt-a", _replace(unreadable_keys=[1])),
+        (b"salt-a", _replace(unreadable_keys=None)),
+        (b"salt-a", _replace(unreadable_keys=(key for key in ["a", "b"]))),
+        (b"salt-a", _replace(unreadable_keys={"a", "b"})),
+        (b"salt-a", _replace(unreadable_keys={"a": 1})),
+        (b"salt-a", _replace(config={"account_id": 2**53 + 1})),
     ],
     ids=[
         "empty-salt",
@@ -172,6 +193,11 @@ def test_content_digest_changes_with_each_part(changes: dict[str, Any]) -> None:
         "external-id-not-string",
         "unreadable-keys-string",
         "unreadable-keys-not-strings",
+        "unreadable-keys-none",
+        "unreadable-keys-generator",
+        "unreadable-keys-set",
+        "unreadable-keys-dict",
+        "config-inexact-int",
     ],
 )
 def test_content_digest_rejects(salt: Any, parts: DigestParts) -> None:
