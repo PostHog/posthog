@@ -41,6 +41,7 @@ from posthog.models.flag_evaluations.sql import (
 
 COVERAGE_DOC = "docs/internal/clickhouse-deletion-coverage.md"
 
+EVENTS_HOGQL_TABLE = "events"
 FLAG_EVALUATIONS_HOGQL_TABLE = "posthog.flag_evaluations"
 
 # ClickHouse's CLUSTER_DOESNT_EXIST, which clickhouse_driver does not name.
@@ -192,7 +193,7 @@ def shards_by_partition(placement: TargetPlacement) -> dict[str, set[int]]:
 EVENTS = DeletionTarget(
     data_table=EVENTS_DATA_TABLE(),
     read_table="events",
-    hogql_table="events",
+    hogql_table=EVENTS_HOGQL_TABLE,
     hogql_schema=HogQLSchema.LEGACY,
     accepts_property_rewrite=True,
     accepts_person_id_rewrite=True,
@@ -204,7 +205,7 @@ EVENTS_JSON = DeletionTarget(
     optional=True,
     cluster_setting="CLICKHOUSE_EVENTS_CLUSTER",
     node_role=NodeRole.EVENTS,
-    hogql_table="events",
+    hogql_table=EVENTS_HOGQL_TABLE,
     hogql_schema=HogQLSchema.NATIVE_JSON,
     accepts_property_rewrite=True,
     accepts_person_id_rewrite=True,
