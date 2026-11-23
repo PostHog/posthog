@@ -234,6 +234,12 @@ describe('load', () => {
             undefined,
             'valves: a stopOnBreak card schedules no valves, since its drive can stop before they are due',
         ],
+        ...['role.kill', 'role.freeze'].map((valve): [string, object, object, string] => [
+            `${valve} on cdp-api while the profile runs more than one cdp-api`,
+            { ...card, valves: [{ ...emailWorkerKill, valve, target: 'cdp-api' }] },
+            { ...profile, replicas: { 'cdp-api': 2 } },
+            `valves.0.target: ${valve} stops cdp-api replica 0 only, and the runner keeps sending every other request to it; run one cdp-api replica on this card`,
+        ]),
         [
             'an unknown valve',
             { ...card, valves: [{ ...emailWorkerKill, valve: 'role.melt' }] },
