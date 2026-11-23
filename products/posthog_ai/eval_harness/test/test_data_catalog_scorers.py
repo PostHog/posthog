@@ -934,6 +934,25 @@ _BUSINESS_MRR_TERMS: list[Any] = ["paid_bill", _BUSINESS_MRR_PLAN_OPTIONS]
             [_BUSINESS_MRR_PLAN_OPTIONS],
         ),
         (
+            "group_by_qualified_column",
+            [
+                "SELECT plan.id, sum(amount) FROM events JOIN plans AS plan ON true WHERE event = 'paid_bill' "
+                "GROUP BY plan.id"
+            ],
+            _BUSINESS_MRR_TERMS,
+            0.5,
+            [_BUSINESS_MRR_PLAN_OPTIONS],
+        ),
+        (
+            "alternative_only_in_quoted_identifier",
+            [
+                "SELECT sum(amount) AS `group by plan`, count() AS \"group by plan\" FROM events WHERE event = 'paid_bill'"
+            ],
+            _BUSINESS_MRR_TERMS,
+            0.5,
+            [_BUSINESS_MRR_PLAN_OPTIONS],
+        ),
+        (
             "comment_marker_in_string_literal",
             [
                 "SELECT properties.plan, sum(amount) FROM events WHERE event = 'paid_bill' AND note != 'a--b' "

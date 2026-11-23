@@ -76,6 +76,7 @@ CERTIFICATION_PROPOSE_TOOL = "data-catalog-certification-propose"
 _INFO_SCHEMA = "information_schema"
 # String literals are blanked first, so `WHERE table_name = 'events'` does not count as a read of `events`.
 _STRING_LITERAL_RE = re.compile(r"'(?:[^'\\]|\\.)*'")
+_QUOTED_IDENTIFIER_RE = re.compile(r'`[^`]*`|"[^"]*"')
 _TABLE_NAME = r"`?[\w$]+(?:`?\.`?[\w$]+)*`?"
 _TABLE_REF_RE = re.compile(rf"\b(?:from|join)\s+({_TABLE_NAME})")
 # A comma join lists more tables after the first one, each with an optional alias that is not a keyword.
@@ -1214,7 +1215,8 @@ class QueryTermsUsed(Scorer):
 
     A string with no space can be a value, such as an event name, so it matches anywhere, string literals included.
     A string with a space is SQL syntax, such as ``group by plan``. It matches only outside string literals and
-    only as whole words, so ``group by plan`` does not match ``group by plan_id``.
+    quoted identifiers, and only as a whole expression, so ``group by plan`` does not match ``group by plan_id``
+    or ``group by plan.id``.
     """
 
     def _name(self) -> str:
@@ -1231,8 +1233,9 @@ class QueryTermsUsed(Scorer):
         option = option.lower()
         if " " not in option:
             return option in code
-        phrase = re.compile(rf"(?<!\w){re.escape(option)}(?!\w)")
-        return phrase.search(_STRING_LITERAL_RE.sub("''", code)) is not None
+        # The phrase must end where the expression ends, so `group by plan.id` and `group by plan-x` do not match.
+        phrase = re.compile(rf"(?<!\w){re.escape(option)}(?![^\s,);])")
+        return phrase.search(_QUOTED_IDENTIFIER_RE.sub("``", _STRING_LITERAL_RE.sub("''", code))) is not None
 
     def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         spec = expected_spec(expected, self._name())
