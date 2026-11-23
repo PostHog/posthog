@@ -456,6 +456,9 @@ GONG_ENDPOINTS: dict[str, GongEndpointConfig] = {
         rows_in_order=False,
         capture_http_samples=False,
         should_sync_default=False,
+        # The watermark is the newest entry of any log type, and the types are read one after another,
+        # so an entry of a type read earlier can land below it. Re-read the last day.
+        default_incremental_lookback_seconds=24 * 60 * 60,
         incremental_fields=[
             {
                 "label": "eventTime",
