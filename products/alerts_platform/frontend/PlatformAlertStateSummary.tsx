@@ -33,7 +33,7 @@ export function PlatformAlertStateSummary({
                         data-attr={`platform-alert-state-summary-${status}`}
                     >
                         <span className="flex text-base">{icon}</span>
-                        {showCounts ? `${count} ${label}` : label}
+                        <span>{showCounts ? `${count} ${label}` : label}</span>
                     </span>
                 )
             })}
