@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from functools import cached_property
 from uuid import UUID, uuid4
 
 import pytest
@@ -10,10 +11,13 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models import Team
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.scoping import team_scope
 from posthog.paging import PageRequest
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.facade import (
     api as facade,
     contracts,
@@ -672,12 +676,19 @@ class TestSetExternalAccountCustomProperties(BaseTest):
 
 
 class TestCustomPropertyDefinitionReferences(BaseTest):
-    def _uac(self, *, can_read_workflows: bool = True) -> MagicMock:
-        uac = MagicMock()
-        uac.filter_queryset_by_access_level.side_effect = lambda queryset: (
-            queryset if can_read_workflows else queryset.none()
+    @cached_property
+    def _limited_workflow_user(self) -> User:
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        user = User.objects.create_and_join(self.organization, "limited-workflow@example.com", "testtest")
+        membership = OrganizationMembership.objects.get(organization=self.organization, user=user)
+        AccessControl.objects.create(
+            team=self.team, organization_member=membership, resource="hog_flow", access_level="none"
         )
-        return uac
+        return user
+
+    def _uac(self, *, can_read_workflows: bool = True) -> UserAccessControl:
+        return UserAccessControl(user=self.user if can_read_workflows else self._limited_workflow_user, team=self.team)
 
     def _create_workflow_setting(self, definition_id: str, *, name: str = "Onboarding", status: str = "active"):
         return create_workflow_for_test(

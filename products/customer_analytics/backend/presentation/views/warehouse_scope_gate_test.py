@@ -1,5 +1,8 @@
+from typing import cast
+
 from unittest.mock import MagicMock, patch
 
+from django.db.models import Model
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -58,7 +61,7 @@ class TestScopeGatedAccessControl(SimpleTestCase):
     def test_warehouse_object_gated_on_token_scope(self, _name, model_name, scopes, level, allowed):
         gate, _ = self._gate(scopes)
         with patch("products.authorization.backend.facade.api.check", return_value=True) as check:
-            result = gate.check_access_level_for_object(_FakeModel(model_name), required_level=level)
+            result = gate.check_access_level_for_object(cast(Model, _FakeModel(model_name)), required_level=level)
         assert result is allowed
         if not allowed:
             check.assert_not_called()
@@ -66,5 +69,5 @@ class TestScopeGatedAccessControl(SimpleTestCase):
     def test_non_warehouse_object_delegates(self):
         # A different resource is unaffected by the warehouse scope gate — it delegates to the RBAC check.
         gate, inner = self._gate(["account:write"])
-        assert gate.check_access_level_for_object(_FakeModel("dashboard"), required_level="editor") is True
+        assert gate.check_access_level_for_object(cast(Model, _FakeModel("dashboard")), required_level="editor") is True
         inner.check_access_level_for_object.assert_called_once()
