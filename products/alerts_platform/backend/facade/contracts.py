@@ -2392,10 +2392,15 @@ class Occurrence:
 
 @frozen
 class OccurrenceWindow:
-    """What the registry recorded in a window, oldest first. `truncated` is set when the read stopped at its limit."""
+    """What the registry recorded in a window, oldest first.
+
+    `read_until` is set when the read stopped at its limit: the window is complete only up to it, and
+    the next check starts there. `truncated` is set when rows before `read_until` were left out.
+    """
 
     occurrences: tuple[Occurrence, ...]
     truncated: bool = False
+    read_until: datetime | None = None
 
 
 @frozen
