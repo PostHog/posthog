@@ -33,7 +33,7 @@ MAX_PARALLEL_LOOKUPS = 8
 ABSENT_ERRORS = (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer)
 _DMARC_VERSION = re.compile(r"[vV][ \t]*=[ \t]*DMARC1[ \t]*(;|\Z)")
 _DMARC_REQUEST = r"none|quarantine|reject"
-_DMARC_TEXT = re.compile(r"[\t\r\n\x20-\x7e]*")
+_DMARC_TEXT = re.compile(r"(?:[\t\x20-\x7e]|\r?\n(?=[ \t]))*")
 _DMARC_TAG_NAME = re.compile(r"[a-z][a-z0-9_]*", re.IGNORECASE)
 _DMARC_SHOWN_TAGS = {
     name: re.compile(pattern, re.IGNORECASE)

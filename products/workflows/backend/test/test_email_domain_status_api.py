@@ -715,6 +715,7 @@ class TestEmailDomainDnsLookups(EmailDomainApiTestCase):
             ("invalid_policy_with_a_report_address", [], ["v=DMARC1; p=block; rua=mailto:reports@example.net"]),
             ("version_tag_split_by_a_line_feed", [], ["V\\010= DMARC1; p=reject"]),
             ("policy_value_split_by_a_line_feed", [], ["v = DMARC1; p=\\010reject"]),
+            ("blank_line_before_the_policy", [], ["V = DMARC1;\\010\\010p=reject"]),
             ("subdomain_record_without_a_policy", ["v=DMARC1"], ["v=DMARC1; p=reject"]),
             ("policy_wrapped_in_literal_quotes", [], ['\\"v=DMARC1; p=reject\\"']),
             ("two_policies_at_the_subdomain", ["v=DMARC1; p=none", "v=DMARC1; p=quarantine"], ["v=DMARC1; p=reject"]),
