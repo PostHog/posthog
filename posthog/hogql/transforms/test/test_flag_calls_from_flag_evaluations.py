@@ -735,12 +735,28 @@ class TestSwapFlagCallsWithPromotedPersonsFilter(BaseTest):
                 "SELECT person_id FROM flag_called_people",
                 f"WITH flag_called_people AS ({_PROMOTED_SOURCE}) ",
             ),
+            (
+                "beside_a_cte_that_joins_with_using",
+                " AS p",
+                "p",
+                _PROMOTED_SOURCE,
+                "WITH helper AS (SELECT a.n FROM (SELECT 1 AS n) AS a JOIN (SELECT 1 AS n) AS b USING (n)) ",
+            ),
         ]
     )
     def test_swaps_when_persons_moves_its_join_filter_out_of_the_tree(
         self, _name: str, alias: str, name: str, source: str, ctes: str
     ):
         query = ctes + _PROMOTED_OUTER.format(alias=alias, name=name, source=source)
+
+        swap = _swap_flag_evaluations_query(self.team, query, only_in_flag_evaluations=True)
+
+        assert "FROM events" not in swap.source.to_hogql()
+
+    def test_swaps_when_a_later_cte_has_the_name_of_a_table_that_the_moved_filter_reads(self):
+        source = f"SELECT id FROM persons WHERE id IN ({_PROMOTED_SOURCE})"
+        flag_people = _PROMOTED_OUTER.format(alias=" AS p", name="p", source=source)
+        query = f"WITH flag_people AS ({flag_people}), persons AS (SELECT 1 AS unrelated) SELECT * FROM flag_people"
 
         swap = _swap_flag_evaluations_query(self.team, query, only_in_flag_evaluations=True)
 

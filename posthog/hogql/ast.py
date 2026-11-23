@@ -282,6 +282,11 @@ class LazyJoinType(BaseTableType):
 @dataclass(kw_only=True, slots=True)
 class LazyTableType(BaseTableType):
     table: LazyTable
+    # The right-hand side of each `id IN (...)` predicate that the resolver moved from the join constraint into
+    # `PersonsTable.filter`, resolved on a copy. The flag call swap checks every name in a query, and the moved
+    # predicate holds no types until the lazy-table pass. Empty when the context does not allow the swap. None when
+    # one of them does not resolve. Two types compare alike whatever this holds.
+    moved_filter_values: list[Expr] | None = field(default_factory=list, compare=False)
 
     def resolve_database_table(self, context: HogQLContext) -> Table:
         return self.table

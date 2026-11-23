@@ -33,9 +33,11 @@ from posthog.hogql.database.schema.log_entries import (
     ReplayConsoleLogsLogEntriesTable,
 )
 from posthog.hogql.database.schema.persons import PersonsTable
+from posthog.hogql.database.schema.util.where_clause_extractor import top_level_conjuncts
 from posthog.hogql.database.trino_unnest_table import resolve_internal_trino_table_function
 from posthog.hogql.errors import (
     UNRESOLVED_FIELD_MESSAGE,
+    BaseHogQLError,
     ImpossibleASTError,
     NotImplementedError,
     QueryError,
@@ -79,7 +81,12 @@ from posthog.hogql.resolver_utils import (
     suggested_field_fix,
     zero_argument_function_call,
 )
-from posthog.hogql.transforms.flag_calls_from_flag_evaluations import FlagCallScope, swap_flag_calls, swaps_flag_calls
+from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
+    FlagCallScope,
+    swap_database,
+    swap_flag_calls,
+    swaps_flag_calls,
+)
 from posthog.hogql.transforms.grouped_clauses import raise_on_whole_document_grouping
 from posthog.hogql.transforms.trino.persons import (
     lower_trino_table,
@@ -1480,6 +1487,26 @@ class Resolver(CloningVisitor):
             self.join_sources.record_copied_tree(copy, node)
         return copy
 
+    def _resolve_moved_filter_values(self, moved: ast.Expr) -> list[ast.Expr] | None:
+        """The right-hand side of each `id IN (...)` predicate of `moved`, resolved on a copy, or None when one does
+        not resolve. The CTEs in scope here are the ones that the predicate can read. The tables of the enclosing
+        query are out of scope, because the predicate runs inside the persons subquery."""
+        scopes, ctes, cte_counter, join_sources = list(self.scopes), self.ctes, self.cte_counter, self.join_sources
+        self.scopes.clear()
+        # The copies are not part of the query, so the record of the query's joins does not get theirs.
+        self.join_sources = None
+        try:
+            return [
+                self.visit(clone_expr(cast(ast.CompareOperation, predicate).right))
+                for predicate in top_level_conjuncts(moved)
+            ]
+        except BaseHogQLError:
+            return None
+        finally:
+            # A visit that raises leaves its scope and CTEs on this resolver.
+            self.scopes[:] = scopes
+            self.ctes, self.cte_counter, self.join_sources = ctes, cte_counter, join_sources
+
     def _check_saved_view_expansion(self, view_name: str) -> None:
         """Refuses to expand a view that is already being resolved, or one nested past the hard depth limit."""
         if view_name in self._resolving_saved_views:
@@ -1657,13 +1684,18 @@ class Resolver(CloningVisitor):
                     self._pending_saved_view = previous_pending
 
             if isinstance(database_table, LazyTable):
+                moved_filter_values: list[ast.Expr] | None = []
                 if isinstance(database_table, PersonsTable):
                     # Promotion moves predicates before resolution, so preserve their CTE bindings first.
                     if node.constraint is not None:
                         CteReferenceBinder(set(self.ctes)).visit(node.constraint)
                     # Check for inlineable exprs in the join on the persons table
                     database_table = database_table.create_new_table_with_filter(node)
-                node_table_type: ast.TableType | ast.LazyTableType = ast.LazyTableType(table=database_table)
+                    if database_table.filter is not None and swap_database(self.context) is not None:
+                        moved_filter_values = self._resolve_moved_filter_values(database_table.filter)
+                node_table_type: ast.TableType | ast.LazyTableType = ast.LazyTableType(
+                    table=database_table, moved_filter_values=moved_filter_values
+                )
 
             else:
                 assert isinstance(database_table, ast.Table)
