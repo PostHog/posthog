@@ -23,7 +23,7 @@ from temporalio.client import WorkflowFailureError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.schema import IntervalType
+from posthog.schema import IntervalType, LLMDetectorModel
 
 from posthog.hogql.errors import QueryError, ResolutionError, TableAccessDeniedError
 
@@ -37,6 +37,7 @@ from posthog.exceptions import (
 from posthog.models import Organization, Team, User
 from posthog.tasks.alerts.detectors.base import ARTIFACT_SCHEMA_VERSION
 
+from products.alerts.backend.facade.testing import fake_judge_model
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -47,6 +48,7 @@ from products.signals.backend.anomaly_scores.config import (
     DEFAULT_LIMITS,
     DEFAULT_PROFILE,
     DISABLED,
+    AIJudgeConfig,
     AnomalyScoringConfig,
     ScoringRun,
     covers_team,
@@ -206,6 +208,11 @@ class TestTickConfig(SimpleTestCase):
                 "active_window_days": "30",
                 "first_train_insights_per_tick": 0,
                 "first_train_insights_per_project": 0,
+                "ai_judge": {
+                    "team_ids": [2, "3", True],
+                    "max_checks_per_insight_per_run": 100,
+                    "max_checks_per_project_per_day": 0,
+                },
             }
         )
 
@@ -225,6 +232,9 @@ class TestTickConfig(SimpleTestCase):
         }
         assert config.active_window_days == 90
         assert (config.first_train_insights_per_tick, config.first_train_insights_per_project) == (0, 2)
+        assert config.ai_judge == AIJudgeConfig(
+            team_ids=(2,), max_checks_per_insight_per_run=10, max_checks_per_project_per_day=50
+        )
 
     @parameterized.expand([("missing", {}), ("empty", {"allow_team_ids": []})])
     def test_an_absent_or_empty_allowlist_enrolls_every_team_of_the_listed_organizations(
@@ -2163,3 +2173,98 @@ async def test_a_failed_plan_sends_a_tick_event_and_still_fails_the_workflow() -
     assert [(result.plan_failed, result.plan_error, result.picked) for result in captured] == [
         (True, "ClickHouseAtCapacity", 0)
     ]
+
+
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+class TestAIJudgeProfile(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.team.timezone = "UTC"
+        self.team.save()
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        self.requests: list[Any] = []
+
+    def _run(self, insight: Insight, ai_judge: AIJudgeConfig) -> list[dict[str, Any]]:
+        now = datetime(2026, 10, 22, 0, 30, tzinfo=UTC)
+        data = [float(value) for value in np.random.default_rng(4).normal(100, 5, size=100)]
+        for day in (-2, -8, -14):
+            data[day] = 500.0
+        days = [(now - timedelta(days=len(data) - 1 - day)).strftime("%Y-%m-%d") for day in range(len(data))]
+        results = [{"order": 0, "label": "pageview", "days": days, "data": data, "breakdown_value": None}]
+        with (
+            patch("products.signals.backend.anomaly_scores.scoring.TrendsQueryRunner") as runner,
+            patch("products.signals.backend.anomaly_scores.tick.emit") as emit,
+            patch("products.signals.backend.anomaly_scores.tick.mark_attempted"),
+            fake_judge_model(is_anomaly=False, rationale="Back to normal the next day.") as requests,
+        ):
+            runner.return_value.run.return_value = MagicMock(results=results)
+            run_insight(
+                ScoreInsightInput(
+                    pick=InsightPick(team_id=self.team.id, insight_id=insight.id, scored_through={}),
+                    ai_judge=ai_judge,
+                ),
+                now,
+            )
+        self.requests.extend(requests)
+        return emit.call_args.args[1]
+
+    @staticmethod
+    def _members(event: dict[str, Any]) -> list[dict[str, Any]]:
+        return json.loads(event["properties"]["$anomaly_details"]).get("members", [])
+
+    def test_the_judge_is_asked_only_about_the_newest_zscore_flags_and_its_rejection_clears_the_flag(self) -> None:
+        insight = Insight.objects.create(team=self.team, saved=True, name="Daily pageviews", query=_trends())
+
+        events = self._run(insight, AIJudgeConfig(team_ids=(self.team.id,), max_checks_per_insight_per_run=2))
+
+        zscore_flagged = [event for event in events if self._members(event)[0]["state"] == "fired"]
+        judged = sorted(zscore_flagged, key=lambda event: event["properties"]["$anomaly_bucket_start"])[-2:]
+        assert len(zscore_flagged) > 2 and len(self.requests) == 2
+        assert {event["properties"]["$anomaly_profile"] for event in events} == {"default-v2"}
+        for event in events:
+            zscore, judge = self._members(event)
+            assert zscore["type"] == "zscore"
+            if event in judged:
+                assert event["properties"]["$anomaly_flag"] == 0
+                assert judge == {
+                    "type": "llm",
+                    "state": "not_fired",
+                    "rationale": "Back to normal the next day.",
+                    "kind": "none",
+                    "model": LLMDetectorModel.CLAUDE_HAIKU_5_5.value,
+                }
+            elif event in zscore_flagged:
+                assert (event["properties"]["$anomaly_flag"], judge["reason"]) == (1, "cap")
+            else:
+                assert (event["properties"]["$anomaly_flag"], judge["reason"]) == (0, "local_not_fired")
+        assert {request.ai_product for request in self.requests} == {"signals_anomaly_scoring"}
+        assert all(request.extra_headers["X-PostHog-Billable"] == "false" for request in self.requests)
+
+    @parameterized.expand(
+        [
+            ("no_consent", False, 50, 0, "paused"),
+            ("daily_cap_spent_by_the_other_insight", True, 1, 1, "cap"),
+        ]
+    )
+    def test_no_model_call_without_consent_or_past_the_daily_cap(
+        self, _name: str, consent: bool, daily_cap: int, calls: int, reason: str
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = consent
+        self.organization.save()
+        ai_judge = AIJudgeConfig(
+            team_ids=(self.team.id,), max_checks_per_insight_per_run=10, max_checks_per_project_per_day=daily_cap
+        )
+        first, second = (Insight.objects.create(team=self.team, saved=True, query=_trends()) for _ in range(2))
+
+        self._run(first, ai_judge)
+        events = self._run(second, ai_judge)
+
+        assert len(self.requests) == calls
+        flagged = [event for event in events if self._members(event)[0]["state"] == "fired"]
+        assert flagged
+        assert {(event["properties"]["$anomaly_flag"], self._members(event)[1]["reason"]) for event in flagged} == {
+            (1, reason)
+        }
