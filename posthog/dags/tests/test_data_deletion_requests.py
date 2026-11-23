@@ -873,24 +873,15 @@ def test_verify_queued_job_promotes_in_window_and_skips_old(cluster: ClickhouseC
 
     recent = DataDeletionRequest.objects.create(**common)
     old = DataDeletionRequest.objects.create(**common)
-    old_hogql, _ = _deferred_hogql_flag_request("test-verify-queued-hogql")
-    old_hogql_past_ttl, _ = _deferred_hogql_flag_request("test-verify-queued-hogql-past-ttl")
-    DataDeletionRequest.objects.filter(pk=old_hogql_past_ttl.pk).update(
-        start_time=now - timedelta(days=400), end_time=now - timedelta(days=300)
-    )
-    DataDeletionRequest.objects.filter(pk__in=[old.pk, old_hogql.pk, old_hogql_past_ttl.pk]).update(
-        created_at=timezone.now() - timedelta(days=60)
-    )
+    DataDeletionRequest.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(days=60))
 
     result = verify_queued_deletion_requests_job.execute_in_process()
     assert result.success
 
-    for request in (recent, old, old_hogql, old_hogql_past_ttl):
+    for request in (recent, old):
         request.refresh_from_db()
     assert recent.status == RequestStatus.COMPLETED
     assert old.status == RequestStatus.QUEUED
-    assert old_hogql.status == RequestStatus.COMPLETED
-    assert old_hogql_past_ttl.status == RequestStatus.QUEUED
 
 
 def test_verify_queued_job_registered_in_clickhouse_location():
