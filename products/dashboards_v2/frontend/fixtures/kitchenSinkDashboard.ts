@@ -46,16 +46,8 @@ export const kitchenSinkDashboard: Dashboard = {
             title: 'Kitchen sink',
             tiles: [
                 ...statRow('ks-stat', 0, 18, ['Visitors', 'Sessions', 'Signups']),
-                tile('ks-stat-3', 18, 0, 6, 3, { ...stat('Revenue'), refreshedAt: REFRESHED_AT, footer: [{ type: 'updatedAt' }] }),
-                tile('ks-trend', 0, 3, 16, 8, {
-                    ...line('Signups over time'),
-                    refreshedAt: REFRESHED_AT,
-                    footer: [
-                        { type: 'text', text: 'Excludes internal users' },
-                        { type: 'updatedAt' },
-                        { type: 'link', label: 'Open insight', url: '/insights' },
-                    ],
-                }),
+                tile('ks-stat-3', 18, 0, 6, 3, { ...stat('Revenue'), refreshedAt: REFRESHED_AT }),
+                tile('ks-trend', 0, 3, 16, 8, { ...line('Signups over time'), refreshedAt: REFRESHED_AT }),
                 tile('ks-notes', 16, 3, 8, 8, text('## Notes\n\nDrag a tile by its title. Resize it from its left, right or bottom edge.')),
                 section('ks-section', 0, 11, 24, 'Section with tiles', [
                     tile('ks-s-bar', 0, 0, 12, 7, bar('Signups by country')),
@@ -71,7 +63,7 @@ export const kitchenSinkDashboard: Dashboard = {
                 section('ks-left', 0, 32, 12, 'Half width', [tile('ks-l-bar', 0, 0, 12, 6, bar('Plans'))]),
                 section('ks-right', 12, 32, 12, 'Half width, empty', []),
                 section('ks-closed', 0, 42, 24, 'Closed section', [tile('ks-c-line', 0, 0, 24, 6, line('Hidden'))], true),
-                tile('ks-headless', 0, 44, 8, 4, { ...text('A tile without a title is dragged by its body.'), footer: [{ type: 'text', text: 'The footer is not a drag handle' }] }),
+                tile('ks-headless', 0, 44, 8, 4, text('A tile without a title is dragged by its body.')),
             ],
         },
         {
