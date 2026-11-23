@@ -114,14 +114,14 @@ const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolea
                 showCustomRangeOptions={activeTab !== 'sentiment'}
             />
             {!hidePropertyFilters &&
-                (featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_NAV_REDESIGN] ? (
+                (featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_NAV_REDESIGN] && activeTab === 'dashboard' ? (
                     <div className="flex flex-wrap items-center gap-2">
                         <ListFiltersHost
                             propertyFilters={propertyFilters}
                             onChange={setPropertyFilters}
                             taxonomicGroupTypes={generationsQuery.showPropertyFilter as TaxonomicFilterGroupType[]}
                             pageKey="llm-analytics"
-                            data-attr={`ai-observability-${activeTab}-filters`}
+                            data-attr="ai-observability-dashboard-filters"
                         />
                     </div>
                 ) : (
