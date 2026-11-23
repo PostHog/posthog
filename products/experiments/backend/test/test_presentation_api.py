@@ -806,6 +806,13 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 (-timedelta(days=1), _WITH_AN_OVERRIDE_CONDITION),
             ),
             (
+                "override_on_a_device_id_flag",
+                {"metrics": [_HEALTH_METRIC]},
+                None,
+                [_HEALTH_PAUSED],
+                (-timedelta(days=1), {**_WITH_AN_OVERRIDE_CONDITION, "bucketing_identifier": "device_id"}),
+            ),
+            (
                 "custom_exposure_event",
                 {
                     "metrics": [_HEALTH_METRIC],
@@ -907,8 +914,14 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             },
         )
         # The added condition set has no rollout percentage, which the flag service reads as 100. It serves nobody,
-        # because the first set has no filters and a 100% rollout.
-        added_variant = {"condition_added_after_launch": None, "override_set_before_launch": "test"}
+        # because the first set has no filters and a 100% rollout. On a flag that buckets by device ID, a request
+        # without a device ID skips the first set, so neither set's reach is known.
+        added_variant = {
+            "condition_added_after_launch": None,
+            "override_set_before_launch": "test",
+            "override_on_a_device_id_flag": "test",
+        }
+        by_device_id = _name == "override_on_a_device_id_flag"
         added_condition = (
             [
                 {
@@ -916,7 +929,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                     "property_count": 1,
                     "aggregation_group_type_index": None,
                     "variant": added_variant[_name],
-                    "reachable": False,
+                    "reachable": None if by_device_id else False,
                 }
             ]
             if _name in added_variant
@@ -932,12 +945,12 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                         "property_count": 0,
                         "aggregation_group_type_index": None,
                         "variant": None,
-                        "reachable": True,
+                        "reachable": None if by_device_id else True,
                     },
                     *added_condition,
                 ],
                 "early_exit": False,
-                "bucketing_identifier": "distinct_id",
+                "bucketing_identifier": "device_id" if by_device_id else "distinct_id",
                 "aggregation_group_type_index": None,
                 "evaluation_runtime": "all",
                 "evaluation_contexts": ["web-app"],

@@ -90,6 +90,9 @@ def _health_setup(experiment: Experiment, ctx: HealthContext) -> ExperimentHealt
     conditions = flag.conditions if isinstance(flag.conditions, list) else []
     variant_keys = {variant.key for variant in ctx.flag.variants if variant.key}
     reachable_numbers = {condition.number for condition in ctx.flag.reachable_conditions}
+    # `reachable_conditions` doesn't model a request without a device ID, which skips the sets that need the bucketing
+    # hash. On a flag that buckets by device ID, such a request can reach a set that it calls unreachable.
+    reach_known = flag.bucketing_identifier != "device_id"
     exposure_events = ctx.exposure_events
     # The sets as stored, not the users they reach: the checks judge what the configuration does.
     # A null column means the model default, which the flag service applies too.
@@ -99,7 +102,7 @@ def _health_setup(experiment: Experiment, ctx: HealthContext) -> ExperimentHealt
                 condition,
                 flag.aggregation_group_type_index,
                 variant_keys,
-                reachable=number in reachable_numbers,
+                reachable=number in reachable_numbers if reach_known else None,
             )
             for number, condition in enumerate(conditions, start=1)
             if isinstance(condition, dict)
@@ -121,7 +124,7 @@ def _health_setup(experiment: Experiment, ctx: HealthContext) -> ExperimentHealt
 
 
 def _release_condition(
-    condition: dict[str, Any], flag_aggregation: int | None, variant_keys: set[str], *, reachable: bool
+    condition: dict[str, Any], flag_aggregation: int | None, variant_keys: set[str], *, reachable: bool | None
 ) -> ExperimentHealthReleaseCondition:
     properties = condition.get("properties")
     return ExperimentHealthReleaseCondition(

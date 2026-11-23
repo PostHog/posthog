@@ -621,7 +621,9 @@ class ExperimentHealthReleaseCondition:
     aggregation_group_type_index: int | None
     variant: str | None
     # False when the set serves nobody: its rollout is 0%, or an earlier set ends the flag's evaluation before it.
-    reachable: bool
+    # None on a flag that buckets by device ID, because a request without a device ID skips the earlier sets that need
+    # the bucketing hash and can reach the set anyway.
+    reachable: bool | None
 
 
 @frozen

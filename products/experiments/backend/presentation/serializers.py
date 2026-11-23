@@ -430,9 +430,12 @@ class ExperimentHealthReleaseConditionSerializer(serializers.Serializer):
         ),
     )
     reachable = serializers.BooleanField(
+        allow_null=True,
         help_text=(
             "Whether the condition set can serve anyone. False when its rollout is 0%, or when an earlier set without "
-            "filters ends the flag's evaluation before it, so its rollout and variant override apply to nobody."
+            "filters ends the flag's evaluation before it, so its rollout and variant override apply to nobody. Null "
+            "when the flag buckets by device ID, because a request without a device ID skips the earlier sets that "
+            "need the bucketing hash and can reach this set anyway."
         ),
     )
 

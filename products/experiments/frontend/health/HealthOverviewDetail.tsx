@@ -64,7 +64,10 @@ function releaseConditionsText(
     return sets.length === 1
         ? capitalizeFirstLetter(sets[0])
         : sets
-              .map((set, index) => `Set ${index + 1}${conditions[index].reachable ? '' : ' (serves nobody)'}: ${set}`)
+              .map(
+                  (set, index) =>
+                      `Set ${index + 1}${conditions[index].reachable === false ? ' (serves nobody)' : ''}: ${set}`
+              )
               .join(' · ')
 }
 
