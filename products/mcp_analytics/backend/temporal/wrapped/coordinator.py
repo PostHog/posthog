@@ -2,8 +2,7 @@
 
 Nothing schedules this workflow. Someone starts it when the year's wrap should be filled:
 
-    python manage.py execute_temporal_workflow mcpa-wrapped-coordinator <year> [<team_id> ...] \
-        --task-queue <MCPA_TASK_QUEUE>
+    python manage.py run_mcp_analytics_wrapped --year <year> [--team-id <team_id> ...]
 
 One project's failure is recorded and the run moves on, so a slow or broken project never blocks the rest.
 """
@@ -53,13 +52,6 @@ class WrappedCoordinatorInputs:
 
 @temporalio.workflow.defn(name=COORDINATOR_WORKFLOW_NAME)
 class MCPWrappedCoordinatorWorkflow(PostHogWorkflow):
-    @staticmethod
-    def parse_inputs(inputs: list[str]) -> WrappedCoordinatorInputs:
-        return WrappedCoordinatorInputs(
-            year=int(inputs[0]) if inputs else None,
-            team_ids=[int(team_id) for team_id in inputs[1:]] or None,
-        )
-
     @temporalio.workflow.run
     async def run(self, inputs: WrappedCoordinatorInputs) -> dict[str, Any]:
         if inputs.max_concurrent_teams < 1 or inputs.teams_per_run < 1:

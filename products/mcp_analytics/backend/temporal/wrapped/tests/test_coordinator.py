@@ -97,26 +97,18 @@ async def test_without_a_year_the_run_covers_the_current_one() -> None:
     assert _discovered_years == [result["year"]] == [datetime.now(UTC).year]
 
 
-@parameterized.expand(
-    [
-        ("nothing", [], WrappedCoordinatorInputs()),
-        ("year_only", ["2026"], WrappedCoordinatorInputs(year=2026)),
-        ("year_and_teams", ["2026", "2", "7"], WrappedCoordinatorInputs(year=2026, team_ids=[2, 7])),
-    ]
-)
-def test_parse_inputs(_name: str, inputs: list[str], expected: WrappedCoordinatorInputs) -> None:
-    assert MCPWrappedCoordinatorWorkflow.parse_inputs(inputs) == expected
-
-
 @pytest.mark.django_db
-def test_the_manual_command_starts_the_coordinator() -> None:
+def test_the_run_command_starts_the_coordinator() -> None:
     client = MagicMock()
-    client.execute_workflow = AsyncMock(return_value={})
+    client.start_workflow = AsyncMock()
 
-    with patch("posthog.management.commands.execute_temporal_workflow.connect", new=AsyncMock(return_value=client)):
-        call_command("execute_temporal_workflow", "mcpa-wrapped-coordinator", "2026", "2")
+    with patch(
+        "products.mcp_analytics.backend.management.commands.run_mcp_analytics_wrapped.async_connect",
+        new=AsyncMock(return_value=client),
+    ):
+        call_command("run_mcp_analytics_wrapped", "--year", "2026", "--team-id", "2", "--team-id", "7")
 
-    assert client.execute_workflow.await_args.args[:2] == (
+    assert client.start_workflow.await_args.args == (
         "mcpa-wrapped-coordinator",
-        WrappedCoordinatorInputs(year=2026, team_ids=[2]),
+        WrappedCoordinatorInputs(year=2026, team_ids=[2, 7]),
     )
