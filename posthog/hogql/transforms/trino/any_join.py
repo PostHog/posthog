@@ -239,7 +239,7 @@ class TrinoAnyJoinLowerer(CloningVisitor):
                 field.name if self.physical_names else name
                 for name, field in table_type.table.fields.items()
                 if isinstance(field, DatabaseField)
-                and (not field.hidden or name in key_names or name in self._referenced_names(lowered.alias))
+                and (name in key_names or name in self._referenced_names(lowered.alias))
             ]
         if not column_names:
             raise TrinoLoweringError("TRINO_ANY_JOIN_EMPTY_TABLE_UNSUPPORTED", f"{join_type} without columns", lowered)

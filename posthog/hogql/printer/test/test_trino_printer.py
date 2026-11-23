@@ -3170,14 +3170,14 @@ def test_lowers_multi_key_any_join_with_a_right_expression() -> None:
 
 
 @pytest.mark.parametrize(
-    "people_column, expected, unread_hidden_columns",
+    "people_column, expected, unread_columns",
     [
-        ("people.created_at", '"people"."created_at"', ["_sync_id", "_raw"]),
+        ("people.created_at", '"people"."created_at"', ["_sync_id", "_raw", "plan"]),
         # A property read through a derived table reads the hidden column by its logical name.
-        ("people.raw.key", 'json_extract_scalar("people"."raw", \'$["key"]\')', ["_sync_id"]),
+        ("people.raw.key", 'json_extract_scalar("people"."raw", \'$["key"]\')', ["_sync_id", "plan"]),
     ],
 )
-def test_lowers_unaliased_left_any_join(people_column: str, expected: str, unread_hidden_columns: list[str]) -> None:
+def test_lowers_unaliased_left_any_join(people_column: str, expected: str, unread_columns: list[str]) -> None:
     context = _context_with_trino_table()
     assert context.database is not None
     context.database.tables.add_child(
@@ -3188,6 +3188,7 @@ def test_lowers_unaliased_left_any_join(people_column: str, expected: str, unrea
                 fields={
                     "user_id": StringDatabaseField(name="user_id", nullable=False),
                     "created_at": DateTimeDatabaseField(name="created_at", nullable=False),
+                    "plan": StringDatabaseField(name="plan", nullable=True),
                     "__sync_id": StringDatabaseField(name="_sync_id", hidden=True),
                     "raw": StringJSONDatabaseField(name="_raw", hidden=True),
                 },
@@ -3206,7 +3207,7 @@ def test_lowers_unaliased_left_any_join(people_column: str, expected: str, unrea
 
     assert "LEFT ANY JOIN" not in sql
     assert expected in sql
-    assert not [column for column in unread_hidden_columns if column in sql]
+    assert not [column for column in unread_columns if column in sql]
     assert ') AS "people" ON ("users"."user_id" = "people"."user_id")' in sql
 
 
