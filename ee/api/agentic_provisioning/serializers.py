@@ -8,7 +8,7 @@ view in its envelope) instead of DRF ``ValidationError``.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -23,7 +23,7 @@ from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.credentials import validate_label_prefix
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
 
-PROJECT_NAME_MAX_LENGTH = Team._meta.get_field("name").max_length
+PROJECT_NAME_MAX_LENGTH: int = cast(int, Team._meta.get_field("name").max_length)
 INVALID_PROJECT_NAME_MESSAGE = f"project_name must be a string of 1 to {PROJECT_NAME_MAX_LENGTH} characters"
 
 
