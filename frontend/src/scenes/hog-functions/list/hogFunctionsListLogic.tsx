@@ -58,7 +58,7 @@ export const shouldShowHogFunction = (hogFunction: HogFunctionType, user?: UserT
 export interface hogFunctionsListLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentTeamId: number | null // teamLogic
-    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     user: UserType | null // userLogic
     enabledHogFunctions: HogFunctionType[]
     filteredHogFunctions: HogFunctionType[]

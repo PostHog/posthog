@@ -33,15 +33,18 @@ const tabs: AccountTabDefinition[] = [
 ]
 
 describe('account tabs', () => {
-    it.each([false, true])('gates the Automations tab, picker, and direct route (%s)', (enabled) => {
-        const flags = { [FEATURE_FLAGS.CUSTOMER_ANALYTICS_AUTOMATIONS_WIDGET]: enabled }
+    it.each([
+        ['automations', FEATURE_FLAGS.CUSTOMER_ANALYTICS_AUTOMATIONS_WIDGET, false],
+        ['automations', FEATURE_FLAGS.CUSTOMER_ANALYTICS_AUTOMATIONS_WIDGET, true],
+        ['context', FEATURE_FLAGS.CUSTOMER_ANALYTICS_CONTEXT_PANE, false],
+        ['context', FEATURE_FLAGS.CUSTOMER_ANALYTICS_CONTEXT_PANE, true],
+    ] as const)('gates the %s tab, picker, and direct route (enabled: %s)', (kind, flag, enabled) => {
+        const flags = { [flag]: enabled }
         const availableTabs = listAccountTabs(flags, [])
-        expect(availableTabs.some((tab) => tab.id === 'system:automations')).toBe(enabled)
-        expect(listAvailableAccountViewComponents(flags).some((component) => component.kind === 'automations')).toBe(
-            enabled
-        )
-        expect(getActiveAccountTabId(availableTabs, emptyConfig, 'system:automations', 1)).toBe(
-            enabled ? 'system:automations' : 'system:notes'
+        expect(availableTabs.some((tab) => tab.id === `system:${kind}`)).toBe(enabled)
+        expect(listAvailableAccountViewComponents(flags).some((component) => component.kind === kind)).toBe(enabled)
+        expect(getActiveAccountTabId(availableTabs, emptyConfig, `system:${kind}`, 1)).toBe(
+            enabled ? `system:${kind}` : 'system:notes'
         )
     })
 

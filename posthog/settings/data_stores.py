@@ -309,6 +309,8 @@ CLICKHOUSE_OFFLINE_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_CLUS
 # Where queries from projects on the native events table connect. Unset keeps them on the hosts above.
 CLICKHOUSE_EVENTS_ONLINE_HOST: str | None = os.getenv("CLICKHOUSE_EVENTS_ONLINE_HOST", None)
 CLICKHOUSE_EVENTS_OFFLINE_HOST: str | None = os.getenv("CLICKHOUSE_EVENTS_OFFLINE_HOST", None)
+# Where batch exports that read events_recent or distributed_events_recent connect. Unset keeps them on the hosts above.
+CLICKHOUSE_BATCH_EXPORTS_HOST: str | None = os.getenv("CLICKHOUSE_BATCH_EXPORTS_HOST", None)
 # Workload that Workload.DEFAULT resolves to in this process. Celery tasks switch to OFFLINE per task.
 # Temporal workers and Dagster set OFFLINE so background queries are tagged with where they run.
 CLICKHOUSE_DEFAULT_WORKLOAD: str = os.getenv("CLICKHOUSE_DEFAULT_WORKLOAD", "ONLINE")
@@ -341,6 +343,9 @@ CLICKHOUSE_AI_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_AI_EVENTS_CLUSTER", "a
 # registry can say where a storage table lives; whether a given deployment can reach it is
 # decided by probing the hosts, not by comparing this against the handle's cluster.
 CLICKHOUSE_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_EVENTS_CLUSTER", "events")
+# The cluster behind CLICKHOUSE_BATCH_EXPORTS_HOST. A client connected to that host names it in ON CLUSTER and
+# clusterAllReplicas lookups, because the nodes of that cluster do not run queries of the main cluster.
+CLICKHOUSE_BATCH_EXPORTS_CLUSTER: str = os.getenv("CLICKHOUSE_BATCH_EXPORTS_CLUSTER", "batch_exports")
 # The cluster that stores sharded_flag_evaluations. The deletion registry builds a handle for it, like the events
 # cluster above. Probing the hosts decides whether a deployment can reach it.
 CLICKHOUSE_FLAGS_CLUSTER: str = os.getenv("CLICKHOUSE_FLAGS_CLUSTER", "flags")
@@ -513,6 +518,11 @@ CLICKHOUSE_EVENTS_ONLINE_HTTP_URL: str | None = (
 CLICKHOUSE_EVENTS_OFFLINE_HTTP_URL: str | None = (
     f"{_clickhouse_http_protocol}{CLICKHOUSE_EVENTS_OFFLINE_HOST}:{_clickhouse_http_port}/"
     if CLICKHOUSE_EVENTS_OFFLINE_HOST
+    else None
+)
+CLICKHOUSE_BATCH_EXPORTS_HTTP_URL: str | None = (
+    f"{_clickhouse_http_protocol}{CLICKHOUSE_BATCH_EXPORTS_HOST}:{_clickhouse_http_port}/"
+    if CLICKHOUSE_BATCH_EXPORTS_HOST
     else None
 )
 
@@ -900,6 +910,11 @@ CACHES["aeo_prompt_suggestions"] = {
     "LOCATION": REDIS_URL,
 }
 
+CACHES["throttle_history"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
 # The `@current` dedupe runs inside the request, so a stalled Redis must drop an event, not hold a worker.
 CACHES["current_alias_usage"] = {
     **CACHES["default"],
@@ -987,6 +1002,7 @@ if TEST:
     CACHES["warehouse_destination_connect"] = CACHES["default"]
     CACHES["aeo_prompt_suggestions"] = CACHES["default"]
     CACHES["signup_throttle"] = CACHES["default"]
+    CACHES["throttle_history"] = CACHES["default"]
     CACHES["admin_console_results"] = CACHES["default"]
     CACHES["distinct_id_usage_report"] = CACHES["default"]
     CACHES["data_deletion_stats"] = CACHES["default"]

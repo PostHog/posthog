@@ -29,7 +29,7 @@ from posthog.egress.limiter.policies import Priority
 from posthog.errors import ClickHouseQueryTimeOut
 from posthog.models import OAuthApplication, Organization, User
 from posthog.models.github_integration_base import PullRequestCiStatus
-from posthog.models.integration import GitHubIntegration
+from posthog.models.integration import GitHubInstallationUnavailableError, GitHubIntegration, GitHubIntegrationError
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
@@ -5235,6 +5235,74 @@ class TestSignalReportMergeAPI(APIBaseTest):
         assert kwargs["write_path"] == ReportLinkWritePath.MERGE
 
 
+class TestSignalReportPlanEditAPI(APIBaseTest):
+    def _url(self, plan: SignalReport, suffix: str = "") -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{plan.id}/plan_steps/{suffix}"
+
+    def _report(self, title: str, report_status: str = SignalReport.Status.READY) -> SignalReport:
+        return SignalReport.objects.create(team=self.team, status=report_status, title=title, summary="s")
+
+    def _step_ids(self, payload: dict[str, Any]) -> list[str]:
+        return [step["id"] for step in (payload["plan"] or {"steps": []})["steps"]]
+
+    def test_an_agent_edits_a_plan_and_the_list_filter_follows_it(self) -> None:
+        plan = self._report("plan")
+        first = self._report("first")
+        archived = self._report("archived", report_status=SignalReport.Status.SUPPRESSED)
+        last = self._report("last")
+
+        for step in (first, archived, last):
+            added = self.client.post(self._url(plan), {"report_id": str(step.id)}, format="json")
+            assert added.status_code == status.HTTP_200_OK, added.json()
+        assert self._step_ids(added.json()) == [str(first.id), str(archived.id), str(last.id)]
+
+        changed = self.client.put(
+            self._url(plan, f"{last.id}/depends_on/"), {"depends_on": [str(first.id)]}, format="json"
+        )
+        assert changed.status_code == status.HTTP_200_OK, changed.json()
+        assert changed.json()["plan"]["steps"][2]["depends_on"] == [str(first.id)]
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?plan={plan.id}")
+        assert listed.status_code == status.HTTP_200_OK, listed.json()
+        assert [row["id"] for row in listed.json()["results"]] == [str(first.id), str(archived.id), str(last.id)]
+
+        removed = self.client.delete(self._url(plan, f"{first.id}/"))
+        assert removed.status_code == status.HTTP_200_OK, removed.json()
+        assert self._step_ids(removed.json()) == [str(archived.id), str(last.id)]
+        retrieved = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{last.id}/")
+        assert retrieved.json()["plan"]["steps"][1]["depends_on"] == []
+        first.refresh_from_db()
+        assert first.status == SignalReport.Status.READY
+
+    @parameterized.expand(
+        [
+            ("the_plan_itself", "self", status.HTTP_400_BAD_REQUEST, "cannot be its own step"),
+            ("already_a_step", "member", status.HTTP_409_CONFLICT, "already a step of this plan"),
+        ]
+    )
+    def test_a_rejected_edit_names_the_reason(self, _name: str, step_key: str, expected: int, message: str) -> None:
+        plan, member = self._report("plan"), self._report("member")
+        assert self.client.post(self._url(plan), {"report_id": str(member.id)}, format="json").status_code == 200
+
+        response = self.client.post(
+            self._url(plan), {"report_id": str(plan.id if step_key == "self" else member.id)}, format="json"
+        )
+
+        assert response.status_code == expected
+        assert message in response.json()["error"]
+
+    def test_an_inbox_read_key_cannot_edit_a_plan(self) -> None:
+        plan, step = self._report("plan"), self._report("step")
+        api_key = self.create_personal_api_key_with_scopes(["inbox:read"])
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        response = self.client.post(self._url(plan), {"report_id": str(step.id)}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert not SignalReportArtefact.objects.filter(report=step, type="report_link").exists()
+
+
 class TestReportTagOptionsAPI(APIBaseTest):
     def test_returns_this_teams_tags_most_used_first(self) -> None:
         SignalReport.objects.create(team=self.team, tags=["billing", "on-call"])
@@ -5596,26 +5664,51 @@ class TestSignalReportTaskAssociationViaArtefacts(APIBaseTest):
         response = self._associate(report, {"task_id": str(task.id)})
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_reports_list_filters_by_task_id(self):
-        report = self._create_report()
-        other_report = self._create_report()
+    @parameterized.expand(
+        [
+            ("all_associations", "implementation", "", {"claimed", "linked"}),
+            ("pr_targets_drop_claim_beside_other_report", "implementation", "&pr_targets=true", {"linked"}),
+            ("pr_targets_keep_sole_claim", None, "&pr_targets=true", {"claimed"}),
+            ("pr_targets_keep_claim_with_attached_pr", "attached_pr", "&pr_targets=true", {"linked"}),
+        ]
+    )
+    def test_reports_list_filters_by_task_id(self, _name, link, extra_params, expected):
+        reports = {"claimed": self._create_report(), "linked": self._create_report()}
+        self._create_report()
         task = self._create_task()
-        append_task_run_artefact(
-            team_id=self.team.id,
-            report_id=str(report.id),
-            product="tasks",
-            type="agent_run",
-            task_id=str(task.id),
-        )
+        claimed_reports = ["claimed", "linked"] if link == "attached_pr" else ["claimed"]
+        for name in claimed_reports:
+            append_task_run_artefact(
+                team_id=self.team.id,
+                report_id=str(reports[name].id),
+                product="tasks",
+                type="agent_run",
+                task_id=str(task.id),
+            )
+        if link == "implementation":
+            append_task_run_artefact(
+                team_id=self.team.id,
+                report_id=str(reports["linked"].id),
+                product="signals",
+                type=TASK_RUN_TYPE_IMPLEMENTATION,
+                task_id=str(task.id),
+            )
+        elif link == "attached_pr":
+            SignalReportArtefact.add_log(
+                team_id=self.team.id,
+                report_id=str(reports["linked"].id),
+                content=PullRequestLink(url="https://github.com/example/repo/pull/1"),
+                attribution=ArtefactAttribution.from_task(str(task.id)),
+            )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?task_id={task.id}")
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?task_id={task.id}{extra_params}")
         assert response.status_code == status.HTTP_200_OK
         ids = {r["id"] for r in response.json()["results"]}
-        assert ids == {str(report.id)}
-        assert str(other_report.id) not in ids
+        assert ids == {str(reports[name].id) for name in expected}
 
-    def test_reports_list_rejects_malformed_task_id(self):
-        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?task_id=not-a-uuid")
+    @parameterized.expand([("malformed_task_id", "task_id=not-a-uuid"), ("pr_targets_without_task", "pr_targets=true")])
+    def test_reports_list_rejects_bad_task_filter(self, _name, query):
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?{query}")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
@@ -6395,6 +6488,49 @@ class TestSignalReportPrEndpoints(APIBaseTest):
             "remediation_url": f"/project/{self.team.id}/settings/project-integrations",
         }
 
+    @parameterized.expand(
+        [
+            ("checks_lookup", "_checks_url", "get_pull_request_checks", "lookup"),
+            ("comments_lookup", "_comments_url", "get_pull_request_comments", "lookup"),
+            ("checks_fetch", "_checks_url", "get_pull_request_checks", "fetch"),
+            ("comments_fetch", "_comments_url", "get_pull_request_comments", "fetch"),
+        ]
+    )
+    def test_pr_detail_403_when_github_installation_is_unavailable(
+        self, _name: str, url_method: str, fetch_name: str, stage: str
+    ) -> None:
+        report = self._create_report()
+        github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
+        self.addCleanup(patch.stopall)
+        if stage == "lookup":
+            github.side_effect = GitHubInstallationUnavailableError("token refresh after 401 failed")
+        else:
+            getattr(github.return_value, fetch_name).side_effect = GitHubIntegrationError(
+                "token refresh after 401 failed"
+            )
+            github.return_value.installation_unavailable.return_value = True
+
+        response = self.client.get(getattr(self, url_method)(str(report.id)))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json() == {
+            "code": "github_installation_unavailable",
+            "error": (
+                "PostHog's GitHub connection is suspended or was uninstalled. A project admin must reconnect GitHub."
+            ),
+            "remediation_url": f"/project/{self.team.id}/settings/project-integrations",
+        }
+
+    @parameterized.expand([("checks", "_checks_url"), ("comments", "_comments_url")])
+    def test_pr_detail_502_when_github_lookup_errors(self, _name: str, url_method: str) -> None:
+        report = self._create_report()
+        with patch(
+            "products.signals.backend.views.GitHubIntegration.first_for_team_repository",
+            side_effect=GitHubIntegrationError("unavailable", status_code=503),
+        ):
+            response = self.client.get(getattr(self, url_method)(str(report.id)))
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY
+
     def test_pr_checks_503_when_egress_budget_sheds_request(self):
         report = self._create_report()
         with patch(
@@ -6498,6 +6634,7 @@ class TestSignalReportPrEndpoints(APIBaseTest):
         github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
         self.addCleanup(patch.stopall)
         github.return_value.get_pull_request_checks.return_value = {"success": False, "error": "boom"}
+        github.return_value.installation_unavailable.return_value = False
 
         response = self.client.get(self._checks_url(str(report.id)))
 

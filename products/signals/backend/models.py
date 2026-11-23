@@ -3,7 +3,7 @@ import uuid
 import logging
 import builtins
 from collections import defaultdict
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import ExitStack, contextmanager
 from datetime import datetime, timedelta
 from typing import Any, TypeVar, cast
@@ -216,6 +216,9 @@ class InboxOnboardingSetupMode(models.TextChoices):
 # What GitHub accepts as a label name. Duplicated from the GitHub client rather than imported,
 # because that module pulls the HTTP stack in and this one is loaded on every Django start.
 GITHUB_LABEL_NAME_MAX_LENGTH = 50
+
+# The `(product, type)` a claim records for the claiming task (`report_assignments._associate_task_with_claim`).
+_CLAIM_TASK_RUN_IDENTIFIER = ("tasks", "agent_run")
 
 
 class SignalFirstReportNotification(UUIDModel):
@@ -586,6 +589,12 @@ class SignalReport(UUIDModel):
             models.Index("team", models.F("ranking_fix_score").desc(nulls_last=True), name="signals_rpt_team_rank_fix"),
             # Back the inbox list ordered by `-updated_at`. The view appends `id` as a tie-breaker.
             models.Index(fields=["team", "-updated_at", "id"], name="signals_report_team_updated"),
+            # Back the inbox actionability views and the first-report lookup. Both filter on status and
+            # actionability, and the first-report lookup reads the matches in `first_visible_at` order.
+            models.Index(
+                fields=["team", "status", "latest_actionability", "first_visible_at"],
+                name="signals_report_actionability",
+            ),
             # Partial: the daily-limit gate only ever counts stamped rows for one team and day.
             models.Index(
                 fields=["team", "first_visible_at"],
@@ -1217,6 +1226,61 @@ class SignalReport(UUIDModel):
             | models.Q(id__in=legacy_report_ids)
             | models.Q(id__in=assignment_report_ids)
         )
+
+    @staticmethod
+    def pr_target_report_ids_for_tasks(team_id: int, task_ids: Iterable[Any]) -> set[str]:
+        """The reports the tasks' pull requests link to: each task's source report, the reports
+        the task attached a pull request to, and its pipeline, legacy and assignment associations.
+
+        A claim alone associates a task with a report, so a triage task that claims many reports
+        would link its PR to all of them, and the PR's merge or close would then resolve or
+        suppress them all. Claim-only reports are targets only when the task has no other report;
+        otherwise the agent attaches the PR to the report it fixes explicitly.
+        """
+        from products.tasks.backend.facade.api import get_task_signal_report_source_ids  # noqa: PLC0415
+
+        task_ids = {str(task_id) for task_id in task_ids}
+        if not task_ids:
+            return set()
+        direct: dict[str, set[str]] = defaultdict(set)
+        claim_only: dict[str, set[str]] = defaultdict(set)
+
+        def add(task_id: Any, report_id: Any, identifier: tuple[str, str] | None) -> None:
+            associations = claim_only if identifier == _CLAIM_TASK_RUN_IDENTIFIER else direct
+            associations[str(task_id)].add(str(report_id))
+
+        for task_id, report_id, content in SignalReportArtefact.objects.filter(
+            team_id=team_id, type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id__in=task_ids
+        ).values_list("task_id", "report_id", "content"):
+            try:
+                run = TaskRunArtefact.model_validate_json(content)
+            except ValidationError:
+                add(task_id, report_id, None)
+                continue
+            add(task_id, report_id, (run.product, run.type))
+        for task_id, report_id, relationship in SignalReportTask.objects.filter(
+            team_id=team_id, task_id__in=task_ids
+        ).values_list("task_id", "report_id", "relationship"):
+            add(task_id, report_id, task_run_identifier_for_legacy_relationship(relationship))
+        for actor_task_id, report_id in SignalReportAssignment.all_teams.filter(
+            team_id=team_id, actor_kind=SignalActorKind.TASK, actor_task_id__in=task_ids
+        ).values_list("actor_task_id", "report_id"):
+            add(actor_task_id, report_id, None)
+        for task_id, report_id in SignalReportArtefact.objects.filter(
+            team_id=team_id, type=SignalReportArtefact.ArtefactType.PULL_REQUEST, task_id__in=task_ids
+        ).values_list("task_id", "report_id"):
+            add(task_id, report_id, None)
+        for source_task_id, source_id in get_task_signal_report_source_ids(task_ids=task_ids, team_id=team_id).items():
+            add(source_task_id, source_id, None)
+
+        targets: set[str] = set()
+        for task_id in task_ids:
+            associated = direct[task_id] | claim_only[task_id]
+            targets |= associated if len(associated) == 1 else direct[task_id]
+        return {
+            str(report_id)
+            for report_id in SignalReport.objects.filter(team_id=team_id, id__in=targets).values_list("id", flat=True)
+        }
 
     @staticmethod
     def reports_for_task_ids_filter(task_ids: Any, *, team_id: int | None = None) -> "models.Q":
@@ -3943,6 +4007,10 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
     `prune_expired_scratchpad_entries` janitor hard-deletes the row, so a lapsed
     memory cannot pile up forever. A durable entry (`expires_at` NULL) is never
     swept.
+
+    A `remember` that changes an entry's `content` or `expires_at`, and a `forget`, first
+    copy the previous state to `SignalScratchpadRevision`, so a bad write can be read back
+    and restored with a plain `remember`. The entry row itself keeps only its current state.
     """
 
     # See SignalScoutConfig.all_teams for rationale.
@@ -4005,6 +4073,54 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
                 name="signal_scratchpad_key_trgm",
                 fastupdate=False,
             ),
+        ]
+
+
+class SignalScratchpadRevision(TeamScopedRootMixin, UUIDModel):
+    """The state a `SignalScratchpad` entry held before a write replaced or deleted it.
+
+    Written in the transaction that locks the entry, and only when the write changes
+    `content` or `expires_at`, so an identical rewrite stores nothing. Keyed on the entry's
+    `(team, key)` rather than a foreign key, because a `forget` deletes the entry and its
+    revisions stay readable by that key. The daily `prune_expired_scratchpad_entries` janitor
+    removes revisions older than `SCRATCHPAD_REVISION_RETENTION_DAYS` and any past
+    `SCRATCHPAD_REVISIONS_PER_KEY` for one key. A separate table leaves the hot entry row and
+    its search indexes alone. Private trial memory never reaches it.
+    """
+
+    class Change(models.TextChoices):
+        OVERWRITE = "overwrite"
+        FORGET = "forget"
+
+    # See SignalScoutConfig.all_teams for rationale: the janitor sweeps with no team scope set.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
+    )
+    key = models.CharField(max_length=300)
+    content = models.TextField()
+    expires_at = models.DateTimeField(null=True, blank=True)
+    change = models.CharField(max_length=16, choices=Change.choices)
+    changed_at = models.DateTimeField(auto_now_add=True)
+    # Who made the change: the scout run its sandbox token is bound to, or the `pipeline:*`
+    # identity of a report-pipeline stage. Editor discard does not create a revision.
+    changed_by_run = models.ForeignKey(
+        SignalScoutRun,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    changed_by_identity = models.CharField(max_length=64, null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Signal scratchpad revision"
+        verbose_name_plural = "Signal scratchpad revisions"
+        default_manager_name = "all_teams"
+        indexes = [
+            models.Index(fields=["team", "key", "-changed_at"], name="signal_scratchpad_rev_key_idx"),
+            models.Index(fields=["changed_at"], name="signal_scratchpad_rev_at_idx"),
         ]
 
 

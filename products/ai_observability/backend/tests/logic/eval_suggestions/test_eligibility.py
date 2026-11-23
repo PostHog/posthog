@@ -29,6 +29,20 @@ class TestEligibility(BaseTest):
         assert len(eligible) == 2
         assert steady.call_count == 2
 
+    def test_a_team_that_turned_suggestions_off_is_skipped(self) -> None:
+        other = Team.objects.create(organization=self.organization, name="other")
+        for team in (self.team, other):
+            EvalSuggestionTeamState.objects.for_team(team.pk).create(team=team, last_visited_at=timezone.now())
+        eligibility.set_suggestions_turned_off(other, True)
+
+        with (
+            patch.object(eligibility, "is_enabled_for_organization", return_value=True),
+            patch.object(eligibility, "steady_traffic_team_ids", side_effect=lambda ids, now: set(ids)),
+        ):
+            eligible = eligibility.eligible_team_ids(SuggestionSettings(max_teams_per_run=10))
+
+        assert eligible == [self.team.pk]
+
     def test_an_environment_records_its_visits_on_its_own_row(self) -> None:
         child = Team.objects.create(organization=self.organization, project=self.team.project, parent_team=self.team)
 

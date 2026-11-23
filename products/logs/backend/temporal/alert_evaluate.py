@@ -7,13 +7,16 @@ plain function a test can call without Temporal.
 import datetime as dt
 import contextlib
 import dataclasses
-from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, WorkflowAlreadyStartedError
 
 from posthog.temporal.common.base import PostHogWorkflow
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 with workflow.unsafe.imports_passed_through():
     from django.conf import settings
@@ -357,7 +360,7 @@ class LogsAlertEvaluateWorkflow(PostHogWorkflow):
 
 
 SOURCE_EVALUATION_WORKFLOWS = [LogsAlertEvaluateWorkflow]
-SOURCE_EVALUATION_ACTIVITIES: list[Callable[..., object]] = [
+SOURCE_EVALUATION_ACTIVITIES: list[ActivityDefinition] = [
     evaluate_logs_alerts_activity,
     take_logs_batch_slot_activity,
     evaluate_held_logs_batch_activity,
@@ -365,4 +368,4 @@ SOURCE_EVALUATION_ACTIVITIES: list[Callable[..., object]] = [
 ]
 # Registered on the platform delivery queue, beside the deliveries the evaluation starts.
 PLATFORM_SIGNAL_WORKFLOWS = [LogsPlatformAlertSignalsWorkflow]
-PLATFORM_SIGNAL_ACTIVITIES: list[Callable[..., object]] = [emit_platform_alert_signals_activity]
+PLATFORM_SIGNAL_ACTIVITIES: list[ActivityDefinition] = [emit_platform_alert_signals_activity]

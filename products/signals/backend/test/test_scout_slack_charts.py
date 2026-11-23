@@ -13,7 +13,7 @@ from parameterized import parameterized
 from posthog.redis import get_client
 
 from products.exports.backend.facade.api import RENDER_TIMEOUT
-from products.signals.backend.models import SignalReport, SignalScoutRun
+from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.slack_charts import (
     CHART_BLOCK_ID_PREFIX,
     MAX_SLACK_REPORT_CHARTS,
@@ -36,7 +36,9 @@ def _chart(chart_id: str, query: dict, **extra: object) -> dict:
 
 
 class TestScoutSlackReportCharts(BaseTest):
-    def _make_run(self, *, created_by=None) -> SignalScoutRun:
+    def _make_run(
+        self, *, created_by=None, skill_name: str = "signals-scout-product-analytics", scout_config=None
+    ) -> SignalScoutRun:
         Task = apps.get_model("tasks", "Task")
         TaskRun = apps.get_model("tasks", "TaskRun")
         task = Task.objects.create(
@@ -48,7 +50,7 @@ class TestScoutSlackReportCharts(BaseTest):
         )
         task_run = TaskRun.objects.create(task=task, team=self.team)
         return SignalScoutRun.all_teams.create(
-            task_run=task_run, team=self.team, skill_name="signals-scout-product-analytics", skill_version=1
+            task_run=task_run, team=self.team, skill_name=skill_name, skill_version=1, scout_config=scout_config
         )
 
     def _make_report(self, charts: list[dict], summary: str = "Signups dropped.") -> SignalReport:
@@ -370,6 +372,22 @@ class TestScoutSlackReportCharts(BaseTest):
             blocks, _ = build_scout_report_slack_message(report, run)
 
         assert [b["type"] for b in blocks] == ["context", "header", "markdown", "actions"]
+
+    @parameterized.expand(
+        [
+            ("set display name", "Checkout watch", "*Scout · Checkout watch*"),
+            ("no display name keeps acronyms", "", "*Scout · APM*"),
+        ]
+    )
+    def test_report_message_names_the_scout(self, _name: str, display_name: str, expected: str) -> None:
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-apm", display_name=display_name
+        )
+        run = self._make_run(skill_name="signals-scout-apm", scout_config=config)
+
+        blocks, _ = build_scout_report_slack_message(self._make_report([]), run)
+
+        assert blocks[0]["elements"][0]["text"] == expected
 
     def test_report_message_places_charts_between_prose_and_link(self) -> None:
         run = self._make_run(created_by=self.user)

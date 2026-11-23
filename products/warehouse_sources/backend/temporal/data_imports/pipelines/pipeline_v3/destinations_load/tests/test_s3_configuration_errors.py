@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 import dataclasses
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -161,3 +162,24 @@ class TestConfigurationErrors:
         await writer.write_batch(_batches(), DestinationBatchContext(run=ctx, batch_index=0, is_final_batch=False))
 
         assert client.put_object.call_args.kwargs["Bucket"] == "example-bucket"
+
+
+STARTED = dt.datetime(2026, 3, 5, 7, 8, 9, tzinfo=dt.UTC)
+
+
+@pytest.mark.asyncio
+class TestObjectKeys:
+    async def test_objects_and_manifest_go_under_the_rendered_prefix(self) -> None:
+        ctx = dataclasses.replace(
+            _ctx(),
+            config={"bucket": "example-bucket", "region": "us-east-1", "prefix": "{year}/{month}/{day}/{table}/"},
+            run_started_at=STARTED,
+        )
+        client = mock.AsyncMock()
+        writer = LocalS3Writer(ctx, client, connection_error=None)
+
+        await writer.write_batch(_batches(), DestinationBatchContext(run=ctx, batch_index=0, is_final_batch=True))
+        await writer.finalize_run(ctx)
+
+        keys = [call.kwargs["Key"] for call in client.put_object.call_args_list]
+        assert keys == ["2026/03/05/charges/run-a1/part-0000.parquet", "2026/03/05/charges/run-a1/_manifest.json"]

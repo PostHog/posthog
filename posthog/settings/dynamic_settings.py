@@ -88,6 +88,13 @@ CONSTANCE_CONFIG = {
         "Whether unique users should be counted by distinct IDs. Speeds up queries at the cost of accuracy.",
         str,
     ),
+    "TRENDS_RANKED_BREAKDOWN_QUERY_SIGNATURES": (
+        "",
+        "Comma-separated benchmark-approved TrendsQueryBuilder.ranked_breakdown_query_signature values, up to 60. "
+        "An empty list keeps the original breakdown plan. The trends-breakdown-rank-before-arrays "
+        "team flag must also be enabled. Changes reach workers within the instance-setting cache TTL.",
+        str,
+    ),
     "PERSON_ON_EVENTS_ENABLED": (
         get_from_env("PERSON_ON_EVENTS_ENABLED", False, type_cast=str_to_bool),
         "Whether to use query path using person_id and person_properties on events or the old query",
@@ -354,6 +361,11 @@ CONSTANCE_CONFIG = {
         "Whether teams are on an allow list to bypass rate limiting. Comma separated list of team-ids",
         str,
     ),
+    "TRANSACTIONAL_EMAIL_RATE_LIMIT_ALLOW_LIST_TEAMS": (
+        get_from_env("TRANSACTIONAL_EMAIL_RATE_LIMIT_ALLOW_LIST_TEAMS", ""),
+        "Comma-separated team IDs that skip the transactional email send rate limits. Unlike RATE_LIMITING_ALLOW_LIST_TEAMS, no other limit is lifted.",
+        str,
+    ),
     "FLAGS_LOG_BODIES_TEAMS": (
         get_from_env("FLAGS_LOG_BODIES_TEAMS", "{}"),
         'Per-team /flags request and response body logging. JSON object mapping team_id (string) to a non-empty list of flag-key wildcard patterns; the response is filtered to flags matching any pattern. "{}" disables logging entirely. Examples: \'{"123": ["my-feature", "checkout-*"]}\' logs only matching flag keys for team 123. To capture every flag (rare, noisy), use [\\"*\\"] explicitly. The Rust feature-flags service polls this every ~60s. Limits: at most 100 teams, 50 patterns per team, 256 bytes per pattern.',
@@ -497,6 +509,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS",
     "AUTO_START_ASYNC_MIGRATIONS",
     "AGGREGATE_BY_DISTINCT_IDS_TEAMS",
+    "TRENDS_RANKED_BREAKDOWN_QUERY_SIGNATURES",
     "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT",
     "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK",
     "ASYNC_MIGRATIONS_AUTO_CONTINUE",
@@ -538,6 +551,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS",
     "RATE_LIMIT_ENABLED",
     "RATE_LIMITING_ALLOW_LIST_TEAMS",
+    "TRANSACTIONAL_EMAIL_RATE_LIMIT_ALLOW_LIST_TEAMS",
     "FLAGS_LOG_BODIES_TEAMS",
     "FLAG_EVALUATIONS_READS_FORCE_EVENTS",
     "FLAG_EVALUATIONS_UNION_DISABLED",

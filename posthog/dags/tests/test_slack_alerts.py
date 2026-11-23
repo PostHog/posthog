@@ -53,6 +53,35 @@ class TestSlackAlertsRouting:
             "Runbook: https://wiki.posthog.com/services/clickhouse/runbooks/query-log-archive-export"
         )
 
+    @parameterized.expand(
+        [
+            ("current_owner", JobOwners.TEAM_ANALYTICS.value),
+            ("owner_stored_before_rename", "team-web-analytics"),
+        ]
+    )
+    def test_failure_alert_goes_to_analytics_channel(self, _name, owner):
+        failed_run = dagster.DagsterRun("some_web_job", run_id="run-id", tags={"owner": owner})
+        failure_event = dagster.DagsterEvent(
+            event_type_value=dagster.DagsterEventType.RUN_FAILURE.value,
+            job_name=failed_run.job_name,
+            message="failed",
+        )
+        context = dagster.RunFailureSensorContext(
+            sensor_name="notify_slack_on_failure",
+            dagster_run=failed_run,
+            dagster_event=failure_event,
+            instance=dagster.DagsterInstance.ephemeral(),
+        )
+        slack = mock.MagicMock()
+
+        with (
+            mock.patch("posthog.dags.slack_alerts.settings.CLOUD_DEPLOYMENT", "US"),
+            mock.patch("posthog.dags.slack_alerts.settings.DAGSTER_DOMAIN", "dagster.example.com"),
+        ):
+            notify_slack_on_failure(context, slack=slack)
+
+        assert slack.get_client.return_value.chat_postMessage.call_args.kwargs["channel"] == "#alerts-web-analytics"
+
     def test_regular_job_uses_owner_tag(self):
         mock_run = mock.MagicMock(spec=dagster.DagsterRun)
         mock_run.job_name = "some_regular_job"
@@ -73,7 +102,7 @@ class TestSlackAlertsRouting:
 
         result = get_job_owner_for_alert(mock_run, error_message)
 
-        assert result == JobOwners.TEAM_WEB_ANALYTICS.value
+        assert result == JobOwners.TEAM_ANALYTICS.value
 
     def test_asset_job_with_mixed_steps_routes_to_web_analytics(self):
         mock_run = mock.MagicMock(spec=dagster.DagsterRun)
@@ -84,7 +113,7 @@ class TestSlackAlertsRouting:
 
         result = get_job_owner_for_alert(mock_run, error_message)
 
-        assert result == JobOwners.TEAM_WEB_ANALYTICS.value
+        assert result == JobOwners.TEAM_ANALYTICS.value
 
     @parameterized.expand(
         [

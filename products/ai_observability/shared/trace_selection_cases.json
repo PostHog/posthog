@@ -1,0 +1,400 @@
+[
+    {
+        "name": "newest first by first event with the trace id breaking ties",
+        "events": [
+            { "event": "$ai_generation", "trace_id": "older", "minutes": -30 },
+            { "event": "$ai_generation", "trace_id": "tie-b", "minutes": 0 },
+            { "event": "$ai_span", "trace_id": "tie-a", "minutes": 0 },
+            { "event": "$ai_generation", "trace_id": "tie-a", "minutes": 20 },
+            { "event": "$ai_generation", "trace_id": "newer", "minutes": 15 }
+        ],
+        "selection": { "date_from": -60, "date_to": 60 },
+        "expected_trace_ids": ["newer", "tie-a", "tie-b", "older"],
+        "expected_counts": { "total": 4, "errors": 0, "feedback": 0 }
+    },
+    {
+        "name": "a trace that started before the window but has an event inside it sits at its first event",
+        "events": [
+            { "event": "$ai_span", "trace_id": "early-start", "minutes": -9 },
+            { "event": "$ai_generation", "trace_id": "early-start", "minutes": 5 },
+            { "event": "$ai_generation", "trace_id": "inside", "minutes": 2 },
+            { "event": "$ai_generation", "trace_id": "before-window", "minutes": -9 },
+            { "event": "$ai_generation", "trace_id": "after-window", "minutes": 65 }
+        ],
+        "selection": { "date_from": 0, "date_to": 60 },
+        "expected_trace_ids": ["inside", "early-start"],
+        "expected_counts": { "total": 2, "errors": 0, "feedback": 0 }
+    },
+    {
+        "name": "a trace with an empty trace id is skipped",
+        "events": [
+            { "event": "$ai_generation", "trace_id": "", "minutes": 0 },
+            { "event": "$ai_generation", "trace_id": "kept", "minutes": 1 }
+        ],
+        "selection": { "date_from": -60, "date_to": 60 },
+        "expected_trace_ids": ["kept"],
+        "expected_counts": { "total": 1, "errors": 0, "feedback": 0 }
+    },
+    {
+        "name": "a property filter picks traces without moving them",
+        "events": [
+            { "event": "$ai_generation", "trace_id": "matched-later", "minutes": 0 },
+            {
+                "event": "$ai_span",
+                "trace_id": "matched-later",
+                "minutes": 3,
+                "properties": { "customer_tier": "gold" }
+            },
+            {
+                "event": "$ai_generation",
+                "trace_id": "matched-first",
+                "minutes": 1,
+                "properties": { "customer_tier": "gold" }
+            },
+            {
+                "event": "$ai_generation",
+                "trace_id": "unmatched",
+                "minutes": 2,
+                "properties": { "customer_tier": "silver" }
+            }
+        ],
+        "selection": {
+            "date_from": -60,
+            "date_to": 60,
+            "properties": [{ "key": "customer_tier", "value": "gold", "operator": "exact", "type": "event" }]
+        },
+        "expected_trace_ids": ["matched-first", "matched-later"],
+        "expected_counts": { "total": 2, "errors": 0, "feedback": 0 }
+    },
+    {
+        "name": "an incomplete property filter selects like no filter at all",
+        "events": [
+            { "event": "$ai_generation", "trace_id": "plain", "minutes": 0 },
+            {
+                "event": "$ai_generation",
+                "trace_id": "tagged",
+                "minutes": 1,
+                "properties": { "customer_tier": "gold" }
+            }
+        ],
+        "selection": {
+            "date_from": -60,
+            "date_to": 60,
+            "properties": [{ "key": "", "value": "gold", "operator": "exact", "type": "event" }]
+        },
+        "expected_trace_ids": ["tagged", "plain"],
+        "expected_counts": { "total": 2, "errors": 0, "feedback": 0 }
+    },
+    {
+        "name": "an incomplete property filter does not narrow a search",
+        "events": [
+            {
+                "event": "$ai_generation",
+                "trace_id": "found",
+                "minutes": 0,
+                "properties": { "$ai_input": "Send the invoice" }
+            },
+            {
+                "event": "$ai_generation",
+                "trace_id": "not-found",
+                "minutes": 1,
+                "properties": { "$ai_input": "Hello" }
+            }
+        ],
+        "selection": {
+            "date_from": -60,
+            "date_to": 60,
+            "search": "invoice",
+            "properties": [{ "key": "", "value": "gold", "operator": "exact", "type": "event" }]
+        },
+        "expected_trace_ids": ["found"],
+        "expected_counts": { "total": 1, "errors": 0, "feedback": 0 }
+    },
+    {
+        "name": "two property filters must both match one event",
+        "events": [
+            {
+                "event": "$ai_generation",
+                "trace_id": "same-event",
+                "minutes": 0,
+                "properties": { "customer_tier": "gold", "region": "eu" }
+            },
+            {
+                "event": "$ai_generation",
+                "trace_id": "split-events",
+                "minutes": 1,
+                "properties": { "customer_tier": "gold" }
+            },
+            {
+                "event": "$ai_span",
+                "trace_id": "split-events",
+                "minutes": 2,
+                "properties": { "region": "eu" }
+            }
+        ],
+        "selection": {
+            "date_from": -60,
+            "date_to": 60,
+            "properties": [
+                { "key": "customer_tier", "value": "gold", "operator": "exact", "type": "event" },
+                { "key": "region", "value": "eu", "operator": "exact", "type": "event" }
+            ]
+        },
+        "expected_trace_ids": ["same-event"],
+        "expected_counts": { "total": 1, "errors": 0, "feedback": 0 }
+    },
+    {
+        "name": "the test account filters apply when the switch is on",
+        "team_test_account_filters": [
+            { "key": "deployment", "value": ["staging"], "operator": "is_not", "type": "event" }
+        ],
+        "events": [
+            {
+                "event": "$ai_generation",
+                "trace_id": "internal",
+                "minutes": 1,
+                "properties": { "deployment": "staging" }
+            },
+            { "event": "$ai_generation", "trace_id": "customer", "minutes": 0 }
+        ],
+        "selection": { "date_from": -60, "date_to": 60, "filter_test_accounts": true },
+        "expected_trace_ids": ["customer"],
+        "expected_counts": { "total": 1, "errors": 0, "feedback": 0 }
+    },
+    {
+        "name": "the test account filters do not apply when the switch is off",
+        "team_test_account_filters": [
+            { "key": "deployment", "value": ["staging"], "operator": "is_not", "type": "event" }
+        ],
+        "events": [
+            {
+                "event": "$ai_generation",
+                "trace_id": "internal",
+                "minutes": 1,
+                "properties": { "deployment": "staging" }
+            },
+            { "event": "$ai_generation", "trace_id": "customer", "minutes": 0 }
+        ],
+        "selection": { "date_from": -60, "date_to": 60, "filter_test_accounts": false },
+        "expected_trace_ids": ["internal", "customer"],
+        "expected_counts": { "total": 2, "errors": 0, "feedback": 0 }
+    },
+    {
+        "name": "the test account filters follow the project default when the selection leaves the switch unset",
+        "team_test_account_filters": [
+            { "key": "deployment", "value": ["staging"], "operator": "is_not", "type": "event" }
+        ],
+        "team_test_account_filters_default_checked": true,
+        "events": [
+            {
+                "event": "$ai_generation",
+                "trace_id": "internal",
+                "minutes": 1,
+                "properties": { "deployment": "staging" }
+            },
+            { "event": "$ai_generation", "trace_id": "customer", "minutes": 0 }
+        ],
+        "selection": { "date_from": -60, "date_to": 60 },
+        "expected_trace_ids": ["customer"],
+        "expected_counts": { "total": 1, "errors": 0, "feedback": 0 }
+    },
+    {
+        "name": "a support impersonated trace is hidden by default",
+        "events": [
+            {
+                "event": "$ai_generation",
+                "trace_id": "impersonated",
+                "minutes": 1,
+                "properties": { "ai_support_impersonated": "true" }
+            },
+            { "event": "$ai_generation", "trace_id": "own", "minutes": 0 }
+        ],
+        "selection": { "date_from": -60, "date_to": 60 },
+        "expected_trace_ids": ["own"],
+        "expected_counts": { "total": 1, "errors": 0, "feedback": 0 }
+    },
+    {
+        "name": "a support impersonated trace shows when support traces are included",
+        "events": [
+            {
+                "event": "$ai_generation",
+                "trace_id": "impersonated",
+                "minutes": 1,
+                "properties": { "ai_support_impersonated": "true" }
+            },
+            { "event": "$ai_generation", "trace_id": "own", "minutes": 0 }
+        ],
+        "selection": { "date_from": -60, "date_to": 60, "include_support_traces": true },
+        "expected_trace_ids": ["impersonated", "own"],
+        "expected_counts": { "total": 2, "errors": 0, "feedback": 0 }
+    },
+    {
+        "name": "the errors quick filter keeps failed traces while the counts cover the whole selection",
+        "events": [
+            { "event": "$ai_span", "trace_id": "failed", "minutes": 0 },
+            {
+                "event": "$ai_generation",
+                "trace_id": "failed",
+                "minutes": 1,
+                "properties": { "$ai_is_error": true }
+            },
+            { "event": "$ai_generation", "trace_id": "healthy", "minutes": 2 },
+            { "event": "$ai_generation", "trace_id": "rated", "minutes": 3 },
+            { "event": "$ai_feedback", "trace_id": "rated", "minutes": 4 }
+        ],
+        "selection": { "date_from": -60, "date_to": 60, "quick_filter": "errors" },
+        "expected_trace_ids": ["failed"],
+        "expected_counts": { "total": 3, "errors": 1, "feedback": 1 }
+    },
+    {
+        "name": "the feedback quick filter keeps traces with a feedback or metric event",
+        "events": [
+            { "event": "$ai_generation", "trace_id": "with-feedback", "minutes": 0 },
+            { "event": "$ai_feedback", "trace_id": "with-feedback", "minutes": 1 },
+            { "event": "$ai_generation", "trace_id": "with-metric", "minutes": 2 },
+            { "event": "$ai_metric", "trace_id": "with-metric", "minutes": 3 },
+            { "event": "$ai_generation", "trace_id": "plain", "minutes": 4 }
+        ],
+        "selection": { "date_from": -60, "date_to": 60, "quick_filter": "feedback" },
+        "expected_trace_ids": ["with-metric", "with-feedback"],
+        "expected_counts": { "total": 3, "errors": 0, "feedback": 2 }
+    },
+    {
+        "name": "a search term matches generation input or output and combines with a filter on another event",
+        "events": [
+            {
+                "event": "$ai_generation",
+                "trace_id": "term-in-input",
+                "minutes": 0,
+                "properties": { "$ai_input": "Please total the Invoice", "$ai_output": "Done" }
+            },
+            {
+                "event": "$ai_span",
+                "trace_id": "term-in-input",
+                "minutes": 1,
+                "properties": { "customer_tier": "gold" }
+            },
+            {
+                "event": "$ai_generation",
+                "trace_id": "term-in-output",
+                "minutes": 2,
+                "properties": {
+                    "$ai_input": "What is due?",
+                    "$ai_output": "The invoice is due",
+                    "customer_tier": "gold"
+                }
+            },
+            {
+                "event": "$ai_generation",
+                "trace_id": "filter-without-term",
+                "minutes": 3,
+                "properties": { "$ai_input": "Hello", "$ai_output": "Hi", "customer_tier": "gold" }
+            },
+            {
+                "event": "$ai_generation",
+                "trace_id": "term-without-filter",
+                "minutes": 4,
+                "properties": { "$ai_input": "Send the invoice", "$ai_output": "Sent" }
+            },
+            {
+                "event": "$ai_span",
+                "trace_id": "term-in-span",
+                "minutes": 5,
+                "properties": { "$ai_input": "invoice", "customer_tier": "gold" }
+            }
+        ],
+        "selection": {
+            "date_from": -60,
+            "date_to": 60,
+            "search": "invoice",
+            "properties": [{ "key": "customer_tier", "value": "gold", "operator": "exact", "type": "event" }]
+        },
+        "expected_trace_ids": ["term-in-output", "term-in-input"],
+        "expected_counts": { "total": 2, "errors": 0, "feedback": 0 }
+    },
+    {
+        "name": "a search term matches percent and underscore literally",
+        "events": [
+            {
+                "event": "$ai_generation",
+                "trace_id": "literal",
+                "minutes": 0,
+                "properties": { "$ai_input": "Apply 50%_off now" }
+            },
+            {
+                "event": "$ai_generation",
+                "trace_id": "wildcard-lookalike",
+                "minutes": 1,
+                "properties": { "$ai_input": "Apply 50 more off now" }
+            }
+        ],
+        "selection": { "date_from": -60, "date_to": 60, "search": "50%_off" },
+        "expected_trace_ids": ["literal"],
+        "expected_counts": { "total": 1, "errors": 0, "feedback": 0 }
+    },
+    {
+        "name": "a person scope keeps only that person's traces",
+        "events": [
+            {
+                "event": "$ai_generation",
+                "trace_id": "scoped-person",
+                "minutes": 0,
+                "person_id": "00000000-0000-4000-8000-00000000000a"
+            },
+            {
+                "event": "$ai_generation",
+                "trace_id": "other-person",
+                "minutes": 1,
+                "person_id": "00000000-0000-4000-8000-00000000000b"
+            }
+        ],
+        "selection": { "date_from": -60, "date_to": 60, "person_id": "00000000-0000-4000-8000-00000000000a" },
+        "expected_trace_ids": ["scoped-person"],
+        "expected_counts": { "total": 1, "errors": 0, "feedback": 0 }
+    },
+    {
+        "name": "a group scope keeps only that group's traces",
+        "events": [
+            {
+                "event": "$ai_generation",
+                "trace_id": "scoped-group",
+                "minutes": 0,
+                "properties": { "$group_1": "org-a" }
+            },
+            {
+                "event": "$ai_generation",
+                "trace_id": "other-group",
+                "minutes": 1,
+                "properties": { "$group_1": "org-b" }
+            },
+            {
+                "event": "$ai_generation",
+                "trace_id": "same-key-other-type",
+                "minutes": 2,
+                "properties": { "$group_0": "org-a" }
+            }
+        ],
+        "selection": { "date_from": -60, "date_to": 60, "group": { "key": "org-a", "type_index": 1 } },
+        "expected_trace_ids": ["scoped-group"],
+        "expected_counts": { "total": 1, "errors": 0, "feedback": 0 }
+    },
+    {
+        "name": "a trace with only feedback events in range is neither listed nor counted",
+        "events": [
+            { "event": "$ai_generation", "trace_id": "rated-before-window", "minutes": -80 },
+            { "event": "$ai_feedback", "trace_id": "rated-before-window", "minutes": 5 },
+            { "event": "$ai_metric", "trace_id": "metric-only", "minutes": 6 },
+            { "event": "$ai_generation", "trace_id": "listed", "minutes": 0 }
+        ],
+        "selection": { "date_from": -60, "date_to": 60 },
+        "expected_trace_ids": ["listed"],
+        "expected_counts": { "total": 1, "errors": 0, "feedback": 0 }
+    },
+    {
+        "name": "an empty selection returns no traces and zero counts",
+        "events": [],
+        "selection": { "date_from": -60, "date_to": 60 },
+        "expected_trace_ids": [],
+        "expected_counts": { "total": 0, "errors": 0, "feedback": 0 }
+    }
+]

@@ -4,12 +4,14 @@ import { IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconKey } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { cimdVerificationTokensLogic, validateCimdUrl, CIMDVerificationToken } from './cimdVerificationTokensLogic'
+import { QuillCIMDVerificationTokens } from './QuillCIMDVerificationTokens'
 
 export function CIMDVerificationTokens(): JSX.Element {
     const {
@@ -38,10 +40,35 @@ export function CIMDVerificationTokens(): JSX.Element {
         bindToken,
     } = useActions(cimdVerificationTokensLogic)
     const { preflight } = useValues(preflightLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const hasUnboundToken = tokens.some((token) => !token.cimd_url)
     // One metadata document serves every region and carries one token, so one instance issues every token.
     const tokenIssuerUrl = preflight?.cimd_verification_token_issuer_url
     const tokenIssuerHost = tokenIssuerUrl ? new URL(tokenIssuerUrl).host : null
+
+    const confirmRevokeToken = (row: CIMDVerificationToken): void =>
+        LemonDialog.open({
+            title: `Revoke token "${row.label}"?`,
+            description:
+                'Partners using this token in their CIMD metadata will no longer be recognized and will fall back to the anonymous rate limit tier.',
+            primaryButton: {
+                children: 'Revoke',
+                status: 'danger',
+                onClick: () => deleteToken(row),
+            },
+            secondaryButton: { children: 'Cancel' },
+        })
+
+    if (todayRailNav) {
+        return (
+            <QuillCIMDVerificationTokens
+                hasUnboundToken={hasUnboundToken}
+                tokenIssuerUrl={tokenIssuerUrl}
+                tokenIssuerHost={tokenIssuerHost}
+                onRevoke={confirmRevokeToken}
+            />
+        )
+    }
 
     return (
         <div className="space-y-4">
@@ -164,19 +191,7 @@ export function CIMDVerificationTokens(): JSX.Element {
                                         size="small"
                                         status="danger"
                                         tooltip="Revoke token"
-                                        onClick={() =>
-                                            LemonDialog.open({
-                                                title: `Revoke token "${row.label}"?`,
-                                                description:
-                                                    'Partners using this token in their CIMD metadata will no longer be recognized and will fall back to the anonymous rate limit tier.',
-                                                primaryButton: {
-                                                    children: 'Revoke',
-                                                    status: 'danger',
-                                                    onClick: () => deleteToken(row),
-                                                },
-                                                secondaryButton: { children: 'Cancel' },
-                                            })
-                                        }
+                                        onClick={() => confirmRevokeToken(row)}
                                     />
                                 </div>
                             ),

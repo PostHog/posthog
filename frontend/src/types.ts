@@ -43,6 +43,7 @@ import type {
     ErrorTrackingAIFeatureEnumApi,
     FlagEvaluationsModeEnumApi,
     OrganizationMemberNoticeApi,
+    OrganizationExternalProjectLinkApi,
     OrganizationTeamBasicApi,
     OrganizationNotificationLockApi,
     ProjectApi,
@@ -109,6 +110,7 @@ import type {
     DataWarehouseSavedQueryApiSuspended,
     SyncFrequencyBoundsApi,
 } from 'products/data_warehouse/frontend/generated/api.schemas'
+import type { EndpointPlanClampApi } from 'products/endpoints/frontend/generated/api.schemas'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
 import type { CommentSlackThreadRefApi } from 'products/platform_features/frontend/generated/api.schemas'
@@ -303,13 +305,14 @@ export enum Region {
     DEV = 'DEV',
 }
 
-export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml' | 'oidc'
+export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'chatgpt' | 'saml' | 'oidc'
 export type LoginMethod = SSOProvider | 'password' | 'passkey' | null
 
 export interface AuthBackends {
     'google-oauth2'?: boolean
     gitlab?: boolean
     github?: boolean
+    chatgpt?: boolean
     saml?: boolean
     oidc?: boolean
 }
@@ -653,6 +656,7 @@ export interface OrganizationType extends OrganizationBasicType {
     enforce_2fa: boolean | null
     enforce_verified_domains: boolean | null
     is_ai_data_processing_approved?: boolean
+    is_ai_data_processing_locked?: boolean
     is_ai_training_opted_in?: boolean
     is_ai_training_locked?: boolean
     is_ai_training_cta_shown?: boolean
@@ -671,7 +675,7 @@ export interface OrganizationType extends OrganizationBasicType {
     member_count: number
     default_anonymize_ips?: boolean
     default_role_id?: string | null
-    uses_most_specific_access_resolution?: boolean | null
+    external_project_links?: OrganizationExternalProjectLinkApi[]
 }
 
 export interface OrganizationDomainType {
@@ -772,9 +776,6 @@ export interface TeamBasicType extends WithAccessControl {
     organization: string // Organization ID
     project_id: number
     api_token: string
-    // Null in every response except rotate_secret_token, which returns the newly minted token once. The fields drop with the column retirement (#66179).
-    secret_api_token: string | null
-    secret_api_token_backup: string | null
     name: string
     completed_snippet_onboarding: boolean
     has_completed_onboarding_for?: Record<string, boolean>
@@ -2736,6 +2737,7 @@ export interface EndpointType extends WithAccessControl {
     created_by: UserBasicType | null
     data_freshness_seconds: number
     plan_refresh_floor_seconds: number | null
+    plan_clamp: EndpointPlanClampApi | null
     is_materialized: boolean
     current_version: number
     current_version_id: string
@@ -6341,6 +6343,8 @@ export interface DataWarehouseSavedQuery {
     sync_frequency?: string
     /** Which cadences this view's lineage allows, and what withholds the rest. Single fetches only */
     sync_frequency_bounds?: SyncFrequencyBoundsApi
+    /** Set while a plan floor rewrite of the cadence stands. Single fetches only */
+    plan_clamp?: DataWarehouseSavedQueryApi['plan_clamp']
     status?: string
     managed_viewset_kind: DataWarehouseManagedViewsetKind | null
     folder_id?: string | null

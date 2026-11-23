@@ -93,27 +93,43 @@ class TestRequestParams:
         assert result.raised is None
         assert result.queries == [{key: (str(value),) for key, value in {"perPage": 100, **expected}.items()}]
 
-    def test_entries_embeds_its_associations(self) -> None:
-        # Without the embeds an entry cannot be joined back to the record it belongs to.
-        result = _driver().run("entries", [_response({"entries": []})])
+    @parameterized.expand(
+        [
+            # Without the embeds an entry cannot be joined back to the record it belongs to.
+            ("entries", "party,kase,opportunity,creator,activityType"),
+            # Without memberships a team row cannot be joined to its users.
+            ("teams", "memberships"),
+        ]
+    )
+    def test_lookup_endpoints_embed_their_associations(self, endpoint: str, expected_embed: str) -> None:
+        result = _driver().run(endpoint, [_response({endpoint: []})])
 
         assert result.raised is None
-        assert result.requests[0].param("embed") == "party,kase,opportunity,creator,activityType"
+        assert result.requests[0].param("embed") == expected_embed
 
     @parameterized.expand(
         [
-            ("party_tags", f"{CAPSULE_CRM_BASE_URL}/parties/tags"),
-            ("opportunity_tags", f"{CAPSULE_CRM_BASE_URL}/opportunities/tags"),
-            ("kase_tags", f"{CAPSULE_CRM_BASE_URL}/kases/tags"),
+            # Capsule has no top-level /tags or /fields collection; tag and custom field
+            # definitions hang off each entity type and share one wrapper key per kind.
+            ("party_tags", "/parties/tags", "tags"),
+            ("opportunity_tags", "/opportunities/tags", "tags"),
+            ("kase_tags", "/kases/tags", "tags"),
+            ("party_field_definitions", "/parties/fields/definitions", "definitions"),
+            ("opportunity_field_definitions", "/opportunities/fields/definitions", "definitions"),
+            ("kase_field_definitions", "/kases/fields/definitions", "definitions"),
+            ("teams", "/teams", "teams"),
+            ("goals", "/goals", "goals"),
+            # Track templates live under /trackdefinitions; /tracks only lists the tracks of one record.
+            ("track_definitions", "/trackdefinitions", "trackDefinitions"),
         ]
     )
-    def test_tag_endpoints_are_entity_scoped(self, endpoint: str, expected_url: str) -> None:
-        # Capsule has no top-level /tags collection; tag definitions hang off each entity type and
-        # all three nest under the same "tags" wrapper key.
-        result = _driver().run(endpoint, [_response({"tags": [{"id": 3, "name": "VIP"}]})])
+    def test_lookup_endpoint_reads_rows_from_its_path_and_wrapper_key(
+        self, endpoint: str, path: str, data_key: str
+    ) -> None:
+        result = _driver().run(endpoint, [_response({data_key: [{"id": 3, "name": "VIP"}]})])
 
         assert result.raised is None
-        assert result.requests[0].origin + result.requests[0].path == expected_url
+        assert result.requests[0].origin + result.requests[0].path == f"{CAPSULE_CRM_BASE_URL}{path}"
         assert result.rows == [{"id": 3, "name": "VIP"}]
 
     def test_since_ignored_for_full_refresh_only_endpoint(self) -> None:

@@ -112,6 +112,26 @@ def _uses_server_filter(config: GorgiasEndpointConfig, sort_field: str | None) -
     return sort_field is not None and sort_field in config.filterable_datetime_fields
 
 
+def _drop_fields(row: Any, paths: tuple[str, ...]) -> Any:
+    if not paths or not isinstance(row, dict):
+        return row
+    row = dict(row)
+    for path in paths:
+        parent, _, leaf = path.rpartition(".")
+        if not parent:
+            row.pop(leaf, None)
+        elif isinstance(row.get(parent), dict):
+            row[parent] = {key: value for key, value in row[parent].items() if key != leaf}
+    return row
+
+
+def _page_items_and_cursor(data: Any) -> tuple[list[Any], str | None]:
+    # Some list endpoints (rules, widgets) are documented as returning a bare array with no cursor.
+    if isinstance(data, list):
+        return data, None
+    return data.get("data") or [], (data.get("meta") or {}).get("next_cursor")
+
+
 def _field_value_as_text(value: Any) -> Any:
     # Values are text, number, or boolean depending on the field, so keep the column one type
     # rather than mixing them across rows.
@@ -366,7 +386,7 @@ def get_rows(
             return fetch_child_rows(config.child_path, items)
         if config.ticket_child:
             return _flatten_ticket_child(items, config.ticket_child)
-        return items
+        return [_drop_fields(item, config.dropped_fields) for item in items]
 
     if config.paged_child_path:
         yield from paged_child_rows(config.paged_child_path)
@@ -377,8 +397,7 @@ def get_rows(
         while True:
             data = fetch_page(cursor, variant_params)
 
-            items = data.get("data", [])
-            next_cursor = (data.get("meta") or {}).get("next_cursor")
+            items, next_cursor = _page_items_and_cursor(data)
 
             # Rows arrive newest-first under incremental sort; once an entire page predates the
             # watermark, everything further back is already synced, so stop.

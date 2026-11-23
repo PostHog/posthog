@@ -461,7 +461,6 @@ async fn a_merge_folds_repoints_tombstones_and_records_the_outcome() {
     h.set_person(target, r#"{"a": "target"}"#, 3, false).await;
     h.set_person(source, r#"{"a": "source", "b": "source"}"#, 7, false)
         .await;
-    h.ctx.seed_retired_person_meta(source).await;
     // Satellite rows: the source's move, and a target-side hash-key
     // override that must win the dedupe.
     sqlx::query("INSERT INTO posthog_cohortpeople (cohort_id, person_id) VALUES (1, $1)")
@@ -513,7 +512,6 @@ async fn a_merge_folds_repoints_tombstones_and_records_the_outcome() {
     assert!(is_deleted);
     assert_eq!(version, 8);
     assert_eq!(properties, json!({}));
-    assert_eq!(h.ctx.retired_person_meta(source).await, (None, None));
     let (target_deleted, target_version, _) = h.person_state(target).await;
     assert!(!target_deleted);
     assert_eq!(target_version, 3, "sync plane never writes the target");

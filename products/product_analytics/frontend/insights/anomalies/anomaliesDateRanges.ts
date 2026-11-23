@@ -7,6 +7,7 @@ export interface AnomaliesDateRange {
 // Shortest first, so the empty state can offer the next one.
 export const ANOMALIES_DATE_RANGES: AnomaliesDateRange[] = [
     { dateFrom: '-24h', label: 'Last 24 hours' },
+    { dateFrom: '-3d', label: 'Last 3 days' },
     { dateFrom: '-7d', label: 'Last 7 days' },
     { dateFrom: '-14d', label: 'Last 14 days' },
     { dateFrom: '-30d', label: 'Last 30 days' },

@@ -1145,6 +1145,8 @@ export const customerTasksListQueryLimitMax = 100
 export const customerTasksListQueryOffsetDefault = 0
 export const customerTasksListQueryOffsetMin = 0
 
+export const customerTasksListQueryTagsMax = 306402
+
 export const CustomerTasksListQueryParams = () => zod.object({
     account_id: zod.string().optional().describe('Filter by account UUID.'),
     archive_state: zod
@@ -1181,6 +1183,14 @@ export const CustomerTasksListQueryParams = () => zod.object({
         ),
     search: zod.string().optional().describe('Search task name and description.'),
     statuses: zod.string().min(1).optional().describe('Comma-separated task statuses.'),
+    tags: zod
+        .string()
+        .min(1)
+        .max(customerTasksListQueryTagsMax)
+        .optional()
+        .describe(
+            'JSON-encoded list of tag names, such as [\"renewal\", \"urgent\"]. Returns tasks with any of the tags.'
+        ),
 })
 
 export const CustomerTasksCreateParams = () => zod.object({
@@ -1194,6 +1204,9 @@ export const CustomerTasksCreateParams = () => zod.object({
 export const customerTasksCreateBodyNameMax = 400
 
 export const customerTasksCreateBodyStatusDefault = `open`
+export const customerTasksCreateBodyTagsItemMax = 255
+
+export const customerTasksCreateBodyTagsMax = 100
 
 export const CustomerTasksCreateBody = () => zod.object({
     account_id: zod.string().nullish().describe('UUID of a visible account, or null for an accountless task.'),
@@ -1210,6 +1223,11 @@ export const CustomerTasksCreateBody = () => zod.object({
         .describe(
             'Initial task status.\n\n\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
         ),
+    tags: zod
+        .array(zod.string().max(customerTasksCreateBodyTagsItemMax))
+        .max(customerTasksCreateBodyTagsMax)
+        .optional()
+        .describe('Tag names for the task, up to 100.'),
 })
 
 export const CustomerTasksRetrieveParams = () => zod.object({
@@ -1230,6 +1248,10 @@ export const CustomerTasksPartialUpdateParams = () => zod.object({
         ),
 })
 
+export const customerTasksPartialUpdateBodyTagsItemMax = 255
+
+export const customerTasksPartialUpdateBodyTagsMax = 100
+
 export const customerTasksPartialUpdateBodyNameMax = 400
 
 export const CustomerTasksPartialUpdateBody = () => zod.object({
@@ -1248,6 +1270,11 @@ export const CustomerTasksPartialUpdateBody = () => zod.object({
         .describe(
             'Replacement task status.\n\n\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
         ),
+    tags: zod
+        .array(zod.string().max(customerTasksPartialUpdateBodyTagsItemMax))
+        .max(customerTasksPartialUpdateBodyTagsMax)
+        .optional()
+        .describe('Replacement tag names, up to 100. An empty list removes every tag.'),
     name: zod.string().max(customerTasksPartialUpdateBodyNameMax).optional().describe('Replacement task name.'),
     description: zod.string().nullish().describe('Replacement description, or null to clear it.'),
 })

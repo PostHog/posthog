@@ -7,7 +7,7 @@ import datetime as dt
 import contextlib
 import collections
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 
 from django.conf import settings
 from django.db import transaction
@@ -53,7 +53,7 @@ from posthog.temporal.common.clickhouse import (
     get_client as get_clickhouse_client,
 )
 from posthog.temporal.common.db_errors import is_transient_db_error
-from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.common.errors import NonReportableApplicationError, NonReportableError
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
@@ -264,6 +264,32 @@ class UnstorableIntegerError(NonReportableError):
             f"materialized table can store. Wrap the column in toString() to store it as text."
         )
         self.column = column
+
+
+class RustPanicError(Exception):
+    """A panic inside a Rust extension that the write path calls, such as delta-rs or deltalite.
+
+    pyo3 raises a panic as PanicException, which derives from BaseException. The activity's
+    failure handling catches Exception, so a panic skips the failed-attempt log and the discard of
+    staged CDP rows. This error replaces the panic and keeps its message, because the failure
+    classification in utils.py matches on that message.
+    """
+
+
+def _is_rust_panic(error: BaseException) -> bool:
+    # pyo3 creates PanicException at runtime, so no module exports it for an isinstance check.
+    error_type = type(error)
+    return error_type.__module__ == "pyo3_runtime" and error_type.__name__ == "PanicException"
+
+
+@contextlib.contextmanager
+def _rust_panics_as_errors() -> Iterator[None]:
+    try:
+        yield
+    except BaseException as error:
+        if _is_rust_panic(error):
+            raise RustPanicError(str(error)) from error
+        raise
 
 
 class DuplicateOutputColumnError(NonReportableError):
@@ -488,6 +514,29 @@ def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, 
     return pa.RecordBatch.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
 
 
+def _nullable_type(arrow_type: pa.DataType) -> pa.DataType:
+    if pa.types.is_large_list(arrow_type):
+        return pa.large_list(_nullable_field(arrow_type.value_field))
+
+    if pa.types.is_list(arrow_type):
+        return pa.list_(_nullable_field(arrow_type.value_field))
+
+    if pa.types.is_struct(arrow_type):
+        return pa.struct([_nullable_field(field) for field in arrow_type])
+
+    if pa.types.is_map(arrow_type):
+        # A map built from types has a nullable value and a non-nullable key, which Arrow requires.
+        return pa.map_(
+            _nullable_type(arrow_type.key_type), _nullable_type(arrow_type.item_type), arrow_type.keys_sorted
+        )
+
+    return arrow_type
+
+
+def _nullable_field(field: pa.Field) -> pa.Field:
+    return field.with_type(_nullable_type(field.type)).with_nullable(True)
+
+
 def _force_nullable(batch: pa.RecordBatch) -> pa.RecordBatch:
     """Mark every column nullable so batch schemas don't diverge across delta commits.
 
@@ -499,42 +548,88 @@ def _force_nullable(batch: pa.RecordBatch) -> pa.RecordBatch:
     mean 'userId'?" — breaking any column with uppercase characters. Pinning every column to
     nullable keeps each batch's schema identical to the first overwrite, so the append never
     triggers that path and camelCase column names survive.
+
+    Nested children are relaxed too. A list element, struct field or map value that is
+    non-nullable in the first batch and nullable in a later one is accepted by the append, but
+    compaction then fails because it cannot cast the nullable child back to non-nullable.
     """
     nullable_schema = pa.schema(
-        [pa.field(field.name, field.type, nullable=True, metadata=field.metadata) for field in batch.schema],
+        [_nullable_field(field) for field in batch.schema],
         metadata=typing.cast("dict[bytes | str, bytes | str] | None", batch.schema.metadata),
     )
     return batch.cast(nullable_schema)
 
 
+class UnstorableDecimalError(NonReportableApplicationError):
+    """A nested column holds a decimal with more digits than the 128-bit decimals Delta Lake has.
+
+    Non-retryable here rather than in the workflow's retry policy, so that a retry of the same
+    query does not repeat the read and the writes before it fails on the same value again.
+    """
+
+    def __init__(self, column: str) -> None:
+        super().__init__(
+            f'Column "{column}" has decimal values with more than 38 digits, which is the most a '
+            f"materialized table can store. Round the values, or wrap the column in toString() to store it as text.",
+            type="UnstorableDecimalError",
+            non_retryable=True,
+        )
+        self.column = column
+
+
+DELTA_MAX_DECIMAL_PRECISION = 38
+
+
+def _delta_decimal_type(arrow_type: pa.DataType) -> pa.DataType:
+    """The type Delta Lake stores this as. Unchanged unless a decimal wider than 128 bits is in it."""
+    if pa.types.is_decimal256(arrow_type):
+        if arrow_type.precision <= DELTA_MAX_DECIMAL_PRECISION:
+            return pa.decimal128(arrow_type.precision, arrow_type.scale)
+        return pa.decimal128(DELTA_MAX_DECIMAL_PRECISION, min(arrow_type.scale, DELTA_MAX_DECIMAL_PRECISION - 1))
+
+    if pa.types.is_large_list(arrow_type):
+        return pa.large_list(_delta_decimal_field(arrow_type.value_field))
+
+    if pa.types.is_list(arrow_type):
+        return pa.list_(_delta_decimal_field(arrow_type.value_field))
+
+    if pa.types.is_struct(arrow_type):
+        return pa.struct([_delta_decimal_field(field) for field in arrow_type])
+
+    if pa.types.is_map(arrow_type):
+        return pa.map_(
+            _delta_decimal_type(arrow_type.key_type), _delta_decimal_type(arrow_type.item_type), arrow_type.keys_sorted
+        )
+
+    return arrow_type
+
+
+def _delta_decimal_field(field: pa.Field) -> pa.Field:
+    return field.with_type(_delta_decimal_type(field.type))
+
+
 def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
-    """Transform high-precision decimal columns to types supported by Delta Lake."""
+    """Transform decimal columns wider than 128 bits, at any depth, to types supported by Delta Lake."""
     schema = batch.schema
-    columns_to_cast: dict[str, pa.DataType] = {}
-
-    precision = 38
-    scale = 38 - 1
-
-    for field in schema:
-        if isinstance(field.type, pa.Decimal128Type | pa.Decimal256Type):
-            if field.type.precision > 38:
-                original_scale = field.type.scale
-                new_scale = min(original_scale, scale)
-                columns_to_cast[field.name] = pa.decimal128(precision, new_scale)
-
-    if not columns_to_cast:
+    target_fields = [_delta_decimal_field(field) for field in schema]
+    if all(target.type.equals(field.type) for target, field in zip(target_fields, schema)):
         return batch
+
+    precision = DELTA_MAX_DECIMAL_PRECISION
+    scale = DELTA_MAX_DECIMAL_PRECISION - 1
 
     new_columns: list[pa.Array] = []
     new_fields: list[pa.Field] = []
 
-    for field in batch.schema:
+    for field, target in zip(schema, target_fields):
         col = batch[field.name]
-        if field.name in columns_to_cast:
-            decimal128_type = columns_to_cast[field.name]
+        if target.type.equals(field.type):
+            new_fields.append(field)
+            new_columns.append(col)
+        elif pa.types.is_decimal(field.type):
             try:
-                cast_col = pc.cast(col, decimal128_type)
-                new_fields.append(field.with_type(decimal128_type))
+                cast_col = pc.cast(col, target.type)
+                new_fields.append(target)
                 new_columns.append(cast_col)
             except Exception:
                 reduced_decimal_type = pa.decimal128(precision, scale)
@@ -545,14 +640,153 @@ def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
                 new_fields.append(field.with_type(reduced_decimal_type))
                 new_columns.append(cast_reduced)
         else:
-            new_fields.append(field)
-            new_columns.append(col)
+            try:
+                new_columns.append(pc.cast(col, target.type))
+            except pa.ArrowInvalid as err:
+                raise UnstorableDecimalError(field.name) from err
+            new_fields.append(target)
 
     new_metadata: dict[str | bytes, str | bytes] | None = (
         typing.cast(dict[str | bytes, str | bytes], dict(schema.metadata)) if schema.metadata else None
     )
 
     return pa.RecordBatch.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
+
+
+# A slice that holds invalid UTF-8 is halved until its strings fit in this many bytes, and only
+# then decoded in Python. The decode holds the slice as bytes and as str objects at once, so this
+# bounds that memory. A single value is decoded whole, so its memory scales with one value that
+# ClickHouse already returned.
+UTF8_REPAIR_MAX_BYTES = 1024 * 1024
+
+
+def _is_valid_utf8(array: pa.Array | pa.RecordBatch) -> bool:
+    try:
+        array.validate(full=True)
+    except pa.ArrowInvalid as error:
+        if "Invalid UTF8 sequence" not in str(error):
+            raise
+        return False
+    return True
+
+
+def _collect_repaired_strings(array: pa.Array, pieces: list[pa.Array]) -> None:
+    if _is_valid_utf8(array):
+        pieces.append(array)
+        return
+    string_bytes = pc.sum(pc.binary_length(typing.cast(pa.StringArray, array))).as_py() or 0
+    if len(array) > 1 and string_bytes > UTF8_REPAIR_MAX_BYTES:
+        middle = len(array) // 2
+        _collect_repaired_strings(array.slice(0, middle), pieces)
+        _collect_repaired_strings(array.slice(middle), pieces)
+        return
+    binary_type = pa.large_binary() if pa.types.is_large_string(array.type) else pa.binary()
+    raw = typing.cast(list[bytes | None], array.cast(binary_type).to_pylist())
+    pieces.append(
+        pa.array([None if value is None else value.decode("utf-8", errors="replace") for value in raw], type=array.type)
+    )
+
+
+def _replace_invalid_utf8_in_strings(array: pa.Array) -> pa.Array:
+    pieces: list[pa.Array] = []
+    _collect_repaired_strings(array, pieces)
+    return pa.concat_arrays(pieces)
+
+
+def _utf8_repaired(array: pa.Array) -> pa.Array:
+    if _is_valid_utf8(array):
+        return array
+
+    arrow_type = array.type
+    if pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type):
+        return _replace_invalid_utf8_in_strings(array)
+
+    # pyarrow cannot rebuild a sliced nested array with a null mask, so the rebuild starts from an
+    # unsliced copy. This copy happens only for a column that holds invalid UTF-8.
+    array = pa.concat_arrays([array])
+    if pa.types.is_large_list(arrow_type):
+        large_list = typing.cast(pa.LargeListArray, array)
+        return pa.LargeListArray.from_arrays(
+            large_list.offsets, _utf8_repaired(large_list.values), type=arrow_type, mask=large_list.is_null()
+        )
+    if pa.types.is_list(arrow_type):
+        list_array = typing.cast(pa.ListArray, array)
+        return pa.ListArray.from_arrays(
+            list_array.offsets, _utf8_repaired(list_array.values), type=arrow_type, mask=list_array.is_null()
+        )
+    if pa.types.is_struct(arrow_type):
+        struct_array = typing.cast(pa.StructArray, array)
+        return pa.StructArray.from_arrays(
+            [_utf8_repaired(struct_array.field(index)) for index in range(arrow_type.num_fields)],
+            fields=list(arrow_type),
+            mask=struct_array.is_null(),
+        )
+    if pa.types.is_map(arrow_type):
+        map_array = typing.cast(pa.MapArray, array)
+        # The stubs accept a type only with an entries struct, a form pyarrow itself rejects.
+        return pa.MapArray.from_arrays(  # type: ignore[call-overload]
+            map_array.offsets,
+            _utf8_repaired(map_array.keys),
+            _utf8_repaired(map_array.items),
+            type=arrow_type,
+            mask=map_array.is_null(),
+        )
+    return array
+
+
+class InvalidUtf8KeyError(NonReportableApplicationError):
+    """An incremental or unique key column holds text that is not valid UTF-8.
+
+    The replacement character can turn two different keys into one, and deltalite refuses to
+    upsert the raw bytes, so the run fails before it writes anything.
+    """
+
+    def __init__(self, column: str) -> None:
+        super().__init__(
+            f'Key column "{column}" has text that is not valid UTF-8, so a materialized table cannot use it as a '
+            f"key. To key on its hex form, write hex({column}) AS {column} in the query.",
+            type="InvalidUtf8KeyError",
+            non_retryable=True,
+        )
+        self.column = column
+
+
+def _replace_invalid_utf8(batch: pa.RecordBatch, key_columns: Collection[str] = ()) -> pa.RecordBatch:
+    """Replace byte sequences that are not valid UTF-8 in string values, at any depth, with U+FFFD.
+
+    A ClickHouse String holds arbitrary bytes, and the Arrow stream sends it as an Arrow string
+    without a check. Parquet stores the bytes as they are, but deltalake, DuckDB and Trino then
+    refuse to read the file. The column keeps its string type so that the table schema does not
+    depend on the data in one batch.
+
+    A key column with invalid UTF-8 fails the run instead. The replacement can turn two different
+    keys into the same string, which would merge two rows on a unique key, or move an incremental
+    watermark past rows that the next run must still read.
+    """
+    if _is_valid_utf8(batch):
+        return batch
+    for column in key_columns:
+        if column in batch.schema.names and not _is_valid_utf8(batch.column(column)):
+            raise InvalidUtf8KeyError(column)
+    repaired: list[pa.Array] = []
+    for field, array in zip(batch.schema, batch.columns):
+        repaired_array = _utf8_repaired(array)
+        # The repair returns a type it does not rebuild, such as a dictionary of strings, unchanged.
+        # Writing it would store a file that Delta readers refuse.
+        if not _is_valid_utf8(repaired_array):
+            raise ApplicationError(
+                f'Column "{field.name}" of type {field.type} still has invalid UTF-8 after the repair.',
+                type="UnrepairedUtf8Error",
+                non_retryable=True,
+            )
+        repaired.append(repaired_array)
+    return pa.RecordBatch.from_arrays(repaired, schema=batch.schema)
+
+
+def _key_columns(plan: WritePlan) -> frozenset[str]:
+    if plan.config is None:
+        return frozenset()
+    return frozenset((plan.config.incremental_key, *plan.config.unique_key))
 
 
 _SIGNED_EQUIVALENT_BY_BIT_WIDTH = {8: pa.int16(), 16: pa.int32(), 32: pa.int64(), 64: pa.int64()}
@@ -1115,9 +1349,11 @@ async def _materialize_fully(
     # brief to_thread released between batches, never pins a worker thread for the whole
     # read — which is what starved the shared executor that heartbeats/db/logging use.
     batch_index = 0
+    key_columns = _key_columns(plan)
     try:
         async for batch, ch_types in hogql_table(hogql_query, objects.team, logger):
             batch = _transform_unsupported_decimals(batch)
+            batch = _replace_invalid_utf8(batch, key_columns=key_columns)
             batch = _transform_date_and_datetimes(batch, ch_types)
             batch = _transform_unsigned_integers(batch)
             batch = _force_nullable(batch)
@@ -1223,10 +1459,12 @@ async def _materialize_incrementally(
     # Staged per attempt, never cleared: a retry resumes past the watermark the failed attempt
     # already saved, so its staged rows are that window's only record (see PersonPropertyRowSink).
     batch_index = 0
+    key_columns = _key_columns(plan)
 
     try:
         async for batch, ch_types in hogql_table(hogql_query, objects.team, logger, window=window):
             batch = _transform_unsupported_decimals(batch)
+            batch = _replace_invalid_utf8(batch, key_columns=key_columns)
             batch = _transform_date_and_datetimes(batch, ch_types)
             batch = _transform_unsigned_integers(batch)
             batch = _force_nullable(batch)
@@ -1311,15 +1549,23 @@ async def _vacuum(delta_table: deltalake.DeltaTable, logger: FilteringBoundLogge
     A killed upsert leaves parquet that was never committed, so it carries no tombstone, and lite
     vacuum only reclaims tombstoned files. Those orphans would otherwise accumulate forever and
     inflate every later publish copy and folder-size read.
+
+    The vacuum commits to the delta log, so it can lose a commit race with a concurrent writer. The
+    run's data and watermark are already committed when this runs, and the next run vacuums again,
+    so a conflict here only logs a warning. It must not fail the run and make Temporal redo all the
+    work.
     """
     await logger.ainfo("Vacuuming delta table")
-    await asyncio.to_thread(
-        delta_table.vacuum,
-        retention_hours=DELTA_TABLE_RETENTION_HOURS,
-        enforce_retention_duration=False,
-        dry_run=False,
-        full=True,
-    )
+    try:
+        await asyncio.to_thread(
+            delta_table.vacuum,
+            retention_hours=DELTA_TABLE_RETENTION_HOURS,
+            enforce_retention_duration=False,
+            dry_run=False,
+            full=True,
+        )
+    except deltalake.exceptions.CommitFailedError as e:
+        await logger.awarning(f"Skipped the delta table vacuum because of a commit conflict: {e}")
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
@@ -1443,28 +1689,29 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             hogql_query = typing.cast(dict, objects.saved_query.query)["query"]
 
             try:
-                if plan.incremental:
-                    row_count, file_uris = await _materialize_incrementally(
-                        objects,
-                        plan,
-                        hogql_query,
-                        table_uri,
-                        storage_options,
-                        logger,
-                        cdp_sink,
-                        person_property_sink,
-                    )
-                else:
-                    row_count, file_uris = await _materialize_fully(
-                        objects,
-                        plan,
-                        hogql_query,
-                        table_uri,
-                        storage_options,
-                        logger,
-                        cdp_sink,
-                        person_property_sink,
-                    )
+                with _rust_panics_as_errors():
+                    if plan.incremental:
+                        row_count, file_uris = await _materialize_incrementally(
+                            objects,
+                            plan,
+                            hogql_query,
+                            table_uri,
+                            storage_options,
+                            logger,
+                            cdp_sink,
+                            person_property_sink,
+                        )
+                    else:
+                        row_count, file_uris = await _materialize_fully(
+                            objects,
+                            plan,
+                            hogql_query,
+                            table_uri,
+                            storage_options,
+                            logger,
+                            cdp_sink,
+                            person_property_sink,
+                        )
             except (Exception, asyncio.CancelledError):
                 # A retry stages from scratch and a terminal failure produces nothing, so whatever
                 # this attempt wrote is only ever waste.
@@ -1480,8 +1727,9 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         delta_version: int | None = None
         if account_property_sync_enabled:
             try:
-                delta_table = await _open_delta_table(table_uri, storage_options)
-                delta_version = delta_table.version()
+                with _rust_panics_as_errors():
+                    delta_table = await _open_delta_table(table_uri, storage_options)
+                    delta_version = delta_table.version()
             except Exception as error:
                 await logger.awarning(f"Could not resolve account-property Delta snapshot: {error}")
                 capture_exception(error)

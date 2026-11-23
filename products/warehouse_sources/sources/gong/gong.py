@@ -1,9 +1,11 @@
 import re
+import json
 import base64
+import hashlib
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import requests
 from dateutil import parser as dateutil_parser
@@ -47,6 +49,8 @@ class GongResumeConfig:
     # them quickly), so on resume we restart the in-progress window from scratch and let
     # primary-key merge semantics dedupe any re-yielded rows.
     window_start: Optional[str] = None
+    # Index into `query_variants` of the first variant of `window_start` still to fetch.
+    variant_index: Optional[int] = None
 
 
 def _to_datetime(value: Any) -> Optional[datetime]:
@@ -211,7 +215,7 @@ def get_rows(
 
 
 def _iter_cursor_rows(
-    config: GongEndpointConfig, fetch_page, base_params: Optional[dict[str, Any]] = None
+    config: GongEndpointConfig, fetch_page, base_params: Optional[dict[str, Any]] = None, path: Optional[str] = None
 ) -> Iterator[Any]:
     """Cursor-paginate a list endpoint until ``records.cursor`` is absent.
 
@@ -223,7 +227,7 @@ def _iter_cursor_rows(
         params: dict[str, Any] = dict(base_params or {})
         if cursor:
             params["cursor"] = cursor
-        data = fetch_page(_build_url(config.path, params))
+        data = fetch_page(_build_url(path or config.path, params))
 
         rows = data.get(config.response_key, [])
         if rows:
@@ -252,7 +256,13 @@ def _iter_fan_out_rows(config: GongEndpointConfig, parent_name: str, param: str,
             if not parent_value:
                 continue
 
-            for rows in _iter_cursor_rows(config, fetch_page, {param: parent_value}):
+            if config.fan_out_in_path:
+                child_rows = _iter_cursor_rows(
+                    config, fetch_page, path=config.path.replace(f"{{{param}}}", quote(str(parent_value), safe=""))
+                )
+            else:
+                child_rows = _iter_cursor_rows(config, fetch_page, {param: parent_value})
+            for rows in child_rows:
                 if config.fan_out_column:
                     rows = [{**row, config.fan_out_column: parent_value} for row in rows]
                 if config.dedupe_fan_out_rows:
@@ -304,12 +314,14 @@ def _iter_windowed_rows(
 
     window_start = last_value or (end - timedelta(days=DEFAULT_INITIAL_LOOKBACK_DAYS))
 
+    first_variant = 0
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume_config is not None and resume_config.window_start:
         resumed = _to_datetime(resume_config.window_start)
         if resumed is not None:
             logger.debug(f"Gong: resuming calls from window start {resume_config.window_start}")
             window_start = resumed
+            first_variant = resume_config.variant_index or 0
 
     while window_start < end:
         window_end = min(window_start + timedelta(days=config.window_days or MAX_WINDOW_DAYS), end)
@@ -319,7 +331,16 @@ def _iter_windowed_rows(
         elif config.date_filter_keys:
             yield from _iter_date_filtered_rows(config, config.date_filter_keys, fetch_page, window_start, window_end)
         else:
-            yield from _iter_call_rows(config, fetch_page, window_start, window_end)
+            variants = config.query_variants or ({},)
+            for index in range(first_variant, len(variants)):
+                yield from _iter_call_rows(config, fetch_page, window_start, window_end, variants[index])
+                if index + 1 < len(variants):
+                    # Each variant of a window can come back empty, so record progress between them.
+                    resumable_source_manager.save_state(
+                        GongResumeConfig(window_start=format_datetime(window_start, "iso_z"), variant_index=index + 1)
+                    )
+                    resumable_source_manager.safe_point()
+        first_variant = 0
 
         window_start = window_end
         resumable_source_manager.save_state(GongResumeConfig(window_start=format_datetime(window_start, "iso_z")))
@@ -327,10 +348,33 @@ def _iter_windowed_rows(
         resumable_source_manager.safe_point()
 
 
+def _row_id(row: dict[str, Any], fields: tuple[str, ...]) -> str:
+    return hashlib.sha256(json.dumps([row.get(f) for f in fields], sort_keys=True, default=str).encode()).hexdigest()
+
+
+def _stamp_rows(
+    config: GongEndpointConfig, rows: list[dict[str, Any]], variant: dict[str, str]
+) -> list[dict[str, Any]]:
+    """Copy each row with the query variant it was requested with, and its hashed id where it has none."""
+    if not variant and not config.row_id_column:
+        return rows
+    stamped = []
+    for row in rows:
+        row = {**row, **variant}
+        if config.row_id_column:
+            row[config.row_id_column] = _row_id(row, config.row_id_fields)
+        stamped.append(row)
+    return stamped
+
+
 def _iter_call_rows(
-    config: GongEndpointConfig, fetch_page, window_start: datetime, window_end: datetime
+    config: GongEndpointConfig,
+    fetch_page,
+    window_start: datetime,
+    window_end: datetime,
+    variant: Optional[dict[str, str]] = None,
 ) -> Iterator[Any]:
-    """Cursor-paginate one date window of `/v2/calls`, or of its extensive POST form."""
+    """Cursor-paginate one date window of `/v2/calls` or `/v2/logs`, or of the extensive POST form of calls."""
     cursor: str | None = None
 
     while True:
@@ -345,6 +389,7 @@ def _iter_call_rows(
             ]
         else:
             params: dict[str, Any] = {
+                **(variant or {}),
                 "fromDateTime": format_datetime(window_start, "iso_z"),
                 "toDateTime": format_datetime(window_end, "iso_z"),
             }
@@ -352,7 +397,7 @@ def _iter_call_rows(
                 params["cursor"] = cursor
 
             data = fetch_page(_build_url(config.path, params))
-            rows = data.get(config.response_key, [])
+            rows = _stamp_rows(config, data.get(config.response_key, []), variant or {})
 
         if rows:
             yield rows
@@ -376,7 +421,8 @@ def _iter_date_filtered_rows(
 
     while True:
         body: dict[str, Any] = {
-            "filter": {from_key: from_date, to_key: window_end.date().isoformat(), **config.extra_filter}
+            "filter": {from_key: from_date, to_key: window_end.date().isoformat(), **config.extra_filter},
+            **config.extra_body,
         }
         if cursor:
             body["cursor"] = cursor
@@ -511,7 +557,7 @@ def gong_source(
         ),
         primary_keys=list(config.primary_key) if isinstance(config.primary_key, tuple) else [config.primary_key],
         # Windows are iterated oldest-first, so the cursor watermark advances correctly.
-        sort_mode="asc",
+        sort_mode="asc" if config.rows_in_order else None,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,

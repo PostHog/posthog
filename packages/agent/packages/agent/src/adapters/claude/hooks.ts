@@ -275,10 +275,13 @@ export const createSubagentRewriteHook =
 
     // The SDK's Agent tool exposes family aliases rather than canonical model
     // IDs. Its `opus` alias can lag behind the parent session's selected Opus
-    // generation, while `inherit` preserves that exact selection.
+    // generation. Omitting `model` inherits the parent's model only for the
+    // general-purpose agent: other definitions can set their own model.
     const parentModelId = getCurrentModelId?.();
     if (
       toolInput.model !== "opus" ||
+      (toolInput.subagent_type !== undefined &&
+        toolInput.subagent_type !== "general-purpose") ||
       parentModelId === undefined ||
       !OPUS_ALIAS_LAGGING_MODELS.has(parentModelId)
     ) {
@@ -286,17 +289,16 @@ export const createSubagentRewriteHook =
     }
 
     logger.info(
-      `[SubagentRewriteHook] Rewriting model: opus → inherit for ${parentModelId} parent`,
+      `[SubagentRewriteHook] Dropping model: opus to inherit ${parentModelId} from the parent`,
     );
+
+    const { model: _model, ...updatedInput } = toolInput;
 
     return {
       continue: true,
       hookSpecificOutput: {
         hookEventName: "PreToolUse" as const,
-        updatedInput: {
-          ...toolInput,
-          model: "inherit",
-        },
+        updatedInput,
       },
     };
   };
