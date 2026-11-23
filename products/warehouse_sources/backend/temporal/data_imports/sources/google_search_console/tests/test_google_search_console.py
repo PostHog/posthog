@@ -693,6 +693,10 @@ def test_throttle_spaces_requests_per_site(monkeypatch):
         ("'sc-domain:example.com", "sc-domain:example.com"),
         ('"https://example.com"', "https://example.com/"),
         ("\u2018sc-domain:example.com\u2019", "sc-domain:example.com"),
+        # Only the closing quote copied, or quotes after the prefix: a domain can't hold one.
+        ("sc-domain:example.com'", "sc-domain:example.com"),
+        ("sc-domain:example.com/\u2019", "sc-domain:example.com"),
+        ("sc-domain:'example.com'", "sc-domain:example.com"),
         # A quote inside a URL path is part of the property, not a wrapper.
         ("https://example.com/blog'", "https://example.com/blog'/"),
         # The full Search Console UI URL — the property lives in resource_id.

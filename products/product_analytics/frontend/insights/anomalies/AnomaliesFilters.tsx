@@ -3,11 +3,14 @@ import { useActions, useValues } from 'kea'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSelect, LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 
-import { SignalsAnomaliesSearchRetrieveInterval } from 'products/signals/frontend/generated/api.schemas'
+import {
+    SignalsAnomaliesSearchRetrieveInterval,
+    SignalsAnomaliesSearchRetrieveViewedWithinDays,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import { AnomaliesDashboardPicker } from './AnomaliesDashboardPicker'
 import { ANOMALIES_DATE_RANGES } from './anomaliesDateRanges'
-import { anomaliesTabLogic } from './anomaliesTabLogic'
+import { AnomaliesScope, anomaliesTabLogic } from './anomaliesTabLogic'
 
 const INTERVAL_OPTIONS: LemonSelectOptions<SignalsAnomaliesSearchRetrieveInterval | null> = [
     { value: null, label: 'All intervals' },
@@ -15,6 +18,14 @@ const INTERVAL_OPTIONS: LemonSelectOptions<SignalsAnomaliesSearchRetrieveInterva
     { value: SignalsAnomaliesSearchRetrieveInterval.Day, label: 'Daily' },
     { value: SignalsAnomaliesSearchRetrieveInterval.Week, label: 'Weekly' },
     { value: SignalsAnomaliesSearchRetrieveInterval.Month, label: 'Monthly' },
+]
+
+const SCOPE_OPTIONS: LemonSelectOptions<AnomaliesScope> = [
+    ...Object.values(SignalsAnomaliesSearchRetrieveViewedWithinDays).map((days) => ({
+        value: days,
+        label: `Viewed by me, last ${days} days`,
+    })),
+    { value: null, label: 'Whole project' },
 ]
 
 export function AnomaliesFilters(): JSX.Element {
@@ -31,6 +42,13 @@ export function AnomaliesFilters(): JSX.Element {
                 onChange={(search) => setFilters({ search })}
                 className="w-60"
                 data-attr="anomalies-tab-search"
+            />
+            <LemonSelect<AnomaliesScope>
+                size="small"
+                value={filters.viewedWithinDays}
+                options={SCOPE_OPTIONS}
+                onChange={(viewedWithinDays) => setFilters({ viewedWithinDays })}
+                data-attr="anomalies-tab-scope"
             />
             <LemonSelect
                 size="small"

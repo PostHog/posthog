@@ -169,16 +169,6 @@
         "params": [],
         "scope": "project"
     },
-    "aiObservabilityTag": {
-        "template": "/ai-evals/taggers/{id}",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "aiObservabilityTags": {
-        "template": "/ai-evals/taggers",
-        "params": [],
-        "scope": "project"
-    },
     "aiObservabilityTools": {
         "template": "/ai-observability/tools",
         "params": [],
