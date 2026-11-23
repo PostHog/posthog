@@ -38,7 +38,7 @@ import { PostgresPersonRepository } from '~/common/persons/repositories/postgres
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { InternalFetchService } from '~/common/services/internal-fetch'
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
@@ -99,6 +99,7 @@ import { mailDevWebUrl } from './services/messaging/helpers/maildev'
 import { SesWebhookHandler } from './services/messaging/helpers/ses'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
+import { sandboxReadRouter } from './services/messaging/sandbox/sandbox-authorization'
 import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { RateLimiterService } from './services/rate-limiter/rate-limiter.service'
 import { HogFunctionInvocationGlobals } from './types'
@@ -4400,6 +4401,95 @@ describe('Workflows E2E (email queue)', () => {
                 expect((await queryCyclotronJobs()).filter((j: any) => j.status !== 'completed')).toEqual([])
             }, 15000)
             expect(await emailsTo(to)).toHaveLength(1)
+        })
+
+        it('releases primary database capacity when a marketing preference lookup stalls past the API budget', async () => {
+            const flow = await insertHogFlow(hub.postgres, sendFlow('code', 'transactional'))
+            const to = `reader-${new UUIDT().toString()}@example.com`
+            await optOut(to, newsletterId)
+
+            const onePoolPostgres = new PostgresRouter({ ...hub, POSTGRES_CONNECTION_POOL_SIZE: 1 })
+            const boundedConfig = { ...hub, CDP_INTAKE_KAFKA_ASYNC_TEAMS: String(team.id) }
+            const boundedDeps = { ...createCdpConsumerDeps(hub, kafkaProducer), postgres: onePoolPostgres }
+            const boundedApi = new CdpApi(
+                boundedConfig,
+                boundedDeps,
+                {
+                    hogQueue: new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub),
+                    hogflowQueue: new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub),
+                },
+                scheduledSends
+            )
+            await boundedApi.start()
+            const boundedApp = setupExpressApp()
+            boundedApp.use('/', boundedApi.router())
+            const boundedServer = boundedApp.listen(0, () => {})
+
+            const locker = await hub.postgres.connect(PostgresUse.COMMON_WRITE)
+            let locked = false
+            const queryWithTimeout = async (router: PostgresRouter, tag: string) => {
+                let timer: NodeJS.Timeout | undefined
+                try {
+                    return await Promise.race([
+                        router
+                            .query(PostgresUse.COMMON_WRITE, 'SELECT 1 AS answered', undefined, tag)
+                            .then((res) => res.rows),
+                        new Promise<string>((resolve) => {
+                            timer = setTimeout(() => resolve('pool_exhausted'), 1_000)
+                        }),
+                    ])
+                } finally {
+                    clearTimeout(timer)
+                }
+            }
+            try {
+                const warmup = await post(
+                    'code',
+                    flow,
+                    { to, distinct_id: 'reader', ...codeSendIn(newsletter) },
+                    boundedApp
+                )
+                expect(warmup.status).toEqual(422)
+
+                await locker.query('BEGIN')
+                await locker.query('LOCK TABLE posthog_messagerecipientpreference IN ACCESS EXCLUSIVE MODE')
+                locked = true
+
+                for (let attempt = 0; attempt < 2; attempt += 1) {
+                    const res = await post(
+                        'code',
+                        flow,
+                        { to, distinct_id: 'reader', ...codeSendIn(newsletter) },
+                        boundedApp
+                    )
+                    expect(res.status).toEqual(202)
+                }
+
+                expect(await queryWithTimeout(onePoolPostgres, 'test-main-pool-free')).toEqual([{ answered: 1 }])
+                expect(await queryWithTimeout(sandboxReadRouter(onePoolPostgres), 'test-bounded-pool-free')).toEqual([
+                    { answered: 1 },
+                ])
+
+                await locker.query('COMMIT')
+                locked = false
+
+                const afterUnlock = await post(
+                    'code',
+                    flow,
+                    { to, distinct_id: 'reader', ...codeSendIn(newsletter) },
+                    boundedApp
+                )
+                expect(afterUnlock.status).toEqual(422)
+                expect(afterUnlock.body).toEqual({ error: 'recipient_opted_out' })
+            } finally {
+                if (locked) {
+                    await locker.query('COMMIT')
+                }
+                locker.release()
+                boundedServer.close()
+                await boundedApi.stop()
+                await onePoolPostgres.end()
+            }
         })
 
         it('replays a keyed code send across inherited transactional categories while rejecting explicit category changes', async () => {

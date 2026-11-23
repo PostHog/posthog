@@ -61,7 +61,7 @@ const MAX_SCHEDULE_AHEAD_MS = 30 * 24 * 60 * 60 * 1000
 const NO_ATTACHMENTS = { attachment_count: 0, attachment_bytes: 0 }
 const RUN_SCOPE = 'transactional-email'
 export const FINGERPRINT_PURPOSE = 'transactional_email_idempotency_fingerprint'
-const ASYNC_REFUSAL_BUDGET_MS = 1_000
+export const ASYNC_REFUSAL_BUDGET_MS = 1_000
 
 const refusalFailOpenCounter = new Counter({
     name: 'cdp_transactional_email_refusal_fail_open_total',

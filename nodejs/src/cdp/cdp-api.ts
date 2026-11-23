@@ -79,6 +79,7 @@ import {
     transactionalEmailRequestsTotal,
 } from './services/hogflows/transactional-email'
 import {
+    ASYNC_REFUSAL_BUDGET_MS,
     ScheduledTransactionalSends,
     TransactionalSendResult,
     TransactionalSends,
@@ -89,6 +90,7 @@ import { createInvocationSanitizer } from './services/job-queue/shared'
 import { GroupsManagerService, GroupsMap } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { PersonsManagerService } from './services/managers/persons-manager.service'
+import { RecipientsManagerService } from './services/managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
 import {
     ATTACHMENT_VERIFICATION_DEADLINE_MS,
@@ -109,6 +111,7 @@ import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-c
 import { UTM_VALUE_LIMIT_CHARS, utmValueOverLimit } from './services/messaging/helpers/utm'
 import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
+import { readerBeforeDeadline } from './services/messaging/sandbox/sandbox-authorization'
 import {
     SANDBOX_CODE_SEND_REFUSAL_STATUS,
     refuseSandboxCodeSend,
@@ -386,7 +389,12 @@ export class CdpApi {
         this.hogFlowManager = services.hogFlowManager
         this.recipientTokensService = services.recipientTokensService
         this.emailSuppressionService = services.emailSuppressionService
-        this.recipientPreferencesService = services.recipientPreferencesService
+        this.recipientPreferencesService = new RecipientPreferencesService(
+            new RecipientsManagerService(
+                readerBeforeDeadline(deps.postgres, ASYNC_REFUSAL_BUDGET_MS, 'transactional-email-preferences')
+            ),
+            services.emailSuppressionService
+        )
         this.emailValidationService = services.emailValidationService
         this.teamWorkflowsConfigService = services.teamWorkflowsConfigService
         this.hogExecutorAsync = services.hogExecutorAsync
