@@ -1540,9 +1540,9 @@ Re-audited 2026-11-19 against: <https://raw.githubusercontent.com/boto/botocore/
 
 - [x] `Triggers (GetTriggers, POST /)` — shows the schedules and event conditions that start jobs, crawlers and workflows, which explains why job_runs happen (high)
 - [ ] `Workflow definitions (BatchGetWorkflows, POST /; ListWorkflows, POST /)` — gives the graph of jobs, crawlers and triggers in each workflow that workflow_runs belongs to (medium)
-- [x] `Data quality rulesets (ListDataQualityRulesets, POST /)` — lists DQDL rulesets and their target tables, so data_quality_results can be read against the rules (high)
+- [x] `Data quality rulesets (ListDataQualityRulesets, POST /)` — lists DQDL rulesets and their target tables, so data_quality_results can be read against the rules (high). Built 2026-11-21 as metadata only (target table, rule count). The DQDL text needs GetDataQualityRuleset.
 - [ ] `Data quality ruleset evaluation runs (ListDataQualityRulesetEvaluationRuns, POST /)` — tracks when rulesets ran, their status and data source (medium)
-- [x] `Connections (GetConnections, POST /)` — lists the connections that jobs and crawlers use to reach data sources; hide secrets with HidePassword (medium). Built 2026-11-21 with HidePassword, and keys that name a password are also dropped from the property maps.
+- [x] `Connections (GetConnections, POST /)` — lists the connections that jobs and crawlers use to reach data sources; hide secrets with HidePassword (medium). Built 2026-11-21 with HidePassword. Only allowlisted ConnectionProperties keys are kept, URL credentials are removed, and the free-form property maps and OAuth2 token parameters are dropped.
 - [x] `Schema registry schemas (ListRegistries, POST /; ListSchemas, POST /; ListSchemaVersions, POST /)` — inventory of streaming schemas and their version history (medium). Built 2026-11-21 as `schema_registries`, `schemas` and `schema_versions`. ListSchemas without a RegistryId lists all registries, so only versions fan out (by schema ARN).
 - [ ] `Crawler metrics (GetCrawlerMetrics, POST /)` — gives tables created, updated and deleted and last runtime per crawler (low)
 - [ ] `User defined functions (GetUserDefinedFunctions, POST /)` — lists catalog functions per database (low)

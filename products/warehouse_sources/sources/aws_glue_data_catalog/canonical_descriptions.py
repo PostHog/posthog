@@ -214,7 +214,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "data_quality_rulesets": {
-        "description": "Data quality rulesets written in DQDL, with the catalog table that each ruleset evaluates.",
+        "description": "Data quality ruleset metadata, with the target table and the rule count. The DQDL rule text is not synced.",
         "docs_url": "https://docs.aws.amazon.com/glue/latest/webapi/API_DataQualityRulesetListDetails.html",
         "columns": {
             "name": "Name of the ruleset.",
@@ -238,7 +238,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "state": "Current state of the trigger, such as ACTIVATED or DEACTIVATED.",
             "description": "Description of the trigger.",
             "schedule": "Cron expression for a scheduled trigger.",
-            "actions": "Jobs and crawlers that the trigger starts.",
+            "actions": "Jobs and crawlers that the trigger starts. Job arguments are not synced.",
             "predicate": "Conditions that fire a conditional trigger.",
             "event_batching_condition": "Number of events and the time window that fire an event trigger.",
             "region": "AWS region selected for this source.",
@@ -284,14 +284,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "connections": {
-        "description": "Connections that jobs and crawlers use to reach data stores. Password properties are not synced.",
+        "description": "Connections that jobs and crawlers use to reach data stores. Passwords and other secrets are not synced.",
         "docs_url": "https://docs.aws.amazon.com/glue/latest/webapi/API_Connection.html",
         "columns": {
             "name": "Name of the connection.",
             "description": "Description of the connection.",
             "connection_type": "Type of the connection, such as JDBC, KAFKA, or NETWORK.",
             "match_criteria": "Criteria that can be used to select this connection.",
-            "connection_properties": "Connection parameters, without password properties.",
+            "connection_properties": "Connection parameters that are not secret, such as the host, port, and user name. Credentials are removed from URLs.",
             "physical_connection_requirements": "VPC, subnet, and security groups that the connection needs.",
             "creation_time": "Time when the connection was created.",
             "last_updated_time": "Time when the connection was last updated.",
@@ -299,7 +299,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "status": "Status of the connection: READY, IN_PROGRESS, or FAILED.",
             "status_reason": "Reason for the connection status.",
             "last_connection_validation_time": "Time when the connection was last validated.",
-            "authentication_configuration": "Authentication properties of the connection.",
+            "authentication_configuration": "Authentication type, the Secrets Manager secret ARN, and the OAuth2 grant type and token URL.",
             "region": "AWS region selected for this source.",
         },
     },

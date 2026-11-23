@@ -177,6 +177,7 @@ def test_body_retry_does_not_repeat_transport_retries(status: int, attempts: int
         ("triggers", "Triggers"),
         ("schema_registries", "Registries"),
         ("schemas", "Schemas"),
+        ("connections", "ConnectionList"),
     ],
 )
 def test_top_level_resume_checkpoints_before_yield_and_clears_after_completion(endpoint: str, result_key: str) -> None:
@@ -191,10 +192,51 @@ def test_top_level_resume_checkpoints_before_yield_and_clears_after_completion(e
         resume.clear_state.assert_not_called()
         assert list(batches) == []
         session.close.assert_called_once()
-        assert json.loads(session.post.call_args.kwargs["data"]) == {"MaxResults": 100, "NextToken": "saved"}
+        assert json.loads(session.post.call_args.kwargs["data"]) == {
+            "MaxResults": 100,
+            **dict(glue.ENDPOINTS[endpoint].request_params),
+            "NextToken": "saved",
+        }
         assert source.on_complete is not None
         source.on_complete()
         resume.clear_state.assert_called_once()
+
+
+def test_triggers_drop_job_arguments() -> None:
+    trigger = {
+        "Name": "nightly",
+        "Type": "SCHEDULED",
+        "Actions": [
+            {"JobName": "load", "Arguments": {"--db_password": "example-secret"}, "Timeout": 60},
+            {"CrawlerName": "crawl"},
+        ],
+    }
+    result = driver().run("triggers", [ScriptedResponse(json={"Triggers": [trigger]})])
+    assert result.raised is None
+    [row] = result.rows
+    assert row["actions"] == [{"JobName": "load", "Timeout": 60}, {"CrawlerName": "crawl"}]
+
+
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        ("jdbc:postgresql://db.example.com:5432/app", "jdbc:postgresql://db.example.com:5432/app"),
+        ("jdbc:mysql://etl:example@db.example.com:3306/app", "jdbc:mysql://db.example.com:3306/app"),
+        ("jdbc:mysql://etl:p@ss@db.example.com/app", "jdbc:mysql://db.example.com/app"),
+        ("jdbc:postgresql://db.example.com/app?user=etl&password=example", "jdbc:postgresql://db.example.com/app"),
+        (
+            "jdbc:sqlserver://db.example.com:1433;databaseName=app;password=example",
+            "jdbc:sqlserver://db.example.com:1433",
+        ),
+        ("jdbc:oracle:thin:@//db.example.com:1521/orcl", "jdbc:oracle:thin:@//db.example.com:1521/orcl"),
+        ("jdbc:oracle:thin:scott/example@db.example.com:1521:orcl", None),
+        ("jdbc:oracle:thin:scott/example@//db.example.com:1521/orcl", None),
+        ("mongodb://db.example.com/app/etl:example@other", None),
+        ("s3://bucket/connector.jar", "s3://bucket/connector.jar"),
+    ],
+)
+def test_without_url_credentials(url: str, expected: str | None) -> None:
+    assert glue.without_url_credentials(url) == expected
 
 
 def test_completed_resume_does_not_restart_and_empty_pages_reach_safe_points() -> None:
@@ -629,18 +671,32 @@ def test_validation_maps_errors_and_accepts_create_time_permission_denials(schem
     factory.return_value.close.assert_called_once()
 
 
-def test_connections_hide_passwords_in_requests_and_rows() -> None:
+def test_connections_keep_only_safe_fields_in_requests_and_rows() -> None:
     connection = {
         "Name": "warehouse",
         "ConnectionType": "KAFKA",
         "CreationTime": 1735689600,
         "ConnectionProperties": {
             "KAFKA_BOOTSTRAP_SERVERS": "broker.example.com:9094",
+            "JDBC_CONNECTION_URL": "jdbc:mysql://etl:example-url-password@db.example.com:3306/app?password=example-query",
             "PASSWORD": "example-password",
             "KAFKA_SASL_SCRAM_PASSWORD": "example-scram",
             "ENCRYPTED_KAFKA_CLIENT_KEY_PASSWORD": "example-encrypted",
+            "CUSTOM_JDBC_CERT_STRING": "example-cert",
+            "FUTURE_SECRET_TOKEN": "example-unknown",
         },
-        "SparkProperties": {"spark.user": "etl", "spark.password": "example-spark"},
+        "SparkProperties": {"spark.user": "etl", "spark.hadoop.fs.s3a.secret.key": "example-spark"},
+        "AthenaProperties": {"athena.token": "example-athena"},
+        "PythonProperties": {"api_key": "example-python"},
+        "AuthenticationConfiguration": {
+            "AuthenticationType": "OAUTH2",
+            "SecretArn": "arn:aws:secretsmanager:us-east-1:123456789012:secret:glue",
+            "OAuth2Properties": {
+                "OAuth2GrantType": "CLIENT_CREDENTIALS",
+                "TokenUrl": "https://auth.example.com/token?client_secret=example-token-url",
+                "TokenUrlParametersMap": {"client_secret": "example-oauth"},
+            },
+        },
     }
     result = driver().run(
         "connections",
@@ -652,11 +708,19 @@ def test_connections_hide_passwords_in_requests_and_rows() -> None:
         {"MaxResults": 100, "HidePassword": True, "NextToken": "more"},
     ]
     [row] = result.rows
-    assert row["connection_properties"] == {"KAFKA_BOOTSTRAP_SERVERS": "broker.example.com:9094"}
-    assert row["spark_properties"] == {"spark.user": "etl"}
+    assert row["connection_properties"] == {
+        "KAFKA_BOOTSTRAP_SERVERS": "broker.example.com:9094",
+        "JDBC_CONNECTION_URL": "jdbc:mysql://db.example.com:3306/app",
+    }
+    assert row["authentication_configuration"] == {
+        "AuthenticationType": "OAUTH2",
+        "SecretArn": "arn:aws:secretsmanager:us-east-1:123456789012:secret:glue",
+        "OAuth2Properties": {"OAuth2GrantType": "CLIENT_CREDENTIALS", "TokenUrl": "https://auth.example.com/token"},
+    }
+    assert not {"spark_properties", "athena_properties", "python_properties"} & row.keys()
     assert row["creation_time"] == datetime(2025, 1, 1, tzinfo=UTC)
     serialized = json.dumps(row, default=str)
-    assert not any(secret in serialized for secret in ("example-password", "example-scram", "example-encrypted"))
+    assert "example-" not in serialized
 
     with scripted_network([ScriptedResponse(json={"ConnectionList": []})]) as network:
         assert glue.validate_credentials(config(), GLUE_API_VERSION, "connections") == (True, None)
