@@ -82,8 +82,11 @@ The README lists the exact requirements to send them.
 
 ```sh
 python manage.py export_recordings_to_s3 --quote-id <quote id> --role-arn <role ARN> --bucket <bucket> \
-    --region <bucket region> --prefix <prefix> [--kms-key-id <key id or ARN>]
+    --region <bucket region> --prefix <prefix> --approved-by <admin email> [--kms-key-id <key id or ARN>]
 ```
+
+`--approved-by` is the organization admin who sent the role ARN. The command refuses anyone who is not an admin of the team's organization, and a role another organization registered.
+The start writes a Replay entry to the organization's activity log with the role, bucket and approver, so the customer can see where their recordings went.
 
 Without `--yes`, the command prints the quote and the destination and stops, because an exec has no terminal to answer its prompt.
 Show that output to the person.

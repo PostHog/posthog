@@ -1334,6 +1334,65 @@ class TestAWSIntegration:
         )
 
 
+class _ProbedSTS:
+    """Stands in for both STS clients: our own role hop, then the probes against the customer's role."""
+
+    CREDENTIALS = {"Credentials": {"AccessKeyId": "a", "SecretAccessKey": "s", "SessionToken": "t"}}
+
+    def __init__(self, random_probe: Exception | None) -> None:
+        self.random_probe = random_probe
+
+    def assume_role(self, *, RoleArn: str, RoleSessionName: str, **kwargs: Any) -> dict:
+        from botocore.exceptions import ClientError
+
+        external_id = kwargs.get("ExternalId")
+        if "Policy" in kwargs or external_id == "posthog-org-1":
+            return self.CREDENTIALS
+        if external_id is not None and self.random_probe is not None:
+            raise self.random_probe
+        if external_id is not None and self.random_probe is None:
+            return self.CREDENTIALS
+        raise ClientError({"Error": {"Code": "AccessDenied"}}, "AssumeRole")
+
+
+def _access_denied() -> Exception:
+    from botocore.exceptions import ClientError
+
+    return ClientError({"Error": {"Code": "AccessDenied"}}, "AssumeRole")
+
+
+def _read_timeout() -> Exception:
+    from botocore.exceptions import ReadTimeoutError
+
+    return ReadTimeoutError(endpoint_url="https://sts.amazonaws.com")
+
+
+@pytest.mark.parametrize(
+    "random_probe,error",
+    [
+        (_access_denied(), None),
+        (None, "allows access without a required external id"),
+        (_read_timeout(), "internal error"),
+    ],
+    ids=["denied", "allowed", "timed_out"],
+)
+def test_validate_aws_role_arn_counts_only_an_access_denied_as_a_refused_probe(
+    random_probe: Exception | None, error: str | None
+) -> None:
+    from posthog.models.integration import IntegrationError
+    from posthog.models.integration.aws import validate_aws_role_arn
+
+    sts = _ProbedSTS(random_probe)
+    session = MagicMock()
+    session.client.return_value = sts
+    with patch("boto3.client", return_value=sts), patch("boto3.Session", return_value=session):
+        if error is None:
+            validate_aws_role_arn("arn:aws:iam::123456789012:role/r", "arn:aws:iam::1:role/ours", "posthog-org-1")
+        else:
+            with pytest.raises(IntegrationError, match=error):
+                validate_aws_role_arn("arn:aws:iam::123456789012:role/r", "arn:aws:iam::1:role/ours", "posthog-org-1")
+
+
 class TestAWSRoleBasedIntegration:
     @pytest.fixture(
         params=[

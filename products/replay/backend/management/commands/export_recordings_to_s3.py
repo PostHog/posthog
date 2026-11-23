@@ -23,6 +23,7 @@ import argparse
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
@@ -34,7 +35,8 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.clickhouse.client.connection import set_default_clickhouse_workload_type
 from posthog.clickhouse.workload import Workload
-from posthog.models import Team
+from posthog.models import OrganizationMembership, Team
+from posthog.models.activity_logging.activity_log import Detail, Trigger, log_activity
 from posthog.models.integration.aws import is_unique_aws_role_by_organization_id
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.errors import describe_failure
@@ -74,6 +76,9 @@ class Command(BaseCommand):
             "--allow-cross-region", action="store_true", help="Price and allow a bucket outside our replay region."
         )
         parser.add_argument("--role-arn", help="The customer's IAM role, trusting PostHog's recording-exports role.")
+        parser.add_argument(
+            "--approved-by", metavar="EMAIL", help="The admin of the team's organization who sent the role ARN."
+        )
         parser.add_argument("--bucket")
         parser.add_argument("--prefix", default="", help="Key prefix in the customer's bucket.")
         parser.add_argument(
@@ -150,6 +155,7 @@ class Command(BaseCommand):
         if options["shards"]:
             check_shard_rerun(asyncio.run(_last_run_status(workflow_id)))
         role_arn, bucket = _required(options, "role_arn"), _required(options, "bucket")
+        approved_by = _required(options, "approved_by")
         prefix, kms_key_id = options["prefix"], options["kms_key_id"]
         only_shards = options["shards"]
         if only_shards:
@@ -170,6 +176,7 @@ class Command(BaseCommand):
         # Same rule as AWS integrations: a role another organization registered must not receive this team's data.
         if not is_unique_aws_role_by_organization_id(role_arn, str(organization_id)):
             raise CommandError(f"{role_arn} is registered by another organization")
+        check_approver(organization_id, approved_by)
         workflow_input = ExportRecordingsInput(
             team_id=quote.team_id,
             destination=destination,
@@ -186,7 +193,8 @@ class Command(BaseCommand):
         encryption = f", KMS key {kms_key_id}" if kms_key_id else ""
         shards = f", only shards {','.join(only_shards)}" if only_shards else ""
         self.stdout.write(
-            f"Destination: s3://{bucket}/{prefix} ({region}{encryption}) as {role_arn}, run {run_id}{shards}"
+            f"Destination: s3://{bucket}/{prefix} ({region}{encryption}) as {role_arn}, approved by {approved_by}, "
+            f"run {run_id}{shards}"
         )
         if not options["yes"]:
             # A non-interactive exec has no terminal to answer the prompt.
@@ -200,7 +208,48 @@ class Command(BaseCommand):
             raise CommandError(
                 f"{workflow_id} is running or finished. A quote starts again only after a failed run."
             ) from e
+        record_export(organization_id, workflow_input, workflow_id, approved_by)
         self.stdout.write(self.style.SUCCESS(f"Started {workflow_id}"))
+
+
+def check_approver(organization_id: UUID, email: str) -> None:
+    is_admin = OrganizationMembership.objects.filter(
+        organization_id=organization_id, user__email__iexact=email, level__gte=OrganizationMembership.Level.ADMIN
+    ).exists()
+    if not is_admin:
+        raise CommandError(f"{email} is not an admin of the team's organization")
+
+
+def record_export(
+    organization_id: UUID, workflow_input: ExportRecordingsInput, workflow_id: str, approved_by: str
+) -> None:
+    """Lets the customer's organization see in its activity log which AWS account received the team's recordings."""
+    destination = workflow_input.destination
+    log_activity(
+        organization_id=organization_id,
+        team_id=workflow_input.team_id,
+        user=None,
+        was_impersonated=False,
+        item_id=workflow_input.quote_id,
+        scope="Replay",
+        activity="exported",
+        detail=Detail(
+            name=f"Recordings exported to s3://{destination.bucket}/{destination.prefix}",
+            trigger=Trigger(
+                job_type="export_recordings_to_s3",
+                job_id=workflow_id,
+                payload={
+                    "role_arn": destination.role_arn,
+                    "bucket": destination.bucket,
+                    "prefix": destination.prefix,
+                    "region": destination.region,
+                    "kms_key_id": destination.kms_key_id,
+                    "run_id": workflow_input.run_id,
+                    "approved_by": approved_by,
+                },
+            ),
+        ),
+    )
 
 
 def check_shard_rerun(last_run_status: WorkflowExecutionStatus | None) -> None:
