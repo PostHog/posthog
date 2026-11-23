@@ -265,12 +265,21 @@ class TestHistoryLaneWrites(BaseTest):
         assert self._history_rows() == [(1, "a", _JAN, None, "current"), (2, "b", _FEB, None, "current")]
         assert result is not None and result.staged_rows == 3
 
-    @parameterized.expand([("history_rows_bill", True, 2 + 3), ("history_rows_free", False, 2)])
+    @parameterized.expand(
+        [
+            ("history_rows_bill", True, 2 + 3, False),
+            ("history_rows_free", False, 2, False),
+            ("renamed_schema_keeps_its_folder", True, 2 + 3, True),
+        ]
+    )
     def test_a_seed_starts_the_history_from_the_main_table_as_it_was_before_the_run(
-        self, _name: str, billable: bool, rows_synced: int
+        self, _name: str, billable: bool, rows_synced: int, renamed: bool
     ) -> None:
         self.job.billable = billable
         self.job.save()
+        if renamed:
+            self.schema.name = "public.orders"
+            self.schema.s3_folder_name = "orders"
         requested_at = "2026-10-05T00:00:00+00:00"
         self.schema.sync_type_config[HISTORY_SEED_PENDING_KEY] = requested_at
         self.schema.save()

@@ -63,6 +63,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     commit_covers_batch,
     commit_runs,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import resolve_table_and_folder_names
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
     filter_dwh_columns_by_enabled_columns,
 )
@@ -325,9 +326,12 @@ async def _stage_seed(
 
     A row without a cursor starts when history was turned on.
     """
-    main = DeltaTableRef(resource_name=schema.name, job=table.job, logger=table.logger)
+    # A schema renamed bare to qualified keeps its main table in the old folder.
+    main_folder = resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name).folder_name
+    main = DeltaTableRef(resource_name=main_folder, job=table.job, logger=table.logger)
     rows = await _rows_before_run(main, run_uuid)
     if rows is None:
+        await table.logger.awarning("history_seed_found_no_main_table", main_folder=main_folder)
         return 0
     if schema.incremental_field is None:
         raise IncrementalHistoryUnavailableError(
