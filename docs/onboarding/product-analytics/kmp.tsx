@@ -70,7 +70,9 @@ export const getKMPInstallSteps = (ctx: OnboardingComponentsContext): StepDefini
                                                         super.onCreate()
 
                                                         PostHog.setup(
-                                                            config = PostHogConfig("<ph_project_token>") { host = "<ph_client_api_host>" },
+                                                            config = PostHogConfig("<ph_project_token>") {
+                                                                host = "<ph_client_api_host>"
+                                                            },
                                                             context = PostHogContext(this),
                                                         )
                                                     }
@@ -107,7 +109,9 @@ export const getKMPInstallSteps = (ctx: OnboardingComponentsContext): StepDefini
                                                 fun MainViewController() = ComposeUIViewController {
                                                     LaunchedEffect(Unit) {
                                                         PostHog.setup(
-                                                            config = PostHogConfig("<ph_project_token>") { host = "<ph_client_api_host>" },
+                                                            config = PostHogConfig("<ph_project_token>") {
+                                                                host = "<ph_client_api_host>"
+                                                            },
                                                             context = PostHogContext(),
                                                         )
                                                     }
@@ -134,7 +138,9 @@ export const getKMPInstallSteps = (ctx: OnboardingComponentsContext): StepDefini
 
                                                 fun main() {
                                                     PostHog.setup(
-                                                        config = PostHogConfig("<ph_project_token>") { host = "<ph_client_api_host>" },
+                                                        config = PostHogConfig("<ph_project_token>") {
+                                                            host = "<ph_client_api_host>"
+                                                        },
                                                         context = PostHogContext(),
                                                     )
                                                 }
@@ -160,7 +166,9 @@ export const getKMPInstallSteps = (ctx: OnboardingComponentsContext): StepDefini
 
                                                 fun main() = application {
                                                     PostHog.setup(
-                                                        config = PostHogConfig("<ph_project_token>") { host = "<ph_client_api_host>" },
+                                                        config = PostHogConfig("<ph_project_token>") {
+                                                            host = "<ph_client_api_host>"
+                                                        },
                                                         context = PostHogContext(),
                                                     )
                                                     // ...

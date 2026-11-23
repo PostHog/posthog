@@ -126,6 +126,8 @@ export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                             file: 'MyApplication.kt',
                                             code: dedent`
                                                 import android.app.Application
+                                                import com.posthog.kmp.PostHog
+                                                import com.posthog.kmp.PostHogContext
 
                                                 class MyApplication : Application() {
                                                     override fun onCreate() {
