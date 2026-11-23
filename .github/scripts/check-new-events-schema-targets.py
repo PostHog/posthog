@@ -34,7 +34,9 @@ BRANCH_FUNCTIONS = frozenset(
         "use_new_events_schema",
         "uses_new_events_schema",
         "flag_calls_only_in_flag_evaluations",
+        "events_lack_new_flag_calls",
         "reads_flag_calls_from_flag_evaluations",
+        "reads_flag_calls_without_events_fallback",
     }
 )
 SETTING = "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA"
@@ -48,8 +50,8 @@ ROUTING_ONLY: dict[str, str] = {
     "posthog/models/event/new_events_schema.py": "defines the switch that the other callers branch on",
     "posthog/models/event/util.py": "writes test events to the table that the setting picks",
     "products/feature_flags/backend/facade/flags.py": "defines the flag-call helpers that the other callers branch on",
-    "posthog/api/project.py": "exposes flag_calls_only_in_flag_evaluations as a field of the project API",
-    "posthog/api/team/team_serializer.py": "exposes flag_calls_only_in_flag_evaluations as a field of the team API",
+    "posthog/api/project.py": "exposes events_lack_new_flag_calls as the flag_calls_only_in_flag_evaluations field of the project API",
+    "posthog/api/team/team_serializer.py": "exposes events_lack_new_flag_calls as the flag_calls_only_in_flag_evaluations field of the team API",
     "posthog/clickhouse/client/connection.py": "picks the ClickHouse workload for a team's queries",
 }
 
