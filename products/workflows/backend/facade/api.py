@@ -67,6 +67,7 @@ from products.workflows.backend.utils.email_sending_tiers import (
     MIN_EMAIL_SENDING_TIER,
     get_email_sending_tier_limits,
     max_email_sending_tier,
+    resolve_team_email_sending_tier,
 )
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
@@ -92,6 +93,7 @@ __all__ = [
     "set_default_email_sender_if_unset",
     "set_email_sending_tier",
     "suspend_email_sending",
+    "team_email_daily_cap",
     "unsuspend_email_sending",
     "validate_rrule",
 ]
@@ -643,3 +645,7 @@ def plan_flow_utm_update(
     actions: list[Any], draft: dict[str, Any] | None, defaults: TeamUtmDefaults, enable_where_off: bool
 ) -> FlowUtmUpdate | None:
     return email_utm_defaults.plan_flow_update(actions, draft, defaults, enable_where_off)
+
+
+def team_email_daily_cap(team_id: int) -> int:
+    return resolve_team_email_sending_tier(team_id).limits.per_day

@@ -5,6 +5,7 @@ from contextlib import AbstractContextManager, nullcontext
 from dataclasses import fields as dataclass_fields
 from datetime import UTC, datetime, timedelta
 from email.utils import parseaddr
+from functools import lru_cache
 from types import MappingProxyType, SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
@@ -48,7 +49,6 @@ from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import ProjectSecretAPIKey, User
 from posthog.models.file_system.constants import resolved_workflows_list_v2
 from posthog.models.file_system.file_system_mixin import file_system_sync
-from posthog.models.instance_setting import get_instance_setting
 from posthog.models.tag import tagify
 from posthog.permissions import (
     is_authenticated_via_project_secret_api_key,
@@ -56,7 +56,6 @@ from posthog.permissions import (
     scopes_caller_lacks,
 )
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
-from posthog.settings.utils import get_list
 
 from products.cdp.backend.presentation.hog_functions import build_html_wrap_design, html_wrap_design_needs_refresh
 from products.messaging.backend.facade.api import (
@@ -131,7 +130,7 @@ from products.messaging.backend.presentation.views.refusals import (
 )
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
-from products.workflows.backend.facade.api import WorkflowAccessDenied, WorkflowNotFound
+from products.workflows.backend.facade.api import WorkflowAccessDenied, WorkflowNotFound, team_email_daily_cap
 from products.workflows.backend.facade.transactional_emails import EMAIL_FROM_CODE_FLAG
 from products.workflows.backend.facade.workflows import get_workflow_ref
 
@@ -1135,18 +1134,30 @@ def _flag_enabled(team: Any, flag: str) -> bool:
     )
 
 
+@lru_cache(maxsize=4096)
+def daily_email_cap(team_id: int, _minute: int) -> int:
+    # Callers pass the current minute, so a tier change reaches the limits within a minute without a query per send.
+    return team_email_daily_cap(team_id)
+
+
 def transactional_email_throttles(
     team_id: int,
 ) -> list[PersonalOrProjectSecretApiKeyRateThrottle | ProjectSecretApiKeyTeamRateThrottle]:
-    if str(team_id) in get_list(get_instance_setting("TRANSACTIONAL_EMAIL_RATE_LIMIT_ALLOW_LIST_TEAMS")):
-        return []
     # Both send routes share these scopes, so a caller can't double its rate by using both.
-    return [
+    throttles: list[PersonalOrProjectSecretApiKeyRateThrottle | ProjectSecretApiKeyTeamRateThrottle] = [
         TransactionalEmailBurstThrottle(),
         TransactionalEmailSustainedThrottle(),
         TransactionalEmailTeamBurstThrottle(),
         TransactionalEmailTeamSustainedThrottle(),
     ]
+    # Each rate is a floor that grows with the team's sending tier, so a team can send its whole daily allowance
+    # within an hour. The per-minute ceiling keeps one team from taking most of the SES rate all projects share.
+    daily_cap = daily_email_cap(team_id, int(time.time() // 60))
+    for throttle in throttles:
+        assert throttle.num_requests is not None
+        tier_rate = min(10000, daily_cap // 60) if throttle.duration == 60 else daily_cap
+        throttle.num_requests = max(throttle.num_requests, tier_rate)
+    return throttles
 
 
 SEND_RESPONSES: dict[int, ResponseDeclaration] = {
