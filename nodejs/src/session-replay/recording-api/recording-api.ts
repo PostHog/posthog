@@ -309,6 +309,7 @@ export class RecordingApi {
         const auth = (op: RecordingApiOp) =>
             createRecordingApiAuthMiddleware({
                 jwtSecret: this.config.RECORDING_API_JWT_SECRET,
+                staffJwtSecret: this.config.RECORDING_API_STAFF_JWT_SECRET,
                 op,
             })
         const readAuth = auth('read')

@@ -40,3 +40,18 @@ def mint_recording_api_token(team_id: int, op: RecordingApiOp, ttl: timedelta = 
     """Mint a team + operation scoped token for recording-api. Signs with the newest key;
     recording-api verifies against the full key set, so rotation works without breaking callers."""
     return RECORDING_API_JWT_PURPOSE.mint({"team_id": team_id, "op": op}, ttl=ttl)
+
+
+# Long enough for an agent to read a large recording's blocks with one token.
+STAFF_RECORDING_API_TOKEN_TTL = timedelta(minutes=15)
+
+RECORDING_API_STAFF_JWT_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.RECORDING_API_STAFF,
+    settings_name="RECORDING_API_STAFF_JWT_SECRET",
+    default_ttl=STAFF_RECORDING_API_TOKEN_TTL,
+)
+
+
+def mint_recording_api_staff_token(team_id: int, actor: str, reason: str) -> str:
+    """Mint a read-only token for one team that recording-api logs with the actor and reason on every request."""
+    return RECORDING_API_STAFF_JWT_PURPOSE.mint({"team_id": team_id, "op": "read", "actor": actor, "reason": reason})
