@@ -20,6 +20,7 @@ GENERATE_HEARTBEAT_TIMEOUT = timedelta(minutes=2)
 # Offline replicas are busier and fail more often, so a project gets a few spaced retries before it counts as failed.
 # A query that hits its own time or memory limit hits it again on every attempt, and each attempt rescans the
 # project's whole year, so those errors fail at once. Cluster-wide memory pressure keeps its retries because it passes.
+# A deleted project raises DoesNotExist, which no retry can fix.
 GENERATE_RETRY_POLICY = RetryPolicy(
     maximum_attempts=3,
     initial_interval=timedelta(seconds=30),
@@ -28,6 +29,7 @@ GENERATE_RETRY_POLICY = RetryPolicy(
     non_retryable_error_types=[
         "ValueError",
         "TypeError",
+        "DoesNotExist",
         "ClickHouseQueryTimeOut",
         "ClickHouseEstimatedQueryExecutionTimeTooLong",
         "ClickHouseQueryMemoryLimitExceeded",

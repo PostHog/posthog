@@ -20,6 +20,7 @@ from posthog.exceptions import (
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQueryTimeOut,
 )
+from posthog.models.team import Team
 
 from products.mcp_analytics.backend.temporal.wrapped.activities import WrappedDiscoveryInputs, WrappedTeamInputs
 from products.mcp_analytics.backend.temporal.wrapped.coordinator import (
@@ -103,9 +104,10 @@ async def test_invalid_limits_fail_before_any_work(_name: str, inputs: WrappedCo
         ("estimated_too_slow", ClickHouseEstimatedQueryExecutionTimeTooLong, 1),
         ("query_memory_limit", ClickHouseQueryMemoryLimitExceeded, 1),
         ("cluster_memory_pressure", ClickHouseClusterMemoryLimitExceeded, 3),
+        ("deleted_project", Team.DoesNotExist, 1),
     ]
 )
-async def test_only_transient_clickhouse_errors_are_retried(_name: str, error: type[Exception], attempts: int) -> None:
+async def test_only_transient_errors_are_retried(_name: str, error: type[Exception], attempts: int) -> None:
     _error_to_raise[:] = [error]
 
     result = await _run(WrappedCoordinatorInputs(year=2026, team_ids=[2]), generate=stub_generate_raising)
