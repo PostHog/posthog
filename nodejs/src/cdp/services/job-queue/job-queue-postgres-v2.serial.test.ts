@@ -456,15 +456,18 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
             expect(await fileBytesOn(id)).toBe('1000')
         })
 
-        it('is stored on the row of a send with files when it is deferred after an older writer left it out', async () => {
+        it.each([
+            ['a send with files after an older writer left it out', null, withFiles(), '1000'],
+            ['a send whose new state carries no files', '1000', { state: baseInvocation.state }, null],
+        ])('is set on the row of %s when it is deferred', async (_name, before, deferredAs, stored) => {
             const queue = await startQueue()
             const id = await enqueue(queue, { queue: 'email', ...withFiles() })
-            await db.query('UPDATE cyclotron_jobs SET file_bytes = NULL WHERE id = $1', [id])
+            await db.query('UPDATE cyclotron_jobs SET file_bytes = $2::bigint WHERE id = $1', [id, before])
             const [claimed] = await (await consume(queue, 'email')).claimed()
 
-            await queue.deferInvocations([deferred(claimed)])
+            await queue.deferInvocations([deferred({ ...claimed, ...deferredAs })])
 
-            expect(await fileBytesOn(id)).toBe('1000')
+            expect(await fileBytesOn(id)).toBe(stored)
         })
     })
 

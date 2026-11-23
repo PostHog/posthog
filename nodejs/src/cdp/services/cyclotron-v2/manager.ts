@@ -387,6 +387,7 @@ export class CyclotronV2Manager {
                  distinct_id = EXCLUDED.distinct_id,
                  person_id = EXCLUDED.person_id,
                  action_id = EXCLUDED.action_id,
+                 file_bytes = EXCLUDED.file_bytes,
                  cancel_requested_at = NULL
                WHERE cyclotron_jobs.status IN ('completed', 'failed', 'canceled')
                  AND NOT ${CANCELED_BEFORE_CLAIM}
@@ -399,10 +400,10 @@ export class CyclotronV2Manager {
                     `INSERT INTO cyclotron_jobs
                  (id, team_id, function_id, queue_name, status, priority, scheduled, created,
                   lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
-                  parent_run_id, state, distinct_id, person_id, action_id)
+                  parent_run_id, state, distinct_id, person_id, action_id, file_bytes)
                  VALUES ($1, $2, $3, $4, 'available', $5, $6, $7,
                          NULL, NULL, 0, 0, $7,
-                         $8, $9, $10, $11, $12)
+                         $8, $9, $10, $11, $12, $13)
                  ${upsertClause}`,
                     [
                         id,
@@ -417,6 +418,7 @@ export class CyclotronV2Manager {
                         job.distinctId ?? null,
                         job.personId ?? null,
                         job.actionId ?? null,
+                        job.fileBytes ?? null,
                     ]
                 )
             )
