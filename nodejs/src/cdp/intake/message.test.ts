@@ -55,45 +55,52 @@ const validWireMessage = {
 }
 
 describe('intake message', () => {
-    it('carries the job state as JSON, keyed and headed by the run, and decodes to the same job', () => {
-        const encoded = encodeIntakeMessage({
-            kind: 'transactional-email',
-            fingerprint: 'abc123',
-            job: job({ fileBytes: 1000 }),
-        })
+    it.each([
+        ['without files, with no file size field', undefined, validWireMessage],
+        [
+            'with files, with their size',
+            1000,
+            { ...validWireMessage, job: { ...validWireMessage.job, fileBytes: 1000 } },
+        ],
+    ])(
+        'carries the job state as JSON, keyed and headed by the run, and decodes to the same job, for a send %s',
+        (_case, fileBytes, wire) => {
+            const encoded = encodeIntakeMessage({
+                kind: 'transactional-email',
+                fingerprint: 'abc123',
+                job: job({ fileBytes }),
+            })
 
-        expect(encoded).toEqual({
-            status: 'encoded',
-            message: {
-                key: RUN_ID,
-                value: expect.any(Buffer),
-                headers: {
-                    intake_version: '1',
-                    team_id: '7',
-                    run_kind: 'transactional-email',
-                    run_id: RUN_ID,
+            expect(encoded).toEqual({
+                status: 'encoded',
+                message: {
+                    key: RUN_ID,
+                    value: expect.any(Buffer),
+                    headers: {
+                        intake_version: '1',
+                        team_id: '7',
+                        run_kind: 'transactional-email',
+                        run_id: RUN_ID,
+                    },
                 },
-            },
-        })
-        if (encoded.status !== 'encoded') {
-            throw new Error('expected an encoded message')
-        }
-        expect(parseJSON(encoded.message.value.toString())).toEqual({
-            ...validWireMessage,
-            job: { ...validWireMessage.job, fileBytes: 1000 },
-        })
+            })
+            if (encoded.status !== 'encoded') {
+                throw new Error('expected an encoded message')
+            }
+            expect(parseJSON(encoded.message.value.toString())).toEqual(wire)
 
-        const decoded = decodeIntakeMessage(encoded.message.value)
-        if (decoded.status !== 'decoded') {
-            throw new Error(`expected a decoded message, got ${decoded.status}`)
+            const decoded = decodeIntakeMessage(encoded.message.value)
+            if (decoded.status !== 'decoded') {
+                throw new Error(`expected a decoded message, got ${decoded.status}`)
+            }
+            expect(decoded.message.fingerprint).toBe('abc123')
+            expect(decoded.message.job.state?.state?.acceptedAt).toBe('2026-11-11T10:00:00.000Z')
+            const { state, ...rest } = intakeJobInit(decoded.message)
+            const { state: originalState, ...originalRest } = job()
+            expect(rest).toEqual({ ...originalRest, fileBytes: fileBytes ?? null })
+            expect(parseJSON(state!.toString())).toEqual(parseJSON(originalState!.toString()))
         }
-        expect(decoded.message.fingerprint).toBe('abc123')
-        expect(decoded.message.job.state?.state?.acceptedAt).toBe('2026-11-11T10:00:00.000Z')
-        const { state, ...rest } = intakeJobInit(decoded.message)
-        const { state: originalState, ...originalRest } = job({ fileBytes: 1000 })
-        expect(rest).toEqual(originalRest)
-        expect(parseJSON(state!.toString())).toEqual(parseJSON(originalState!.toString()))
-    })
+    )
 
     it('decodes a keyless webhook run, whose run id is the invocation id and carries no fingerprint', () => {
         const encoded = encodeIntakeMessage({

@@ -1,11 +1,11 @@
 import { get, omit, set } from 'lodash'
 
-import { EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
 import type { CyclotronJobInvocation, CyclotronJobQueueKind } from '../../types'
 import type { EncryptedFields } from '../../utils/encryption-utils'
+import { fileBytesOf } from '../messaging/in-flight-registry'
 import type { CyclotronV2DequeuedJob, CyclotronV2JobInit } from './types'
 
 /**
@@ -133,16 +133,6 @@ export function encodeJob(invocation: CyclotronJobInvocation): CyclotronV2JobIni
         ...encodeStateColumns(invocation),
     }
 }
-
-export function fileBytesOf(invocation: CyclotronJobInvocation): number | null {
-    const sent = (invocation.state as { send?: { attachments?: readonly EmailAttachmentMetadata[] } } | null)?.send
-    const queued = invocation.queueParameters?.type === 'email' ? invocation.queueParameters.attachments : undefined
-    const files = sent?.attachments ?? queued
-    return files?.length ? declaredFileBytes(files) : null
-}
-
-export const declaredFileBytes = (files: readonly EmailAttachmentMetadata[]): number =>
-    files.reduce((total, file) => total + file.sizeBytes, 0)
 
 type LookupColumnSource = {
     person?: { id?: string }

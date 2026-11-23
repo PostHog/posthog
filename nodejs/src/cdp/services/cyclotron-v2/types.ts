@@ -23,14 +23,8 @@ export type CyclotronV2PoolConfig = {
     connectionTimeoutMs?: number
 }
 
-export const CyclotronV2JobInitSchema = z.object({
-    id: z.string().min(1).optional(),
-    teamId: z.number().int(),
-    functionId: z.string().min(1).nullish(),
-    queueName: z.string().min(1),
-    priority: z.number().int().optional(),
-    scheduled: z.date().optional(),
-    parentRunId: z.string().nullish(),
+// The columns a job's encoded state fills, which a reschedule rewrites as well.
+const encodedStateFields = {
     // Keep `state` small. Queue rows churn, and PostgreSQL moves large BYTEA values to TOAST,
     // where only vacuum reclaims the space. Files and blobs go to object storage, never into
     // this column or a new cyclotron table. See "Keep rows small" in ./README.md.
@@ -40,6 +34,17 @@ export const CyclotronV2JobInitSchema = z.object({
     distinctId: z.string().nullish(),
     personId: z.string().nullish(),
     actionId: z.string().nullish(),
+}
+
+export const CyclotronV2JobInitSchema = z.object({
+    id: z.string().min(1).optional(),
+    teamId: z.number().int(),
+    functionId: z.string().min(1).nullish(),
+    queueName: z.string().min(1),
+    priority: z.number().int().optional(),
+    scheduled: z.date().optional(),
+    parentRunId: z.string().nullish(),
+    ...encodedStateFields,
     // When `true`, the insert uses ON CONFLICT (id) DO UPDATE — the existing
     // row's status is reset to 'available', the lock is cleared, and state is
     // replaced. Used by the rerun path so a re-execution can reuse the
@@ -64,11 +69,7 @@ export type CyclotronV2IdempotentClaim = { outcome: CyclotronV2IdempotentOutcome
 
 export const CyclotronV2RescheduleOptionsSchema = z.object({
     scheduledAt: z.date().optional(),
-    state: z.instanceof(Buffer).nullish(),
-    fileBytes: z.number().int().nonnegative().nullish(),
-    distinctId: z.string().nullish(),
-    personId: z.string().nullish(),
-    actionId: z.string().nullish(),
+    ...encodedStateFields,
     queueName: z.string().optional(),
     priority: z.number().int().optional(),
 })

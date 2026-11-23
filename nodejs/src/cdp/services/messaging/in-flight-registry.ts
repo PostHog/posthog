@@ -3,6 +3,7 @@ import { totalmem } from 'node:os'
 import { getHeapStatistics } from 'node:v8'
 import { Counter, Gauge } from 'prom-client'
 
+import { EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
 import { CyclotronJobInvocation } from '~/cdp/types'
 
 import { MESSAGE_MAX_BYTES } from './message-estimate'
@@ -84,6 +85,16 @@ export function inFlightLimitsFor(
     }
     return { limits: { budgetBytes, heapLimitBytes: machine.heapLimitBytes, maxInFlight: settings.maxInFlight } }
 }
+
+export function fileBytesOf(invocation: CyclotronJobInvocation): number | null {
+    const sent = (invocation.state as { send?: { attachments?: readonly EmailAttachmentMetadata[] } } | null)?.send
+    const queued = invocation.queueParameters?.type === 'email' ? invocation.queueParameters.attachments : undefined
+    const files = sent?.attachments ?? queued
+    return files?.length ? declaredFileBytes(files) : null
+}
+
+export const declaredFileBytes = (files: readonly EmailAttachmentMetadata[]): number =>
+    files.reduce((total, file) => total + file.sizeBytes, 0)
 
 export const exceedsLargestSend = (fileBytes: number): boolean => fileBytes > LARGEST_SEND_FILE_BYTES
 

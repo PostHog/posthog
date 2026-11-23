@@ -134,7 +134,7 @@ export function encodeIntakeMessage({ kind, fingerprint, reply, shadow, job }: I
             distinctId: job.distinctId ?? null,
             personId: job.personId ?? null,
             actionId: job.actionId ?? null,
-            fileBytes: job.fileBytes ?? null,
+            ...(job.fileBytes != null && { fileBytes: job.fileBytes }),
             state: job.state ? parseJSON(job.state.toString('utf-8')) : null,
         },
     }
