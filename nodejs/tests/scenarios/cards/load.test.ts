@@ -1,15 +1,8 @@
-import { CardError, DEFINITIONS, Definitions, LoadedCard, load } from '.'
+import { CardError, LoadedCard, Target, load } from '.'
 import { mkdtempSync, readdirSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
 import { stringify } from 'yaml'
-import { z } from 'zod'
-
-const definitions: Definitions = {
-    ...DEFINITIONS,
-    valves: [...DEFINITIONS.valves],
-    measurements: [{ name: 'role_cpu_seconds', params: z.object({}).strict() }],
-}
 
 const card = {
     id: 'test-card',
@@ -24,6 +17,37 @@ const card = {
 }
 
 const profile = { name: 'synthetic', traffic: { event_email: { ratePerSecond: 2 } }, settings: {} }
+
+const overTheLimit = {
+    ...card,
+    drive: {
+        ...card.drive,
+        ramp: [
+            { scale: 1, for: '15s' },
+            { scale: 41, for: '15s' },
+        ],
+    },
+}
+
+const emailRamp = {
+    ...card,
+    drive: {
+        ...card.drive,
+        ramp: [
+            { scale: 1, for: '15s' },
+            { scale: 12, for: '15s' },
+        ],
+    },
+}
+
+const emailLoad = { targets: { claimsPerSecond: { email: 4 } }, tolerance: 0.1 }
+
+const sesSettings = { CDP_SES_RATE_LIMIT_CAPACITY: '500' }
+
+const TWICE_DECLARED_BARS = [
+    { name: 'pickup_p99_under', params: { seconds: 5, queues: ['email'] } },
+    { name: 'pickup_p99_under', params: { seconds: 10, queues: ['hogflow'] } },
+]
 
 const emailWorkerKill = {
     valve: 'role.kill',
@@ -49,15 +73,15 @@ describe('load', () => {
         return file
     }
 
-    const loadCard = (content: object | string, profileContent?: object | string): LoadedCard =>
+    const loadCard = (content: object | string, profileContent?: object | string, target?: Target): LoadedCard =>
         load(write('card.yaml', content), {
-            definitions,
             profilePath: profileContent ? write('profile.yaml', profileContent) : undefined,
+            target,
         })
 
-    const problemsOf = (content: object | string, profileContent?: object | string): string[] => {
+    const problemsOf = (content: object | string, profileContent?: object | string, target?: Target): string[] => {
         try {
-            loadCard(content, profileContent)
+            loadCard(content, profileContent, target)
         } catch (error) {
             if (error instanceof CardError) {
                 return error.problems
@@ -67,7 +91,7 @@ describe('load', () => {
         throw new Error('the card loaded')
     }
 
-    it.each<[string, object | string, object | string | undefined, string]>([
+    it.each<[string, object | string, object | string | undefined, string | string[]]>([
         ['a card that is not YAML', 'id: [', undefined, 'card: '],
         ['a card with the wrong shape', { ...card, clock: 'scheduled' }, undefined, 'clock: '],
         [
@@ -105,6 +129,23 @@ describe('load', () => {
             { ...card, bars: [{ name: 'writer_cpu_under', params: { percent: 120 } }] },
             undefined,
             'bars.0.params.percent: ',
+        ],
+        [
+            'a bar declared twice on a card that stops on break',
+            {
+                ...card,
+                drive: {
+                    ...card.drive,
+                    ramp: [
+                        { scale: 1, for: '15s' },
+                        { scale: 2, for: '15s' },
+                    ],
+                    stopOnBreak: true,
+                },
+                bars: TWICE_DECLARED_BARS,
+            },
+            undefined,
+            'bars: declare each bar once on a stopOnBreak card; pickup_p99_under is declared twice',
         ],
         [
             'ramp steps that do not add up to the drive',
@@ -153,6 +194,52 @@ describe('load', () => {
             undefined,
             'drive.ramp: each ramp step must scale higher than the one before',
         ],
+        [
+            'a stop on break without a ramp to climb',
+            { ...card, drive: { ...card.drive, stopOnBreak: true } },
+            undefined,
+            'drive.stopOnBreak: stopOnBreak needs a ramp of at least two steps',
+        ],
+        [
+            'a stop on break with a step that lasts no time',
+            {
+                ...card,
+                drive: {
+                    ...card.drive,
+                    ramp: [
+                        { scale: 1, for: '10s' },
+                        { scale: 2, for: '0ms' },
+                        { scale: 3, for: '20s' },
+                    ],
+                    stopOnBreak: true,
+                },
+            },
+            undefined,
+            'drive.ramp: every step of a ramp that stops on a break must last longer than 0ms',
+        ],
+        [
+            'a stop on break with a valve the stop could leave due',
+            {
+                ...card,
+                drive: {
+                    ...card.drive,
+                    ramp: [
+                        { scale: 1, for: '15s' },
+                        { scale: 2, for: '15s' },
+                    ],
+                    stopOnBreak: true,
+                },
+                valves: [emailWorkerKill],
+            },
+            undefined,
+            'valves: a stopOnBreak card schedules no valves, since its drive can stop before they are due',
+        ],
+        ...['role.kill', 'role.freeze'].map((valve): [string, object, object, string] => [
+            `${valve} on cdp-api while the profile runs more than one cdp-api`,
+            { ...card, valves: [{ ...emailWorkerKill, valve, target: 'cdp-api' }] },
+            { ...profile, replicas: { 'cdp-api': 2 } },
+            `valves.0.target: ${valve} stops cdp-api replica 0 only, and the runner keeps sending every other request to it; run one cdp-api replica on this card`,
+        ]),
         [
             'an unknown valve',
             { ...card, valves: [{ ...emailWorkerKill, valve: 'role.melt' }] },
@@ -206,55 +293,6 @@ describe('load', () => {
             'valves.0.when.params.queue: ',
         ],
         [
-            'a kill whose convergeWithin does not outlast the janitor bound',
-            { ...card, valves: [emailWorkerKill], convergeWithin: '47s' },
-            undefined,
-            'convergeWithin: 47s must exceed 47s',
-        ],
-        [
-            'a kill bound raised by the profile settings',
-            { ...card, valves: [emailWorkerKill], convergeWithin: '60s' },
-            { ...profile, settings: { CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: '60000' } },
-            'convergeWithin: 60s must exceed 77s',
-        ],
-        [
-            'an empty stall timeout, which the janitor replaces with its default',
-            { ...card, valves: [emailWorkerKill], convergeWithin: '18s' },
-            { ...profile, settings: { CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: '' } },
-            'convergeWithin: 18s must exceed 47s',
-        ],
-        [
-            'a negative sweep interval',
-            { ...card, valves: [emailWorkerKill], convergeWithin: '48s' },
-            { ...profile, settings: { CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS: '-30000' } },
-            'profile.settings.CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS: not a number of milliseconds at or above zero',
-        ],
-        [
-            'a second stall whose backoff convergeWithin does not outlast',
-            { ...card, valves: [emailWorkerKill, emailWorkerKill], convergeWithin: '100s' },
-            undefined,
-            'convergeWithin: 100s must exceed 107s',
-        ],
-        [
-            'a kill and a connection drop, which can stall the same job',
-            {
-                ...card,
-                valves: [
-                    emailWorkerKill,
-                    {
-                        valve: 'pg.drop_connections',
-                        target: 'postgres',
-                        dose: { share: 1 },
-                        when: emailWorkerKill.when,
-                        for: '1s',
-                    },
-                ],
-                convergeWithin: '100s',
-            },
-            undefined,
-            'convergeWithin: 100s must exceed 107s',
-        ],
-        [
             'bounced_suppressed without a bounce',
             {
                 ...card,
@@ -295,12 +333,6 @@ describe('load', () => {
             card,
             { ...profile, settings: { toString: 'false' } },
             'profile.settings.toString: not a setting the roles or the load producer read',
-        ],
-        [
-            'a second cdp-api, which no offer would reach',
-            card,
-            { ...profile, replicas: { 'cdp-api': 2 } },
-            'profile.replicas.cdp-api: cdp-api runs once, since every intake offer goes to replica 0',
         ],
         [
             'a backlog whose state sizes shrink toward p99',
@@ -371,12 +403,199 @@ describe('load', () => {
             'name: synthetic\ntraffic: &loop { event_email: { ratePerSecond: 2 }, again: *loop }\nsettings: {}\n',
             'profile: Alias resolution is disabled',
         ],
+        [
+            "an event load whose top step passes 80% of one workflow's rate limit",
+            overTheLimit,
+            undefined,
+            'setup.teams: event_email sends 82 units a second to each team',
+        ],
+        [
+            'an event kind listed twice, which seeds two workflows that both match its events',
+            {
+                ...card,
+                drive: {
+                    ...card.drive,
+                    traffic: [{ name: 'event_email' }, { name: 'event_email' }],
+                    ramp: [
+                        { scale: 1, for: '15s' },
+                        { scale: 21, for: '15s' },
+                    ],
+                },
+            },
+            undefined,
+            'drive.traffic: event_email is listed 2 times; list each traffic kind once',
+        ],
+        [
+            "an email load whose top step passes half of the SES limiter's refill",
+            emailRamp,
+            { ...profile, settings: sesSettings, load: emailLoad },
+            'profile.settings.CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: the email queue claims up to 53 jobs a second at the 12x step, over 50, 50% of the SES limiter refill; raise it to 106 or more',
+        ],
+        [
+            'an SES limiter capacity under one batch for every email replica',
+            card,
+            {
+                ...profile,
+                settings: { ...sesSettings, CONSUMER_BATCH_SIZE: '100' },
+                replicas: { 'cdp-cyclotron-worker-email': 6 },
+                load: emailLoad,
+            },
+            'profile.settings.CDP_SES_RATE_LIMIT_CAPACITY: 500 cannot hold one batch for every email replica (6) at once; raise it to 600 or more',
+        ],
+        [
+            'a load block without an email claim target on a card that sends email',
+            card,
+            {
+                ...profile,
+                settings: sesSettings,
+                load: { targets: { claimsPerSecond: { hogflow: 4 } }, tolerance: 0.1 },
+            },
+            'profile.load.targets.claimsPerSecond.email: the SES limiter check needs it',
+        ],
+        [
+            'a load block without an email claim target and an SES limiter capacity under one batch',
+            card,
+            { ...profile, load: { targets: { claimsPerSecond: { hogflow: 4 } }, tolerance: 0.1 } },
+            [
+                'profile.load.targets.claimsPerSecond.email: the SES limiter check needs it',
+                'profile.settings.CDP_SES_RATE_LIMIT_CAPACITY: 50 cannot hold one batch for every email replica (1) at once; raise it to 500 or more',
+            ],
+        ],
     ])('rejects %s', (_name, content, profileContent, problem) => {
-        expect(problemsOf(content, profileContent)).toEqual([expect.stringContaining(problem)])
+        expect(problemsOf(content, profileContent)).toEqual([problem].flat().map((one) => expect.stringContaining(one)))
+    })
+
+    const devCard = {
+        ...card,
+        profile: 'dev',
+        drive: { for: '11s', traffic: [{ name: 'capture_webhook' }] },
+        convergeWithin: '10m',
+        invariants: [{ name: 'at_least_once' }, { name: 'duplicate_sends' }, { name: 'refused_at_intake' }],
+        gates: { duplicate_sends: 0, refused_at_intake: 0 },
+    }
+    const devProfile = { name: 'dev', traffic: { capture_webhook: { ratePerSecond: 1 } } }
+    const devAt = (ratePerSecond: number): object => ({
+        ...devProfile,
+        traffic: { capture_webhook: { ratePerSecond } },
+    })
+
+    it.each<[string, object, object, string]>([
+        [
+            'a traffic kind other than capture_webhook',
+            { ...devCard, drive: card.drive },
+            profile,
+            'drive.traffic: dev does not run event_email',
+        ],
+        ['a valve', { ...devCard, valves: [emailWorkerKill] }, devProfile, 'valves: dev does not run role.kill'],
+        [
+            'a bar',
+            { ...devCard, bars: [TWICE_DECLARED_BARS[0]] },
+            devProfile,
+            'bars: dev does not run pickup_p99_under',
+        ],
+        [
+            'a measurement of local roles',
+            { ...devCard, measure: [{ name: 'role_cpu_seconds' }] },
+            devProfile,
+            'measure: dev does not run role_cpu_seconds',
+        ],
+        [
+            'profile settings',
+            devCard,
+            { ...devProfile, settings: { CDP_FETCH_RETRIES: '1' } },
+            'profile: dev does not run settings',
+        ],
+        ['a host block', devCard, { ...devProfile, host: { cpuCeiling: 0.5 } }, 'profile: dev does not run host'],
+        [
+            'parked flows, which the workflow on dev does not have',
+            devCard,
+            { ...devProfile, traffic: { capture_webhook: { ratePerSecond: 1, parks: 2 } } },
+            'profile: dev does not run parks',
+        ],
+        ['a second project', { ...devCard, setup: { teams: 2 } }, devProfile, 'setup.teams: '],
+        [
+            'the same traffic twice, whose first offers would start together',
+            {
+                ...devCard,
+                drive: { ...devCard.drive, traffic: [{ name: 'capture_webhook' }, { name: 'capture_webhook' }] },
+            },
+            devProfile,
+            'drive.traffic: dev drives one traffic entry',
+        ],
+        ['a rate above its cap', devCard, devAt(11), 'drive: 11 units a second is above the dev cap'],
+        [
+            'a ramp whose top step is above the rate cap',
+            {
+                ...devCard,
+                drive: {
+                    ...devCard.drive,
+                    for: '2m',
+                    ramp: [
+                        { scale: 1, for: '1m' },
+                        { scale: 3, for: '1m' },
+                    ],
+                },
+            },
+            devAt(4),
+            'drive: 12 units a second',
+        ],
+        [
+            'more units than its cap',
+            { ...devCard, drive: { ...devCard.drive, for: '10m' } },
+            devAt(4),
+            'drive: 2400 units is above the dev cap',
+        ],
+        [
+            'more units than its cap once each step is rounded as the generator schedules it',
+            {
+                ...devCard,
+                drive: {
+                    ...devCard.drive,
+                    for: '299950ms',
+                    ramp: [
+                        { scale: 0.5, for: '199900ms' },
+                        { scale: 1, for: '100050ms' },
+                    ],
+                },
+            },
+            devAt(10),
+            'drive: 2001 units is above the dev cap',
+        ],
+        ['a drive longer than 10m', { ...devCard, drive: { ...devCard.drive, for: '11m' } }, devAt(1), 'drive.for: '],
+        [
+            'a convergence window shorter than receipts take to become queryable',
+            { ...devCard, convergeWithin: '30s' },
+            devProfile,
+            'convergeWithin: dev allows 5m at least',
+        ],
+        [
+            'a ramp step shorter than a minute, where rounding bunches offers',
+            {
+                ...devCard,
+                drive: {
+                    ...devCard.drive,
+                    for: '90s',
+                    ramp: [
+                        { scale: 1, for: '1m' },
+                        { scale: 2, for: '30s' },
+                    ],
+                },
+            },
+            devProfile,
+            'drive.ramp: each dev step lasts 1m at least',
+        ],
+    ])('the dev target refuses %s', (_name, content, profileContent, problem) => {
+        expect(problemsOf(content, profileContent, 'dev')).toEqual([expect.stringContaining(problem)])
+    })
+
+    it('refuses capture_webhook on the local target, the one cloud run hosts use too', () => {
+        expect(problemsOf(devCard, devProfile)).toEqual([
+            'drive.traffic: capture_webhook sends to a deployment, so only --target dev runs it',
+        ])
     })
 
     it('reports a profile path it cannot read as a problem of the card', () => {
-        expect(() => load(write('card.yaml', card), { definitions, profilePath: dir })).toThrow(
+        expect(() => load(write('card.yaml', card), { profilePath: dir })).toThrow(
             expect.objectContaining({ problems: [expect.stringMatching(/^profile: .*EISDIR/)] })
         )
     })
@@ -394,14 +613,8 @@ describe('load', () => {
         ])
     })
 
-    it.each<[string, object[]]>([
-        ['one kill', [emailWorkerKill]],
-        [
-            'kills on two roles, which stall different jobs',
-            [emailWorkerKill, { ...emailWorkerKill, target: 'cdp-cyclotron-worker-hogflow' }],
-        ],
-    ])('accepts %s whose convergeWithin outlasts the janitor bound', (_name, valves) => {
-        expect(loadCard({ ...card, valves, convergeWithin: '48s' }).card.valves).toHaveLength(valves.length)
+    it('accepts a bar declared twice with different params on a card that does not stop on break', () => {
+        expect(loadCard({ ...card, bars: TWICE_DECLARED_BARS }).card.bars).toEqual(TWICE_DECLARED_BARS)
     })
 
     it('keeps the name of a profile passed from outside the repository', () => {
@@ -416,6 +629,73 @@ describe('load', () => {
         ["settings for the runner's load producer", { KAFKA_PRODUCER_LINGER_MS: '100' }],
     ])('accepts %s', (_name, settings) => {
         expect(loadCard(card, { ...profile, settings }).profile.settings).toEqual(settings)
+    })
+
+    it.each<[string, object, object]>([
+        ['an event load spread over enough teams', { ...overTheLimit, setup: { teams: 2 } }, profile],
+        [
+            'an event load under a rate limit the profile raises',
+            overTheLimit,
+            { ...profile, settings: { CDP_RATE_LIMITER_REFILL_RATE: '1000' } },
+        ],
+        [
+            'an event load under a quoted rate limit the profile raises',
+            overTheLimit,
+            { ...profile, settings: { CDP_RATE_LIMITER_REFILL_RATE: '"1000"' } },
+        ],
+        [
+            'a transactional load, which no workflow rate limit slows',
+            {
+                ...overTheLimit,
+                drive: { ...overTheLimit.drive, traffic: [{ name: 'transactional_email' }] },
+                invariants: [{ name: 'at_least_once' }, { name: 'refused_at_intake' }],
+            },
+            { ...profile, traffic: { transactional_email: { ratePerSecond: 2 } } },
+        ],
+        [
+            'an email load under half of a refill the profile raises',
+            emailRamp,
+            {
+                ...profile,
+                settings: { ...sesSettings, CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: '120' },
+                load: emailLoad,
+            },
+        ],
+        [
+            'an email load at exactly half of the refill',
+            {
+                ...emailRamp,
+                drive: {
+                    ...emailRamp.drive,
+                    ramp: [
+                        { scale: 1, for: '15s' },
+                        { scale: 10, for: '15s' },
+                    ],
+                },
+            },
+            {
+                ...profile,
+                settings: { ...sesSettings, CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: '110' },
+                load: { targets: { claimsPerSecond: { email: 5 } }, tolerance: 0.1 },
+            },
+        ],
+        [
+            'a load block on a card that sends no email, which the SES limiter never slows',
+            { ...card, drive: { ...card.drive, traffic: [{ name: 'event_webhook' }] } },
+            {
+                ...profile,
+                traffic: { event_webhook: { ratePerSecond: 2 } },
+                load: { targets: { claimsPerSecond: { hogflow: 4 } }, tolerance: 0.1 },
+            },
+        ],
+        ['a profile that runs more than one cdp-api', card, { ...profile, replicas: { 'cdp-api': 3 } }],
+        [
+            'a kill valve on another role while the profile runs more than one cdp-api',
+            { ...card, valves: [emailWorkerKill] },
+            { ...profile, replicas: { 'cdp-api': 2 } },
+        ],
+    ])('loads %s', (_name, content, profileContent) => {
+        expect(loadCard(content, profileContent).card.id).toBe(card.id)
     })
 
     const settings = { CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: '10000', CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: '30000' }
@@ -442,10 +722,12 @@ describe('load', () => {
         expect(left === right).toBe(same)
     })
 
-    it.each(readdirSync(__dirname).filter((file) => file.endsWith('.yaml')))(
-        'loads the shipped card %s with the shipped definitions and profile',
-        (file) => {
-            expect(load(path.join(__dirname, file)).card.id).toBe(path.basename(file, '.yaml'))
-        }
-    )
+    it.each([
+        ...readdirSync(__dirname)
+            .filter((file) => file.endsWith('.yaml'))
+            .map((file) => [file, 'local'] as const),
+        ...readdirSync(path.join(__dirname, 'dev')).map((file) => [path.join('dev', file), 'dev'] as const),
+    ])('loads the shipped card %s on the %s target with the shipped definitions and profile', (file, target) => {
+        expect(load(path.join(__dirname, file), { target }).card.id).toBe(path.basename(file, '.yaml'))
+    })
 })

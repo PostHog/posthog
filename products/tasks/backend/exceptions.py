@@ -113,6 +113,10 @@ class GitHubRateLimitedError(ProcessTaskTransientError):
         )
 
 
+class GitHubTokenRetryError(ProcessTaskTransientError, NonReportableError):
+    pass
+
+
 class TaskInvalidStateError(ProcessTaskFatalError):
     pass
 

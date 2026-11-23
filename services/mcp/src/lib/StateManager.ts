@@ -10,6 +10,7 @@ import {
     findPostHogPermissionError,
     findTransportError,
     hasTimeoutCause,
+    isExpectedApiError,
     MissingOrganizationContextError,
     MissingProjectContextError,
     PostHogApiError,
@@ -453,16 +454,21 @@ export class StateManager {
         context: string,
         extra: Record<string, unknown> = {}
     ): Promise<void> {
+        if (isExpectedApiError(error)) {
+            return
+        }
         try {
             // This also reports key-refresh failures, so resolving the key again can recurse.
             const apiKey = await this._cache.get('apiKey').catch(() => undefined)
-            getPostHogClient().captureException(error, undefined, {
-                tag: 'mcp',
-                team: 'posthog_ai',
-                context,
-                transport_failure: findTransportError(error)?.failure,
-                ...extra,
-                suppress_analytics: apiKey?.suppress_analytics === true,
+            getPostHogClient().captureException(error, {
+                properties: {
+                    tag: 'mcp',
+                    team: 'posthog_ai',
+                    context,
+                    transport_failure: findTransportError(error)?.failure,
+                    ...extra,
+                    suppress_analytics: apiKey?.suppress_analytics === true,
+                },
             })
         } catch {
             // Never let observability break the request.
@@ -641,7 +647,7 @@ export class StateManager {
             ])
             return data as State[D]
         } catch (error) {
-            if (!(opts.expectTimeouts && hasTimeoutCause(error)) && !findPostHogPermissionError(error)) {
+            if (!(opts.expectTimeouts && hasTimeoutCause(error))) {
                 this._reportException(error, `get_or_fetch_${opts.name}`)
             }
             await this._cache.set(opts.fetchedAtKey, Date.now() as State[F]).catch(() => {})
@@ -793,7 +799,6 @@ export class StateManager {
                 })
                 return { hasMetrics: availability.has_metrics }
             },
-            ttlMs: (cached) => (cached?.hasMetrics === false ? NO_DATA_CACHE_TTL_MS : CACHE_TTL_MS),
             expectTimeouts: true,
             // A stale "no metrics" would keep agents skipping a metric saved since, so fall back to lookup.
             discardOnError: (cached) => cached?.hasMetrics === false,

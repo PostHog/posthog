@@ -5,6 +5,7 @@ import {
     MarketingAnalyticsRecommendation,
     MarketingAnalyticsRecommendationResolution,
     MarketingAnalyticsRecommendationCpaBenchmarkSource,
+    MarketingAnalyticsRecommendationDetectedChange,
     MarketingAnalyticsRecommendationRule,
     MarketingAnalyticsRecommendationsSource,
 } from '~/queries/schema/schema-general'
@@ -58,9 +59,9 @@ export const BENCHMARK_SOURCE_DESCRIPTIONS: Record<MarketingAnalyticsRecommendat
         'The cost per conversion of your non-brand Search campaigns, or of every non-brand campaign if you have no Search campaigns. Brand searches cost less, so they are left out.',
 }
 
-export type RecommendationCategory = 'waste' | 'grow' | 'organic' | 'fix'
+export type RecommendationCategory = 'waste' | 'grow' | 'organic' | 'fix' | 'minor'
 
-const RULE_CATEGORIES: Record<MarketingAnalyticsRecommendationRule, RecommendationCategory> = {
+const RULE_CATEGORIES: Record<MarketingAnalyticsRecommendationRule, Exclude<RecommendationCategory, 'minor'>> = {
     spend_without_conversions: 'waste',
     brand_leak: 'waste',
     review_campaign: 'waste',
@@ -79,6 +80,7 @@ export const RECOMMENDATION_CATEGORY_LABELS: Record<RecommendationCategory, stri
     grow: 'Grow',
     organic: 'Improve organic search',
     fix: 'Fix issues',
+    minor: 'Under 1% of spend',
 }
 
 export interface RecommendationSection {
@@ -88,7 +90,10 @@ export interface RecommendationSection {
 
 export function sectionRecommendations(groups: RecommendationGroup[]): RecommendationSection[] {
     return (Object.keys(RECOMMENDATION_CATEGORY_LABELS) as RecommendationCategory[])
-        .map((category) => ({ category, groups: groups.filter((group) => RULE_CATEGORIES[group.rule] === category) }))
+        .map((category) => ({
+            category,
+            groups: groups.filter((group) => (group.minor ? 'minor' : RULE_CATEGORIES[group.rule]) === category),
+        }))
         .filter((section) => section.groups.length > 0)
 }
 
@@ -120,6 +125,8 @@ export interface RecommendationGroup {
     // The rows the table shows: the unresolved ones, plus the resolved ones while they are on show.
     recommendations: MarketingAnalyticsRecommendation[]
     activeCount: number
+    // Every row of the rule is minor, resolved ones included, so resolving or showing rows never moves the rule to another section.
+    minor: boolean
 }
 
 // Accounts can use different currencies, so amounts only add up within one currency.
@@ -176,8 +183,18 @@ export function reconcileResolutionOverrides(
     )
 }
 
+export const DETECTED_CHANGE_DESCRIPTIONS: Record<MarketingAnalyticsRecommendationDetectedChange, string> = {
+    negative_keyword: 'Google Ads lists this search as a negative keyword.',
+    brand_negative: 'Google Ads lists your brand as a negative keyword.',
+    keyword_added: 'Google Ads lists this search as a keyword in an active Search campaign.',
+}
+
+export function isResolved(recommendation: MarketingAnalyticsRecommendation): boolean {
+    return !!recommendation.resolution || !!recommendation.detectedChange
+}
+
 export function unresolved(recommendations: MarketingAnalyticsRecommendation[]): MarketingAnalyticsRecommendation[] {
-    return recommendations.filter((recommendation) => !recommendation.resolution)
+    return recommendations.filter((recommendation) => !isResolved(recommendation))
 }
 
 export interface RecommendationsLoadStatus {
@@ -269,6 +286,7 @@ export function groupRecommendations(
                 level: rows[0].level,
                 recommendations: showResolved ? rows : active,
                 activeCount: active.length,
+                minor: rows.every((row) => row.minor),
             },
             needsAction: rows.some((row) => row.impactDirection !== 'keep'),
         }
@@ -317,8 +335,8 @@ const DATA_GAP_TABLES: Omit<RecommendationDataGap, 'sourceId' | 'sourceName'>[] 
     {
         table: 'ad',
         purpose:
-            'find search terms that waste spend and do not match your ad copy, and organic searches that rank on pages your ads link to.',
-        rules: ['spend_without_conversions', 'keyword_gap'],
+            'find search terms that waste spend and do not match your ad copy, organic searches that rank on pages your ads link to, and count the ads limited by policy.',
+        rules: ['spend_without_conversions', 'keyword_gap', 'policy_limited'],
     },
     {
         table: 'campaign_impression_share_stats',
@@ -360,6 +378,7 @@ export function recommendationsSource(source: ExternalDataSource): MarketingAnal
             searchTermKeywordTable: syncedTable(source, 'search_term_keyword_stats'),
             performanceMaxSearchTermTable: syncedTable(source, 'performance_max_search_term_stats'),
             adTable: syncedTable(source, 'ad'),
+            keywordTable: syncedTable(source, 'keyword'),
         }
     }
     if (source.source_type === 'GoogleSearchConsole') {

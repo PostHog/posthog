@@ -6,8 +6,10 @@ would assert our idea of deltalite rather than deltalite.
 """
 
 import asyncio
+import threading
 from collections.abc import Collection
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Any, cast
 
 import pytest
@@ -44,6 +46,8 @@ DAY1 = datetime(2026, 8, 1, tzinfo=UTC)
 DAY2 = datetime(2026, 8, 2, tzinfo=UTC)
 DAY3 = datetime(2026, 8, 3, tzinfo=UTC)
 
+EVENT_LOOP_TURN_TIMEOUT_SECONDS = 5
+
 
 def _batch(days: list[datetime | None], counts: list[int], *, value_column: str = "c") -> pa.RecordBatch:
     arrays = cast(
@@ -53,16 +57,9 @@ def _batch(days: list[datetime | None], counts: list[int], *, value_column: str 
     return pa.RecordBatch.from_arrays(arrays, names=["day", value_column])
 
 
-def _unsigned_batch(day: datetime, count: int, flag: int) -> pa.RecordBatch:
-    arrays = cast(
-        Collection[pa.Array],
-        [
-            pa.array([day], type=pa.timestamp("us", tz="UTC")),
-            pa.array([count], type=pa.uint64()),
-            pa.array([flag], type=pa.uint8()),
-        ],
-    )
-    return pa.RecordBatch.from_arrays(arrays, names=["day", "c", "flag"])
+def _day_batch(day: datetime, **columns: pa.Array) -> pa.RecordBatch:
+    arrays = cast(Collection[pa.Array], [pa.array([day], type=pa.timestamp("us", tz="UTC")), *columns.values()])
+    return pa.RecordBatch.from_arrays(arrays, names=["day", *columns])
 
 
 def _rows(table_uri: str) -> list[tuple[Any, Any]]:
@@ -190,6 +187,32 @@ class TestIncrementalMaterialization:
         await database_sync_to_async(ajob.refresh_from_db)()
         assert ajob.run_mode == "incremental"
         assert ajob.full_refresh_reason is None
+
+    async def test_opening_the_delta_table_leaves_the_event_loop_free(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        await _configure(asaved_query)
+        event_loop = asyncio.get_running_loop()
+        event_loop_ran_during_open: list[bool] = []
+
+        class TableOpenedWhileTheEventLoopRuns(deltalake.DeltaTable):
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                event_loop_turned = threading.Event()
+                event_loop.call_soon_threadsafe(event_loop_turned.set)
+                event_loop_ran_during_open.append(event_loop_turned.wait(timeout=EVENT_LOOP_TURN_TIMEOUT_SECONDS))
+                super().__init__(*args, **kwargs)
+
+        with (
+            _settings(bucket_name),
+            unittest.mock.patch.object(deltalake, "DeltaTable", TableOpenedWhileTheEventLoopRuns),
+        ):
+            await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY1, DAY2], [10, 20]))
+            opens_in_full_refresh = len(event_loop_ran_during_open)
+            await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY2, DAY3], [99, 30]))
+
+        assert opens_in_full_refresh > 0
+        assert len(event_loop_ran_during_open) > opens_in_full_refresh
+        assert all(event_loop_ran_during_open)
 
     async def test_replaying_a_run_does_not_duplicate_rows(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
@@ -353,35 +376,52 @@ class TestIncrementalMaterialization:
         assert ajob.run_mode == "full_refresh"
         assert _rows(first.table_uri) == [(DAY1, 10), (DAY2, 20)]
 
-    async def test_an_unsigned_column_stays_incremental_across_runs(
-        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    @pytest.mark.parametrize(
+        "column_types,first,second,expected",
+        [
+            pytest.param(
+                [("c", "UInt64"), ("flag", "UInt8")],
+                _day_batch(DAY1, c=pa.array([10], pa.uint64()), flag=pa.array([1], pa.uint8())),
+                _day_batch(DAY2, c=pa.array([20], pa.uint64()), flag=pa.array([200], pa.uint8())),
+                [(DAY1, 10, 1), (DAY2, 20, 200)],
+                id="unsigned_integers",
+            ),
+            pytest.param(
+                [("c", "Array(Decimal(76, 10))")],
+                _day_batch(DAY1, c=pa.array([[Decimal("12.5")]], pa.list_(pa.decimal256(76, 10)))),
+                _day_batch(DAY2, c=pa.array([[Decimal("7.25")]], pa.list_(pa.decimal256(76, 10)))),
+                [(DAY1, [Decimal("12.5")]), (DAY2, [Decimal("7.25")])],
+                id="decimal256_in_an_array",
+            ),
+        ],
+    )
+    async def test_a_column_delta_cannot_store_as_sent_stays_incremental_across_runs(
+        self,
+        activity_environment,
+        ateam,
+        anode,
+        asaved_query,
+        ajob,
+        bucket_name,
+        adag,
+        column_types: list[tuple[str, str]],
+        first: pa.RecordBatch,
+        second: pa.RecordBatch,
+        expected: list[tuple[Any, ...]],
     ):
         await _configure(asaved_query)
-        column_types = [("day", "DateTime64(6, 'UTC')"), ("c", "UInt64"), ("flag", "UInt8")]
+        column_types = [("day", "DateTime64(6, 'UTC')"), *column_types]
 
         with _settings(bucket_name):
-            first = await _run(
-                activity_environment, ateam, anode, ajob, adag, _unsigned_batch(DAY1, 10, 1), column_types=column_types
-            )
-            await _run(
-                activity_environment,
-                ateam,
-                anode,
-                ajob,
-                adag,
-                _unsigned_batch(DAY2, 20, 200),
-                column_types=column_types,
-            )
+            result = await _run(activity_environment, ateam, anode, ajob, adag, first, column_types=column_types)
+            await _run(activity_environment, ateam, anode, ajob, adag, second, column_types=column_types)
 
         await database_sync_to_async(ajob.refresh_from_db)()
         assert ajob.run_mode == "incremental"
         assert ajob.full_refresh_reason is None
 
-        table = deltalake.DeltaTable(first.table_uri, storage_options=get_aws_storage_options()).to_pyarrow_table()
-        stored = sorted(
-            zip(table.column("day").to_pylist(), table.column("c").to_pylist(), table.column("flag").to_pylist())
-        )
-        assert stored == [(DAY1, 10, 1), (DAY2, 20, 200)]
+        table = deltalake.DeltaTable(result.table_uri, storage_options=get_aws_storage_options()).to_pyarrow_table()
+        assert sorted(tuple(row.values()) for row in table.to_pylist()) == expected
 
     async def test_a_rebuild_after_a_failed_update_is_not_labelled_a_first_run(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
@@ -568,6 +608,45 @@ class TestIncrementalMaterialization:
 
         await database_sync_to_async(asaved_query.refresh_from_db)()
         assert get_incremental_state(asaved_query).watermark == before
+
+    async def test_a_vacuum_commit_conflict_does_not_fail_the_run(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        await _configure(asaved_query)
+        # A test cannot make a concurrent writer win the vacuum's commit on purpose, so the vacuum
+        # raises the error delta-rs gives when that race is lost. The first run takes the
+        # full-refresh path and the second run takes the incremental path.
+        conflict = deltalake.exceptions.CommitFailedError("a concurrent transaction deleted data this operation read")
+
+        with (
+            _settings(bucket_name),
+            unittest.mock.patch.object(deltalake.DeltaTable, "vacuum", side_effect=conflict) as vacuum,
+        ):
+            first = await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY1, DAY2], [10, 20]))
+            second = await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY2, DAY3], [99, 30]))
+
+        assert vacuum.call_count == 2
+        assert _rows(first.table_uri) == [(DAY1, 10), (DAY2, 99), (DAY3, 30)]
+        live = deltalake.DeltaTable(first.table_uri, storage_options=get_aws_storage_options())
+        assert sorted(second.file_uris) == sorted(live.file_uris())
+
+        await database_sync_to_async(asaved_query.refresh_from_db)()
+        state = get_incremental_state(asaved_query)
+        assert state.last_run_mode == "incremental"
+        assert state.watermark is not None
+
+    async def test_a_vacuum_error_that_is_not_a_conflict_fails_the_run(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        await _configure(asaved_query)
+        error = deltalake.exceptions.DeltaError("Generic error: the object store refused the delete")
+
+        with (
+            _settings(bucket_name),
+            unittest.mock.patch.object(deltalake.DeltaTable, "vacuum", side_effect=error),
+            pytest.raises(deltalake.exceptions.DeltaError, match="object store refused the delete"),
+        ):
+            await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY1], [10]))
 
     async def test_no_config_rebuilds_every_run(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag

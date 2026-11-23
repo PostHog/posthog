@@ -6,6 +6,7 @@ import { LemonBanner, LemonButton, LemonCard, LemonSkeleton, LemonTag } from '@p
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
 import { ConfigScopeEnumApi, IdentityProviderConfigApi } from '~/generated/core/api.schemas'
@@ -19,6 +20,7 @@ import {
     getIdentityProviderConfigStatus,
     getIdentityProviderConfigStatusDescription,
 } from './identityProviderConfigUtils'
+import { QuillIdentityProviderFeatureSection } from './QuillIdentityProviderFeatureSection'
 
 const STATUS_DISPLAY = {
     configured: { label: 'Configured', icon: <IconCheckCircle className="size-6 text-success" /> },
@@ -57,6 +59,20 @@ export function IdentityProviderFeatureSection({ configScope }: { configScope: C
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         scope: RestrictionScope.Organization,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return (
+            <QuillIdentityProviderFeatureSection
+                configScope={configScope}
+                configs={configs}
+                configsToDisplay={configsToDisplay}
+                restrictionReason={restrictionReason}
+                configureButtonLabel={configureButtonLabel}
+            />
+        )
+    }
+
     let content: JSX.Element
     if (identityProviderConfigs === null && !identityProviderConfigsLoadFailed) {
         content = <LemonSkeleton className="h-16 w-full" />

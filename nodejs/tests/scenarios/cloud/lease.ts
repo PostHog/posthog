@@ -22,6 +22,8 @@ export type Manifest = {
     schedules: string[]
     inputs: Record<string, string>
     card: string
+    readerIdleMaxAcu?: number
+    readerMinAcu?: number
 }
 
 const HOUR_MS = 60 * 60 * 1000
@@ -35,6 +37,9 @@ const StoredManifest = z
 
 const stackNameOf = (runId: string): string => `scn-${runId}`
 
+const isGivenRunId = (value: string): boolean =>
+    z.uuid({ version: 'v8' }).safeParse(value).success && value === value.toLowerCase()
+
 const schedulesOf = (runId: string): string[] => [`${stackNameOf(runId)}-expiry`, `${stackNameOf(runId)}-expiry-retry`]
 
 export const keyOf = (runId: string, name: string): string => `runs/${runId}/${name}`
@@ -45,11 +50,12 @@ const scratchDir = (): ReturnType<typeof mkdtempDisposableSync> =>
 export function evidenceOf(aws: Aws, bucket: string) {
     return {
         name: bucket,
-        put: async (key: string, body: string | Buffer): Promise<unknown> => {
+        put: async (key: string, body: string | Buffer, createOnly = false): Promise<unknown> => {
             using scratch = scratchDir()
             const file = path.join(scratch.path, 'object')
             writeFileSync(file, body)
-            return await aws.call(['s3api', 'put-object', '--bucket', bucket, '--key', key, '--body', file])
+            const args = ['s3api', 'put-object', '--bucket', bucket, '--key', key, '--body', file]
+            return await aws.call(createOnly ? [...args, '--if-none-match', '*'] : args)
         },
         get: async (key: string): Promise<string> => {
             using scratch = scratchDir()
@@ -80,13 +86,18 @@ async function ignoringNotFound(request: Promise<unknown>): Promise<void> {
     }
 }
 
-async function deleteSchedules({ aws }: Controller, manifest: Manifest): Promise<void> {
-    for (const name of manifest.schedules) {
+async function deleteSchedules({ aws }: Controller, names: string[]): Promise<void> {
+    for (const name of names) {
         await ignoringNotFound(aws.call(['scheduler', 'delete-schedule', '--name', name]))
     }
 }
 
-async function register(controller: Controller, schedulerRole: string, manifest: Manifest): Promise<void> {
+async function register(
+    controller: Controller,
+    schedulerRole: string,
+    manifest: Manifest,
+    created: string[]
+): Promise<void> {
     const expiresAt = Date.parse(manifest.expiresAt)
     const schedules = manifest.schedules.map((name, i) => ({
         name,
@@ -94,22 +105,30 @@ async function register(controller: Controller, schedulerRole: string, manifest:
     }))
     const target = { Arn: DELETE_STACK, RoleArn: schedulerRole, Input: inputOf(manifest.stackName) }
     for (const { name, expression } of schedules) {
-        await controller.aws.call([
-            'scheduler',
-            'create-schedule',
-            '--name',
-            name,
-            '--schedule-expression',
-            expression,
-            '--schedule-expression-timezone',
-            'UTC',
-            '--flexible-time-window',
-            'Mode=OFF',
-            '--action-after-completion',
-            'DELETE',
-            '--target',
-            JSON.stringify(target),
-        ])
+        await controller.aws
+            .call([
+                'scheduler',
+                'create-schedule',
+                '--name',
+                name,
+                '--schedule-expression',
+                expression,
+                '--schedule-expression-timezone',
+                'UTC',
+                '--flexible-time-window',
+                'Mode=OFF',
+                '--action-after-completion',
+                'DELETE',
+                '--target',
+                JSON.stringify(target),
+            ])
+            .catch((error: unknown) => {
+                if (!(error instanceof AwsError && error.code === 'ConflictException')) {
+                    created.push(name)
+                }
+                throw error
+            })
+        created.push(name)
     }
 }
 
@@ -118,7 +137,13 @@ export async function lease(
     { profile, inputs, card }: RunInputs,
     { owner, commit }: Admitted
 ): Promise<Manifest> {
-    const runId = randomUUID()
+    const given = controller.env.SCENARIO_RUN_ID
+    if (given !== undefined && !isGivenRunId(given)) {
+        throw new LeaseError(
+            `SCENARIO_RUN_ID ${JSON.stringify(given)} is not a lowercase UUID v8, so no run is leased. The harness mints v4 ids for its own runs, so a given id never names one of them.`
+        )
+    }
+    const runId = given ?? randomUUID()
     const createdAt = controller.now()
     const stackName = stackNameOf(runId)
     const manifest: Manifest = {
@@ -133,21 +158,33 @@ export async function lease(
         schedules: schedulesOf(runId),
         inputs: Object.fromEntries(inputs.map(({ file, sha256 }) => [file, sha256])),
         card: card.id,
+        readerIdleMaxAcu: profile.readerAcu.idleMax,
+        readerMinAcu: profile.readerAcu.min,
     }
     const bucket = evidenceOf(controller.aws, profile.baseline.evidenceBucket)
     const body = JSON.stringify(manifest, null, 2)
+    const created: string[] = []
+    if (given !== undefined) {
+        await bucket.put(keyOf(runId, 'manifest.json'), body, true).catch((error: unknown) => {
+            throw error instanceof AwsError && error.code === 'PreconditionFailed'
+                ? new LeaseError(`Run ${runId} already has a manifest, so it is not leased again.`)
+                : error
+        })
+    }
     try {
-        await bucket.put(keyOf(runId, 'manifest.json'), body)
+        if (given === undefined) {
+            await bucket.put(keyOf(runId, 'manifest.json'), body)
+        }
         await bucket.put(keyOf(runId, 'input/manifest.json'), body)
         for (const input of inputs) {
             await bucket.put(keyOf(runId, `input/${input.file}`), input.bytes)
         }
-        await register(controller, profile.baseline.schedulerRole, manifest)
+        await register(controller, profile.baseline.schedulerRole, manifest, created)
         return manifest
     } catch (error) {
-        const left = await deleteSchedules(controller, manifest).then(
+        const left = await deleteSchedules(controller, created).then(
             () => [],
-            (deleteError: Error) => [`its schedules ${manifest.schedules.join(', ')}: ${deleteError.message}`]
+            (deleteError: Error) => [`its schedules ${created.join(', ')}: ${deleteError.message}`]
         )
         controller.warn(
             [
@@ -161,7 +198,7 @@ export async function lease(
 }
 
 export async function release(controller: Controller, manifest: Manifest): Promise<void> {
-    await deleteSchedules(controller, manifest)
+    await deleteSchedules(controller, manifest.schedules)
     controller.print(`Released run ${manifest.runId}.`)
 }
 
@@ -189,9 +226,16 @@ export async function manifestOf(controller: Controller, evidenceBucket: string,
     return parsed.data as unknown as Manifest
 }
 
-const HostManifest = StoredManifest.extend({ account: z.string() })
+const HostManifest = StoredManifest.extend({
+    account: z.string(),
+    readerIdleMaxAcu: z.number().positive().optional(),
+    readerMinAcu: z.number().nonnegative().optional(),
+})
 
-export type RunManifest = Pick<Manifest, 'runId' | 'account' | 'expiresAt' | 'stackName'>
+export type RunManifest = Pick<
+    Manifest,
+    'runId' | 'account' | 'expiresAt' | 'stackName' | 'readerIdleMaxAcu' | 'readerMinAcu'
+>
 
 export function runManifestOf(env: NodeJS.ProcessEnv): RunManifest | undefined {
     const file = env.SCENARIO_RUN_MANIFEST
@@ -199,6 +243,10 @@ export function runManifestOf(env: NodeJS.ProcessEnv): RunManifest | undefined {
         return undefined
     }
     const parsed = HostManifest.safeParse(parseJSON(readFileSync(file, 'utf8')))
+    const malformed = parsed.success ? [] : parsed.error.issues.map(({ path }) => path.join('.'))
+    if (malformed.length > 0 && malformed.every((field) => field === 'readerMinAcu')) {
+        throw new LeaseError(`The run manifest at ${file} has no valid readerMinAcu, so it is not used.`)
+    }
     if (!parsed.success || parsed.data.stackName !== stackNameOf(parsed.data.runId)) {
         throw new LeaseError(`The run manifest at ${file} does not name a run and its stack, so it is not used.`)
     }

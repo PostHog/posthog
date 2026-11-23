@@ -43,8 +43,6 @@ function makeProtoPerson(p: TestPerson) {
         uuid: p.uuid,
         teamId: BigInt(p.teamId),
         properties: jsonBytes(p.properties),
-        propertiesLastUpdatedAt: jsonBytes({}),
-        propertiesLastOperation: jsonBytes({}),
         createdAt: BigInt(DateTime.fromISO('2024-01-01T00:00:00Z', { zone: 'utc' }).toMillis()),
         version: 1n,
         isIdentified: true,

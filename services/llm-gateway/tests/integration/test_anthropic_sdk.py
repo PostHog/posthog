@@ -87,7 +87,7 @@ def sdk_config(request) -> SDKTestConfig:
         client = Anthropic(api_key=TEST_POSTHOG_API_KEY, base_url=url)
         return SDKTestConfig(client=client, model="claude-haiku-4-5-20251001", provider="anthropic")
     elif request.param == "cloudflare":
-        url = f"{request.getfixturevalue('cloudflare_gateway_url')}/django"
+        url = f"{request.getfixturevalue('cloudflare_gateway_url')}/review_hog"
         client = Anthropic(
             api_key=TEST_POSTHOG_API_KEY,
             base_url=url,
@@ -95,7 +95,7 @@ def sdk_config(request) -> SDKTestConfig:
             timeout=CLOUDFLARE_REQUEST_TIMEOUT,
             max_retries=CLOUDFLARE_MAX_RETRIES,
         )
-        return SDKTestConfig(client=client, model="@cf/moonshotai/kimi-k2.6", provider="cloudflare")
+        return SDKTestConfig(client=client, model="@cf/zai-org/glm-5.3", provider="cloudflare")
     else:
         url = f"{request.getfixturevalue('bedrock_gateway_url')}/django"
         client = Anthropic(

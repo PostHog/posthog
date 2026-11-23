@@ -54,14 +54,14 @@ def _view_enrichment_needed(node: Node | None) -> tuple[bool, str | None]:
         return False, None
     try:
         from products.data_modeling.backend.facade.api import (  # noqa: PLC0415
-            compute_enrichment_hash,
             enrichment_gates_pass,
+            view_ready_for_enrichment,
         )
 
         saved_query = node.saved_query
         if saved_query is None:
             return False, str(node.saved_query_id)
-        if compute_enrichment_hash(saved_query) == saved_query.semantic_enrichment_hash:
+        if not view_ready_for_enrichment(saved_query):
             return False, str(node.saved_query_id)
         # Gate on AI-processing approval before enqueuing, so a non-consented team's re-materialization
         # never creates enrichment workflow work. The child activity re-checks it as the source of truth.

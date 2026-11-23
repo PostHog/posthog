@@ -319,7 +319,9 @@ def _is_relative_sample(sample: Optional[ast.SampleExpr]) -> bool:
 
 
 def build_person_id_pushdown_predicate(join_to_add: LazyJoinToAdd, node: SelectQuery) -> Optional[Expr]:
-    """Build `id IN (SELECT person_id FROM <left table> WHERE <conjuncts>)` for the joined persons subquery.
+    """Build `id IN (SELECT <join key> FROM <left table> WHERE <conjuncts>)` for the joined persons subquery.
+
+    The join key is the join's `from_field`, so the set holds the same person ids that the join condition reads.
 
     The conjuncts are the top-level AND terms of the outer WHERE and PREWHERE that read only the left table.
     A term must read at least one left-table column, because a constant term narrows nothing.
@@ -365,7 +367,7 @@ def build_person_id_pushdown_predicate(join_to_add: LazyJoinToAdd, node: SelectQ
         # The resolver turns this into GLOBAL IN. GLOBAL IN does not deduplicate the set that it ships to each shard.
         right=ast.SelectQuery(
             distinct=True,
-            select=[ast.Field(chain=[join_to_add.from_table, "person_id"])],
+            select=[ast.Field(chain=[join_to_add.from_table, *join_to_add.lazy_join.from_field])],
             select_from=ast.JoinExpr(
                 table=ast.Field(chain=list(left.table.chain)),
                 alias=left.alias,
@@ -429,7 +431,7 @@ def join_with_persons_table(
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=[join_to_add.from_table, "person_id"]),
+            left=ast.Field(chain=[join_to_add.from_table, *join_to_add.lazy_join.from_field]),
             right=ast.Field(chain=[join_to_add.to_table, "id"]),
         ),
         constraint_type="ON",

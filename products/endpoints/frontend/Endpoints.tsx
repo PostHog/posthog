@@ -2,11 +2,12 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonDialog, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TagSelect } from 'lib/components/TagSelect'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -18,52 +19,29 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { isHogQLQuery } from '~/queries/schema/node-guards'
 import { AccessControlLevel, AccessControlResourceType, EndpointType } from '~/types'
 
 import { humanizeQueryKind } from './common'
 import { EndpointFromInsightModal } from './EndpointFromInsightModal'
 import { endpointLogic } from './endpointLogic'
 import { endpointsLogic } from './endpointsLogic'
+import { QuillEndpointsTable } from './QuillEndpointsTable'
 
 export function Endpoints(): JSX.Element {
-    return (
-        <>
-            <EndpointsTable />
-        </>
-    )
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    return todayRailNav ? <QuillEndpointsTable /> : <EndpointsTable />
 }
 
 export const EndpointsTable = (): JSX.Element => {
     const { setFilters, loadEndpoints } = useActions(endpointsLogic)
     const { endpoints, allEndpointsLoading, filters } = useValues(endpointsLogic)
 
-    const { deleteEndpoint, confirmToggleActive, setDuplicateEndpoint } = useActions(endpointLogic)
+    const { confirmDeleteEndpoint, confirmToggleActive, duplicateEndpointFrom } = useActions(endpointLogic)
     const { duplicateEndpoint } = useValues(endpointLogic)
 
     const handleDelete = (endpointName: string): void => {
-        LemonDialog.open({
-            title: 'Delete endpoint?',
-            content: (
-                <div className="text-sm text-secondary">
-                    Are you sure you want to delete this endpoint? This action cannot be undone.
-                </div>
-            ),
-            primaryButton: {
-                children: 'Delete',
-                type: 'primary',
-                status: 'danger',
-                onClick: () => {
-                    deleteEndpoint(endpointName)
-                },
-                size: 'small',
-            },
-            secondaryButton: {
-                children: 'Cancel',
-                type: 'tertiary',
-                size: 'small',
-            },
-        })
+        confirmDeleteEndpoint(endpointName)
     }
 
     const handleEndpointActivation = (endpoint: EndpointType): void => {
@@ -71,11 +49,7 @@ export const EndpointsTable = (): JSX.Element => {
     }
 
     const handleDuplicate = (endpoint: EndpointType): void => {
-        if (isHogQLQuery(endpoint.query)) {
-            router.actions.push(urls.sqlEditor({ query: endpoint.query.query, source: 'endpoint' }))
-        } else {
-            setDuplicateEndpoint(endpoint)
-        }
+        duplicateEndpointFrom(endpoint)
     }
 
     const columns: LemonTableColumns<EndpointType> = [

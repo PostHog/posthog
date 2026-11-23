@@ -1,4 +1,10 @@
-import { type EmailSenderCandidate, isVerifiedEmailSender } from '../../../../Channels/defaultEmailSender'
+import type { IntegrationType } from '~/types'
+
+import {
+    type EmailSenderCandidate,
+    isDeliverableEmailSender,
+    isVerifiedEmailSender,
+} from '../../../../Channels/defaultEmailSender'
 import type { HogFlow, HogFlowAction } from '../../types'
 import { type TeamUtmDefaults, matchesTeamUtmDefaults } from '../components/utmDefaults'
 
@@ -47,6 +53,10 @@ export function sandboxSenderAllowed(workflow: Pick<HogFlow, 'origin_product'>, 
 
 export function hasOwnSender(integrations: EmailSenderCandidate[] | null | undefined): boolean | null {
     return integrations ? integrations.some(isVerifiedEmailSender) : null
+}
+
+export function hasDeliverableSender(integrations: IntegrationType[] | null | undefined): boolean | null {
+    return integrations ? integrations.some(isDeliverableEmailSender) : null
 }
 
 export function sandboxRecipient(action: SandboxEmailAction): string {
@@ -138,6 +148,7 @@ function categoryOf(config: EmailValue): EmailValue {
     }
 }
 
+// A saved email input without templating runs as Hog, so the step it turns into keeps Hog.
 function templatingOf(email: EmailValue): Templating {
     return email.templating === 'liquid' ? 'liquid' : 'hog'
 }

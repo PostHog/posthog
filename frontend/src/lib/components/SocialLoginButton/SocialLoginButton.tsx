@@ -7,6 +7,7 @@ import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { LemonButton, LemonButtonWithoutSideActionProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { lazyWithRetry } from 'lib/utils/retryImport'
@@ -16,6 +17,7 @@ import { LoginMethod, SSOProvider } from '~/types'
 import passkeyLogo from './passkey.svg'
 import { SocialLoginIcon } from './SocialLoginIcon'
 import { getSocialLoginUrl } from './socialLoginUrl'
+import { isSocialProviderHeldBack } from './socialProviderRollout'
 
 // The passkey flow pulls in the login logic and the WebAuthn browser library.
 const PasskeyLoginButton = lazyWithRetry(() =>
@@ -178,6 +180,7 @@ export function SocialLoginButtons({
     ...props
 }: SocialLoginButtonsProps): JSX.Element | null {
     const { preflight, socialAuthAvailable } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (!preflight || (!socialAuthAvailable && !showPasskey && !extraButton)) {
         return null
@@ -187,6 +190,7 @@ export function SocialLoginButtons({
     const socialProviders = socialAuthAvailable
         ? Object.keys(preflight.available_social_auth_providers)
               .filter((provider) => !restrictToProviders || restrictToProviders.includes(provider as SSOProvider))
+              .filter((provider) => !isSocialProviderHeldBack(provider, featureFlags))
               .sort((a, b) => order.indexOf(a) - order.indexOf(b))
         : []
 

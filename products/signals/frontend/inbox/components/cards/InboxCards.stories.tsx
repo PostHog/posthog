@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -7,7 +8,7 @@ import { BaseMathType, ChartDisplayType, PropertyMathType } from '~/types'
 
 import { RankingOutcomeEnumApi, type ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { userEvent } from 'storybook/test'
+import { expect, userEvent } from 'storybook/test'
 
 import {
     makeReport,
@@ -323,6 +324,15 @@ const monitoringReports: SignalReport[] = [
         ],
         monitoring_summary: {
             state: 'not_on_track',
+            checks: [
+                {
+                    check_id: 'duplicate-invoices-check',
+                    title: 'Duplicate invoice emails stay at or below 30 in a week',
+                    kind: 'metric_threshold',
+                    state: 'not_on_track',
+                    ends_at: '2026-06-15T09:00:00Z',
+                },
+            ],
             started_at: '2026-06-08T09:00:00Z',
             ends_at: '2026-06-15T09:00:00Z',
             lead_check: {
@@ -393,6 +403,15 @@ const monitoringReports: SignalReport[] = [
         ],
         monitoring_summary: {
             state: 'on_track',
+            checks: [
+                {
+                    check_id: 'checkout-failure-check',
+                    title: 'Checkout failure rate stays at or below 2%',
+                    kind: 'metric_threshold',
+                    state: 'on_track',
+                    ends_at: '2026-06-11T10:00:00Z',
+                },
+            ],
             started_at: '2026-06-10T10:00:00Z',
             ends_at: '2026-06-11T10:00:00Z',
             lead_check: {
@@ -429,6 +448,15 @@ const monitoringReports: SignalReport[] = [
         monitoring_started_at: '2026-06-10T20:00:00Z',
         monitoring_summary: {
             state: 'awaiting_reading',
+            checks: [
+                {
+                    check_id: 'search-retype-check',
+                    title: 'At most 40 people retype a cleared search in three days',
+                    kind: 'metric_threshold',
+                    state: 'awaiting_reading',
+                    ends_at: '2026-06-13T20:00:00Z',
+                },
+            ],
             started_at: '2026-06-10T20:00:00Z',
             ends_at: '2026-06-13T20:00:00Z',
             lead_check: {
@@ -462,6 +490,15 @@ const monitoringReports: SignalReport[] = [
         monitoring_started_at: '2026-06-09T15:00:00Z',
         monitoring_summary: {
             state: 'final_check_only',
+            checks: [
+                {
+                    check_id: 'exports-agent-check',
+                    title: 'An agent confirms no export is delivered twice',
+                    kind: 'agent',
+                    state: 'final_check_only',
+                    ends_at: '2026-06-16T15:00:00Z',
+                },
+            ],
             started_at: '2026-06-09T15:00:00Z',
             ends_at: '2026-06-16T15:00:00Z',
             lead_check: null,
@@ -478,6 +515,15 @@ const monitoringReports: SignalReport[] = [
         monitoring_started_at: '2026-06-03T12:00:00Z',
         monitoring_summary: {
             state: 'window_ended',
+            checks: [
+                {
+                    check_id: 'alerts-agent-check',
+                    title: 'An agent confirms each breach sends one notification',
+                    kind: 'agent',
+                    state: 'final_check_only',
+                    ends_at: '2026-06-10T12:00:00Z',
+                },
+            ],
             started_at: '2026-06-03T12:00:00Z',
             ends_at: '2026-06-10T12:00:00Z',
             lead_check: null,
@@ -622,7 +668,7 @@ export const ReportCardRankingPillsNarrow: Story = {
     ),
 }
 
-// The Personalized sort: three tiers with reasons, a long reason that truncates, and a report after the
+// The personal order: three tiers with reasons, a long reason that truncates, and a report after the
 // list with no tier or reason.
 const personalReports: SignalReport[] = [
     makeReport({
@@ -836,6 +882,105 @@ export const ReportCardStates: Story = {
             />
         </Stack>
     ),
+}
+
+// Tag chips sit under the card body. Past three tags the rest fold into a `+n` chip.
+/** Desktop width: a selected tag leads the line, and tags that do not fit move to the `+n` popover. */
+export const ReportCardWithTags: Story = {
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    render: () => (
+        <CardList>
+            <ReportCard
+                showTags
+                report={makeReport({
+                    title: 'fix(billing): Stop double-charging annual plans on renewal',
+                    priority: 'P1',
+                    source_products: ['error_tracking'],
+                    summary: 'Renewals for annual plans charge the card twice when the first attempt times out.',
+                    tags: [
+                        'silent-failure',
+                        'payments',
+                        'retry-logic',
+                        'customer-impact',
+                        'billing',
+                        'annual-plans',
+                        'renewals',
+                        'stripe-webhooks',
+                        'charges-the-card-twice-on-a-slow-retry',
+                        'timeouts',
+                        'revenue',
+                    ],
+                })}
+            />
+            <ReportCard
+                showTags
+                report={makeReport({
+                    title: 'fix(docs): Point the SDK setup page at the current install command',
+                    priority: 'P3',
+                    source_products: ['session_replay'],
+                    summary: 'The setup page shows an install command for a package version that no longer exists.',
+                    tags: ['docs-gap', 'onboarding'],
+                })}
+            />
+            <ReportCard
+                showTags
+                report={makeReport({
+                    title: 'Report without tags keeps its height',
+                    priority: 'P2',
+                    source_products: ['github'],
+                    summary: 'No tag chips render when a report has no tags.',
+                })}
+            />
+        </CardList>
+    ),
+    play: async ({ canvas }) => {
+        await userEvent.click(await canvas.findByTitle('Show only reports tagged billing'))
+        await userEvent.click(await canvas.findByLabelText(/^Show \d+ more tags$/))
+    },
+}
+
+const narrowTagged = {
+    title: 'Payment webhook retries stop after one rate limit response',
+    priority: 'P1',
+    source_products: ['logs'],
+    ranking: ranking({ open: 0.8, action: 0.5, fix: 0.3 }, { open: 2.9, action: 3.1, fix: 3.2 }),
+    inbox_merge_key: 0,
+    personal_tier: 'top',
+    personal_reason: 'You changed the webhook retry code this week, so this is close to your current work.',
+} satisfies Partial<SignalReport>
+
+/**
+ * Phone width with the score pill and a personal reason. The tags share the timestamp's line, so the
+ * tagged card is exactly as tall as the same card without tags.
+ */
+export const ReportCardWithTagsNarrow: Story = {
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    render: () => (
+        <div className="bg-primary min-h-screen w-[390px] px-3 py-6">
+            <div className="@container flex flex-col gap-1.5">
+                <div data-testid="card-with-tags">
+                    <ReportCard
+                        showTags
+                        rankingPill
+                        personalSort
+                        report={makeReport({
+                            ...narrowTagged,
+                            tags: ['webhooks', 'rate-limits', 'retries-stop-after-the-first-429-response', 'payments'],
+                        })}
+                    />
+                </div>
+                <div data-testid="card-without-tags">
+                    <ReportCard showTags rankingPill personalSort report={makeReport(narrowTagged)} />
+                </div>
+            </div>
+        </div>
+    ),
+    play: async ({ canvas }) => {
+        const tagged = await canvas.findByTestId('card-with-tags')
+        const untagged = await canvas.findByTestId('card-without-tags')
+        await waitFor(() => expect(tagged.offsetHeight).toBe(untagged.offsetHeight))
+        await userEvent.click(await canvas.findByLabelText(/^Show \d+ more tags$/))
+    },
 }
 
 export const Skeleton: Story = {

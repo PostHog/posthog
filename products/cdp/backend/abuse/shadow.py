@@ -11,17 +11,20 @@ from django.db import transaction
 from django.db.models import F, Q, QuerySet
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.utils import absolute_uri, get_instance_region
 
 from products.cdp.backend.abuse import metrics, rules
+from products.cdp.backend.abuse.account import Account, AccountCutoffs, AccountTier
 from products.cdp.backend.abuse.classifier import (
     AbuseVerdict,
     ClassificationFailed,
@@ -41,7 +44,9 @@ from products.cdp.backend.services.hog_function_content import comparable_conten
 
 logger = structlog.get_logger(__name__)
 
-# Its JSON payload holds the thresholds, for example {"alert_threshold": 0.5, "block_threshold": 0.9}.
+# Its JSON payload holds the thresholds, for example {"alert_threshold": 0.5, "block_threshold": 0.9,
+# "control_threshold": 0.7}, and may override the account cutoffs, for example {"established_min_age_days": 30,
+# "new_max_age_days": 14, "new_max_members": 2}.
 FLAG = "cdp-abuse-classifier"
 # A kill switch for backfill runs, evaluated without a team. Turning it off stops a run before its next function.
 BACKFILL_FLAG = "cdp-abuse-classifier-backfill"
@@ -67,6 +72,9 @@ class ScoredHogFunction:
     verdict: AbuseVerdict | None
     failure: FailureReason | None
     rule_hits: tuple[rules.Rule, ...]
+    outbound_call: bool
+    account: Account
+    account_tier: AccountTier
 
     @property
     def would_alert(self) -> bool:
@@ -147,7 +155,7 @@ def backfill_enabled() -> bool:
         return False
 
 
-def thresholds_for(team: Team) -> Thresholds:
+def _flag_payload(team: Team) -> dict[str, Any]:
     try:
         # The flag has one payload. Asking for the "on" value returns it for teams the flag does not match too,
         # so a backfill scores every team against the same thresholds.
@@ -156,15 +164,82 @@ def thresholds_for(team: Team) -> Thresholds:
         )
         if isinstance(payload, str):
             payload = json.loads(payload)
-        if isinstance(payload, dict):
-            return Thresholds(alert=float(payload["alert_threshold"]), block=float(payload["block_threshold"]))
     except Exception:
-        logger.warning("cdp_abuse_classifier_thresholds_unreadable", team_id=team.id, exc_info=True)
-    return Thresholds()
+        logger.warning("cdp_abuse_classifier_payload_unreadable", team_id=team.id, exc_info=True)
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _thresholds(payload: dict[str, Any], team_id: int) -> Thresholds:
+    if not payload.keys() & {"alert_threshold", "block_threshold", "control_threshold"}:
+        return Thresholds()
+    try:
+        control = {"control": float(payload["control_threshold"])} if "control_threshold" in payload else {}
+        return Thresholds(alert=float(payload["alert_threshold"]), block=float(payload["block_threshold"]), **control)
+    except (KeyError, TypeError, ValueError, OverflowError):
+        logger.warning("cdp_abuse_classifier_thresholds_unreadable", team_id=team_id, exc_info=True)
+        return Thresholds()
+
+
+def _account_cutoffs(payload: dict[str, Any], team_id: int) -> AccountCutoffs:
+    keys = ("established_min_age_days", "new_max_age_days", "new_max_members")
+    try:
+        return AccountCutoffs(**{key: _whole_number(payload[key]) for key in keys if key in payload})
+    except (TypeError, ValueError):
+        logger.warning("cdp_abuse_classifier_account_cutoffs_unreadable", team_id=team_id, exc_info=True)
+        return AccountCutoffs()
+
+
+def _whole_number(value: object) -> int:
+    # Ints and strings skip float, which overflows on a huge int and rounds a long fractional string to whole.
+    if isinstance(value, bool):
+        raise TypeError(f"not a number: {value!r}")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        return int(value)
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    raise ValueError(f"not a whole number: {value!r}")
+
+
+def _account_of(team: Team) -> Account:
+    organization = team.organization
+    return Account(
+        age=timezone.now() - organization.created_at,
+        has_active_subscription=organization.has_active_subscription,
+        member_count=OrganizationMembership.objects.filter(organization_id=organization.id).count(),
+        cdp_trust_score=_cdp_trust_score(organization.customer_trust_scores),
+    )
+
+
+def _cdp_trust_score(trust_scores: object) -> int | None:
+    # Billing keys trust scores by usage key, and CDP usage is counted as trigger events.
+    score = trust_scores.get("cdp_trigger_events") if isinstance(trust_scores, dict) else None
+    return score if isinstance(score, int) and not isinstance(score, bool) else None
+
+
+@frozen
+class _Scoring:
+    thresholds: Thresholds
+    account: Account
+    account_tier: AccountTier
+
+
+def _scoring_for(team: Team) -> _Scoring:
+    payload = _flag_payload(team)
+    account = _account_of(team)
+    return _Scoring(
+        thresholds=_thresholds(payload, team.id),
+        account=account,
+        account_tier=account.tier(_account_cutoffs(payload, team.id)),
+    )
 
 
 def _hash_key(hog_function_id: str) -> str:
-    return f"cdp:abuse_classifier:content_hash:{hog_function_id}"
+    # Versioned with the format of `_cache_entry`, so workers on the previous format do not overwrite these entries
+    # during a deploy, and each function scores once more after it.
+    return f"cdp:abuse_classifier:content_hash:v2:{hog_function_id}"
 
 
 def _backfill_scored_key(run_id: str, hog_function_id: str) -> str:
@@ -252,11 +327,15 @@ def classify_if_due(hog_function: HogFunction) -> None:
     if not is_scorable(hog_function) or not runs_customer_code(hog_function) or not shadow_enabled(hog_function.team):
         return
     content = content_of(hog_function, hog_function.template)
-    rule_hits = rules.matched_rules(_with_secret_inputs(hog_function, content))
-    if cache.get(_hash_key(str(hog_function.id))) == _cache_entry(content_hash(content), rule_hits):
+    runtime_content = _with_secret_inputs(hog_function, content)
+    rule_hits = rules.matched_rules(runtime_content)
+    outbound_call = rules.has_outbound_call(runtime_content)
+    scoring = _scoring_for(hog_function.team)
+    entry = _cache_entry(content_hash(content), rule_hits, outbound_call, scoring.account_tier)
+    if cache.get(_hash_key(str(hog_function.id))) == entry:
         metrics.CLASSIFICATIONS.labels(hog_function.type, "none", "skipped_unchanged").inc()
         return
-    report(hog_function, _score(hog_function, content, rule_hits), trigger=Trigger.SAVE)
+    report(hog_function, _score(hog_function, content, rule_hits, outbound_call, scoring), trigger=Trigger.SAVE)
 
 
 def classify_for_backfill(hog_function: HogFunction, run_id: str) -> None:
@@ -272,16 +351,33 @@ def classify_for_backfill(hog_function: HogFunction, run_id: str) -> None:
 
 def score(hog_function: HogFunction) -> ScoredHogFunction:
     content = content_of(hog_function, hog_function.template)
-    return _score(hog_function, content, rules.matched_rules(_with_secret_inputs(hog_function, content)))
+    runtime_content = _with_secret_inputs(hog_function, content)
+    return _score(
+        hog_function,
+        content,
+        rules.matched_rules(runtime_content),
+        rules.has_outbound_call(runtime_content),
+        _scoring_for(hog_function.team),
+    )
 
 
 def _score(
-    hog_function: HogFunction, content: HogFunctionContent, rule_hits: tuple[rules.Rule, ...]
+    hog_function: HogFunction,
+    content: HogFunctionContent,
+    rule_hits: tuple[rules.Rule, ...],
+    outbound_call: bool,
+    scoring: _Scoring,
 ) -> ScoredHogFunction:
     verdict: AbuseVerdict | None = None
     failure: FailureReason | None = None
     try:
-        verdict = classify(content, team_id=hog_function.team_id, thresholds=thresholds_for(hog_function.team))
+        verdict = classify(
+            content,
+            team_id=hog_function.team_id,
+            thresholds=scoring.thresholds,
+            outbound_call=outbound_call,
+            account_tier=scoring.account_tier,
+        )
     except ClassificationFailed as error:
         failure = error.reason
     return ScoredHogFunction(
@@ -290,6 +386,9 @@ def _score(
         verdict=verdict,
         failure=failure,
         rule_hits=rule_hits,
+        outbound_call=outbound_call,
+        account=scoring.account,
+        account_tier=scoring.account_tier,
     )
 
 
@@ -312,11 +411,15 @@ def _decrypted_secret_inputs(hog_function: HogFunction) -> dict[str, Any]:
     return secret_inputs if isinstance(secret_inputs, dict) else {}
 
 
-def _cache_entry(public_content_hash: str, rule_hits: tuple[rules.Rule, ...]) -> str:
-    """The model sees only the public content, and secret inputs change only the rule hits. Keeping both means a
-    secret change that matches a rule scores the function again, while the cache holds nothing derived from a
-    secret value."""
-    return f"{public_content_hash}:{','.join(rule_hits)}"
+def _cache_entry(
+    public_content_hash: str, rule_hits: tuple[rules.Rule, ...], outbound_call: bool, account_tier: AccountTier
+) -> str:
+    """The model sees only the public content, and secret inputs change only the rule hits and the outbound call.
+    Keeping all three means a secret change that matches a rule or adds a call scores the function again, while the
+    cache holds nothing more about a secret value than the event does. Only the established tier changes whether a
+    moderate score alerts, so an account that enters or leaves it scores again on its next save."""
+    established = account_tier is AccountTier.ESTABLISHED
+    return f"{public_content_hash}:{','.join(rule_hits)}:{int(outbound_call)}:{int(established)}"
 
 
 def report(
@@ -351,6 +454,7 @@ def report(
             "rule_hits": rule_hits,
             "would_alert": scored.would_alert,
             "would_block": scored.would_block,
+            "model_alert_gates": [gate.value for gate in verdict.model_alert_gates],
             "state_truncated": verdict.state_truncated,
             "model": verdict.model,
             "latency_ms": verdict.latency_ms,
@@ -358,19 +462,30 @@ def report(
         },
     )
     # Only a delivered verdict is remembered, so a failed classification or capture runs again on the next save.
-    cache.set(_hash_key(str(hog_function.id)), _cache_entry(scored.content_hash, scored.rule_hits), _HASH_TTL_SECONDS)
+    cache.set(
+        _hash_key(str(hog_function.id)),
+        _cache_entry(scored.content_hash, scored.rule_hits, scored.outbound_call, scored.account_tier),
+        _HASH_TTL_SECONDS,
+    )
 
 
 def _capture(hog_function: HogFunction, scored: ScoredHogFunction, outcome: dict[str, object]) -> None:
     team = hog_function.team
+    account = scored.account
     properties = {
         "team_id": team.id,
         "organization_id": str(team.organization_id),
         "organization_created_at": team.organization.created_at.isoformat(),
+        "organization_age_days": account.age.days,
+        "organization_member_count": account.member_count,
+        "has_active_subscription": account.has_active_subscription,
+        "cdp_trust_score": account.cdp_trust_score,
+        "account_tier": scored.account_tier.value,
         "hog_function_id": str(hog_function.id),
         "hog_function_type": hog_function.type,
         "template_id": hog_function.template_id,
         "code_modified_from_template": scored.code_modified_from_template,
+        "outbound_call": scored.outbound_call,
         "enabled": hog_function.enabled,
         "content_hash": scored.content_hash,
         "admin_url": absolute_uri(f"/admin/cdp/hogfunction/{hog_function.id}/change/"),

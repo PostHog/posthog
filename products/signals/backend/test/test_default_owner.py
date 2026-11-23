@@ -166,10 +166,16 @@ class TestDefaultOwner(BaseTest):
         (entry,) = self._latest_reviewers()
         assert entry["is_default_owner"] is True
 
-    @parameterized.expand([("legacy_writer", False), ("protected_writer", True)])
-    def test_routes_a_report_with_no_reviewers_to_the_default_owner(self, _name: str, writer_enabled: bool) -> None:
+    @parameterized.expand([(writer, mode) for writer in (False, True) for mode in (None, "reviewer", "user")])
+    def test_routes_a_report_with_no_reviewers_to_the_default_owner(
+        self, writer_enabled: bool, mode: str | None
+    ) -> None:
         self._activated_by(self.user)
         self._reviewers([])
+        authorization = {"mode": mode, "user_id": self.user.id if mode == "user" else None} if mode else None
+        SignalReportArtefact.objects.filter(report=self.report, type="suggested_reviewers").update(
+            implementation_authorization=authorization
+        )
 
         with (
             patch("products.signals.backend.default_owner.default_owner_fallback_enabled", return_value=True),
@@ -180,6 +186,10 @@ class TestDefaultOwner(BaseTest):
         (entry,) = self._latest_reviewers()
         assert entry["user_uuid"] == str(self.user.uuid)
         assert entry["is_default_owner"] is True
+        latest = SignalReportArtefact.objects.filter(report=self.report, type="suggested_reviewers").latest(
+            "created_at"
+        )
+        assert latest.implementation_authorization == authorization
 
     def test_does_not_route_an_already_addressed_report_to_the_default_owner(self) -> None:
         self._activated_by(self.user)

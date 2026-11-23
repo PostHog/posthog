@@ -4,7 +4,7 @@ import { urls } from 'scenes/urls'
 
 import { FilterLogicalOperator, PropertyFilterType, PropertyGroupFilter, PropertyOperator } from '~/types'
 
-import { bucketUpperBound, type TracingLatencyHeatmapData } from 'products/tracing/frontend/durationBuckets'
+import type { _TracingLatencyPercentilesRowApi } from 'products/tracing/frontend/generated/api.schemas'
 import type { Span } from 'products/tracing/frontend/types'
 
 /** The env, version and operation the service page is narrowed to. Null means "all". */
@@ -30,18 +30,10 @@ export const VERSION_KEY = 'service.version'
 // HTTP status lives under the current semconv key or the older one, depending on the SDK.
 export const HTTP_STATUS_KEYS = ['http.response.status_code', 'http.status_code'] as const
 
-// An exception recorded as a span event, the OTel default, carries its message here. Read first.
-const EVENT_MESSAGE_KEYS = ['exception.message', 'exception.type'] as const
-
 // Where instrumentation records why a span failed, most specific first. Mirrors the order the
 // backend trace summary reads them in.
-const ERROR_MESSAGE_KEYS = [
-    'exception.message',
-    'error.message',
-    'otel.status_description',
-    'exception.type',
-    'error.type',
-] as const
+const ERROR_MESSAGE_KEYS = ['exception.message', 'error.message', 'otel.status_description'] as const
+const ERROR_TYPE_KEYS = ['exception.type', 'error.type'] as const
 
 /**
  * How a scope value goes into the URL. The router reads `1.0` back as the number 1 and `true` as a
@@ -166,41 +158,21 @@ export function environmentKeyFor(environment: string | null, candidates: Enviro
 }
 
 export interface LatencyPercentiles {
+    times: string[]
     p50: number[]
     p95: number[]
     p99: number[]
 }
 
-/**
- * Per time bucket, the duration below which `q` of the spans fall. The heatmap only knows which
- * 1-2-5 bucket a span landed in, so each value is that bucket's upper bound: an upper estimate,
- * never more than one bucket step above the real percentile. Empty buckets are NaN, so the line
- * breaks instead of dropping to zero.
- */
-export function latencyPercentileSeries(data: TracingLatencyHeatmapData): LatencyPercentiles {
-    const quantile = (column: number, q: number): number => {
-        let total = 0
-        for (const row of data.cells) {
-            total += row[column] ?? 0
-        }
-        if (total === 0) {
-            return NaN
-        }
-        const target = q * total
-        let cumulative = 0
-        for (let row = 0; row < data.bucketsNs.length; row++) {
-            cumulative += data.cells[row]?.[column] ?? 0
-            if (cumulative >= target) {
-                return bucketUpperBound(data.bucketsNs[row])
-            }
-        }
-        return bucketUpperBound(data.bucketsNs[data.bucketsNs.length - 1])
-    }
-    const columns = data.timeBuckets.map((_, index) => index)
+/** Per time bucket, in nanoseconds. A bucket with no spans is NaN, so the line breaks instead of dropping to zero. */
+export function latencyPercentileSeries(rows: _TracingLatencyPercentilesRowApi[]): LatencyPercentiles {
+    const values = (pick: (row: _TracingLatencyPercentilesRowApi) => number | null): number[] =>
+        rows.map((row) => pick(row) ?? NaN)
     return {
-        p50: columns.map((column) => quantile(column, 0.5)),
-        p95: columns.map((column) => quantile(column, 0.95)),
-        p99: columns.map((column) => quantile(column, 0.99)),
+        times: rows.map((row) => row.time),
+        p50: values((row) => row.p50_ns),
+        p95: values((row) => row.p95_ns),
+        p99: values((row) => row.p99_ns),
     }
 }
 
@@ -240,43 +212,92 @@ export function mergeRequestsSeries(requests: SparklineRow[], errors: SparklineR
     }
 }
 
-export interface TopError {
-    message: string
+export function bucketIntervalLabel(times: string[]): string | null {
+    if (times.length < 2) {
+        return null
+    }
+    const seconds = Math.round((Date.parse(times[1]) - Date.parse(times[0])) / 1000)
+    if (!Number.isFinite(seconds) || seconds <= 0) {
+        return null
+    }
+    // Short plural forms keep the chart's y-axis label from truncating.
+    const units: [number, string, string][] = [
+        [86400, 'day', 'days'],
+        [3600, 'hour', 'h'],
+        [60, 'minute', 'min'],
+        [1, 'second', 's'],
+    ]
+    for (const [size, singular, plural] of units) {
+        if (seconds % size === 0) {
+            const count = seconds / size
+            return count === 1 ? singular : `${count} ${plural}`
+        }
+    }
+    return null
+}
+
+export type ErrorGroupKind = 'message' | 'exception_type' | 'http_status' | 'span_name'
+
+export const ERROR_GROUP_KIND_LABEL: Record<ErrorGroupKind, string> = {
+    message: 'Message',
+    exception_type: 'Exception type',
+    http_status: 'HTTP status',
+    span_name: 'Span name',
+}
+
+export interface SpanErrorGroup {
+    kind: ErrorGroupKind
+    value: string
+}
+
+export interface TopError extends SpanErrorGroup {
+    /** Unique across kinds, so a status code and a message with the same text stay two rows. */
+    key: string
     count: number
     lastSeen: string
-    /** The most recent span with this message, for a link to its trace. */
     latest: Span
 }
 
-export function spanErrorMessage(span: Span): string {
-    for (const event of span.events ?? []) {
-        for (const key of EVENT_MESSAGE_KEYS) {
-            const value = event.attributes?.[key]
+function firstValue(sources: (Record<string, string> | undefined)[], keys: readonly string[]): string | null {
+    for (const key of keys) {
+        for (const source of sources) {
+            const value = source?.[key]
             if (value) {
                 return value
             }
         }
     }
-    for (const key of ERROR_MESSAGE_KEYS) {
-        const value = span.attributes?.[key]
-        if (value) {
-            return value
-        }
-    }
-    return 'No error message recorded'
+    return null
 }
 
-/** Groups error spans by their message, most frequent first. Expects spans newest first. */
-export function topErrorMessages(spans: Span[], limit = 10): TopError[] {
+export function spanErrorGroup(span: Span): SpanErrorGroup {
+    const sources = [...(span.events ?? []).map((event) => event.attributes), span.attributes]
+    const message = firstValue(sources, ERROR_MESSAGE_KEYS)
+    if (message) {
+        return { kind: 'message', value: message }
+    }
+    const exceptionType = firstValue(sources, ERROR_TYPE_KEYS)
+    if (exceptionType) {
+        return { kind: 'exception_type', value: exceptionType }
+    }
+    const statusCode = firstValue([span.attributes], HTTP_STATUS_KEYS)
+    if (statusCode) {
+        return { kind: 'http_status', value: String(statusCode) }
+    }
+    return { kind: 'span_name', value: span.name }
+}
+
+export function topErrorGroups(spans: Span[], limit = 10): TopError[] {
     const groups = new Map<string, TopError>()
     for (const span of spans) {
-        const message = spanErrorMessage(span)
-        const existing = groups.get(message)
+        const group = spanErrorGroup(span)
+        const key = `${group.kind}:${group.value}`
+        const existing = groups.get(key)
         if (existing) {
             existing.count += 1
             continue
         }
-        groups.set(message, { message, count: 1, lastSeen: span.timestamp, latest: span })
+        groups.set(key, { ...group, key, count: 1, lastSeen: span.timestamp, latest: span })
     }
     return [...groups.values()].sort((a, b) => b.count - a.count).slice(0, limit)
 }

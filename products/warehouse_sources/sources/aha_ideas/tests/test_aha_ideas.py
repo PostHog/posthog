@@ -156,16 +156,20 @@ class TestAhaIdeasSourceNonFanout:
 class TestAhaIdeasSourceFanout:
     @parameterized.expand(
         [
-            ("idea_comments", "idea_comments"),
-            ("idea_subscriptions", "subscriptions"),
+            ("idea_comments", "idea_comments", "idea_comments", {"id": "child_1", "idea_id": "idea_1"}),
+            ("idea_subscriptions", "subscriptions", "idea_subscriptions", {"id": "child_1", "idea_id": "idea_1"}),
+            # Internal comments carry no `idea_id`, so the fan-out adds it from the parent idea.
+            ("idea_internal_comments", "comments", "comments", {"id": "child_1"}),
         ]
     )
-    def test_idea_fanout_row_format(self, endpoint: str, child_path: str) -> None:
+    def test_idea_fanout_row_format(
+        self, endpoint: str, child_path: str, response_key: str, child_row: dict[str, Any]
+    ) -> None:
         result = _driver().run(
             endpoint,
             [
                 _response("ideas", [{"id": "idea_1"}], total_pages=1),
-                _response(endpoint, [{"id": "child_1", "idea_id": "idea_1"}], total_pages=1),
+                _response(response_key, [child_row], total_pages=1),
             ],
         )
 

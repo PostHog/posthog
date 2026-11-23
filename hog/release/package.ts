@@ -85,14 +85,22 @@ async function writeJson(path: string, value: unknown): Promise<void> {
     await writeFile(path, JSON.stringify(value, null, 2) + '\n')
 }
 
-const NPM_README = (name: string): string =>
-    `# ${name}\n\nhog, the PostHog command line. Install it with \`npm install -g hog\`.\n\n` +
-    'See https://github.com/PostHog/posthog/tree/master/hog for the commands.\n'
+// The page npm shows for the hog package. Platform packages only point to it.
+const NPM_README = join(HOG_ROOT, 'release/npm/README.md')
 
-async function npmPackage(folder: string, packageJson: PackageJson, files: [string, string][]): Promise<void> {
+const PLATFORM_README = (name: string): string =>
+    `# ${name}\n\nThe hog binary for one platform. Install \`hog\` instead: \`npm install -g hog\`.\n\n` +
+    'See https://www.npmjs.com/package/hog.\n'
+
+async function npmPackage(
+    folder: string,
+    packageJson: PackageJson,
+    files: [string, string][],
+    readme: string
+): Promise<void> {
     await mkdir(join(folder, 'bin'), { recursive: true })
     await writeJson(join(folder, 'package.json'), packageJson)
-    await writeFile(join(folder, 'README.md'), NPM_README(packageJson.name))
+    await writeFile(join(folder, 'README.md'), readme)
     for (const [from, to] of files) {
         await copyFile(from, join(folder, to))
         await chmod(join(folder, to), 0o755)
@@ -145,12 +153,16 @@ for (const target of TARGETS) {
     await npmPackage(
         join(out, 'npm', npmPackageName(target).replace('@posthog/', '')),
         platformPackageJson(target, version),
-        [[binaryPath(target), join('bin', binaryName(target))]]
+        [[binaryPath(target), join('bin', binaryName(target))]],
+        PLATFORM_README(npmPackageName(target))
     )
 }
-await npmPackage(join(out, 'npm', 'hog'), wrapperPackageJson(version), [
-    [join(HOG_ROOT, 'release/npm/hog.cjs'), 'bin/hog.cjs'],
-])
+await npmPackage(
+    join(out, 'npm', 'hog'),
+    wrapperPackageJson(version),
+    [[join(HOG_ROOT, 'release/npm/hog.cjs'), 'bin/hog.cjs']],
+    await readFile(NPM_README, 'utf8')
+)
 
 await writeFile(join(out, 'hog.rb'), homebrewFormula(version, artifacts))
 
