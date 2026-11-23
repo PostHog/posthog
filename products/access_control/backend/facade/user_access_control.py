@@ -83,7 +83,6 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "insight",
     "llm_analytics",
     "evaluation",
-    "tagger",
     "llm_skill",
     "ai_observability_clusters",
     "notebook",

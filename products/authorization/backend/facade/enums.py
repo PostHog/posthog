@@ -86,7 +86,6 @@ class ResourceType(StrEnum):
     INSIGHT = "insight"
     LLM_ANALYTICS = "llm_analytics"
     EVALUATION = "evaluation"
-    TAGGER = "tagger"
     LLM_SKILL = "llm_skill"
     AI_OBSERVABILITY_CLUSTERS = "ai_observability_clusters"
     NOTEBOOK = "notebook"

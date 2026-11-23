@@ -804,15 +804,6 @@ export const SCOPE_DOCS: Readonly<Record<string, ScopeObjectDoc>> = {
             reason: 'Surveys with targeting also manage a feature flag, so this key needs write access to feature flags too.',
         },
     },
-    tagger: {
-        name: 'Tagger',
-        plural: 'taggers',
-        description:
-            'Taggers that automatically label your AI generations, including testing tagger code on sample events.',
-        group: 'LLM & MCP analytics',
-        actions: ['read', 'write'],
-        docsUrl: 'https://posthog.com/docs/ai-evals/taggers',
-    },
     task: {
         name: 'Task',
         plural: 'tasks',

@@ -67,12 +67,4 @@ SCOPE_DOCS = (
         docs_url="https://posthog.com/docs/ai-evals/offline-evals",
         actions=("write",),
     ),
-    ScopeDoc(
-        object="tagger",
-        name="Tagger",
-        plural="taggers",
-        description="Taggers that automatically label your AI generations, including testing tagger code on sample events.",
-        group="LLM & MCP analytics",
-        docs_url="https://posthog.com/docs/ai-evals/taggers",
-    ),
 )
