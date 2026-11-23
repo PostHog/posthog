@@ -16,8 +16,9 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                 <>
                     {MobileFinalSteps && <MobileFinalSteps />}
                     <Markdown>
-                        To capture screen views with React Navigation, call `posthog.screen()` when the route changes.
-                        Get the client with the `usePostHog` hook, and render this component inside `PostHogProvider`:
+                        To capture screen views with React Navigation, set `autocapture={{ captureScreens: false }}` on
+                        `PostHogProvider` and call `posthog.screen()` when the route changes. Get the client with the
+                        `usePostHog` hook, and render this component inside `PostHogProvider`:
                     </Markdown>
                     <CodeBlock
                         blocks={[
@@ -27,7 +28,7 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                                 code: dedent`
                                     import { useRef } from 'react'
                                     import { usePostHog } from 'posthog-react-native'
-                                    import { NavigationContainer, NavigationContainerRef } from '@react-navigation/native'
+                                    import { NavigationContainer, type NavigationContainerRef } from '@react-navigation/native'
 
                                     function App() {
                                         const routeNameRef = useRef<string | undefined>(undefined)
@@ -38,7 +39,11 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                                             <NavigationContainer
                                                 ref={navigationRef}
                                                 onReady={() => {
-                                                    routeNameRef.current = navigationRef.current?.getCurrentRoute()?.name
+                                                    const initialRouteName = navigationRef.current?.getCurrentRoute()?.name
+                                                    if (initialRouteName) {
+                                                        posthog.screen(initialRouteName)
+                                                    }
+                                                    routeNameRef.current = initialRouteName
                                                 }}
                                                 onStateChange={async () => {
                                                     const previousRouteName = routeNameRef.current
