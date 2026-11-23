@@ -631,9 +631,11 @@ class TestEmailDomainDnsLookups(EmailDomainApiTestCase):
         body = self.status_body(sender)
 
         assert body["status"] == "verified"
-        assert [(record["hostname"], record["status"]) for record in body["records"] if record["kind"] == "dmarc"] == [
-            (f"_dmarc.{organizational_domain}", "verified")
-        ]
+        assert [
+            (record["hostname"], record["value"], record["status"])
+            for record in body["records"]
+            if record["kind"] == "dmarc"
+        ] == [(f"_dmarc.{organizational_domain}", inherited_dmarc, "verified")]
         assert self.verify(sender).status_code == status.HTTP_200_OK
         assert self.is_verified(sender)
 

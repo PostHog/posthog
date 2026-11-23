@@ -1,8 +1,8 @@
 import logging
 import ipaddress
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import replace
+from dataclasses import field, replace
 
 import dns.rdata
 import tldextract
@@ -43,6 +43,7 @@ class _Lookup:
 class PublishedRecords:
     records: frozenset[EmailDomainStatusRecord]
     unanswered: frozenset[EmailDomainStatusRecord] = frozenset()
+    dmarc_values: Mapping[EmailDomainStatusRecord, str] = field(default_factory=dict)
 
     @property
     def every_lookup_answered(self) -> bool:
@@ -62,7 +63,11 @@ def find_published_records(domain: str, records: Sequence[EmailDomainStatusRecor
     authoritative = _authoritative_resolver(domain)
     from_zone = _published_with(authoritative, records) if authoritative else PublishedRecords(records=frozenset())
     from_public = _published_with(_system_resolver(), [record for record in records if record not in from_zone.records])
-    return PublishedRecords(records=from_zone.records | from_public.records, unanswered=from_public.unanswered)
+    return PublishedRecords(
+        records=from_zone.records | from_public.records,
+        unanswered=from_public.unanswered,
+        dmarc_values={**from_zone.dmarc_values, **from_public.dmarc_values},
+    )
 
 
 # Receivers look up a domain's own DMARC record first, then its organizational domain's (RFC 7489, 6.6.3).
@@ -73,13 +78,17 @@ def dmarc_hostnames(domain: str) -> tuple[str, ...]:
 def find_dmarc_record_in_force(
     domain: str, record: EmailDomainStatusRecord, published: PublishedRecords
 ) -> tuple[EmailDomainStatusRecord, PublishedRecords]:
+    if record in published.records:
+        in_force = replace(record, value=published.dmarc_values[record])
+        return in_force, replace(published, records=(published.records - {record}) | {in_force})
     organizational_domain = _organizational_domain(domain)
-    if organizational_domain == domain or record in published.records or record in published.unanswered:
+    if organizational_domain == domain or record in published.unanswered:
         return record, published
     inherited = replace(record, hostname=f"_dmarc.{organizational_domain}")
     found = find_published_records(organizational_domain, [inherited])
     if inherited in found.records:
-        return inherited, replace(published, records=published.records | {inherited})
+        in_force = replace(inherited, value=found.dmarc_values[inherited])
+        return in_force, replace(published, records=published.records | {in_force})
     if found.unanswered:
         return record, replace(published, unanswered=published.unanswered | {record})
     return record, published
@@ -95,9 +104,15 @@ def _published_with(resolver: dns.resolver.Resolver, records: Sequence[EmailDoma
     lookups = {_lookup_for(record) for record in records}
     with ThreadPoolExecutor(max_workers=min(len(lookups), MAX_PARALLEL_LOOKUPS)) as pool:
         answers = dict(zip(lookups, pool.map(lambda lookup: _resolve(resolver, lookup), lookups)))
+    published = frozenset(record for record in records if _is_published(record, answers[_lookup_for(record)] or []))
     return PublishedRecords(
-        records=frozenset(record for record in records if _is_published(record, answers[_lookup_for(record)] or [])),
+        records=published,
         unanswered=frozenset(record for record in records if answers[_lookup_for(record)] is None),
+        dmarc_values={
+            record: value
+            for record in published
+            if record.kind == Kind.DMARC and (value := _dmarc_value(answers[_lookup_for(record)] or [])) is not None
+        },
     )
 
 
@@ -166,7 +181,7 @@ def _normalized_hostname(hostname: str) -> str:
 def _is_published(record: EmailDomainStatusRecord, answers: list[str]) -> bool:
     match record.kind, record.type:
         case Kind.DMARC, _:
-            return any(answer.lower().startswith("v=dmarc1") for answer in answers)
+            return _dmarc_value(answers) is not None
         case Kind.SPF | Kind.MAIL_FROM_SPF, _:
             # A second SPF record at the same name makes SPF fail for all mail from it (RFC 7208, 4.5).
             spf_records = [answer for answer in answers if _is_spf(answer)]
@@ -179,6 +194,10 @@ def _is_published(record: EmailDomainStatusRecord, answers: list[str]) -> bool:
             return f"{record.priority} {_normalized_hostname(record.value)}" in answers
         case _:
             return record.value in answers
+
+
+def _dmarc_value(answers: list[str]) -> str | None:
+    return next((answer for answer in answers if answer.lower().startswith("v=dmarc1")), None)
 
 
 def _is_spf(answer: str) -> bool:
