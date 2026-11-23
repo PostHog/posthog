@@ -1,5 +1,8 @@
 import { IconCheck, IconShieldLock, IconX } from '@posthog/icons'
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
+import { ToggleGroup, ToggleGroupItem } from '@posthog/quill'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import type { ToolApprovalState } from '../mcpStoreLogic'
 
@@ -28,6 +31,36 @@ export function ToolPolicyToggle({
     disabledStates,
     fullWidth,
 }: Props): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return (
+            <ToggleGroup
+                size="sm"
+                value={[value]}
+                onValueChange={(next: string[]) => {
+                    const picked = OPTIONS.find((option) => option.value === next[0])
+                    if (picked) {
+                        onChange(picked.value)
+                    }
+                }}
+                className={fullWidth ? 'w-full' : undefined}
+            >
+                {OPTIONS.map((option) => (
+                    <ToggleGroupItem
+                        key={option.value}
+                        value={option.value}
+                        disabledReason={disabledReason ?? disabledStates?.[option.value]}
+                        className={fullWidth ? 'flex-1' : undefined}
+                    >
+                        {option.icon}
+                        {option.label}
+                    </ToggleGroupItem>
+                ))}
+            </ToggleGroup>
+        )
+    }
+
     return (
         <LemonSegmentedButton
             size={size}

@@ -111,20 +111,29 @@ class TestSecretSettingsCoverage(unittest.TestCase):
         self.assertEqual(_redact_if_secret("EMAIL_HOST", value), value)
 
 
-class TestNewEventsSchemaTeamsValidation(SimpleTestCase):
+class TestListSettingValidation(SimpleTestCase):
     @parameterized.expand(
         [
-            ("", True),
-            ("2", True),
-            (" 2, 44 ,123 ", True),
-            ("2;44", False),
-            ("team 2", False),
-            ([2], False),
+            ("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", "", True),
+            ("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", "2", True),
+            ("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", " 2, 44 ,123 ", True),
+            ("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", "2;44", False),
+            ("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", "team 2", False),
+            ("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", [2], False),
+            ("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", ",".join(["1234567"] * 128), False),
+            ("TRENDS_RANKED_BREAKDOWN_QUERY_SIGNATURES", "", True),
+            ("TRENDS_RANKED_BREAKDOWN_QUERY_SIGNATURES", " 0123456789abcdef , fedcba9876543210 ", True),
+            ("TRENDS_RANKED_BREAKDOWN_QUERY_SIGNATURES", ",".join([f"{i:016x}" for i in range(60)]), True),
+            ("TRENDS_RANKED_BREAKDOWN_QUERY_SIGNATURES", ",".join([f"{i:016x}" for i in range(61)]), False),
+            ("TRENDS_RANKED_BREAKDOWN_QUERY_SIGNATURES", "0123456789abcdef" * 4, False),
+            ("TRENDS_RANKED_BREAKDOWN_QUERY_SIGNATURES", "0123456789ABCDEF", False),
         ]
     )
-    def test_project_list_accepts_comma_separated_ids_only(self, value: object, valid: bool) -> None:
+    def test_list_settings_accept_only_storable_comma_separated_values(
+        self, key: str, value: object, valid: bool
+    ) -> None:
         serializer = InstanceSettingsSerializer(
-            instance=InstanceSettingHelper(key="CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS"),
+            instance=InstanceSettingHelper(key=key),
             data={"value": value},
             partial=True,
         )
@@ -265,6 +274,11 @@ class TestInstanceSettings(APIBaseTest):
             ("comma_separated", "4, 5, 6", [4, 5, 6]),
             ("json_string", "[7, 8, 9]", [7, 8, 9]),
             ("empty_string", "", []),
+            (
+                "indented_json_string_that_fits_once_stored",
+                json.dumps(list(range(100000, 100100)), indent=2),
+                list(range(100000, 100100)),
+            ),
         ]
         for name, input_value, expected in valid_cases:
             with self.subTest(name):
@@ -279,6 +293,7 @@ class TestInstanceSettings(APIBaseTest):
         invalid_cases = [
             ("non_int_items", "1, two, 3"),
             ("invalid_json", "[1, 2"),
+            ("comma_string_too_long_once_stored", ",".join(["1"] * 511)),
         ]
         for name, input_value in invalid_cases:
             with self.subTest(name):

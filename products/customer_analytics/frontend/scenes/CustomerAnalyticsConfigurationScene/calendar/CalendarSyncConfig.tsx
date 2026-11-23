@@ -2,14 +2,29 @@ import { useActions, useValues } from 'kea'
 
 import { IconRefresh, IconRewind, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import {
+    Button,
+    Item,
+    ItemActions,
+    ItemContent,
+    ItemDescription,
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+    Text,
+} from '@posthog/quill'
 
 import api from 'lib/api'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { ICONS } from 'lib/integrations/utils'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -17,6 +32,13 @@ import { CalendarSyncBackfillModal } from './CalendarSyncBackfillModal'
 import { calendarSyncLogic } from './calendarSyncLogic'
 
 const GMAIL_READONLY_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly'
+
+const SYNC_INTERVAL_OPTIONS = [
+    { value: 5, label: '5 minutes' },
+    { value: 15, label: '15 minutes' },
+    { value: 30, label: '30 minutes' },
+    { value: 60, label: '1 hour' },
+]
 
 function getSyncIntervalDisabledReason(
     hasSyncStatus: boolean,
@@ -57,6 +79,7 @@ export function CalendarSyncConfig(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const calendarIntegrations = integrations?.filter((integration) => integration.kind === 'google-calendar') ?? []
     const managementRestrictedReason = (createdById?: number): string | null =>
@@ -73,9 +96,37 @@ export function CalendarSyncConfig(): JSX.Element {
         next: `${urls.customerAnalyticsConfiguration('customer-analytics-calendar-sync')}#selectedSetting=customer-analytics-calendar-sync`,
     })
 
+    const connectLabel = calendarIntegrations.length ? 'Connect another Google account' : 'Connect Google account'
+
+    const handleBackfillSubmit = (): void => {
+        if (backfillIntegrationId !== null && backfillStartDate && backfillEndDate) {
+            submitBackfill(backfillIntegrationId, backfillStartDate, backfillEndDate)
+        }
+    }
+
     return (
         <div className="flex flex-col gap-4">
-            {needsEmailPermission && (
+            {needsEmailPermission && todayRailNav && (
+                <Item tone="warning" size="sm" className="flex-wrap">
+                    <ItemContent>
+                        <ItemDescription>
+                            Reconnect your Google account to let PostHog sync customer email as well as calendar
+                            meetings.
+                        </ItemDescription>
+                    </ItemContent>
+                    <ItemActions>
+                        <Button
+                            variant="outline"
+                            nativeButton={false}
+                            render={<LinkPrimitive to={authorizeUrl} disableClientSideRouting />}
+                            data-attr="reconnect-google-account"
+                        >
+                            Reconnect Google account
+                        </Button>
+                    </ItemActions>
+                </Item>
+            )}
+            {needsEmailPermission && !todayRailNav && (
                 <LemonBanner
                     type="warning"
                     action={{
@@ -89,17 +140,30 @@ export function CalendarSyncConfig(): JSX.Element {
                 </LemonBanner>
             )}
             <div className="flex">
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    icon={<img src={ICONS['google-calendar']} className="h-4 w-4" alt="" />}
-                    disableClientSideRouting
-                    loading={integrationsLoading}
-                    to={authorizeUrl}
-                    data-attr="calendar-sync-connect-google-account"
-                >
-                    {calendarIntegrations.length ? 'Connect another Google account' : 'Connect Google account'}
-                </LemonButton>
+                {todayRailNav ? (
+                    <Button
+                        variant="primary"
+                        nativeButton={false}
+                        render={<LinkPrimitive to={authorizeUrl} disableClientSideRouting />}
+                        loading={integrationsLoading}
+                        data-attr="calendar-sync-connect-google-account"
+                    >
+                        <img src={ICONS['google-calendar']} className="h-4 w-4" alt="" />
+                        {connectLabel}
+                    </Button>
+                ) : (
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        icon={<img src={ICONS['google-calendar']} className="h-4 w-4" alt="" />}
+                        disableClientSideRouting
+                        loading={integrationsLoading}
+                        to={authorizeUrl}
+                        data-attr="calendar-sync-connect-google-account"
+                    >
+                        {connectLabel}
+                    </LemonButton>
+                )}
             </div>
             {calendarIntegrations.map((integration) => {
                 const syncStatus = statusByIntegrationId[integration.id]
@@ -114,6 +178,105 @@ export function CalendarSyncConfig(): JSX.Element {
                       ? 'A sync is already running'
                       : (adminRestrictedReason ??
                         (!hasGmailScope ? 'Reconnect this Google account before you backfill email' : null))
+                const syncIntervalDisabledReason = getSyncIntervalDisabledReason(
+                    !!syncStatus,
+                    statusesLoading,
+                    savingIntervalIds.includes(integration.id)
+                )
+                const syncNowDisabledReason = isSyncing ? 'A sync is already running' : restrictedReason
+
+                if (todayRailNav) {
+                    return (
+                        <IntegrationView
+                            key={integration.id}
+                            integration={integration}
+                            // A custom suffix replaces IntegrationView's built-in Disconnect button, so it returns here.
+                            suffix={
+                                <div className="flex flex-row flex-wrap items-center justify-end gap-2">
+                                    {!adminRestrictedReason && (
+                                        <span className="flex items-center gap-2">
+                                            <Text size="xs" render={<span className="m-0 whitespace-nowrap" />}>
+                                                Sync every
+                                            </Text>
+                                            <Select
+                                                value={syncStatus?.sync_interval_minutes ?? null}
+                                                onValueChange={(value) =>
+                                                    value !== null && saveInterval(integration.id, value as number)
+                                                }
+                                            >
+                                                <SelectTrigger
+                                                    aria-label="Sync every"
+                                                    disabledReason={syncIntervalDisabledReason}
+                                                    data-attr={`google-account-sync-interval-${integration.id}`}
+                                                >
+                                                    <SelectValue
+                                                        placeholder={
+                                                            statusesLoading
+                                                                ? 'Loading sync frequency...'
+                                                                : 'Sync frequency unavailable'
+                                                        }
+                                                    >
+                                                        {(minutes: number | null) =>
+                                                            SYNC_INTERVAL_OPTIONS.find(
+                                                                (option) => option.value === minutes
+                                                            )?.label
+                                                        }
+                                                    </SelectValue>
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {SYNC_INTERVAL_OPTIONS.map((option) => (
+                                                        <SelectItem key={option.value} value={option.value}>
+                                                            {option.label}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </span>
+                                    )}
+                                    <Text size="xs" variant="muted" render={<span className="m-0 whitespace-nowrap" />}>
+                                        {isSyncing ? (
+                                            'Syncing Google account...'
+                                        ) : syncStatus?.last_synced_at ? (
+                                            <>
+                                                <span>Last synced </span>
+                                                <TZLabel time={syncStatus.last_synced_at} />
+                                            </>
+                                        ) : (
+                                            'Not synced yet'
+                                        )}
+                                    </Text>
+                                    <Button
+                                        variant="outline"
+                                        loading={isSyncing}
+                                        disabledReason={syncNowDisabledReason}
+                                        onClick={() => syncNow(integration.id)}
+                                    >
+                                        <IconRefresh />
+                                        Sync now
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        disabledReason={backfillDisabledReason}
+                                        onClick={() => openBackfill(integration.id)}
+                                        data-attr="google-account-backfill-open"
+                                    >
+                                        <IconRewind />
+                                        Backfill
+                                    </Button>
+                                    <Button
+                                        variant="destructive-outline"
+                                        onClick={() => deleteIntegration(integration.id)}
+                                        disabledReason={restrictedReason}
+                                    >
+                                        <IconTrash />
+                                        Disconnect
+                                    </Button>
+                                </div>
+                            }
+                        />
+                    )
+                }
+
                 return (
                     <IntegrationView
                         key={integration.id}
@@ -132,17 +295,8 @@ export function CalendarSyncConfig(): JSX.Element {
                                                     ? 'Loading sync frequency...'
                                                     : 'Sync frequency unavailable'
                                             }
-                                            options={[
-                                                { value: 5, label: '5 minutes' },
-                                                { value: 15, label: '15 minutes' },
-                                                { value: 30, label: '30 minutes' },
-                                                { value: 60, label: '1 hour' },
-                                            ]}
-                                            disabledReason={getSyncIntervalDisabledReason(
-                                                !!syncStatus,
-                                                statusesLoading,
-                                                savingIntervalIds.includes(integration.id)
-                                            )}
+                                            options={SYNC_INTERVAL_OPTIONS}
+                                            disabledReason={syncIntervalDisabledReason}
                                             onChange={(value) => saveInterval(integration.id, value)}
                                         />
                                     </label>
@@ -162,7 +316,7 @@ export function CalendarSyncConfig(): JSX.Element {
                                     type="secondary"
                                     icon={<IconRefresh />}
                                     loading={isSyncing}
-                                    disabledReason={isSyncing ? 'A sync is already running' : restrictedReason}
+                                    disabledReason={syncNowDisabledReason}
                                     onClick={() => syncNow(integration.id)}
                                 >
                                     Sync now
@@ -198,11 +352,7 @@ export function CalendarSyncConfig(): JSX.Element {
                 isSubmitting={backfillSubmitting}
                 onStartDateChange={setBackfillStartDate}
                 onEndDateChange={setBackfillEndDate}
-                onSubmit={() => {
-                    if (backfillIntegrationId !== null && backfillStartDate && backfillEndDate) {
-                        submitBackfill(backfillIntegrationId, backfillStartDate, backfillEndDate)
-                    }
-                }}
+                onSubmit={handleBackfillSubmit}
                 onClose={closeBackfill}
             />
         </div>

@@ -20,7 +20,6 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 from tenacity import RetryCallState, retry, retry_if_exception, stop_after_attempt, wait_exponential
-from trino.exceptions import Http502Error, Http503Error, Http504Error, TrinoConnectionError
 
 from posthog.hogql.escape_sql import escape_trino_identifier, escape_trino_string
 
@@ -237,9 +236,6 @@ def _column_definitions(columns: Mapping[str, str]) -> str:
 
 
 def _is_transient(error: BaseException) -> bool:
-    # The client already retried each HTTP request, so these mean that the coordinator or the gateway went away.
-    if isinstance(error, TrinoConnectionError | Http502Error | Http503Error | Http504Error):
-        return True
     return is_transient_trino_error(error) or getattr(error, "error_name", None) in (
         TRANSIENT_DUCKLAKE_ERROR_NAMES | TRANSIENT_HOGLAKE_ERROR_NAMES
     )

@@ -3,8 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconFilter, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { IconWithCount } from 'lib/lemon-ui/icons'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
