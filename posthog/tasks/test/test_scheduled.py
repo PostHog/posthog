@@ -1,8 +1,9 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
 from celery.schedules import crontab
+from kombu import Connection
 from parameterized import parameterized
 
 from posthog.celery import app
@@ -11,6 +12,35 @@ from posthog.tasks.team_llm_gateway_quota import reconcile_llm_gateway_quota_pro
 
 
 class TestScheduledTasks(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("daily", "US", "send instance usage report"),
+            ("delayed", "EU", "send delayed org usage reports"),
+        ]
+    )
+    def test_usage_report_schedule_publishes_organization_filter(
+        self, _name: str, region: str, schedule_name: str
+    ) -> None:
+        organization_ids = ["00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002"]
+        sender = MagicMock()
+        with self.settings(CLOUD_DEPLOYMENT=region), patch("posthog.tasks.scheduled.DELAYED_ORGS_EU", organization_ids):
+            setup_periodic_tasks(sender)
+        signature = next(
+            call.args[1] for call in sender.add_periodic_task.call_args_list if call.kwargs.get("name") == schedule_name
+        )
+
+        with Connection("memory://") as connection:
+            with (
+                patch.object(app, "connection_for_write", return_value=connection),
+                patch.object(app.conf, "task_always_eager", False),
+            ):
+                signature.apply(throw=True)
+            with connection.SimpleQueue("usage_reports") as queue:
+                message = queue.get(block=False)
+                message.ack()
+                assert message.headers["task"] == "posthog.tasks.usage_report.send_all_org_usage_reports"
+                assert message.payload[1].get("organization_ids") == (organization_ids if region == "EU" else None)
+
     def test_spend_recovery_runs_every_ten_minutes_and_expires_before_the_next_sweep(self) -> None:
         sender = MagicMock()
         setup_periodic_tasks(sender)

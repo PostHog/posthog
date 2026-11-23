@@ -1218,10 +1218,10 @@ def clickhouse_materialize_columns() -> None:
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.USAGE_REPORTS.value)
-def send_org_usage_reports() -> None:
+def send_org_usage_reports(organization_ids: list[str] | None = None) -> None:
     from posthog.tasks.usage_report import send_all_org_usage_reports
 
-    send_all_org_usage_reports.delay()
+    send_all_org_usage_reports.delay(organization_ids=organization_ids)
 
 
 def ensure_not_persons_db_model(model: type[Model]) -> None:

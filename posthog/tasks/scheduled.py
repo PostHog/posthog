@@ -198,6 +198,7 @@ TWENTY_FOUR_HOURS = 24 * 60 * 60
 DELAYED_ORGS_EU: list[str] = [
     "018beddd-5eb1-0000-7953-5a5b982e80bf",
     "01975ab3-7ec5-0000-9751-a89cbc971419",
+    "01a1c9e2-c33f-0000-a835-65fc5e51992f",
 ]
 DELAYED_ORGS_US: list[str] = []
 
@@ -617,7 +618,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     delayed_orgs = DELAYED_ORGS_EU if get_instance_region() == "EU" else DELAYED_ORGS_US
     if delayed_orgs:
         sender.add_periodic_task(
-            crontab(hour="10", minute="00"),
+            crontab(hour="12", minute="00"),
             send_org_usage_reports.s(organization_ids=delayed_orgs),
             name="send delayed org usage reports",
         )
