@@ -2068,13 +2068,12 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # Same reading the reviewer got, from the same stamp, so the handoff can't disagree with what
     # the run was told it was.
     trigger = trigger_for_run(output=output, review_mode=repo_config.review_mode)
-    # No label requested an admitted bot's review, and a label added to its PR starts none.
-    strips_label = (
-        repo_config.review_mode == ReviewMode.LABEL
-        and is_refusal
-        and run.may_publish(parsed.verdict)
-        and trigger != ReviewTrigger.BOT_ADMISSION.value
+    # No label requested an admitted bot's review, and a label added to its PR starts none. In ALL mode the
+    # same holds for a self-driving PR, which is bot-authored.
+    label_requests_review = trigger != ReviewTrigger.BOT_ADMISSION.value and (
+        repo_config.review_mode == ReviewMode.LABEL or trigger != ReviewTrigger.SELF_DRIVING.value
     )
+    strips_label = is_refusal and run.may_publish(parsed.verdict) and label_requests_review
 
     relabel_label = repo_config.trigger_label if strips_label else None
 
@@ -2132,8 +2131,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # Keyed off parsed.verdict, not run.verdict: the gate-blocked branch overrides run.verdict to WAIT,
     # but both the label-strip and the ReviewHog handoff below treat a gate-blocked refusal the same
     # as an engine-refused one.
-    # Action parity: in label-triggered mode a refused/escalated verdict strips the trigger label, so
-    # the author re-requests the next review by re-adding it.
+    # A refusal strips the trigger label in both modes, so the next add fires a `labeled` event.
     # A failure here raises on purpose: the activity retries and the sticky upsert above is idempotent.
     if strips_label:
         client.remove_pr_label(repo, pull_request.pr_number, repo_config.trigger_label)
@@ -2783,7 +2781,8 @@ def _verdict_body(parsed: ReviewerVerdict, verdict: str, relabel_label: str | No
     """The review body: the outcome in words, what to do next, then whatever the engine rendered.
 
     ``relabel_label`` is the caller's own label-removal decision rather than a re-derivation of it, so
-    the review cannot tell an author to re-add a label the run left in place.
+    the review cannot tell an author to add a label the run left in place. The hint says "add", not
+    "re-add", because in ALL mode the label may never have been on the PR.
 
     The engine's ``review_body`` is the rich version (reasoning plus the gate table) and the
     ``reasoning``/``showstoppers`` pair is the fallback when it rendered nothing. The headline is
@@ -2793,11 +2792,9 @@ def _verdict_body(parsed: ReviewerVerdict, verdict: str, relabel_label: str | No
     if _only_a_human_can_approve(parsed):
         headline = _VERDICT_HEADLINES[ReviewVerdict.REFUSED]
         if relabel_label:
-            headline += (
-                f"\n\nRe-adding the `{relabel_label}` label gives the same result unless the changed files change."
-            )
+            headline += f"\n\nAdding the `{relabel_label}` label gives the same result unless the changed files change."
     elif relabel_label:
-        headline += f"\n\nRe-add the `{relabel_label}` label to request another review once you have addressed this."
+        headline += f"\n\nAdd the `{relabel_label}` label to request another review once you have addressed this."
     detail = parsed.review_body or _reasoning_detail(parsed)
     return f"{headline}\n\n{neutralize_active_markdown(detail)}".rstrip()
 

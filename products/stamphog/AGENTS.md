@@ -247,6 +247,9 @@ Evidence that a finished review of the head already saw re-runs nothing, and a h
 Every other case, a failed evidence read included, returns the covering run with `created: false`, as before.
 The workflow reads the context again, so evidence that someone restores between the request and that read is reviewed once more. The cap bounds that, and a pushed commit buys a new review anyway, so the workflow does not check the evidence a second time.
 
+In ALL mode an added trigger label shares this gate (`_review_label_request_in_all_mode`), after every webhook gate, with the `label` trigger and no provenance.
+A label add moves no head, so it retracts nothing. One that starts no run removes the label and says why in the sticky comment, so the next add fires again.
+
 ## The silent trigger (a clean external review)
 
 `facade/tasks.py::queue_silent_review` lets ReviewHog start a review of one head after a clean review of it.

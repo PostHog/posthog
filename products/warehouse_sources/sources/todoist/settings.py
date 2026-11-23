@@ -42,6 +42,14 @@ class TodoistEndpointConfig:
     completion_windows: bool = False
     # Query param that takes the incremental watermark, for endpoints with a server-side filter.
     incremental_param: Optional[str] = None
+    # Response key that holds the rows. None when the body is a bare JSON array.
+    data_selector: Optional[str] = "results"
+    # False for endpoints that return every row in one response and take no cursor or limit.
+    paginated: bool = True
+    # Overrides the source page size for endpoints that document a different maximum.
+    page_limit: Optional[int] = None
+    # Also stop paging when the body says `has_more: false`, even if it still carries a cursor.
+    stop_on_has_more: bool = False
 
 
 TODOIST_ENDPOINTS: dict[str, TodoistEndpointConfig] = {
@@ -56,6 +64,30 @@ TODOIST_ENDPOINTS: dict[str, TodoistEndpointConfig] = {
         name="projects",
         path="/projects",
         partition_key="created_at",
+    ),
+    # /projects lists active projects only, so tasks and activity on archived projects need this table.
+    "archived_projects": TodoistEndpointConfig(
+        name="archived_projects",
+        path="/projects/archived",
+        partition_key="created_at",
+    ),
+    # Workspaces (Todoist teams) the user belongs to. The endpoint returns a bare, unpaginated array.
+    "workspaces": TodoistEndpointConfig(
+        name="workspaces",
+        path="/workspaces",
+        partition_key="created_at",
+        data_selector=None,
+        paginated=False,
+    ),
+    # Membership of every workspace the user belongs to. A person can be in several workspaces, so
+    # the key is composite. Todoist documents no maximum page size here, so its default of 100 is used.
+    "workspace_users": TodoistEndpointConfig(
+        name="workspace_users",
+        path="/workspaces/users",
+        primary_keys=["workspace_id", "user_id"],
+        data_selector="workspace_users",
+        page_limit=100,
+        stop_on_has_more=True,
     ),
     "sections": TodoistEndpointConfig(
         name="sections",

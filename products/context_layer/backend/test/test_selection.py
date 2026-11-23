@@ -9,10 +9,12 @@ from uuid import uuid4
 
 from unittest.mock import Mock, patch
 
+from django.conf import settings
 from django.test import SimpleTestCase, override_settings
 
 import httpx
 from parameterized import parameterized
+from posthoganalytics.types import FeatureFlagResult
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
@@ -36,12 +38,13 @@ from products.context_layer.backend.selection import (
     MAX_SOURCE_TEXT,
     Candidate,
     ContextSelector,
+    FlagDecision,
     SelectionDenied,
     SelectionInput,
     SelectionUnavailable,
     bounded_request,
     prepare_context_selection,
-    selection_mode,
+    selection_flag,
 )
 from products.tasks.backend.models import Task, TaskRun
 
@@ -56,6 +59,10 @@ SLACK_PROMPT = (
     "</slack_thread_context>\n\n"
     "why did this happen?"
 )
+
+
+def flag_result(value: str | bool, payload: object = None) -> FeatureFlagResult | None:
+    return FeatureFlagResult.from_value_and_payload("phai-context-selection", value, payload)
 
 
 def task_run() -> TaskRun:
@@ -80,7 +87,10 @@ class TestSelection(SimpleTestCase):
             "Bearer fake-sandbox-token",
         )
         self.flag = self.enterContext(
-            patch("products.context_layer.backend.selection.get_feature_flag_or_none", return_value="treatment")
+            patch(
+                "products.context_layer.backend.selection.posthoganalytics.get_feature_flag_result",
+                return_value=flag_result("treatment"),
+            )
         )
         self.client_factory = self.enterContext(
             patch("products.context_layer.backend.selection.build_system_one_client")
@@ -329,9 +339,10 @@ class TestSelection(SimpleTestCase):
     def test_variants_control_retrieval_injection_and_call_metadata(
         self, mode: str, admitted: bool, inject: bool
     ) -> None:
-        self.flag.return_value = mode
+        self.flag.return_value = flag_result(mode, {"model": "test/decision-model"})
         self.selector.admit = Mock(return_value=admitted)
-        result = self.selector.prepare(time.monotonic() + 60)
+        with override_settings(POSTHOG_INTERNAL_ORG_IDS=[str(self.run_record.team.organization_id)]):
+            result = self.selector.prepare(time.monotonic() + 60)
         selects = mode in ("shadow", "treatment")
         self.assertEqual(result.mode, mode)
         self.assertEqual(bool(result.context), inject)
@@ -345,14 +356,40 @@ class TestSelection(SimpleTestCase):
             self.assertEqual(labels["selection_id"], result.selection_id)
             self.assertEqual(labels["mode"], mode)
             self.assertEqual(labels["runtime_version"], "unknown")
+            self.assertEqual(self.selector.model, "test/decision-model")
         else:
             self.client_factory.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("object", {"model": "openai/gpt-6-luna"}, True, "shadow", "openai/gpt-6-luna"),
+            ("json_text", '{"model": "openai/gpt-6-luna"}', True, "shadow", "openai/gpt-6-luna"),
+            ("customer_org", {"model": "openai/gpt-6-luna"}, False, "shadow", settings.HOGQL_PROMPT_JEV_MODEL),
+            ("no_payload", None, True, "shadow", settings.HOGQL_PROMPT_JEV_MODEL),
+            ("no_model_key", {"other": 1}, True, "shadow", settings.HOGQL_PROMPT_JEV_MODEL),
+            ("model_not_text", {"model": 5}, True, "shadow", settings.HOGQL_PROMPT_JEV_MODEL),
+            ("not_json", "{", True, "shadow", settings.HOGQL_PROMPT_JEV_MODEL),
+            ("flag_service_down", RuntimeError("down"), True, "disabled", settings.HOGQL_PROMPT_JEV_MODEL),
+        ]
+    )
+    def test_one_flag_evaluation_gives_the_mode_and_the_decision_model(
+        self, name: str, payload: object, internal: bool, mode: str, model: str
+    ) -> None:
+        if isinstance(payload, Exception):
+            self.flag.side_effect = payload
+        else:
+            self.flag.return_value = flag_result("shadow", payload)
+        internal_orgs = [str(self.run_record.team.organization_id)] if internal else []
+        with override_settings(POSTHOG_INTERNAL_ORG_IDS=internal_orgs):
+            decision = selection_flag(self.run_record, self.selector.actor)
+        self.assertEqual(decision, FlagDecision(mode=mode, model=model))
+        self.assertEqual(self.flag.call_count, 1)
 
     @parameterized.expand([("pilot@example.com", "shadow"), ("other@example.com", "disabled")])
     def test_email_targeting_uses_current_actor(self, email: str, expected: str) -> None:
         self.run_record.task.created_by = User(id=6, email="creator@example.com")
         self.selector.actor.email = email
-        self.flag.side_effect = lambda *args, **kwargs: (
+        self.flag.side_effect = lambda *args, **kwargs: flag_result(
             "shadow" if kwargs.get("person_properties", {}).get("email") == "pilot@example.com" else False
         )
 
@@ -366,7 +403,7 @@ class TestSelection(SimpleTestCase):
 
     @parameterized.expand([("shadow", False), ("shadow", None), ("treatment", False), ("treatment", None)])
     def test_ai_consent_required_before_retrieval_and_model_calls(self, mode: str, consent: bool | None) -> None:
-        self.flag.return_value = mode
+        self.flag.return_value = flag_result(mode)
         self.run_record.team.organization.is_ai_data_processing_approved = consent
         result = self.selector.prepare(time.monotonic() + 60)
         self.assertEqual(result.context, "")
@@ -385,9 +422,9 @@ class TestSelection(SimpleTestCase):
     def test_runtime_eligibility(self, name, runtime, adapter, expected) -> None:
         self.run_record.task.runtime = runtime
         self.run_record.state = {"runtime_adapter": adapter} if adapter else {}
-        self.assertEqual(selection_mode(self.run_record, self.selector.actor), expected)
+        self.assertEqual(selection_flag(self.run_record, self.selector.actor).mode, expected)
         self.run_record.environment = TaskRun.Environment.LOCAL
-        self.assertEqual(selection_mode(self.run_record, self.selector.actor), "disabled")
+        self.assertEqual(selection_flag(self.run_record, self.selector.actor).mode, "disabled")
         self.assertEqual(self.selector.actor.is_staff, False)
         if expected == "treatment":
             self.assertEqual(self.flag.call_args.args[1], str(self.run_record.task_id))
@@ -627,7 +664,6 @@ class TestSelectionDeadline(SimpleTestCase):
 
 @override_settings(
     CLOUD_DEPLOYMENT="US",
-    HOGQL_PROMPT_JEV_MODEL="posthog/hogference/test-decision-model",
     AI_GATEWAY_URL="https://ai-gateway.example.com/v1",
     AI_GATEWAY_API_KEY="phs_test",
 )
@@ -650,9 +686,11 @@ class TestSelectionGateway(SimpleTestCase):
                 },
             ),
         ) as post:
+            selector.model = "test/decision-model"
             self.assertEqual(selector.gate(time.monotonic() + 60), 0.9)
         self.assertIn("ai-gateway.example.com", post.call_args.args[0])
         self.assertEqual(post.call_args.kwargs["json"]["state"], {"user_request": "request", "history": "history"})
+        self.assertEqual(post.call_args.kwargs["json"]["model"], "test/decision-model")
         headers = str(post.call_args.kwargs["headers"])
         for value in (selector.selection_id, "task_run_id", "message_id", "mode", "config_version", "runtime_version"):
             self.assertIn(value, headers)
