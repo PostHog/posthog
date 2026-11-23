@@ -411,6 +411,7 @@ def transpile_hogql_to_trino_with_database(
             ),
             restricted_properties=set(),
             trino_table_locators=table_locators,
+            use_new_events_schema=False,
             timezone=database.get_timezone(),
             week_start_day=database.get_week_start_day(),
         )
