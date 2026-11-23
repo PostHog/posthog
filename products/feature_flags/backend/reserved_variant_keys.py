@@ -34,17 +34,17 @@ def is_reserved_variant_key(value: Any, *, held: Collection[Any]) -> bool:
     return value in FEATURE_FLAG_VARIANT_SENTINELS or (value in RESERVED_NEW_VARIANT_KEYS and value not in held)
 
 
-def reserved_new_variant_key(filters: object) -> str | None:
-    """The first variant key in ``filters`` that a new flag may not store, or None when every key is allowed."""
-    return next(
-        (
-            variant["key"]
-            for _, variants in _variant_lists(filters)
-            for variant in variants
-            if isinstance(variant, Mapping) and is_reserved_variant_key(variant.get("key"), held=())
-        ),
-        None,
-    )
+def reserved_variant_key(filters: object, *, held: Collection[str] = ()) -> str | None:
+    """The first variant key in ``filters`` that a write over a flag holding the keys ``held`` may not store."""
+    return next((key for key in variant_keys(filters) if is_reserved_variant_key(key, held=held)), None)
+
+
+def variant_keys(filters: object) -> Iterator[str]:
+    """Each string variant key in ``filters``, skipping keys of any other type."""
+    for _, variants in _variant_lists(filters):
+        for variant in variants:
+            if isinstance(variant, Mapping) and isinstance(variant.get("key"), str):
+                yield variant["key"]
 
 
 def reserved_variant_key_message(key: str) -> str:

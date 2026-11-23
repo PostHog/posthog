@@ -181,7 +181,11 @@ from products.feature_flags.backend.models.evaluation_context import normalize_c
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
 from products.feature_flags.backend.models.team_feature_flag_policy_config import team_requires_flag_tags
 from products.feature_flags.backend.realtime_targeting import is_realtime_cohort_flag_targeting_enabled
-from products.feature_flags.backend.reserved_variant_keys import is_reserved_variant_key, reserved_variant_key_message
+from products.feature_flags.backend.reserved_variant_keys import (
+    reserved_variant_key,
+    reserved_variant_key_message,
+    variant_keys,
+)
 from products.feature_flags.backend.rollback_reason import RollbackReason, RollbackReasonContext
 from products.feature_flags.backend.session_recording_links import (
     REPLAY_GATE_DELETE_ERROR,
@@ -1101,28 +1105,6 @@ def _validate_blast_radius_property_types(condition: object) -> None:
                     f"Use one of: {supported}."
                 }
             )
-
-
-def _variant_keys(filters: Mapping[str, Any]) -> Iterator[str]:
-    multivariate = filters.get("multivariate")
-    if not isinstance(multivariate, dict):
-        return
-    variants = multivariate.get("variants")
-    if not isinstance(variants, list):
-        return
-    for variant in variants:
-        if isinstance(variant, dict) and isinstance(variant.get("key"), str):
-            yield variant["key"]
-
-
-def _reserved_variant_key(filters: dict, *, stored: Mapping[str, Any]) -> str | None:
-    """The first `multivariate.variants[].key` in `filters` that a write may not store over `stored`, if any.
-
-    Checked on the raw request shape ahead of every validation tier, so the rejection does not depend on the #50084
-    rollout switch.
-    """
-    held = set(_variant_keys(stored))
-    return next((key for key in _variant_keys(filters) if is_reserved_variant_key(key, held=held)), None)
 
 
 def _filters_rule_is_enforced(rule_id: str | None) -> bool:
@@ -2349,12 +2331,6 @@ class FeatureFlagSerializer(
                 f"cannot be written to it. {hint} to change other fields.",
                 code="v1_filters_on_v2_flag",
             )
-        reserved_variant_key = _reserved_variant_key(filters, stored=stored_filters)
-        if reserved_variant_key is not None:
-            raise serializers.ValidationError(
-                reserved_variant_key_message(reserved_variant_key), code="reserved_variant_key"
-            )
-
         if self._v2_limits is not None:
             # An admitted v2 document passes through untouched (no v1 merge or normalization): a
             # create resolves and validates it in validate(), an update in update() under the lock.
@@ -2366,6 +2342,12 @@ class FeatureFlagSerializer(
             raise serializers.ValidationError(
                 "filters.version is reserved. Remove it from the request.", code="reserved_config_version"
             )
+
+        # Only a v1 document reaches this check, which runs on the raw request ahead of every validation tier, so the
+        # rejection does not depend on the #50084 rollout switch. The v2 writer checks its own documents.
+        reserved_key = reserved_variant_key(filters, held=set(variant_keys(stored_filters)))
+        if reserved_key is not None:
+            raise serializers.ValidationError(reserved_variant_key_message(reserved_key), code="reserved_variant_key")
 
         self._validate_stored_config_format()
 
