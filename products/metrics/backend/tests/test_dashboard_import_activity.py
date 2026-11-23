@@ -64,7 +64,12 @@ class TestLatestAgentAction(SimpleTestCase):
                         raw_input=_exec('call --json metric-names-list {"value": "latency"}'),
                     )
                 ],
-                AgentAction(AgentActivityKind.SEARCHING_METRICS, _at(0), _at(0), subject="latency"),
+                AgentAction(
+                    kind=AgentActivityKind.SEARCHING_METRICS,
+                    started_at=_at(0),
+                    last_activity_at=_at(0),
+                    subject="latency",
+                ),
             ),
             (
                 "streamed_input_keeps_the_tool_name",
@@ -77,7 +82,9 @@ class TestLatestAgentAction(SimpleTestCase):
                         session_update="tool_call_update",
                     ),
                 ],
-                AgentAction(AgentActivityKind.CHECKING_PANELS, _at(0), _at(2), panel_count=3),
+                AgentAction(
+                    kind=AgentActivityKind.CHECKING_PANELS, started_at=_at(0), last_activity_at=_at(2), panel_count=3
+                ),
             ),
             (
                 "finished_call_is_thinking_from_its_end",
@@ -86,12 +93,12 @@ class TestLatestAgentAction(SimpleTestCase):
                     _tool_call(5, "a", status="completed", session_update="tool_call_update"),
                     _update(9, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "…"}}),
                 ],
-                AgentAction(AgentActivityKind.THINKING, _at(5), _at(9)),
+                AgentAction(kind=AgentActivityKind.THINKING, started_at=_at(5), last_activity_at=_at(9)),
             ),
             (
                 "local_read_reads_the_dashboard",
                 [_tool_call(0, "a", tool="Read", raw_input={"file_path": "/inputs/dashboard.json"})],
-                AgentAction(AgentActivityKind.READING_DASHBOARD, _at(0), _at(0)),
+                AgentAction(kind=AgentActivityKind.READING_DASHBOARD, started_at=_at(0), last_activity_at=_at(0)),
             ),
             (
                 "infra_frames_are_not_agent_activity",

@@ -6,8 +6,10 @@ import re
 import json
 import datetime as dt
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
+from dataclasses import replace
 from typing import Any
+
+from posthog.dataclasses import frozen
 
 from products.metrics.backend.facade.enums import AgentActivityKind
 
@@ -34,7 +36,7 @@ _TOOL_KINDS: dict[str, AgentActivityKind] = {
 _MAX_SUBJECT_LENGTH = 120
 
 
-@dataclass(frozen=True, slots=True)
+@frozen
 class AgentAction:
     kind: AgentActivityKind
     started_at: dt.datetime
@@ -43,14 +45,19 @@ class AgentAction:
     panel_count: int | None = None
 
 
-@dataclass(slots=True)
+@frozen
+class _ToolDescription:
+    kind: AgentActivityKind
+    subject: str | None = None
+    panel_count: int | None = None
+
+
+@frozen
 class _ToolCall:
     started_at: dt.datetime
     name: str
     tool_kind: str | None
-    kind: AgentActivityKind
-    subject: str | None
-    panel_count: int | None
+    description: _ToolDescription
     ended_at: dt.datetime | None = None
 
 
@@ -88,25 +95,24 @@ def _latest_action(entries: Iterable[dict[str, Any]]) -> AgentAction | None:
             continue
         call = calls.get(call_id)
         name = _tool_name(update) or (call.name if call else "")
-        tool_kind = update.get("kind") if isinstance(update.get("kind"), str) else (call.tool_kind if call else None)
-        raw_input = update.get("rawInput") if isinstance(update.get("rawInput"), dict) else {}
+        update_kind = update.get("kind")
+        tool_kind = update_kind if isinstance(update_kind, str) else (call.tool_kind if call else None)
+        update_input = update.get("rawInput")
+        raw_input: dict[str, Any] = update_input if isinstance(update_input, dict) else {}
         if call is None:
-            kind, subject, panel_count = _describe(name, tool_kind, raw_input)
-            call = calls[call_id] = _ToolCall(
+            call = _ToolCall(
                 started_at=timestamp,
                 name=name,
                 tool_kind=tool_kind,
-                kind=kind,
-                subject=subject,
-                panel_count=panel_count,
+                description=_describe(name, tool_kind, raw_input),
             )
             latest = call_id
         elif raw_input:
             # Claude streams a call with an empty input first, so a later update carries the tool's arguments.
-            call.name, call.tool_kind = name, tool_kind
-            call.kind, call.subject, call.panel_count = _describe(name, tool_kind, raw_input)
+            call = replace(call, name=name, tool_kind=tool_kind, description=_describe(name, tool_kind, raw_input))
         if update.get("status") in _TERMINAL_STATUSES and call.ended_at is None:
-            call.ended_at = timestamp
+            call = replace(call, ended_at=timestamp)
+        calls[call_id] = call
     if first_activity_at is None or last_activity_at is None:
         return None
     current = calls.get(latest) if latest else None
@@ -119,11 +125,11 @@ def _latest_action(entries: Iterable[dict[str, Any]]) -> AgentAction | None:
             kind=AgentActivityKind.THINKING, started_at=current.ended_at, last_activity_at=last_activity_at
         )
     return AgentAction(
-        kind=current.kind,
+        kind=current.description.kind,
         started_at=current.started_at,
         last_activity_at=last_activity_at,
-        subject=current.subject,
-        panel_count=current.panel_count,
+        subject=current.description.subject,
+        panel_count=current.description.panel_count,
     )
 
 
@@ -147,25 +153,24 @@ def _timestamp(entry: dict[str, Any]) -> dt.datetime | None:
 
 
 def _tool_name(update: dict[str, Any]) -> str:
-    meta = update.get("_meta") if isinstance(update.get("_meta"), dict) else {}
+    update_meta = update.get("_meta")
+    meta: dict[str, Any] = update_meta if isinstance(update_meta, dict) else {}
     name = (meta.get("posthog") or {}).get("toolName") or (meta.get("claudeCode") or {}).get("toolName")
     return name if isinstance(name, str) else ""
 
 
-def _describe(
-    name: str, tool_kind: str | None, raw_input: dict[str, Any]
-) -> tuple[AgentActivityKind, str | None, int | None]:
+def _describe(name: str, tool_kind: str | None, raw_input: dict[str, Any]) -> _ToolDescription:
     lowered = name.lower()
     if lowered.startswith(_POSTHOG_MCP_PREFIX):
         tool, args = lowered.removeprefix(_POSTHOG_MCP_PREFIX), raw_input
         if tool == "exec":
             tool, args = _exec_call(raw_input.get("command"))
         kind = _TOOL_KINDS.get(tool, AgentActivityKind.WORKING)
-        return kind, _subject(kind, args), _panel_count(kind, args)
+        return _ToolDescription(kind=kind, subject=_subject(kind, args), panel_count=_panel_count(kind, args))
     if lowered in _LOCAL_TOOLS or (not lowered and tool_kind in _LOCAL_KINDS):
         # The sandbox holds only the import inputs, so a local read or command reads the dashboard.
-        return AgentActivityKind.READING_DASHBOARD, None, None
-    return AgentActivityKind.WORKING, None, None
+        return _ToolDescription(kind=AgentActivityKind.READING_DASHBOARD)
+    return _ToolDescription(kind=AgentActivityKind.WORKING)
 
 
 def _exec_call(command: object) -> tuple[str, dict[str, Any]]:
