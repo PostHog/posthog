@@ -8,6 +8,7 @@
     },
     "files": [
         "dist",
+        "src/define",
         "src/generated/api.ts",
         "src/types.ts",
         "api-index.tsv",
@@ -27,6 +28,15 @@
             "types": "./dist/discovery.d.ts",
             "default": "./dist/discovery.js"
         },
+        "./define": {
+            "posthog-source": "./src/define/index.ts",
+            "types": "./dist/define/index.d.ts",
+            "default": "./dist/define/index.js"
+        },
+        "./stack": {
+            "types": "./dist/stack/index.d.ts",
+            "default": "./dist/stack/index.js"
+        },
         "./coverage.json": "./coverage.json",
         "./package.json": "./package.json",
         "./*": {
@@ -42,9 +52,10 @@
     },
     "scripts": {
         "build": "node scripts/build.mjs",
-        "typecheck": "tsc -p tsconfig.json --noEmit",
+        "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tests/types/tsconfig.json",
         "generate": "node --max-old-space-size=4096 ../../services/mcp/scripts/generate-sdk.mjs",
         "test": "node --test tests/*.test.mjs",
+        "fixture:description": "node scripts/write-fixture-description.mjs",
         "check:package": "node scripts/check-package.mjs",
         "prepack": "npm run build"
     },

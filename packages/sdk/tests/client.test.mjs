@@ -180,6 +180,63 @@ test('the SDK exposes shared validation, authorization and consent errors', asyn
     assert.ok(calls.every(({ method }) => method === 'GET'))
 })
 
+test('the SDK carries which stack keeps an entity in code on a redirected create and a refused write', async () => {
+    const { fetch, calls } = fixture()
+    const stack = { name: 'web-app', repository: 'acme/web-app' }
+    const client = createPostHogClient({
+        ...settings,
+        fetch: (url, options = {}) => {
+            const path = new URL(String(url)).pathname
+            if (path.endsWith('/stacks/managed_kinds/')) {
+                return Response.json({
+                    results: [
+                        {
+                            kind: 'endpoint',
+                            stack_name: stack.name,
+                            repository: stack.repository,
+                            definitions: 1,
+                            redirect_creates: true,
+                        },
+                    ],
+                })
+            }
+            if (path.endsWith('/endpoints/revenue/') && options.method === 'PATCH') {
+                return Response.json(
+                    {
+                        type: 'invalid_request',
+                        code: 'managed_in_code',
+                        detail: 'Managed in code.',
+                        extra: {
+                            stack: stack.name,
+                            repository: stack.repository,
+                            source: { file: 'endpoints.ts', export: 'revenue' },
+                            fields: ['query'],
+                        },
+                    },
+                    { status: 409 }
+                )
+            }
+            return fetch(url, options)
+        },
+    })
+    await assert.rejects(
+        client.endpoints.endpointCreate({ name: 'revenue' }),
+        (err) =>
+            err.details.code === 'managed_in_code' &&
+            err.details.managedInCode.reason === 'create_redirected' &&
+            err.details.managedInCode.stacks[0].repository === stack.repository
+    )
+    assert.equal(calls.filter(({ method, path }) => method === 'POST' && path.endsWith('/endpoints/')).length, 0)
+    await assert.rejects(
+        client.endpoints.endpointUpdate({ name: 'revenue', description: 'Renamed' }),
+        (err) =>
+            err.details.code === 'managed_in_code' &&
+            err.details.managedInCode.source.file === 'endpoints.ts' &&
+            err.details.managedInCode.fields[0] === 'query' &&
+            err.message.includes('endpoints.ts')
+    )
+})
+
 test('switch-project updates its client while a pinned client keeps its original project', async () => {
     const { fetch, calls } = fixture()
     const client = createPostHogClient({ ...settings, fetch })

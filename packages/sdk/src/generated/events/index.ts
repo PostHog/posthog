@@ -2,6 +2,7 @@
 export type {
     EventsClient,
     EventsEventDefinitionCreateRequestSchema2,
+    EventsEventDefinitionCreateRequestSchema6,
     EventsEventDefinitionCreateRequestSchema0,
     EventsEventDefinitionCreateInput,
     EventsEventDefinitionCreateResponseShape3,
@@ -17,6 +18,7 @@ export type {
     EventsEventDefinitionUpdateRequestSchema4,
     EventsEventDefinitionUpdateRequestSchema6,
     EventsEventDefinitionUpdateRequestSchema8,
+    EventsEventDefinitionUpdateRequestSchema10,
     EventsEventDefinitionUpdateInputData,
     EventsEventDefinitionUpdateInput,
     EventsEventDefinitionUpdateOutput,

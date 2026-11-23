@@ -87,4 +87,17 @@ export interface PostHogErrorDetails {
     fields?: ApiFieldError[]
     body?: JsonValue
     projectResolution?: ProjectResolutionErrorDetails
+    /** Set with code `managed_in_code`: a stack keeps the entity in code, so its definition is edited instead. */
+    managedInCode?: ManagedInCodeDetails
+}
+
+export interface ManagedInCodeDetails {
+    /** `create_redirected`: nothing was created; add a definition instead. `write_refused`: nothing was changed. */
+    reason: 'create_redirected' | 'write_refused'
+    kind?: string
+    stacks: { name: string; repository: string | null }[]
+    /** The definition to edit, relative to the repository root. */
+    source?: { file: string; export?: string }
+    /** The fields code owns. Other fields can still be changed. */
+    fields?: string[]
 }
