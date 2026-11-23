@@ -6,7 +6,7 @@ description: >
   at a provider, a broken deploy) when failed destination or workflow runs should be sent again, when someone
   asks for a link to the replay tool with filters, or when checking whether a replay worked.
   Covers building the prefilled link, choosing the window and error filter, which runs not to replay, and
-  checking the outcome in hog_invocation_results, since the tool only reports whether reruns were queued.
+  checking whether the replayed runs were delivered.
 ---
 
 # Replaying failed CDP runs
@@ -46,9 +46,14 @@ Write the window and the error text from the data, not from the alert: query `ho
 
 ## Check the outcome
 
-The tool's "Requests sent" and "Requests failed" count the rerun jobs it queued, not whether the destination accepted them.
-The failed attempts can drop out of `hog_invocation_results` once a rerun lands, so save the run IDs before anyone sends.
-Right after the preview, list the failed runs it covers and keep the IDs:
+The status page of a sent replay has a "Delivery of the replayed runs" table.
+It shows the latest attempt of every run the replay queued: delivered, failed again, sending, or no new attempt yet, with the most common errors of the runs that failed again.
+It refreshes until no run is sending or waiting, so send the person the status page link (`?plan=<fingerprint>`) to check the result.
+
+"Requests sent" and "Requests failed" above it count the rerun jobs the tool queued, not whether the destination accepted the runs.
+A run with no new attempt yet is still queued, or the rerun found it no longer failed and skipped it.
+The table needs the replay record, which expires after 7 days, and replays sent before the table existed have none.
+For those, query `hog_invocation_results` yourself. List the failed runs a preview covers before anyone sends, because the failed attempts can drop out once a rerun lands:
 
 ```sql
 SELECT DISTINCT invocation_id
