@@ -39,11 +39,32 @@ export interface ApiKeyAccess {
     scopedOrganizations: string[]
 }
 
-export type ApiToolValidation = { valid: true; input: Record<string, unknown> } | { valid: false; error: string }
+/** One reason an input failed, with the path of the field it is about, as the schema names it. */
+export interface ApiToolValidationIssue {
+    path: (string | number)[]
+    message: string
+}
+
+export type ApiToolValidation =
+    | { valid: true; input: Record<string, unknown> }
+    | { valid: false; error: string; issues?: ApiToolValidationIssue[] }
+
+/** A create or write the tool refused because a stack keeps the entity in code. */
+export interface ApiManagedInCode {
+    /** `create_redirected`: nothing was created; add a definition instead. `write_refused`: the API refused the write. */
+    reason: 'create_redirected' | 'write_refused'
+    kind?: string
+    stacks: { name: string; repository: string | null }[]
+    /** The definition to edit, relative to the repository root. */
+    source?: { file: string; export?: string }
+    /** The fields code owns. Others can still be changed through the API. */
+    fields?: string[]
+}
 
 /** Why a key lookup or a tool call failed. `code` is stable, so a caller can branch on it. */
 export interface ApiToolError {
     code:
+        | 'managed_in_code'
         | 'permission_denied'
         | 'validation_error'
         | 'invalid_input'
@@ -60,6 +81,8 @@ export interface ApiToolError {
     detail?: string
     /** The scope PostHog named when it refused the request. */
     missingScope?: string
+    /** Set with code `managed_in_code`. */
+    managedInCode?: ApiManagedInCode
 }
 
 export type ApiToolResult<T> = { ok: true; value: T } | { ok: false; error: ApiToolError }

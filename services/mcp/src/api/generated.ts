@@ -1803,6 +1803,7 @@ export namespace Schemas {
      * * `sharing_configuration` - sharing_configuration
      * * `signal_scout` - signal_scout
      * * `signal_usage` - signal_usage
+     * * `stack` - stack
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
      * * `support_ticket` - support_ticket
@@ -1931,6 +1932,7 @@ export namespace Schemas {
       SharingConfiguration: 'sharing_configuration',
       SignalScout: 'signal_scout',
       SignalUsage: 'signal_usage',
+      Stack: 'stack',
       StreamlitApp: 'streamlit_app',
       Subscription: 'subscription',
       SupportTicket: 'support_ticket',
@@ -2059,6 +2061,7 @@ export namespace Schemas {
        * * `sharing_configuration` - sharing_configuration
        * * `signal_scout` - signal_scout
        * * `signal_usage` - signal_usage
+       * * `stack` - stack
        * * `streamlit_app` - streamlit_app
        * * `subscription` - subscription
        * * `support_ticket` - support_ticket
@@ -2310,6 +2313,7 @@ export namespace Schemas {
        * * `sharing_configuration` - sharing_configuration
        * * `signal_scout` - signal_scout
        * * `signal_usage` - signal_usage
+       * * `stack` - stack
        * * `streamlit_app` - streamlit_app
        * * `subscription` - subscription
        * * `support_ticket` - support_ticket
@@ -2733,6 +2737,7 @@ export namespace Schemas {
        * * `sharing_configuration` - sharing_configuration
        * * `signal_scout` - signal_scout
        * * `signal_usage` - signal_usage
+       * * `stack` - stack
        * * `streamlit_app` - streamlit_app
        * * `subscription` - subscription
        * * `support_ticket` - support_ticket
@@ -14149,6 +14154,121 @@ export namespace Schemas {
       is_scout: boolean;
     }
 
+    export interface AdoptResource {
+      /**
+         * The definition kind of the entity. One of `flag`, `event`, `property_group`, `model`, `endpoint`, `metric`, `context_page`, `insight`, `dashboard`, `alert`, `destination`, `cohort`, `action`, `source`, `check`, `experiment` or `survey`.
+         * @maxLength 64
+         */
+      kind: string;
+      /**
+         * The key the definition will use in the stack.
+         * @maxLength 512
+         */
+      key: string;
+      /**
+         * The id of the existing entity in PostHog.
+         * @maxLength 512
+         */
+      entity_id: string;
+    }
+
+    export interface AdoptRequest {
+      /** The entities to bind. The next push binds them and creates nothing. */
+      resources: AdoptResource[];
+    }
+
+    export interface DefinitionSourceRef {
+      /** Path of the definition's file, relative to the repo root. */
+      file: string;
+      /** Name of the export in that file. */
+      export?: string;
+    }
+
+    /**
+     * * `pending` - Pending
+     * * `bound` - Bound
+     * * `detached` - Detached
+     */
+    export type BindingStatusEnum = typeof BindingStatusEnum[keyof typeof BindingStatusEnum];
+
+
+    export const BindingStatusEnum = {
+      Pending: 'pending',
+      Bound: 'bound',
+      Detached: 'detached',
+    } as const;
+
+    export interface Binding {
+      /** The binding id. Detach takes this id. */
+      id: string;
+      /** The stack that manages the entity. */
+      stack_name: string;
+      /** The repository the stack was last pushed from. Empty before a push. */
+      repository: string;
+      /** The definition kind. */
+      kind: string;
+      /** The definition key. */
+      key: string;
+      /** The id of the entity in PostHog. */
+      entity_id: string;
+      /**
+         * Where the entity opens in PostHog. Null for some kinds.
+         * @nullable
+         */
+      entity_url: string | null;
+      /** Where the definition lives in the repository. */
+      source: DefinitionSourceRef | null;
+      /** `bound` once a push made or adopted the entity, `pending` when adopt recorded it and no push ran yet, `detached` once released to the UI.
+       *
+       * * `pending` - Pending
+       * * `bound` - Bound
+       * * `detached` - Detached */
+      status: BindingStatusEnum;
+      /** The fields code owns, as sorted dotted paths into the definition body, such as `name` or `filters.payloads`. A write to one of them is refused with `managed_in_code`. Empty when code owns none. */
+      owned_fields: string[];
+    }
+
+    export interface AdoptResponse {
+      /** The pending bindings adopt recorded. */
+      bindings: Binding[];
+    }
+
+    /**
+     * The entity shaped like a description body, for generating its definition.
+     */
+    export type AdoptableEntityBody = { [key: string]: unknown };
+
+    export interface AdoptableEntity {
+      /** The definition kind. */
+      kind: string;
+      /** The id of the entity in PostHog. */
+      entity_id: string;
+      /** The entity's display name. */
+      name: string;
+      /** The entity shaped like a description body, for generating its definition. */
+      body: AdoptableEntityBody;
+    }
+
+    export interface AdoptablePage {
+      /**
+         * Always null: the total is not known before the last page is read.
+         * @nullable
+         */
+      count: number | null;
+      /**
+         * The URL of the next page, or null on the last page.
+         * @nullable
+         */
+      next: string | null;
+      /**
+         * Always null: pages are read forward only.
+         * @nullable
+         */
+      previous: string | null;
+      /** Entities of the kind that no stack manages. */
+      results: AdoptableEntity[];
+    }
+
     /**
      * * `yes` - Yes
      * * `no` - No
@@ -23125,6 +23245,11 @@ export namespace Schemas {
       ByteBudget: 'byte_budget',
     } as const;
 
+    export interface BindingLookup {
+      /** The binding that manages the entity. Null when no stack does. */
+      binding: Binding | null;
+    }
+
     export interface BingWebmasterToolsSearchOpportunitySignalExtra {
       site_url: string | null;
       issue_flag: string | null;
@@ -27567,6 +27692,28 @@ export namespace Schemas {
       survey_id: string | null;
       created_at: string | null;
     }
+
+    /**
+     * * `create` - Create
+     * * `update` - Update
+     * * `recreate` - Recreate
+     * * `remove` - Remove
+     * * `adopt` - Adopt
+     * * `rename` - Rename
+     * * `release` - Release
+     */
+    export type ChangeActionEnum = typeof ChangeActionEnum[keyof typeof ChangeActionEnum];
+
+
+    export const ChangeActionEnum = {
+      Create: 'create',
+      Update: 'update',
+      Recreate: 'recreate',
+      Remove: 'remove',
+      Adopt: 'adopt',
+      Rename: 'rename',
+      Release: 'release',
+    } as const;
 
     /**
      * * `feature_flag` - Feature flag
@@ -32274,6 +32421,11 @@ export namespace Schemas {
       head_sha: string;
     }
 
+    export interface ContextPagesRequest {
+      /** Whether this stack may manage context pages. They belong to the organization's one wiki, so only an organization admin can turn this on. */
+      enabled: boolean;
+    }
+
     export type ConversationMessagesItem = { [key: string]: unknown };
 
     export type ConversationPendingApprovalsItem = { [key: string]: unknown };
@@ -33139,6 +33291,92 @@ export namespace Schemas {
       cpu_cores?: number;
       /** Memory in GB allocated to the sandbox. */
       memory_gb?: number;
+    }
+
+    export interface DefinitionSource {
+      /**
+         * Path of the definition's file, relative to the repo root.
+         * @maxLength 1000
+         */
+      file: string;
+      /**
+         * Name of the export in that file that holds the definition.
+         * @maxLength 200
+         */
+      export?: string;
+    }
+
+    export interface DefinitionIdentity {
+      /**
+         * The definition kind, such as `model` or `flag`.
+         * @maxLength 64
+         */
+      kind: string;
+      /**
+         * The definition's key in the same stack.
+         * @maxLength 512
+         */
+      key: string;
+    }
+
+    /**
+     * The definition, shaped like the API's create body for the kind. A reference to another definition in the stack is `{"$ref": {"kind", "key", "attr"}}`, and a secret is `{"$secret": "NAME"}`.
+     */
+    export type ResourceDescriptionBody = { [key: string]: unknown };
+
+    export interface ResourceDescription {
+      /**
+         * The definition kind, such as `insight`, `dashboard`, `flag` or `event`.
+         * @maxLength 64
+         */
+      kind: string;
+      /**
+         * The identity the author chose, unique within the kind. For a kind with a natural key, such as a flag key or an event name, it is that natural key.
+         * @maxLength 512
+         */
+      key: string;
+      /** The definition, shaped like the API's create body for the kind. A reference to another definition in the stack is `{"$ref": {"kind", "key", "attr"}}`, and a secret is `{"$secret": "NAME"}`. */
+      body: ResourceDescriptionBody;
+      /** Where the definition lives in the repository, for messages and provenance. */
+      source?: DefinitionSource;
+      /** Definitions in the same stack that must exist before this one is created, because the body names them by a string rather than a reference, such as a model that another model's SQL reads. */
+      depends_on?: DefinitionIdentity[];
+    }
+
+    export interface StackDescription {
+      /**
+         * The description format version. Always 1.
+         * @minimum 1
+         * @maximum 1
+         */
+      version: number;
+      /** Every definition the stack manages, sorted by kind and then key. */
+      resources: ResourceDescription[];
+    }
+
+    export interface DiffSource {
+      /**
+         * The repository the description was built from, such as `org/repo`.
+         * @maxLength 500
+         */
+      repository: string;
+      /**
+         * The branch the description was built from.
+         * @maxLength 500
+         */
+      branch: string;
+      /**
+         * The commit the description was built from.
+         * @maxLength 100
+         */
+      commit: string;
+    }
+
+    export interface CreateDiffRequest {
+      /** The stack description that `hog check` writes. */
+      description: StackDescription;
+      /** The repository, branch and commit the description came from. */
+      source: DiffSource;
     }
 
     /**
@@ -40498,6 +40736,170 @@ export namespace Schemas {
       /** Per-check results in execution order. */
       checks: DiagnosticCheckResult[];
     }
+
+    export interface DiffError {
+      /** A stable code for the error, such as `reference_missing` or `stack_moved`. */
+      code: string;
+      /** What went wrong and what to do next. */
+      message: string;
+      /** The kind of the definition the error is about. */
+      kind?: string;
+      /** The key of the definition the error is about. */
+      key?: string;
+      /** The field of the definition the error is about. */
+      path?: string;
+    }
+
+    export interface StackFieldChange {
+      /** The field that changes, as a dotted path into the definition body. */
+      path: string;
+      /** The value now in PostHog. Null when the field is sensitive. */
+      before: unknown;
+      /** The value a push sets. Null when the field is sensitive. */
+      after: unknown;
+      /** True when the value is secret, so neither value is shown. */
+      sensitive: boolean;
+    }
+
+    export interface StackChange {
+      /** What a push does to this definition.
+       *
+       * * `create` - Create
+       * * `update` - Update
+       * * `recreate` - Recreate
+       * * `remove` - Remove
+       * * `adopt` - Adopt
+       * * `rename` - Rename
+       * * `release` - Release */
+      action: ChangeActionEnum;
+      /** The definition kind. */
+      kind: string;
+      /** The definition key. */
+      key: string;
+      /** The entity's display name. */
+      name: string;
+      /** One line on what changes, such as `query changed`. */
+      summary: string;
+      /** Each field that changes. */
+      fields: StackFieldChange[];
+      /** Where the definition lives in the repository. */
+      source: DefinitionSourceRef | null;
+      /**
+         * For a recreate, what a person loses, such as history or links. Null otherwise.
+         * @nullable
+         */
+      loses: string | null;
+      /** For an adopt, the id of the existing entity the push binds. */
+      entity_id?: string;
+    }
+
+    export interface DriftField {
+      /** The field that changed outside the code. */
+      path: string;
+      /** The value the last push set. */
+      pushed: unknown;
+      /** The value PostHog holds now. */
+      found: unknown;
+      /** True when the value is secret. */
+      sensitive?: boolean;
+    }
+
+    export interface Drift {
+      /** The definition kind. */
+      kind: string;
+      /** The definition key. */
+      key: string;
+      /** True when the entity was deleted in PostHog outside of code. A push creates it again. */
+      deleted?: boolean;
+      /** Each field that changed outside the code. */
+      fields: DriftField[];
+    }
+
+    export interface DiffSummary {
+      /** Entities a push creates. */
+      create: number;
+      /** Entities a push changes in place. */
+      update: number;
+      /** Entities a push deletes and creates again. */
+      recreate: number;
+      /** Entities a push removes. */
+      remove: number;
+      /** Existing entities a push binds to the stack. */
+      adopt: number;
+      /** Definitions whose key changes with nothing recreated. */
+      rename: number;
+      /** Entities the stack stops managing and leaves in PostHog: removed definitions of adopted entities, detached entities, and kinds code never deletes. */
+      release?: number;
+    }
+
+    /**
+     * * `possible_unrecorded_create` - possible_unrecorded_create
+     * * `unrecorded_creates_unchecked` - unrecorded_creates_unchecked
+     */
+    export type DiffWarningCodeEnum = typeof DiffWarningCodeEnum[keyof typeof DiffWarningCodeEnum];
+
+
+    export const DiffWarningCodeEnum = {
+      PossibleUnrecordedCreate: 'possible_unrecorded_create',
+      UnrecordedCreatesUnchecked: 'unrecorded_creates_unchecked',
+    } as const;
+
+    export interface WarningEntity {
+      /** The id of the entity in PostHog. Adopt takes this id. */
+      entity_id: string;
+      /** The entity's display name. */
+      name: string;
+    }
+
+    export interface DiffWarning {
+      /** `possible_unrecorded_create`: an interrupted push may already have created this definition, and `entities` lists the candidates. `unrecorded_creates_unchecked`: PostHog could not read every entity of the kind, so check in PostHog by hand.
+       *
+       * * `possible_unrecorded_create` - possible_unrecorded_create
+       * * `unrecorded_creates_unchecked` - unrecorded_creates_unchecked */
+      code: DiffWarningCodeEnum;
+      /** The definition kind. */
+      kind: string;
+      /**
+         * The definition key. Null for a whole kind.
+         * @nullable
+         */
+      key: string | null;
+      /** What to check and what to do next. */
+      message: string;
+      /** Entities with the definition's name that no stack manages. Adopt one, or reconcile. */
+      entities: WarningEntity[];
+    }
+
+    export interface DiffResult {
+      /** What a push would create, change, recreate, remove, adopt or rename. */
+      changes: StackChange[];
+      /** Entities changed outside the code since the last push. */
+      drift: Drift[];
+      /** The number of changes by action. */
+      summary: DiffSummary;
+      /** Why the diff could not be computed. Empty for a ready diff. */
+      errors: DiffError[];
+      /** Only after a push that stopped without a known outcome: entities it may have created without recording them. Adopt them, or reconcile to let this diff create them. */
+      warnings?: DiffWarning[];
+    }
+
+    /**
+     * * `running` - Running
+     * * `ready` - Ready
+     * * `failed` - Failed
+     * * `pushed` - Pushed
+     * * `stale` - Stale
+     */
+    export type DiffStatusEnum = typeof DiffStatusEnum[keyof typeof DiffStatusEnum];
+
+
+    export const DiffStatusEnum = {
+      Running: 'running',
+      Ready: 'ready',
+      Failed: 'failed',
+      Pushed: 'pushed',
+      Stale: 'stale',
+    } as const;
 
     /**
      * * `ok` - OK
@@ -57301,6 +57703,31 @@ export namespace Schemas {
       recipient?: string;
     }
 
+    /**
+     * * `python` - Python
+     * * `golang` - Go
+     * * `typescript` - TypeScript
+     */
+    export type ModuleLanguageEnum = typeof ModuleLanguageEnum[keyof typeof ModuleLanguageEnum];
+
+
+    export const ModuleLanguageEnum = {
+      Python: 'python',
+      Golang: 'golang',
+      Typescript: 'typescript',
+    } as const;
+
+    export interface GenerateModuleRequest {
+      /** The stack description that `check` produced. */
+      description: StackDescription;
+      /** The language of the module to generate.
+       *
+       * * `python` - Python
+       * * `golang` - Go
+       * * `typescript` - TypeScript */
+      language: ModuleLanguageEnum;
+    }
+
     export interface SuggestedRule {
       /** re2 pattern matching the dynamic path segment. */
       regex: string;
@@ -57471,6 +57898,23 @@ export namespace Schemas {
        * * `posthog-go` - posthog-go 1.x
        * * `posthog-go-v2` - posthog-go 2.x */
       sdk?: GoSDKEnum;
+    }
+
+    export interface GeneratedModule {
+      /** The module's source code, typed for the events the description declares. */
+      content: string;
+      /** The module's language.
+       *
+       * * `python` - Python
+       * * `golang` - Go
+       * * `typescript` - TypeScript */
+      language: ModuleLanguageEnum;
+      /** How many events the module covers. */
+      event_count: number;
+      /** A hash of the events and the generator version. A module whose hash differs is stale. */
+      schema_hash: string;
+      /** The version of the generator that wrote the module. */
+      generator_version: string;
     }
 
     /**
@@ -73415,6 +73859,24 @@ export namespace Schemas {
       from_integration_id?: number | null;
     }
 
+    export interface ManagedKind {
+      /** A definition kind some stack in this project manages, such as `flag`. */
+      kind: string;
+      /** The stack that manages entities of this kind. */
+      stack_name: string;
+      /** The repository the stack was last pushed from. Edit the code there. */
+      repository: string;
+      /** How many entities of this kind the stack manages. */
+      definitions: number;
+      /** True when this kind's entities are definitions named by a natural key, such as an event or a flag. Do not create one of these outside code: add its definition in the repository instead. */
+      redirect_creates: boolean;
+    }
+
+    export interface ManagedKindList {
+      /** One row per kind and stack. Before creating an entity of a listed kind, add it in code. */
+      results: ManagedKind[];
+    }
+
     /**
      * * `not_configured` - not_configured
      * * `waiting` - waiting
@@ -74657,6 +75119,7 @@ export namespace Schemas {
        * * `sharing_configuration` - sharing_configuration
        * * `signal_scout` - signal_scout
        * * `signal_usage` - signal_usage
+       * * `stack` - stack
        * * `streamlit_app` - streamlit_app
        * * `subscription` - subscription
        * * `support_ticket` - support_ticket
@@ -80267,6 +80730,15 @@ export namespace Schemas {
       /** @nullable */
       previous: string | null;
       results: BillingTimeSeriesPoint[];
+    }
+
+    export interface PaginatedBindingList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Binding[];
     }
 
     export interface PaginatedBriefConfigList {
@@ -99012,6 +99484,7 @@ export namespace Schemas {
      * * `knowledge_writer` - Knowledge Writer
      * * `context_layer` - Context Layer
      * * `feature_flags` - Feature Flags
+     * * `stacks` - Stacks
      */
     export type TaskOriginProductEnum = typeof TaskOriginProductEnum[keyof typeof TaskOriginProductEnum];
 
@@ -99046,6 +99519,7 @@ export namespace Schemas {
       KnowledgeWriter: 'knowledge_writer',
       ContextLayer: 'context_layer',
       FeatureFlags: 'feature_flags',
+      Stacks: 'stacks',
     } as const;
 
     /**
@@ -99110,7 +99584,8 @@ export namespace Schemas {
        * * `metrics_import` - Metrics Import
        * * `knowledge_writer` - Knowledge Writer
        * * `context_layer` - Context Layer
-       * * `feature_flags` - Feature Flags */
+       * * `feature_flags` - Feature Flags
+       * * `stacks` - Stacks */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target repository. For GitHub, use `organization/repo` (e.g. `posthog/posthog-js`). For GitLab, set `repository_integration` and use the full project path, which can include nested groups (e.g. `acme/platform/api`).
@@ -105475,6 +105950,31 @@ export namespace Schemas {
       readonly hidden: readonly HiddenPulseNumber[];
     }
 
+    export interface PushRequest {
+      /**
+         * The most entities this push may remove or recreate. Defaults to the stack's own cap. Set it to confirm a push that removes more.
+         * @minimum 0
+         * @nullable
+         */
+      max_removals?: number | null;
+    }
+
+    /**
+     * * `running` - Running
+     * * `succeeded` - Succeeded
+     * * `failed` - Failed
+     * * `uncertain` - Uncertain
+     */
+    export type PushStatusEnum = typeof PushStatusEnum[keyof typeof PushStatusEnum];
+
+
+    export const PushStatusEnum = {
+      Running: 'running',
+      Succeeded: 'succeeded',
+      Failed: 'failed',
+      Uncertain: 'uncertain',
+    } as const;
+
     /**
      * * `running` - Import running
      * * `completed` - Import completed
@@ -109643,6 +110143,20 @@ export namespace Schemas {
       ci_rerun_error?: string | null;
     }
 
+    export interface ReconcileRequest {
+      /** A ready diff computed since the uncertain push. Reconciling accepts its warnings. */
+      diff_id: string;
+    }
+
+    export interface Reconciled {
+      /** The stack, which can push again. */
+      stack_name: string;
+      /** The diff the person reconciled with. Push it next. */
+      diff_id: string;
+      /** How many warnings of that diff were accepted. */
+      acknowledged_warnings: number;
+    }
+
     /**
      * Request body for `scout-check-record-result`: the verdict on one dispatched report check.
      */
@@ -111927,6 +112441,16 @@ export namespace Schemas {
          * @maxItems 100
          */
       repos: string[];
+    }
+
+    export interface RequestedChange {
+      /**
+         * The field to change, as a dotted path into the definition body.
+         * @maxLength 500
+         */
+      path: string;
+      /** The value the person wants the field to have. */
+      value: unknown;
     }
 
     export interface RescoreRequest {
@@ -117430,6 +117954,26 @@ export namespace Schemas {
       queries: string[];
     }
 
+    export interface Secret {
+      /** The name definitions use in `secret('NAME')`. */
+      name: string;
+      /** When the value was last set. */
+      updated_at: string;
+    }
+
+    export interface SecretList {
+      /** Every secret the stack holds, by name. Never the values. */
+      results: Secret[];
+    }
+
+    export interface SecretWrite {
+      /**
+         * The secret's value. Stored encrypted and never returned. Send it from a file or stdin, never from a command line argument.
+         * @maxLength 65536
+         */
+      value: string;
+    }
+
     /**
      * * `not_claimed` - Not claimed
      * * `active` - Active
@@ -121132,6 +121676,214 @@ export namespace Schemas {
       scout_spend: SpendAmount;
     }
 
+    export interface StackChangeRequest {
+      /**
+         * What the person wants changed, in their own words. A cloud task reads it as a description of the change, not as instructions.
+         * @maxLength 4000
+         */
+      note: string;
+      /**
+         * Field values the person asked for, if any.
+         * @maxItems 50
+         */
+      changes?: RequestedChange[];
+    }
+
+    export interface StackDiff {
+      /** The diff id. Pushing this id changes PostHog by exactly this diff. */
+      id: string;
+      /** The stack the diff belongs to. */
+      stack_name: string;
+      /** `running` while the diff or its push runs, `ready` to push, `failed` when the diff or its last push failed, `pushed` once pushed, `stale` when the stack changed since the diff was made.
+       *
+       * * `running` - Running
+       * * `ready` - Ready
+       * * `failed` - Failed
+       * * `pushed` - Pushed
+       * * `stale` - Stale */
+      status: DiffStatusEnum;
+      /** The diff. Null while it is running. */
+      diff: DiffResult | null;
+      /** The repository, branch and commit the description came from. */
+      source: DiffSource;
+      /** When the diff was requested. */
+      created_at: string;
+      /** After this time the diff can no longer be pushed. */
+      expires_at: string;
+      /** The last push of this diff. Null when never pushed.
+       *
+       * * `running` - Running
+       * * `succeeded` - Succeeded
+       * * `failed` - Failed
+       * * `uncertain` - Uncertain */
+      push_status: PushStatusEnum | null;
+      /** Why the last push failed. Empty otherwise. */
+      push_errors: DiffError[];
+    }
+
+    /**
+     * * `stack_not_found` - Stack Not Found
+     * * `diff_not_found` - Diff Not Found
+     * * `binding_not_found` - Binding Not Found
+     * * `secret_not_found` - Secret Not Found
+     * * `entity_not_found` - Entity Not Found
+     * * `stack_moved` - Stack Moved
+     * * `stack_locked` - Stack Locked
+     * * `diff_not_ready` - Diff Not Ready
+     * * `diff_pushed` - Diff Pushed
+     * * `diff_expired` - Diff Expired
+     * * `push_uncertain` - Push Uncertain
+     * * `claimed_by_other_stack` - Claimed By Other Stack
+     * * `entity_already_bound` - Entity Already Bound
+     * * `key_already_bound` - Key Already Bound
+     * * `too_many_removals` - Too Many Removals
+     * * `invalid_stack_name` - Invalid Stack Name
+     * * `invalid_secret_name` - Invalid Secret Name
+     * * `secret_too_large` - Secret Too Large
+     * * `invalid_key` - Invalid Key
+     * * `duplicate_definition` - Duplicate Definition
+     * * `too_many_definitions` - Too Many Definitions
+     * * `definition_too_large` - Definition Too Large
+     * * `definition_too_deep` - Definition Too Deep
+     * * `secret_literal` - Secret Literal
+     * * `invalid_definition` - Invalid Definition
+     * * `kind_unsupported` - Kind Unsupported
+     * * `impersonated_push` - Impersonated Push
+     * * `user_required` - User Required
+     * * `caller_unavailable` - Caller Unavailable
+     * * `permission_denied` - Permission Denied
+     * * `stacks_unavailable` - Stacks Unavailable
+     * * `runner_unavailable` - Runner Unavailable
+     * * `invalid_input` - Invalid Input
+     * * `context_pages_not_enabled` - Context Pages Not Enabled
+     * * `organization_admin_required` - Organization Admin Required
+     * * `kind_not_listable` - Kind Not Listable
+     * * `managed_in_code` - Managed In Code
+     * * `repository_not_connected` - Repository Not Connected
+     * * `tasks_unavailable` - Tasks Unavailable
+     * * `nothing_to_reconcile` - Nothing To Reconcile
+     * * `credential_not_supported` - Credential Not Supported
+     * * `secret_missing` - Secret Missing
+     */
+    export type StackErrorCodeEnum = typeof StackErrorCodeEnum[keyof typeof StackErrorCodeEnum];
+
+
+    export const StackErrorCodeEnum = {
+      StackNotFound: 'stack_not_found',
+      DiffNotFound: 'diff_not_found',
+      BindingNotFound: 'binding_not_found',
+      SecretNotFound: 'secret_not_found',
+      EntityNotFound: 'entity_not_found',
+      StackMoved: 'stack_moved',
+      StackLocked: 'stack_locked',
+      DiffNotReady: 'diff_not_ready',
+      DiffPushed: 'diff_pushed',
+      DiffExpired: 'diff_expired',
+      PushUncertain: 'push_uncertain',
+      ClaimedByOtherStack: 'claimed_by_other_stack',
+      EntityAlreadyBound: 'entity_already_bound',
+      KeyAlreadyBound: 'key_already_bound',
+      TooManyRemovals: 'too_many_removals',
+      InvalidStackName: 'invalid_stack_name',
+      InvalidSecretName: 'invalid_secret_name',
+      SecretTooLarge: 'secret_too_large',
+      InvalidKey: 'invalid_key',
+      DuplicateDefinition: 'duplicate_definition',
+      TooManyDefinitions: 'too_many_definitions',
+      DefinitionTooLarge: 'definition_too_large',
+      DefinitionTooDeep: 'definition_too_deep',
+      SecretLiteral: 'secret_literal',
+      InvalidDefinition: 'invalid_definition',
+      KindUnsupported: 'kind_unsupported',
+      ImpersonatedPush: 'impersonated_push',
+      UserRequired: 'user_required',
+      CallerUnavailable: 'caller_unavailable',
+      PermissionDenied: 'permission_denied',
+      StacksUnavailable: 'stacks_unavailable',
+      RunnerUnavailable: 'runner_unavailable',
+      InvalidInput: 'invalid_input',
+      ContextPagesNotEnabled: 'context_pages_not_enabled',
+      OrganizationAdminRequired: 'organization_admin_required',
+      KindNotListable: 'kind_not_listable',
+      ManagedInCode: 'managed_in_code',
+      RepositoryNotConnected: 'repository_not_connected',
+      TasksUnavailable: 'tasks_unavailable',
+      NothingToReconcile: 'nothing_to_reconcile',
+      CredentialNotSupported: 'credential_not_supported',
+      SecretMissing: 'secret_missing',
+    } as const;
+
+    /**
+     * More about the error. `required_scopes` for a missing scope. For `managed_in_code`: `kind`, `binding_id`, `stack`, `repository`, `source` and `fields`.
+     */
+    export type StackErrorResponseExtra = { [key: string]: unknown };
+
+    export interface StackErrorResponse {
+      /** The error class, such as `invalid_request` or `authentication_error`. */
+      type: string;
+      /** A stable code for the error. `stack_moved`: run diff again. `stack_locked`: wait for the running push. `diff_expired`: run diff again. `push_uncertain`: run diff, review its warnings, then reconcile. `permission_denied` with `required_scopes`: the key lacks a scope the run needs. `nothing_to_reconcile`: the stack has no uncertain push. `managed_in_code`: edit the definition in the repository instead.
+       *
+       * * `stack_not_found` - Stack Not Found
+       * * `diff_not_found` - Diff Not Found
+       * * `binding_not_found` - Binding Not Found
+       * * `secret_not_found` - Secret Not Found
+       * * `entity_not_found` - Entity Not Found
+       * * `stack_moved` - Stack Moved
+       * * `stack_locked` - Stack Locked
+       * * `diff_not_ready` - Diff Not Ready
+       * * `diff_pushed` - Diff Pushed
+       * * `diff_expired` - Diff Expired
+       * * `push_uncertain` - Push Uncertain
+       * * `claimed_by_other_stack` - Claimed By Other Stack
+       * * `entity_already_bound` - Entity Already Bound
+       * * `key_already_bound` - Key Already Bound
+       * * `too_many_removals` - Too Many Removals
+       * * `invalid_stack_name` - Invalid Stack Name
+       * * `invalid_secret_name` - Invalid Secret Name
+       * * `secret_too_large` - Secret Too Large
+       * * `invalid_key` - Invalid Key
+       * * `duplicate_definition` - Duplicate Definition
+       * * `too_many_definitions` - Too Many Definitions
+       * * `definition_too_large` - Definition Too Large
+       * * `definition_too_deep` - Definition Too Deep
+       * * `secret_literal` - Secret Literal
+       * * `invalid_definition` - Invalid Definition
+       * * `kind_unsupported` - Kind Unsupported
+       * * `impersonated_push` - Impersonated Push
+       * * `user_required` - User Required
+       * * `caller_unavailable` - Caller Unavailable
+       * * `permission_denied` - Permission Denied
+       * * `stacks_unavailable` - Stacks Unavailable
+       * * `runner_unavailable` - Runner Unavailable
+       * * `invalid_input` - Invalid Input
+       * * `context_pages_not_enabled` - Context Pages Not Enabled
+       * * `organization_admin_required` - Organization Admin Required
+       * * `kind_not_listable` - Kind Not Listable
+       * * `managed_in_code` - Managed In Code
+       * * `repository_not_connected` - Repository Not Connected
+       * * `tasks_unavailable` - Tasks Unavailable
+       * * `nothing_to_reconcile` - Nothing To Reconcile
+       * * `credential_not_supported` - Credential Not Supported
+       * * `secret_missing` - Secret Missing */
+      code: StackErrorCodeEnum;
+      /** What went wrong and what to do next. */
+      detail: string;
+      /**
+         * The request field the error is about, if any.
+         * @nullable
+         */
+      attr: string | null;
+      /** More about the error. `required_scopes` for a missing scope. For `managed_in_code`: `kind`, `binding_id`, `stack`, `repository`, `source` and `fields`. */
+      extra?: StackErrorResponseExtra;
+    }
+
+    export interface StackSettings {
+      /** The stack name. */
+      name: string;
+      /** Whether this stack may manage context pages. */
+      context_pages_enabled: boolean;
+    }
+
     /**
      * Raw cached payload as stored in Redis, or null on a miss.
      * @nullable
@@ -121554,6 +122306,13 @@ export namespace Schemas {
          * @maximum 50
          */
       iteration_budget?: number;
+    }
+
+    export interface StartedChangeRequest {
+      /** The cloud task that edits the definition and opens a pull request. */
+      task_id: string;
+      /** Where the task's progress shows in PostHog. */
+      task_url: string;
     }
 
     /**
@@ -123182,7 +123941,8 @@ export namespace Schemas {
        * * `metrics_import` - Metrics Import
        * * `knowledge_writer` - Knowledge Writer
        * * `context_layer` - Context Layer
-       * * `feature_flags` - Feature Flags */
+       * * `feature_flags` - Feature Flags
+       * * `stacks` - Stacks */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target repository. For GitHub, use `organization/repo` (e.g. `posthog/posthog-js`). For GitLab, set `repository_integration` and use the full project path, which can include nested groups (e.g. `acme/platform/api`).
@@ -123501,6 +124261,7 @@ export namespace Schemas {
      * * `signals_scout` - signals_scout
      * * `slack` - slack
      * * `space_setup` - space_setup
+     * * `stacks` - stacks
      * * `support_queue` - support_queue
      * * `support_reply` - support_reply
      * * `task_analysis` - task_analysis
@@ -123534,6 +124295,7 @@ export namespace Schemas {
       SignalsScout: 'signals_scout',
       Slack: 'slack',
       SpaceSetup: 'space_setup',
+      Stacks: 'stacks',
       SupportQueue: 'support_queue',
       SupportReply: 'support_reply',
       TaskAnalysis: 'task_analysis',
@@ -125002,7 +125764,8 @@ export namespace Schemas {
        * * `metrics_import` - Metrics Import
        * * `knowledge_writer` - Knowledge Writer
        * * `context_layer` - Context Layer
-       * * `feature_flags` - Feature Flags */
+       * * `feature_flags` - Feature Flags
+       * * `stacks` - Stacks */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target repository. For GitHub, use `organization/repo` (e.g. `posthog/posthog-js`). For GitLab, set `repository_integration` and use the full project path, which can include nested groups (e.g. `acme/platform/api`).
@@ -148308,6 +149071,7 @@ export namespace Schemas {
      * * `knowledge_writer` - Knowledge Writer
      * * `context_layer` - Context Layer
      * * `feature_flags` - Feature Flags
+     * * `stacks` - Stacks
      * @minLength 1
      */
     origin_product?: SandboxCustomImagesListOriginProduct;
@@ -148346,6 +149110,7 @@ export namespace Schemas {
       KnowledgeWriter: 'knowledge_writer',
       ContextLayer: 'context_layer',
       FeatureFlags: 'feature_flags',
+      Stacks: 'stacks',
     } as const;
 
     export type SandboxListParams = {
@@ -149746,6 +150511,42 @@ export namespace Schemas {
       Other: 'other',
     } as const;
 
+    export type StacksAdoptableListParams = {
+    /**
+     * The `cursor` from the previous page's `next` URL.
+     * @minLength 1
+     * @maxLength 2000
+     */
+    cursor?: string;
+    /**
+     * The definition kind to list. One of `flag`, `event`, `property_group`, `model`, `endpoint`, `metric`, `context_page`, `insight`, `dashboard`, `alert`, `destination`, `cohort`, `action`, `source`, `check`, `experiment` or `survey`.
+     * @minLength 1
+     * @maxLength 64
+     */
+    kind: string;
+    /**
+     * How many entities to read, at most 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    };
+
+    export type StacksBindingLookupParams = {
+    /**
+     * The id of the entity in PostHog. For a kind whose key is a name, such as an event name or a context page path, that name finds it too.
+     * @minLength 1
+     * @maxLength 512
+     */
+    entity_id: string;
+    /**
+     * The definition kind of the entity. One of `flag`, `event`, `property_group`, `model`, `endpoint`, `metric`, `context_page`, `insight`, `dashboard`, `alert`, `destination`, `cohort`, `action`, `source`, `check`, `experiment` or `survey`.
+     * @minLength 1
+     * @maxLength 64
+     */
+    kind: string;
+    };
+
     export type StreamlitAppsListParams = {
     /**
      * Number of results to return per page.
@@ -150260,6 +151061,7 @@ export namespace Schemas {
      * * `knowledge_writer` - Knowledge Writer
      * * `context_layer` - Context Layer
      * * `feature_flags` - Feature Flags
+     * * `stacks` - Stacks
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct;
@@ -150426,6 +151228,7 @@ export namespace Schemas {
       KnowledgeWriter: 'knowledge_writer',
       ContextLayer: 'context_layer',
       FeatureFlags: 'feature_flags',
+      Stacks: 'stacks',
     } as const;
 
     export type TasksListInternal = typeof TasksListInternal[keyof typeof TasksListInternal];
@@ -150480,6 +151283,7 @@ export namespace Schemas {
      * * `signals_scout` - signals_scout
      * * `slack` - slack
      * * `space_setup` - space_setup
+     * * `stacks` - stacks
      * * `support_queue` - support_queue
      * * `support_reply` - support_reply
      * * `task_analysis` - task_analysis
@@ -150513,6 +151317,7 @@ export namespace Schemas {
       SignalsScout: 'signals_scout',
       Slack: 'slack',
       SpaceSetup: 'space_setup',
+      Stacks: 'stacks',
       SupportQueue: 'support_queue',
       SupportReply: 'support_reply',
       TaskAnalysis: 'task_analysis',

@@ -6,6 +6,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { EventDefinition, SchemaEnforcementMode } from '~/types'
 
+import { isManagedInCodeRefusal } from 'products/stacks/frontend/managedInCode'
+
 import type { Definition } from '../../../types'
 import { definitionLogic } from '../definition/definitionLogic'
 import type { SetDefinitionProps } from '../definition/definitionLogic'
@@ -241,8 +243,9 @@ export const eventDefinitionSchemaLogic = kea<eventDefinitionSchemaLogicType>([
                 await actions.loadEventSchemas()
                 lemonToast.success('Property group added to event schema')
             } catch (error: any) {
-                const errorMessage = getErrorMessage(error, 'Failed to add property group')
-                lemonToast.error(errorMessage)
+                if (!isManagedInCodeRefusal(error)) {
+                    lemonToast.error(getErrorMessage(error, 'Failed to add property group'))
+                }
             }
         },
         removePropertyGroup: async ({ eventSchemaId }) => {
@@ -250,8 +253,9 @@ export const eventDefinitionSchemaLogic = kea<eventDefinitionSchemaLogicType>([
                 await api.eventSchemas.delete(eventSchemaId)
                 lemonToast.success('Property group removed from event schema')
             } catch (error: any) {
-                const errorMessage = getErrorMessage(error, 'Failed to remove property group')
-                lemonToast.error(errorMessage)
+                if (!isManagedInCodeRefusal(error)) {
+                    lemonToast.error(getErrorMessage(error, 'Failed to remove property group'))
+                }
             }
         },
         updateSchemaEnforcementMode: async ({ mode }) => {
@@ -268,8 +272,9 @@ export const eventDefinitionSchemaLogic = kea<eventDefinitionSchemaLogicType>([
                     lemonToast.success('Schema enforcement disabled. All events will be accepted.')
                 }
             } catch (error: any) {
-                const errorMessage = getErrorMessage(error, 'Failed to update schema enforcement mode')
-                lemonToast.error(errorMessage)
+                if (!isManagedInCodeRefusal(error)) {
+                    lemonToast.error(getErrorMessage(error, 'Failed to update schema enforcement mode'))
+                }
             } finally {
                 actions.setSchemaEnforcementModeUpdating(false)
             }

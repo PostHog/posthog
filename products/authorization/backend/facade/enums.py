@@ -175,6 +175,7 @@ class ResourceType(StrEnum):
     SIGNAL_SCRATCHPAD_INTERNAL = "signal_scratchpad_internal"
     SIGNAL_USAGE = "signal_usage"
     SLACK_RUN = "slack_run"
+    STACK = "stack"
     STREAMLIT_APP = "streamlit_app"
     SUBSCRIPTION = "subscription"
     SUPPORT_TICKET = "support_ticket"

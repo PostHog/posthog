@@ -1,5 +1,6 @@
 import { TOOL_MAP } from '@/tools'
 import { GENERATED_TOOL_MAP } from '@/tools/generated'
+import { withManagedInCode } from '@/tools/managed-in-code'
 import { mergeToolFactories } from '@/tools/mergeToolFactories'
 import { type ToolDefinition, getToolDefinition, getToolsForFeatures } from '@/tools/toolDefinitions'
 import type { Tool, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -21,7 +22,8 @@ function materializeTool(
     definition: ToolDefinition
 ): Tool<ZodObjectAny> {
     return {
-        ...factory(),
+        // A tool from a downloaded catalog skips mergeToolFactories, so it gets the same answers here.
+        ...withManagedInCode(factory()),
         title: definition.title,
         description: definition.description,
         scopes: definition.required_scopes ?? [],

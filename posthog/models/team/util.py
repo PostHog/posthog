@@ -96,6 +96,7 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
     from products.early_access_features.backend.models import EarlyAccessFeature
     from products.growth.backend.facade import api as growth_facade
     from products.product_analytics.backend.facade import api as product_analytics_facade
+    from products.stacks.backend.facade import api as stacks_facade
     from products.today.backend.facade import api as today_facade
     from products.web_analytics.backend.facade import health_rollups as web_analytics_health_rollups
 
@@ -112,6 +113,8 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
     _raw_delete_batch(error_tracking_fingerprint.objects.filter(team_id__in=team_ids))
     # Highlights carry team_id as a plain integer, so nothing cascades to them.
     today_facade.delete_highlights_for_teams(team_ids)
+    # Stack rows live in the stacks database and carry team_id as a plain integer, so nothing cascades to them.
+    stacks_facade.delete_data_for_teams(team_ids)
     product_analytics_facade.delete_agent_insight_reads_for_teams(team_ids)
     growth_facade.delete_sdk_version_rollups_for_teams(team_ids)
     web_analytics_health_rollups.delete_health_rollups_for_teams(team_ids)

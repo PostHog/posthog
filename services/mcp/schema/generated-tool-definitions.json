@@ -6422,6 +6422,21 @@
         },
         "feature_flag": "error-tracking-issue-tags"
     },
+    "event-schema-create": {
+        "description": "Link a property group to an event definition, so the event's schema includes the group's properties. Pass the event definition's id as `event_definition` and the group's id as `property_group_id`. Create the group first with schema-property-group-create.",
+        "category": "Data management",
+        "feature": "data_management",
+        "summary": "Link a property group to an event",
+        "title": "Link a property group to an event",
+        "required_scopes": ["event_definition:write"],
+        "api_operations": ["POST /api/projects/{project_id}/event_schemas/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "event-streams-add-account": {
         "description": "Add a Customer Analytics account to the caller's event stream so its users' matching events start posting to their Slack channel. Provide the stream `id` and the `account_id` to add. Idempotent — adding an account that is already in the stream is a no-op. Only accounts with an `external_id` actually deliver (the external_id is how events are matched to the account).",
         "category": "Customer analytics",
@@ -14280,6 +14295,21 @@
             "readOnlyHint": false
         }
     },
+    "schema-property-group-create": {
+        "description": "Create a named group of typed event properties, the schema events link to. Each property has a `name`, a `property_type` (String, Numeric, Boolean, DateTime, Object or Array), and optional `is_required`, `is_optional_in_types` and `description`. A group name is unique in the project. Link the group to an event with event-schema-create.",
+        "category": "Data management",
+        "feature": "data_management",
+        "summary": "Create a property group",
+        "title": "Create a property group",
+        "required_scopes": ["event_definition:write"],
+        "api_operations": ["POST /api/projects/{project_id}/schema_property_groups/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "scout-check-record-result": {
         "description": "Close the follow-up check your run was dispatched to answer, and only that check. Your run note carries its `check_id` and what to establish. Record what you established rather than what closes the loop: `failed` retires the check, `passed` re-arms a recurring one, `errored` retries it, and `inconclusive` ends it unless the `reason` is `awaiting_data`, which looks again later. The verdict lands on the report as a `check_result` entry in the inbox. Nothing else closes a check, so a run that investigates and never calls this leaves the report with an unanswered follow-up. You may also record a check on your own scout whose `run_state` in `scout-report-check-list` is `due`, `queued`, `running`, or `stale`. The call is refused for a check on another scout, a `pending` check whose clock has not started, a check that is not due yet, a `paused` check, a check your run already answered, and a check the coordinator measures itself.",
         "category": "Signals",
@@ -15624,6 +15654,96 @@
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "stack-binding-lookup": {
+        "description": "Whether a stack manages this entity in code. When `binding` is set, change the entity by editing `binding.source.file` in `binding.repository`, running `hog check`, and opening a pull request, not with a direct API or MCP write, which is refused with `managed_in_code`. Null means no stack manages it.",
+        "category": "Stacks",
+        "feature": "stacks",
+        "summary": "Find what manages an entity",
+        "title": "Find what manages an entity",
+        "required_scopes": ["stack:read"],
+        "api_operations": ["GET /api/projects/{project_id}/stacks/bindings/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "stack-bindings-list": {
+        "description": "Each entity a stack manages, with its kind, key, PostHog id, link and the definition's file in the repository. `pending` means adopted and not pushed yet.",
+        "category": "Stacks",
+        "feature": "stacks",
+        "summary": "List a stack's bindings",
+        "title": "List a stack's bindings",
+        "required_scopes": ["stack:read"],
+        "api_operations": ["GET /api/projects/{project_id}/stacks/{name}/bindings/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "stack-diff": {
+        "description": "Send a stack description, the JSON that `hog check` writes for a folder of definitions, and start working out what a push would change in this project. Returns at once with `status: running` and an `id`. Poll `stack-diff-get` with that id until `status` is `ready` or `failed`. A ready diff lists each change with its action (create, update, recreate, remove, adopt, rename, release), the drift found since the last push, and a summary by action. A diff never changes PostHog. Show the diff to the person before anyone pushes it.",
+        "category": "Stacks",
+        "feature": "stacks",
+        "summary": "Diff a stack",
+        "title": "Diff a stack",
+        "required_scopes": ["stack:read"],
+        "api_operations": ["POST /api/projects/{project_id}/stacks/{name}/diffs/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "stack-diff-get": {
+        "description": "Read a saved diff and its status: `running`, `ready` (pushable), `failed` (see `diff.errors` or `push_errors`), `pushed` or `stale` (the stack changed since, so run `stack-diff` again). While a push runs, `status` is `running` and `push_status` says how the push is going.",
+        "category": "Stacks",
+        "feature": "stacks",
+        "summary": "Get a stack diff",
+        "title": "Get a stack diff",
+        "required_scopes": ["stack:read"],
+        "api_operations": ["GET /api/projects/{project_id}/stacks/{name}/diffs/{diff_id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "stack-managed-kinds-list": {
+        "description": "Each kind of entity, such as `flag` or `insight`, that a stack manages in this project, with the stack and its repository. To add an entity of a listed kind, add its definition in that repository, run `hog check`, and open a pull request instead of calling the create tool.",
+        "category": "Stacks",
+        "feature": "stacks",
+        "summary": "List the kinds managed in code",
+        "title": "List the kinds managed in code",
+        "required_scopes": ["stack:read"],
+        "api_operations": ["GET /api/projects/{project_id}/stacks/managed_kinds/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "stack-push": {
+        "description": "Carry out one ready diff in PostHog: create, change and remove the entities it lists. Only push a diff the person has reviewed, and never from a branch they have not merged. Returns at once with `status: running`. Poll `stack-diff-get` until `status` is `pushed` or `failed`. Refused with `stack_moved` when the stack changed since the diff was made, and with `too_many_removals` when it removes more than the stack allows: confirm with `max_removals` only after the person agreed to the removals.",
+        "category": "Stacks",
+        "feature": "stacks",
+        "summary": "Push a stack diff",
+        "title": "Push a stack diff",
+        "required_scopes": ["stack:write"],
+        "api_operations": ["POST /api/projects/{project_id}/stacks/{name}/diffs/{diff_id}/push/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
         }

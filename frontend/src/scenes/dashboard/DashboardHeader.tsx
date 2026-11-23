@@ -18,6 +18,8 @@ import { DashboardSceneMenuBar } from 'products/dashboards/frontend/DashboardSce
 import { DashboardScenePanel } from 'products/dashboards/frontend/DashboardScenePanel'
 import { QuillDashboardHeaderActions } from 'products/dashboards/frontend/QuillDashboardHeaderActions'
 import { useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
+import { managedEntityLogic } from 'products/stacks/frontend/managedEntityLogic'
+import { ManagedInCodeBanner } from 'products/stacks/frontend/ManagedInCodeBanner'
 
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 
@@ -40,6 +42,7 @@ export function DashboardHeader({
     const { dashboard, dashboardLoading, dashboardMode, dashboardEditing, canEditDashboard } = useValues(dashboardLogic)
     const { setDashboardMode, loadDashboard } = useActions(dashboardLogic)
     const { updateDashboard } = useActions(dashboardsModel)
+    const { ownedFieldDisabledReason } = useValues(managedEntityLogic({ kind: 'dashboard', entityId: dashboard?.id }))
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const isLoading = !dashboard && (loading || dashboardLoading)
@@ -96,7 +99,9 @@ export function DashboardHeader({
                     updateDashboard({ id: dashboard?.id, description: value, allowUndo: true })
                 }}
                 markdown
-                canEdit={canEditDashboard}
+                canEdit={
+                    canEditDashboard && !ownedFieldDisabledReason('name') && !ownedFieldDisabledReason('description')
+                }
                 isLoading={isLoading}
                 saveOnBlur
                 renameDebounceMs={0}
@@ -132,6 +137,7 @@ export function DashboardHeader({
                     </>
                 }
             />
+            {dashboard && <ManagedInCodeBanner kind="dashboard" entityId={dashboard.id} />}
         </>
     )
 }

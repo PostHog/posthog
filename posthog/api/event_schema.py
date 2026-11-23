@@ -5,7 +5,7 @@ from rest_framework.request import Request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.schema_property_group import SchemaPropertyGroupSerializer
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
-from posthog.permissions import is_scout_sandbox_request
+from posthog.permissions import enforce_managed_writes, is_scout_sandbox_request
 from posthog.taxonomy.scout_writes import refuse_scout_taxonomy_write
 
 from products.event_definitions.backend.models import EventDefinition, EventSchema, SchemaPropertyGroup
@@ -64,6 +64,33 @@ class EventSchemaViewSet(
         super().check_permissions(request)
         if request.method not in SAFE_METHODS:
             refuse_scout_taxonomy_write(is_scout_sandbox_request(request))
+
+    def _refuse_managed_link(self, event_definition: EventDefinition) -> None:
+        # A link is part of the event's definition, so an event managed in code keeps the links its code sets.
+        enforce_managed_writes(
+            self.request,
+            team_id=event_definition.team_id,
+            model_label="event_definitions.EventDefinition",
+            object_ids=[event_definition.id],
+            changed=["property_groups"],
+            action=self.action,
+            attributes={str(event_definition.id): {"name": event_definition.name}},
+        )
+
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
+        self._refuse_managed_link(serializer.validated_data["event_definition"])
+        super().perform_create(serializer)
+
+    def perform_update(self, serializer: serializers.BaseSerializer) -> None:
+        assert isinstance(serializer.instance, EventSchema)
+        self._refuse_managed_link(serializer.instance.event_definition)
+        if (moved_to := serializer.validated_data.get("event_definition")) is not None:
+            self._refuse_managed_link(moved_to)
+        super().perform_update(serializer)
+
+    def perform_destroy(self, instance: EventSchema) -> None:
+        self._refuse_managed_link(instance.event_definition)
+        super().perform_destroy(instance)
 
     def _filter_queryset_by_parents_lookups(self, queryset):
         """Override to handle EventSchema which doesn't have a direct team field"""

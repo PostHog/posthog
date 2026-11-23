@@ -13,6 +13,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { LemonDisabledArea } from 'lib/lemon-ui/LemonDisabledArea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { hogFunctionConfigurationLogic } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { HogFunctionFilters } from 'scenes/hog-functions/filters/HogFunctionFilters'
@@ -22,6 +23,8 @@ import { SurveyResponseKeysReference } from 'scenes/surveys/components/SurveyRes
 
 import { useAttachedContext, useToolStreamListener } from 'products/posthog_ai/frontend/api/logics'
 import { resolveToolCall } from 'products/posthog_ai/frontend/api/tools'
+import { managedEntityLogic } from 'products/stacks/frontend/managedEntityLogic'
+import { ManagedInCodeBanner } from 'products/stacks/frontend/ManagedInCodeBanner'
 import { DestinationWorkflowSuggestionModal } from 'products/workflows/frontend/DestinationWorkflowSuggestion/DestinationWorkflowSuggestionModal'
 
 import { humanizeHogFunctionType } from '../hog-function-utils'
@@ -71,6 +74,12 @@ export function HogFunctionConfiguration({
     } = useValues(logic)
     const { loadHogFunction } = useActions(logic)
     const { draftActionPending } = useValues(hogFunctionDraftLogic(logicProps))
+    // Only a saved destination can be managed in code. A template, a draft or another function type looks nothing up.
+    const managedDestination = {
+        kind: 'destination',
+        entityId: !templateId && hogFunction?.type === 'destination' ? hogFunction.id : null,
+    }
+    const { ownedFieldDisabledReason } = useValues(managedEntityLogic(managedDestination))
 
     // The section components attach the config blobs (code, inputs, filters) as unkeyed values; only a
     // keyed item renders its id into the context line, and the agent needs the id for cdp-functions-partial-update.
@@ -142,6 +151,7 @@ export function HogFunctionConfiguration({
         <div className="deprecated-space-y-3">
             <BindLogic logic={hogFunctionConfigurationLogic} props={logicProps}>
                 {hogFunction?.type === 'destination' ? <HogFunctionDraftStatusBar logicProps={logicProps} /> : null}
+                <ManagedInCodeBanner {...managedDestination} />
                 {hogFunction?.filters?.bytecode_error ? (
                     <div>
                         <LemonBanner type="error">
@@ -207,6 +217,7 @@ export function HogFunctionConfiguration({
                                                 onChange={() => onChange(!value)}
                                                 checked={value}
                                                 disabled={loading}
+                                                disabledReason={ownedFieldDisabledReason('enabled')}
                                                 bordered
                                                 fullWidth
                                                 label={type === 'transformation_log' ? 'Enable' : 'Enable destination'}
@@ -229,7 +240,11 @@ export function HogFunctionConfiguration({
                                 </div>
 
                                 {type === 'source_webhook' && <HogFunctionSourceWebhookInfo />}
-                                {showFilters && <HogFunctionFilters />}
+                                {showFilters && (
+                                    <LemonDisabledArea disabledReason={ownedFieldDisabledReason('filters')}>
+                                        <HogFunctionFilters />
+                                    </LemonDisabledArea>
+                                )}
                                 {survey && <SurveyResponseKeysReference questions={survey.questions} />}
                                 {showExpectedVolume ? <HogFunctionEventEstimates /> : null}
                             </div>
@@ -255,11 +270,19 @@ export function HogFunctionConfiguration({
                                         </LemonBanner>
                                     </div>
                                 )}
-                                <HogFunctionInputs />
+                                <LemonDisabledArea disabledReason={ownedFieldDisabledReason('inputs')}>
+                                    <HogFunctionInputs />
+                                </LemonDisabledArea>
 
-                                <HogFunctionMappings />
+                                <LemonDisabledArea disabledReason={ownedFieldDisabledReason('mappings')}>
+                                    <HogFunctionMappings />
+                                </LemonDisabledArea>
 
-                                {canEditSource && <HogFunctionCode />}
+                                {canEditSource && (
+                                    <LemonDisabledArea disabledReason={ownedFieldDisabledReason('hog')}>
+                                        <HogFunctionCode />
+                                    </LemonDisabledArea>
+                                )}
                                 {showTesting ? <HogFunctionTest /> : null}
                                 {type === 'source_webhook' && <HogFunctionSourceWebhookTest />}
                                 <div className="flex gap-2 justify-end">

@@ -8,6 +8,7 @@ import type { SessionManager } from '@/lib/SessionManager'
 import type { StateManager } from '@/lib/StateManager'
 import type { PrefixedString } from '@/lib/types'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
+import type { ManagedKind } from '@/tools/managed-in-code'
 
 export type CloudRegion = 'us' | 'eu'
 
@@ -90,7 +91,9 @@ export type State = {
     Record<PrefixedString<'businessKnowledgeContent'>, BusinessKnowledgeContent | undefined> &
     Record<PrefixedString<'businessKnowledgeContentFetchedAt'>, number | undefined> &
     Record<PrefixedString<'metricCatalog'>, MetricCatalogContent | undefined> &
-    Record<PrefixedString<'metricCatalogFetchedAt'>, number | undefined>
+    Record<PrefixedString<'metricCatalogFetchedAt'>, number | undefined> &
+    Record<PrefixedString<'managedKinds'>, ManagedKind[] | undefined> &
+    Record<PrefixedString<'managedKindsFetchedAt'>, number | undefined>
 
 export type Env = {
     /**

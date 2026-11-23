@@ -1,0 +1,39 @@
+{
+    "kind": "check",
+    "scopes": {
+        "read": ["data_catalog", "query", "warehouse_table", "warehouse_view"],
+        "write": ["data_catalog", "warehouse_table", "warehouse_view"]
+    },
+    "read_api": { "collection": "data_quality_checks" },
+    "resource_type": "posthog_data_quality_check",
+    "id_type": "string",
+    "api_schema": {
+        "product": "data_quality",
+        "name": "DataQualityChecksCreateBody"
+    },
+    "fields": {
+        "name": "name",
+        "description": "description",
+        "subject_type": "subject_type",
+        "subject_uuid": "subject_uuid",
+        "column_name": "column_name",
+        "check_type": "check_type",
+        "config": "config_json",
+        "severity": "severity",
+        "enabled": "enabled",
+        "tags": "tags",
+        "created_source": "created_source",
+        "ai_model": "ai_model",
+        "confidence": "confidence",
+        "reasoning": "reasoning"
+    },
+    "json_fields": ["config"],
+    "set_fields": ["tags"],
+    "unmanaged": {},
+    "gaps": {},
+    "removal": "prevent",
+    "natural_key": null,
+    "import_id": "{entity_id}",
+    "hook": null,
+    "loses": "The new check starts a new run history and has its own ID."
+}

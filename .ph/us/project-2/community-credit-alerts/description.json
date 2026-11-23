@@ -1,0 +1,107 @@
+{
+    "resources": [
+        {
+            "body": {
+                "description": "Post to Slack on every $exception with campaign_slug = community",
+                "enabled": true,
+                "filters": {
+                    "events": [
+                        {
+                            "id": "$exception",
+                            "type": "events"
+                        }
+                    ],
+                    "properties": [
+                        {
+                            "key": "campaign_slug",
+                            "operator": "exact",
+                            "type": "event",
+                            "value": ["community"]
+                        }
+                    ],
+                    "source": "events"
+                },
+                "hog": "let res := fetch('https://slack.com/api/chat.postMessage', {\n  'body': {\n    'channel': inputs.channel,\n    'icon_emoji': inputs.icon_emoji,\n    'username': inputs.username,\n    'blocks': inputs.blocks,\n    'text': inputs.text\n  },\n  'method': 'POST',\n  'headers': {\n    'Authorization': f'Bearer {inputs.slack_workspace.access_token}',\n    'Content-Type': 'application/json'\n  }\n});\n\nif (res.status != 200 or res.body.ok == false) {\n  throw Error(f'Failed to post message to Slack: {res.status}: {res.body}');\n}",
+                "icon_url": "/static/services/slack.png",
+                "inputs": {
+                    "blocks": {
+                        "templating": "hog",
+                        "value": [
+                            {
+                                "text": {
+                                    "text": "Community credit claim failed",
+                                    "type": "plain_text"
+                                },
+                                "type": "header"
+                            },
+                            {
+                                "text": {
+                                    "text": "<@U0BLTRYPJ3D> *{substring(replaceAll(replaceAll(replaceAll(toString(event.properties.$exception_types[1] ?? ''), '&', '&amp;'), '<', '&lt;'), '>', '&gt;'), 1, 200)}*: {substring(replaceAll(replaceAll(replaceAll(toString(event.properties.$exception_values[1] ?? ''), '&', '&amp;'), '<', '&lt;'), '>', '&gt;'), 1, 2700)}",
+                                    "type": "mrkdwn",
+                                    "verbatim": true
+                                },
+                                "type": "section"
+                            },
+                            {
+                                "elements": [
+                                    {
+                                        "text": "{substring(replaceAll(replaceAll(replaceAll(toString(f'Coupon: {event.properties.coupon_id} | Credit: {event.properties.credit_id} | Customer: {event.properties.customer_id} | Organization: {event.properties.organization_id}' ?? ''), '&', '&amp;'), '<', '&lt;'), '>', '&gt;'), 1, 3000)}",
+                                        "type": "mrkdwn",
+                                        "verbatim": true
+                                    }
+                                ],
+                                "type": "context"
+                            },
+                            {
+                                "type": "divider"
+                            },
+                            {
+                                "elements": [
+                                    {
+                                        "text": {
+                                            "text": "View issue",
+                                            "type": "plain_text"
+                                        },
+                                        "type": "button",
+                                        "url": "{project.url}/error_tracking/{encodeURLComponent(toString(event.properties.$exception_issue_id ?? ''))}"
+                                    }
+                                ],
+                                "type": "actions"
+                            }
+                        ]
+                    },
+                    "channel": {
+                        "templating": "hog",
+                        "value": "C039XEY25ML"
+                    },
+                    "icon_emoji": {
+                        "templating": "hog",
+                        "value": ":hogzilla:"
+                    },
+                    "slack_workspace": {
+                        "templating": "hog",
+                        "value": 173069
+                    },
+                    "text": {
+                        "templating": "hog",
+                        "value": "<@U0BLTRYPJ3D> Community credit claim failed"
+                    },
+                    "username": {
+                        "templating": "hog",
+                        "value": "Community credits"
+                    }
+                },
+                "name": "Community credit claim failure to Slack",
+                "template_id": "template-slack",
+                "type": "destination"
+            },
+            "key": "community_credit_claim_failure",
+            "kind": "destination",
+            "source": {
+                "export": "communityCreditClaimFailure",
+                "file": ".ph/us/project-2/community-credit-alerts/index.ts"
+            }
+        }
+    ],
+    "version": 1
+}

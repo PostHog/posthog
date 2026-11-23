@@ -2,6 +2,7 @@ import { dirname, join } from 'node:path'
 import { z } from 'zod'
 
 import { HostSchema } from '@/posthog/host'
+import { StacksConfig } from '@/stack/config'
 
 import { HogError } from './errors'
 import { JsonObject, parseJson } from './json'
@@ -134,6 +135,7 @@ export const PostHogConfig = z
             })
             .optional()
             .describe('Settings for `hog endpoints`.'),
+        stacks: StacksConfig.optional(),
         languages: z
             .record(z.string(), SchemaLanguage)
             .optional()
@@ -231,20 +233,30 @@ function formatLike(original: string | undefined, raw: Record<string, unknown>):
     return `${JSON.stringify(raw, null, indent)}${original.endsWith('\n') ? '\n' : ''}`
 }
 
+export async function configEdit(
+    runtime: Runtime,
+    path: string,
+    change: (raw: Record<string, unknown>) => void
+): Promise<{ before: string | undefined; contents: string }> {
+    const before = (await runtime.exists(path)) ? await runtime.readFile(path) : undefined
+    const raw =
+        before === undefined
+            ? { $schema: SCHEMA_URL }
+            : parseJson(before, JsonObject, { code: 'invalid_config', context: `${path} is not valid.` })
+    change(raw)
+    return { before, contents: formatLike(before, raw) }
+}
+
 // Changes one part of posthog.json and keeps everything else as written: keys hog doesn't know,
 // the key order and the file's indentation. Creates the file in the working folder when there is none.
 export async function updateConfig(
     runtime: Runtime,
     loaded: LoadedConfig | undefined,
-    change: (raw: Record<string, unknown>) => void
+    change: (raw: Record<string, unknown>) => void,
+    folder = runtime.cwd()
 ): Promise<string> {
-    const path = configPathFor(runtime, loaded)
-    const original = loaded ? await runtime.readFile(path) : undefined
-    const raw =
-        original === undefined
-            ? { $schema: SCHEMA_URL }
-            : parseJson(original, JsonObject, { code: 'invalid_config', context: `${path} is not valid.` })
-    change(raw)
-    await runtime.writeFile(path, formatLike(original, raw))
+    const path = loaded?.path ?? join(folder, CONFIG_FILE)
+    const edit = await configEdit(runtime, path, change)
+    await runtime.writeFile(path, edit.contents)
     return path
 }

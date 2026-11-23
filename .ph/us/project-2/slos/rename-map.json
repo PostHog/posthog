@@ -1,0 +1,54 @@
+{
+    "posthog_dashboard.team_analytics_platform_slos": {
+        "kind": "dashboard",
+        "key": "team_analytics_platform_slos"
+    },
+    "posthog_dashboard_layout.team_analytics_platform_slos": {
+        "kind": "dashboard",
+        "key": "team_analytics_platform_slos"
+    },
+    "posthog_insight.slo[\"alerts_eu\"]": {
+        "kind": "insight",
+        "key": "slo-alerts_eu"
+    },
+    "posthog_insight.slo[\"alerts_timeliness_eu\"]": {
+        "kind": "insight",
+        "key": "slo-alerts_timeliness_eu"
+    },
+    "posthog_insight.slo[\"alerts_timeliness_us\"]": {
+        "kind": "insight",
+        "key": "slo-alerts_timeliness_us"
+    },
+    "posthog_insight.slo[\"alerts_us\"]": {
+        "kind": "insight",
+        "key": "slo-alerts_us"
+    },
+    "posthog_insight.slo[\"cohorts_eu\"]": {
+        "kind": "insight",
+        "key": "slo-cohorts_eu"
+    },
+    "posthog_insight.slo[\"cohorts_us\"]": {
+        "kind": "insight",
+        "key": "slo-cohorts_us"
+    },
+    "posthog_insight.slo[\"exports_eu\"]": {
+        "kind": "insight",
+        "key": "slo-exports_eu"
+    },
+    "posthog_insight.slo[\"exports_us\"]": {
+        "kind": "insight",
+        "key": "slo-exports_us"
+    },
+    "posthog_insight.slo[\"subscriptions_eu\"]": {
+        "kind": "insight",
+        "key": "slo-subscriptions_eu"
+    },
+    "posthog_insight.slo[\"subscriptions_us\"]": {
+        "kind": "insight",
+        "key": "slo-subscriptions_us"
+    },
+    "posthog_insight.slo_success_rates": {
+        "kind": "insight",
+        "key": "slo_success_rates"
+    }
+}

@@ -38,11 +38,15 @@ env:
     # it, and copies from before it checked changeset owners read this list.
     HOG_SOURCE_PATHS: >-
         hog
+        packages/sdk
+        .ph
+        posthog.json
         services/mcp
         tools/openapi-codegen
         packages/llm-normalizer
         packages/quill
         products/notebooks
+        products/stacks/backend
         products/product_analytics/mcp
         products/posthog_ai/skills/querying-posthog-data/references/guidelines.md
         products/ai_observability/backend/prompts/parser_recipe_examples.yaml
@@ -871,11 +875,14 @@ jobs:
                       /*
                       !/*/
                       /hog/
+                      /packages/sdk/
+                      /.ph/
                       /services/mcp/
                       /tools/openapi-codegen/
                       /packages/llm-normalizer/
                       /packages/quill/
                       /products/notebooks/
+                      /products/stacks/backend/
                       /products/product_analytics/mcp/
                       /products/posthog_ai/skills/querying-posthog-data/references/guidelines.md
                       /products/ai_observability/backend/prompts/parser_recipe_examples.yaml
@@ -889,7 +896,7 @@ jobs:
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
               with:
-                  install-command: pnpm --filter='hog...' install --frozen-lockfile
+                  install-command: pnpm --filter='hog...' --filter=@posthog/posthog-as-code install --frozen-lockfile
                   # The installed packages are compiled into the signed binary, so they come from the
                   # registry, checked against the lockfile, and not from a cache other jobs can write.
                   cache: 'false'
@@ -899,9 +906,9 @@ jobs:
                   bun-version: ${{ env.BUN_VERSION }}
                   no-cache: true
 
-            - name: Build the MCP library
+            - name: Build the SDK and its MCP library
               working-directory: hog
-              run: pnpm run build:mcp
+              run: pnpm run build:sdk
 
             - name: Typecheck
               working-directory: hog
@@ -923,6 +930,10 @@ jobs:
               env:
                   VERSION: ${{ needs.release.outputs.version }}
               run: test "$(HOG_NO_TELEMETRY=1 HOG_NO_UPDATE_CHECK=1 dist/release/bin/linux-x64/hog --version)" = "$VERSION"
+
+            - name: Check the stack in the Linux release
+              working-directory: hog
+              run: bun --no-env-file release/test-stack-binary.ts dist/release/bin/linux-x64/hog
 
             - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:

@@ -16,6 +16,8 @@ import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { EndpointRequest, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { EndpointType, EndpointVersionType } from '~/types'
 
+import { isManagedInCodeRefusal } from 'products/stacks/frontend/managedInCode'
+
 import type { ProductIntentProperties } from '../../../frontend/src/lib/utils/product-intents'
 import type { EndpointVersionMaterializationType } from '../../../frontend/src/types'
 import { endpointsLogic } from './endpointsLogic'
@@ -178,8 +180,12 @@ export interface endpointLogicActions {
             | undefined
         request: Partial<EndpointRequest>
     }
-    updateEndpointFailure: (queryError?: string | null) => {
+    updateEndpointFailure: (
+        queryError?: string | null,
+        refusedByCode?: boolean
+    ) => {
         queryError: string | null | undefined
+        refusedByCode: boolean
     }
     updateEndpointSuccess: (
         response: any,
@@ -245,7 +251,10 @@ export const endpointLogic = kea<endpointLogicType>([
             endpointName,
             options,
         }),
-        updateEndpointFailure: (queryError?: string | null) => ({ queryError }),
+        updateEndpointFailure: (queryError?: string | null, refusedByCode: boolean = false) => ({
+            queryError,
+            refusedByCode,
+        }),
         deleteEndpoint: (name: string) => ({ name }),
         deleteEndpointSuccess: (response: any) => ({ response }),
         clearMaterializationStatus: true,
@@ -454,7 +463,7 @@ export const endpointLogic = kea<endpointLogicType>([
                     actions.updateEndpointSuccess(response, name, options)
                 } catch (error: any) {
                     console.error('Failed to update endpoint:', error)
-                    actions.updateEndpointFailure(error.detail || null)
+                    actions.updateEndpointFailure(error.detail || null, isManagedInCodeRefusal(error))
                 }
             },
             updateEndpointSuccess: ({ response, endpointName, options }) => {
@@ -483,7 +492,11 @@ export const endpointLogic = kea<endpointLogicType>([
                     globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ConfigureEndpoint)
                 }
             },
-            updateEndpointFailure: ({ queryError }) => {
+            updateEndpointFailure: ({ queryError, refusedByCode }) => {
+                if (refusedByCode) {
+                    // apiStatusLogic already names the file to edit, so a second toast would repeat it.
+                    return
+                }
                 if (queryError) {
                     lemonToast.error(`Failed to update endpoint: ${queryError}`)
                 } else {

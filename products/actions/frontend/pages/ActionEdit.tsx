@@ -53,6 +53,9 @@ import { Query } from '~/queries/Query/Query'
 import { NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ActionStepType, FilterLogicalOperator } from '~/types'
 
+import { managedEntityLogic } from 'products/stacks/frontend/managedEntityLogic'
+import { ManagedInCodeBanner } from 'products/stacks/frontend/ManagedInCodeBanner'
+
 import { ActionHogFunctions } from '../components/ActionHogFunctions'
 import { ActionStep } from '../components/ActionStep'
 import type { ActionReferenceApi } from '../generated/api.schemas'
@@ -109,6 +112,8 @@ export function ActionEdit({ action: loadedAction, id, actionLoading, attachTo }
     )
 
     const actionId = typeof action?.id === 'number' ? action.id : null
+    const { ownedFieldDisabledReason } = useValues(managedEntityLogic({ kind: 'action', entityId: actionId }))
+    const stepsDisabledReason = cannotEditReason ?? ownedFieldDisabledReason('steps') ?? undefined
 
     useFileSystemLogView({
         type: 'action',
@@ -186,7 +191,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading, attachTo }
                             }}
                             tags={action.tags || []}
                             dataAttrKey={RESOURCE_TYPE}
-                            canEdit={canEdit}
+                            canEdit={canEdit && !ownedFieldDisabledReason('tags')}
                         />
 
                         <SceneFile dataAttrKey={RESOURCE_TYPE} />
@@ -278,7 +283,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading, attachTo }
                     onDescriptionChange={(value) => {
                         setActionValue('description', value)
                     }}
-                    canEdit={canEdit}
+                    canEdit={canEdit && !ownedFieldDisabledReason('name') && !ownedFieldDisabledReason('description')}
                     forceEdit={!id}
                     actions={
                         todayRailNav ? (
@@ -353,6 +358,8 @@ export function ActionEdit({ action: loadedAction, id, actionLoading, attachTo }
                     }
                 />
 
+                <ManagedInCodeBanner kind="action" entityId={actionId} />
+
                 <LemonCollapse
                     defaultActiveKey="match-groups"
                     panels={[
@@ -391,7 +398,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading, attachTo }
                                                         step={step}
                                                         actionId={action.id || 0}
                                                         isOnlyStep={!!stepsValue && stepsValue.length === 1}
-                                                        disabledReason={cannotEditReason ?? undefined}
+                                                        disabledReason={stepsDisabledReason}
                                                         onDelete={() => {
                                                             const newSteps = [...stepsValue]
                                                             newSteps.splice(index, 1)
@@ -415,7 +422,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading, attachTo }
                                                     }}
                                                     center
                                                     className="w-full h-full"
-                                                    disabledReason={cannotEditReason ?? undefined}
+                                                    disabledReason={stepsDisabledReason}
                                                 >
                                                     Add match group
                                                 </LemonButton>

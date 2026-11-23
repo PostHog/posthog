@@ -71,6 +71,7 @@ import {
 
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
 import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
+import { managedEntityLogic } from 'products/stacks/frontend/managedEntityLogic'
 import { urlForSubscriptions } from 'products/subscriptions/frontend/components/Subscriptions/utils'
 
 import { insightModalsLogic } from '../insightModalsLogic'
@@ -96,6 +97,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
     const { insightProps, insight, hasDashboardItemId, canEditInsight, isSavingTags, insightDuplicating } =
         useValues(theInsightLogic)
     const { duplicateInsight, deleteInsight, setInsightMetadata } = useActions(theInsightLogic)
+    const { ownedFieldDisabledReason } = useValues(managedEntityLogic({ kind: 'insight', entityId: insight.id }))
 
     const theInsightDataLogic = insightDataLogic(insightProps)
     const {
@@ -465,7 +467,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                             onSave={(tags) => setInsightMetadata({ tags })}
                             tags={insight.tags}
                             dataAttrKey={RESOURCE_TYPE}
-                            canEdit={canEditInsight}
+                            canEdit={canEditInsight && !ownedFieldDisabledReason('tags')}
                             loading={isSavingTags}
                         />
                         <SceneActivityIndicator

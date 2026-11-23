@@ -48,6 +48,11 @@ def heartbeat_through_loop(loop: asyncio.AbstractEventLoop) -> Iterator[None]:
         _loop_heartbeat.reset(token)
 
 
+def send_heartbeat(*details: Any) -> None:
+    """Send one heartbeat from any thread of the activity. Raises when Temporal does not accept it."""
+    (_loop_heartbeat.get() or activity.heartbeat)(*details)
+
+
 class HeartbeaterSync:
     def __init__(self, details: tuple[Any, ...] = (), factor: int = 12, logger: FilteringBoundLogger | None = None):
         self.details: tuple[Any, ...] = details

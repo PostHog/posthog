@@ -44,6 +44,7 @@ from posthog.permissions import (
     AccessControlPermission,
     ActiveOrganizationPermission,
     APIScopePermission,
+    ManagedWritePermission,
     MCPAccessPermission,
     OrganizationMemberPermissions,
     SharingTokenPermission,
@@ -449,6 +450,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 MCPAccessPermission(),
                 ActiveOrganizationPermission(),
                 IPRestrictionsPermission(),
+                ManagedWritePermission(),
             ]
 
         if isinstance(self.request.successful_authenticator, InternalAPIAuthentication):
@@ -483,6 +485,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         permission_classes.append(IPRestrictionsPermission)
 
         permission_classes.extend(self.permission_classes)
+        # Last, so a caller the product's own permissions refuse gets that denial, never which stack owns the object.
+        permission_classes.append(ManagedWritePermission)
         return [permission() for permission in permission_classes]
 
     def get_authenticators(self):
@@ -643,9 +647,14 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         """
 
         try:
-            return self.dangerously_get_object()
+            obj = self.dangerously_get_object()
         except NotImplementedError:
             pass
+        else:
+            # A view that loads its own object skips the permission chain's object checks, but never the check
+            # that refuses a write to an object another system owns.
+            ManagedWritePermission().has_object_permission(self.request, self, obj)
+            return obj
 
         try:
             record = self.read_object()

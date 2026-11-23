@@ -767,6 +767,14 @@ export const SCOPE_DOCS: Readonly<Record<string, ScopeObjectDoc>> = {
         actions: ['read'],
         docsUrl: 'https://posthog.com/docs/self-driving/pricing',
     },
+    stack: {
+        name: 'Stack',
+        plural: 'stacks',
+        description:
+            'Diffs and pushes of definitions managed in code, their bindings, and adopting or detaching entities.',
+        group: 'Developer experience',
+        actions: ['read', 'write'],
+    },
     streamlit_app: {
         name: 'Streamlit app',
         plural: 'Streamlit apps',

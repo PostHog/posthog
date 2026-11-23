@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, mock, test } from 'bun:test'
+import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
 import * as providers from '@/ci/providers/registry'
@@ -34,6 +35,7 @@ const PROVIDERS = {
             name: 'Fake CI',
             issuer: 'https://ci.example.com',
             docs_url: 'https://example.com/docs/fake-ci',
+            condition_claims: [{ name: 'event_name' }, { name: 'workflow_ref' }],
             condition_presets: [
                 {
                     key: 'branch_push',
@@ -108,6 +110,78 @@ function setup(args: string[], options: FakeRuntimeOptions): ReturnType<typeof r
 }
 
 describe('hog ci setup', () => {
+    const workflowPath = '/work/.github/workflows/posthog-web.production.yml'
+    const stackFiles = {
+        ...REPOSITORY,
+        '/work/posthog.json': JSON.stringify({
+            stacks: { web: { dir: 'analytics/web', environments: { production: { host: HOST, project: 42 } } } },
+        }),
+    }
+
+    test('sets up a read-only approval and a workflow that comments the diff and never pushes', async () => {
+        const run = await setup(['--stack', 'web'], { files: stackFiles })
+        expect(run.exitCode).toBe(0)
+        expect(run.json()).toMatchObject({
+            status: 'workflow',
+            created: true,
+            approvals: {
+                diff: expect.stringContaining('environment=posthog-diff-web.production --scope stack:read --claim'),
+            },
+        })
+        expect(run.json()).not.toHaveProperty('approvals.push')
+        const workflow = parseYaml(run.files[workflowPath]!)
+        expect(workflow).toMatchObject({
+            on: { pull_request: { paths: ['analytics/web/**', 'posthog.json'] } },
+            env: { HOG_PROJECT_ID: '42', HOG_HOST: HOST },
+            jobs: {
+                diff: {
+                    environment: 'posthog-diff-web.production',
+                    if: expect.stringContaining('github.event.pull_request.head.repo.full_name == github.repository'),
+                    permissions: { 'pull-requests': 'write', 'id-token': 'write' },
+                },
+            },
+        })
+        // The diff job runs the pull request's code with an OIDC token, so it can save and name a diff nobody saw. Nothing may push on its word.
+        expect(Object.keys(workflow.on)).toEqual(['pull_request'])
+        expect(Object.keys(workflow.jobs)).toEqual(['diff'])
+        expect(run.files[workflowPath]).not.toMatch(/\bpush --|upload-artifact|npx/)
+        // hog is installed before the pull request's files exist, so its .npmrc or package.json cannot pick the binary.
+        const steps: { name?: string; uses?: string; run?: string }[] = workflow.jobs.diff.steps
+        const install = steps.findIndex((step) => step.run?.includes('npm install --prefix "$RUNNER_TEMP/hog-cli"'))
+        const checkout = steps.findIndex((step) => step.uses?.startsWith('actions/checkout@'))
+        expect(install).toBeGreaterThan(-1)
+        expect(install).toBeLessThan(checkout)
+        expect(steps.slice(checkout).some((step) => step.run?.includes('npm install --'))).toBe(false)
+        expect(steps.at(-1)?.run).toContain('"$HOG_BIN" "${args[@]}"')
+        const next = await setup(['--stack', 'web'], { files: run.files, stdoutIsTTY: true })
+        expect(next.stdout).toContain('The stack workflow is already in place')
+        expect(next.files[workflowPath]).toBe(run.files[workflowPath])
+    })
+
+    test('preserves an edited stack workflow', async () => {
+        const run = await setup(['--stack', 'web'], { files: { ...stackFiles, [workflowPath]: 'custom job' } })
+        expect(run.error().code).toBe('stack_workflow_exists')
+        expect(run.files[workflowPath]).toBe('custom job')
+    })
+
+    test('an exact claim narrows the approved job and a conflicting claim cannot weaken the preset', async () => {
+        const args = [
+            '--preset',
+            'environment=posthog-diff',
+            '--scope',
+            'stack:read',
+            '--claim',
+            'event_name=pull_request',
+        ]
+        const run = await setup(args, { respond: policyApi() })
+        expect(run.requests.find((request) => request.url === REQUESTS)?.body).toMatchObject({
+            conditions: { environment: 'posthog-diff', event_name: 'pull_request' },
+        })
+        const conflicting = await setup([...args, '--preset', 'branch_push=main'], { respond: policyApi() })
+        expect(conflicting.error().code).toBe('invalid_claim')
+        expect(conflicting.requests.some((request) => request.url === REQUESTS)).toBe(false)
+    })
+
     test.each([
         [
             'a member, who must send it to an admin',

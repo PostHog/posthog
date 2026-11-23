@@ -185,6 +185,7 @@ import { createDashboardWidgetTileRefreshScheduler } from 'products/dashboards/f
 import type { ZoomRange } from 'products/dashboards/frontend/zoomPreview'
 import { dataRetentionBannerLogic } from 'products/product_analytics/frontend/insights/dataRetention/dataRetentionBannerLogic'
 import { rangeReachesBefore } from 'products/product_analytics/frontend/insights/dataRetention/rangeReachesBefore'
+import { isManagedInCodeRefusal } from 'products/stacks/frontend/managedInCode'
 
 import type { DashboardSharingDebugApi } from '../../../../products/dashboards/frontend/generated/api.schemas'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
@@ -2916,7 +2917,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             if (scope === 'layout') {
                                 // The success listener rolls back and says so, unless a newer edit is queued.
                                 cache.layoutSaveFailed = true
-                            } else {
+                            } else if (!isManagedInCodeRefusal(e)) {
                                 lemonToast.error('Could not update dashboard: ' + String(e))
                             }
                             return values.dashboard

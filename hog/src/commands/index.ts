@@ -13,6 +13,7 @@ import query from './query'
 import schema from './schema'
 import setup from './setup'
 import skills from './skills'
+import stack from './stack'
 import upgrade from './upgrade'
 
 export const COMMANDS: CommandTree = {
@@ -25,6 +26,7 @@ export const COMMANDS: CommandTree = {
     mcp,
     'error-tracking': errorTracking,
     endpoints,
+    stack,
     schema,
     config,
     commands,

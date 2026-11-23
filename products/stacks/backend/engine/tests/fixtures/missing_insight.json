@@ -1,0 +1,59 @@
+{
+  "resource_changes": [
+    {
+      "address": "posthog_insight.stack_example",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "create_in_folder": null,
+          "dashboard_ids": null,
+          "description": null,
+          "name": "Example",
+          "query_json": "{\"kind\":\"TrendsQuery\"}",
+          "query_sql": null,
+          "tags": null
+        },
+        "after_unknown": {
+          "deleted": true,
+          "derived_name": true,
+          "id": true,
+          "project_id": true,
+          "short_id": true
+        },
+        "before_sensitive": false,
+        "after_sensitive": {}
+      }
+    }
+  ],
+  "resource_drift": [
+    {
+      "address": "posthog_insight.stack_example",
+      "change": {
+        "actions": [
+          "delete"
+        ],
+        "before": {
+          "create_in_folder": null,
+          "dashboard_ids": null,
+          "deleted": false,
+          "derived_name": null,
+          "description": null,
+          "id": 42,
+          "name": "Example",
+          "project_id": "1",
+          "query_json": "{\"kind\":\"TrendsQuery\"}",
+          "query_sql": null,
+          "short_id": "example",
+          "tags": null
+        },
+        "after": null,
+        "after_unknown": {},
+        "before_sensitive": {},
+        "after_sensitive": false
+      }
+    }
+  ]
+}

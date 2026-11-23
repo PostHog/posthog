@@ -1,0 +1,51 @@
+{
+    "kind": "action",
+    "scopes": {
+        "read": ["action"],
+        "write": ["action"]
+    },
+    "read_api": {
+        "collection": "actions",
+        "list_fields": {
+            "steps": [
+                "event",
+                "properties",
+                "selector",
+                "tag_name",
+                "text",
+                "text_matching",
+                "href",
+                "href_matching",
+                "url",
+                "url_matching"
+            ]
+        }
+    },
+    "resource_type": "posthog_action",
+    "id_type": "number",
+    "api_schema": {
+        "product": "actions",
+        "name": "ActionsCreateBody"
+    },
+    "fields": {
+        "name": "name",
+        "description": "description",
+        "tags": "tags",
+        "post_to_slack": "post_to_slack",
+        "slack_message_format": "slack_message_format",
+        "steps": "steps_json"
+    },
+    "json_fields": ["steps"],
+    "set_fields": ["tags"],
+    "unmanaged": {
+        "pinned_at": null
+    },
+    "gaps": {
+        "_create_in_folder": "This version cannot set an action folder."
+    },
+    "removal": "allow",
+    "natural_key": null,
+    "import_id": "{entity_id}",
+    "hook": null,
+    "loses": "Insights that refer to the original action still use its old ID."
+}

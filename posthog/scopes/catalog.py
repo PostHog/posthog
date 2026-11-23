@@ -134,6 +134,7 @@ APIScopeObject = Literal[
     "signal_scratchpad_internal",
     "signal_usage",
     "slack_run",
+    "stack",
     "streamlit_app",
     "subscription",
     "support_ticket",

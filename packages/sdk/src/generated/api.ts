@@ -24,6 +24,7 @@ export interface GeneratedClient {
     readonly customerAnalytics: CustomerAnalyticsClient
     readonly dashboards: DashboardsClient
     readonly dataCatalog: DataCatalogClient
+    readonly dataManagement: DataManagementClient
     readonly dataQuality: DataQualityClient
     readonly dataSchema: DataSchemaClient
     readonly dataWarehouse: DataWarehouseClient
@@ -67,6 +68,7 @@ export interface GeneratedClient {
     readonly reviewHog: ReviewHogClient
     readonly signals: SignalsClient
     readonly skills: SkillsClient
+    readonly stacks: StacksClient
     readonly stamphog: StamphogClient
     readonly streamlitApps: StreamlitAppsClient
     readonly subscriptions: SubscriptionsClient
@@ -6090,6 +6092,30 @@ export interface DataCatalogClient {
      */
     metricList(input: DataCatalogMetricListInput, options?: RequestOptions): Promise<DataCatalogMetricListOutput>
 }
+export interface DataManagementClient {
+    /**
+     * Link a property group to an event definition, so the event's schema includes the group's properties. Pass the event definition's id as `event_definition` and the group's id as `property_group_id`. Create the group first with schema-property-group-create.
+     *
+     * @mcpTool event-schema-create
+     *
+     * @requiredScopes event_definition:write
+     */
+    eventSchemaCreate(
+        input: DataManagementEventSchemaCreateInput,
+        options?: RequestOptions
+    ): Promise<DataManagementEventSchemaCreateOutput>
+    /**
+     * Create a named group of typed event properties, the schema events link to. Each property has a `name`, a `property_type` (String, Numeric, Boolean, DateTime, Object or Array), and optional `is_required`, `is_optional_in_types` and `description`. A group name is unique in the project. Link the group to an event with event-schema-create.
+     *
+     * @mcpTool schema-property-group-create
+     *
+     * @requiredScopes event_definition:write
+     */
+    schemaPropertyGroupCreate(
+        input: DataManagementSchemaPropertyGroupCreateInput,
+        options?: RequestOptions
+    ): Promise<DataManagementSchemaPropertyGroupCreateOutput>
+}
 export interface DataQualityClient {
     /**
      * Add a dbt-test-style assertion to a warehouse table, a saved query (view or materialized view), a data
@@ -7856,7 +7882,7 @@ export interface ErrorTrackingAlertsClient {
 }
 export interface EventsClient {
     /**
-     * Create an event definition for an event that has not been ingested yet. Use this to define the event name, description, owner, tags, verified state, and hidden state before the first event arrives. Fails if a definition with the same name already exists (use event-definition-update instead). Use exact event name like 'user_signed_up'.
+     * Create an event definition for an event that has not been ingested yet. Use this to define the event name, description, owner, tags, verified state, hidden state, and schema enforcement mode before the first event arrives. Fails if a definition with the same name already exists (use event-definition-update instead). Use exact event name like 'user_signed_up'.
      *
      * @mcpTool event-definition-create
      *
@@ -7878,7 +7904,7 @@ export interface EventsClient {
         options?: RequestOptions
     ): Promise<EventsEventDefinitionGetOutput>
     /**
-     * Update event definition metadata. Can update description, owner, tags, mark status as verified or hidden. Use exact event name like '$pageview' or 'user_signed_up'.
+     * Update event definition metadata. Can update description, owner, tags, schema enforcement mode, and mark status as verified or hidden. Use exact event name like '$pageview' or 'user_signed_up'.
      *
      * @mcpTool event-definition-update
      *
@@ -17544,6 +17570,77 @@ export interface SkillsClient {
      */
     skillUpdate(input: SkillsSkillUpdateInput, options?: RequestOptions): Promise<SkillsSkillUpdateOutput>
 }
+export interface StacksClient {
+    /**
+     * Whether a stack manages this entity in code. When `binding` is set, change the entity by editing `binding.source.file` in `binding.repository`, running `hog check`, and opening a pull request, not with a direct API or MCP write, which is refused with `managed_in_code`. Null means no stack manages it.
+     *
+     * @sourceDescription The binding that manages this entity, or null when no stack does.
+     *
+     * @mcpTool stack-binding-lookup
+     *
+     * @requiredScopes stack:read
+     */
+    stackBindingLookup(
+        input: StacksStackBindingLookupInput,
+        options?: RequestOptions
+    ): Promise<StacksStackBindingLookupOutput>
+    /**
+     * Each entity a stack manages, with its kind, key, PostHog id, link and the definition's file in the repository. `pending` means adopted and not pushed yet.
+     *
+     * @sourceDescription Each entity the stack manages or has adopted, one page per call.
+     *
+     * @mcpTool stack-bindings-list
+     *
+     * @requiredScopes stack:read
+     */
+    stackBindingsList(
+        input: StacksStackBindingsListInput,
+        options?: RequestOptions
+    ): Promise<StacksStackBindingsListOutput>
+    /**
+     * Send a stack description, the JSON that `hog check` writes for a folder of definitions, and start working out what a push would change in this project. Returns at once with `status: running` and an `id`. Poll `stack-diff-get` with that id until `status` is `ready` or `failed`. A ready diff lists each change with its action (create, update, recreate, remove, adopt, rename, release), the drift found since the last push, and a summary by action. A diff never changes PostHog. Show the diff to the person before anyone pushes it.
+     *
+     * @sourceDescription Save a diff of the description against the project and start computing it. Returns at once with status `running`. Creates the stack on its first diff. Needs the read scopes of every kind in the description and every kind the stack already manages.
+     *
+     * @mcpTool stack-diff
+     *
+     * @requiredScopes stack:read
+     */
+    stackDiff(input: StacksStackDiffInput, options?: RequestOptions): Promise<StacksStackDiffOutput>
+    /**
+     * Read a saved diff and its status: `running`, `ready` (pushable), `failed` (see `diff.errors` or `push_errors`), `pushed` or `stale` (the stack changed since, so run `stack-diff` again). While a push runs, `status` is `running` and `push_status` says how the push is going.
+     *
+     * @sourceDescription The diff and its status. A push's progress shows here too. Needs the read scopes the diff ran with. Field values are shown to the person who made the diff and to project admins.
+     *
+     * @mcpTool stack-diff-get
+     *
+     * @requiredScopes stack:read
+     */
+    stackDiffGet(input: StacksStackDiffGetInput, options?: RequestOptions): Promise<StacksStackDiffGetOutput>
+    /**
+     * Each kind of entity, such as `flag` or `insight`, that a stack manages in this project, with the stack and its repository. To add an entity of a listed kind, add its definition in that repository, run `hog check`, and open a pull request instead of calling the create tool.
+     *
+     * @sourceDescription Each kind of entity some stack in this project manages, with the stack and its repository. Before creating an entity of a listed kind, add its definition in that repository instead.
+     *
+     * @mcpTool stack-managed-kinds-list
+     *
+     * @requiredScopes stack:read
+     */
+    stackManagedKindsList(
+        input: StacksStackManagedKindsListInput,
+        options?: RequestOptions
+    ): Promise<StacksStackManagedKindsListOutput>
+    /**
+     * Carry out one ready diff in PostHog: create, change and remove the entities it lists. Only push a diff the person has reviewed, and never from a branch they have not merged. Returns at once with `status: running`. Poll `stack-diff-get` until `status` is `pushed` or `failed`. Refused with `stack_moved` when the stack changed since the diff was made, and with `too_many_removals` when it removes more than the stack allows: confirm with `max_removals` only after the person agreed to the removals.
+     *
+     * @sourceDescription Push exactly this saved diff. Refused with `stack_moved` when the stack changed since the diff was made. Returns at once with status `running`. Needs the read and write scopes of every kind the push touches.
+     *
+     * @mcpTool stack-push
+     *
+     * @requiredScopes stack:write
+     */
+    stackPush(input: StacksStackPushInput, options?: RequestOptions): Promise<StacksStackPushOutput>
+}
 export interface StamphogClient {
     /**
      * List posted (or attempted) daily digest runs, newest first. Each run reports the audience it drained (a team slug, or `repo:owner/name`), the Slack channel it went to and why routing chose that channel, its status, how many merged PRs it summarized, the Slack message timestamp, and the digest content (`summary`: the headline and each listed PR's number, title, URL, author, repository and one-line summary). Filter by `slack_channel_id` to see one channel's history.
@@ -22134,6 +22231,7 @@ export interface AccessControlAccessControlDefaultObjectsListResponseShape2 {
      * * `sharing_configuration` - sharing_configuration
      * * `signal_scout` - signal_scout
      * * `signal_usage` - signal_usage
+     * * `stack` - stack
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
      * * `support_ticket` - support_ticket
@@ -22233,6 +22331,7 @@ export interface AccessControlAccessControlDefaultObjectsListResponseShape2 {
         | 'integration'
         | 'link'
         | 'external_data_schema'
+        | 'event_definition'
         | 'webhook'
         | 'task'
         | 'conversation'
@@ -22251,7 +22350,6 @@ export interface AccessControlAccessControlDefaultObjectsListResponseShape2 {
         | 'customer_profile_config'
         | 'data_catalog_approval'
         | 'event_filter'
-        | 'event_definition'
         | 'file_system'
         | 'file_system_shortcut'
         | 'hog_function'
@@ -22271,6 +22369,7 @@ export interface AccessControlAccessControlDefaultObjectsListResponseShape2 {
         | 'query_performance'
         | 'signal_scout'
         | 'signal_usage'
+        | 'stack'
         | 'streamlit_app'
         | 'subscription'
         | 'support_ticket'
@@ -22701,6 +22800,7 @@ export interface AccessControlAccessControlDefaultsGetResponseShape4 {
      * * `sharing_configuration` - sharing_configuration
      * * `signal_scout` - signal_scout
      * * `signal_usage` - signal_usage
+     * * `stack` - stack
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
      * * `support_ticket` - support_ticket
@@ -22800,6 +22900,7 @@ export interface AccessControlAccessControlDefaultsGetResponseShape4 {
         | 'integration'
         | 'link'
         | 'external_data_schema'
+        | 'event_definition'
         | 'webhook'
         | 'task'
         | 'conversation'
@@ -22818,7 +22919,6 @@ export interface AccessControlAccessControlDefaultsGetResponseShape4 {
         | 'customer_profile_config'
         | 'data_catalog_approval'
         | 'event_filter'
-        | 'event_definition'
         | 'file_system'
         | 'file_system_shortcut'
         | 'hog_function'
@@ -22838,6 +22938,7 @@ export interface AccessControlAccessControlDefaultsGetResponseShape4 {
         | 'query_performance'
         | 'signal_scout'
         | 'signal_usage'
+        | 'stack'
         | 'streamlit_app'
         | 'subscription'
         | 'support_ticket'
@@ -76047,6 +76148,7 @@ export interface DashboardsDashboardCreateTileResponseShape139 {
               | 'feature_flags'
               | 'notebooks'
               | 'cohorts'
+              | 'resources'
               | 'person_properties'
               | 'cohorts_with_all'
               | 'data_warehouse_source_tables'
@@ -76083,7 +76185,6 @@ export interface DashboardsDashboardCreateTileResponseShape139 {
               | 'account_fields'
               | 'account_relationships'
               | 'account_custom_properties'
-              | 'resources'
               | 'error_tracking_properties'
               | 'activity_log_properties'
               | 'mcp_properties'
@@ -87093,6 +87194,7 @@ export interface DashboardsDashboardWidgetsBatchAddResponseShape140 {
               | 'feature_flags'
               | 'notebooks'
               | 'cohorts'
+              | 'resources'
               | 'person_properties'
               | 'cohorts_with_all'
               | 'data_warehouse_source_tables'
@@ -87129,7 +87231,6 @@ export interface DashboardsDashboardWidgetsBatchAddResponseShape140 {
               | 'account_fields'
               | 'account_relationships'
               | 'account_custom_properties'
-              | 'resources'
               | 'error_tracking_properties'
               | 'activity_log_properties'
               | 'mcp_properties'
@@ -89729,6 +89830,170 @@ export interface DataCatalogMetricListInput {
 
 export interface DataCatalogMetricListOutput {
     content: string
+}
+
+export interface DataManagementEventSchemaCreateInput {
+    event_definition: string
+    property_group_id: string
+}
+
+export interface DataManagementEventSchemaCreateResponseShape3 {
+    id: string
+    name: string
+    property_type: 'DateTime' | 'String' | 'Numeric' | 'Boolean' | 'Object' | 'Array'
+    is_required?: boolean
+    is_optional_in_types?: boolean
+    description?: string
+    created_at: string
+    updated_at: string
+}
+
+export interface DataManagementEventSchemaCreateResponseShape4 {
+    id: string
+    name: string
+}
+
+export interface DataManagementEventSchemaCreateResponseShape6 {
+    [key: string]: JsonValue | null
+}
+
+export interface DataManagementEventSchemaCreateResponseShape5 {
+    id: number
+    uuid: string
+    distinct_id?: null | string
+    first_name?: string
+    last_name?: string
+    email: string
+    is_email_verified?: null | false | true
+    hedgehog_config: null | DataManagementEventSchemaCreateResponseShape6
+    role_at_organization?:
+        | null
+        | string
+        | 'data'
+        | 'product'
+        | 'other'
+        | 'engineering'
+        | 'founder'
+        | 'leadership'
+        | 'marketing'
+        | 'sales'
+        | 'student'
+}
+
+export interface DataManagementEventSchemaCreateResponseShape2 {
+    id: string
+    name: string
+    description?: string
+    properties?: DataManagementEventSchemaCreateResponseShape3[]
+    events: DataManagementEventSchemaCreateResponseShape4[]
+    created_at: string
+    updated_at: string
+    created_by: DataManagementEventSchemaCreateResponseShape5
+}
+
+export interface DataManagementEventSchemaCreateOutput {
+    id: string
+    event_definition: string
+    property_group: DataManagementEventSchemaCreateResponseShape2
+    property_group_id: string
+    created_at: string
+    updated_at: string
+}
+
+/**
+ * * `DateTime` - DateTime
+ * * `String` - String
+ * * `Numeric` - Numeric
+ * * `Boolean` - Boolean
+ * * `Object` - Object
+ * * `Array` - Array
+ */
+export type DataManagementSchemaPropertyGroupCreateInputPropertiesItemPropertyType =
+    | 'DateTime'
+    | 'String'
+    | 'Numeric'
+    | 'Boolean'
+    | 'Object'
+    | 'Array'
+export interface DataManagementSchemaPropertyGroupCreateInputPropertiesItem {
+    id?: string
+    /** @maxLength 400 */
+    name: string
+    /** * `DateTime` - DateTime
+     * * `String` - String
+     * * `Numeric` - Numeric
+     * * `Boolean` - Boolean
+     * * `Object` - Object
+     * * `Array` - Array */
+    property_type: DataManagementSchemaPropertyGroupCreateInputPropertiesItemPropertyType
+    is_required?: boolean
+    is_optional_in_types?: boolean
+    description?: string
+    /** @pattern ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$ */
+    created_at?: string
+    /** @pattern ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$ */
+    updated_at?: string
+}
+
+export interface DataManagementSchemaPropertyGroupCreateInput {
+    /** @maxLength 400 */
+    name: string
+    description?: string
+    properties?: DataManagementSchemaPropertyGroupCreateInputPropertiesItem[]
+}
+
+export interface DataManagementSchemaPropertyGroupCreateResponseShape2 {
+    id: string
+    name: string
+    property_type: 'DateTime' | 'String' | 'Numeric' | 'Boolean' | 'Object' | 'Array'
+    is_required?: boolean
+    is_optional_in_types?: boolean
+    description?: string
+    created_at: string
+    updated_at: string
+}
+
+export interface DataManagementSchemaPropertyGroupCreateResponseShape3 {
+    id: string
+    name: string
+}
+
+export interface DataManagementSchemaPropertyGroupCreateResponseShape5 {
+    [key: string]: JsonValue | null
+}
+
+export interface DataManagementSchemaPropertyGroupCreateResponseShape4 {
+    id: number
+    uuid: string
+    distinct_id?: null | string
+    first_name?: string
+    last_name?: string
+    email: string
+    is_email_verified?: null | false | true
+    hedgehog_config: null | DataManagementSchemaPropertyGroupCreateResponseShape5
+    role_at_organization?:
+        | null
+        | string
+        | 'data'
+        | 'product'
+        | 'other'
+        | 'engineering'
+        | 'founder'
+        | 'leadership'
+        | 'marketing'
+        | 'sales'
+        | 'student'
+}
+
+export interface DataManagementSchemaPropertyGroupCreateOutput {
+    id: string
+    name: string
+    description?: string
+    properties?: DataManagementSchemaPropertyGroupCreateResponseShape2[]
+    events: DataManagementSchemaPropertyGroupCreateResponseShape3[]
+    created_at: string
+    updated_at: string
+    created_by: DataManagementSchemaPropertyGroupCreateResponseShape4
 }
 
 /**
@@ -105351,6 +105616,7 @@ export interface ErrorTrackingAlertsErrorTrackingAlertsPartialUpdateOutput {
 
 export type EventsEventDefinitionCreateRequestSchema2 = number | null
 
+export type EventsEventDefinitionCreateRequestSchema6 = 'allow' | 'reject'
 export interface EventsEventDefinitionCreateRequestSchema0 {
     /** Description explaining when the event is triggered */
     description?: ActionsActionCreateRequestSchema1
@@ -105362,6 +105628,8 @@ export interface EventsEventDefinitionCreateRequestSchema0 {
     verified?: AeoAeoPromptsCitationsListRequestSchema4
     /** Mark event as no longer used/captured. Hides it from UI while preserving historical data */
     hidden?: AeoAeoSetupStartRequestSchema5
+    /** What ingestion does with an event that does not match its property groups: "allow" keeps it, "reject" drops it. Defaults to "allow". "reject" is only available to organizations with schema enforcement enabled. */
+    enforcement_mode?: EventsEventDefinitionCreateRequestSchema6
 }
 
 export interface EventsEventDefinitionCreateInput {
@@ -105499,6 +105767,10 @@ export type EventsEventDefinitionUpdateRequestSchema6 = boolean
 export type EventsEventDefinitionUpdateRequestSchema8 = boolean
 
 /**
+ * What ingestion does with an event that does not match its property groups: "allow" keeps it, "reject" drops it. Defaults to "allow". "reject" is only available to organizations with schema enforcement enabled.
+ */
+export type EventsEventDefinitionUpdateRequestSchema10 = 'allow' | 'reject'
+/**
  * The event definition data to update
  */
 export interface EventsEventDefinitionUpdateInputData {
@@ -105507,6 +105779,7 @@ export interface EventsEventDefinitionUpdateInputData {
     tags?: EventsEventDefinitionUpdateRequestSchema4
     verified?: EventsEventDefinitionUpdateRequestSchema6
     hidden?: EventsEventDefinitionUpdateRequestSchema8
+    enforcement_mode?: EventsEventDefinitionUpdateRequestSchema10
 }
 
 export interface EventsEventDefinitionUpdateInput {
@@ -131902,6 +132175,7 @@ export interface InsightsInsightQueryResponseShape139 {
               | 'feature_flags'
               | 'notebooks'
               | 'cohorts'
+              | 'resources'
               | 'person_properties'
               | 'cohorts_with_all'
               | 'data_warehouse_source_tables'
@@ -131938,7 +132212,6 @@ export interface InsightsInsightQueryResponseShape139 {
               | 'account_fields'
               | 'account_relationships'
               | 'account_custom_properties'
-              | 'resources'
               | 'error_tracking_properties'
               | 'activity_log_properties'
               | 'mcp_properties'
@@ -174772,6 +175045,7 @@ export interface ProductAnalyticsInsightCreateResponseShape138 {
               | 'feature_flags'
               | 'notebooks'
               | 'cohorts'
+              | 'resources'
               | 'person_properties'
               | 'cohorts_with_all'
               | 'data_warehouse_source_tables'
@@ -174808,7 +175082,6 @@ export interface ProductAnalyticsInsightCreateResponseShape138 {
               | 'account_fields'
               | 'account_relationships'
               | 'account_custom_properties'
-              | 'resources'
               | 'error_tracking_properties'
               | 'activity_log_properties'
               | 'mcp_properties'
@@ -194107,6 +194380,7 @@ export interface SignalsInboxReportArtefactsListResponseShape2 {
         | 'note'
         | 'pull_request'
         | 'suggested_reviewers'
+        | 'commit'
         | 'code_review'
         | 'video_segment'
         | 'safety_judgment'
@@ -194119,7 +194393,6 @@ export interface SignalsInboxReportArtefactsListResponseShape2 {
         | 'channel_assignment'
         | 'dismissal'
         | 'code_reference'
-        | 'commit'
         | 'task_run'
         | 'scout_note_left'
         | 'title_change'
@@ -194197,6 +194470,7 @@ export interface SignalsInboxReportArtefactsRetrieveOutput {
         | 'note'
         | 'pull_request'
         | 'suggested_reviewers'
+        | 'commit'
         | 'code_review'
         | 'video_segment'
         | 'safety_judgment'
@@ -194209,7 +194483,6 @@ export interface SignalsInboxReportArtefactsRetrieveOutput {
         | 'channel_assignment'
         | 'dismissal'
         | 'code_reference'
-        | 'commit'
         | 'task_run'
         | 'scout_note_left'
         | 'title_change'
@@ -209308,6 +209581,704 @@ export interface SkillsSkillUpdateOutput {
     first_version_created_at: string
 }
 
+export interface StacksStackBindingLookupInput {
+    /**
+     * The id of the entity in PostHog. For a kind whose key is a name, such as an event name or a context page path, that name finds it too.
+     * @minLength 1
+     * @maxLength 512
+     */
+    entity_id: string
+    /**
+     * The definition kind of the entity. One of `flag`, `event`, `property_group`, `model`, `endpoint`, `metric`, `context_page`, `insight`, `dashboard`, `alert`, `destination`, `cohort`, `action`, `source`, `check`, `experiment` or `survey`.
+     * @minLength 1
+     * @maxLength 64
+     */
+    kind: string
+}
+
+export interface StacksStackBindingLookupResponseShape3 {
+    /** Path of the definition's file, relative to the repo root. */
+    file: string
+    /** Name of the export in that file. */
+    export?: string
+}
+
+export interface StacksStackBindingLookupResponseShape2 {
+    /** The binding id. Detach takes this id. */
+    id: string
+    /** The stack that manages the entity. */
+    stack_name: string
+    /** The repository the stack was last pushed from. Empty before a push. */
+    repository: string
+    /** The definition kind. */
+    kind: string
+    /** The definition key. */
+    key: string
+    /** The id of the entity in PostHog. */
+    entity_id: string
+    /** Where the entity opens in PostHog. Null for some kinds. */
+    entity_url: null | string
+    /** Where the definition lives in the repository. */
+    source: null | StacksStackBindingLookupResponseShape3
+    /** `bound` once a push made or adopted the entity, `pending` when adopt recorded it and no push ran yet, `detached` once released to the UI.
+     *
+     * * `pending` - Pending
+     * * `bound` - Bound
+     * * `detached` - Detached */
+    status: 'pending' | 'bound' | 'detached'
+    /** The fields code owns, as sorted dotted paths into the definition body, such as `name` or `filters.payloads`. A write to one of them is refused with `managed_in_code`. Empty when code owns none. */
+    owned_fields: string[]
+}
+
+export interface StacksStackBindingLookupOutput {
+    /** The binding that manages the entity. Null when no stack does. */
+    binding: null | StacksStackBindingLookupResponseShape2
+}
+
+export interface StacksStackBindingsListInput {
+    /** The stack name from `posthog.json`.
+     *
+     * @sourceDescription The stack name, as `posthog.json` sets it. */
+    name: string
+}
+
+export interface StacksStackBindingsListOutput {
+    count: number
+    next?: null | string
+    previous?: null | string
+    results: StacksStackBindingLookupResponseShape2[]
+    /** Canonical PostHog URL returned by the MCP handler. */
+    _posthogUrl: string
+}
+
+/**
+ * The description format version. Always 1.
+ * @minimum 1
+ * @maximum 1
+ */
+export type StacksStackDiffRequestSchema0 = number
+
+export interface StacksStackDiffRequestSchema5 {
+    /**
+     * Path of the definition's file, relative to the repo root.
+     * @maxLength 1000
+     */
+    file: string
+    /** Name of the export in that file that holds the definition. */
+    export?: ReplayVisionVisionAlertsCreateRequestSchema6
+}
+
+export interface StacksStackDiffRequestSchema7Item {
+    /**
+     * The definition kind, such as `model` or `flag`.
+     * @maxLength 64
+     */
+    kind: string
+    /**
+     * The definition's key in the same stack.
+     * @maxLength 512
+     */
+    key: string
+}
+
+export type StacksStackDiffRequestSchema7 = StacksStackDiffRequestSchema7Item[]
+
+/**
+ * The definition, shaped like the API's create body for the kind. A reference to another definition in the stack is `{"$ref": {"kind", "key", "attr"}}`, and a secret is `{"$secret": "NAME"}`.
+ */
+export interface StacksStackDiffRequestSchema2Body {
+    [key: string]: JsonValue | null
+}
+
+export interface StacksStackDiffRequestSchema2 {
+    /**
+     * The definition kind, such as `insight`, `dashboard`, `flag` or `event`.
+     * @maxLength 64
+     */
+    kind: string
+    /**
+     * The identity the author chose, unique within the kind. For a kind with a natural key, such as a flag key or an event name, it is that natural key.
+     * @maxLength 512
+     */
+    key: string
+    /** The definition, shaped like the API's create body for the kind. A reference to another definition in the stack is `{"$ref": {"kind", "key", "attr"}}`, and a secret is `{"$secret": "NAME"}`. */
+    body: StacksStackDiffRequestSchema2Body
+    /** Where the definition lives in the repository, for messages and provenance. */
+    source?: StacksStackDiffRequestSchema5
+    /** Definitions in the same stack that must exist before this one is created, because the body names them by a string rather than a reference, such as a model that another model's SQL reads. */
+    depends_on?: StacksStackDiffRequestSchema7
+}
+
+/**
+ * Every definition the stack manages, sorted by kind and then key.
+ */
+export type StacksStackDiffRequestSchema1 = StacksStackDiffRequestSchema2[]
+
+/**
+ * The repository the description was built from, such as `org/repo`.
+ * @maxLength 500
+ */
+export type StacksStackDiffRequestSchema8 = string
+
+/**
+ * The branch the description was built from.
+ * @maxLength 500
+ */
+export type StacksStackDiffRequestSchema9 = string
+
+/**
+ * The commit the description was built from.
+ * @maxLength 100
+ */
+export type StacksStackDiffRequestSchema10 = string
+
+/**
+ * The stack description that `hog check` writes.
+ */
+export interface StacksStackDiffInputDescription {
+    version: StacksStackDiffRequestSchema0
+    resources: StacksStackDiffRequestSchema1
+}
+
+/**
+ * The repository, branch and commit the description came from.
+ */
+export interface StacksStackDiffInputSource {
+    repository: StacksStackDiffRequestSchema8
+    branch: StacksStackDiffRequestSchema9
+    commit: StacksStackDiffRequestSchema10
+}
+
+export interface StacksStackDiffInput {
+    /** The stack name from `posthog.json`, such as `web-app`.
+     *
+     * @sourceDescription The stack name, as `posthog.json` sets it. */
+    name: string
+    /** The stack description that `hog check` writes. */
+    description: StacksStackDiffInputDescription
+    /** The repository, branch and commit the description came from. */
+    source: StacksStackDiffInputSource
+}
+
+/**
+ * The number of changes by action.
+ */
+export interface StacksStackDiffResponseDiffResultSummary {
+    /** Entities a push creates. */
+    create: number
+    /** Entities a push changes in place. */
+    update: number
+    /** Entities a push deletes and creates again. */
+    recreate: number
+    /** Entities a push removes. */
+    remove: number
+    /** Existing entities a push binds to the stack. */
+    adopt: number
+    /** Definitions whose key changes with nothing recreated. */
+    rename: number
+    /** Entities the stack stops managing and leaves in PostHog: removed definitions of adopted entities, detached entities, and kinds code never deletes. */
+    release?: number
+}
+
+/**
+ * What a push does to this definition.
+ *
+ * * `create` - Create
+ * * `update` - Update
+ * * `recreate` - Recreate
+ * * `remove` - Remove
+ * * `adopt` - Adopt
+ * * `rename` - Rename
+ * * `release` - Release
+ */
+export type StacksStackDiffResponseStackChangeAction =
+    | 'create'
+    | 'update'
+    | 'recreate'
+    | 'remove'
+    | 'adopt'
+    | 'rename'
+    | 'release'
+export interface StacksStackDiffResponseStackFieldChange {
+    /** The field that changes, as a dotted path into the definition body. */
+    path: string
+    /** The value now in PostHog. Null when the field is sensitive. */
+    before: JsonValue | null
+    /** The value a push sets. Null when the field is sensitive. */
+    after: JsonValue | null
+    /** True when the value is secret, so neither value is shown. */
+    sensitive: boolean
+}
+
+export interface StacksStackDiffResponseDefinitionSourceRef {
+    /** Path of the definition's file, relative to the repo root. */
+    file: string
+    /** Name of the export in that file. */
+    export?: string
+}
+
+export interface StacksStackDiffResponseStackChange {
+    /** What a push does to this definition.
+     *
+     * * `create` - Create
+     * * `update` - Update
+     * * `recreate` - Recreate
+     * * `remove` - Remove
+     * * `adopt` - Adopt
+     * * `rename` - Rename
+     * * `release` - Release */
+    action: StacksStackDiffResponseStackChangeAction
+    /** The definition kind. */
+    kind: string
+    /** The definition key. */
+    key: string
+    /** The entity's display name. */
+    name: string
+    /** One line on what changes, such as `query changed`. */
+    summary: string
+    /** Each field that changes. */
+    fields: StacksStackDiffResponseStackFieldChange[]
+    /** Where the definition lives in the repository. */
+    source: StacksStackDiffResponseDefinitionSourceRef | null
+    /** For a recreate, what a person loses, such as history or links. Null otherwise. */
+    loses: string | null
+    /** For an adopt, the id of the existing entity the push binds. */
+    entity_id?: string
+}
+
+export interface StacksStackDiffResponseDriftField {
+    /** The field that changed outside the code. */
+    path: string
+    /** The value the last push set. */
+    pushed: JsonValue | null
+    /** The value PostHog holds now. */
+    found: JsonValue | null
+    /** True when the value is secret. */
+    sensitive?: boolean
+}
+
+export interface StacksStackDiffResponseDrift {
+    /** The definition kind. */
+    kind: string
+    /** The definition key. */
+    key: string
+    /** True when the entity was deleted in PostHog outside of code. A push creates it again. */
+    deleted?: boolean
+    /** Each field that changed outside the code. */
+    fields: StacksStackDiffResponseDriftField[]
+}
+
+export interface StacksStackDiffResponseDiffError {
+    /** A stable code for the error, such as `reference_missing` or `stack_moved`. */
+    code: string
+    /** What went wrong and what to do next. */
+    message: string
+    /** The kind of the definition the error is about. */
+    kind?: string
+    /** The key of the definition the error is about. */
+    key?: string
+    /** The field of the definition the error is about. */
+    path?: string
+}
+
+/**
+ * `possible_unrecorded_create`: an interrupted push may already have created this definition, and `entities` lists the candidates. `unrecorded_creates_unchecked`: PostHog could not read every entity of the kind, so check in PostHog by hand.
+ *
+ * * `possible_unrecorded_create` - possible_unrecorded_create
+ * * `unrecorded_creates_unchecked` - unrecorded_creates_unchecked
+ */
+export type StacksStackDiffResponseDiffWarningCode = 'possible_unrecorded_create' | 'unrecorded_creates_unchecked'
+export interface StacksStackDiffResponseWarningEntity {
+    /** The id of the entity in PostHog. Adopt takes this id. */
+    entity_id: string
+    /** The entity's display name. */
+    name: string
+}
+
+export interface StacksStackDiffResponseDiffWarning {
+    /** `possible_unrecorded_create`: an interrupted push may already have created this definition, and `entities` lists the candidates. `unrecorded_creates_unchecked`: PostHog could not read every entity of the kind, so check in PostHog by hand.
+     *
+     * * `possible_unrecorded_create` - possible_unrecorded_create
+     * * `unrecorded_creates_unchecked` - unrecorded_creates_unchecked */
+    code: StacksStackDiffResponseDiffWarningCode
+    /** The definition kind. */
+    kind: string
+    /** The definition key. Null for a whole kind. */
+    key: string | null
+    /** What to check and what to do next. */
+    message: string
+    /** Entities with the definition's name that no stack manages. Adopt one, or reconcile. */
+    entities: StacksStackDiffResponseWarningEntity[]
+}
+
+export interface StacksStackDiffResponseDiffResult {
+    /** What a push would create, change, recreate, remove, adopt or rename. */
+    changes: StacksStackDiffResponseStackChange[]
+    /** Entities changed outside the code since the last push. */
+    drift: StacksStackDiffResponseDrift[]
+    /** The number of changes by action. */
+    summary: StacksStackDiffResponseDiffResultSummary
+    /** Why the diff could not be computed. Empty for a ready diff. */
+    errors: StacksStackDiffResponseDiffError[]
+    /** Only after a push that stopped without a known outcome: entities it may have created without recording them. Adopt them, or reconcile to let this diff create them. */
+    warnings?: StacksStackDiffResponseDiffWarning[]
+}
+
+/**
+ * * `running` - Running
+ * * `succeeded` - Succeeded
+ * * `failed` - Failed
+ * * `uncertain` - Uncertain
+ */
+export type StacksStackDiffResponsePushStatusEnum = 'running' | 'succeeded' | 'failed' | 'uncertain'
+/**
+ * `running` while the diff or its push runs, `ready` to push, `failed` when the diff or its last push failed, `pushed` once pushed, `stale` when the stack changed since the diff was made.
+ *
+ * * `running` - Running
+ * * `ready` - Ready
+ * * `failed` - Failed
+ * * `pushed` - Pushed
+ * * `stale` - Stale
+ */
+export type StacksStackDiffOutputStatus = 'running' | 'ready' | 'failed' | 'pushed' | 'stale'
+/**
+ * The repository, branch and commit the description came from.
+ */
+export interface StacksStackDiffOutputSource {
+    /**
+     * The repository the description was built from, such as `org/repo`.
+     * @maxLength 500
+     */
+    repository: string
+    /**
+     * The branch the description was built from.
+     * @maxLength 500
+     */
+    branch: string
+    /**
+     * The commit the description was built from.
+     * @maxLength 100
+     */
+    commit: string
+}
+
+export interface StacksStackDiffOutput {
+    /** The diff id. Pushing this id changes PostHog by exactly this diff. */
+    id: string
+    /** The stack the diff belongs to. */
+    stack_name: string
+    /** `running` while the diff or its push runs, `ready` to push, `failed` when the diff or its last push failed, `pushed` once pushed, `stale` when the stack changed since the diff was made.
+     *
+     * * `running` - Running
+     * * `ready` - Ready
+     * * `failed` - Failed
+     * * `pushed` - Pushed
+     * * `stale` - Stale */
+    status: StacksStackDiffOutputStatus
+    /** The diff. Null while it is running. */
+    diff: StacksStackDiffResponseDiffResult | null
+    /** The repository, branch and commit the description came from. */
+    source: StacksStackDiffOutputSource
+    /** When the diff was requested. */
+    created_at: string
+    /** After this time the diff can no longer be pushed. */
+    expires_at: string
+    /** The last push of this diff. Null when never pushed.
+     *
+     * * `running` - Running
+     * * `succeeded` - Succeeded
+     * * `failed` - Failed
+     * * `uncertain` - Uncertain */
+    push_status: StacksStackDiffResponsePushStatusEnum | DataWarehouseViewGetResponseNullEnum
+    /** Why the last push failed. Empty otherwise. */
+    push_errors: StacksStackDiffResponseDiffError[]
+}
+
+export interface StacksStackDiffGetInput {
+    /** The `id` that `stack-diff` returned.
+     *
+     * @sourceDescription The id of a saved diff of this stack. */
+    diff_id: string
+    /** The stack name the diff belongs to.
+     *
+     * @sourceDescription The stack name, as `posthog.json` sets it. */
+    name: string
+}
+
+export interface StacksStackDiffGetResponseShape4 {
+    /** The field that changes, as a dotted path into the definition body. */
+    path: string
+    /** The value now in PostHog. Null when the field is sensitive. */
+    before: JsonValue | null
+    /** The value a push sets. Null when the field is sensitive. */
+    after: JsonValue | null
+    /** True when the value is secret, so neither value is shown. */
+    sensitive: boolean
+}
+
+export interface StacksStackDiffGetResponseShape5 {
+    /** Path of the definition's file, relative to the repo root. */
+    file: string
+    /** Name of the export in that file. */
+    export?: string
+}
+
+export interface StacksStackDiffGetResponseShape3 {
+    /** What a push does to this definition.
+     *
+     * * `create` - Create
+     * * `update` - Update
+     * * `recreate` - Recreate
+     * * `remove` - Remove
+     * * `adopt` - Adopt
+     * * `rename` - Rename
+     * * `release` - Release */
+    action: 'remove' | 'release' | 'rename' | 'create' | 'update' | 'recreate' | 'adopt'
+    /** The definition kind. */
+    kind: string
+    /** The definition key. */
+    key: string
+    /** The entity's display name. */
+    name: string
+    /** One line on what changes, such as `query changed`. */
+    summary: string
+    /** Each field that changes. */
+    fields: StacksStackDiffGetResponseShape4[]
+    /** Where the definition lives in the repository. */
+    source: null | StacksStackDiffGetResponseShape5
+    /** For a recreate, what a person loses, such as history or links. Null otherwise. */
+    loses: null | string
+    /** For an adopt, the id of the existing entity the push binds. */
+    entity_id?: string
+}
+
+export interface StacksStackDiffGetResponseShape7 {
+    /** The field that changed outside the code. */
+    path: string
+    /** The value the last push set. */
+    pushed: JsonValue | null
+    /** The value PostHog holds now. */
+    found: JsonValue | null
+    /** True when the value is secret. */
+    sensitive?: boolean
+}
+
+export interface StacksStackDiffGetResponseShape6 {
+    /** The definition kind. */
+    kind: string
+    /** The definition key. */
+    key: string
+    /** True when the entity was deleted in PostHog outside of code. A push creates it again. */
+    deleted?: boolean
+    /** Each field that changed outside the code. */
+    fields: StacksStackDiffGetResponseShape7[]
+}
+
+export interface StacksStackDiffGetResponseShape8 {
+    /** Entities a push creates. */
+    create: number
+    /** Entities a push changes in place. */
+    update: number
+    /** Entities a push deletes and creates again. */
+    recreate: number
+    /** Entities a push removes. */
+    remove: number
+    /** Existing entities a push binds to the stack. */
+    adopt: number
+    /** Definitions whose key changes with nothing recreated. */
+    rename: number
+    /** Entities the stack stops managing and leaves in PostHog: removed definitions of adopted entities, detached entities, and kinds code never deletes. */
+    release?: number
+}
+
+export interface StacksStackDiffGetResponseShape9 {
+    /** A stable code for the error, such as `reference_missing` or `stack_moved`. */
+    code: string
+    /** What went wrong and what to do next. */
+    message: string
+    /** The kind of the definition the error is about. */
+    kind?: string
+    /** The key of the definition the error is about. */
+    key?: string
+    /** The field of the definition the error is about. */
+    path?: string
+}
+
+export interface StacksStackDiffGetResponseShape11 {
+    /** The id of the entity in PostHog. Adopt takes this id. */
+    entity_id: string
+    /** The entity's display name. */
+    name: string
+}
+
+export interface StacksStackDiffGetResponseShape10 {
+    /** `possible_unrecorded_create`: an interrupted push may already have created this definition, and `entities` lists the candidates. `unrecorded_creates_unchecked`: PostHog could not read every entity of the kind, so check in PostHog by hand.
+     *
+     * * `possible_unrecorded_create` - possible_unrecorded_create
+     * * `unrecorded_creates_unchecked` - unrecorded_creates_unchecked */
+    code: 'possible_unrecorded_create' | 'unrecorded_creates_unchecked'
+    /** The definition kind. */
+    kind: string
+    /** The definition key. Null for a whole kind. */
+    key: null | string
+    /** What to check and what to do next. */
+    message: string
+    /** Entities with the definition's name that no stack manages. Adopt one, or reconcile. */
+    entities: StacksStackDiffGetResponseShape11[]
+}
+
+export interface StacksStackDiffGetResponseShape2 {
+    /** What a push would create, change, recreate, remove, adopt or rename. */
+    changes: StacksStackDiffGetResponseShape3[]
+    /** Entities changed outside the code since the last push. */
+    drift: StacksStackDiffGetResponseShape6[]
+    /** The number of changes by action. */
+    summary: StacksStackDiffGetResponseShape8
+    /** Why the diff could not be computed. Empty for a ready diff. */
+    errors: StacksStackDiffGetResponseShape9[]
+    /** Only after a push that stopped without a known outcome: entities it may have created without recording them. Adopt them, or reconcile to let this diff create them. */
+    warnings?: StacksStackDiffGetResponseShape10[]
+}
+
+export interface StacksStackDiffGetResponseShape12 {
+    /** The repository the description was built from, such as `org/repo`. */
+    repository: string
+    /** The branch the description was built from. */
+    branch: string
+    /** The commit the description was built from. */
+    commit: string
+}
+
+export interface StacksStackDiffGetOutput {
+    /** The diff id. Pushing this id changes PostHog by exactly this diff. */
+    id: string
+    /** The stack the diff belongs to. */
+    stack_name: string
+    /** `running` while the diff or its push runs, `ready` to push, `failed` when the diff or its last push failed, `pushed` once pushed, `stale` when the stack changed since the diff was made.
+     *
+     * * `running` - Running
+     * * `ready` - Ready
+     * * `failed` - Failed
+     * * `pushed` - Pushed
+     * * `stale` - Stale */
+    status: 'failed' | 'running' | 'ready' | 'stale' | 'pushed'
+    /** The diff. Null while it is running. */
+    diff: null | StacksStackDiffGetResponseShape2
+    /** The repository, branch and commit the description came from. */
+    source: StacksStackDiffGetResponseShape12
+    /** When the diff was requested. */
+    created_at: string
+    /** After this time the diff can no longer be pushed. */
+    expires_at: string
+    /** The last push of this diff. Null when never pushed.
+     *
+     * * `running` - Running
+     * * `succeeded` - Succeeded
+     * * `failed` - Failed
+     * * `uncertain` - Uncertain */
+    push_status: null | 'failed' | 'running' | 'succeeded' | 'uncertain'
+    /** Why the last push failed. Empty otherwise. */
+    push_errors: StacksStackDiffGetResponseShape9[]
+}
+
+export interface StacksStackManagedKindsListInput {
+    [key: string]: JsonValue | null
+}
+
+export interface StacksStackManagedKindsListResponseShape2 {
+    /** A definition kind some stack in this project manages, such as `flag`. */
+    kind: string
+    /** The stack that manages entities of this kind. */
+    stack_name: string
+    /** The repository the stack was last pushed from. Edit the code there. */
+    repository: string
+    /** How many entities of this kind the stack manages. */
+    definitions: number
+    /** True when this kind's entities are definitions named by a natural key, such as an event or a flag. Do not create one of these outside code: add its definition in the repository instead. */
+    redirect_creates: boolean
+}
+
+export interface StacksStackManagedKindsListOutput {
+    /** One row per kind and stack. Before creating an entity of a listed kind, add it in code. */
+    results: StacksStackManagedKindsListResponseShape2[]
+}
+
+export interface StacksStackPushInput {
+    /** The `id` of a ready diff from `stack-diff`.
+     *
+     * @sourceDescription The id of a saved diff of this stack. */
+    diff_id: string
+    /** The stack name the diff belongs to.
+     *
+     * @sourceDescription The stack name, as `posthog.json` sets it. */
+    name: string
+    /** The most entities this push may remove or recreate. Defaults to the stack's own cap. Set it to confirm a push that removes more. */
+    max_removals?: FeatureFlagsDisableRequestSchema0 | null
+}
+
+/**
+ * `running` while the diff or its push runs, `ready` to push, `failed` when the diff or its last push failed, `pushed` once pushed, `stale` when the stack changed since the diff was made.
+ *
+ * * `running` - Running
+ * * `ready` - Ready
+ * * `failed` - Failed
+ * * `pushed` - Pushed
+ * * `stale` - Stale
+ */
+export type StacksStackPushOutputStatus = 'running' | 'ready' | 'failed' | 'pushed' | 'stale'
+/**
+ * The repository, branch and commit the description came from.
+ */
+export interface StacksStackPushOutputSource {
+    /**
+     * The repository the description was built from, such as `org/repo`.
+     * @maxLength 500
+     */
+    repository: string
+    /**
+     * The branch the description was built from.
+     * @maxLength 500
+     */
+    branch: string
+    /**
+     * The commit the description was built from.
+     * @maxLength 100
+     */
+    commit: string
+}
+
+export interface StacksStackPushOutput {
+    /** The diff id. Pushing this id changes PostHog by exactly this diff. */
+    id: string
+    /** The stack the diff belongs to. */
+    stack_name: string
+    /** `running` while the diff or its push runs, `ready` to push, `failed` when the diff or its last push failed, `pushed` once pushed, `stale` when the stack changed since the diff was made.
+     *
+     * * `running` - Running
+     * * `ready` - Ready
+     * * `failed` - Failed
+     * * `pushed` - Pushed
+     * * `stale` - Stale */
+    status: StacksStackPushOutputStatus
+    /** The diff. Null while it is running. */
+    diff: StacksStackDiffResponseDiffResult | null
+    /** The repository, branch and commit the description came from. */
+    source: StacksStackPushOutputSource
+    /** When the diff was requested. */
+    created_at: string
+    /** After this time the diff can no longer be pushed. */
+    expires_at: string
+    /** The last push of this diff. Null when never pushed.
+     *
+     * * `running` - Running
+     * * `succeeded` - Succeeded
+     * * `failed` - Failed
+     * * `uncertain` - Uncertain */
+    push_status: StacksStackDiffResponsePushStatusEnum | DataWarehouseViewGetResponseNullEnum
+    /** Why the last push failed. Empty otherwise. */
+    push_errors: StacksStackDiffResponseDiffError[]
+}
+
 export interface StamphogCodeReviewApprovalsDigestsListInput {
     /** Number of results to return per page. */
     limit?: AiObservabilityLlmaClusteringJobListRequestSchema0
@@ -216559,6 +217530,7 @@ export type TasksTasksListRequestSchema8 =
     | 'knowledge_writer'
     | 'context_layer'
     | 'feature_flags'
+    | 'stacks'
 export type TasksTasksListRequestSchema10 = 'true' | 'false' | 'all'
 /**
  * @minimum 1
@@ -216613,6 +217585,7 @@ export type TasksTasksListRequestSchema19 = string
  * * `signals_scout` - signals_scout
  * * `slack` - slack
  * * `space_setup` - space_setup
+ * * `stacks` - stacks
  * * `support_queue` - support_queue
  * * `support_reply` - support_reply
  * * `task_analysis` - task_analysis
@@ -216643,6 +217616,7 @@ export type TasksTasksListRequestSchema21Item =
     | 'signals_scout'
     | 'slack'
     | 'space_setup'
+    | 'stacks'
     | 'support_queue'
     | 'support_reply'
     | 'task_analysis'
@@ -216722,7 +217696,8 @@ export interface TasksTasksListInput {
      * * `metrics_import` - Metrics Import
      * * `knowledge_writer` - Knowledge Writer
      * * `context_layer` - Context Layer
-     * * `feature_flags` - Feature Flags */
+     * * `feature_flags` - Feature Flags
+     * * `stacks` - Stacks */
     exclude_origin_product?: TasksTasksListRequestSchema8
     /** Filter tasks to the runs spawned by this workflow's 'Create AI task' action. */
     hog_flow_id?: AiObservabilityQueryLlmTracesListRequestSchema9

@@ -107,6 +107,7 @@ from posthog.models.quick_filter import QuickFilter
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.permissions import managed_write_refusals
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.session_recordings.session_recording_api import get_replay_listing_throttle_error
@@ -3344,6 +3345,16 @@ class DashboardsViewSet(
                 self.check_object_permissions(request, dashboard)
             except exceptions.PermissionDenied:
                 skipped.append({"id": dashboard_id, "reason": "You do not have permission to edit this dashboard"})
+                continue
+            if refusal := managed_write_refusals(
+                request,
+                team_id=dashboard.team_id,
+                model_label="dashboards.Dashboard",
+                object_ids=[dashboard.id],
+                is_delete=True,
+                action="bulk_delete",
+            ).get(str(dashboard.id)):
+                skipped.append({"id": dashboard_id, "reason": refusal.detail})
                 continue
             with transaction.atomic():
                 serializer = self.get_serializer(

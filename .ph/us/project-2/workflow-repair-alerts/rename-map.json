@@ -1,0 +1,6 @@
+{
+    "posthog_hog_function.spine_repair_required": {
+        "kind": "destination",
+        "key": "spine_repair_required"
+    }
+}

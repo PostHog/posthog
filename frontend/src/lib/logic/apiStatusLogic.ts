@@ -7,6 +7,7 @@ import { ACCESS_BLOCKED_ERROR_CODE, PROJECT_ACCESS_DENIED_DETAIL } from 'lib/api
 import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { isOAuthMode } from 'lib/utils/oauthClient'
+import { retryImport } from 'lib/utils/retryImport'
 import { twoFactorLogic } from 'scenes/authentication/two-factor-setup/twoFactorLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -100,6 +101,8 @@ async function confirmCurrentProjectAccessDenied(): Promise<void> {
         }
     }
 }
+
+const MANAGED_IN_CODE_ERROR_CODE = 'managed_in_code'
 
 type SensitiveActionCallbacks = [onSuccess: () => void, onFailure: () => void]
 
@@ -276,6 +279,18 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                                 : 'This action is not allowed during read-only user impersonation.',
                             { hideButton: true }
                         )
+                    }
+                }
+                if (response?.status === 409) {
+                    const responseData = await response.json()
+                    // The API refuses a write to a field that code owns the same way for every kind, so one handler
+                    // names the file to edit wherever the write came from. Loaders do not toast a 409, so without
+                    // this a refused write shows no message at all.
+                    if (responseData?.code === MANAGED_IN_CODE_ERROR_CODE) {
+                        const { showManagedInCodeRefusal } = await retryImport(
+                            () => import('products/stacks/frontend/showManagedInCodeRefusal')
+                        )
+                        showManagedInCodeRefusal(responseData.extra ?? {}, responseData.detail)
                     }
                 }
             } catch {

@@ -131,6 +131,19 @@ describe('hog', () => {
             arguments: [{ name: 'query', required: false, stdin: true }],
             scopes: ['query:read'],
         })
+        expect(manifest.aliases).toMatchObject({
+            init: 'stack init',
+            check: 'stack check',
+            diff: 'stack diff',
+            push: 'stack push',
+            pull: 'stack pull',
+        })
+        expect(manifest.commands.find((command) => command.name === 'stack pull')).toMatchObject({
+            scopes: ['stack:read'],
+            options: expect.arrayContaining([
+                expect.objectContaining({ flags: '--adopt <kind>', scopes: ['stack:write'] }),
+            ]),
+        })
         expect(
             manifest.commands.filter((command) => command.refusesCI === true).map((command) => command.name)
         ).toEqual(['setup', 'auth migrate', 'ci setup'])
@@ -172,6 +185,19 @@ describe('hog', () => {
             'endpoints push',
             'endpoints pull',
             'endpoints diff',
+            'stack check',
+            'stack diff',
+            'stack push',
+            'stack pull',
+            'stack init',
+            'stack generate',
+            'stack adopt',
+            'stack reconcile',
+            'stack secret set',
+            'stack secret list',
+            'stack secret remove',
+            'stack context-pages enable',
+            'stack context-pages disable',
             'schema pull',
             'schema status',
             'config check',

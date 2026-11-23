@@ -823,6 +823,12 @@ export const EventDefinitionUpdateInputSchema = z.object({
         .boolean()
         .optional()
         .describe('Mark event as no longer used/captured. Hides it from UI while preserving historical data'),
+    enforcement_mode: z
+        .enum(['allow', 'reject'])
+        .optional()
+        .describe(
+            'What ingestion does with an event that does not match its property groups: "allow" keeps it, "reject" drops it. Defaults to "allow". "reject" is only available to organizations with schema enforcement enabled.'
+        ),
 })
 
 export const EventDefinitionUpdateSchema = z.object({

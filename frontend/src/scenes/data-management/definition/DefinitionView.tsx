@@ -54,6 +54,8 @@ import {
     PropertyDefinitionVerificationStatus,
 } from '~/types'
 
+import { ManagedInCodeBanner } from 'products/stacks/frontend/ManagedInCodeBanner'
+
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/DefinitionHeader'
 import { DefinitionUsageSection } from './usage/DefinitionUsageSection'
 import { PropertyDefinitionUsage } from './usage/PropertyDefinitionUsage'
@@ -366,6 +368,10 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                           }
                 }
             />
+
+            {isEvent && definition.id !== 'new' && (
+                <ManagedInCodeBanner kind="event" entityId={definition.id} naturalId={definition.name} />
+            )}
 
             {'scheduled_deletion_at' in definition && definition.scheduled_deletion_at && (
                 <LemonBanner type="warning">

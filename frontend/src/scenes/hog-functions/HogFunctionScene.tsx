@@ -48,6 +48,8 @@ import {
     HogFunctionTypeType,
 } from '~/types'
 
+import { managedEntityLogic } from 'products/stacks/frontend/managedEntityLogic'
+
 import type { HogFunctionConfigurationType } from '../../types'
 import { HogFunctionBackfills } from './backfills/HogFunctionBackfills'
 import {
@@ -431,6 +433,9 @@ function HogFunctionHeader(): JSX.Element {
     const { configuration, logicProps, loading, isLegacyPlugin } = useValues(hogFunctionConfigurationLogic)
     const { setConfigurationValue, duplicate, deleteHogFunction } = useActions(hogFunctionConfigurationLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const { ownedFieldDisabledReason } = useValues(
+        managedEntityLogic({ kind: 'destination', entityId: logicProps.templateId ? null : logicProps.id })
+    )
 
     return (
         <>
@@ -453,7 +458,7 @@ function HogFunctionHeader(): JSX.Element {
                 isLoading={loading}
                 onNameChange={(value) => setConfigurationValue('name', value)}
                 onDescriptionChange={(value) => setConfigurationValue('description', value)}
-                canEdit
+                canEdit={!ownedFieldDisabledReason('name') && !ownedFieldDisabledReason('description')}
                 actions={
                     todayRailNav ? (
                         <QuillHogFunctionSceneActions />

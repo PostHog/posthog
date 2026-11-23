@@ -10,6 +10,8 @@ import type {
     SkillsLibraryOptions,
 } from '@posthog/mcp/src/cli/library-types'
 
+import type { StackDefinitions } from '@/stack/definitions'
+import type { Evaluation } from '@/stack/evaluation'
 import { BUILD_DATE, VERSION } from '@/version'
 
 import { HogError } from './errors'
@@ -18,6 +20,8 @@ import { DEFAULT_TELEMETRY_TOKEN } from './telemetry'
 import { TELEMETRY_WORKER_ARG } from './telemetry-worker'
 
 export type Env = Readonly<Record<string, string | undefined>>
+
+export const STACK_WORKER_ARG = 'stack-check-worker'
 
 // `timeoutMs` starts when the request leaves, so time spent waiting for --rate-limit doesn't count.
 // `skipRateLimit` marks a signed storage URL, which posthog-cli's --rate-limit doesn't count either.
@@ -50,6 +54,9 @@ export interface Runtime {
     execPath: string
     isMusl: () => Promise<boolean>
     runCommand: (argv: string[]) => Promise<number>
+    readCommand: (argv: string[], cwd: string) => Promise<{ exitCode: number; stdout: string; stderr: string }>
+    evaluateStack: (folder: string, root: string) => Promise<Evaluation>
+    stackDefinitions: () => Promise<StackDefinitions>
     // Windows can't replace a running exe, so it renames the old one to hog.old.exe, which the next run deletes.
     replaceExecutable: (path: string, contents: Uint8Array) => Promise<void>
     stdinIsTTY: boolean
@@ -273,6 +280,20 @@ export function processRuntime(): Runtime {
             const child = Bun.spawn(argv, { cwd: homedir(), stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' })
             return child.exited
         },
+        readCommand: async (argv, cwd) => {
+            const child = Bun.spawn(argv, { cwd, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' })
+            const [exitCode, stdout, stderr] = await Promise.all([
+                child.exited,
+                new Response(child.stdout).text(),
+                new Response(child.stderr).text(),
+            ])
+            return { exitCode, stdout, stderr }
+        },
+        evaluateStack: async (folder, root) => {
+            const { evaluateInChild } = await import('@/stack/child')
+            return evaluateInChild(folder, root, FROM_SOURCE)
+        },
+        stackDefinitions: async () => (await import('@/stack/definitions')).loadDefinitions(FROM_SOURCE),
         replaceExecutable,
         stdinIsTTY: process.stdin.isTTY === true,
         stdoutIsTTY: process.stdout.isTTY === true,

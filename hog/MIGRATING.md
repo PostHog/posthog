@@ -239,6 +239,8 @@ Each error also names the `hog feedback` command to report it, as a last line fo
 
 ## Exit codes
 
+The stack commands for PostHog definitions in code live in hog. Run `hog init`, `hog check`, `hog diff`, `hog push` and `hog pull` there.
+
 posthog-cli exits with 1 for every failure, and with 0 when a check such as `exp endpoints diff` finds a problem.
 hog gives each outcome its own code, so a script can tell them apart without reading stderr:
 
@@ -250,8 +252,9 @@ hog gives each outcome its own code, so a script can tell them apart without rea
 | A usage error                                                                                              | 2           | 2   |
 | A person has to act: log in, approve in the browser, add a scope, or answer a question                     | 1           | 3   |
 | The work started and is still running. The output names the `--wait` command that resumes it               | Not used    | 4   |
+| The stack diff found changes                                                                               | Not used    | 5   |
 
-`--no-fail` turns every failure into 0 in both CLIs. In hog that covers 1, 3 and 4. A usage error keeps code 2 in both.
+`--no-fail` turns every failure into 0 in both CLIs. In hog it covers 1, 3, 4 and 5. A usage error keeps code 2 in both.
 A pipeline that reads exit code 1 as "not logged in" reads 3 with hog.
 
 ## posthog.json

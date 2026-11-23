@@ -1,0 +1,52 @@
+{
+    "kind": "flag",
+    "scopes": {
+        "read": ["feature_flag"],
+        "write": ["feature_flag"]
+    },
+    "key_sources": [
+        "products/feature_flags/backend/api/feature_flag.py",
+        "products/feature_flags/backend/models/feature_flag.py"
+    ],
+    "key_pattern": "^[A-Za-z0-9_-]+$",
+    "key_max_length": 400,
+    "read_api": { "collection": "feature_flags" },
+    "resource_type": "posthog_feature_flag",
+    "id_type": "number",
+    "api_schema": {
+        "product": "feature_flags",
+        "name": "FeatureFlagsCreateBody"
+    },
+    "fields": {
+        "key": "key",
+        "name": "name",
+        "ensure_experience_continuity": "ensure_experience_continuity",
+        "tags": "tags",
+        "filters": "filters"
+    },
+    "json_fields": ["filters"],
+    "owned_filter_keys": ["multivariate", "payloads"],
+    "set_fields": ["tags"],
+    "unmanaged": {
+        "active": "active",
+        "archived": null
+    },
+    "gaps": {
+        "is_remote_configuration": "This version cannot configure a remote configuration flag.",
+        "evaluation_contexts": "This version cannot configure evaluation contexts.",
+        "evaluation_runtime": "This version cannot choose the evaluation runtime.",
+        "bucketing_identifier": "This version cannot choose a bucketing identifier."
+    },
+    "removal": "allow",
+    "natural_key": {
+        "field": "key",
+        "lookup": "feature_flags"
+    },
+    "import_id": "{entity_id}",
+    "hook": null,
+    "loses": "Links and change history belong to the original flag.",
+    "defaults": {
+        "active": false
+    },
+    "ignore_attributes": ["rollout_percentage"]
+}

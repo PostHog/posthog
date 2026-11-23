@@ -39,6 +39,7 @@ import { CohortTypeEnum, FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDisabledArea } from 'lib/lemon-ui/LemonDisabledArea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -81,6 +82,8 @@ import { CohortRealtimeStatus } from 'products/cohorts/frontend/realtime/CohortR
 import { RealtimeCohortsUsage } from 'products/cohorts/frontend/realtime/RealtimeCohortsUsage'
 import { useRealtimeCohortsServing } from 'products/cohorts/frontend/realtime/useRealtimeCohortsServing'
 import { asDisplay } from 'products/persons/frontend/person-utils'
+import { managedEntityLogic } from 'products/stacks/frontend/managedEntityLogic'
+import { ManagedInCodeBanner } from 'products/stacks/frontend/ManagedInCodeBanner'
 import {
     captureMessageAudienceClicked,
     messageAudienceAccessDisabledReason,
@@ -259,6 +262,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
     const { shouldShowCountWarning } = useValues(warningLogic)
 
     const cohortId = typeof cohort.id === 'number' ? cohort.id : null
+    const { ownedFieldDisabledReason } = useValues(managedEntityLogic({ kind: 'cohort', entityId: cohortId }))
 
     // The details section and the divider above the persons table render only when they have
     // content, so a plain static cohort shows its people right under the tabs.
@@ -456,7 +460,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                 onDescriptionChange={(value) => {
                                     setCohortValue('description', value)
                                 }}
-                                canEdit
+                                canEdit={!ownedFieldDisabledReason('name') && !ownedFieldDisabledReason('description')}
                                 forceEdit={isNewCohort}
                                 actions={
                                     todayRailNav ? (
@@ -563,6 +567,8 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                 }
                             />
                         </LemonField>
+
+                        <ManagedInCodeBanner kind="cohort" entityId={cohortId} />
 
                         {!isNewCohort && (
                             <LemonTabs
@@ -934,9 +940,12 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                 </div>
                                             </Tooltip>
                                         </div>
-                                        <div className={cn('w-full [&>div]:my-0 [&>div]:w-full')}>
+                                        <LemonDisabledArea
+                                            className={cn('w-full [&>div]:my-0 [&>div]:w-full')}
+                                            disabledReason={ownedFieldDisabledReason('filters')}
+                                        >
                                             <CohortCriteriaGroups id={logicProps.id} />
-                                        </div>
+                                        </LemonDisabledArea>
                                     </SceneSection>
                                 </>
                             )}

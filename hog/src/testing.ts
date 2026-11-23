@@ -11,7 +11,7 @@ import type {
 
 import type { WorkloadProvider } from '@/ci/providers/registry'
 import { parseJson, parseJsonOrUndefined } from '@/core/json'
-import type { Prompts } from '@/core/prompts'
+import type { Choice, Prompts } from '@/core/prompts'
 import type { Env, Runtime, Secrets } from '@/core/runtime'
 
 import { run } from './cli'
@@ -29,6 +29,9 @@ export interface FakeRuntimeOptions {
     noHome?: boolean
     musl?: boolean
     commandExitCode?: number
+    readCommand?: Runtime['readCommand']
+    evaluateStack?: Runtime['evaluateStack']
+    stackDefinitions?: Awaited<ReturnType<Runtime['stackDefinitions']>>
     stdoutIsTTY?: boolean
     // Defaults to `stdoutIsTTY`.
     stdinIsTTY?: boolean
@@ -66,6 +69,7 @@ export interface FakeRuntimeOptions {
 }
 
 export interface FakeRuntime extends Runtime {
+    promptMessages: string[]
     stdout: () => string
     stderr: () => string
     requests: { method: string; url: string; body: unknown }[]
@@ -77,23 +81,33 @@ export interface FakeRuntime extends Runtime {
     keychain: Record<string, string>
 }
 
-function fakePrompts(answers: string[]): Prompts {
-    const next = async (message: string): Promise<string> => {
+function fakePrompts(answers: string[], messages: string[]): Prompts {
+    const record = (...lines: (string | undefined)[]): void => {
+        messages.push(...lines.filter((line): line is string => line !== undefined))
+    }
+    const next = async (message: string, ...details: (string | undefined)[]): Promise<string> => {
+        record(message, ...details)
         const value = answers.shift()
         if (value === undefined) {
             throw new Error(`No answer for the prompt "${message}"`)
         }
         return value
     }
+    const choose = (message: string, choices: readonly Choice<string>[], help?: string): Promise<string> =>
+        next(message, help, ...choices.flatMap((choice) => [choice.label, choice.hint]))
     return {
-        select: (message) => next(message) as never,
+        select: (message, choices, options) => choose(message, choices, options?.help) as never,
         // The answer lists the values picked, separated by commas.
-        multiselect: async (message) => (await next(message)).split(',').filter(Boolean) as never,
-        text: (message) => next(message),
+        multiselect: async (message, choices, options) =>
+            (await choose(message, choices, options?.help)).split(',').filter(Boolean) as never,
+        text: (message, options) => next(message, options?.help, options?.initialValue),
         password: (message) => next(message),
         confirm: async (message) => (await next(message)) === 'yes',
-        note: () => {},
-        spinner: () => ({ stop: () => {}, error: () => {} }),
+        note: (message, title) => record(title, message),
+        spinner: (message) => {
+            record(message)
+            return { stop: record, error: record }
+        },
     }
 }
 
@@ -168,6 +182,7 @@ function fakeClock(start: number): { now: () => number; sleep: Runtime['sleep'] 
 }
 
 export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
+    const promptMessages: string[] = []
     let stdout = ''
     let stderr = ''
     const requests: FakeRuntime['requests'] = []
@@ -189,6 +204,29 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
         runCommand: async (argv) => {
             commands.push(argv)
             return options.commandExitCode ?? 0
+        },
+        readCommand: async (argv, cwd) => {
+            commands.push(argv)
+            if (!options.readCommand) {
+                throw new Error('Pass readCommand to fake command output')
+            }
+            return options.readCommand(argv, cwd)
+        },
+        evaluateStack: async (folder, root) => {
+            if (options.evaluateStack) {
+                return options.evaluateStack(folder, root)
+            }
+            if (!options.useDisk) {
+                throw new Error('Pass evaluateStack to fake a stack check')
+            }
+            const { evaluateInChild } = await import('@/stack/child')
+            return evaluateInChild(folder, root, true)
+        },
+        stackDefinitions: async () => {
+            if (!options.stackDefinitions) {
+                throw new Error('Pass stackDefinitions to fake stack adoption or drift')
+            }
+            return options.stackDefinitions
         },
         replaceExecutable: async (path, contents) => {
             executables[path] = contents
@@ -291,7 +329,8 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
             opened.push(url)
             return true
         },
-        prompts: fakePrompts([...(options.answers ?? [])]),
+        promptMessages,
+        prompts: fakePrompts([...(options.answers ?? [])], promptMessages),
         secrets: memorySecrets(keychain),
         telemetryToken: options.telemetryToken,
         sendTelemetryInBackground: options.sendTelemetryInBackground,
@@ -335,6 +374,7 @@ export const TEST_CREDENTIALS = {
 }
 
 export interface HogRun {
+    promptMessages: string[]
     exitCode: number
     stdout: string
     stderr: string
@@ -383,6 +423,7 @@ export async function runHog(argv: string[], options: FakeRuntimeOptions = {}): 
         stdout: runtime.stdout(),
         stderr: runtime.stderr(),
         requests: runtime.requests,
+        promptMessages: runtime.promptMessages,
         commands: runtime.commands,
         executables: runtime.executables,
         files: runtime.files,

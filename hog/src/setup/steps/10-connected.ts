@@ -16,7 +16,12 @@ export const connected: Step = {
 
         const [{ host, projectId }, products] = await Promise.all([run.requireLogin(), run.products()])
         const body = finalBlock({ host, projectId, products, chosen: state?.products ?? [] })
-        run.context.agentsMd = await writeBlock(ctx.runtime, run.scope.folder, body)
+        run.context.agentsMd = await writeBlock(
+            ctx.runtime,
+            run.scope.folder,
+            body,
+            (await ctx.config())?.config.stacks
+        )
 
         const startedAt = state?.startedAt ?? ctx.runtime.now()
         await run.complete('connected')

@@ -14,7 +14,7 @@ export const USER_AGENT = `hog/${VERSION}`
 // Generous, because a HogQL query can run for minutes. It only stops a connection that hangs.
 const REQUEST_TIMEOUT_MS = 10 * 60 * 1000
 
-type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE'
+type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
 export interface HttpRequest {
     method: Method
@@ -147,6 +147,41 @@ const DRFErrorBody = z.object({
     detail: z.string().optional().catch(undefined),
 })
 
+// A write to a field a stack owns. PostHog names the stack and the definition's file, so the fix is an edit there.
+const ManagedInCode = z.object({
+    extra: z.object({
+        stack: z.string().max(200),
+        repository: z.string().max(500),
+        kind: z.string().max(64),
+        source: z.object({ file: z.string().max(1000), export: z.string().max(200).optional() }).nullish(),
+        fields: z.array(z.string().max(200)).max(100).optional(),
+    }),
+})
+
+function managedInCode(status: number, body: unknown, error: z.output<typeof DRFErrorBody>): ApiError | undefined {
+    const extra = ManagedInCode.safeParse(body).data?.extra
+    if (!extra) {
+        return undefined
+    }
+    const where = extra.repository ? ` in ${extra.repository}` : ''
+    const file = extra.source
+        ? `Edit ${extra.source.file}${extra.source.export ? ` (export ${extra.source.export})` : ''}${where}`
+        : `Edit the ${extra.kind} definition in stack ${extra.stack}${where}`
+    return new ApiError(status, 'managed_in_code', `This ${extra.kind} is managed in code by stack ${extra.stack}.`, {
+        type: error.type,
+        hint: `${file}, run hog check, and open a pull request. The change reaches PostHog when the stack is pushed.`,
+        details: {
+            stack: extra.stack,
+            repository: extra.repository,
+            kind: extra.kind,
+            source: extra.source ?? null,
+            fields: extra.fields ?? [],
+        },
+        serverDetail: error.detail,
+        body,
+    })
+}
+
 export class PostHogApi {
     constructor(
         private readonly session: KeySession,
@@ -186,6 +221,14 @@ export class PostHogApi {
 
     patch<T>(path: string, body: unknown, schema: Schema<T>): Promise<T> {
         return this.request('PATCH', path, schema, body)
+    }
+
+    put<T>(path: string, body: unknown, schema: Schema<T>): Promise<T> {
+        return this.request('PUT', path, schema, body)
+    }
+
+    delete<T>(path: string, schema: Schema<T>): Promise<T> {
+        return this.request('DELETE', path, schema, undefined)
     }
 
     private async request<T>(
@@ -254,6 +297,12 @@ export class PostHogApi {
 
     private failure(status: number, body: unknown): ApiError {
         const error = DRFErrorBody.safeParse(body).data ?? {}
+        if (error.code === 'managed_in_code') {
+            const managed = managedInCode(status, body, error)
+            if (managed) {
+                return managed
+            }
+        }
         const hints: Record<number, string> = {
             401: 'Check that the personal API key is valid.',
             403: 'Check that the personal API key has access to this project.',

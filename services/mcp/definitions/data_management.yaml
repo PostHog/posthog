@@ -6,4 +6,33 @@ category: Data management
 feature: data_management
 url_prefix: /data-management/ingestion-warnings
 ui_apps: {}
-tools: {}
+tools:
+    schema-property-group-create:
+        operation: schema_property_groups_create
+        enabled: true
+        scopes:
+            - event_definition:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create a property group
+        description: >
+            Create a named group of typed event properties, the schema events link to. Each property has a `name`, a
+            `property_type` (String, Numeric, Boolean, DateTime, Object or Array), and optional `is_required`,
+            `is_optional_in_types` and `description`. A group name is unique in the project. Link the group to an
+            event with event-schema-create.
+    event-schema-create:
+        operation: event_schemas_create
+        enabled: true
+        scopes:
+            - event_definition:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Link a property group to an event
+        description: >
+            Link a property group to an event definition, so the event's schema includes the group's properties. Pass
+            the event definition's id as `event_definition` and the group's id as `property_group_id`. Create the group
+            first with schema-property-group-create.

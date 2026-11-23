@@ -1,0 +1,98 @@
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product stacks
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product stacks
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
+# The stack routes need the scopes of the kinds a run touches on top of the stack scope, so every tool lists its
+# stack scope and the API answers a missing kind scope with a step-up challenge.
+category: Stacks
+feature: stacks
+url_prefix: /stacks
+tools:
+    stack-diff:
+        operation: stacks_diff_create
+        enabled: true
+        scopes:
+            - stack:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Diff a stack
+        description: >
+            Send a stack description, the JSON that `hog check` writes for a folder of definitions, and start working
+            out what a push would change in this project. Returns at once with `status: running` and an `id`. Poll
+            `stack-diff-get` with that id until `status` is `ready` or `failed`. A ready diff lists each change with its
+            action (create, update, recreate, remove, adopt, rename, release), the drift found since the last push, and
+            a summary by action. A diff never changes PostHog. Show the diff to the person before anyone pushes it.
+        param_overrides:
+            name:
+                description: The stack name from `posthog.json`, such as `web-app`.
+    stack-diff-get:
+        operation: stacks_diff_retrieve
+        enabled: true
+        scopes:
+            - stack:read
+        title: Get a stack diff
+        description: >
+            Read a saved diff and its status: `running`, `ready` (pushable), `failed` (see `diff.errors` or
+            `push_errors`), `pushed` or `stale` (the stack changed since, so run `stack-diff` again). While a push
+            runs, `status` is `running` and `push_status` says how the push is going.
+        param_overrides:
+            name:
+                description: The stack name the diff belongs to.
+            diff_id:
+                description: The `id` that `stack-diff` returned.
+    stack-push:
+        operation: stacks_diff_push
+        enabled: true
+        scopes:
+            - stack:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Push a stack diff
+        description: >
+            Carry out one ready diff in PostHog: create, change and remove the entities it lists. Only push a
+            diff the person has reviewed, and never from a branch they have not merged. Returns at once with
+            `status: running`. Poll `stack-diff-get` until `status` is `pushed` or `failed`. Refused with
+            `stack_moved` when the stack changed since the diff was made, and with `too_many_removals` when it removes
+            more than the stack allows: confirm with `max_removals` only after the person agreed to the removals.
+        param_overrides:
+            name:
+                description: The stack name the diff belongs to.
+            diff_id:
+                description: The `id` of a ready diff from `stack-diff`.
+    stack-bindings-list:
+        operation: stacks_bindings_list
+        enabled: true
+        scopes:
+            - stack:read
+        title: List a stack's bindings
+        list: true
+        description: >
+            Each entity a stack manages, with its kind, key, PostHog id, link and the definition's file in the
+            repository. `pending` means adopted and not pushed yet.
+        param_overrides:
+            name:
+                description: The stack name from `posthog.json`.
+    stack-binding-lookup:
+        operation: stacks_binding_lookup
+        enabled: true
+        scopes:
+            - stack:read
+        title: Find what manages an entity
+        description: >
+            Whether a stack manages this entity in code. When `binding` is set, change the entity by editing
+            `binding.source.file` in `binding.repository`, running `hog check`, and opening a pull request, not with a
+            direct API or MCP write, which is refused with `managed_in_code`. Null means no stack manages it.
+    stack-managed-kinds-list:
+        operation: stacks_managed_kinds_list
+        enabled: true
+        scopes:
+            - stack:read
+        title: List the kinds managed in code
+        description: >
+            Each kind of entity, such as `flag` or `insight`, that a stack manages in this project, with the stack
+            and its repository. To add an entity of a listed kind, add its definition in that repository, run
+            `hog check`, and open a pull request instead of calling the create tool.

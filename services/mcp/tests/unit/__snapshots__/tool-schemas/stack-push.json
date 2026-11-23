@@ -1,0 +1,27 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "diff_id": {
+            "description": "The `id` of a ready diff from `stack-diff`.",
+            "type": "string"
+        },
+        "max_removals": {
+            "anyOf": [
+                {
+                    "minimum": 0,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The most entities this push may remove or recreate. Defaults to the stack's own cap. Set it to confirm a push that removes more."
+        },
+        "name": {
+            "description": "The stack name the diff belongs to.",
+            "type": "string"
+        }
+    },
+    "required": ["diff_id", "name"],
+    "type": "object"
+}

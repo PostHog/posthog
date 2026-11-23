@@ -1,0 +1,40 @@
+{
+    "kind": "insight",
+    "scopes": {
+        "read": ["insight"],
+        "write": ["insight"]
+    },
+    "read_api": {
+        "collection": "insights",
+        "id_fields": ["dashboards"]
+    },
+    "resource_type": "posthog_insight",
+    "id_type": "number",
+    "api_schema": {
+        "product": "product_analytics",
+        "name": "InsightsCreateBody"
+    },
+    "fields": {
+        "name": "name",
+        "derived_name": "derived_name",
+        "description": "description",
+        "tags": "tags",
+        "query": "query_json",
+        "dashboards": "dashboard_ids",
+        "_create_in_folder": "create_in_folder"
+    },
+    "json_fields": ["query"],
+    "set_fields": ["dashboards", "tags"],
+    "unmanaged": {
+        "deleted": "deleted",
+        "favorited": null
+    },
+    "gaps": {
+        "order": "Insight order is set by its dashboard tiles."
+    },
+    "removal": "allow",
+    "natural_key": null,
+    "import_id": "{entity_id}",
+    "hook": null,
+    "loses": "Links to the original insight will still point to its old ID."
+}

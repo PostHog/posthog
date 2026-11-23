@@ -1,0 +1,53 @@
+{
+    "kind": "event",
+    "scopes": {
+        "read": ["event_definition"],
+        "write": ["event_definition"]
+    },
+    "key_sources": ["products/event_definitions/backend/models/event_definition.py", "posthog/api/event_definition.py"],
+    "key_pattern": "^[^\\x00\\x09-\\x0d\\x1c-\\x20\\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000](?:[^\\x00]*[^\\x00\\x09-\\x0d\\x1c-\\x20\\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000])?$",
+    "read_api": {
+        "collection": "event_definitions",
+        "links": "event_schemas",
+        "id_fields": ["owner"]
+    },
+    "resource_type": "posthog_event_definition",
+    "id_type": "string",
+    "api_schema": {
+        "file": "products/event_definitions/frontend/generated/api.zod.ts",
+        "name": "EventDefinitionsCreateBody"
+    },
+    "fields": {
+        "name": "name",
+        "description": "description",
+        "tags": "tags",
+        "owner": "owner",
+        "verified": "verified",
+        "hidden": "hidden",
+        "enforcement_mode": "enforcement_mode"
+    },
+    "json_fields": [],
+    "set_fields": ["tags"],
+    "unmanaged": {},
+    "managed_when_set": ["description", "tags", "owner", "verified", "hidden", "enforcement_mode", "property_groups"],
+    "gaps": {
+        "primary_property": "The event implementation cannot choose a display property.",
+        "post_to_slack": "The event implementation cannot set Slack posting.",
+        "default_columns": "The event implementation cannot set display columns."
+    },
+    "removal": "prevent",
+    "natural_key": {
+        "field": "name",
+        "lookup": "event_definitions"
+    },
+    "import_id": "{name}",
+    "hook": "event_schema",
+    "hook_fields": {
+        "property_groups": "property_group_id"
+    },
+    "accepted_defaults": {
+        "post_to_slack": false
+    },
+    "key_max_length": 400,
+    "loses": "The original event stays in PostHog. The new event starts with its own definition and schema links."
+}

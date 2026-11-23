@@ -251,6 +251,10 @@ if run_scope "tasks-oauth"; then
     if [ "${DEPLOYMENT:-}" != "hobby" ]; then
         echo "Setting up task sandbox OAuth applications..."
         python manage.py setup_tasks_oauth || { echo "Error in setup_tasks_oauth, exiting."; exit 1; }
+        # The first-party application stack runs mint their tokens from. Idempotent, and it skips itself when
+        # the instance has no OIDC signing key.
+        echo "Setting up the stacks OAuth application..."
+        python manage.py provision_stacks_oauth_app || { echo "Error in provision_stacks_oauth_app, exiting."; exit 1; }
     fi
 fi
 

@@ -1,0 +1,6 @@
+{
+    "posthog_hog_function.partner_billing_alert": {
+        "kind": "destination",
+        "key": "partner_billing_alert"
+    }
+}

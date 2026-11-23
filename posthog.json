@@ -1,10 +1,67 @@
 {
-    "languages": {
-        "typescript": {
-            "output_path": "frontend/src/lib/posthog-typed.ts",
-            "schema_hash": "7a0ce391306a233ff52edddcb7b3dcc5",
-            "updated_at": "2025-11-04T07:37:13.518309+00:00",
-            "event_count": 32
+    "stacks": {
+        "slo-monitoring": {
+            "dir": ".ph/us/project-2/slo-monitoring",
+            "environments": {
+                "production": {
+                    "host": "https://us.posthog.com",
+                    "project": 2
+                }
+            }
+        },
+        "slos": {
+            "dir": ".ph/us/project-2/slos",
+            "environments": {
+                "production": {
+                    "host": "https://us.posthog.com",
+                    "project": 2
+                }
+            }
+        },
+        "dashboard-key-metrics": {
+            "dir": ".ph/us/project-2/dashboard-key-metrics",
+            "environments": {
+                "production": {
+                    "host": "https://us.posthog.com",
+                    "project": 2
+                }
+            }
+        },
+        "community-credit-alerts": {
+            "dir": ".ph/us/project-2/community-credit-alerts",
+            "environments": {
+                "production": {
+                    "host": "https://us.posthog.com",
+                    "project": 2
+                }
+            }
+        },
+        "partner-billing-alerts": {
+            "dir": ".ph/us/project-2/partner-billing-alerts",
+            "environments": {
+                "production": {
+                    "host": "https://us.posthog.com",
+                    "project": 2
+                }
+            }
+        },
+        "workflow-repair-alerts": {
+            "dir": ".ph/us/project-2/workflow-repair-alerts",
+            "environments": {
+                "production": {
+                    "host": "https://us.posthog.com",
+                    "project": 2
+                }
+            }
+        },
+        "app-events": {
+            "dir": ".ph/us/project-2/app-events",
+            "environments": {
+                "production": {
+                    "host": "https://us.posthog.com",
+                    "project": 2
+                }
+            }
         }
     }
 }

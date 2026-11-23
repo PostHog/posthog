@@ -1,0 +1,4 @@
+version: 1
+# The generators serve the event definitions API in posthog/api/event_definition.py, which this team owns.
+owners:
+    - team-product-analytics

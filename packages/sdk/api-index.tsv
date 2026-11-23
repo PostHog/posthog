@@ -440,6 +440,8 @@ dataCatalog	dataCatalog.dataCatalogRelationshipRejectExecute	data-catalog-relati
 dataCatalog	dataCatalog.dataCatalogRelationshipRejectPrepare	data-catalog-relationship-reject-prepare	Reject a relationship proposal (prepare)	DataCatalogDataCatalogRelationshipRejectPrepareInput	DataCatalogDataCatalogRelationshipRejectPrepareOutput	data_catalog_approval:write,data_catalog:read		true	false	true
 dataCatalog	dataCatalog.metricDescribe	metric-describe	Describe a governed metric	DataCatalogMetricDescribeInput	DataCatalogMetricDescribeOutput	data_catalog:read		true	false	true
 dataCatalog	dataCatalog.metricList	metric-list	List governed metrics	DataCatalogMetricListInput	DataCatalogMetricListOutput	data_catalog:read		true	false	true
+dataManagement	dataManagement.eventSchemaCreate	event-schema-create	Link a property group to an event	DataManagementEventSchemaCreateInput	DataManagementEventSchemaCreateOutput	event_definition:write		false	false	false
+dataManagement	dataManagement.schemaPropertyGroupCreate	schema-property-group-create	Create a property group	DataManagementSchemaPropertyGroupCreateInput	DataManagementSchemaPropertyGroupCreateOutput	event_definition:write		false	false	false
 dataQuality	dataQuality.dataQualityCheckCreate	data-quality-check-create	Create a data quality check	DataQualityDataQualityCheckCreateInput	DataQualityDataQualityCheckCreateOutput	query:read		false	false	true
 dataQuality	dataQuality.dataQualityCheckDelete	data-quality-check-delete	Delete a data quality check	DataQualityDataQualityCheckDeleteInput	DataQualityDataQualityCheckDeleteOutput	query:read		false	true	true
 dataQuality	dataQuality.dataQualityCheckResults	data-quality-check-results	Recent results of a data quality check	DataQualityDataQualityCheckResultsInput	DataQualityDataQualityCheckResultsOutput	query:read		true	false	true
@@ -1063,6 +1065,12 @@ skills	skills.skillList	skill-list	List skills	SkillsSkillListInput	SkillsSkillL
 skills	skills.skillRename	skill-rename	Rename skill	SkillsSkillRenameInput	SkillsSkillRenameOutput	llm_skill:write		false	false	false
 skills	skills.skillStoreInstallCommand	skill-store-install-command	Get skill store install command	SkillsSkillStoreInstallCommandInput	SkillsSkillStoreInstallCommandOutput	llm_skill:write		false	false	false
 skills	skills.skillUpdate	skill-update	Update skill	SkillsSkillUpdateInput	SkillsSkillUpdateOutput	llm_skill:write		false	false	true
+stacks	stacks.stackBindingLookup	stack-binding-lookup	Find what manages an entity	StacksStackBindingLookupInput	StacksStackBindingLookupOutput	stack:read		true	false	true
+stacks	stacks.stackBindingsList	stack-bindings-list	List a stack's bindings	StacksStackBindingsListInput	StacksStackBindingsListOutput	stack:read		true	false	true
+stacks	stacks.stackDiff	stack-diff	Diff a stack	StacksStackDiffInput	StacksStackDiffOutput	stack:read		false	false	false
+stacks	stacks.stackDiffGet	stack-diff-get	Get a stack diff	StacksStackDiffGetInput	StacksStackDiffGetOutput	stack:read		true	false	true
+stacks	stacks.stackManagedKindsList	stack-managed-kinds-list	List the kinds managed in code	StacksStackManagedKindsListInput	StacksStackManagedKindsListOutput	stack:read		true	false	true
+stacks	stacks.stackPush	stack-push	Push a stack diff	StacksStackPushInput	StacksStackPushOutput	stack:write		false	true	false
 stamphog	stamphog.codeReviewApprovalsDigestsList	code-review-approvals-digests-list	List auto-approval digest runs	StamphogCodeReviewApprovalsDigestsListInput	StamphogCodeReviewApprovalsDigestsListOutput	code_review_approval:read	feature_flag: stamphog	true	false	true
 stamphog	stamphog.codeReviewApprovalsPullRequestsGet	code-review-approvals-pull-requests-get	Get an auto-approval pull request	StamphogCodeReviewApprovalsPullRequestsGetInput	StamphogCodeReviewApprovalsPullRequestsGetOutput	code_review_approval:read	feature_flag: stamphog	true	false	true
 stamphog	stamphog.codeReviewApprovalsPullRequestsList	code-review-approvals-pull-requests-list	List auto-approval pull requests	StamphogCodeReviewApprovalsPullRequestsListInput	StamphogCodeReviewApprovalsPullRequestsListOutput	code_review_approval:read	feature_flag: stamphog	true	false	true

@@ -21,6 +21,7 @@ crossProjectDashboards	3	@posthog/sdk/cross-project-dashboards
 customerAnalytics	77	@posthog/sdk/customer-analytics
 dashboards	19	@posthog/sdk/dashboards
 dataCatalog	20	@posthog/sdk/data-catalog
+dataManagement	2	@posthog/sdk/data-management
 dataQuality	9	@posthog/sdk/data-quality
 dataSchema	1	@posthog/sdk/data-schema
 dataWarehouse	28	@posthog/sdk/data-warehouse
@@ -64,6 +65,7 @@ replayVision	56	@posthog/sdk/replay-vision
 reviewHog	4	@posthog/sdk/review-hog
 signals	112	@posthog/sdk/signals
 skills	22	@posthog/sdk/skills
+stacks	6	@posthog/sdk/stacks
 stamphog	12	@posthog/sdk/stamphog
 streamlitApps	12	@posthog/sdk/streamlit-apps
 subscriptions	9	@posthog/sdk/subscriptions

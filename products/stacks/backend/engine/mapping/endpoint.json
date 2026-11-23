@@ -1,0 +1,48 @@
+{
+    "kind": "endpoint",
+    "scopes": {
+        "read": ["endpoint"],
+        "write": ["endpoint"]
+    },
+    "key_sources": ["products/endpoints/backend/constants.py", "products/endpoints/backend/presentation/views/api.py"],
+    "read_api": { "collection": "endpoints", "detail_key": "name" },
+    "resource_type": "posthog_endpoint",
+    "id_type": "string",
+    "api_schema": {
+        "product": "endpoints",
+        "name": "EndpointsCreateBody"
+    },
+    "fields": {
+        "name": "name",
+        "query": "query_json",
+        "description": "description",
+        "is_active": "is_active",
+        "is_materialized": "is_materialized",
+        "data_freshness_seconds": "data_freshness_seconds",
+        "derived_from_insight": "derived_from_insight",
+        "bucket_overrides": "bucket_overrides",
+        "optional_breakdown_properties": "optional_breakdown_properties",
+        "tags": "tags"
+    },
+    "json_fields": ["query"],
+    "set_fields": ["tags", "optional_breakdown_properties"],
+    "unmanaged": {},
+    "gaps": {
+        "version": "Definitions manage the current endpoint version.",
+        "deleted": "Remove the definition to retire the endpoint."
+    },
+    "removal": "allow",
+    "natural_key": {
+        "field": "name",
+        "lookup": "endpoints"
+    },
+    "import_id": "{name}",
+    "hook": null,
+    "accepted_defaults": {
+        "deleted": false
+    },
+    "key_max_length": 128,
+    "key_pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
+    "reserved_keys": ["bulk_update_tags", "last_execution_times"],
+    "loses": "The new endpoint starts a new version history and needs new materializations."
+}

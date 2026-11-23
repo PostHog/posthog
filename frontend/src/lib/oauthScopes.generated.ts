@@ -200,6 +200,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'signal_scout:write',
     'signal_usage:read',
     'signal_usage:write',
+    'stack:read',
+    'stack:write',
     'streamlit_app:read',
     'streamlit_app:write',
     'subscription:read',

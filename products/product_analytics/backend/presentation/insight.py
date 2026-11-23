@@ -126,8 +126,10 @@ from posthog.models.tagged_item import TaggedItem
 from posthog.models.team.team import Team
 from posthog.permissions import (
     TeamMemberStrictManagementPermission,
+    enforce_managed_writes,
     get_authenticator_scoped_team_ids,
     get_authenticator_scopes,
+    managed_write_refusals,
 )
 from posthog.query_cache import QueryCache
 from posthog.query_scan.serve import hydrate_scan_summary
@@ -1090,6 +1092,18 @@ class InsightSerializer(InsightBasicSerializer):
         # Counts the field being accepted as write input — before the no-op early return, so
         # integrations that round-trip an unchanged dashboards list still register as writers.
         _record_deprecated_dashboards_field_used(self.context, usage="write")
+
+        # Putting an insight on a dashboard or taking it off changes that dashboard's tiles.
+        current_ids = {tile.dashboard_id for tile in instance.dashboard_tiles.all()}
+        if moved := sorted(current_ids ^ set(dashboard_ids)):
+            enforce_managed_writes(
+                self.context["request"],
+                team_id=instance.team_id,
+                model_label="dashboards.Dashboard",
+                object_ids=moved,
+                changed=["tiles"],
+                action="insight_dashboards",
+            )
 
         try:
             change = update_insight_dashboard_membership(
@@ -3044,6 +3058,23 @@ When set, the specified dashboard's filters and date range override will be appl
     def bulk_delete(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         ids: list[int] = request.validated_data["ids"]
         insights, skipped = self._bulk_filter_editable_insights(ids, deleted=False)
+        refusals = managed_write_refusals(
+            request,
+            team_id=self.team.id,
+            model_label="product_analytics.Insight",
+            object_ids=[insight.id for insight in insights],
+            is_delete=True,
+            action="bulk_delete",
+        )
+        skipped = [
+            *skipped,
+            *(
+                {"id": insight.id, "reason": refusals[str(insight.id)].detail}
+                for insight in insights
+                if str(insight.id) in refusals
+            ),
+        ]
+        insights = [insight for insight in insights if str(insight.id) not in refusals]
 
         deleted: list[dict[str, Any]] = []
         if insights:

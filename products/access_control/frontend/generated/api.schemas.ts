@@ -141,6 +141,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `sharing_configuration` - sharing_configuration
  * * `signal_scout` - signal_scout
  * * `signal_usage` - signal_usage
+ * * `stack` - stack
  * * `streamlit_app` - streamlit_app
  * * `subscription` - subscription
  * * `support_ticket` - support_ticket
@@ -268,6 +269,7 @@ export const ScopeObjectEnumApi = {
     SharingConfiguration: 'sharing_configuration',
     SignalScout: 'signal_scout',
     SignalUsage: 'signal_usage',
+    Stack: 'stack',
     StreamlitApp: 'streamlit_app',
     Subscription: 'subscription',
     SupportTicket: 'support_ticket',
@@ -418,6 +420,7 @@ export interface ProjectAccessSourceApi {
      * * `sharing_configuration` - sharing_configuration
      * * `signal_scout` - signal_scout
      * * `signal_usage` - signal_usage
+     * * `stack` - stack
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
      * * `support_ticket` - support_ticket
@@ -588,6 +591,7 @@ export interface AccessControlObjectRuleApi {
      * * `sharing_configuration` - sharing_configuration
      * * `signal_scout` - signal_scout
      * * `signal_usage` - signal_usage
+     * * `stack` - stack
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
      * * `support_ticket` - support_ticket
@@ -992,6 +996,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `sharing_configuration` - sharing_configuration
      * * `signal_scout` - signal_scout
      * * `signal_usage` - signal_usage
+     * * `stack` - stack
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
      * * `support_ticket` - support_ticket
@@ -1287,6 +1292,7 @@ export interface ResolvedAccessApi {
      * * `sharing_configuration` - sharing_configuration
      * * `signal_scout` - signal_scout
      * * `signal_usage` - signal_usage
+     * * `stack` - stack
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
      * * `support_ticket` - support_ticket

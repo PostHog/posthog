@@ -23,6 +23,7 @@ import type {
     CustomerAnalyticsClient,
     DashboardsClient,
     DataCatalogClient,
+    DataManagementClient,
     DataQualityClient,
     DataSchemaClient,
     DataWarehouseClient,
@@ -66,6 +67,7 @@ import type {
     ReviewHogClient,
     SignalsClient,
     SkillsClient,
+    StacksClient,
     StamphogClient,
     StreamlitAppsClient,
     SubscriptionsClient,
@@ -1989,6 +1991,22 @@ export function createNamespaces(runtime: Runtime): GeneratedClient {
             metricList: (input, options) =>
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).metricList(input, { ...options, signal })
+                ),
+        })
+    )
+    const dataManagement = new LazyClient<DataManagementClient>(
+        () =>
+            import('./data-management/client.js').then(({ createDataManagementClient }) =>
+                createDataManagementClient(runtime)
+            ),
+        (load) => ({
+            eventSchemaCreate: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).eventSchemaCreate(input, { ...options, signal })
+                ),
+            schemaPropertyGroupCreate: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).schemaPropertyGroupCreate(input, { ...options, signal })
                 ),
         })
     )
@@ -4739,6 +4757,35 @@ export function createNamespaces(runtime: Runtime): GeneratedClient {
                 ),
         })
     )
+    const stacks = new LazyClient<StacksClient>(
+        () => import('./stacks/client.js').then(({ createStacksClient }) => createStacksClient(runtime)),
+        (load) => ({
+            stackBindingLookup: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).stackBindingLookup(input, { ...options, signal })
+                ),
+            stackBindingsList: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).stackBindingsList(input, { ...options, signal })
+                ),
+            stackDiff: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).stackDiff(input, { ...options, signal })
+                ),
+            stackDiffGet: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).stackDiffGet(input, { ...options, signal })
+                ),
+            stackManagedKindsList: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).stackManagedKindsList(input, { ...options, signal })
+                ),
+            stackPush: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).stackPush(input, { ...options, signal })
+                ),
+        })
+    )
     const stamphog = new LazyClient<StamphogClient>(
         () => import('./stamphog/client.js').then(({ createStamphogClient }) => createStamphogClient(runtime)),
         (load) => ({
@@ -5945,6 +5992,9 @@ export function createNamespaces(runtime: Runtime): GeneratedClient {
         get dataCatalog(): DataCatalogClient {
             return dataCatalog.client
         },
+        get dataManagement(): DataManagementClient {
+            return dataManagement.client
+        },
         get dataQuality(): DataQualityClient {
             return dataQuality.client
         },
@@ -6073,6 +6123,9 @@ export function createNamespaces(runtime: Runtime): GeneratedClient {
         },
         get skills(): SkillsClient {
             return skills.client
+        },
+        get stacks(): StacksClient {
+            return stacks.client
         },
         get stamphog(): StamphogClient {
             return stamphog.client

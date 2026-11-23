@@ -1,0 +1,1014 @@
+{
+    "resources": [
+        {
+            "body": {
+                "name": "command k filter committed"
+            },
+            "key": "command k filter committed",
+            "kind": "event",
+            "source": {
+                "export": "commandMenu",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "command k filter suggested"
+            },
+            "key": "command k filter suggested",
+            "kind": "event",
+            "source": {
+                "export": "commandMenu",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "command k result opened"
+            },
+            "key": "command k result opened",
+            "kind": "event",
+            "source": {
+                "export": "commandMenu",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "command k search abandoned"
+            },
+            "key": "command k search abandoned",
+            "kind": "event",
+            "source": {
+                "export": "commandMenu",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "command k search opened"
+            },
+            "key": "command k search opened",
+            "kind": "event",
+            "source": {
+                "export": "commandMenu",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "command menu opened"
+            },
+            "key": "command menu opened",
+            "kind": "event",
+            "source": {
+                "export": "commandMenu",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "dashboard activity summary viewed",
+                "property_groups": [
+                    {
+                        "$ref": {
+                            "key": "dashboard activity summary viewed",
+                            "kind": "property_group"
+                        }
+                    }
+                ]
+            },
+            "key": "dashboard activity summary viewed",
+            "kind": "event",
+            "source": {
+                "export": "dashboards",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "dashboard subscribe nudge check failed",
+                "property_groups": [
+                    {
+                        "$ref": {
+                            "key": "dashboard subscribe nudge check failed",
+                            "kind": "property_group"
+                        }
+                    }
+                ]
+            },
+            "key": "dashboard subscribe nudge check failed",
+            "kind": "event",
+            "source": {
+                "export": "dashboards",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "dashboard subscribe nudge shown",
+                "property_groups": [
+                    {
+                        "$ref": {
+                            "key": "dashboard subscribe nudge shown",
+                            "kind": "property_group"
+                        }
+                    }
+                ]
+            },
+            "key": "dashboard subscribe nudge shown",
+            "kind": "event",
+            "source": {
+                "export": "dashboards",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "dashboard tile recovered from capacity error"
+            },
+            "key": "dashboard tile recovered from capacity error",
+            "kind": "event",
+            "source": {
+                "export": "dashboards",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "data warehouse history table queried"
+            },
+            "key": "data warehouse history table queried",
+            "kind": "event",
+            "source": {
+                "export": "dataWarehouse",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "error_tracking_exception_tab_changed"
+            },
+            "key": "error_tracking_exception_tab_changed",
+            "kind": "event",
+            "source": {
+                "export": "errorTracking",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "error_tracking_stacktrace_explored"
+            },
+            "key": "error_tracking_stacktrace_explored",
+            "kind": "event",
+            "source": {
+                "export": "errorTracking",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "experiment health check expanded"
+            },
+            "key": "experiment health check expanded",
+            "kind": "event",
+            "source": {
+                "export": "experiments",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "experiment health checked"
+            },
+            "key": "experiment health checked",
+            "kind": "event",
+            "source": {
+                "export": "experiments",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "experiment health checks opened"
+            },
+            "key": "experiment health checks opened",
+            "kind": "event",
+            "source": {
+                "export": "experiments",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "experiment health finding acted on"
+            },
+            "key": "experiment health finding acted on",
+            "kind": "event",
+            "source": {
+                "export": "experiments",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "experiment health finding opened"
+            },
+            "key": "experiment health finding opened",
+            "kind": "event",
+            "source": {
+                "export": "experiments",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "experiment health finding shown"
+            },
+            "key": "experiment health finding shown",
+            "kind": "event",
+            "source": {
+                "export": "experiments",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "experiment health rechecked"
+            },
+            "key": "experiment health rechecked",
+            "kind": "event",
+            "source": {
+                "export": "experiments",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "experiment health summary opened"
+            },
+            "key": "experiment health summary opened",
+            "kind": "event",
+            "source": {
+                "export": "experiments",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "export nudge check failed"
+            },
+            "key": "export nudge check failed",
+            "kind": "event",
+            "source": {
+                "export": "exports",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "export nudge not eligible"
+            },
+            "key": "export nudge not eligible",
+            "kind": "event",
+            "source": {
+                "export": "exports",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "insight empty state shown"
+            },
+            "key": "insight empty state shown",
+            "kind": "event",
+            "source": {
+                "export": "insights",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "insight error message shown"
+            },
+            "key": "insight error message shown",
+            "kind": "event",
+            "source": {
+                "export": "insights",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "insight refresh hint shown"
+            },
+            "key": "insight refresh hint shown",
+            "kind": "event",
+            "source": {
+                "export": "insights",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "keybind triggered"
+            },
+            "key": "keybind triggered",
+            "kind": "event",
+            "source": {
+                "export": "commandMenu",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "nav search clicked"
+            },
+            "key": "nav search clicked",
+            "kind": "event",
+            "source": {
+                "export": "commandMenu",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "query completed",
+                "property_groups": [
+                    {
+                        "$ref": {
+                            "key": "query completed",
+                            "kind": "property_group"
+                        }
+                    }
+                ]
+            },
+            "key": "query completed",
+            "kind": "event",
+            "source": {
+                "export": "insights",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "query failed"
+            },
+            "key": "query failed",
+            "kind": "event",
+            "source": {
+                "export": "insights",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "query rerun after status expired"
+            },
+            "key": "query rerun after status expired",
+            "kind": "event",
+            "source": {
+                "export": "insights",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "release broadcasts auto linked"
+            },
+            "key": "release broadcasts auto linked",
+            "kind": "event",
+            "source": {
+                "export": "releases",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "release calendar opened"
+            },
+            "key": "release calendar opened",
+            "kind": "event",
+            "source": {
+                "export": "releases",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "release import failed"
+            },
+            "key": "release import failed",
+            "kind": "event",
+            "source": {
+                "export": "releases",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "release import finished"
+            },
+            "key": "release import finished",
+            "kind": "event",
+            "source": {
+                "export": "releases",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "release import started"
+            },
+            "key": "release import started",
+            "kind": "event",
+            "source": {
+                "export": "releases",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "release item linked"
+            },
+            "key": "release item linked",
+            "kind": "event",
+            "source": {
+                "export": "releases",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "release item unlinked"
+            },
+            "key": "release item unlinked",
+            "kind": "event",
+            "source": {
+                "export": "releases",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "release list opened"
+            },
+            "key": "release list opened",
+            "kind": "event",
+            "source": {
+                "export": "releases",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "release merge dialog opened"
+            },
+            "key": "release merge dialog opened",
+            "kind": "event",
+            "source": {
+                "export": "releases",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "release owner changed"
+            },
+            "key": "release owner changed",
+            "kind": "event",
+            "source": {
+                "export": "releases",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "release page opened"
+            },
+            "key": "release page opened",
+            "kind": "event",
+            "source": {
+                "export": "releases",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "release row expanded"
+            },
+            "key": "release row expanded",
+            "kind": "event",
+            "source": {
+                "export": "releases",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "release schedule dialog opened"
+            },
+            "key": "release schedule dialog opened",
+            "kind": "event",
+            "source": {
+                "export": "releases",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "release view all filtered"
+            },
+            "key": "release view all filtered",
+            "kind": "event",
+            "source": {
+                "export": "releases",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "release view all item opened"
+            },
+            "key": "release view all item opened",
+            "kind": "event",
+            "source": {
+                "export": "releases",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "release view all opened"
+            },
+            "key": "release view all opened",
+            "kind": "event",
+            "source": {
+                "export": "releases",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "release view all searched"
+            },
+            "key": "release view all searched",
+            "kind": "event",
+            "source": {
+                "export": "releases",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "replay_vision_feedback_clicked"
+            },
+            "key": "replay_vision_feedback_clicked",
+            "kind": "event",
+            "source": {
+                "export": "replayVision",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "replay_vision_highlight_chapter_slid"
+            },
+            "key": "replay_vision_highlight_chapter_slid",
+            "kind": "event",
+            "source": {
+                "export": "replayVision",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "replay_vision_highlight_clip_clicked"
+            },
+            "key": "replay_vision_highlight_clip_clicked",
+            "kind": "event",
+            "source": {
+                "export": "replayVision",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "replay_vision_highlight_clip_dismiss_undone"
+            },
+            "key": "replay_vision_highlight_clip_dismiss_undone",
+            "kind": "event",
+            "source": {
+                "export": "replayVision",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "replay_vision_highlight_clip_dismissed"
+            },
+            "key": "replay_vision_highlight_clip_dismissed",
+            "kind": "event",
+            "source": {
+                "export": "replayVision",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "replay_vision_highlight_feed_filtered"
+            },
+            "key": "replay_vision_highlight_feed_filtered",
+            "kind": "event",
+            "source": {
+                "export": "replayVision",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "replay_vision_highlight_feed_impressions"
+            },
+            "key": "replay_vision_highlight_feed_impressions",
+            "kind": "event",
+            "source": {
+                "export": "replayVision",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "replay_vision_highlight_feed_page_loaded"
+            },
+            "key": "replay_vision_highlight_feed_page_loaded",
+            "kind": "event",
+            "source": {
+                "export": "replayVision",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "replay_vision_highlight_feed_viewed"
+            },
+            "key": "replay_vision_highlight_feed_viewed",
+            "kind": "event",
+            "source": {
+                "export": "replayVision",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "replay_vision_highlight_picks_docs_opened"
+            },
+            "key": "replay_vision_highlight_picks_docs_opened",
+            "kind": "event",
+            "source": {
+                "export": "replayVision",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "replay_vision_highlight_picks_empty_action"
+            },
+            "key": "replay_vision_highlight_picks_empty_action",
+            "kind": "event",
+            "source": {
+                "export": "replayVision",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "replay_vision_highlight_picks_empty_shown"
+            },
+            "key": "replay_vision_highlight_picks_empty_shown",
+            "kind": "event",
+            "source": {
+                "export": "replayVision",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "replay_vision_highlight_picks_list_mode_changed"
+            },
+            "key": "replay_vision_highlight_picks_list_mode_changed",
+            "kind": "event",
+            "source": {
+                "export": "replayVision",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "replay_vision_highlight_picks_shown"
+            },
+            "key": "replay_vision_highlight_picks_shown",
+            "kind": "event",
+            "source": {
+                "export": "replayVision",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "replay_vision_highlight_picks_shown_third_time"
+            },
+            "key": "replay_vision_highlight_picks_shown_third_time",
+            "kind": "event",
+            "source": {
+                "export": "replayVision",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "replay_vision_highlight_picks_stale_action"
+            },
+            "key": "replay_vision_highlight_picks_stale_action",
+            "kind": "event",
+            "source": {
+                "export": "replayVision",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "replay_vision_highlight_picks_stale_shown"
+            },
+            "key": "replay_vision_highlight_picks_stale_shown",
+            "kind": "event",
+            "source": {
+                "export": "replayVision",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "replay_vision_highlight_picks_starter_failed"
+            },
+            "key": "replay_vision_highlight_picks_starter_failed",
+            "kind": "event",
+            "source": {
+                "export": "replayVision",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "replay_vision_highlight_picks_starter_settled"
+            },
+            "key": "replay_vision_highlight_picks_starter_settled",
+            "kind": "event",
+            "source": {
+                "export": "replayVision",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "replay_vision_highlight_picks_starter_started"
+            },
+            "key": "replay_vision_highlight_picks_starter_started",
+            "kind": "event",
+            "source": {
+                "export": "replayVision",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "replay_vision_observation_link_copied"
+            },
+            "key": "replay_vision_observation_link_copied",
+            "kind": "event",
+            "source": {
+                "export": "replayVision",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "replay_vision_prompt_used"
+            },
+            "key": "replay_vision_prompt_used",
+            "kind": "event",
+            "source": {
+                "export": "replayVision",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "replay_vision_scanner_saved_filter_applied"
+            },
+            "key": "replay_vision_scanner_saved_filter_applied",
+            "kind": "event",
+            "source": {
+                "export": "replayVision",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "replay_vision_schedule_offer_accepted"
+            },
+            "key": "replay_vision_schedule_offer_accepted",
+            "kind": "event",
+            "source": {
+                "export": "replayVision",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "replay_vision_schedule_offer_dismissed"
+            },
+            "key": "replay_vision_schedule_offer_dismissed",
+            "kind": "event",
+            "source": {
+                "export": "replayVision",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "replay_vision_schedule_offer_opened_scanner"
+            },
+            "key": "replay_vision_schedule_offer_opened_scanner",
+            "kind": "event",
+            "source": {
+                "export": "replayVision",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "replay_vision_schedule_offer_shown"
+            },
+            "key": "replay_vision_schedule_offer_shown",
+            "kind": "event",
+            "source": {
+                "export": "replayVision",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "replay_vision_watch_group_expanded"
+            },
+            "key": "replay_vision_watch_group_expanded",
+            "kind": "event",
+            "source": {
+                "export": "replayVision",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "replay_vision_watch_group_member_opened"
+            },
+            "key": "replay_vision_watch_group_member_opened",
+            "kind": "event",
+            "source": {
+                "export": "replayVision",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "replay_vision_watch_group_see_all_clicked"
+            },
+            "key": "replay_vision_watch_group_see_all_clicked",
+            "kind": "event",
+            "source": {
+                "export": "replayVision",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "restricted_area_accessed"
+            },
+            "key": "restricted_area_accessed",
+            "kind": "event",
+            "source": {
+                "export": "access",
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "dashboard activity summary viewed",
+                "properties": [
+                    {
+                        "is_required": false,
+                        "name": "dashboard_id",
+                        "property_type": "Numeric"
+                    }
+                ]
+            },
+            "key": "dashboard activity summary viewed",
+            "kind": "property_group",
+            "source": {
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "dashboard subscribe nudge check failed",
+                "properties": [
+                    {
+                        "is_required": false,
+                        "name": "dashboard_id",
+                        "property_type": "Numeric"
+                    },
+                    {
+                        "is_required": false,
+                        "name": "error_message",
+                        "property_type": "String"
+                    },
+                    {
+                        "is_required": false,
+                        "name": "error_name",
+                        "property_type": "String"
+                    },
+                    {
+                        "is_required": false,
+                        "name": "error_status",
+                        "property_type": "Numeric"
+                    },
+                    {
+                        "is_required": false,
+                        "name": "step",
+                        "property_type": "String"
+                    }
+                ]
+            },
+            "key": "dashboard subscribe nudge check failed",
+            "kind": "property_group",
+            "source": {
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "dashboard subscribe nudge shown",
+                "properties": [
+                    {
+                        "is_required": false,
+                        "name": "dashboard_id",
+                        "property_type": "Numeric"
+                    },
+                    {
+                        "is_required": false,
+                        "name": "view_count_7d",
+                        "property_type": "Numeric"
+                    }
+                ]
+            },
+            "key": "dashboard subscribe nudge shown",
+            "kind": "property_group",
+            "source": {
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        },
+        {
+            "body": {
+                "name": "query completed",
+                "properties": [
+                    {
+                        "is_required": false,
+                        "name": "duration",
+                        "property_type": "Numeric"
+                    },
+                    {
+                        "is_required": false,
+                        "name": "is_cached",
+                        "property_type": "Boolean"
+                    },
+                    {
+                        "is_required": false,
+                        "name": "query",
+                        "property_type": "Object"
+                    },
+                    {
+                        "is_required": false,
+                        "name": "queryId",
+                        "property_type": "String"
+                    }
+                ]
+            },
+            "key": "query completed",
+            "kind": "property_group",
+            "source": {
+                "file": ".ph/us/project-2/app-events/events.ts"
+            }
+        }
+    ],
+    "version": 1
+}

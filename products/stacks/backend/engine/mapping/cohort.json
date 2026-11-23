@@ -1,0 +1,35 @@
+{
+    "kind": "cohort",
+    "scopes": {
+        "read": ["cohort"],
+        "write": ["cohort"]
+    },
+    "read_api": { "collection": "cohorts" },
+    "resource_type": "posthog_cohort",
+    "id_type": "number",
+    "api_schema": {
+        "product": "cohorts",
+        "name": "CohortsCreateBody"
+    },
+    "fields": {
+        "name": "name",
+        "description": "description",
+        "filters": "filters",
+        "is_static": "is_static"
+    },
+    "json_fields": ["filters"],
+    "set_fields": [],
+    "unmanaged": {},
+    "gaps": {
+        "query": "This version supports membership filters only.",
+        "cohort_type": "Only the static or dynamic distinction is available through is_static.",
+        "_create_in_folder": "This version cannot set a cohort folder.",
+        "_create_static_person_ids": "This version cannot set static cohort membership."
+    },
+    "removal": "allow",
+    "natural_key": null,
+    "import_id": "{entity_id}",
+    "hook": null,
+    "accepted_defaults": { "_create_static_person_ids": [] },
+    "loses": "Filters that refer to the original cohort still use its old ID."
+}

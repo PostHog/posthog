@@ -96,6 +96,8 @@ import { featureFlagBreakdownInsightUrl, keyBeforeDelete } from 'products/featur
 import { FeatureFlagStaleBanner } from 'products/feature_flags/frontend/FeatureFlagStaleBanner'
 import { FeatureFlagRestoreVersionButton } from 'products/feature_flags/frontend/restoreVersion/FeatureFlagRestoreVersionButton'
 import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+import { managedEntityLogic } from 'products/stacks/frontend/managedEntityLogic'
+import { ManagedInCodeBanner } from 'products/stacks/frontend/ManagedInCodeBanner'
 
 import { featureFlagContextItems } from './featureFlagAiContext'
 import { openFeatureFlagArchiveDialog } from './featureFlagArchiveDialog'
@@ -212,6 +214,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
 
     const { currentTeamId } = useValues(teamLogic)
     const { reportUserFeedbackButtonClicked } = useActions(eventUsageLogic)
+    const { ownedFieldDisabledReason } = useValues(managedEntityLogic({ kind: 'flag', entityId: featureFlag.id }))
 
     const [isQuickSurveyModalOpen, setIsQuickSurveyModalOpen] = useState(false)
     const [quickSurveyVariantKey, setQuickSurveyVariantKey] = useState<string | null>(null)
@@ -472,7 +475,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                         ) : (
                             <SceneTags
                                 onSave={(tags) => saveSidebarTags(tags)}
-                                canEdit
+                                canEdit={!ownedFieldDisabledReason('tags')}
                                 tags={featureFlag.tags}
                                 dataAttrKey={RESOURCE_TYPE}
                             />
@@ -616,6 +619,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                     {featureFlag.id && (
                         <PendingChangeRequestBanner resourceType="feature_flag" resourceId={featureFlag.id} />
                     )}
+                    <ManagedInCodeBanner kind="flag" entityId={featureFlag.id} />
 
                     <FeatureFlagDeletedBanner
                         flag={featureFlag}
@@ -818,7 +822,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             <SceneMenuBarPopover label="Metadata" dataAttr={`${RESOURCE_TYPE}-menubar-metadata`}>
                                 <SceneTagsCombobox
                                     onSave={(updatedTags) => saveTagsInline(updatedTags)}
-                                    canEdit
+                                    canEdit={!ownedFieldDisabledReason('tags')}
                                     tags={featureFlag.tags}
                                     dataAttrKey={RESOURCE_TYPE}
                                 />
@@ -833,6 +837,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                         }}
                         canEdit={
                             !featureFlag.deleted &&
+                            !ownedFieldDisabledReason('name') &&
                             userHasAccess(
                                 AccessControlResourceType.FeatureFlag,
                                 AccessControlLevel.Editor,

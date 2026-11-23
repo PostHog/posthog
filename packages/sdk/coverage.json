@@ -2085,6 +2085,11 @@
         "method": "events.eventDefinitionUpdate"
     },
     {
+        "toolName": "event-schema-create",
+        "status": "exported",
+        "method": "dataManagement.eventSchemaCreate"
+    },
+    {
         "toolName": "event-streams-add-account",
         "status": "exported",
         "method": "customerAnalytics.eventStreamsAddAccount"
@@ -4845,6 +4850,11 @@
         "method": "featureFlags.scheduledChangesUpdate"
     },
     {
+        "toolName": "schema-property-group-create",
+        "status": "exported",
+        "method": "dataManagement.schemaPropertyGroupCreate"
+    },
+    {
         "toolName": "scout-check-record-result",
         "status": "exported",
         "method": "signals.scoutCheckRecordResult"
@@ -5288,6 +5298,36 @@
         "toolName": "sql-variables-update",
         "status": "exported",
         "method": "dataWarehouse.sqlVariablesUpdate"
+    },
+    {
+        "toolName": "stack-binding-lookup",
+        "status": "exported",
+        "method": "stacks.stackBindingLookup"
+    },
+    {
+        "toolName": "stack-bindings-list",
+        "status": "exported",
+        "method": "stacks.stackBindingsList"
+    },
+    {
+        "toolName": "stack-diff",
+        "status": "exported",
+        "method": "stacks.stackDiff"
+    },
+    {
+        "toolName": "stack-diff-get",
+        "status": "exported",
+        "method": "stacks.stackDiffGet"
+    },
+    {
+        "toolName": "stack-managed-kinds-list",
+        "status": "exported",
+        "method": "stacks.stackManagedKindsList"
+    },
+    {
+        "toolName": "stack-push",
+        "status": "exported",
+        "method": "stacks.stackPush"
     },
     {
         "toolName": "streamlit-apps-create",

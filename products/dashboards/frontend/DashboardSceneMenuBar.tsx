@@ -57,6 +57,7 @@ import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { notebooksModel } from '~/models/notebooksModel'
 import { AccessControlLevel, AccessControlResourceType, DashboardMode, ExporterFormat, SidePanelTab } from '~/types'
 
+import { managedEntityLogic } from 'products/stacks/frontend/managedEntityLogic'
 import { urlForSubscriptions } from 'products/subscriptions/frontend/components/Subscriptions/utils'
 
 import { DashboardAddTileSubMenu } from './DashboardAddTileSubMenu'
@@ -93,6 +94,7 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
         undoLayoutDisabledReason,
         redoLayoutDisabledReason,
     } = useValues(dashboardLogic)
+    const { ownedFieldDisabledReason } = useValues(managedEntityLogic({ kind: 'dashboard', entityId: dashboard?.id }))
     const {
         setDashboardMode,
         updateDashboardTags,
@@ -420,7 +422,7 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                     >
                         <SceneTagsCombobox
                             onSave={(t) => updateDashboardTags(t)}
-                            canEdit={canEditDashboard}
+                            canEdit={canEditDashboard && !ownedFieldDisabledReason('tags')}
                             tags={dashboard?.tags}
                             dataAttrKey={RESOURCE_TYPE}
                             loading={isSavingTags}

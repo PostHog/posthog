@@ -1,0 +1,678 @@
+{
+  "resources": [
+    {
+      "body": {
+        "name": "Purchased",
+        "steps": [
+          {
+            "event": "checkout_completed"
+          }
+        ]
+      },
+      "key": "purchased",
+      "kind": "action",
+      "source": {
+        "export": "purchased",
+        "file": "packages/sdk/tests/fixtures/stack-all-kinds/people.ts"
+      }
+    },
+    {
+      "body": {
+        "check_type": "not_null",
+        "column_name": "account_id",
+        "description": "Every MRR row names an account.",
+        "name": "mrr_account_id_not_null",
+        "severity": "error",
+        "subject_type": "view",
+        "subject_uuid": {
+          "$ref": {
+            "key": "mrr",
+            "kind": "model"
+          }
+        }
+      },
+      "key": "mrr_account_id_not_null",
+      "kind": "check",
+      "source": {
+        "export": "mrrAccountsPresent",
+        "file": "packages/sdk/tests/fixtures/stack-all-kinds/metrics.ts"
+      }
+    },
+    {
+      "body": {
+        "filters": {
+          "properties": {
+            "type": "OR",
+            "values": [
+              {
+                "type": "AND",
+                "values": [
+                  {
+                    "key": "plan",
+                    "operator": "exact",
+                    "type": "person",
+                    "value": [
+                      "team",
+                      "scale"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "name": "Paying customers"
+      },
+      "key": "paying_customers",
+      "kind": "cohort",
+      "source": {
+        "export": "payingCustomers",
+        "file": "packages/sdk/tests/fixtures/stack-all-kinds/people.ts"
+      }
+    },
+    {
+      "body": {
+        "content": "---\nsummary: The plans an account can be on, and how each is billed.\nstatus: active\n---\n# Plans\n\nFree, team and scale. Scale accounts are billed annually.\n",
+        "path": "projects/2/plans.md"
+      },
+      "key": "projects/2/plans.md",
+      "kind": "context_page",
+      "source": {
+        "export": "pages",
+        "file": "packages/sdk/tests/fixtures/stack-all-kinds/context.ts"
+      }
+    },
+    {
+      "body": {
+        "content": "---\nsummary: How monthly recurring revenue is counted.\nstatus: active\n---\n# Revenue\n\nMRR counts confirmed checkouts only. Refunds show up the following month.\n",
+        "path": "projects/2/revenue.md"
+      },
+      "key": "projects/2/revenue.md",
+      "kind": "context_page",
+      "source": {
+        "export": "pages",
+        "file": "packages/sdk/tests/fixtures/stack-all-kinds/context.ts"
+      }
+    },
+    {
+      "body": {
+        "name": "Revenue",
+        "tiles": [
+          {
+            "insight": {
+              "$ref": {
+                "key": "revenue-mrr_sum_of_mrr_usd_by_month",
+                "kind": "insight"
+              }
+            },
+            "layouts": {
+              "sm": {
+                "h": 5,
+                "w": 6,
+                "x": 0,
+                "y": 0
+              }
+            }
+          },
+          {
+            "insight": {
+              "$ref": {
+                "key": "revenue-checkout_completed_plan_free",
+                "kind": "insight"
+              }
+            },
+            "layouts": {
+              "sm": {
+                "h": 5,
+                "w": 6,
+                "x": 6,
+                "y": 0
+              }
+            }
+          },
+          {
+            "insight": {
+              "$ref": {
+                "key": "revenue-checkout_completed_plan_team",
+                "kind": "insight"
+              }
+            },
+            "layouts": {
+              "sm": {
+                "h": 5,
+                "w": 6,
+                "x": 0,
+                "y": 5
+              }
+            }
+          },
+          {
+            "insight": {
+              "$ref": {
+                "key": "revenue-checkout_completed_plan_scale",
+                "kind": "insight"
+              }
+            },
+            "layouts": {
+              "sm": {
+                "h": 5,
+                "w": 6,
+                "x": 6,
+                "y": 5
+              }
+            }
+          },
+          {
+            "layouts": {
+              "sm": {
+                "h": 2,
+                "w": 12,
+                "x": 0,
+                "y": 10
+              }
+            },
+            "text": {
+              "body": "Revenue is recognised when the payment provider confirms the checkout."
+            }
+          }
+        ]
+      },
+      "key": "revenue",
+      "kind": "dashboard",
+      "source": {
+        "export": "revenue",
+        "file": "packages/sdk/tests/fixtures/stack-all-kinds/views.ts"
+      }
+    },
+    {
+      "body": {
+        "description": "MRR by account and month, for the in-app billing page.",
+        "name": "account-revenue",
+        "query": {
+          "kind": "HogQLQuery",
+          "query": "select account_id, month, mrr_usd\nfrom mrr\norder by account_id, month"
+        }
+      },
+      "depends_on": [
+        {
+          "key": "mrr",
+          "kind": "model"
+        }
+      ],
+      "key": "account-revenue",
+      "kind": "endpoint",
+      "source": {
+        "export": "accountRevenue",
+        "file": "packages/sdk/tests/fixtures/stack-all-kinds/sources.ts"
+      }
+    },
+    {
+      "body": {
+        "description": "A customer paid for an order. Sent by the server after the payment provider confirms.",
+        "enforcement_mode": "reject",
+        "name": "checkout_completed",
+        "property_groups": [
+          {
+            "$ref": {
+              "key": "checkout_completed",
+              "kind": "property_group"
+            }
+          }
+        ],
+        "tags": [
+          "payments"
+        ]
+      },
+      "key": "checkout_completed",
+      "kind": "event",
+      "source": {
+        "export": "checkoutCompleted",
+        "file": "packages/sdk/tests/fixtures/stack-all-kinds/events.ts"
+      }
+    },
+    {
+      "body": {
+        "description": "An account moved to a higher plan.",
+        "name": "plan_upgraded",
+        "property_groups": [
+          {
+            "$ref": {
+              "key": "plan_upgraded",
+              "kind": "property_group"
+            }
+          }
+        ]
+      },
+      "key": "plan_upgraded",
+      "kind": "event",
+      "source": {
+        "export": "planUpgraded",
+        "file": "packages/sdk/tests/fixtures/stack-all-kinds/events.ts"
+      }
+    },
+    {
+      "body": {
+        "description": "Does the new checkout flow raise completed checkouts?",
+        "feature_flag_key": "new-checkout",
+        "name": "New checkout flow"
+      },
+      "depends_on": [
+        {
+          "key": "new-checkout",
+          "kind": "flag"
+        }
+      ],
+      "key": "new_checkout_experiment",
+      "kind": "experiment",
+      "source": {
+        "export": "checkoutExperiment",
+        "file": "packages/sdk/tests/fixtures/stack-all-kinds/flags.ts"
+      }
+    },
+    {
+      "body": {
+        "filters": {
+          "groups": [
+            {
+              "properties": [],
+              "rollout_percentage": 100
+            }
+          ],
+          "multivariate": {
+            "variants": [
+              {
+                "key": "control",
+                "rollout_percentage": 50
+              },
+              {
+                "key": "test",
+                "rollout_percentage": 50
+              }
+            ]
+          }
+        },
+        "key": "new-checkout",
+        "name": "New checkout flow"
+      },
+      "key": "new-checkout",
+      "kind": "flag",
+      "source": {
+        "export": "newCheckout",
+        "file": "packages/sdk/tests/fixtures/stack-all-kinds/flags.ts"
+      }
+    },
+    {
+      "body": {
+        "dashboards": [
+          {
+            "$ref": {
+              "key": "revenue",
+              "kind": "dashboard"
+            }
+          }
+        ],
+        "name": "checkout_completed (plan = free)",
+        "query": {
+          "kind": "InsightVizNode",
+          "source": {
+            "interval": "week",
+            "kind": "TrendsQuery",
+            "series": [
+              {
+                "event": "checkout_completed",
+                "kind": "EventsNode",
+                "properties": [
+                  {
+                    "key": "plan",
+                    "operator": "exact",
+                    "type": "event",
+                    "value": "free"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "key": "revenue-checkout_completed_plan_free",
+      "kind": "insight",
+      "source": {
+        "file": "packages/sdk/tests/fixtures/stack-all-kinds/views.ts"
+      }
+    },
+    {
+      "body": {
+        "dashboards": [
+          {
+            "$ref": {
+              "key": "revenue",
+              "kind": "dashboard"
+            }
+          }
+        ],
+        "name": "checkout_completed (plan = scale)",
+        "query": {
+          "kind": "InsightVizNode",
+          "source": {
+            "interval": "week",
+            "kind": "TrendsQuery",
+            "series": [
+              {
+                "event": "checkout_completed",
+                "kind": "EventsNode",
+                "properties": [
+                  {
+                    "key": "plan",
+                    "operator": "exact",
+                    "type": "event",
+                    "value": "scale"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "key": "revenue-checkout_completed_plan_scale",
+      "kind": "insight",
+      "source": {
+        "file": "packages/sdk/tests/fixtures/stack-all-kinds/views.ts"
+      }
+    },
+    {
+      "body": {
+        "dashboards": [
+          {
+            "$ref": {
+              "key": "revenue",
+              "kind": "dashboard"
+            }
+          }
+        ],
+        "name": "checkout_completed (plan = team)",
+        "query": {
+          "kind": "InsightVizNode",
+          "source": {
+            "interval": "week",
+            "kind": "TrendsQuery",
+            "series": [
+              {
+                "event": "checkout_completed",
+                "kind": "EventsNode",
+                "properties": [
+                  {
+                    "key": "plan",
+                    "operator": "exact",
+                    "type": "event",
+                    "value": "team"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "key": "revenue-checkout_completed_plan_team",
+      "kind": "insight",
+      "source": {
+        "file": "packages/sdk/tests/fixtures/stack-all-kinds/views.ts"
+      }
+    },
+    {
+      "body": {
+        "dashboards": [
+          {
+            "$ref": {
+              "key": "revenue",
+              "kind": "dashboard"
+            }
+          }
+        ],
+        "name": "mrr: sum of mrr_usd by month",
+        "query": {
+          "chartSettings": {
+            "xAxis": {
+              "column": "period"
+            },
+            "yAxis": [
+              {
+                "column": "value"
+              }
+            ]
+          },
+          "display": "ActionsLineGraph",
+          "kind": "DataVisualizationNode",
+          "source": {
+            "kind": "HogQLQuery",
+            "query": "SELECT toStartOfMonth(month) AS period, sum(mrr_usd) AS value FROM mrr GROUP BY period ORDER BY period"
+          }
+        }
+      },
+      "depends_on": [
+        {
+          "key": "mrr",
+          "kind": "model"
+        }
+      ],
+      "key": "revenue-mrr_sum_of_mrr_usd_by_month",
+      "kind": "insight",
+      "source": {
+        "file": "packages/sdk/tests/fixtures/stack-all-kinds/views.ts"
+      }
+    },
+    {
+      "body": {
+        "definition": {
+          "kind": "HogQLQuery",
+          "query": "SELECT sum(mrr_usd) AS value FROM mrr"
+        },
+        "description": "Sum of monthly recurring revenue across accounts.",
+        "name": "total_mrr",
+        "unit": "USD"
+      },
+      "depends_on": [
+        {
+          "key": "mrr",
+          "kind": "model"
+        }
+      ],
+      "key": "total_mrr",
+      "kind": "metric",
+      "source": {
+        "export": "totalMrr",
+        "file": "packages/sdk/tests/fixtures/stack-all-kinds/metrics.ts"
+      }
+    },
+    {
+      "body": {
+        "columns": {
+          "account_id": "string",
+          "last_checkout": "datetime"
+        },
+        "description": "Accounts with no checkout in the last 60 days.",
+        "name": "churned_accounts",
+        "query": {
+          "kind": "HogQLQuery",
+          "query": "select properties.account_id as account_id, max(timestamp) as last_checkout\nfrom events\nwhere event = 'checkout_completed'\ngroup by account_id\nhaving last_checkout < now() - interval 60 day\n"
+        }
+      },
+      "key": "churned_accounts",
+      "kind": "model",
+      "source": {
+        "export": "churnedAccounts",
+        "file": "packages/sdk/tests/fixtures/stack-all-kinds/models/models.ts"
+      }
+    },
+    {
+      "body": {
+        "columns": {
+          "account_id": "string",
+          "month": "date",
+          "mrr_usd": "number",
+          "plan": "string"
+        },
+        "description": "Monthly recurring revenue per account, from confirmed checkouts.",
+        "is_materialized": true,
+        "name": "mrr",
+        "query": {
+          "kind": "HogQLQuery",
+          "query": "select properties.account_id as account_id,\n       toStartOfMonth(timestamp) as month,\n       sum(toFloat(properties.total_usd)) as mrr_usd,\n       any(properties.plan) as plan\nfrom events\nwhere event = 'checkout_completed'\ngroup by account_id, month"
+        },
+        "sync_frequency": "1hour"
+      },
+      "key": "mrr",
+      "kind": "model",
+      "source": {
+        "export": "mrr",
+        "file": "packages/sdk/tests/fixtures/stack-all-kinds/models/models.ts"
+      }
+    },
+    {
+      "body": {
+        "columns": {
+          "month": "date",
+          "mrr_usd": "number",
+          "plan": "string"
+        },
+        "description": "Monthly recurring revenue per plan, from the MRR model.",
+        "name": "mrr_by_plan",
+        "query": {
+          "kind": "HogQLQuery",
+          "query": "select month, plan, sum(mrr_usd) as mrr_usd\nfrom mrr\ngroup by month, plan"
+        }
+      },
+      "depends_on": [
+        {
+          "key": "mrr",
+          "kind": "model"
+        }
+      ],
+      "key": "mrr_by_plan",
+      "kind": "model",
+      "source": {
+        "export": "mrrByPlan",
+        "file": "packages/sdk/tests/fixtures/stack-all-kinds/models/models.ts"
+      }
+    },
+    {
+      "body": {
+        "name": "checkout_completed",
+        "properties": [
+          {
+            "is_required": true,
+            "name": "account_id",
+            "property_type": "String"
+          },
+          {
+            "is_required": true,
+            "name": "order_id",
+            "property_type": "String"
+          },
+          {
+            "is_required": false,
+            "name": "paid_at",
+            "property_type": "DateTime"
+          },
+          {
+            "enum": [
+              "free",
+              "team",
+              "scale"
+            ],
+            "is_required": false,
+            "name": "plan",
+            "property_type": "String"
+          },
+          {
+            "description": "Order total after discounts",
+            "is_required": true,
+            "name": "total_usd",
+            "property_type": "Numeric"
+          }
+        ]
+      },
+      "key": "checkout_completed",
+      "kind": "property_group",
+      "source": {
+        "file": "packages/sdk/tests/fixtures/stack-all-kinds/events.ts"
+      }
+    },
+    {
+      "body": {
+        "name": "plan_upgraded",
+        "properties": [
+          {
+            "is_required": true,
+            "name": "account_id",
+            "property_type": "String"
+          },
+          {
+            "enum": [
+              "free",
+              "team"
+            ],
+            "is_required": true,
+            "name": "from_plan",
+            "property_type": "String"
+          },
+          {
+            "is_required": false,
+            "name": "trial",
+            "property_type": "Boolean"
+          }
+        ]
+      },
+      "key": "plan_upgraded",
+      "kind": "property_group",
+      "source": {
+        "file": "packages/sdk/tests/fixtures/stack-all-kinds/events.ts"
+      }
+    },
+    {
+      "body": {
+        "payload": {
+          "database": "billing",
+          "host": "db.example.com",
+          "password": {
+            "$secret": "BILLING_DB_PASSWORD"
+          },
+          "port": 5432,
+          "user": "posthog"
+        },
+        "prefix": "billing_",
+        "source_type": "Postgres"
+      },
+      "key": "billing_db",
+      "kind": "source",
+      "source": {
+        "export": "billingDatabase",
+        "file": "packages/sdk/tests/fixtures/stack-all-kinds/sources.ts"
+      }
+    },
+    {
+      "body": {
+        "linked_flag_id": {
+          "$ref": {
+            "key": "new-checkout",
+            "kind": "flag"
+          }
+        },
+        "name": "Checkout feedback",
+        "questions": [
+          {
+            "question": "How was checking out today?",
+            "type": "open"
+          }
+        ],
+        "type": "popover"
+      },
+      "key": "checkout_feedback",
+      "kind": "survey",
+      "source": {
+        "export": "checkoutSurvey",
+        "file": "packages/sdk/tests/fixtures/stack-all-kinds/flags.ts"
+      }
+    }
+  ],
+  "version": 1
+}

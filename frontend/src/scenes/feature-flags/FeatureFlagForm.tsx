@@ -56,6 +56,7 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconArrowDown, IconArrowUp, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonDisabledArea } from 'lib/lemon-ui/LemonDisabledArea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import 'lib/lemon-ui/Lettermark'
 import { alphabet } from 'lib/utils/strings'
@@ -74,6 +75,8 @@ import {
 } from '~/types'
 
 import { runningExperimentId } from 'products/feature_flags/frontend/runningExperimentId'
+import { managedEntityLogic } from 'products/stacks/frontend/managedEntityLogic'
+import { ManagedInCodeBanner } from 'products/stacks/frontend/ManagedInCodeBanner'
 
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
@@ -207,6 +210,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     } = useActions(featureFlagLogic)
     const { isApprovalRequired } = useValues(approvalsGateLogic)
     const { allCohorts } = useValues(cohortsModel)
+    const { ownedFieldDisabledReason } = useValues(managedEntityLogic({ kind: 'flag', entityId: featureFlag.id }))
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const hasEvaluationContexts = useFeatureFlag('FLAG_EVALUATION_TAGS') // NB: the tag was named "flag-evaluation-tags" before we renamed the concept – i.e. this powers evaluation contexts even though the name implies tags
     const isNewFeatureFlag = id === 'new' || id === undefined
@@ -483,6 +487,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                 />
 
                 <SceneContent>
+                    <ManagedInCodeBanner kind="flag" entityId={featureFlag.id} />
                     {/* Two-column layout */}
                     <div className="flex gap-4 flex-wrap items-start">
                         {/* Left column */}
@@ -538,6 +543,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                             value={value}
                                             onChange={(v) => onChange(slugifyFeatureFlagKey(v))}
                                             data-attr="feature-flag-key"
+                                            disabledReason={ownedFieldDisabledReason('key')}
                                             className="ph-ignore-input"
                                             autoComplete="off"
                                             autoCapitalize="off"
@@ -549,11 +555,17 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </LemonField>
 
                                 <LemonField name="name" label="Description">
-                                    <LemonTextArea
-                                        className="ph-ignore-input"
-                                        data-attr="feature-flag-description"
-                                        placeholder="(Optional) A description of the feature flag for your reference."
-                                    />
+                                    {({ value, onChange }) => (
+                                        <LemonDisabledArea disabledReason={ownedFieldDisabledReason('name')}>
+                                            <LemonTextArea
+                                                value={value}
+                                                onChange={onChange}
+                                                className="ph-ignore-input"
+                                                data-attr="feature-flag-description"
+                                                placeholder="(Optional) A description of the feature flag for your reference."
+                                            />
+                                        </LemonDisabledArea>
+                                    )}
                                 </LemonField>
 
                                 <LemonDivider />
@@ -680,11 +692,15 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     ) : (
                                                         <LemonField name="tags">
                                                             {({ value: formTags, onChange: onChangeTags }) => (
-                                                                <ObjectTags
-                                                                    tags={formTags}
-                                                                    onChange={onChangeTags}
-                                                                    saving={false}
-                                                                />
+                                                                <LemonDisabledArea
+                                                                    disabledReason={ownedFieldDisabledReason('tags')}
+                                                                >
+                                                                    <ObjectTags
+                                                                        tags={formTags}
+                                                                        onChange={onChangeTags}
+                                                                        saving={false}
+                                                                    />
+                                                                </LemonDisabledArea>
                                                             )}
                                                         </LemonField>
                                                     )}
@@ -787,6 +803,9 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                 <LemonSwitch
                                                                     checked={value}
                                                                     onChange={onChange}
+                                                                    disabledReason={ownedFieldDisabledReason(
+                                                                        'ensure_experience_continuity'
+                                                                    )}
                                                                     bordered
                                                                     fullWidth
                                                                     label="Persist flag across authentication steps"

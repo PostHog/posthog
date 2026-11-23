@@ -35,6 +35,7 @@ export function resolveGatewayProduct({
     signals_chat: "signals",
     signals_scout: "signals",
     slack: "slack_app",
+    stacks: "posthog_ai",
     support_reply: "conversations",
     workflow: "workflows",
   };

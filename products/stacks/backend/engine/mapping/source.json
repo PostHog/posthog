@@ -1,0 +1,61 @@
+{
+    "kind": "source",
+    "scopes": {
+        "read": ["external_data_source"],
+        "write": ["external_data_source"]
+    },
+    "read_api": {
+        "collection": "external_data_sources",
+        "omit": ["payload", "payload.schemas"]
+    },
+    "resource_type": "posthog_external_data_source",
+    "id_type": "string",
+    "api_schema": {
+        "product": "warehouse_sources",
+        "name": "ExternalDataSourcesCreateBody"
+    },
+    "fields": {
+        "source_type": "source_type",
+        "prefix": "prefix",
+        "payload": "job_inputs_json",
+        "payload.schemas": "schemas"
+    },
+    "json_fields": ["payload"],
+    "set_fields": [],
+    "unmanaged": {},
+    "gaps": {
+        "description": "This version cannot set a source description.",
+        "access_method": "Only warehouse imports are supported.",
+        "direct_query_enabled": "This version cannot enable direct querying.",
+        "destination_ids": "This version can only write to the PostHog warehouse."
+    },
+    "removal": "prevent",
+    "natural_key": null,
+    "import_id": "{entity_id}",
+    "hook": "source_payload",
+    "secret_inputs": {
+        "connection": "payload",
+        "public_paths": {
+            "Stripe": {
+                "auth_method.selection": ["api_key", "oauth"],
+                "auth_method.stripe_integration_id": null
+            },
+            "Snowflake": {
+                "account_id": null,
+                "auth_type.selection": ["password", "keypair"],
+                "auth_type.user": null
+            },
+            "Postgres": {
+                "ssh_tunnel.enabled": [true, false, "True", "False", "true", "false"],
+                "ssh_tunnel.require_tls.enabled": [true, false, "True", "False", "true", "false"],
+                "ssh_tunnel.host": null,
+                "ssh_tunnel.port": null,
+                "ssh_tunnel.auth_type.selection": ["password", "keypair"],
+                "ssh_tunnel.auth_type.username": null
+            }
+        }
+    },
+    "accepted_defaults": { "access_method": "warehouse", "direct_query_enabled": false },
+    "loses": "Sync history and links belong to the original source.",
+    "public_inputs": ["database", "host", "port", "schema", "stripe_account_id", "user"]
+}

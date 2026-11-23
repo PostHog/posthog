@@ -1,0 +1,2216 @@
+{
+    "format_version": "1.0",
+    "provider_schemas": {
+        "registry.opentofu.org/posthog/posthog": {
+            "provider": {
+                "version": 0,
+                "block": {
+                    "attributes": {
+                        "api_key": {
+                            "type": "string",
+                            "optional": true,
+                            "sensitive": true
+                        },
+                        "host": {
+                            "type": "string",
+                            "optional": true
+                        },
+                        "organization_id": {
+                            "type": "string",
+                            "optional": true
+                        },
+                        "project_id": {
+                            "type": "string",
+                            "optional": true
+                        }
+                    }
+                }
+            },
+            "resource_schemas": {
+                "posthog_access_control": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "access_level": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "created_at": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "id": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "organization_member": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "project_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "resource": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "resource_id": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "role": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "updated_at": {
+                                "type": "string",
+                                "computed": true
+                            }
+                        }
+                    }
+                },
+                "posthog_action": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "created_at": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "deleted": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "description": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "id": {
+                                "type": "number",
+                                "computed": true
+                            },
+                            "name": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "post_to_slack": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "project_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "slack_message_format": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "steps_json": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "tags": {
+                                "type": ["set", "string"],
+                                "optional": true
+                            }
+                        }
+                    }
+                },
+                "posthog_alert": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "calculation_interval": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "check_ongoing_interval": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "column": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "condition_type": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "enabled": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "evaluation": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "id": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "insight": {
+                                "type": "number",
+                                "required": true
+                            },
+                            "label_column": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "name": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "project_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "schedule_restriction": {
+                                "nested_type": {
+                                    "attributes": {
+                                        "blocked_windows": {
+                                            "nested_type": {
+                                                "attributes": {
+                                                    "end": {
+                                                        "type": "string",
+                                                        "required": true
+                                                    },
+                                                    "start": {
+                                                        "type": "string",
+                                                        "required": true
+                                                    }
+                                                },
+                                                "nesting_mode": "set"
+                                            },
+                                            "required": true
+                                        }
+                                    },
+                                    "nesting_mode": "single"
+                                },
+                                "optional": true
+                            },
+                            "series_index": {
+                                "type": "number",
+                                "optional": true
+                            },
+                            "skip_weekend": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "subscribed_users": {
+                                "type": ["set", "number"],
+                                "required": true
+                            },
+                            "threshold_lower": {
+                                "type": "number",
+                                "optional": true
+                            },
+                            "threshold_type": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "threshold_upper": {
+                                "type": "number",
+                                "optional": true
+                            }
+                        }
+                    }
+                },
+                "posthog_cohort": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "created_at": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "deleted": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "description": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "filters": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "id": {
+                                "type": "number",
+                                "computed": true
+                            },
+                            "is_static": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "name": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "project_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            }
+                        }
+                    }
+                },
+                "posthog_context_page": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "content": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "head_sha": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "id": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "path": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "project_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            }
+                        }
+                    }
+                },
+                "posthog_dashboard": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "deleted": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "description": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "id": {
+                                "type": "number",
+                                "computed": true
+                            },
+                            "name": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "pinned": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "project_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "tags": {
+                                "type": ["set", "string"],
+                                "optional": true
+                            }
+                        }
+                    }
+                },
+                "posthog_dashboard_layout": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "dashboard_id": {
+                                "type": "number",
+                                "required": true
+                            },
+                            "id": {
+                                "type": "number",
+                                "computed": true
+                            },
+                            "project_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "tiles": {
+                                "nested_type": {
+                                    "attributes": {
+                                        "color": {
+                                            "type": "string",
+                                            "optional": true
+                                        },
+                                        "insight_id": {
+                                            "type": "number",
+                                            "optional": true
+                                        },
+                                        "layouts_json": {
+                                            "type": "string",
+                                            "optional": true,
+                                            "computed": true
+                                        },
+                                        "show_description": {
+                                            "type": "bool",
+                                            "optional": true
+                                        },
+                                        "text_body": {
+                                            "type": "string",
+                                            "optional": true
+                                        },
+                                        "tile_id": {
+                                            "type": "number",
+                                            "computed": true
+                                        }
+                                    },
+                                    "nesting_mode": "list"
+                                },
+                                "required": true
+                            }
+                        }
+                    }
+                },
+                "posthog_data_catalog_metric": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "ai_model": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "created_source": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "definition_json": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "definition_kind": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "description": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "display_name": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "effective_definition_json": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "id": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "is_drifted": {
+                                "type": "bool",
+                                "computed": true
+                            },
+                            "name": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "owner": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "project_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "reasoning": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "source_insight_short_id": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "status": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "unit": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            }
+                        }
+                    }
+                },
+                "posthog_data_quality_check": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "ai_model": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "check_type": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "column_name": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "confidence": {
+                                "type": "number",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "config_json": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "created_source": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "description": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "enabled": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "fingerprint": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "id": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "name": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "owner": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "project_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "reasoning": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "severity": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "subject_type": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "subject_uuid": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "tags": {
+                                "type": ["set", "string"],
+                                "optional": true,
+                                "computed": true
+                            }
+                        }
+                    }
+                },
+                "posthog_early_access_feature": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "created_at": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "description": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "documentation_url": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "feature_flag_id": {
+                                "type": "number",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "feature_flag_key": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "id": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "name": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "payload": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "project_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "stage": {
+                                "type": "string",
+                                "required": true
+                            }
+                        }
+                    }
+                },
+                "posthog_endpoint": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "bucket_overrides": {
+                                "type": ["map", "string"],
+                                "optional": true
+                            },
+                            "current_version": {
+                                "type": "number",
+                                "computed": true
+                            },
+                            "data_freshness_seconds": {
+                                "type": "number",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "derived_from_insight": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "description": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "id": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "is_active": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "is_materialized": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "name": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "optional_breakdown_properties": {
+                                "type": ["set", "string"],
+                                "optional": true
+                            },
+                            "project_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "query_json": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "tags": {
+                                "type": ["set", "string"],
+                                "optional": true
+                            }
+                        }
+                    }
+                },
+                "posthog_event_definition": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "description": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "enforcement_mode": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "hidden": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "id": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "manages_enforcement_mode": {
+                                "type": "bool",
+                                "computed": true
+                            },
+                            "name": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "owner": {
+                                "type": "number",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "project_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "tags": {
+                                "type": ["set", "string"],
+                                "optional": true,
+                                "computed": true
+                            },
+                            "verified": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            }
+                        }
+                    }
+                },
+                "posthog_event_schema": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "event_definition": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "id": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "project_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "property_group_id": {
+                                "type": "string",
+                                "required": true
+                            }
+                        }
+                    }
+                },
+                "posthog_experiment": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "allow_unknown_events": {
+                                "type": "bool",
+                                "optional": true
+                            },
+                            "description": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "exposure_criteria": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "feature_flag_key": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "holdout_id": {
+                                "type": "number",
+                                "optional": true
+                            },
+                            "id": {
+                                "type": "number",
+                                "computed": true
+                            },
+                            "metrics": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "metrics_secondary": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "name": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "project_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            }
+                        },
+                        "block_types": {
+                            "status": {
+                                "nesting_mode": "single",
+                                "block": {
+                                    "attributes": {
+                                        "state": {
+                                            "type": "string",
+                                            "optional": true,
+                                            "computed": true
+                                        }
+                                    },
+                                    "block_types": {
+                                        "stopped": {
+                                            "nesting_mode": "single",
+                                            "block": {
+                                                "attributes": {
+                                                    "conclusion": {
+                                                        "type": "string",
+                                                        "optional": true,
+                                                        "computed": true
+                                                    },
+                                                    "conclusion_comment": {
+                                                        "type": "string",
+                                                        "optional": true,
+                                                        "computed": true
+                                                    },
+                                                    "release_to_everyone": {
+                                                        "type": "bool",
+                                                        "optional": true
+                                                    },
+                                                    "ship_variant": {
+                                                        "type": "string",
+                                                        "optional": true
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "posthog_external_data_source": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "created_at": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "id": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "job_inputs_json": {
+                                "type": "string",
+                                "required": true,
+                                "sensitive": true
+                            },
+                            "last_run_at": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "prefix": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "project_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "schemas": {
+                                "type": ["list", "string"],
+                                "required": true
+                            },
+                            "source_type": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "status": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "sync_frequency": {
+                                "type": "string",
+                                "computed": true
+                            }
+                        }
+                    }
+                },
+                "posthog_feature_flag": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "active": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "archived": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "bucketing_identifier": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "create_usage_dashboard": {
+                                "type": "bool",
+                                "deprecated": true,
+                                "deprecation_message": "PostHog no longer creates saved usage dashboards when feature flags are created. Remove this setting from new configurations.",
+                                "optional": true
+                            },
+                            "deleted": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "ensure_experience_continuity": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "evaluation_contexts": {
+                                "type": ["set", "string"],
+                                "optional": true,
+                                "computed": true
+                            },
+                            "evaluation_runtime": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "filters": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "id": {
+                                "type": "number",
+                                "computed": true
+                            },
+                            "ignore_filter_fields": {
+                                "type": ["set", "string"],
+                                "optional": true
+                            },
+                            "is_remote_configuration": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "key": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "name": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "owned_filter_keys": {
+                                "type": ["set", "string"],
+                                "optional": true
+                            },
+                            "project_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "rollout_percentage": {
+                                "type": "number",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "tags": {
+                                "type": ["set", "string"],
+                                "optional": true,
+                                "computed": true
+                            }
+                        }
+                    }
+                },
+                "posthog_hog_function": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "description": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "enabled": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "execution_order": {
+                                "type": "number",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "filters_json": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "hog": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "icon_url": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "id": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "inputs_json": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "inputs_schema_json": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "mappings_json": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "masking_json": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "name": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "project_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "sensitive_inputs_json": {
+                                "type": "string",
+                                "optional": true,
+                                "sensitive": true
+                            },
+                            "template_id": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "type": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            }
+                        }
+                    }
+                },
+                "posthog_insight": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "create_in_folder": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "dashboard_ids": {
+                                "type": ["set", "number"],
+                                "optional": true
+                            },
+                            "deleted": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "derived_name": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "description": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "id": {
+                                "type": "number",
+                                "computed": true
+                            },
+                            "name": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "project_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "query_json": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "query_sql": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "short_id": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "tags": {
+                                "type": ["set", "string"],
+                                "optional": true
+                            }
+                        }
+                    }
+                },
+                "posthog_insight_variable": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "code_name": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "created_at": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "default_value_json": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "id": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "name": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "project_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "type": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "values_json": {
+                                "type": "string",
+                                "optional": true
+                            }
+                        }
+                    }
+                },
+                "posthog_logs_alert": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "blocked_windows": {
+                                "nested_type": {
+                                    "attributes": {
+                                        "end": {
+                                            "type": "string",
+                                            "required": true
+                                        },
+                                        "start": {
+                                            "type": "string",
+                                            "required": true
+                                        }
+                                    },
+                                    "nesting_mode": "set"
+                                },
+                                "optional": true
+                            },
+                            "cooldown_minutes": {
+                                "type": "number",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "datapoints_to_alarm": {
+                                "type": "number",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "enabled": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "evaluation_periods": {
+                                "type": "number",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "filter_group_json": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "id": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "name": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "project_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "service_names": {
+                                "type": ["set", "string"],
+                                "optional": true
+                            },
+                            "severity_levels": {
+                                "type": ["set", "string"],
+                                "optional": true
+                            },
+                            "snooze_until": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "state": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "threshold_count": {
+                                "type": "number",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "threshold_operator": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "window_minutes": {
+                                "type": "number",
+                                "optional": true,
+                                "computed": true
+                            }
+                        }
+                    }
+                },
+                "posthog_logs_alert_destination": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "alert_id": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "hog_function_ids": {
+                                "type": ["set", "string"],
+                                "computed": true
+                            },
+                            "id": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "project_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "slack_channel_id": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "slack_channel_name": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "slack_workspace_id": {
+                                "type": "number",
+                                "optional": true
+                            },
+                            "type": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "webhook_url": {
+                                "type": "string",
+                                "optional": true,
+                                "sensitive": true
+                            }
+                        }
+                    }
+                },
+                "posthog_organization_member": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "email": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "first_name": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "id": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "is_2fa_enabled": {
+                                "type": "bool",
+                                "computed": true
+                            },
+                            "joined_at": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "last_name": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "level": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "organization_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "retain_on_destroy": {
+                                "type": "bool",
+                                "optional": true
+                            },
+                            "user_uuid": {
+                                "type": "string",
+                                "required": true
+                            }
+                        }
+                    }
+                },
+                "posthog_project": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "api_token": {
+                                "type": "string",
+                                "computed": true,
+                                "sensitive": true
+                            },
+                            "id": {
+                                "type": "number",
+                                "computed": true
+                            },
+                            "name": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "organization_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "timezone": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            }
+                        }
+                    }
+                },
+                "posthog_project_default_access": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "access_level": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "id": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "project_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            }
+                        }
+                    }
+                },
+                "posthog_project_member": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "access_level": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "created_at": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "id": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "organization_member": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "project_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "role": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "updated_at": {
+                                "type": "string",
+                                "computed": true
+                            }
+                        }
+                    }
+                },
+                "posthog_project_settings": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "anonymize_ips": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "app_urls": {
+                                "type": ["list", "string"],
+                                "optional": true,
+                                "computed": true
+                            },
+                            "autocapture_exceptions_opt_in": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "autocapture_web_vitals_opt_in": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "capture_performance_opt_in": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "cookieless_server_hash_mode": {
+                                "type": "number",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "heatmaps_opt_in": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "id": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "project_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "recording_domains": {
+                                "type": ["list", "string"],
+                                "optional": true,
+                                "computed": true
+                            },
+                            "session_recording_network_payload_capture_config": {
+                                "nested_type": {
+                                    "attributes": {
+                                        "record_body": {
+                                            "type": "bool",
+                                            "required": true
+                                        },
+                                        "record_headers": {
+                                            "type": "bool",
+                                            "required": true
+                                        }
+                                    },
+                                    "nesting_mode": "single"
+                                },
+                                "optional": true,
+                                "computed": true
+                            },
+                            "session_recording_opt_in": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "surveys_opt_in": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "test_account_filters": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "test_account_filters_default_checked": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            }
+                        }
+                    }
+                },
+                "posthog_proxy_record": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "created_at": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "created_by": {
+                                "type": "number",
+                                "computed": true
+                            },
+                            "domain": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "id": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "message": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "organization_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "status": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "target_cname": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "updated_at": {
+                                "type": "string",
+                                "computed": true
+                            }
+                        }
+                    }
+                },
+                "posthog_role": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "created_at": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "created_by": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "id": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "name": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "organization_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            }
+                        }
+                    }
+                },
+                "posthog_role_membership": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "id": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "joined_at": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "organization_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "role_id": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "user_email": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "user_uuid": {
+                                "type": "string",
+                                "required": true
+                            }
+                        }
+                    }
+                },
+                "posthog_schema_property_group": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "description": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "id": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "name": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "project_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "properties": {
+                                "nested_type": {
+                                    "attributes": {
+                                        "description": {
+                                            "type": "string",
+                                            "optional": true
+                                        },
+                                        "is_optional_in_types": {
+                                            "type": "bool",
+                                            "optional": true
+                                        },
+                                        "is_required": {
+                                            "type": "bool",
+                                            "optional": true
+                                        },
+                                        "name": {
+                                            "type": "string",
+                                            "required": true
+                                        },
+                                        "property_type": {
+                                            "type": "string",
+                                            "required": true
+                                        }
+                                    },
+                                    "nesting_mode": "set"
+                                },
+                                "optional": true,
+                                "computed": true
+                            }
+                        }
+                    }
+                },
+                "posthog_subscription": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "ai_prompt": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "ai_prompt_config": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "bysetpos": {
+                                "type": "number",
+                                "optional": true
+                            },
+                            "byweekday": {
+                                "type": ["set", "string"],
+                                "optional": true
+                            },
+                            "created_at": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "dashboard_export_insights": {
+                                "type": ["set", "number"],
+                                "optional": true
+                            },
+                            "dashboard_id": {
+                                "type": "number",
+                                "optional": true
+                            },
+                            "enabled": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "frequency": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "id": {
+                                "type": "number",
+                                "computed": true
+                            },
+                            "insight_id": {
+                                "type": "number",
+                                "optional": true
+                            },
+                            "integration_id": {
+                                "type": "number",
+                                "optional": true
+                            },
+                            "interval": {
+                                "type": "number",
+                                "required": true
+                            },
+                            "next_delivery_date": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "project_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "resource_type": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "start_date": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "summary": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "summary_enabled": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "summary_prompt_guide": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "target_type": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "target_value": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "title": {
+                                "type": "string",
+                                "optional": true
+                            }
+                        }
+                    }
+                },
+                "posthog_survey": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "appearance_json": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "archived": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "conditions_json": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "create_in_folder": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "created_at": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "created_by_json": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "description": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "enable_iframe_embedding": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "enable_partial_responses": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "end_date": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "form_content_json": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "id": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "internal_targeting_flag_json": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "iteration_count": {
+                                "type": "number",
+                                "optional": true
+                            },
+                            "iteration_frequency_days": {
+                                "type": "number",
+                                "optional": true
+                            },
+                            "linked_flag_id": {
+                                "type": "number",
+                                "optional": true
+                            },
+                            "linked_flag_json": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "linked_insight_id": {
+                                "type": "number",
+                                "optional": true
+                            },
+                            "name": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "project_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "questions_json": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "response_sampling_daily_limits_json": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "response_sampling_interval": {
+                                "type": "number",
+                                "optional": true
+                            },
+                            "response_sampling_interval_type": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "response_sampling_limit": {
+                                "type": "number",
+                                "optional": true
+                            },
+                            "response_sampling_start_date": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "responses_limit": {
+                                "type": "number",
+                                "optional": true
+                            },
+                            "schedule": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "start_date": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "targeting_flag_filters_json": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "targeting_flag_id": {
+                                "type": "number",
+                                "optional": true
+                            },
+                            "targeting_flag_json": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "translations_json": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "type": {
+                                "type": "string",
+                                "required": true
+                            }
+                        }
+                    }
+                },
+                "posthog_warehouse_saved_query": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "description": {
+                                "type": "string",
+                                "optional": true
+                            },
+                            "id": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "incremental": {
+                                "nested_type": {
+                                    "attributes": {
+                                        "enabled": {
+                                            "type": "bool",
+                                            "optional": true,
+                                            "computed": true
+                                        },
+                                        "incremental_key": {
+                                            "type": "string",
+                                            "required": true
+                                        },
+                                        "lookback_seconds": {
+                                            "type": "number",
+                                            "optional": true,
+                                            "computed": true
+                                        },
+                                        "unique_key": {
+                                            "type": ["list", "string"],
+                                            "required": true
+                                        }
+                                    },
+                                    "nesting_mode": "single"
+                                },
+                                "optional": true
+                            },
+                            "is_materialized": {
+                                "type": "bool",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "latest_history_id": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "name": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "project_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "query_json": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "sync_frequency": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            }
+                        }
+                    }
+                },
+                "posthog_warehouse_table": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "access_key": {
+                                "type": "string",
+                                "required": true,
+                                "sensitive": true
+                            },
+                            "access_secret": {
+                                "type": "string",
+                                "required": true,
+                                "sensitive": true
+                            },
+                            "created_at": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "format": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "id": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "name": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "project_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "url_pattern": {
+                                "type": "string",
+                                "required": true
+                            }
+                        }
+                    }
+                }
+            },
+            "data_source_schemas": {
+                "posthog_feature_flags": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "flags": {
+                                "nested_type": {
+                                    "attributes": {
+                                        "active": {
+                                            "type": "bool",
+                                            "computed": true
+                                        },
+                                        "archived": {
+                                            "type": "bool",
+                                            "computed": true
+                                        },
+                                        "id": {
+                                            "type": "number",
+                                            "computed": true
+                                        },
+                                        "key": {
+                                            "type": "string",
+                                            "computed": true
+                                        },
+                                        "name": {
+                                            "type": "string",
+                                            "computed": true
+                                        }
+                                    },
+                                    "nesting_mode": "list"
+                                },
+                                "computed": true
+                            },
+                            "organization_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "project_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "project_name": {
+                                "type": "string",
+                                "optional": true
+                            }
+                        }
+                    }
+                },
+                "posthog_insight": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "dashboard_ids": {
+                                "type": ["set", "number"],
+                                "computed": true
+                            },
+                            "derived_name": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "description": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "favorited": {
+                                "type": "bool",
+                                "computed": true
+                            },
+                            "id": {
+                                "type": "number",
+                                "computed": true
+                            },
+                            "name": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "project_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "query_json": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "short_id": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "tags": {
+                                "type": ["set", "string"],
+                                "computed": true
+                            }
+                        }
+                    }
+                },
+                "posthog_role": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "created_at": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "created_by": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "id": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "name": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "organization_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            }
+                        }
+                    }
+                },
+                "posthog_user": {
+                    "version": 0,
+                    "block": {
+                        "attributes": {
+                            "email": {
+                                "type": "string",
+                                "required": true
+                            },
+                            "first_name": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "is_email_verified": {
+                                "type": "bool",
+                                "computed": true
+                            },
+                            "last_name": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "organization_id": {
+                                "type": "string",
+                                "optional": true,
+                                "computed": true
+                            },
+                            "organization_member_id": {
+                                "type": "string",
+                                "computed": true
+                            },
+                            "uuid": {
+                                "type": "string",
+                                "computed": true
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

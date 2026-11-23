@@ -520,6 +520,11 @@
                         "hidden": {
                             "description": "Mark event as no longer used/captured. Hides it from UI while preserving historical data",
                             "type": "boolean"
+                        },
+                        "enforcement_mode": {
+                            "description": "What ingestion does with an event that does not match its property groups: \"allow\" keeps it, \"reject\" drops it. Defaults to \"allow\". \"reject\" is only available to organizations with schema enforcement enabled.",
+                            "type": "string",
+                            "enum": ["allow", "reject"]
                         }
                     }
                 }
@@ -572,6 +577,11 @@
                 "hidden": {
                     "description": "Mark event as no longer used/captured. Hides it from UI while preserving historical data",
                     "type": "boolean"
+                },
+                "enforcement_mode": {
+                    "description": "What ingestion does with an event that does not match its property groups: \"allow\" keeps it, \"reject\" drops it. Defaults to \"allow\". \"reject\" is only available to organizations with schema enforcement enabled.",
+                    "type": "string",
+                    "enum": ["allow", "reject"]
                 }
             }
         },
@@ -617,6 +627,11 @@
                         "hidden": {
                             "description": "Mark event as no longer used/captured. Hides it from UI while preserving historical data",
                             "type": "boolean"
+                        },
+                        "enforcement_mode": {
+                            "description": "What ingestion does with an event that does not match its property groups: \"allow\" keeps it, \"reject\" drops it. Defaults to \"allow\". \"reject\" is only available to organizations with schema enforcement enabled.",
+                            "type": "string",
+                            "enum": ["allow", "reject"]
                         }
                     },
                     "description": "The event definition data to update"

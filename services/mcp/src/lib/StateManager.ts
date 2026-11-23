@@ -26,6 +26,7 @@ import {
 } from '@/lib/project-secret-key'
 import { sanitizeHeaderValue } from '@/lib/utils'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
+import { type ManagedKind, parseManagedKinds } from '@/tools/managed-in-code'
 import type {
     BusinessKnowledgeContent,
     CachedOrg,
@@ -47,6 +48,9 @@ const NO_DATA_CACHE_TTL_MS = 60 * 1000 // 1 minute
 // The integration list only adds a line to the environment prompt, so a slow response must not
 // hold `switch-project` for the full default request deadline. The caller serves the cached list.
 const INTEGRATION_KINDS_TIMEOUT_MS = 10 * 1000
+// A create waits on this lookup, so it is short, and a project's answer is reused for a minute.
+const MANAGED_KINDS_TIMEOUT_MS = 3 * 1000
+const MANAGED_KINDS_CACHE_TTL_MS = 60 * 1000
 const BUSINESS_KNOWLEDGE_CONTENT_TIMEOUT_MS = 3 * 1000
 const METRIC_CATALOG_TIMEOUT_MS = 1000
 
@@ -777,6 +781,42 @@ export class StateManager {
             },
             ttlMs: (cached) =>
                 cached?.hasSources === false && cached.hasRepositories === false ? NO_DATA_CACHE_TTL_MS : CACHE_TTL_MS,
+            expectTimeouts: true,
+        })
+    }
+
+    /**
+     * The kinds that stacks in the project keep in code, for redirecting create tools. Undefined
+     * when the key can't read stacks or the lookup fails, and empty when no stack manages anything
+     * or the PostHog instance has no stacks API; every one of those leaves the tools as they were.
+     */
+    async getOrFetchManagedKinds(projectId: string): Promise<ManagedKind[] | undefined> {
+        const apiKey = await this.getApiKey()
+        if (!hasScope(apiKey.scopes, 'stack:read')) {
+            return undefined
+        }
+        return this.getOrFetchCached({
+            name: 'managed_kinds',
+            cacheKey: `managedKinds:${projectId}` as const,
+            fetchedAtKey: `managedKindsFetchedAt:${projectId}` as const,
+            fetcher: async () => {
+                try {
+                    const response = await this._api.request<{ results?: unknown }>({
+                        method: 'GET',
+                        path: `/api/projects/${encodeURIComponent(projectId)}/stacks/managed_kinds/`,
+                        timeoutMs: MANAGED_KINDS_TIMEOUT_MS,
+                        signal: AbortSignal.timeout(MANAGED_KINDS_TIMEOUT_MS),
+                    })
+                    return parseManagedKinds(response.results)
+                } catch (error) {
+                    // An instance from before stacks answers 404: nothing is managed in code there.
+                    if (error instanceof PostHogApiError && error.status === 404) {
+                        return []
+                    }
+                    throw error
+                }
+            },
+            ttlMs: MANAGED_KINDS_CACHE_TTL_MS,
             expectTimeouts: true,
         })
     }

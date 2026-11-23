@@ -2,7 +2,7 @@ import Table from 'cli-table3'
 import { styleText } from 'node:util'
 
 import type { Mode } from './agent'
-import { type HogError, SERVER_DETAIL_HIDDEN, withServerDetail } from './errors'
+import { type CapturedOutput, type HogError, SERVER_DETAIL_HIDDEN, withServerDetail } from './errors'
 import type { Runtime } from './runtime'
 
 export type Style = 'bold' | 'dim' | 'red' | 'green' | 'yellow' | 'blue' | 'magenta' | 'cyan'
@@ -34,6 +34,12 @@ const CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g
 
 export function escapeControls(text: string): string {
     return text.replace(CONTROL, (char) => `\\x${char.charCodeAt(0).toString(16).padStart(2, '0')}`)
+}
+
+export function outputNotes(output: CapturedOutput): string[] {
+    return Object.entries(output).flatMap(([stream, text]) =>
+        text ? [`Captured ${stream}: ${escapeControls(text.trimEnd())}`] : []
+    )
 }
 
 export interface Notes {
@@ -182,6 +188,11 @@ export class Output {
             this.runtime.writeStderr(
                 `${this.style(`Send feedback about this to the PostHog team: ${escapeControls(feedbackCommand)}`, 'dim')}\n`
             )
+        }
+        if (error.details?.output) {
+            for (const note of outputNotes(error.details.output)) {
+                this.runtime.writeStderr(`${note}\n`)
+            }
         }
     }
 }

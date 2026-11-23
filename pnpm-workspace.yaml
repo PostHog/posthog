@@ -16,6 +16,7 @@ packages:
     - packages/quill/packages/*
     - frontend
     - hog
+    - .ph
     - playwright
     - nodejs
     - nodejs/src/scripts

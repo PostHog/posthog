@@ -38,6 +38,7 @@ describe('CLI tool library', () => {
         expect(result.valid).toBe(valid)
         if (!result.valid) {
             expect(result.error).toContain('limit')
+            expect(result.issues?.map((issue) => issue.path)).toEqual([['limit']])
         }
     })
 

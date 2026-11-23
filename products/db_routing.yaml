@@ -7,3 +7,5 @@ routes:
       database: warehouse_sources_queue
     - app_label: ui_customization
       database: ui_customization
+    - app_label: stacks
+      database: stacks

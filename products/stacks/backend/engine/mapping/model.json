@@ -1,0 +1,57 @@
+{
+    "kind": "model",
+    "scopes": {
+        "read": ["warehouse_view"],
+        "write": ["warehouse_view"]
+    },
+    "key_sources": [
+        "products/data_modeling/backend/models/datawarehouse_saved_query.py",
+        "products/data_warehouse/backend/presentation/views/saved_query/editing.py"
+    ],
+    "read_api": {
+        "collection": "warehouse_saved_queries",
+        "list_query": "include_columns=false",
+        "object_fields": {
+            "incremental": ["enabled", "incremental_key", "unique_key", "lookback_seconds"]
+        }
+    },
+    "resource_type": "posthog_warehouse_saved_query",
+    "id_type": "string",
+    "api_schema": {
+        "product": "data_warehouse",
+        "name": "WarehouseSavedQueriesCreateBody"
+    },
+    "fields": {
+        "name": "name",
+        "description": "description",
+        "query": "query_json",
+        "is_materialized": "is_materialized",
+        "sync_frequency": "sync_frequency",
+        "incremental": "incremental"
+    },
+    "json_fields": ["query"],
+    "set_fields": [],
+    "unmanaged": {},
+    "gaps": {
+        "folder_id": "Folder placement is unavailable.",
+        "acknowledge_breaking_changes": "The definition cannot acknowledge downstream column changes.",
+        "is_test": "An expiring test view cannot be managed in code."
+    },
+    "removal": "allow",
+    "natural_key": {
+        "field": "name",
+        "lookup": "warehouse_saved_queries"
+    },
+    "import_id": "{name}",
+    "hook": null,
+    "typed_only": ["columns"],
+    "accepted_defaults": {
+        "acknowledge_breaking_changes": false,
+        "is_test": false
+    },
+    "key_max_length": 128,
+    "key_pattern": "^[A-Za-z_$][A-Za-z0-9_.$]*$",
+    "reserved_keys": ["models", "system"],
+    "reserved_key_prefixes": ["system."],
+    "loses": "The original model's materialized data and run history do not carry over to the new model."
+}

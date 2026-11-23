@@ -1,0 +1,63 @@
+{
+    "kind": "experiment",
+    "scopes": {
+        "read": ["experiment"],
+        "write": ["experiment"]
+    },
+    "read_api": { "collection": "experiments" },
+    "resource_type": "posthog_experiment",
+    "id_type": "number",
+    "api_schema": {
+        "product": "experiments",
+        "name": "ExperimentsCreateBody"
+    },
+    "fields": {
+        "name": "name",
+        "description": "description",
+        "feature_flag_key": "feature_flag_key",
+        "holdout_id": "holdout_id",
+        "exposure_criteria": "exposure_criteria",
+        "metrics": "metrics",
+        "metrics_secondary": "metrics_secondary",
+        "allow_unknown_events": "allow_unknown_events",
+        "conclusion": "status.stopped.conclusion",
+        "conclusion_comment": "status.stopped.conclusion_comment"
+    },
+    "json_fields": ["metrics", "metrics_secondary", "exposure_criteria"],
+    "set_fields": [],
+    "managed_when_set": ["conclusion", "conclusion_comment"],
+    "unmanaged": {
+        "start_date": null,
+        "end_date": null,
+        "archived": null,
+        "deleted": null,
+        "running_time_calculation": null,
+        "version": null,
+        "original_experiment": null
+    },
+    "gaps": {
+        "feature_flag": "This version links an existing multivariate flag by key.",
+        "feature_flag_rule_id": "This version links a flag as a whole.",
+        "parameters": "This version cannot configure experiment parameters.",
+        "excluded_variants": "This version cannot exclude variants.",
+        "secondary_metrics": "This version takes query metrics in metrics_secondary.",
+        "saved_metrics_ids": "This version cannot link saved metrics.",
+        "filters": "This version takes metrics and exposure criteria separately.",
+        "type": "This version cannot choose the experiment type.",
+        "stats_config": "This version cannot set statistical options.",
+        "scheduling_config": "This version cannot schedule the experiment.",
+        "_create_in_folder": "This version cannot set an experiment folder.",
+        "repository": "This version cannot link a repository.",
+        "primary_metrics_ordered_uuids": "This version does not expose separate ordering for saved and inline metrics.",
+        "secondary_metrics_ordered_uuids": "This version does not expose separate ordering for saved and inline metrics.",
+        "only_count_matured_users": "This version cannot configure exposure maturation.",
+        "update_feature_flag_params": "Changes to flag targeting are managed in PostHog.",
+        "tags": "This version cannot set experiment tags."
+    },
+    "removal": "allow",
+    "natural_key": null,
+    "import_id": "{entity_id}",
+    "hook": null,
+    "accepted_defaults": { "update_feature_flag_params": false },
+    "loses": "Recorded exposures and results belong to the original experiment."
+}

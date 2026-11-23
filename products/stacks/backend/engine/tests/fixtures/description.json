@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "resources": [
+    {"kind": "alert", "key": "volume-dip", "body": {
+      "name": "Low sample volume", "insight": {"$ref": {"kind": "insight", "key": "volume"}},
+      "subscribed_users": [1], "condition": {"type": "absolute_value"},
+      "threshold": {"configuration": {"type": "absolute", "bounds": {"lower": 3}}},
+      "config": {"type": "TrendsAlertConfig", "series_index": 0, "check_ongoing_interval": false}
+    }},
+    {"kind": "dashboard", "key": "sample", "body": {
+      "name": "Sample", "tiles": [
+        {"insight": {"$ref": {"kind": "insight", "key": "volume"}}, "color": "blue", "layouts": {"sm": {"x": 0, "y": 0, "w": 6, "h": 3}}},
+        {"insight": {"$ref": {"kind": "insight", "key": "duration"}}, "layouts": {"sm": {"x": 6, "y": 0, "w": 6, "h": 3}}},
+        {"text": {"body": "Show ${this} and %{that} literally."}, "layouts": {"sm": {"x": 0, "y": 3, "w": 12, "h": 1}}}
+      ]
+    }},
+    {"kind": "destination", "key": "notify", "body": {
+      "name": "Notify", "type": "internal_destination", "hog": "print(event)",
+      "filters": {"properties": [{"key": "alert_id", "value": {"$ref": {"kind": "alert", "key": "volume-dip"}}}]}
+    }},
+    {"kind": "insight", "key": "duration", "body": {
+      "name": "Duration", "query": {"kind": "DataTableNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+      "dashboards": [{"$ref": {"kind": "dashboard", "key": "sample"}}]
+    }},
+    {"kind": "insight", "key": "volume", "body": {
+      "name": "Volume", "query": {"kind": "DataTableNode", "source": {"kind": "HogQLQuery", "query": "SELECT 2"}},
+      "dashboards": [{"$ref": {"kind": "dashboard", "key": "sample"}}]
+    }}
+  ]
+}

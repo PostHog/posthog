@@ -1,0 +1,111 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "description": {
+            "description": "The stack description that `hog check` writes.",
+            "properties": {
+                "resources": {
+                    "description": "Every definition the stack manages, sorted by kind and then key.",
+                    "items": {
+                        "properties": {
+                            "body": {
+                                "additionalProperties": {},
+                                "description": "The definition, shaped like the API's create body for the kind. A reference to another definition in the stack is `{\"$ref\": {\"kind\", \"key\", \"attr\"}}`, and a secret is `{\"$secret\": \"NAME\"}`.",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "type": "object"
+                            },
+                            "depends_on": {
+                                "description": "Definitions in the same stack that must exist before this one is created, because the body names them by a string rather than a reference, such as a model that another model's SQL reads.",
+                                "items": {
+                                    "properties": {
+                                        "key": {
+                                            "description": "The definition's key in the same stack.",
+                                            "maxLength": 512,
+                                            "type": "string"
+                                        },
+                                        "kind": {
+                                            "description": "The definition kind, such as `model` or `flag`.",
+                                            "maxLength": 64,
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": ["kind", "key"],
+                                    "type": "object"
+                                },
+                                "type": "array"
+                            },
+                            "key": {
+                                "description": "The identity the author chose, unique within the kind. For a kind with a natural key, such as a flag key or an event name, it is that natural key.",
+                                "maxLength": 512,
+                                "type": "string"
+                            },
+                            "kind": {
+                                "description": "The definition kind, such as `insight`, `dashboard`, `flag` or `event`.",
+                                "maxLength": 64,
+                                "type": "string"
+                            },
+                            "source": {
+                                "description": "Where the definition lives in the repository, for messages and provenance.",
+                                "properties": {
+                                    "export": {
+                                        "description": "Name of the export in that file that holds the definition.",
+                                        "maxLength": 200,
+                                        "type": "string"
+                                    },
+                                    "file": {
+                                        "description": "Path of the definition's file, relative to the repo root.",
+                                        "maxLength": 1000,
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["file"],
+                                "type": "object"
+                            }
+                        },
+                        "required": ["kind", "key", "body"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "version": {
+                    "description": "The description format version. Always 1.",
+                    "maximum": 1,
+                    "minimum": 1,
+                    "type": "number"
+                }
+            },
+            "required": ["version", "resources"],
+            "type": "object"
+        },
+        "name": {
+            "description": "The stack name from `posthog.json`, such as `web-app`.",
+            "type": "string"
+        },
+        "source": {
+            "description": "The repository, branch and commit the description came from.",
+            "properties": {
+                "branch": {
+                    "description": "The branch the description was built from.",
+                    "maxLength": 500,
+                    "type": "string"
+                },
+                "commit": {
+                    "description": "The commit the description was built from.",
+                    "maxLength": 100,
+                    "type": "string"
+                },
+                "repository": {
+                    "description": "The repository the description was built from, such as `org/repo`.",
+                    "maxLength": 500,
+                    "type": "string"
+                }
+            },
+            "required": ["repository", "branch", "commit"],
+            "type": "object"
+        }
+    },
+    "required": ["name", "description", "source"],
+    "type": "object"
+}

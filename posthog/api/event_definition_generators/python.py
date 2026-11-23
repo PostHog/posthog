@@ -1,5 +1,4 @@
 import re
-from datetime import datetime
 
 from django.db.models import QuerySet
 
@@ -7,7 +6,7 @@ import orjson
 
 from products.event_definitions.backend.models import EventDefinition, SchemaPropertyGroupProperty
 
-from .base import EventDefinitionGenerator
+from .base import EventDefinitionGenerator, doc_comment_of, enum_of
 
 
 class PythonGenerator(EventDefinitionGenerator):
@@ -20,11 +19,12 @@ class PythonGenerator(EventDefinitionGenerator):
     def generate(
         self, event_definitions: QuerySet[EventDefinition], schema_map: dict[str, list[SchemaPropertyGroupProperty]]
     ) -> str:
-        now = datetime.now().isoformat()
+        now = self.generated_at_text()
 
         capture_method_blocks: list[str] = []
         used_method_names: set[str] = set()
         datetime_import = ""
+        uses_literal = False
 
         for event_def in event_definitions:
             properties = schema_map.get(str(event_def.id), [])
@@ -32,8 +32,11 @@ class PythonGenerator(EventDefinitionGenerator):
 
             if not datetime_import and any(prop.property_type == "DateTime" for prop in properties):
                 datetime_import = "from datetime import datetime\n"
+            uses_literal = uses_literal or any(enum_of(prop) for prop in properties)
 
-            capture_method = self._generate_capture_method(event_name, properties, used_method_names)
+            capture_method = self._generate_capture_method(
+                event_name, properties, used_method_names, doc_comment_of(event_def)
+            )
             capture_method_blocks.append(capture_method)
 
         capture_methods_section = "\n\n".join(capture_method_blocks) if capture_method_blocks else "    pass"
@@ -67,7 +70,7 @@ USAGE
     client.flush()
     client.shutdown()
 """
-{datetime_import}from typing import Any, Dict, List, Optional
+{datetime_import}from typing import Any, Dict, List, {"Literal, " if uses_literal else ""}Optional
 
 from typing_extensions import Unpack
 
@@ -91,11 +94,16 @@ from posthog.args import OptionalCaptureArgs
         return header + class_definition
 
     def _generate_capture_method(
-        self, event_name: str, properties: list[SchemaPropertyGroupProperty], used_method_names: set[str]
+        self,
+        event_name: str,
+        properties: list[SchemaPropertyGroupProperty],
+        used_method_names: set[str],
+        event_doc: str | None = None,
     ) -> str:
         """Generate a capture_<event_name>() method for the PosthogTyped class."""
         method_name = self._get_unique_name(self._to_method_name(event_name), used_method_names)
         escaped_event_name = self._escape_python_string(event_name)
+        about = f"\n\n        {self._escape_docstring(event_doc)}" if event_doc else ""
 
         if not properties:
             return f'''    def {method_name}(
@@ -104,7 +112,7 @@ from posthog.args import OptionalCaptureArgs
         extra_properties: Optional[Dict[str, Any]] = None,
         **kwargs: Unpack[OptionalCaptureArgs],
     ) -> Optional[str]:
-        """Capture a `{escaped_event_name}` event."""
+        """Capture a `{escaped_event_name}` event.{about}"""
         return self.capture("{escaped_event_name}", properties=extra_properties, **kwargs)'''
 
         required_props = sorted(
@@ -116,6 +124,7 @@ from posthog.args import OptionalCaptureArgs
 
         used_names: set[str] = set()
         param_lines: list[str] = []
+        arg_docs: list[str] = []
         required_props_str = ""
 
         if required_props:
@@ -123,8 +132,10 @@ from posthog.args import OptionalCaptureArgs
             required_properties_build_lines: list[str] = []
 
             for prop in required_props:
-                py_type = self._map_property_type(prop.property_type)
+                py_type = self._python_type(prop)
                 param_name = self._get_unique_name(self._to_python_identifier(prop.name), used_names)
+                if doc := doc_comment_of(prop):
+                    arg_docs.append(f"            {param_name}: {self._escape_docstring(doc)}")
                 original_name = self._escape_python_string(prop.name)
                 param_lines.append(f"        {param_name}: {py_type},")
                 required_properties_build_lines.append(f'"{original_name}": {param_name}')
@@ -137,8 +148,10 @@ from posthog.args import OptionalCaptureArgs
             optional_assignments: list[str] = []
 
             for prop in optional_props:
-                py_type = self._map_property_type(prop.property_type)
+                py_type = self._python_type(prop)
                 param_name = self._get_unique_name(self._to_python_identifier(prop.name), used_names)
+                if doc := doc_comment_of(prop):
+                    arg_docs.append(f"            {param_name}: {self._escape_docstring(doc)}")
                 original_name = self._escape_python_string(prop.name)
                 param_lines.append(f"        {param_name}: Optional[{py_type}] = None,")
                 optional_assignments.append(
@@ -161,6 +174,7 @@ from posthog.args import OptionalCaptureArgs
 
         params_str = "\n".join(param_lines)
         body_str = "\n".join(body_lines)
+        args_doc = ("\n\n        Args:\n" + "\n".join(arg_docs) + "\n        ") if arg_docs else ""
 
         return f'''    def {method_name}(
         self,
@@ -169,8 +183,17 @@ from posthog.args import OptionalCaptureArgs
         # SDK kwargs (distinct_id, timestamp, etc.)
         **kwargs: Unpack[OptionalCaptureArgs],
     ) -> Optional[str]:
-        """Capture a `{escaped_event_name}` event with type-safe properties."""
+        """Capture a `{escaped_event_name}` event with type-safe properties.{about}{args_doc}"""
 {body_str}'''
+
+    def _python_type(self, prop: SchemaPropertyGroupProperty) -> str:
+        members = enum_of(prop)
+        if members:
+            return "Literal[" + ", ".join(f'"{self._escape_python_string(member)}"' for member in members) + "]"
+        return self._map_property_type(prop.property_type)
+
+    def _escape_docstring(self, text: str) -> str:
+        return text.replace("\\", "\\\\").replace('"""', '\\"\\"\\"')
 
     def _map_property_type(self, property_type: str) -> str:
         """Map PostHog property types to Python types."""

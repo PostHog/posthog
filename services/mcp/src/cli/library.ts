@@ -21,6 +21,7 @@ import { TOOL_MAP } from '@/tools'
 import { type ConfirmedActionRuntime, embeddedConfirmations } from '@/tools/confirmed-action-registry'
 import { createExecTool, formatInputValidationError, repairArgumentNesting } from '@/tools/exec'
 import { GENERATED_TOOL_MAP } from '@/tools/generated'
+import { ManagedInCodeError } from '@/tools/managed-in-code'
 import { getToolDefinition, type ToolDefinition } from '@/tools/toolDefinitions'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
@@ -85,6 +86,9 @@ const MCP_RESULT_CODES: Record<MCPToolResultError['errorType'], ApiToolError['co
 }
 
 function typedError(error: unknown): ApiToolError | undefined {
+    if (error instanceof ManagedInCodeError) {
+        return { code: 'managed_in_code', message: error.message, managedInCode: error.managed }
+    }
     if (error instanceof MCPToolResultError) {
         return { code: MCP_RESULT_CODES[error.errorType], message: error.message }
     }
@@ -302,7 +306,16 @@ export function createApiToolLibrary(options: ApiToolLibraryOptions = {}): ApiTo
             const result = rewrapped ? schema.safeParse(rewrapped, { reportInput: true }) : first
             return result.success
                 ? { valid: true, input: result.data as Record<string, unknown> }
-                : { valid: false, error: formatInputValidationError(name, result.error, input, schema) }
+                : {
+                      valid: false,
+                      error: formatInputValidationError(name, result.error, input, schema),
+                      issues: result.error.issues.map((issue) => ({
+                          path: issue.path.filter(
+                              (part): part is string | number => typeof part === 'string' || typeof part === 'number'
+                          ),
+                          message: issue.message,
+                      })),
+                  }
         },
 
         missingScopes: (granted, required) => required.filter((scope) => !hasScope(granted, scope)),

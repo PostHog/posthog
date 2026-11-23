@@ -89,7 +89,13 @@ from posthog.models.person.point_in_time_properties import (
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.models.property import Property
-from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes, is_service_auth
+from posthog.permissions import (
+    TeamSecretTokenPermission,
+    enforce_managed_writes,
+    get_authenticator_scopes,
+    is_service_auth,
+    managed_write_refusals,
+)
 from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
@@ -5247,6 +5253,15 @@ class FeatureFlagViewSet(
 
         deleted_hint = "restoring a past version"
         feature_flag: FeatureFlag = self.get_object()
+        # A restore can set any of the flag's fields, so a managed flag is refused whatever fields code owns.
+        enforce_managed_writes(
+            request,
+            team_id=feature_flag.team_id,
+            model_label="feature_flags.FeatureFlag",
+            object_ids=[feature_flag.id],
+            changed=None,
+            action="restore_version",
+        )
         rejection = self._deleted_flag_rejection(feature_flag, deleted_hint)
         if rejection is not None:
             return rejection
@@ -5603,16 +5618,28 @@ class FeatureFlagViewSet(
         # Prefetch related data for validation (only for flags we'll actually process)
         queryset = queryset.prefetch_related("features", "experiment_set")
         flags_list = list(queryset)
+        managed = managed_write_refusals(
+            request,
+            team_id=self.team_id,
+            model_label="feature_flags.FeatureFlag",
+            object_ids=[flag.id for flag in flags_list],
+            is_delete=True,
+            action="bulk_delete",
+        )
+        managed_errors = [
+            {"id": flag.id, "reason": managed[str(flag.id)].detail} for flag in flags_list if str(flag.id) in managed
+        ]
+        flags_list = [flag for flag in flags_list if str(flag.id) not in managed]
 
         # Batch query for dependent flags
         dependent_flags_map = find_dependent_flags_batch(flags_list)
 
         deleted = []
-        errors = []
+        errors: list[dict[str, Any]] = list(managed_errors)
 
         # Add errors for invalid or missing IDs (only for ID-based deletion)
         if explicit_ids:
-            found_ids = {flag.id for flag in flags_list}
+            found_ids = {flag.id for flag in flags_list} | {int(flag_id) for flag_id in managed}
             for flag_id in explicit_ids:
                 if not isinstance(flag_id, int) and not (isinstance(flag_id, str) and flag_id.isdigit()):
                     errors.append({"id": flag_id, "reason": "Invalid flag ID format"})

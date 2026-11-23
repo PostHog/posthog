@@ -1,11 +1,13 @@
 import { withCasingAliases } from '@/tools/casing-aliases'
+import { withManagedInCode } from '@/tools/managed-in-code'
 import type { ToolBase, ZodObjectAny } from '@/tools/types'
 
 /**
  * Merge codegen and hand-written tool factories. Hand-written entries win on key
  * collision. Use this helper at every merge site rather than inlining a spread, so
  * the sites cannot drift apart. Every merged tool also accepts each param in its
- * other casing (see `withCasingAliases`).
+ * other casing (see `withCasingAliases`), and answers for entities a stack keeps in code (see
+ * `withManagedInCode`).
  *
  * The arguments are named rather than positional because both maps have the same
  * type. A swapped positional call would invert precedence with no type error, and
@@ -26,7 +28,7 @@ export function mergeToolFactories({
         merged[name] = factory
     }
     for (const [name, factory] of Object.entries(merged)) {
-        merged[name] = () => withCasingAliases(factory())
+        merged[name] = () => withManagedInCode(withCasingAliases(factory()))
     }
     return merged
 }

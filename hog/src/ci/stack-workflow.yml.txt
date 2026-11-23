@@ -1,0 +1,62 @@
+name: PostHog changes (@@LABEL@@)
+
+on:
+  pull_request:
+    paths:
+      - @@PATTERN@@
+      - @@CONFIG@@
+
+permissions: {}
+
+env:
+  HOG_HOST: @@HOST@@
+  HOG_PROJECT_ID: @@PROJECT@@
+  HOG_NO_FAIL: '0'
+  STACK_DIR: @@DIR@@
+  CONFIG_DIR: @@ROOT@@
+
+jobs:
+  diff:
+    if: github.event_name == 'pull_request' && github.event.pull_request.base.ref == github.event.repository.default_branch && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: @@REVIEWENV@@
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    concurrency:
+      group: ${{ github.workflow }}-diff-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      # Installed before the checkout and outside the workspace, so an .npmrc or package.json in the pull request cannot replace hog.
+      - name: Install hog
+        working-directory: ${{ runner.temp }}
+        run: |
+          npm install --prefix "$RUNNER_TEMP/hog-cli" --no-save --ignore-scripts hog@@VERSION@@
+          echo "HOG_BIN=$RUNNER_TEMP/hog-cli/node_modules/.bin/hog" >> "$GITHUB_ENV"
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Install stack dependencies
+        run: |
+          if [[ ! -f "$STACK_DIR/package-lock.json" ]]; then
+            echo "::error::$STACK_DIR has no package-lock.json. Run npm install in that folder and commit package-lock.json, so this job installs the reviewed versions."
+            exit 1
+          fi
+          npm ci --prefix "$STACK_DIR" --ignore-scripts
+      - name: Diff and comment
+        working-directory: ${{ env.CONFIG_DIR }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          args=(diff --comment @@OPTIONS@@)
+          while true; do
+            code=0
+            "$HOG_BIN" "${args[@]}" -o json > "$RUNNER_TEMP/diff.json" || code=$?
+            case $code in
+              0|5) break ;;
+              4) id=$(jq -er '.id' "$RUNNER_TEMP/diff.json"); args=(diff --wait "$id" --comment @@OPTIONS@@) ;;
+              *) exit "$code" ;;
+            esac
+          done

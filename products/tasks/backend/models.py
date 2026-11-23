@@ -527,6 +527,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         # Code analysis of a flag's branches, and the pull request that removes a stale flag. Reserved: only the
         # feature flag code analysis endpoints create these.
         FEATURE_FLAGS = "feature_flags", "Feature Flags"
+        # A change someone asks for to a definition a stack manages in code. Reserved: only the stacks change
+        # request endpoint creates these, after its own repository check.
+        STACKS = "stacks", "Stacks"
 
     # Origins set only by server-side flows. The task write serializer rejects them from API callers.
     SERVER_ONLY_ORIGIN_PRODUCTS: frozenset[str] = frozenset(
@@ -566,6 +569,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             OriginProduct.CONTEXT_LAYER,
             # Only the feature flag code analysis endpoints set it, after their own repository check.
             OriginProduct.FEATURE_FLAGS,
+            # Only the stacks change request endpoint sets it, after its own repository check.
+            OriginProduct.STACKS,
         }
     )
 

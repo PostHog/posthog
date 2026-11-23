@@ -136,7 +136,7 @@ export class Runtime {
             )
             signal.throwIfAborted()
             if (!result.ok) {
-                const { code, message, status, detail, missingScope } = result.error
+                const { code, message, status, detail, missingScope, managedInCode } = result.error
                 throw new PostHogError({
                     kind: 'tool',
                     code,
@@ -144,6 +144,7 @@ export class Runtime {
                     ...(status !== undefined ? { status } : {}),
                     ...(detail ? { body: detail } : {}),
                     ...(missingScope ? { missingScope } : {}),
+                    ...(managedInCode ? { managedInCode } : {}),
                 })
             }
             const value = result.value

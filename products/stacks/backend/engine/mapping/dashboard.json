@@ -1,0 +1,55 @@
+{
+    "kind": "dashboard",
+    "managed_when_set": ["tiles"],
+    "scopes": {
+        "read": ["dashboard", "insight"],
+        "write": ["dashboard", "insight"]
+    },
+    "read_api": { "collection": "dashboards" },
+    "resource_type": "posthog_dashboard",
+    "id_type": "number",
+    "api_schema": {
+        "product": "dashboards",
+        "name": "DashboardsCreateBody"
+    },
+    "fields": {
+        "name": "name",
+        "description": "description",
+        "pinned": "pinned",
+        "tags": "tags"
+    },
+    "json_fields": [],
+    "set_fields": ["tags"],
+    "unmanaged": {},
+    "gaps": {
+        "breakdown_colors": "Dashboard color overrides are unavailable in this version.",
+        "data_color_theme_id": "Dashboard color themes are unavailable in this version.",
+        "quick_filter_ids": "Dashboard quick filters are unavailable in this version.",
+        "grid_spacing": "The layout supports tile coordinates only.",
+        "layout_compaction": "The layout supports tile coordinates only.",
+        "group_display": "The layout has no display mode for groups.",
+        "groups": "The layout has no tile groups.",
+        "use_template": "A template expands into entities outside the definition.",
+        "use_dashboard": "Duplication creates entities outside the definition.",
+        "delete_insights": "A dashboard cannot choose removal for another definition."
+    },
+    "removal": "allow",
+    "natural_key": null,
+    "import_id": "{entity_id}",
+    "hook": "dashboard_layout",
+    "accepted_defaults": { "delete_insights": false },
+    "loses": "Shared links and embeds still point to the original dashboard.",
+    "hook_fields": {
+        "tiles": "tiles"
+    },
+    "layout": {
+        "resource_type": "posthog_dashboard_layout",
+        "fields": {
+            "insight": "insight_id",
+            "text.body": "text_body",
+            "color": "color",
+            "layouts": "layouts_json"
+        },
+        "json_fields": ["layouts"]
+    }
+}

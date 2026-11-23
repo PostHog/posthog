@@ -8,6 +8,7 @@ import {
 } from '@/ci/provider-settings'
 import type { WorkloadConditions } from '@/ci/providers/registry'
 import { detectRepositoryProvider, providerByKey, readRepository } from '@/ci/repository'
+import type { StackWorkflow } from '@/ci/stack-workflow'
 import { clearPending, printPending, resumeApproval, runApproval, type ApprovalResult } from '@/core/approval'
 import { defineCommand } from '@/core/command'
 import { EXIT_USAGE, HogError, waitingExitCode } from '@/core/errors'
@@ -15,6 +16,7 @@ import { escapeControls, type Output } from '@/core/output'
 import type { Prompts } from '@/core/prompts'
 import { cloudRegion, type Host } from '@/posthog/host'
 import type { ProjectId } from '@/posthog/ids'
+import { stackOptions } from '@/stack/config'
 
 interface Setup {
     provider: string
@@ -45,6 +47,7 @@ type SetupResult =
     | (Extract<ApprovalResult<never>, { status: 'pending' }> & Setup)
     | ({ status: 'approved'; policyId: string } & Setup)
     | InputRequired
+    | StackWorkflow
 
 function setupFor(settings: ProviderSettings, target: { host: Host; projectId: ProjectId }): Setup {
     const cloud = cloudRegion(target.host)
@@ -67,20 +70,23 @@ function usage(code: string, message: string, hint: string): HogError {
 }
 
 // `--preset key=value`, or a bare `key` for a preset that takes no value.
-function presetOptions(raw: readonly string[] | undefined): Map<string, string | undefined> {
+function presetOptions(
+    raw: readonly string[] | undefined,
+    option: 'preset' | 'claim' = 'preset'
+): Map<string, string | undefined> {
     const given = new Map<string, string | undefined>()
     for (const entry of raw ?? []) {
         const separator = entry.indexOf('=')
         const key = separator === -1 ? entry : entry.slice(0, separator)
         if (!key) {
             throw usage(
-                'invalid_preset',
-                `--preset ${entry} has no name before the =.`,
-                'Pass it like --preset name=value.'
+                `invalid_${option}`,
+                `--${option} ${entry} has no name before the =.`,
+                `Pass it like --${option} name=value.`
             )
         }
         if (given.has(key)) {
-            throw usage('invalid_preset', `--preset ${key} appears twice.`, 'Pass each preset once.')
+            throw usage(`invalid_${option}`, `--${option} ${key} appears twice.`, `Pass each ${option} once.`)
         }
         given.set(key, separator === -1 ? undefined : entry.slice(separator + 1))
     }
@@ -108,7 +114,8 @@ function needed(preset: Preset): NeededPreset {
 async function collectConditions(
     settings: ProviderSettings,
     raw: readonly string[] | undefined,
-    prompts: Prompts | undefined
+    prompts: Prompts | undefined,
+    claims: readonly string[] | undefined
 ): Promise<{ status: 'ready'; conditions: WorkloadConditions } | InputRequired> {
     const given = presetOptions(raw)
     const byKey = new Map(settings.condition_presets.map((preset) => [preset.key, preset]))
@@ -184,6 +191,23 @@ async function collectConditions(
             docsUrl: settings.docs_url,
         }
     }
+    for (const [name, value] of presetOptions(claims, 'claim')) {
+        if (!settings.condition_claims.some((claim) => claim.name === name)) {
+            throw usage(
+                'unknown_claim',
+                `This CI service has no condition named ${name}.`,
+                'Use an exact condition listed in the trusted workload settings.'
+            )
+        }
+        if (!value || valueProblem(value) || (Object.hasOwn(conditions, name) && conditions[name] !== value)) {
+            throw usage(
+                'invalid_claim',
+                `The condition for ${name} needs one exact value that agrees with the presets.`,
+                'Pass --claim name=value with the value the CI job reports.'
+            )
+        }
+        conditions[name] = value
+    }
     return { status: 'ready', conditions }
 }
 
@@ -225,11 +249,13 @@ function snippetNotes(out: Output, result: Setup): string[] {
 
 export default defineCommand({
     description: 'Let a CI job use hog without a stored key, by asking an admin to trust its repository',
+    writes: true,
     options: {
+        ...stackOptions,
         provider: {
             type: 'string',
             placeholder: 'key',
-            description: 'The CI provider, when hog can not tell from the repository',
+            description: 'The CI service, when hog can not tell from the repository',
         },
         repository: {
             type: 'string',
@@ -246,13 +272,19 @@ export default defineCommand({
             multiple: true,
             placeholder: 'name=value',
             description:
-                'Which runs may get a token, like branch_push=main or environment=production. Without it, hog asks, or lists the presets the provider offers',
+                'Which runs may get a token, like branch_push=main or environment=production. Without it, hog asks, or lists the presets the CI service offers',
         },
         scope: {
             type: 'string',
             multiple: true,
             description:
                 'The scopes the job gets, like error_tracking:write. Separate several with commas, as in --scope error_tracking:write,query:read, or repeat the flag',
+        },
+        claim: {
+            type: 'string',
+            multiple: true,
+            placeholder: 'name=value',
+            description: 'Restrict the trusted runs further with an exact OIDC claim, such as event_name=pull_request',
         },
         wait: { type: 'boolean', description: 'Wait for the request an earlier run started to be approved' },
     },
@@ -271,9 +303,32 @@ export default defineCommand({
         'hog ci setup --preset branch_push=main --scope error_tracking:write',
         'hog ci setup --preset environment=production --scope endpoint:write,query:read',
         'hog ci setup --wait',
+        'hog ci setup --stack web --env production',
     ],
 
     async run({ options, ctx }): Promise<SetupResult> {
+        if (options.stack !== undefined) {
+            if (
+                options.wait ||
+                options.scope ||
+                options.preset ||
+                options.claim ||
+                options.provider ||
+                options.repository ||
+                options.subjectId
+            ) {
+                throw usage(
+                    'stack_workflow_options',
+                    'Stack workflow setup and trust approvals take separate commands.',
+                    'Run `hog ci setup --stack <name>`, then run the approval command it prints.'
+                )
+            }
+            const { writeStackWorkflow } = await import('@/ci/stack-workflow')
+            return writeStackWorkflow(ctx, options.stack, options.env)
+        }
+        if (options.env !== undefined) {
+            throw usage('stack_required', '--env needs a stack name.', 'Pass --stack with its name from posthog.json.')
+        }
         if (options.wait) {
             const api = await ctx.posthog()
             const { host, projectId } = (await ctx.session()).current
@@ -301,7 +356,7 @@ export default defineCommand({
         if (options.subjectId && !options.repository) {
             throw usage(
                 'missing_repository',
-                '--subject-id needs --repository with the exact name the provider shows, because PostHog matches both.',
+                '--subject-id needs --repository with the exact name the CI service shows, because PostHog matches both.',
                 'Pass --repository too, like --repository PostHog/posthog.'
             )
         }
@@ -320,7 +375,7 @@ export default defineCommand({
         const { host, projectId } = (await ctx.session()).current
         const target = { host, projectId }
         const settings = await providerSettings(api, projectId, provider.key)
-        const collected = await collectConditions(settings, options.preset, ctx.prompts)
+        const collected = await collectConditions(settings, options.preset, ctx.prompts, options.claim)
         if (collected.status === 'input_required') {
             return collected
         }
@@ -345,6 +400,22 @@ export default defineCommand({
     exitCode: waitingExitCode,
 
     human({ result, out }) {
+        if (result.status === 'workflow') {
+            out.report({
+                result: result.created ? 'Created the stack workflow' : 'The stack workflow is already in place',
+                effects: [result.path],
+                notes: [
+                    `Code in a pull request from a branch of this repository runs in the diff job with a credential that can read the kinds this stack uses. Require reviewers on the ${result.reviewEnvironment} environment in GitHub before an admin approves the command below.`,
+                    'The diff comment is advice. The pull request can change what it says, so check the changes again with hog push after the merge.',
+                    'The job installs the stack folder with npm ci, so commit its package-lock.json.',
+                    'Ask an admin to approve this command. Finish a pending approval with `hog ci setup --wait`.',
+                    result.scopeHint,
+                    result.approvals.diff,
+                    'Commit the workflow. Pull requests from this repository get a diff. The workflow never pushes: after a merge, run hog push from the default branch, which shows the changes and asks before pushing.',
+                ],
+            })
+            return
+        }
         if (result.status === 'input_required') {
             printInputRequired(out, result)
             return
@@ -363,5 +434,8 @@ export default defineCommand({
         out.json(result)
     },
 
-    telemetry: ({ result }) => ({ status: result.status, provider: result.provider }),
+    telemetry: ({ result }) => ({
+        status: result.status,
+        provider: result.status === 'workflow' ? 'GitHub Actions' : result.provider,
+    }),
 })

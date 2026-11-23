@@ -31,6 +31,7 @@ import { Breadcrumb, DataModelingEdge, DataModelingNode, SidePanelTab } from '~/
 
 import { catalogRestructureEnabled } from 'products/data_modeling/frontend/catalogRestructure'
 import { suiteRunResultsLogic } from 'products/data_quality/frontend/suiteRunResultsLogic'
+import { isManagedInCodeRefusal } from 'products/stacks/frontend/managedInCode'
 
 import { HOGQL_METRIC_DEFINITION_KIND, validateMetricName } from './common'
 import { buildMetricRunPrompt } from './components/RunMetricWithAIButton'
@@ -762,7 +763,9 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
                     lemonToast.warning('Metric saved, but approving it failed. Approve it from the banner.')
                 }
             } catch (error) {
-                lemonToast.error(apiErrorDetail(error) || 'Could not save the metric. Try again.')
+                if (!isManagedInCodeRefusal(error)) {
+                    lemonToast.error(apiErrorDetail(error) || 'Could not save the metric. Try again.')
+                }
             } finally {
                 actions.setMutating(false)
             }
@@ -783,7 +786,9 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
                 // The logic is keyed by name, so navigating remounts a fresh instance at the new URL.
                 router.actions.replace(urls.dataCatalogMetric(name, values.activeTab))
             } catch (error) {
-                lemonToast.error(apiErrorDetail(error) || 'Could not rename the metric. Try again.')
+                if (!isManagedInCodeRefusal(error)) {
+                    lemonToast.error(apiErrorDetail(error) || 'Could not rename the metric. Try again.')
+                }
                 actions.setMutating(false)
             }
         },

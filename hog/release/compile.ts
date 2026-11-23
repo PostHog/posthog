@@ -53,14 +53,18 @@ for (const target of targets) {
     const outfile = join(folder, binaryName(target))
 
     console.info(`Compiling ${target.id} -> ${outfile}`)
-    // The flags of `pnpm run compile`: a compiled hog never loads a .env or bunfig.toml from its folder.
+    // The flags of `pnpm run compile`: a compiled hog never loads a .env or bunfig.toml from its folder. It
+    // does read package.json files, so a stack folder's imports, such as `@posthog/sdk/define`, resolve
+    // through the package's `exports` as they do under Bun.
     const build = Bun.spawn(
         [
             'bun',
             'build',
             '--compile',
+            '--compile-exec-argv=--no-install',
             '--no-compile-autoload-dotenv',
             '--no-compile-autoload-bunfig',
+            '--compile-autoload-package-json',
             `--target=${target.bunTarget}`,
             ...defines,
             'src/index.ts',

@@ -1,0 +1,39 @@
+{
+    "kind": "property_group",
+    "scopes": {
+        "read": ["event_definition"],
+        "write": ["event_definition"]
+    },
+    "key_sources": ["products/event_definitions/backend/models/schema.py", "posthog/api/schema_property_group.py"],
+    "key_pattern": "^[^\\x00\\x09-\\x0d\\x1c-\\x20\\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000](?:[^\\x00]*[^\\x00\\x09-\\x0d\\x1c-\\x20\\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000])?$",
+    "read_api": {
+        "collection": "schema_property_groups",
+        "list_fields": {
+            "properties": ["name", "property_type", "is_required", "is_optional_in_types", "description"]
+        }
+    },
+    "resource_type": "posthog_schema_property_group",
+    "id_type": "string",
+    "api_schema": {
+        "structural": "SchemaPropertyGroupSerializer"
+    },
+    "fields": {
+        "name": "name",
+        "description": "description",
+        "properties": "properties"
+    },
+    "json_fields": [],
+    "set_fields": ["properties"],
+    "unmanaged": {},
+    "gaps": {},
+    "removal": "prevent",
+    "natural_key": {
+        "field": "name",
+        "lookup": "schema_property_groups"
+    },
+    "import_id": "{name}",
+    "hook": "group_properties",
+    "typed_only": ["properties[].enum"],
+    "key_max_length": 400,
+    "loses": "Recreating this property group loses its property IDs and its links to events."
+}

@@ -416,6 +416,8 @@ TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED: bool = get_from_env(
     type_cast=str_to_bool,
 )
 STAMPHOG_TASK_QUEUE = _set_temporal_task_queue("stamphog-task-queue")
+# The stacks worker image holds the engine binary, so only that worker polls this queue.
+STACKS_TASK_QUEUE = _set_temporal_task_queue("stacks-task-queue")
 TEST_TASK_QUEUE = _set_temporal_task_queue("test-task-queue")
 BILLING_TASK_QUEUE = _set_temporal_task_queue("billing-task-queue")
 # A dedicated worker deployment polls this queue, so aggregation does not share a process with quota limiting.

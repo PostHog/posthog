@@ -131,6 +131,7 @@ import {
     rollbackReasonRequestFields,
 } from 'products/feature_flags/frontend/rollbackReason'
 import { openRollbackReasonDialog } from 'products/feature_flags/frontend/rollbackReasonDialog'
+import { isManagedInCodeRefusal } from 'products/stacks/frontend/managedInCode'
 import {
     captureMessageAudienceClicked,
     cohortAudienceProperties,
@@ -4642,6 +4643,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return
             }
 
+            if (isManagedInCodeRefusal(errorObject)) {
+                // apiStatusLogic already names the file to edit, so a second toast would repeat it.
+                return
+            }
+
             if (errorObject?.status === 409) {
                 // A version conflict. Keep the editor open, so the edit survives until the user reloads.
                 lemonToast.error(
@@ -5298,7 +5304,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.updateFlag({ ...values.featureFlag, ...persisted })
                 lemonToast.success('Description saved')
             } catch (error: any) {
-                if (!reloadIfStaleRowVersion(values.rowVersionToken, error, actions.refreshFeatureFlag)) {
+                if (
+                    !isManagedInCodeRefusal(error) &&
+                    !reloadIfStaleRowVersion(values.rowVersionToken, error, actions.refreshFeatureFlag)
+                ) {
                     lemonToast.error(error?.detail || 'Failed to save description')
                 }
             }
@@ -5373,7 +5382,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.updateFlag({ ...values.featureFlag, tags: previousTags })
                 // The server explains rule failures such as a project that requires tags, so show
                 // its message rather than a generic one the user cannot act on.
-                if (!reloadIfStaleRowVersion(values.rowVersionToken, error, actions.refreshFeatureFlag)) {
+                if (
+                    !isManagedInCodeRefusal(error) &&
+                    !reloadIfStaleRowVersion(values.rowVersionToken, error, actions.refreshFeatureFlag)
+                ) {
                     lemonToast.error(error?.detail || 'Failed to save tags')
                 }
             }
