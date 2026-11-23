@@ -120,9 +120,8 @@ export default defineCommand({
                   ? absolutePath(loaded.root, configured)
                   : ctx.runtime.cwd()
         const fileTarget = isYamlFile(target)
-        // posthog.json and the files in a repository can come from someone else, so hog writes only inside the
-        // project, or inside the --to folder. A file named with --to is the person's own choice.
-        const confinement = options.to !== undefined ? (fileTarget ? undefined : target) : (loaded?.root ?? target)
+        // posthog.json and repository files may come from someone else. A --to file is the person's own choice.
+        const confinement = fileTarget ? (options.to !== undefined ? undefined : loaded?.root) : target
         if (loaded && configured && options.to === undefined) {
             const realRoot = await realWritePath(ctx.runtime, loaded.root)
             const realTarget = await realWritePath(ctx.runtime, target)
@@ -177,8 +176,13 @@ export default defineCommand({
         const planned = planPull(selected, locals, (name) => (fileTarget ? target : join(target, `${name}.yaml`))).map(
             (item) => ({ ...item, path: absolutePath(cwd, item.path) })
         )
+        const confinedFolder = relative(cwd, confinement ?? cwd)
         const confinedLabel =
-            confinement === loaded?.root ? 'the project' : relative(cwd, confinement ?? cwd) || 'the working folder'
+            confinement === loaded?.root
+                ? 'the project'
+                : confinedFolder
+                  ? `the ${confinedFolder} folder`
+                  : 'the working folder'
         const writeTargets = new Map<string, string | undefined>()
         for (const item of planned) {
             writeTargets.set(
@@ -186,8 +190,7 @@ export default defineCommand({
                 confinement === undefined ? item.path : await confinedWritePath(ctx.runtime, confinement, item.path)
             )
         }
-        // Never write a file twice, replace a file that defines another endpoint, overwrite one hog can't read,
-        // or write through a link out of the folder.
+        // Never write a file twice, replace another endpoint's file, overwrite an unreadable one, or follow a link out.
         const items = planned.map((item): PullItem => {
             const blocked = written.has(item.path)
                 ? 'Another endpoint pulled to the same file'

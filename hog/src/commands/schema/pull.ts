@@ -110,20 +110,19 @@ export default defineCommand({
             const saved = configured[language]
             const sdk = language === 'typescript' ? await typescriptSdk(ctx, options.sdk, saved) : undefined
             let file: string
-            // posthog.json can come from someone else's repository. A path the person typed is their own choice.
+            // posthog.json and repository files can come from someone else, so only a typed path may leave the project.
             let target: string | undefined
             if (options.file !== undefined) {
                 file = await chosenFile(ctx, options.file, language, sdk)
             } else if (saved) {
                 file = absolutePath(root, saved.output_path)
-                target = await confinedWritePath(ctx.runtime, root, file)
-                if (target === undefined) {
-                    throw new HogError(
-                        'unsafe_output_path',
-                        `posthog.json sets the ${moduleInfo(language, sdk).name} module path to ${saved.output_path}, which is outside the project, so hog won't write there.`,
-                        'Change output_path in posthog.json to a path inside the project, or pass --file to choose where hog writes the module.'
-                    )
-                }
+                target = await confinedOutput(
+                    ctx,
+                    root,
+                    file,
+                    `posthog.json sets the ${moduleInfo(language, sdk).name} module path to ${saved.output_path}, which is outside the project, so hog won't write there.`,
+                    'Change output_path in posthog.json to a path inside the project, or pass --file to choose where hog writes the module.'
+                )
             } else {
                 const info = moduleInfo(language, sdk)
                 const answer = ctx.prompts
@@ -131,7 +130,17 @@ export default defineCommand({
                           initialValue: info.defaultFile,
                       })
                     : info.defaultFile
-                file = await chosenFile(ctx, answer || info.defaultFile, language, sdk)
+                const chosen = answer || info.defaultFile
+                file = await chosenFile(ctx, chosen, language, sdk)
+                if (chosen === info.defaultFile) {
+                    target = await confinedOutput(
+                        ctx,
+                        root,
+                        file,
+                        `${info.defaultFile} links to a file outside the project, so hog won't write there.`,
+                        'Remove the link, or pass --file to choose where hog writes the module.'
+                    )
+                }
             }
 
             const definitions = await fetchDefinitions(ctx, language, sdk)
@@ -213,6 +222,21 @@ export default defineCommand({
         written: result.languages.filter((pulled) => pulled.status === 'written').length,
     }),
 })
+
+async function confinedOutput(
+    ctx: Context,
+    root: string,
+    file: string,
+    problem: string,
+    hint: string
+): Promise<string> {
+    const target = await confinedWritePath(ctx.runtime, root, file)
+    if (target === undefined) {
+        throw new HogError('unsafe_output_path', problem, hint)
+    }
+
+    return target
+}
 
 // A posthog.json entry without `sdk` has a module that wraps posthog-js.
 function savedSdk(language: Language, saved: SchemaLanguage | undefined): TypeScriptSdk | undefined {

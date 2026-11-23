@@ -115,6 +115,20 @@ describe('hog schema', () => {
         expect(result.files['/work/posthog.json']).toBe(config)
     })
 
+    test('pull refuses a default module file that links out of the project', async () => {
+        const result = await runHog(['schema', 'pull', '--language', 'typescript'], {
+            env: AGENT,
+            files: { '/work/README.md': '', '/home/ana/.bashrc': 'keep' },
+            links: { '/work/posthog-typed.ts': '/home/ana/.bashrc' },
+            respond: definitions('generated'),
+        })
+
+        expect(result.exitCode).toBe(EXIT_FAILURE)
+        expect(result.error()).toMatchObject({ code: 'unsafe_output_path' })
+        expect(result.files['/home/ana/.bashrc']).toBe('keep')
+        expect(result.files['/work/posthog.json']).toBeUndefined()
+    })
+
     test('pull asks an agent for --language instead of prompting', async () => {
         const result = await runHog(['schema', 'pull'], { env: AGENT })
         expect(result.exitCode).toBe(EXIT_USAGE)

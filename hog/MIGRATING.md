@@ -267,8 +267,8 @@ Run only hog's `schema pull` once a project uses hog settings.
 posthog-cli writes and deletes files wherever a repository's files point it.
 hog keeps those writes inside the project:
 
-- `schema pull` writes the module only inside the project when the path comes from `posthog.json`. A module outside it, such as `../web/typed.ts`, needs `--file` on each run.
-- `endpoints pull` writes only inside the project, or inside the `--to` folder, and leaves alone a file there that links somewhere else. `endpoints.dir` in `posthog.json` must be inside the project.
+- `schema pull` writes the module only inside the project, unless the path comes from `--file` or the prompt. A module outside it, such as `../web/typed.ts`, needs `--file` on each run.
+- `endpoints pull` writes only inside the endpoints folder, and leaves alone a file there that links somewhere else. `endpoints.dir` in `posthog.json` must be inside the project.
 - `error-tracking` commands skip a bundle whose sourcemap is outside the selected paths, so they don't rewrite, upload or delete that map. Pass the folder that holds the maps too.
 
 A path you pass with `--file`, or a file you name with `--to`, can be anywhere.

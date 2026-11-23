@@ -34,12 +34,13 @@ export interface CleanupResult {
     warnings: string[]
 }
 
-// The real folders of the selected paths. A selected file stands for the folder it is in.
 export function canonicalRoots(roots: string[]): string[] {
-    return roots.map((root) => {
+    const folders = roots.map((root) => {
         const absolute = realpathSync(root)
         return statSync(absolute).isFile() ? dirname(absolute) : absolute
     })
+
+    return [...new Set(folders)]
 }
 
 export function insideRoots(roots: string[], path: string): boolean {
