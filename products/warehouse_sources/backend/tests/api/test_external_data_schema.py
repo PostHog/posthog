@@ -72,12 +72,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     WebhookSyncResult,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.file_parsing import FILE_MODIFIED_AT_COLUMN
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import CsvOptions
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.discovery import (
+    TableDefinition,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
     ACCESS_DENIED_ERROR,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.self_managed import (
-    parse_self_managed_url,
-    table_definition_for,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.tests.fake_source import (
     PrefixScopedS3Client,
@@ -6946,12 +6946,15 @@ class TestExternalDataSchemaLogs(ClickhouseTestMixin, APIBaseTest):
         assert [entry["message"] for entry in second_page["results"]] == ["entry 1"]
 
 
-MIGRATED_ORDERS_METADATA = table_definition_for(
-    "orders",
-    parse_self_managed_url("https://example-bucket.s3.us-east-1.amazonaws.com/tables/orders/*.csv"),
-    "CSVWithNames",
-    {},
-    None,
+MIGRATED_ORDERS_METADATA = TableDefinition(
+    name="orders",
+    kind="files",
+    path="tables/orders",
+    scope="glob",
+    file_format="csv",
+    csv=CsvOptions(null_marker=True, delimiter=","),
+    pattern="tables/orders/*.csv",
+    source_format="csv",
 ).schema_metadata()
 
 

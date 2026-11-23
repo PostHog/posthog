@@ -4,7 +4,6 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
-from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -12,14 +11,12 @@ from rest_framework import status
 
 from posthog.models.team import Team
 
-from products.warehouse_sources.backend.facade.testing import (
-    find_replaced_self_managed_table,
-    migrate_team_self_managed_tables,
-)
+from products.warehouse_sources.backend.facade.testing import find_replaced_self_managed_table
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.test.self_managed import link_self_managed_table
 
 VIEW_MODULE = "products.data_warehouse.backend.presentation.views.table"
 MODEL_MODULE = "products.warehouse_sources.backend.models.table"
@@ -75,10 +72,6 @@ REPLACEMENT_COLUMNS = {
 }
 
 
-def _warehouse_api_flag(flag_key: str, *args: object, **kwargs: object) -> bool:
-    return flag_key == "warehouse-api"
-
-
 @override_settings(DATAWAREHOUSE_BUCKET="test-bucket", DATAWAREHOUSE_BUCKET_DOMAIN="warehouse.posthog.test")
 class TestFileUploadSources(APIBaseTest):
     def setUp(self) -> None:
@@ -99,7 +92,7 @@ class TestFileUploadSources(APIBaseTest):
         mocks = [p.start() for p in patches]
         for p in patches:
             self.addCleanup(p.stop)
-        self.flag, self.schedule, self.trigger = mocks[0], mocks[6], mocks[7]
+        self.schedule, self.trigger = mocks[6], mocks[7]
         self.columns = patch(f"{MODEL_MODULE}.DataWarehouseTable.get_columns", return_value=dict(FAKE_COLUMNS))
         self.get_columns = self.columns.start()
         self.addCleanup(self.columns.stop)
@@ -346,53 +339,28 @@ class TestFileUploadSources(APIBaseTest):
             columns=dict(FAKE_COLUMNS),
             options={"csv_allow_double_quotes": False},
         )
-        [outcome] = migrate_team_self_managed_tables(self.team.pk)
-        assert outcome.action == "linked", outcome
-        assert outcome.status.schema_id is not None
-        schema = ExternalDataSchema.objects.select_related("source").get(pk=outcome.status.schema_id)
+        schema = link_self_managed_table(table)
         return table, schema
-
-    def _legacy_file_action(self, filename: str = "orders_v2.csv"):
-        return self.client.post(
-            f"{self.base_url}/file/",
-            {"file": SimpleUploadedFile(filename, b"id,total\n1,2\n"), "name": "orders", "format": "CSVWithNames"},
-            format="multipart",
-        )
 
     @parameterized.expand(
         [
-            ("upload_folder_replace_file", "file_uploads/team_{team}/{upload}/orders.csv", "replace_file"),
-            ("legacy_folder_replace_file", "managed/team_{team}/orders.csv", "replace_file"),
-            ("legacy_folder_file_action", "managed/team_{team}/orders.csv", "file"),
+            ("upload_folder_replace_file", "file_uploads/team_{team}/{upload}/orders.csv"),
+            ("legacy_folder_replace_file", "managed/team_{team}/orders.csv"),
         ]
     )
-    def test_a_new_file_for_a_migrated_table_starts_the_sync_that_adopts_it(
-        self, _name: str, key: str, path: str
-    ) -> None:
-        self.flag.side_effect = _warehouse_api_flag
+    def test_a_new_file_for_a_migrated_table_starts_the_sync_that_adopts_it(self, _name: str, key: str) -> None:
         table, schema = self._migrated_table(key)
         old_url = table.url_pattern
         self.get_columns.return_value = dict(REPLACEMENT_COLUMNS)
 
-        with patch(f"{VIEW_MODULE}.boto3.client") as legacy_s3:
-            if path == "replace_file":
-                response = self._replace(table)
-            else:
-                response = self._legacy_file_action()
+        response = self._replace(table)
 
-        expected_status = status.HTTP_202_ACCEPTED if path == "replace_file" else status.HTTP_201_CREATED
-        assert response.status_code == expected_status, response.json()
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         assert response.json()["id"] == str(table.id)
-        # The legacy action no longer writes over the file the table reads.
-        legacy_s3.assert_not_called()
         schema.refresh_from_db()
         schema.source.refresh_from_db()
         job_inputs = schema.source.job_inputs
-        if path == "replace_file":
-            assert job_inputs["upload_id"] == NEW_UPLOAD_ID
-        else:
-            [written] = self.s3.written
-            assert written == (f"test-bucket/file_uploads/team_{self.team.pk}/{job_inputs['upload_id']}/orders_v2.csv")
+        assert job_inputs["upload_id"] == NEW_UPLOAD_ID
         assert (job_inputs["filename"], job_inputs["file_format"]) == ("orders_v2.csv", "csv")
         [superseded] = (schema.source.connection_metadata or {})["file_upload"]["superseded"]
         if key.startswith("managed/"):
@@ -444,24 +412,6 @@ class TestFileUploadSources(APIBaseTest):
         schema.source.refresh_from_db()
         assert schema.source.description == "Orders"
         assert (schema.source.job_inputs["upload_id"], schema.source.job_inputs["filename"]) == ("", "")
-
-    def test_a_refused_legacy_file_action_deletes_the_file_it_stored(self) -> None:
-        self.flag.side_effect = _warehouse_api_flag
-        _, schema = self._migrated_table("managed/team_{team}/orders.csv")
-        ExternalDataJob.objects.create(
-            team=self.team, pipeline=schema.source, schema=schema, status=ExternalDataJob.Status.RUNNING
-        )
-        self.get_columns.return_value = dict(REPLACEMENT_COLUMNS)
-
-        with patch(f"{VIEW_MODULE}.boto3.client"):
-            response = self._legacy_file_action()
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        [written] = self.s3.written
-        assert self.s3.removed == [written]
-        schema.source.refresh_from_db()
-        assert schema.source.job_inputs["upload_id"] == ""
-        self.trigger.assert_not_called()
 
     @parameterized.expand(["reload", "resync"])
     def test_a_migrated_table_cant_sync_before_its_next_upload(self, action: str) -> None:

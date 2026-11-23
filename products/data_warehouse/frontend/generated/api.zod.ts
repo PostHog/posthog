@@ -1712,9 +1712,6 @@ export const WarehouseTablesUpdateSchemaCreateBody = /* @__PURE__ */ zod
  * is always derived from the caller's own team, so a client-supplied
  * `upload_id` can only resolve inside that team's folder, and the table carries no credential (reads
  * fall back to the node role, never a user-supplied key).
- *
- * For a team with object storage sources, the table also gets a file upload source. Its first
- * sync imports the file and turns the same table row into a managed table.
  * @summary Create a warehouse table and FileUpload source from an uploaded file
  */
 export const WarehouseTablesCreateFromUploadCreateBody = /* @__PURE__ */ zod.object({
@@ -1728,108 +1725,6 @@ export const WarehouseTablesCreateFromUploadCreateBody = /* @__PURE__ */ zod.obj
         ),
     table_name: zod.string().describe('Name the resulting table is queried by in HogQL.'),
 })
-
-/**
- * Create, Read, Update and Delete Warehouse Tables.
- */
-export const warehouseTablesFileCreateBodyNameMax = 128
-
-export const warehouseTablesFileCreateBodyUrlPatternMax = 500
-
-export const warehouseTablesFileCreateBodyCredentialCreatedByOneDistinctIdMax = 200
-
-export const warehouseTablesFileCreateBodyCredentialCreatedByOneFirstNameMax = 150
-
-export const warehouseTablesFileCreateBodyCredentialCreatedByOneLastNameMax = 150
-
-export const warehouseTablesFileCreateBodyCredentialCreatedByOneEmailMax = 254
-
-export const warehouseTablesFileCreateBodyCredentialAccessKeyMax = 500
-
-export const warehouseTablesFileCreateBodyCredentialAccessSecretMax = 500
-
-export const WarehouseTablesFileCreateBody = /* @__PURE__ */ zod
-    .object({
-        deleted: zod.boolean().nullish().describe('Whether the table is soft-deleted and hidden from queries.'),
-        name: zod
-            .string()
-            .max(warehouseTablesFileCreateBodyNameMax)
-            .describe(
-                'Name the table is queried by in HogQL. Must be unique within the project, and must start with a letter or underscore and contain only letters, numbers, and underscores.'
-            ),
-        format: zod
-            .enum(['CSV', 'CSVWithNames', 'Parquet', 'JSONEachRow', 'Delta', 'DeltaS3Wrapper'])
-            .describe(
-                '\* `CSV` - CSV\n\* `CSVWithNames` - CSVWithNames\n\* `Parquet` - Parquet\n\* `JSONEachRow` - JSON\n\* `Delta` - Delta\n\* `DeltaS3Wrapper` - DeltaS3Wrapper'
-            )
-            .describe(
-                'File format of the objects the pattern matches. Every matched file must share this format.\n\n\* `CSV` - CSV\n\* `CSVWithNames` - CSVWithNames\n\* `Parquet` - Parquet\n\* `JSONEachRow` - JSON\n\* `Delta` - Delta\n\* `DeltaS3Wrapper` - DeltaS3Wrapper'
-            ),
-        url_pattern: zod
-            .string()
-            .max(warehouseTablesFileCreateBodyUrlPatternMax)
-            .describe(
-                "HTTPS URL of the files to read, with `\*` matching any part of a path segment (e.g. `https:\/\/your-bucket.s3.amazonaws.com\/orders\/\*.parquet`). All matched files are read as one table. Must point at a bucket you control, not at PostHog's own storage."
-            ),
-        credential: zod.object({
-            id: zod.uuid(),
-            created_by: zod.object({
-                id: zod.number(),
-                uuid: zod.uuid(),
-                distinct_id: zod
-                    .string()
-                    .max(warehouseTablesFileCreateBodyCredentialCreatedByOneDistinctIdMax)
-                    .nullish(),
-                first_name: zod
-                    .string()
-                    .max(warehouseTablesFileCreateBodyCredentialCreatedByOneFirstNameMax)
-                    .optional(),
-                last_name: zod.string().max(warehouseTablesFileCreateBodyCredentialCreatedByOneLastNameMax).optional(),
-                email: zod.email().max(warehouseTablesFileCreateBodyCredentialCreatedByOneEmailMax),
-                is_email_verified: zod.boolean().nullish(),
-                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-                role_at_organization: zod
-                    .union([
-                        zod
-                            .enum([
-                                'engineering',
-                                'data',
-                                'product',
-                                'founder',
-                                'leadership',
-                                'marketing',
-                                'sales',
-                                'student',
-                                'other',
-                            ])
-                            .describe(
-                                '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
-                            ),
-                        zod.enum(['']),
-                        zod.null(),
-                    ])
-                    .optional(),
-            }),
-            created_at: zod.iso.datetime({ offset: true }),
-            access_key: zod
-                .string()
-                .max(warehouseTablesFileCreateBodyCredentialAccessKeyMax)
-                .describe(
-                    'Access key ID for the bucket the files live in (an AWS access key ID, a Google Cloud HMAC key, or the equivalent for another S3-compatible store).'
-                ),
-            access_secret: zod
-                .string()
-                .max(warehouseTablesFileCreateBodyCredentialAccessSecretMax)
-                .describe('Secret for the access key. Stored encrypted and never returned by the API.'),
-        }),
-        options: zod
-            .record(zod.string(), zod.unknown())
-            .optional()
-            .describe(
-                'Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes.'
-            ),
-    })
-    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Store an uploaded file for a new warehouse table and FileUpload source.

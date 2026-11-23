@@ -1,4 +1,4 @@
-"""The access rules a migration source needs, so that moving a self-managed table into it changes nobody's access.
+"""Access checks for sources that read the same files as self-managed tables.
 
 A self-managed table has no source, so access to it resolves from the table's own rules and the rules for the
 whole warehouse (`warehouse_objects`). Once a source adopts the table, access also falls back to the rules on
@@ -6,32 +6,29 @@ that source and then to the rules for all sources (`RESOURCE_FALLBACK_MAP` in th
 source also has access of its own: to its settings, its schemas and its syncs, and through them to the files
 the table reads.
 
-So each migration source gets rules that make two things true for every member, whatever roles the member
-has, under both resolution orders an organization can use:
+A migration source got rules that make two things true for every member, whatever roles the member has, under
+both resolution orders an organization can use:
 
 - the member's access to each table of the source is the same before and after the source adopts it, and
 - the member's access to the source is never more than their access to each of its tables.
 
-The rules copy the table's member and role rules, which decide on the table before anything reaches the
-source, and add a default rule on the source when one is needed. When no such rules exist, the table can't
-move. Tables of one bucket share a source only when they need the same rules (see `SourceAccessPlan.signature`).
+The rules can change after that, so the first sync checks them again before it adopts the table
+(`assert_adoption_keeps_access`). A table added to a source by its path must also not widen anybody's access
+to the files of the tables in the same bucket (`added_table_access_refusal`).
 
 The prediction mirrors `UserAccessControl` (`_object_access_level_from_rows` and
-`_most_specific_object_access_from_rows`). The tests check it against that code.
+`_most_specific_object_access_from_rows`).
 """
 
-import json
-import hashlib
 import itertools
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Literal
-from uuid import UUID
 
 from posthog.dataclasses import frozen
 
-from products.access_control.backend.facade.api import access_rules, replace_object_access_rules
-from products.access_control.backend.facade.contracts import AccessRule, ObjectAccessRuleInput
+from products.access_control.backend.facade.api import access_rules
+from products.access_control.backend.facade.contracts import AccessRule
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, self_managed_table_ref
 from products.warehouse_sources.backend.models.external_data_source import MIGRATION_MARKER_KEY, ExternalDataSource
@@ -107,25 +104,6 @@ class SourceAccessPlan:
     """The rules a migration source needs for its tables to keep their access."""
 
     rules: tuple[SourceRule, ...] = ()
-
-    @property
-    def signature(self) -> str:
-        """Identifies the rules, so only tables that need the same rules share a source. Empty without rules."""
-        if not self.rules:
-            return ""
-        payload = json.dumps([[r.access_level, r.organization_member_id, r.role_id] for r in self.rules])
-        return hashlib.sha256(payload.encode()).hexdigest()[:32]
-
-    def describe(self) -> str:
-        parts = []
-        for rule in self.rules:
-            subject = {
-                "member": f"member {rule.organization_member_id}",
-                "role": f"role {rule.role_id}",
-                "default": "everyone",
-            }[rule.subject]
-            parts.append(f"{subject}={rule.access_level}")
-        return ", ".join(parts)
 
 
 @frozen
@@ -437,35 +415,13 @@ def _sorted(rules: Iterable[SourceRule]) -> tuple[SourceRule, ...]:
     )
 
 
-def write_source_rules(team_id: int, source_id: str, plan: SourceAccessPlan) -> None:
-    replace_object_access_rules(
-        team_id=team_id,
-        resource=SOURCE_RESOURCE,
-        resource_id=source_id,
-        rules=[
-            ObjectAccessRuleInput(
-                access_level=rule.access_level,
-                organization_member_id=UUID(rule.organization_member_id) if rule.organization_member_id else None,
-                role_id=UUID(rule.role_id) if rule.role_id else None,
-            )
-            for rule in plan.rules
-        ],
-    )
-
-
-def remove_source_rules(team_id: int, source_id: str) -> None:
-    replace_object_access_rules(team_id=team_id, resource=SOURCE_RESOURCE, resource_id=source_id, rules=[])
-
-
-def adoption_access_refusal(
-    table: DataWarehouseTable, source: ExternalDataSource, rules: TeamAccessRules | None = None
-) -> str | None:
+def adoption_access_refusal(table: DataWarehouseTable, source: ExternalDataSource) -> str | None:
     """Why the source must not adopt the table now, or None when the move keeps everyone's access.
 
     The rules may have changed since the migration linked the table: on the table, on the source, or
     for the whole warehouse or all sources. The source's rules must still be the ones the table needs.
     """
-    rules = rules or TeamAccessRules(table.team_id)
+    rules = TeamAccessRules(table.team_id)
     planned = rules.plan_for(str(table.id))
     if isinstance(planned, str):
         return f"the access rules changed after the migration, and now {planned}"

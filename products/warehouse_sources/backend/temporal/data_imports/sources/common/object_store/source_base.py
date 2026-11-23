@@ -75,10 +75,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     plan_mirror,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.self_managed import (
-    SelfManagedCredential,
     SelfManagedLocation,
-    StorageService,
-    UnmappableTableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.settings import (
     CHUNK_SIZE_BYTES,
@@ -150,38 +147,9 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
     @abstractmethod
     def discovery_options(self, config: ConfigType) -> DiscoveryOptions: ...
 
-    # The service whose self-managed warehouse tables this source can take over.
-    self_managed_service: ClassVar[StorageService]
-
     # Replaces the generic access-denied text, in the wizard and on a failed sync, for a provider
     # where the user fixes the denial somewhere specific.
     access_denied_message: ClassVar[str | None] = None
-
-    @abstractmethod
-    def self_managed_connection_inputs(
-        self, location: SelfManagedLocation, credential: SelfManagedCredential
-    ) -> dict[str, Any]:
-        """The job inputs that reach the table's bucket with the table's own credential."""
-
-    def job_inputs_for_self_managed(
-        self, location: SelfManagedLocation, credential: SelfManagedCredential
-    ) -> dict[str, Any]:
-        """Job inputs for a source rooted at the bucket of a self-managed table.
-
-        The inputs go through the same parsing and location checks as a source a user creates, so
-        a credential or bucket the source would refuse is refused here too.
-        """
-        raw = {
-            **self.self_managed_connection_inputs(location, credential),
-            "file_format": "infer",
-            "csv_allow_double_quotes": "true",
-        }
-        try:
-            config = self.parse_config(raw)
-            validate_store_location(self.object_store_config(config))
-        except (ObjectStorageError, TypeError, ValueError) as e:
-            raise UnmappableTableError(str(e)) from e
-        return self.serialize_config(config)
 
     def cursor_class(self) -> type[ObjectStorageDeltaCursor]:
         return ObjectStorageDeltaCursor

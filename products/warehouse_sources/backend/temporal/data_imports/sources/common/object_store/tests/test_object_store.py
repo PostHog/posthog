@@ -85,10 +85,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     listing_digest,
     plan_mirror,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.self_managed import (
-    parse_self_managed_url,
-    table_definition_for,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.settings import (
     JSONL_CHUNK_ROWS,
     MAX_TABLE_OBJECTS,
@@ -1703,12 +1699,15 @@ BUCKET_ROOT_CONFIG = FakeObjectStorageConfig(
     }
 )
 ORDERS_KEYS = ["tables/orders/2024-01.csv", "tables/orders/2024-02.csv", "tables/other/x.csv"]
-MIGRATED_ORDERS = table_definition_for(
-    "orders",
-    parse_self_managed_url("https://example-bucket.s3.us-east-1.amazonaws.com/tables/orders/*.csv"),
-    "CSVWithNames",
-    {},
-    None,
+MIGRATED_ORDERS = TableDefinition(
+    name="orders",
+    kind="files",
+    path="tables/orders",
+    scope="glob",
+    file_format="csv",
+    csv=CsvOptions(null_marker=True, delimiter=","),
+    pattern="tables/orders/*.csv",
+    source_format="csv",
 )
 DISCOVERED_ORDERS = TableDefinition(
     name="orders",

@@ -18,7 +18,6 @@ import structlog
 from fsspec.implementations.local import LocalFileSystem
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store import source_base
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import CsvOptions
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.csv_types import (
     CsvColumnType,
@@ -51,15 +50,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     glob_listing_prefix,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.self_managed import (
-    SelfManagedCredential,
     SelfManagedLocation,
     UnmappableTableError,
     needs_preserved_column_names,
-    nested_text_columns,
     parse_self_managed_url,
-    refuse_columns_an_import_changes,
-    source_format_for,
-    table_definition_for,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.tests.fake_source import (
     FakeObjectStorageConfig,
@@ -370,24 +364,27 @@ class TestClickHouseGlob:
                 assert [stored.path for stored in resolved.files] == ["exports/orders-1.csv", "exports/orders-2.csv"]
 
 
-class TestTableDefinition:
-    @parameterized.expand(
-        [
-            ("CSV", "csv_no_header"),
-            ("CSVWithNames", "csv"),
-            ("Parquet", "parquet"),
-            ("JSONEachRow", "jsonl"),
-            ("Delta", "delta"),
-            ("DeltaS3Wrapper", "delta"),
-        ]
+def glob_definition(pattern: str, columns: dict[str, Any], preserve_column_names: bool = False) -> TableDefinition:
+    return TableDefinition(
+        name="orders",
+        kind="files",
+        path=glob_listing_prefix(pattern),
+        scope="glob",
+        file_format="csv",
+        csv=CsvOptions(
+            has_header=True,
+            allow_double_quotes=True,
+            column_types=csv_column_types_from_columns(columns),
+            null_marker=True,
+            delimiter=",",
+        ),
+        pattern=pattern,
+        source_format="csv",
+        preserve_column_names=preserve_column_names,
     )
-    def test_format_mapping(self, table_format: str, expected: str) -> None:
-        assert source_format_for(table_format) == expected
 
-    def test_an_unknown_format_is_refused(self) -> None:
-        with pytest.raises(UnmappableTableError):
-            source_format_for("TabSeparated")
 
+class TestTableDefinition:
     @parameterized.expand(
         [
             ("all_snake_case", ["id", "created_at", "amount_usd"], False),
@@ -402,78 +399,9 @@ class TestTableDefinition:
     ) -> None:
         assert needs_preserved_column_names(columns) is expected
 
-    def test_csv_with_names_keeps_the_stored_types_and_quote_setting(self) -> None:
-        location = parse_self_managed_url("https://exports.s3.us-east-1.amazonaws.com/orders/2024-*.csv")
-        columns = {
-            "id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField", "valid": True},
-            "Order Total": {"clickhouse": "Nullable(Float64)", "hogql": "FloatDatabaseField", "valid": True},
-            "note": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
-        }
-
-        definition = table_definition_for("orders", location, "CSVWithNames", columns, csv_allow_double_quotes=False)
-
-        assert definition.schema_metadata() == {
-            "kind": "files",
-            "scope": "glob",
-            "path": "orders",
-            "pattern": "orders/2024-*.csv",
-            "format": "csv",
-            "source_format": "csv",
-            "csv": {
-                "has_header": True,
-                "allow_double_quotes": False,
-                "column_types": {"id": "integer", "Order Total": "float"},
-                "null_marker": True,
-                "delimiter": ",",
-            },
-            "preserve_column_names": True,
-        }
-
-    @parameterized.expand(
-        [
-            ("csv_without_header", "CSV", "csv_no_header", False, True),
-            ("parquet_has_no_csv_types", "Parquet", "parquet", True, False),
-            ("jsonl_has_no_csv_types", "JSONEachRow", "jsonl", True, False),
-        ]
-    )
-    def test_csv_header_and_types_follow_the_format(
-        self, _name: str, table_format: str, file_format: str, has_header: bool, has_types: bool
-    ) -> None:
-        location = parse_self_managed_url("https://exports.s3.us-east-1.amazonaws.com/orders/a.file")
-        columns = {"c1": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"}}
-
-        definition = table_definition_for("orders", location, table_format, columns, None)
-
-        assert (definition.scope, definition.path, definition.file_format) == ("glob", "orders/a.file", file_format)
-        assert definition.csv.allow_double_quotes is True
-        assert definition.csv.has_header is (has_header if file_format.startswith("csv") else False)
-        assert bool(definition.csv.column_types) is has_types
-
-    @parameterized.expand([("Delta",), ("DeltaS3Wrapper",)])
-    def test_delta_reads_the_table_folder(self, table_format: str) -> None:
-        location = parse_self_managed_url("https://storage.googleapis.com/lake/tables/orders/")
-
-        definition = table_definition_for("orders", location, table_format, {"OrderId": "Int64"}, None)
-
-        assert (definition.kind, definition.path, definition.pattern) == ("delta", "tables/orders", None)
-        assert definition.preserve_column_names is True
-
-    @parameterized.expand(
-        [
-            ("delta_with_glob", "https://storage.googleapis.com/lake/tables/*", "Delta"),
-            ("files_url_is_a_folder", "https://storage.googleapis.com/lake/tables/", "Parquet"),
-            ("files_url_is_the_bucket", "https://storage.googleapis.com/lake", "CSVWithNames"),
-            ("unreadable_glob", "https://storage.googleapis.com/lake/part-[0-9].parquet", "Parquet"),
-        ]
-    )
-    def test_refuses_tables_it_cant_read_exactly(self, _name: str, url: str, table_format: str) -> None:
-        with pytest.raises(UnmappableTableError):
-            table_definition_for("orders", parse_self_managed_url(url), table_format, {}, None)
-
     def test_metadata_round_trip_keeps_the_glob_types_and_names(self) -> None:
-        location = parse_self_managed_url("https://exports.s3.us-east-1.amazonaws.com/orders/{1..3}.csv")
-        definition = table_definition_for(
-            "orders", location, "CSVWithNames", {"OrderId": "Nullable(Int64)", "paid": "Bool"}, None
+        definition = glob_definition(
+            "orders/{1..3}.csv", {"OrderId": "Nullable(Int64)", "paid": "Bool"}, preserve_column_names=True
         )
 
         rebuilt = TableDefinition.from_schema_metadata("orders", definition.schema_metadata())
@@ -481,14 +409,13 @@ class TestTableDefinition:
         assert rebuilt == definition
 
     def test_metadata_round_trip_keeps_decimal_unsigned_and_time_zone_types(self) -> None:
-        location = parse_self_managed_url("https://exports.s3.us-east-1.amazonaws.com/orders/*.csv")
         columns = {
             "total": "Nullable(Decimal(12, 3))",
             "big": "UInt64",
             "at": "DateTime64(3, 'Europe/London')",
             "utc": "DateTime('UTC')",
         }
-        definition = table_definition_for("orders", location, "CSVWithNames", columns, None)
+        definition = glob_definition("orders/*.csv", columns)
 
         metadata = definition.schema_metadata()
         rebuilt = TableDefinition.from_schema_metadata("orders", metadata)
@@ -500,107 +427,6 @@ class TestTableDefinition:
             "utc": "datetime",
         }
         assert rebuilt == definition
-
-    @parameterized.expand(
-        [
-            (f"{table_format}_{column_type}", table_format, column_type, url)
-            for table_format, url in (
-                ("Parquet", "https://storage.googleapis.com/lake/orders/*.parquet"),
-                ("JSONEachRow", "https://storage.googleapis.com/lake/orders/*.jsonl"),
-                ("CSVWithNames", "https://storage.googleapis.com/lake/orders/*.csv"),
-                ("Delta", "https://storage.googleapis.com/lake/orders/"),
-            )
-            for column_type in (
-                "Array(Nullable(Int64))",
-                "Map(String, String)",
-                "Tuple(a Nullable(Int64), b Nullable(String))",
-                "Nullable(JSON)",
-                "Object('json')",
-                "Nested(a Int64)",
-            )
-        ]
-    )
-    def test_nested_columns_can_be_linked(self, _name: str, table_format: str, column_type: str, url: str) -> None:
-        columns = {"id": "Int64", "items": {"clickhouse": column_type, "hogql": "StringJSONDatabaseField"}}
-
-        definition = table_definition_for("orders", parse_self_managed_url(url), table_format, columns, None)
-
-        assert definition.kind == ("delta" if table_format == "Delta" else "files")
-
-    @parameterized.expand(
-        [
-            ("array", {"items": "Array(String)"}, {"items": "Array(String)"}),
-            ("nullable_array", {"items": "Nullable(Array(String))"}, {"items": "Nullable(Array(String))"}),
-            ("map", {"items": "Map(String, Int64)"}, {"items": "Map(String, Int64)"}),
-            ("tuple", {"items": "Tuple(Int64, String)"}, {"items": "Tuple(Int64, String)"}),
-            ("plain_string", {"items": "String"}, {}),
-            ("no_columns", None, {}),
-            ("invalid_column", {"items": {"clickhouse": "Array(String)", "valid": False}}, {}),
-        ]
-    )
-    def test_nested_text_columns(self, _name: str, columns: dict[str, Any] | None, expected: dict[str, str]) -> None:
-        assert nested_text_columns(columns) == expected
-
-    def test_an_invalid_nested_column_does_not_block_the_table(self) -> None:
-        location = parse_self_managed_url("https://storage.googleapis.com/lake/orders/*.parquet")
-        columns = {"items": {"clickhouse": "Array(Int64)", "hogql": "StringArrayDatabaseField", "valid": False}}
-
-        assert table_definition_for("orders", location, "Parquet", columns, None).kind == "files"
-
-    def test_a_csv_column_no_import_keeps_is_refused(self) -> None:
-        location = parse_self_managed_url("https://storage.googleapis.com/lake/orders/*.csv")
-
-        with pytest.raises(UnmappableTableError, match="'id'"):
-            table_definition_for("orders", location, "CSVWithNames", {"id": "Int128"}, None)
-
-    @parameterized.expand(
-        [
-            (f"{table_format}_{column}", table_format, column, url)
-            for table_format, url in (
-                ("Parquet", "https://storage.googleapis.com/lake/orders/*.parquet"),
-                ("CSVWithNames", "https://storage.googleapis.com/lake/orders/*.csv"),
-                ("Delta", "https://storage.googleapis.com/lake/orders/"),
-            )
-            for column in ("_file_name", "_file_modified_at", "_file_row_number")
-        ]
-    )
-    def test_columns_named_like_the_file_columns_are_refused(
-        self, _name: str, table_format: str, column: str, url: str
-    ) -> None:
-        columns = {"id": "Int64", column: "Nullable(String)"}
-
-        with pytest.raises(UnmappableTableError, match=f"'{column}'"):
-            table_definition_for("orders", parse_self_managed_url(url), table_format, columns, None)
-
-    @parameterized.expand([("Date",), ("Nullable(Date32)",), ("DateTime",), ("Nullable(DateTime64(9))",)])
-    def test_json_dates_and_times_are_cast_not_refused(self, column_type: str) -> None:
-        location = parse_self_managed_url("https://storage.googleapis.com/lake/orders/*.jsonl")
-        columns = {"id": "Int64", "created": column_type}
-
-        refuse_columns_an_import_changes(columns, "jsonl")
-        definition = table_definition_for("orders", location, "JSONEachRow", columns, None)
-
-        assert [column.name for column in definition.csv.column_types] == ["created"]
-
-    def test_json_nested_columns_can_be_linked(self) -> None:
-        location = parse_self_managed_url("https://storage.googleapis.com/lake/orders/*.jsonl")
-        columns = {"tags": "Array(String)", "day": "Date"}
-
-        refuse_columns_an_import_changes(columns, "jsonl")
-        definition = table_definition_for("orders", location, "JSONEachRow", columns, None)
-
-        assert [column.name for column in definition.csv.column_types] == ["day"]
-
-    def test_csv_header_names_with_surrounding_spaces_are_refused(self) -> None:
-        location = parse_self_managed_url("https://storage.googleapis.com/lake/orders/*.csv")
-
-        with pytest.raises(UnmappableTableError, match="' Order ID '"):
-            table_definition_for("orders", location, "CSVWithNames", {" Order ID ": "Nullable(String)"}, None)
-
-    def test_headerless_csv_names_are_not_checked_for_spaces(self) -> None:
-        location = parse_self_managed_url("https://storage.googleapis.com/lake/orders/*.csv")
-
-        assert table_definition_for("orders", location, "CSV", {"c1": "Nullable(String)"}, None).kind == "files"
 
     @parameterized.expand(
         [
@@ -643,8 +469,7 @@ class TestResolveGlobFiles:
                 "refunds/part-1.csv": "id\n6\n",
             },
         )
-        location = parse_self_managed_url("https://exports.s3.us-east-1.amazonaws.com/orders/part-{1..2}.csv")
-        table = table_definition_for("orders", location, "CSVWithNames", {}, None)
+        table = glob_definition("orders/part-{1..2}.csv", {})
 
         resolved = resolve_table_files(local_store(tmp_path), table)
 
@@ -652,8 +477,7 @@ class TestResolveGlobFiles:
 
     def test_a_literal_file_resolves_to_that_file(self, tmp_path: Path) -> None:
         write_files(tmp_path, {"orders.csv": "id\n1\n", "orders.csv.old": "id\n2\n"})
-        location = parse_self_managed_url("https://exports.s3.us-east-1.amazonaws.com/orders.csv")
-        table = table_definition_for("orders", location, "CSVWithNames", {}, None)
+        table = glob_definition("orders.csv", {})
 
         resolved = resolve_table_files(local_store(tmp_path), table)
 
@@ -661,8 +485,7 @@ class TestResolveGlobFiles:
 
     def test_no_matching_file_is_a_missing_table(self, tmp_path: Path) -> None:
         write_files(tmp_path, {"orders/a.parquet": "x"})
-        location = parse_self_managed_url("https://exports.s3.us-east-1.amazonaws.com/orders/*.csv")
-        table = table_definition_for("orders", location, "CSVWithNames", {}, None)
+        table = glob_definition("orders/*.csv", {})
 
         with pytest.raises(ObjectStorageError, match=NO_TABLE_FILES_ERROR):
             resolve_table_files(local_store(tmp_path), table)
@@ -955,53 +778,13 @@ S3_CONNECTION_INPUTS = {
     "access_key_id": "AKIAEXAMPLE",
     "secret_access_key": "c2VjcmV0",
 }
-EXPORTS_LOCATION = parse_self_managed_url("https://exports.s3.us-east-1.amazonaws.com/a.csv")
-CREDENTIAL = SelfManagedCredential(access_key="AKIAEXAMPLE", access_secret="c2VjcmV0")
-
-
-@pytest.fixture
-def resolvable_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
-    # The location check resolves the host, and the example hosts here don't exist.
-    monkeypatch.setattr(source_base, "validate_warehouse_table_url_pattern", lambda _url: (True, ""))
-
-
-def _refusing_builder(error: Exception) -> Any:
-    def build(_values: dict[str, Any]) -> Any:
-        raise error
-
-    return build
-
-
-@pytest.mark.usefixtures("resolvable_hosts")
-class TestJobInputsForSelfManaged:
-    def test_adds_the_default_file_options_to_the_connection_inputs(self) -> None:
-        source = FakeObjectStorageSource(connection_inputs=S3_CONNECTION_INPUTS)
-
-        job_inputs = source.job_inputs_for_self_managed(EXPORTS_LOCATION, CREDENTIAL)
-
-        assert job_inputs == {**S3_CONNECTION_INPUTS, "file_format": "infer", "csv_allow_double_quotes": "true"}
-
-    @parameterized.expand(
-        [
-            ("invalid_config", ObjectStorageError("Invalid configuration")),
-            ("type_error", TypeError("missing field")),
-            ("value_error", ValueError("bad value")),
-        ]
-    )
-    def test_refuses_what_the_source_would_refuse(self, _name: str, error: Exception) -> None:
-        source = FakeObjectStorageSource(_refusing_builder(error), connection_inputs=S3_CONNECTION_INPUTS)
-
-        with pytest.raises(UnmappableTableError):
-            source.job_inputs_for_self_managed(EXPORTS_LOCATION, CREDENTIAL)
 
 
 class TestSourceForPipeline:
     @parameterized.expand([("preserved", True), ("normalized", False)])
     def test_the_response_carries_the_column_name_choice(self, _name: str, preserve: bool) -> None:
         source = FakeObjectStorageSource()
-        location = parse_self_managed_url("https://exports.s3.us-east-1.amazonaws.com/orders/*.csv")
-        definition = table_definition_for("orders", location, "CSVWithNames", {}, None)
-        metadata = {**definition.schema_metadata(), "preserve_column_names": preserve}
+        metadata = {**glob_definition("orders/*.csv", {}).schema_metadata(), "preserve_column_names": preserve}
         inputs = SourceInputs(
             schema_name="orders",
             schema_id=str(uuid.uuid4()),

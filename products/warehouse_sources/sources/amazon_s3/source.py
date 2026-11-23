@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Any, cast
+from typing import cast
 
 from products.warehouse_sources.sources.amazon_s3._config import AmazonS3SourceConfig
 from products.warehouse_sources.sources.sdk import (
@@ -13,11 +13,8 @@ from products.warehouse_sources.sources.sdk import (
     ObjectStoreConfig,
     ObjectStoreProvider,
     ReleaseStatus,
-    SelfManagedCredential,
-    SelfManagedLocation,
     SourceConfig,
     SourceRegistry,
-    UnmappableTableError,
     detect,
     discovery_options_from,
     file_option_fields,
@@ -42,7 +39,6 @@ class AmazonS3Source(ObjectStorageSource[AmazonS3SourceConfig]):
     )
 
     api_docs_url = "https://docs.aws.amazon.com/AmazonS3/latest/API/Welcome.html"
-    self_managed_service = "s3"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -78,17 +74,6 @@ class AmazonS3Source(ObjectStorageSource[AmazonS3SourceConfig]):
 
     def discovery_options(self, config: AmazonS3SourceConfig) -> DiscoveryOptions:
         return discovery_options_from(config)
-
-    def self_managed_connection_inputs(
-        self, location: SelfManagedLocation, credential: SelfManagedCredential
-    ) -> dict[str, Any]:
-        if location.region is None:
-            raise UnmappableTableError("the URL doesn't name the bucket's region")
-        return {
-            "url_pattern": f"https://s3.{location.region}.amazonaws.com/{location.bucket}/",
-            "access_key_id": credential.access_key,
-            "secret_access_key": credential.access_secret,
-        }
 
     @property
     def get_source_config(self) -> SourceConfig:

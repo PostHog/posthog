@@ -1,4 +1,4 @@
-from typing import Any, cast
+from typing import cast
 
 from products.warehouse_sources.sources.azure_blob._config import AzureBlobSourceConfig
 from products.warehouse_sources.sources.sdk import (
@@ -11,11 +11,8 @@ from products.warehouse_sources.sources.sdk import (
     FieldType,
     ObjectStorageSource,
     ReleaseStatus,
-    SelfManagedCredential,
-    SelfManagedLocation,
     SourceConfig,
     SourceRegistry,
-    UnmappableTableError,
     detect,
     discovery_options_from,
     file_option_fields,
@@ -37,7 +34,6 @@ class AzureBlobSource(ObjectStorageSource[AzureBlobSourceConfig]):
     )
 
     api_docs_url = "https://learn.microsoft.com/en-us/rest/api/storageservices/blob-service-rest-api"
-    self_managed_service = "azure"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -53,18 +49,6 @@ class AzureBlobSource(ObjectStorageSource[AzureBlobSourceConfig]):
 
     def discovery_options(self, config: AzureBlobSourceConfig) -> DiscoveryOptions:
         return discovery_options_from(config)
-
-    def self_managed_connection_inputs(
-        self, location: SelfManagedLocation, credential: SelfManagedCredential
-    ) -> dict[str, Any]:
-        # ClickHouse reads Azure with the storage account name as the access key. A key for another
-        # account than the URL's never read these files, so it isn't moved to this one.
-        if credential.access_key.strip().lower() != location.account:
-            raise UnmappableTableError("the access key isn't the storage account name in the URL")
-        return {
-            "url_pattern": f"https://{location.account}.blob.core.windows.net/{location.bucket}/",
-            "account_key": credential.access_secret,
-        }
 
     @property
     def get_source_config(self) -> SourceConfig:

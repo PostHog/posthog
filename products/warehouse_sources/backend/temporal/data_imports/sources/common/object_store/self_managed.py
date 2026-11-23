@@ -1,48 +1,19 @@
-"""Map a self-managed warehouse table onto the object storage sources that import the same files.
+"""Parse the URL of a self-managed warehouse table into the parts an object storage source reads.
 
 A self-managed table is a URL pattern that ClickHouse reads in place with the table's own access
-key. Every mapping here is exact or refused: a table this module can't map is skipped with a reason,
-never imported from files that differ from the ones ClickHouse read.
+key. Every parse here is exact or refused: a URL this module can't map raises `UnmappableTableError`
+with the reason.
 """
 
 import re
-import dataclasses
-from collections.abc import Iterable, Mapping
-from typing import Any, Literal
+from collections.abc import Iterable
+from typing import Literal
 from urllib.parse import unquote, urlparse
 
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import normalize_column_name
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.file_parsing import (
-    FILE_MODIFIED_AT_COLUMN,
-    FILE_PATH_COLUMN,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
-    CsvOptions,
-    FileFormatChoice,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.csv_types import (
-    UnsupportedCsvColumnError,
-    clickhouse_base_type,
-    csv_column_types_from_columns,
-    json_column_types_from_columns,
-    stored_clickhouse_types,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.discovery import (
-    TableDefinition,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
-    ObjectStorageError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.globs import (
-    compile_clickhouse_glob,
-    glob_listing_prefix,
-    has_glob,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.incremental import (
-    FILE_ROW_NUMBER_COLUMN,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.globs import has_glob
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.locations import R2_HOST
 
 StorageService = Literal["s3", "gcs", "r2", "azure"]
@@ -54,20 +25,6 @@ _S3_EXTERNAL_ENDPOINT = "external-1"
 _S3_EXTERNAL_REGION = "us-east-1"
 _GCS_HOST = "storage.googleapis.com"
 _AZURE_HOST = re.compile(r"(?P<account>[a-z0-9]{3,24})\.blob\.core\.windows\.net")
-
-# ClickHouse formats a self-managed table can have, and the source format that reads the same files.
-_FORMATS: dict[str, FileFormatChoice] = {
-    "CSV": "csv_no_header",
-    "CSVWithNames": "csv",
-    "Parquet": "parquet",
-    "JSONEachRow": "jsonl",
-    "Delta": "delta",
-    "DeltaS3Wrapper": "delta",
-}
-# Column types the import pipeline stores as JSON text.
-_NESTED_TYPES = frozenset({"Array", "Map", "Tuple", "Nested", "JSON", "Object", "Variant", "Dynamic"})
-# Columns the import adds to every row. A stored column of the same name would lose its values to them.
-_FILE_COLUMNS = frozenset({FILE_PATH_COLUMN, FILE_MODIFIED_AT_COLUMN, FILE_ROW_NUMBER_COLUMN})
 
 
 class UnmappableTableError(Exception):
@@ -95,14 +52,6 @@ class SelfManagedLocation:
         # Migration markers store this key, so a location without a jurisdiction keeps its old key.
         account = f"{self.account}.{self.jurisdiction}" if self.account and self.jurisdiction else self.account
         return "/".join((self.service, account or self.region or "", self.bucket))
-
-
-@frozen
-class SelfManagedCredential:
-    """A self-managed table's key pair. For Azure the access key is the storage account name."""
-
-    access_key: str = dataclasses.field(repr=False)
-    access_secret: str = dataclasses.field(repr=False)
 
 
 def _s3_location(host: str, path: str) -> SelfManagedLocation:
@@ -162,112 +111,6 @@ def parse_self_managed_url(url: str) -> SelfManagedLocation:
     return location
 
 
-def source_format_for(table_format: str) -> FileFormatChoice:
-    choice = _FORMATS.get(table_format)
-    if choice is None:
-        raise UnmappableTableError(f"the '{table_format}' format has no import equivalent")
-    return choice
-
-
 def needs_preserved_column_names(column_names: Iterable[str]) -> bool:
     """Whether the import pipeline would rename a column that existing queries refer to."""
     return any(normalize_column_name(name) != name for name in column_names)
-
-
-def nested_text_columns(columns: Mapping[str, Any] | None) -> dict[str, str]:
-    """Return columns whose nested types the import stores as JSON text, with their ClickHouse types."""
-    return {
-        name: clickhouse_type
-        for name, clickhouse_type in stored_clickhouse_types(columns).items()
-        if clickhouse_base_type(clickhouse_type) in _NESTED_TYPES
-    }
-
-
-def _refuse_file_column_names(columns: Mapping[str, Any] | None) -> None:
-    for name in (columns or {}).keys():
-        if name in _FILE_COLUMNS:
-            raise UnmappableTableError(
-                f"the column '{name}' has the name of a column the import adds, which would replace its values"
-            )
-
-
-def _refuse_padded_header_names(columns: Mapping[str, Any] | None) -> None:
-    # The CSV reader trims spaces around header names, so a column ClickHouse read as ' id ' would be renamed.
-    for name in (columns or {}).keys():
-        if name != name.strip():
-            raise UnmappableTableError(
-                f"the column '{name}' has spaces around its name, which the CSV import doesn't keep"
-            )
-
-
-def refuse_columns_an_import_changes(columns: Mapping[str, Any] | None, file_format: FileFormatChoice) -> None:
-    """Refuse column names that the import would change or replace."""
-    _refuse_file_column_names(columns)
-    if file_format == "csv":
-        _refuse_padded_header_names(columns)
-
-
-def table_definition_for(
-    name: str,
-    location: SelfManagedLocation,
-    table_format: str,
-    columns: Mapping[str, Any] | None,
-    csv_allow_double_quotes: bool | None,
-) -> TableDefinition:
-    """The schema contract that imports exactly the files the table's URL pattern reads."""
-    file_format = source_format_for(table_format)
-    _refuse_file_column_names(columns)
-    preserve = needs_preserved_column_names((columns or {}).keys())
-    if file_format == "delta":
-        path = location.key.strip("/")
-        if has_glob(path):
-            raise UnmappableTableError("a Delta table URL can't hold a file pattern")
-        return TableDefinition(
-            name=name,
-            kind="delta",
-            path=path,
-            scope=None,
-            file_format="delta",
-            csv=CsvOptions(),
-            pattern=None,
-            source_format="delta",
-            preserve_column_names=preserve,
-        )
-    pattern = location.key
-    if not pattern or pattern.endswith("/"):
-        raise UnmappableTableError("the URL names a folder, not files")
-    try:
-        compile_clickhouse_glob(pattern)
-    except ObjectStorageError as e:
-        raise UnmappableTableError(str(e)) from e
-    try:
-        if file_format == "jsonl":
-            column_types = json_column_types_from_columns(columns)
-        elif file_format in ("csv", "csv_no_header"):
-            column_types = csv_column_types_from_columns(columns)
-        else:
-            column_types = ()
-    except UnsupportedCsvColumnError as e:
-        raise UnmappableTableError(str(e)) from e
-    if file_format == "csv":
-        _refuse_padded_header_names(columns)
-    return TableDefinition(
-        name=name,
-        kind="files",
-        path=glob_listing_prefix(pattern),
-        scope="glob",
-        file_format=file_format,
-        csv=CsvOptions(
-            has_header=file_format == "csv",
-            # ClickHouse reads quotes as enclosing a field unless the table turned that off.
-            allow_double_quotes=csv_allow_double_quotes is not False,
-            column_types=column_types,
-            # ClickHouse reads an unquoted `\N` as null in a CSV file.
-            null_marker=True,
-            # ClickHouse reads the declared format whatever the file is called, so a `.tsv` file is still CSV.
-            delimiter=",",
-        ),
-        pattern=pattern,
-        source_format=file_format,
-        preserve_column_names=preserve,
-    )

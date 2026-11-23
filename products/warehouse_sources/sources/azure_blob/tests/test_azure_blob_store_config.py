@@ -3,13 +3,8 @@ from typing import Any
 import pytest
 
 from products.warehouse_sources.sources.azure_blob.source import AzureBlobSource
-from products.warehouse_sources.sources.sdk import SelfManagedCredential, SourceFieldSelectConfig, UnmappableTableError
-from products.warehouse_sources.sources.sdk.testing import (
-    INVALID_CONFIG_ERROR,
-    open_store,
-    parse_self_managed_url,
-    source_base,
-)
+from products.warehouse_sources.sources.sdk import SourceFieldSelectConfig
+from products.warehouse_sources.sources.sdk.testing import INVALID_CONFIG_ERROR, open_store
 
 AZURE_KEY = "c2VjcmV0LWtleQ=="
 VALUES: dict[str, Any] = {
@@ -19,16 +14,6 @@ VALUES: dict[str, Any] = {
 
 CSV_FORMATS = ["infer", "csv", "csv_no_header"]
 NON_CSV_FORMATS = ["jsonl", "parquet", "delta"]
-
-
-@pytest.fixture
-def resolvable_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
-    # The location check resolves the host, and the example hosts here don't exist.
-    monkeypatch.setattr(source_base, "validate_warehouse_table_url_pattern", lambda _url: (True, ""))
-
-
-def _credential(access_key: str = "AKIAEXAMPLE", access_secret: str = "c2VjcmV0") -> SelfManagedCredential:
-    return SelfManagedCredential(access_key=access_key, access_secret=access_secret)
 
 
 def test_reads_from_its_own_endpoint() -> None:
@@ -96,31 +81,3 @@ def test_discovery_options_read_the_csv_quote_option_from_the_file_format(
 
     assert options.file_format == expected_format
     assert options.allow_double_quotes is expected_allow_double_quotes
-
-
-@pytest.mark.usefixtures("resolvable_hosts")
-def test_a_self_managed_table_takes_the_account_from_the_url_and_the_key_from_the_secret() -> None:
-    location = parse_self_managed_url("https://examplestore.blob.core.windows.net/exports/a.csv")
-
-    job_inputs = AzureBlobSource().job_inputs_for_self_managed(location, _credential(access_key="ExampleStore"))
-
-    assert (job_inputs["url_pattern"], job_inputs["account_key"]) == (
-        "https://examplestore.blob.core.windows.net/exports/",
-        "c2VjcmV0",
-    )
-
-
-@pytest.mark.usefixtures("resolvable_hosts")
-@pytest.mark.parametrize(
-    "credential",
-    [
-        _credential(access_key="otherstore"),
-        _credential(access_key="examplestore", access_secret="a;EndpointSuffix=example.com"),
-    ],
-    ids=["key_for_another_account", "key_that_is_not_base64"],
-)
-def test_a_self_managed_table_the_source_would_refuse_is_refused(credential: SelfManagedCredential) -> None:
-    location = parse_self_managed_url("https://examplestore.blob.core.windows.net/exports/a.csv")
-
-    with pytest.raises(UnmappableTableError):
-        AzureBlobSource().job_inputs_for_self_managed(location, credential)

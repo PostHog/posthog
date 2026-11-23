@@ -146,11 +146,6 @@ def upload_job_inputs(upload: UploadedFile, schema_name: str) -> dict[str, str]:
     }
 
 
-def pending_upload_job_inputs(file_format: UploadedFileFormat, schema_name: str) -> dict[str, str]:
-    """Inputs of a source that reads no file yet. A sync of it fails until an upload replaces them."""
-    return {"upload_id": "", "filename": "", "file_format": file_format, "schema_name": schema_name}
-
-
 def _stored_column_types(read: str, read_settings: UploadReadSettings) -> tuple[CsvColumnType, ...]:
     if read == "csv":
         return csv_column_types_from_columns(read_settings.columns)
@@ -190,11 +185,7 @@ def _source_created_via(table: DataWarehouseTable) -> str | None:
     return table.created_via if table.created_via in ExternalDataSourceCreatedVia.values else None
 
 
-def create_source_for_upload(
-    table: DataWarehouseTable,
-    job_inputs: dict[str, Any],
-    connection_metadata: dict[str, Any] | None = None,
-) -> ExternalDataSource:
+def create_source_for_upload(table: DataWarehouseTable, job_inputs: dict[str, Any]) -> ExternalDataSource:
     source = SourceInputsStore.create(
         source_id=str(uuid.uuid4()),
         connection_id=str(uuid.uuid4()),
@@ -208,7 +199,6 @@ def create_source_for_upload(
         access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
         created_by=table.created_by,
         created_via=_source_created_via(table),
-        connection_metadata=connection_metadata or {},
     )
     ExternalDataSourceDestination.objects.for_team(table.team_id).create(
         team_id=table.team_id, source_id=source.pk, destination=get_or_create_warehouse_destination(table.team_id)

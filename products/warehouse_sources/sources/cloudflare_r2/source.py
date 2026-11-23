@@ -1,4 +1,4 @@
-from typing import Any, cast
+from typing import cast
 
 from products.warehouse_sources.sources.cloudflare_r2._config import CloudflareR2SourceConfig
 from products.warehouse_sources.sources.sdk import (
@@ -12,8 +12,6 @@ from products.warehouse_sources.sources.sdk import (
     ObjectStoreConfig,
     ObjectStoreProvider,
     ReleaseStatus,
-    SelfManagedCredential,
-    SelfManagedLocation,
     SourceConfig,
     SourceRegistry,
     detect,
@@ -33,7 +31,6 @@ class CloudflareR2Source(ObjectStorageSource[CloudflareR2SourceConfig]):
     codebase_detection = detect(env=("^R2_", "^CLOUDFLARE_R2_"))
 
     api_docs_url = "https://developers.cloudflare.com/r2/api/s3/api/"
-    self_managed_service = "r2"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -54,16 +51,6 @@ class CloudflareR2Source(ObjectStorageSource[CloudflareR2SourceConfig]):
 
     def discovery_options(self, config: CloudflareR2SourceConfig) -> DiscoveryOptions:
         return discovery_options_from(config)
-
-    def self_managed_connection_inputs(
-        self, location: SelfManagedLocation, credential: SelfManagedCredential
-    ) -> dict[str, Any]:
-        jurisdiction = f".{location.jurisdiction}" if location.jurisdiction else ""
-        return {
-            "url_pattern": f"https://{location.account or ''}{jurisdiction}.r2.cloudflarestorage.com/{location.bucket}/",
-            "access_key_id": credential.access_key,
-            "secret_access_key": credential.access_secret,
-        }
 
     @property
     def get_source_config(self) -> SourceConfig:

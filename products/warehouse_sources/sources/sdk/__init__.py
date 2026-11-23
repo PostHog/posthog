@@ -240,11 +240,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     parse_r2_url,
     parse_s3_url,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.self_managed import (
-    SelfManagedCredential,
-    SelfManagedLocation,
-    UnmappableTableError,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.source_base import (
     ObjectStorageSource,
 )
@@ -549,8 +544,6 @@ __all__ = [
     "SUPABASE_DIRECT_HOST_RE",
     "SafeSQL",
     "SelectQueryBuilder",
-    "SelfManagedCredential",
-    "SelfManagedLocation",
     "SimpleSource",
     "SinglePagePaginator",
     "SortMode",
@@ -585,7 +578,6 @@ __all__ = [
     "UNKNOWN_RESOURCE_PREFIX",
     "UNVERSIONED_API_VERSION",
     "UnknownResourceError",
-    "UnmappableTableError",
     "ValidateDatabaseHostMixin",
     "ValidatedRowFilter",
     "VersionDeprecation",

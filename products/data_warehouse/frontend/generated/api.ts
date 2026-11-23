@@ -2598,9 +2598,6 @@ export const getWarehouseTablesCreateFromUploadCreateUrl = (projectId: string) =
  * is always derived from the caller's own team, so a client-supplied
  * `upload_id` can only resolve inside that team's folder, and the table carries no credential (reads
  * fall back to the node role, never a user-supplied key).
- *
- * For a team with object storage sources, the table also gets a file upload source. Its first
- * sync imports the file and turns the same table row into a managed table.
  * @summary Create a warehouse table and FileUpload source from an uploaded file
  */
 export const warehouseTablesCreateFromUploadCreate = async (
@@ -2613,37 +2610,6 @@ export const warehouseTablesCreateFromUploadCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(createTableFromUploadApi),
-    })
-}
-
-export const getWarehouseTablesFileCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/warehouse_tables/file/`
-}
-
-/**
- * Create, Read, Update and Delete Warehouse Tables.
- */
-export const warehouseTablesFileCreate = async (
-    projectId: string,
-    tableApi: NonReadonly<TableApi>,
-    options?: RequestInit
-): Promise<void> => {
-    const formData = new FormData()
-    if (tableApi.deleted !== undefined && tableApi.deleted !== null) {
-        formData.append(`deleted`, tableApi.deleted.toString())
-    }
-    formData.append(`name`, tableApi.name)
-    formData.append(`format`, tableApi.format)
-    formData.append(`url_pattern`, tableApi.url_pattern)
-    formData.append(`credential`, JSON.stringify(tableApi.credential))
-    if (tableApi.options !== undefined) {
-        formData.append(`options`, JSON.stringify(tableApi.options))
-    }
-
-    return apiMutator<void>(getWarehouseTablesFileCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        body: formData,
     })
 }
 
