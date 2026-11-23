@@ -64,7 +64,10 @@ class OrganizationOverviewPanel(Panel):
                 label="Deactivate organization",
                 handler=deactivate_organization,
                 danger=True,
-                description="Members cannot use PostHog until staff reactivate it. They see the reason you pick.",
+                description=(
+                    "Members see the reason you pick instead of the app. This does not end their existing API "
+                    "sessions or stop background work, such as batch exports."
+                ),
                 form_class=DeactivationReasonForm,
                 undo_hint="To undo, reactivate the organization on its Django admin page.",
             )
