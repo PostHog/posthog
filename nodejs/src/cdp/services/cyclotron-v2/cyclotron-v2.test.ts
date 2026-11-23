@@ -2890,18 +2890,53 @@ describe('Cyclotron V2', () => {
             ['its poll for sends with files hangs on a batch', 1, false],
             ['a send holds its slot longer than any send can take', 0, true],
         ])('turns unhealthy while the plain poll keeps going when %s', async (_label, room, stalled) => {
-            await manager.bulkCreateJobs([{ teamId: 1, queueName: 'email', fileBytes: 1000 }])
+            const [withFiles] = await manager.bulkCreateJobs([{ teamId: 1, queueName: 'email', fileBytes: 1000 }])
             const worker = createWorker('email', {
                 heartbeatTimeoutMs: 300,
                 sendsWithFiles: { room: () => room, stalled: () => stalled },
             })
             const stuck = createPromise()
-            await worker.connect((batch) => (batch.length === 0 ? Promise.resolve() : stuck.promise))
+            const filesPollBlocked = createPromise()
+            let plainClaimed = createPromise()
+            const claimPlainSend = async (): Promise<void> => {
+                plainClaimed = createPromise()
+                await manager.bulkCreateJobs([{ teamId: 1, queueName: 'email' }])
+                await plainClaimed.promise
+            }
+            jest.useFakeTimers({
+                doNotFake: [
+                    'hrtime',
+                    'nextTick',
+                    'performance',
+                    'queueMicrotask',
+                    'setImmediate',
+                    'clearImmediate',
+                    'setInterval',
+                    'clearInterval',
+                    'setTimeout',
+                    'clearTimeout',
+                ],
+            })
+            await worker.connect((batch) => {
+                if (batch.some((job) => job.id === withFiles)) {
+                    filesPollBlocked.resolve()
+                    return stuck.promise
+                }
+                if (batch.length > 0) {
+                    plainClaimed.resolve()
+                }
+                return Promise.resolve()
+            })
 
             try {
+                await (room > 0 ? filesPollBlocked.promise : Promise.resolve())
                 expect(worker.isHealthy()).toBe(true)
-                await waitForExpect(() => expect(worker.isHealthy()).toBe(false), 2_000, 50)
+                jest.setSystemTime(Date.now() + 300)
+                await claimPlainSend()
+                await claimPlainSend()
+                expect(worker.isHealthy()).toBe(false)
             } finally {
+                jest.useRealTimers()
                 stuck.resolve()
                 await worker.stopConsuming()
             }
