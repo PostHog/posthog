@@ -29,6 +29,8 @@ import { useSceneAgentPanel } from '~/scenes/max/useSceneAgentPanel'
 import { InsightShortId } from '~/types'
 
 import { catalogRestructureEnabled } from 'products/data_modeling/frontend/catalogRestructure'
+import { managedEntityLogic } from 'products/stacks/frontend/managedEntityLogic'
+import { ManagedInCodeBanner } from 'products/stacks/frontend/ManagedInCodeBanner'
 
 import { humanizeDefinitionKind, METRIC_DESCRIPTION_MAX_LENGTH, validateMetricName } from './common'
 import { MetricDefinition } from './components/MetricDefinition'
@@ -108,6 +110,8 @@ function LemonDataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProps)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
     const usageEnabled = !!featureFlags[FEATURE_FLAGS.DATA_CATALOG_USAGE]
     const { isMaxAvailable } = useValues(maxGlobalLogic)
+    const managedMetric = { kind: 'metric', entityId: metric?.id, naturalId: metric?.name }
+    const { ownedFieldDisabledReason } = useValues(managedEntityLogic(managedMetric))
 
     if (metricLoading && !metric) {
         return <MetricSceneSkeleton />
@@ -239,13 +243,15 @@ function LemonDataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProps)
                     name={metric.display_name || metric.name}
                     description={metric.description}
                     resourceType={{ type: 'data_warehouse' }}
-                    canEdit
+                    canEdit={!ownedFieldDisabledReason('display_name') && !ownedFieldDisabledReason('description')}
                     onNameChange={(value) => updateMetric({ display_name: value })}
                     onDescriptionChange={(value) => confirmAndUpdate({ description: value })}
                     descriptionMaxLength={METRIC_DESCRIPTION_MAX_LENGTH}
                     renameDebounceMs={0}
                     saveOnBlur
                 />
+
+                <ManagedInCodeBanner {...managedMetric} />
 
                 {metric.is_drifted && (
                     <LemonBanner type="warning">

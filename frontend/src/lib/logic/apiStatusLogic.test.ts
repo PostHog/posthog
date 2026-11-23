@@ -267,6 +267,52 @@ describe('apiStatusLogic', () => {
         })
     })
 
+    describe('writes refused because code owns the field', () => {
+        let errorSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            initKeaTests()
+            logic = apiStatusLogic()
+            logic.mount()
+            errorSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it.each([
+            ['managed_in_code', ['managed-in-code-refusal']],
+            ['stack_moved', []],
+        ])('toasts the file to edit for a 409 with code %s', async (code, expectedToastIds) => {
+            useMocks({
+                patch: {
+                    '/api/projects/:team_id/feature_flags/:id/': () => [
+                        409,
+                        {
+                            type: 'invalid_request',
+                            code,
+                            detail: 'Refused.',
+                            attr: null,
+                            extra: {
+                                stack: 'web-app',
+                                repository: 'example-org/web-app',
+                                source: { file: '.ph/flags.ts', export: 'checkoutV2' },
+                                fields: ['name'],
+                                kind: 'flag',
+                            },
+                        },
+                    ],
+                },
+            })
+
+            await api.update(`api/projects/${MOCK_TEAM_ID}/feature_flags/1/`, { name: 'x' }).catch(() => null)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(errorSpy.mock.calls.map(([, options]) => options?.toastId)).toEqual(expectedToastIds)
+        })
+    })
+
     describe('writes that need a fresh session', () => {
         const STALE_SESSION = { type: 'authentication_error', code: 'sensitive_action_required_reauth' }
         let patchCalls: number

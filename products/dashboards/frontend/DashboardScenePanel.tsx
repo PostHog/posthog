@@ -30,6 +30,8 @@ import {
 import { notebooksModel } from '~/models/notebooksModel'
 import { AccessControlLevel, AccessControlResourceType, DashboardMode, ExporterFormat } from '~/types'
 
+import { managedEntityLogic } from 'products/stacks/frontend/managedEntityLogic'
+
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { DashboardTemplateModal } from './dashboards/templates/DashboardTemplateModal'
 import { DashboardSaveAsTemplateSceneActions } from './DashboardSaveAsTemplateSceneActions'
@@ -51,6 +53,7 @@ export function DashboardScenePanel(): JSX.Element | null {
         tiles,
     } = useValues(dashboardLogic)
     const { setDashboardMode, updateDashboardTags, setTerraformModalOpen } = useActions(dashboardLogic)
+    const { ownedFieldDisabledReason } = useValues(managedEntityLogic({ kind: 'dashboard', entityId: dashboard?.id }))
     const { createNotebookFromDashboard } = useActions(notebooksModel)
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
@@ -67,7 +70,7 @@ export function DashboardScenePanel(): JSX.Element | null {
             <ScenePanelInfoSection>
                 <SceneTags
                     onSave={(tags) => updateDashboardTags(tags)}
-                    canEdit={canEditDashboard}
+                    canEdit={canEditDashboard && !ownedFieldDisabledReason('tags')}
                     tags={dashboard?.tags}
                     dataAttrKey={RESOURCE_TYPE}
                     loading={isSavingTags}

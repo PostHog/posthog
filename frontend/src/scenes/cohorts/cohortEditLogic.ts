@@ -88,6 +88,7 @@ import {
     isBuildingHistory,
 } from 'products/cohorts/frontend/realtime/realtimeReadiness'
 import { personsLogic } from 'products/persons/frontend/logics/personsLogic'
+import { isManagedInCodeRefusal } from 'products/stacks/frontend/managedInCode'
 
 import type { CohortTypeEnumApi } from '../../../../products/cohorts/frontend/generated/api.schemas'
 import type { UserBasicType } from '../../types'
@@ -1168,7 +1169,9 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                             return values.cohort
                         }
 
-                        lemonToast.error(error.detail || 'Failed to save cohort')
+                        if (!isManagedInCodeRefusal(error)) {
+                            lemonToast.error(error.detail || 'Failed to save cohort')
+                        }
                         return values.cohort
                     }
 

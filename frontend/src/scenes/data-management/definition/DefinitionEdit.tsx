@@ -20,6 +20,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDisabledArea } from 'lib/lemon-ui/LemonDisabledArea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
@@ -48,6 +49,9 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { isCoreFilter } from '~/taxonomy/helpers'
 import { AvailableFeature, ObjectMediaPreview } from '~/types'
 
+import { managedEntityLogic } from 'products/stacks/frontend/managedEntityLogic'
+import { ManagedInCodeBanner } from 'products/stacks/frontend/ManagedInCodeBanner'
+
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/DefinitionHeader'
 
 export const scene: SceneExport<DefinitionLogicProps> = {
@@ -68,6 +72,13 @@ export function DefinitionEdit(rawProps: DefinitionLogicProps): JSX.Element {
     const { objectStorageAvailable } = useValues(preflightLogic)
     const { reportMediaPreviewUploaded } = useActions(eventUsageLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    // Only events have a definition kind. A property is never managed in code, so it looks nothing up.
+    const managedEvent = {
+        kind: 'event',
+        entityId: isProperty ? null : editDefinition.id,
+        naturalId: editDefinition.name,
+    }
+    const { ownedFieldDisabledReason } = useValues(managedEntityLogic(managedEvent))
 
     const allowVerification = !isCoreFilter(editDefinition.name) && 'verified' in editDefinition
 
@@ -178,6 +189,8 @@ export function DefinitionEdit(rawProps: DefinitionLogicProps): JSX.Element {
                     }
                 />
 
+                <ManagedInCodeBanner {...managedEvent} />
+
                 {definitionLoading ? (
                     <div className="deprecated-space-y-4">
                         <LemonSkeleton className="h-10 w-1/3" />
@@ -194,13 +207,15 @@ export function DefinitionEdit(rawProps: DefinitionLogicProps): JSX.Element {
                             <div className="ph-ignore-input">
                                 <LemonField name="tags" label="Tags" data-attr="definition-tags">
                                     {({ value, onChange }) => (
-                                        <ObjectTags
-                                            className="definition-tags"
-                                            saving={definitionLoading}
-                                            tags={value || []}
-                                            onChange={(tags) => onChange(tags)}
-                                            style={{ marginBottom: 4 }}
-                                        />
+                                        <LemonDisabledArea disabledReason={ownedFieldDisabledReason('tags')}>
+                                            <ObjectTags
+                                                className="definition-tags"
+                                                saving={definitionLoading}
+                                                tags={value || []}
+                                                onChange={(tags) => onChange(tags)}
+                                                style={{ marginBottom: 4 }}
+                                            />
+                                        </LemonDisabledArea>
                                     )}
                                 </LemonField>
                             </div>
@@ -208,7 +223,11 @@ export function DefinitionEdit(rawProps: DefinitionLogicProps): JSX.Element {
 
                         <div className="ph-ignore-input">
                             <LemonField name="description" label="Description" data-attr="definition-description">
-                                <LemonTextArea value={editDefinition.description} />
+                                {({ value, onChange }) => (
+                                    <LemonDisabledArea disabledReason={ownedFieldDisabledReason('description')}>
+                                        <LemonTextArea value={value} onChange={onChange} />
+                                    </LemonDisabledArea>
+                                )}
                             </LemonField>
                         </div>
 
@@ -216,12 +235,14 @@ export function DefinitionEdit(rawProps: DefinitionLogicProps): JSX.Element {
                             <div className="ph-ignore-input">
                                 <LemonField name="owner" label="Owner" className="w-60" data-attr="definition-owner">
                                     {({ value, onChange }) => (
-                                        <MemberSelect
-                                            value={value?.id ?? null}
-                                            onChange={onChange}
-                                            defaultLabel="No owner"
-                                            data-attr="definition-owner-select"
-                                        />
+                                        <LemonDisabledArea disabledReason={ownedFieldDisabledReason('owner')}>
+                                            <MemberSelect
+                                                value={value?.id ?? null}
+                                                onChange={onChange}
+                                                defaultLabel="No owner"
+                                                data-attr="definition-owner-select"
+                                            />
+                                        </LemonDisabledArea>
                                     )}
                                 </LemonField>
                             </div>
@@ -292,17 +313,24 @@ export function DefinitionEdit(rawProps: DefinitionLogicProps): JSX.Element {
                                     {({ value: verified, onChange }) => (
                                         <LemonField name="hidden">
                                             {({ value: hidden, onChange: onHiddenChange }) => (
-                                                <PropertyStatusControl
-                                                    isProperty={isProperty}
-                                                    verified={!!verified}
-                                                    hidden={!!hidden}
-                                                    showHiddenOption={showHiddenOption}
-                                                    allowVerification={allowVerification}
-                                                    onChange={({ verified: newVerified, hidden: newHidden }) => {
-                                                        onChange(newVerified)
-                                                        onHiddenChange(newHidden)
-                                                    }}
-                                                />
+                                                <LemonDisabledArea
+                                                    disabledReason={
+                                                        ownedFieldDisabledReason('verified') ??
+                                                        ownedFieldDisabledReason('hidden')
+                                                    }
+                                                >
+                                                    <PropertyStatusControl
+                                                        isProperty={isProperty}
+                                                        verified={!!verified}
+                                                        hidden={!!hidden}
+                                                        showHiddenOption={showHiddenOption}
+                                                        allowVerification={allowVerification}
+                                                        onChange={({ verified: newVerified, hidden: newHidden }) => {
+                                                            onChange(newVerified)
+                                                            onHiddenChange(newHidden)
+                                                        }}
+                                                    />
+                                                </LemonDisabledArea>
                                             )}
                                         </LemonField>
                                     )}

@@ -10,6 +10,9 @@ import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/ma
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
 
+import { managedEntityLogic } from 'products/stacks/frontend/managedEntityLogic'
+import { ManagedInCodeBanner } from 'products/stacks/frontend/ManagedInCodeBanner'
+
 import { canEditNodeDescription } from './nodeDescriptionState'
 import { NodeDetailActions } from './NodeDetailActions'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
@@ -34,7 +37,13 @@ export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
     )
     const savedQuery = currentSavedQuery ?? initialSavedQuery
     const nodeType = nodeTypeForDisplay(node, savedQuery)
-    const canEdit = canEditNodeDescription(node, savedQuery)
+    const managedModel = {
+        kind: 'model',
+        entityId: node?.type === 'endpoint' ? null : node?.saved_query_id,
+        naturalId: node?.name,
+    }
+    const { ownedFieldDisabledReason } = useValues(managedEntityLogic(managedModel))
+    const canEdit = canEditNodeDescription(node, savedQuery) && !ownedFieldDisabledReason('description')
 
     return (
         <>
@@ -62,6 +71,7 @@ export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
                 renameDebounceMs={500}
                 saveOnBlur
             />
+            <ManagedInCodeBanner {...managedModel} />
             <ScenePanel>
                 <ScenePanelInfoSection>
                     {/* Take the date from the saved query, because the author next to it comes from

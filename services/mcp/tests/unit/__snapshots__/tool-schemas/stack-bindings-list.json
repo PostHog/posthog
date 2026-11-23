@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "name": {
+            "description": "The stack name from `posthog.json`.",
+            "type": "string"
+        }
+    },
+    "required": ["name"],
+    "type": "object"
+}

@@ -83,6 +83,7 @@ import {
 import { mathsLogic } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 import type { MathDefinition } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
+import { isManagedInCodeRefusal } from 'products/stacks/frontend/managedInCode'
 
 import type { AlertType } from '../../../../products/alerts/frontend/types'
 import type { InsightFilterOverrideContextApi } from '../../../../products/product_analytics/frontend/generated/api.schemas'
@@ -1323,10 +1324,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     lemonToast.error('Saving your insight timed out. Try again in a moment.')
                     return
                 }
-                if (e instanceof ApiError) {
-                    lemonToast.error(e.detail ?? 'Could not save insight')
-                } else {
-                    lemonToast.error('Could not save insight')
+                // apiStatusLogic already names the file to edit for a refusal, so a second toast would repeat it.
+                if (!isManagedInCodeRefusal(e)) {
+                    lemonToast.error(
+                        e instanceof ApiError ? (e.detail ?? 'Could not save insight') : 'Could not save insight'
+                    )
                 }
                 throw e
             }

@@ -15,6 +15,9 @@ import { isInsightVizNode } from '~/queries/schema/node-guards'
 import { EndpointRequest } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, EndpointType, EndpointVersionType } from '~/types'
 
+import { managedEntityLogic } from 'products/stacks/frontend/managedEntityLogic'
+import { ManagedInCodeBanner } from 'products/stacks/frontend/ManagedInCodeBanner'
+
 import { endpointLogic } from './endpointLogic'
 import { endpointSceneLogic, extractBreakdownPropertyNames } from './endpointSceneLogic'
 import { QuillEndpointHeaderActions } from './QuillEndpointHeaderActions'
@@ -43,6 +46,8 @@ export const EndpointSceneHeader = (): JSX.Element => {
     } = useActions(endpointSceneLogic)
     const { superpowersEnabled } = useValues(superpowersLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const managedEndpoint = { kind: 'endpoint', entityId: endpoint?.id, naturalId: endpoint?.name }
+    const { ownedFieldDisabledReason } = useValues(managedEntityLogic(managedEndpoint))
 
     // SceneTitleSection takes a boolean `canEdit` rather than disabled/disabledReason, so we can't
     // wrap it with AccessControlAction — use the same helper AccessControlAction relies on internally.
@@ -135,7 +140,7 @@ export const EndpointSceneHeader = (): JSX.Element => {
                 name={endpointName || endpoint?.name}
                 description={endpointDescription ?? viewingVersion?.description ?? endpoint?.description}
                 resourceType={{ type: 'endpoints' }}
-                canEdit={!editAccessDisabledReason}
+                canEdit={!editAccessDisabledReason && !ownedFieldDisabledReason('description')}
                 // onNameChange={} - we explicitly disallow this
                 onDescriptionChange={(description) => setEndpointDescription(description)}
                 isLoading={endpointLoading && !endpoint}
@@ -206,6 +211,7 @@ export const EndpointSceneHeader = (): JSX.Element => {
                     )
                 }
             />
+            <ManagedInCodeBanner {...managedEndpoint} />
             {superpowersEnabled && endpoint && debugInfoExpanded && (
                 <DebugInfoPanel endpoint={endpoint} viewingVersion={viewingVersion} />
             )}

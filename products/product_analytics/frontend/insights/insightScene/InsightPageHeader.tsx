@@ -25,6 +25,7 @@ import { AccessControlLevel, AccessControlResourceType, InsightLogicProps, ItemM
 import { areAlertsSupportedForInsight } from 'products/alerts/frontend/logic/insightAlertsLogic'
 import { insightModalsLogic } from 'products/product_analytics/frontend/insights/insightScene/insightModalsLogic'
 import { InsightSaveButton } from 'products/product_analytics/frontend/insights/insightScene/InsightSaveButton'
+import { managedEntityLogic } from 'products/stacks/frontend/managedEntityLogic'
 
 import { openInsightEditor } from './openInsightEditor'
 import { QuillInsightPageHeaderActions } from './QuillInsightPageHeaderActions'
@@ -53,6 +54,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insightLogic(insightLogicProps)
     )
     const { openAddToDashboardModal, saveAndAddToDashboard } = useActions(insightModalsLogic(insightLogicProps))
+    const { ownedFieldDisabledReason } = useValues(managedEntityLogic({ kind: 'insight', entityId: insight.id }))
 
     // A saved insight with its own short_id — the precondition for every view-mode action in this header.
     const isPersistedInsight = !!isSavedInsight && !!insight.short_id
@@ -141,7 +143,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 }}
                 onGenerateMetadata={supportsMetadataGeneration(insightQuery) ? generateInsightMetadata : undefined}
                 isGeneratingMetadata={generatedInsightMetadataLoading}
-                canEdit={canEditInsight}
+                canEdit={
+                    canEditInsight && !ownedFieldDisabledReason('name') && !ownedFieldDisabledReason('description')
+                }
                 isLoading={insightLoading && !insight?.id}
                 forceEdit={insightMode === ItemMode.Edit}
                 renameDebounceMs={0}
@@ -234,6 +238,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 filtersOverride,
                                                 variablesOverride
                                             )}
+                                            disabledReason={ownedFieldDisabledReason('query')}
                                             data-attr="insight-edit-button"
                                         >
                                             Edit

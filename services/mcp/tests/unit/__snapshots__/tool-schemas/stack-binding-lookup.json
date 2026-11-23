@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "entity_id": {
+            "description": "The id of the entity in PostHog. For a kind whose key is a name, such as an event name or a context page path, that name finds it too.",
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+        },
+        "kind": {
+            "description": "The definition kind of the entity. One of `flag`, `event`, `property_group`, `model`, `endpoint`, `metric`, `context_page`, `insight`, `dashboard`, `alert`, `destination`, `cohort`, `action`, `source`, `check`, `experiment` or `survey`.",
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "required": ["entity_id", "kind"],
+    "type": "object"
+}

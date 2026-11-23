@@ -21,6 +21,8 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { CopyExperimentToProjectModal } from 'products/experiments/frontend/components/CopyExperimentToProjectModal'
 import { DuplicateExperimentModal } from 'products/experiments/frontend/components/DuplicateExperimentModal'
 import { experimentUsesWarehouseNativeSources } from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
+import { managedEntityLogic } from 'products/stacks/frontend/managedEntityLogic'
+import { ManagedInCodeBanner } from 'products/stacks/frontend/ManagedInCodeBanner'
 
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
@@ -61,6 +63,8 @@ export function PageHeaderCustom(): JSX.Element {
         AccessControlLevel.Editor,
         experiment.user_access_level
     )
+    const experimentId = typeof experiment?.id === 'number' ? experiment.id : null
+    const { ownedFieldDisabledReason } = useValues(managedEntityLogic({ kind: 'experiment', entityId: experimentId }))
 
     return (
         <>
@@ -74,7 +78,7 @@ export function PageHeaderCustom(): JSX.Element {
                 isLoading={experimentLoading}
                 onNameChange={(name) => updateExperiment({ name })}
                 onDescriptionChange={(description) => updateExperiment({ description })}
-                canEdit={canEdit}
+                canEdit={canEdit && !ownedFieldDisabledReason('name') && !ownedFieldDisabledReason('description')}
                 renameDebounceMs={0}
                 saveOnBlur
                 actions={
@@ -142,6 +146,7 @@ export function PageHeaderCustom(): JSX.Element {
                     )
                 }
             />
+            <ManagedInCodeBanner kind="experiment" entityId={experimentId} />
             <HogfettiComponent />
 
             {experiment && (

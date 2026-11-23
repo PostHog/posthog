@@ -25,6 +25,7 @@ import { InsightShortId, ItemMode } from '~/types'
 import { insightDataChecksLogic } from 'products/product_analytics/frontend/insights/dataChecks/insightDataChecksLogic'
 import { InsightHomeGuide } from 'products/product_analytics/frontend/insights/home/InsightHomeGuide'
 import { InsightModals } from 'products/product_analytics/frontend/insights/insightScene/InsightModals'
+import { ManagedInCodeBanner } from 'products/stacks/frontend/ManagedInCodeBanner'
 import { SubscriptionSummaries } from 'products/subscriptions/frontend/components/SubscriptionSummaries/SubscriptionSummaries'
 
 import { InsightQueryScanBanner } from './banners/InsightQueryScanBanner'
@@ -104,6 +105,8 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
                 )}
 
                 {insightId === 'new' && isEditing && <InsightHomeGuide query={query} />}
+
+                <ManagedInCodeBanner kind="insight" entityId={insight.id} />
 
                 <InsightRetentionBanner insightProps={insightProps} />
 

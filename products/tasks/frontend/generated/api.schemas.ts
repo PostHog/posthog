@@ -1634,6 +1634,7 @@ export interface PaginatedTaskListItemListApi {
  * * `knowledge_writer` - Knowledge Writer
  * * `context_layer` - Context Layer
  * * `feature_flags` - Feature Flags
+ * * `stacks` - Stacks
  */
 export type TaskOriginProductEnumApi = (typeof TaskOriginProductEnumApi)[keyof typeof TaskOriginProductEnumApi]
 
@@ -1667,6 +1668,7 @@ export const TaskOriginProductEnumApi = {
     KnowledgeWriter: 'knowledge_writer',
     ContextLayer: 'context_layer',
     FeatureFlags: 'feature_flags',
+    Stacks: 'stacks',
 } as const
 
 /**
@@ -1836,7 +1838,8 @@ export interface TaskCreateApi {
      * * `metrics_import` - Metrics Import
      * * `knowledge_writer` - Knowledge Writer
      * * `context_layer` - Context Layer
-     * * `feature_flags` - Feature Flags */
+     * * `feature_flags` - Feature Flags
+     * * `stacks` - Stacks */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target repository. For GitHub, use `organization/repo` (e.g. `posthog/posthog-js`). For GitLab, set `repository_integration` and use the full project path, which can include nested groups (e.g. `acme/platform/api`).
@@ -2147,7 +2150,8 @@ export interface TaskWriteApi {
      * * `metrics_import` - Metrics Import
      * * `knowledge_writer` - Knowledge Writer
      * * `context_layer` - Context Layer
-     * * `feature_flags` - Feature Flags */
+     * * `feature_flags` - Feature Flags
+     * * `stacks` - Stacks */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target repository. For GitHub, use `organization/repo` (e.g. `posthog/posthog-js`). For GitLab, set `repository_integration` and use the full project path, which can include nested groups (e.g. `acme/platform/api`).
@@ -2292,7 +2296,8 @@ export interface PatchedTaskWriteApi {
      * * `metrics_import` - Metrics Import
      * * `knowledge_writer` - Knowledge Writer
      * * `context_layer` - Context Layer
-     * * `feature_flags` - Feature Flags */
+     * * `feature_flags` - Feature Flags
+     * * `stacks` - Stacks */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target repository. For GitHub, use `organization/repo` (e.g. `posthog/posthog-js`). For GitLab, set `repository_integration` and use the full project path, which can include nested groups (e.g. `acme/platform/api`).
@@ -5403,6 +5408,7 @@ export interface SlackThreadContextResponseApi {
  * * `signals_scout` - signals_scout
  * * `slack` - slack
  * * `space_setup` - space_setup
+ * * `stacks` - stacks
  * * `support_queue` - support_queue
  * * `support_reply` - support_reply
  * * `task_analysis` - task_analysis
@@ -5435,6 +5441,7 @@ export const TaskListSourceEnumApi = {
     SignalsScout: 'signals_scout',
     Slack: 'slack',
     SpaceSetup: 'space_setup',
+    Stacks: 'stacks',
     SupportQueue: 'support_queue',
     SupportReply: 'support_reply',
     TaskAnalysis: 'task_analysis',
@@ -5654,6 +5661,7 @@ export type SandboxCustomImagesListParams = {
      * * `knowledge_writer` - Knowledge Writer
      * * `context_layer` - Context Layer
      * * `feature_flags` - Feature Flags
+     * * `stacks` - Stacks
      * @minLength 1
      */
     origin_product?: SandboxCustomImagesListOriginProduct
@@ -5692,6 +5700,7 @@ export const SandboxCustomImagesListOriginProduct = {
     KnowledgeWriter: 'knowledge_writer',
     ContextLayer: 'context_layer',
     FeatureFlags: 'feature_flags',
+    Stacks: 'stacks',
 } as const
 
 export type SandboxListParams = {
@@ -5842,6 +5851,7 @@ export type TasksListParams = {
      * * `knowledge_writer` - Knowledge Writer
      * * `context_layer` - Context Layer
      * * `feature_flags` - Feature Flags
+     * * `stacks` - Stacks
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct
@@ -6005,6 +6015,7 @@ export const TasksListExcludeOriginProduct = {
     KnowledgeWriter: 'knowledge_writer',
     ContextLayer: 'context_layer',
     FeatureFlags: 'feature_flags',
+    Stacks: 'stacks',
 } as const
 
 export type TasksListInternal = (typeof TasksListInternal)[keyof typeof TasksListInternal]
@@ -6056,6 +6067,7 @@ export const TasksListPrState = {
  * * `signals_scout` - signals_scout
  * * `slack` - slack
  * * `space_setup` - space_setup
+ * * `stacks` - stacks
  * * `support_queue` - support_queue
  * * `support_reply` - support_reply
  * * `task_analysis` - task_analysis
@@ -6088,6 +6100,7 @@ export const TasksListSourcesItem = {
     SignalsScout: 'signals_scout',
     Slack: 'slack',
     SpaceSetup: 'space_setup',
+    Stacks: 'stacks',
     SupportQueue: 'support_queue',
     SupportReply: 'support_reply',
     TaskAnalysis: 'task_analysis',

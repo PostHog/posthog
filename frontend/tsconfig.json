@@ -1,3 +1,7 @@
 {
-    "extends": "../tsconfig.json"
+    "extends": "../tsconfig.json",
+    "compilerOptions": {
+        // Resolves @posthog/sdk/define to its TypeScript source, so the typecheck needs no SDK build.
+        "customConditions": ["posthog-source"]
+    }
 }

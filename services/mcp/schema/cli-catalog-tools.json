@@ -19238,6 +19238,47 @@
             "validators": []
         }
     },
+    "event-schema-create": {
+        "name": "event-schema-create",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/event_schemas/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "event_definition",
+                    "key": "event_definition"
+                },
+                {
+                    "param": "property_group_id",
+                    "key": "property_group_id"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "event-streams-add-account": {
         "name": "event-streams-add-account",
         "kind": "http",
@@ -42219,6 +42260,51 @@
             "validators": []
         }
     },
+    "schema-property-group-create": {
+        "name": "schema-property-group-create",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/schema_property_groups/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "name",
+                    "key": "name"
+                },
+                {
+                    "param": "description",
+                    "key": "description"
+                },
+                {
+                    "param": "properties",
+                    "key": "properties"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "scout-check-record-result": {
         "name": "scout-check-record-result",
         "kind": "http",
@@ -47046,6 +47132,226 @@
                 {
                     "param": "values_query_connection_id",
                     "key": "values_query_connection_id"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "stack-binding-lookup": {
+        "name": "stack-binding-lookup",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/stacks/bindings/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": [
+                {
+                    "param": "entity_id",
+                    "key": "entity_id",
+                    "csv": false
+                },
+                {
+                    "param": "kind",
+                    "key": "kind",
+                    "csv": false
+                }
+            ],
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "stack-bindings-list": {
+        "name": "stack-bindings-list",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/stacks/{name}/bindings/",
+            "pathParams": ["name"],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": true,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": {
+                "kind": "list",
+                "baseUrl": "/stacks"
+            },
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "stack-diff": {
+        "name": "stack-diff",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/stacks/{name}/diffs/",
+            "pathParams": ["name"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "description",
+                    "key": "description"
+                },
+                {
+                    "param": "source",
+                    "key": "source"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "stack-diff-get": {
+        "name": "stack-diff-get",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/stacks/{name}/diffs/{diff_id}/",
+            "pathParams": ["diff_id", "name"],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "stack-managed-kinds-list": {
+        "name": "stack-managed-kinds-list",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/stacks/managed_kinds/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "stack-push": {
+        "name": "stack-push",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/stacks/{name}/diffs/{diff_id}/push/",
+            "pathParams": ["diff_id", "name"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "max_removals",
+                    "key": "max_removals"
                 }
             ],
             "injectBody": {},

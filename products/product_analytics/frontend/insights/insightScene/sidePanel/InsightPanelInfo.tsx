@@ -9,6 +9,8 @@ import { ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { InsightLogicProps } from '~/types'
 
+import { managedEntityLogic } from 'products/stacks/frontend/managedEntityLogic'
+
 const RESOURCE_TYPE = 'insight'
 
 export function InsightPanelInfo({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
@@ -16,6 +18,7 @@ export function InsightPanelInfo({ insightLogicProps }: { insightLogicProps: Ins
     const theInsightLogic = insightLogic(insightLogicProps)
     const { canEditInsight, insight, isSavingTags } = useValues(theInsightLogic)
     const { setInsightMetadata } = useActions(theInsightLogic)
+    const { ownedFieldDisabledReason } = useValues(managedEntityLogic({ kind: 'insight', entityId: insight.id }))
 
     return (
         <ScenePanelInfoSection>
@@ -23,7 +26,7 @@ export function InsightPanelInfo({ insightLogicProps }: { insightLogicProps: Ins
                 onSave={(tags) => setInsightMetadata({ tags })}
                 tags={insight.tags}
                 dataAttrKey={RESOURCE_TYPE}
-                canEdit={canEditInsight}
+                canEdit={canEditInsight && !ownedFieldDisabledReason('tags')}
                 loading={isSavingTags}
             />
             {scenePanelOpen && <SceneFile dataAttrKey={RESOURCE_TYPE} />}

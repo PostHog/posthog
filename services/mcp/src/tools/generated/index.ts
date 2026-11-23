@@ -23,6 +23,7 @@ import { GENERATED_TOOLS as cross_project_dashboards } from './cross_project_das
 import { GENERATED_TOOLS as customer_analytics } from './customer_analytics'
 import { GENERATED_TOOLS as dashboards } from './dashboards'
 import { GENERATED_TOOLS as data_catalog } from './data_catalog'
+import { GENERATED_TOOLS as data_management } from './data_management'
 import { GENERATED_TOOLS as data_quality } from './data_quality'
 import { GENERATED_TOOLS as data_warehouse } from './data_warehouse'
 import { GENERATED_TOOLS as docs } from './docs'
@@ -58,6 +59,7 @@ import { GENERATED_TOOLS as replay_vision } from './replay_vision'
 import { GENERATED_TOOLS as review_hog } from './review_hog'
 import { GENERATED_TOOLS as signals } from './signals'
 import { GENERATED_TOOLS as skills } from './skills'
+import { GENERATED_TOOLS as stacks } from './stacks'
 import { GENERATED_TOOLS as stamphog } from './stamphog'
 import { GENERATED_TOOLS as streamlit_apps } from './streamlit_apps'
 import { GENERATED_TOOLS as subscriptions } from './subscriptions'
@@ -99,6 +101,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...customer_analytics,
     ...dashboards,
     ...data_catalog,
+    ...data_management,
     ...data_quality,
     ...data_warehouse,
     ...docs,
@@ -134,6 +137,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...review_hog,
     ...signals,
     ...skills,
+    ...stacks,
     ...stamphog,
     ...streamlit_apps,
     ...subscriptions,

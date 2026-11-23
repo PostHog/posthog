@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "diff_id": {
+            "description": "The `id` that `stack-diff` returned.",
+            "type": "string"
+        },
+        "name": {
+            "description": "The stack name the diff belongs to.",
+            "type": "string"
+        }
+    },
+    "required": ["diff_id", "name"],
+    "type": "object"
+}

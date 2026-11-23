@@ -131,6 +131,8 @@ export const AGENT_USE_CASE_SCOPES = [
     'signal_scout:read',
     'signal_scout:write',
     'signal_usage:read',
+    'stack:read',
+    'stack:write',
     'streamlit_app:read',
     'streamlit_app:write',
     'subscription:read',

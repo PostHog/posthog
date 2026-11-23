@@ -11,6 +11,8 @@ import { Query } from '~/queries/Query/Query'
 import { urls } from '~/scenes/urls'
 import { EventDefinition, SchemaEnforcementMode } from '~/types'
 
+import { managedEntityLogic } from 'products/stacks/frontend/managedEntityLogic'
+
 import { PropertyGroupModal } from '../schema/PropertyGroupModal'
 import { PropertyTypeTag } from '../schema/PropertyTypeTag'
 import { SchemaPropertyGroupProperty, schemaManagementLogic } from '../schema/schemaManagementLogic'
@@ -45,13 +47,22 @@ function PropertyGroupCard({
     eventFirstSeen,
     onEdit,
     onRemove,
+    removeDisabledReason,
 }: {
     schema: EventSchema
     eventName: string
     eventFirstSeen?: string | null
     onEdit: () => void
     onRemove: () => void
+    removeDisabledReason: string | null
 }): JSX.Element {
+    const { ownedFieldDisabledReason } = useValues(
+        managedEntityLogic({
+            kind: 'property_group',
+            entityId: schema.property_group.id,
+            naturalId: schema.property_group.name,
+        })
+    )
     const queryResult = useMemo(
         () => buildPropertyGroupTrendsQuery(eventName, schema.property_group.properties, eventFirstSeen),
         [eventName, eventFirstSeen, schema.property_group.properties]
@@ -86,6 +97,7 @@ function PropertyGroupCard({
                         size="small"
                         onClick={onEdit}
                         tooltip="Edit this property group"
+                        disabledReason={ownedFieldDisabledReason('properties')}
                     />
                     <LemonButton
                         icon={<IconTrash />}
@@ -93,6 +105,7 @@ function PropertyGroupCard({
                         status="danger"
                         onClick={onRemove}
                         tooltip="Remove this property group from the event schema"
+                        disabledReason={removeDisabledReason}
                     />
                 </div>
             </div>
@@ -143,6 +156,9 @@ export function EventDefinitionSchema({ definition }: { definition: EventDefinit
 
     const schemaLogic = schemaManagementLogic({ key: `event-${definition.id}` })
     const { setPropertyGroupModalOpen, setEditingPropertyGroup } = useActions(schemaLogic)
+    const { ownedFieldDisabledReason } = useValues(
+        managedEntityLogic({ kind: 'event', entityId: definition.id, naturalId: definition.name })
+    )
 
     const selectedPropertyGroupIds = useMemo<Set<string>>(
         () => new Set(eventSchemas.map((schema: EventSchema) => schema.property_group.id)),
@@ -180,7 +196,8 @@ export function EventDefinitionSchema({ definition }: { definition: EventDefinit
                             }
                             disabled={!hasPropertyGroups || schemaEnforcementModeUpdating}
                             disabledReason={
-                                !hasPropertyGroups ? 'Define a schema before enabling schema enforcement' : undefined
+                                ownedFieldDisabledReason('enforcement_mode') ??
+                                (!hasPropertyGroups ? 'Define a schema before enabling schema enforcement' : undefined)
                             }
                         />
                     )}
@@ -189,6 +206,7 @@ export function EventDefinitionSchema({ definition }: { definition: EventDefinit
                         icon={<IconPlus />}
                         onClick={() => setIsModalOpen(true)}
                         disabled={eventSchemasLoading}
+                        disabledReason={ownedFieldDisabledReason('property_groups')}
                     >
                         Add Property Group
                     </LemonButton>
@@ -219,6 +237,7 @@ export function EventDefinitionSchema({ definition }: { definition: EventDefinit
                                     setPropertyGroupModalOpen(true)
                                 }}
                                 onRemove={() => removePropertyGroup(schema.id)}
+                                removeDisabledReason={ownedFieldDisabledReason('property_groups')}
                             />
                         ))}
                     </div>

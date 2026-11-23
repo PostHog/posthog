@@ -1004,6 +1004,7 @@ export class ApiClient {
                     tags?: string[]
                     verified?: boolean
                     hidden?: boolean
+                    enforcement_mode?: 'allow' | 'reject'
                 }
             }): Promise<Result<ApiEventDefinition>> => {
                 const createUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/`
@@ -1041,6 +1042,7 @@ export class ApiClient {
                     tags?: string[]
                     verified?: boolean
                     hidden?: boolean
+                    enforcement_mode?: 'allow' | 'reject'
                 }
             }): Promise<Result<ApiEventDefinition>> => {
                 // Fetching the event definition by name to get its ID

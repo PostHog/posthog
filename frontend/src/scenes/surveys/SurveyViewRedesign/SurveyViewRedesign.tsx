@@ -75,6 +75,8 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
+import { managedEntityLogic } from 'products/stacks/frontend/managedEntityLogic'
+import { ManagedInCodeBanner } from 'products/stacks/frontend/ManagedInCodeBanner'
 import { SurveyResponseColumnsMenu } from 'products/surveys/frontend/components/SurveyResponseColumnsMenu'
 import { SurveyDraftReview } from 'products/surveys/frontend/draftReview/SurveyDraftReview'
 
@@ -104,6 +106,9 @@ export function SurveyViewRedesign({ openMax }: { openMax: UseMaxToolReturn['ope
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
     const surveyIdForTransfer = survey?.id && survey.id !== 'new' ? survey.id : null
+    const { ownedFieldDisabledReason } = useValues(
+        managedEntityLogic({ kind: 'survey', entityId: surveyIdForTransfer })
+    )
     const isDraft = isSurveyDraft(survey)
     const [panelTabKey, setPanelTabKey] = useState('details')
     const [sqlHelperOpen, setSqlHelperOpen] = useState(false)
@@ -356,11 +361,15 @@ export function SurveyViewRedesign({ openMax }: { openMax: UseMaxToolReturn['ope
                 }
                 description={survey.description}
                 resourceType={{ type: 'survey' }}
-                canEdit={userHasAccess(
-                    AccessControlResourceType.Survey,
-                    AccessControlLevel.Editor,
-                    survey.user_access_level
-                )}
+                canEdit={
+                    userHasAccess(
+                        AccessControlResourceType.Survey,
+                        AccessControlLevel.Editor,
+                        survey.user_access_level
+                    ) &&
+                    !ownedFieldDisabledReason('name') &&
+                    !ownedFieldDisabledReason('description')
+                }
                 saveOnBlur
                 onNameChange={(name) => updateSurvey({ id: survey.id, name })}
                 onDescriptionChange={(description) => updateSurvey({ id: survey.id, description })}
@@ -377,6 +386,7 @@ export function SurveyViewRedesign({ openMax }: { openMax: UseMaxToolReturn['ope
                             {todayRailNav ? (
                                 <Button
                                     data-attr="edit-survey"
+                                    disabledReason={ownedFieldDisabledReason('questions')}
                                     variant="outline"
                                     {...(canUseSurveyWizard(survey) && preferredEditor === 'guided'
                                         ? {
@@ -402,6 +412,7 @@ export function SurveyViewRedesign({ openMax }: { openMax: UseMaxToolReturn['ope
                                     }
                                     type="secondary"
                                     size="small"
+                                    disabledReason={ownedFieldDisabledReason('questions')}
                                 >
                                     Edit
                                 </LemonButton>
@@ -411,6 +422,8 @@ export function SurveyViewRedesign({ openMax }: { openMax: UseMaxToolReturn['ope
                     </>
                 }
             />
+
+            <ManagedInCodeBanner kind="survey" entityId={surveyIdForTransfer} />
 
             {/* Main content */}
             <div className="-m-4 flex-1 min-h-0">

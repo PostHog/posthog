@@ -86,6 +86,7 @@ import {
 
 import { hogFunctionTemplatesRetrieve } from 'products/cdp/frontend/generated/api'
 import { asDisplay } from 'products/persons/frontend/person-utils'
+import { isManagedInCodeRefusal } from 'products/stacks/frontend/managedInCode'
 import { destinationWorkflowSuggestionLogic } from 'products/workflows/frontend/DestinationWorkflowSuggestion/destinationWorkflowSuggestionLogic'
 import { workflowEventsFromFilters } from 'products/workflows/frontend/DestinationWorkflowSuggestion/messagingDestinations'
 
@@ -2178,7 +2179,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         })
                     }
                 }, 1)
-            } else {
+            } else if (!isManagedInCodeRefusal(errorObject)) {
                 console.error(errorObject)
                 lemonToast.error(maybeValidationError?.detail ?? 'Error submitting configuration')
             }
