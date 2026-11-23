@@ -10,10 +10,21 @@ interface TurnstileChallengeProps {
     siteKey: string
     onSuccess: (token: string) => void
     tokenReceived: boolean
+    // Shown while the form submits again with the token
+    pendingLabel: string
+    // Shown before the support link after the challenge fails twice
+    troublePrompt: string
     email?: string
 }
 
-export function TurnstileChallenge({ siteKey, onSuccess, tokenReceived, email }: TurnstileChallengeProps): JSX.Element {
+export function TurnstileChallenge({
+    siteKey,
+    onSuccess,
+    tokenReceived,
+    pendingLabel,
+    troublePrompt,
+    email,
+}: TurnstileChallengeProps): JSX.Element {
     const { openSupportForm } = useActions(supportLogic)
     const turnstileRef = useRef<TurnstileInstance>(null)
     const [error, setError] = useState(false)
@@ -33,7 +44,7 @@ export function TurnstileChallenge({ siteKey, onSuccess, tokenReceived, email }:
         return (
             <div className="flex items-center justify-center gap-2 py-2">
                 <Spinner className="text-base" />
-                <span className="text-sm text-secondary">Creating your account...</span>
+                <span className="text-sm text-secondary">{pendingLabel}</span>
             </div>
         )
     }
@@ -57,7 +68,7 @@ export function TurnstileChallenge({ siteKey, onSuccess, tokenReceived, email }:
                         <p className="text-sm text-secondary">
                             {/* Text is span-wrapped so Chrome's in-page translation (which replaces bare text
                                 nodes with <font> elements) can't break React sibling ops — react#11538 */}
-                            <span>Having trouble signing up?</span>{' '}
+                            <span>{troublePrompt}</span>{' '}
                             <Link
                                 data-attr="turnstile-error-contact-support"
                                 onClick={(e) => {

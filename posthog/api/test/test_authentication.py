@@ -829,6 +829,58 @@ class TestLoginRadar(APIBaseTest):
         assert codes == ["suspicious_attempt_blocked", "too_many_failed_attempts", "too_many_failed_attempts"]
         assert mock_call_api.call_count == 2
 
+    @override_settings(CLOUDFLARE_TURNSTILE_SITE_KEY="site_key_123")
+    @patch("posthog.workos_radar.verify_turnstile_token", return_value=True)
+    @patch("posthog.workos_radar.workos_radar_request")
+    @patch(
+        "posthog.workos_radar._call_radar_api",
+        return_value=RadarAttempt(verdict=RadarVerdict.CHALLENGE, attempt_id="radar_att_01ABC"),
+    )
+    def test_an_enforced_challenge_signs_in_once_turnstile_is_solved(
+        self, mock_call_api, mock_put, mock_verify_turnstile
+    ):
+        mock_put.return_value.status_code = 200
+        credentials = {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD}
+
+        with (
+            override_instance_config("WORKOS_RADAR_LOGIN_MODE", "enforce"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            challenged = self.client.post("/api/login", credentials)
+            assert self.client.get("/api/users/@me/").status_code == status.HTTP_401_UNAUTHORIZED
+            solved = self.client.post(
+                "/api/login",
+                {
+                    **credentials,
+                    "turnstile_token": "turnstile_abc",
+                    "challenge_nonce": challenged.json()["extra"]["challenge_nonce"],
+                },
+            )
+
+        assert challenged.status_code == status.HTTP_428_PRECONDITION_REQUIRED
+        assert challenged.json()["extra"]["turnstile_site_key"] == "site_key_123"
+        assert solved.status_code == status.HTTP_200_OK
+        assert self.client.get("/api/users/@me/").status_code == status.HTTP_200_OK
+        assert mock_call_api.call_count == 1
+        assert mock_verify_turnstile.call_args[0][0] == "turnstile_abc"
+        assert [(c[0][1], c[1]["json"]) for c in mock_put.call_args_list] == [
+            (self.RADAR_ATTEMPT_URL, {"attempt_status": "success", "challenge_status": "success"})
+        ]
+
+    @parameterized.expand([("shadow", "shadow", "site_key_123"), ("enforce_without_a_site_key", "enforce", "")])
+    @patch(
+        "posthog.workos_radar._call_radar_api",
+        return_value=RadarAttempt(verdict=RadarVerdict.CHALLENGE, attempt_id="radar_att_01ABC"),
+    )
+    def test_a_challenge_verdict_signs_in_when_the_login_cannot_show_it(self, _name, mode, site_key, _mock_call_api):
+        with (
+            override_settings(CLOUDFLARE_TURNSTILE_SITE_KEY=site_key),
+            override_instance_config("WORKOS_RADAR_LOGIN_MODE", mode),
+        ):
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+
+        assert response.status_code == status.HTTP_200_OK
+
     @patch("posthog.workos_radar._call_radar_api", return_value=RadarAttempt(verdict=RadarVerdict.ALLOW))
     def test_radar_gets_the_stored_address_when_the_typed_one_is_a_variant(self, mock_call_api):
         with override_instance_config("WORKOS_RADAR_LOGIN_MODE", "shadow"):

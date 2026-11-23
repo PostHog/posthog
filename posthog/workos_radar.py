@@ -54,7 +54,7 @@ class SuspiciousAttemptBlocked(APIException):
 
 class ChallengeRequired(APIException):
     status_code = 428
-    default_detail = "Additional verification is required to complete signup."
+    default_detail = "Additional verification is required to continue."
     default_code = "challenge_required"
     default_type = "authentication_error"
 
@@ -237,8 +237,8 @@ def evaluate_auth_attempt(
     ``posthog.tasks.workos_radar.report_attempt_success``.
 
     ``challenge_allowed=False`` is for a caller with no way to show a Turnstile
-    challenge, such as a partner server or the login form. A CHALLENGE verdict then
-    lets the attempt through, so that only a BLOCK verdict refuses it.
+    challenge, such as a partner server. A CHALLENGE verdict then lets the attempt
+    through, so that only a BLOCK verdict refuses it.
 
     A password login runs only when WORKOS_RADAR_LOGIN_MODE is not "off" and the
     address is in the sample. In "shadow" mode the verdict is recorded and never

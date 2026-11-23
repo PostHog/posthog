@@ -143,6 +143,8 @@ export function SignupProfileStep(): JSX.Element {
                         siteKey={turnstileSiteKey}
                         onSuccess={setTurnstileToken}
                         tokenReceived={!!turnstileToken}
+                        pendingLabel="Creating your account..."
+                        troublePrompt="Having trouble signing up?"
                         email={signupEmail}
                     />
                 ) : (

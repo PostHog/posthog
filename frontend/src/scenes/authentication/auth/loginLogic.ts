@@ -191,12 +191,17 @@ export interface loginLogicValues {
     isPasswordLoginUnavailable: boolean
     login: LoginForm
     loginAllErrors: Record<string, any>
+    loginChallenge: {
+        nonce: string
+        siteKey: string
+    } | null
     loginChanged: boolean
     loginErrors: DeepPartialMap<LoginForm, ValidationErrorType>
     loginHasErrors: boolean
     loginManualErrors: Record<string, any>
     loginTouched: boolean
     loginTouches: Record<string, boolean>
+    loginTurnstileToken: string | null
     loginValidationErrors: DeepPartialMap<LoginForm, ValidationErrorType>
     passkeyPromptedForEmail: string | null
     precheckResponse: PrecheckResponseType
@@ -282,6 +287,9 @@ export interface loginLogicActions {
     resetLogin: (values?: LoginForm) => {
         values?: LoginForm
     }
+    resetLoginChallenge: () => {
+        value: true
+    }
     sendSetPasswordLink: (email: string) => string
     sendSetPasswordLinkFailure: (
         error: string,
@@ -325,8 +333,18 @@ export interface loginLogicActions {
         code: string
         detail: string
     }
+    setLoginChallenge: (
+        nonce: string,
+        siteKey: string
+    ) => {
+        nonce: string
+        siteKey: string
+    }
     setLoginManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
+    }
+    setLoginTurnstileToken: (token: string) => {
+        token: string
     }
     setLoginValue: (
         key: FieldName,
@@ -434,8 +452,27 @@ export const loginLogic = kea<loginLogicType>([
         exitCodeVerification: true,
         startAutoRedirectToProvider: (provider: SSOProvider, email: string) => ({ provider, email }),
         markPasskeyPrompted: (email: string) => ({ email }),
+        setLoginChallenge: (nonce: string, siteKey: string) => ({ nonce, siteKey }),
+        setLoginTurnstileToken: (token: string) => ({ token }),
+        resetLoginChallenge: true,
     }),
     reducers({
+        // The Turnstile challenge that WorkOS Radar asked for. Its nonce is good for one submit only.
+        loginChallenge: [
+            null as { nonce: string; siteKey: string } | null,
+            {
+                setLoginChallenge: (_, challenge) => challenge,
+                resetLoginChallenge: () => null,
+            },
+        ],
+        loginTurnstileToken: [
+            null as string | null,
+            {
+                setLoginTurnstileToken: (_, { token }) => token,
+                setLoginChallenge: () => null,
+                resetLoginChallenge: () => null,
+            },
+        ],
         // This is separate from the login form, so that the form can be submitted even if a general error is present
         generalError: [
             null as { code: string; detail: string } | null,
@@ -627,10 +664,25 @@ export const loginLogic = kea<loginLogicType>([
                 actions.clearGeneralError()
                 try {
                     const body = await loginRequestBody({ email, password }, values.precheckResponse)
+                    if (values.loginChallenge && values.loginTurnstileToken) {
+                        body.turnstile_token = values.loginTurnstileToken
+                        body.challenge_nonce = values.loginChallenge.nonce
+                    }
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return await api.create<any>('api/login', body)
                 } catch (e) {
                     const { code, detail } = e as Record<string, any>
+                    const challengeExtra = (e as ApiError).data?.extra
+                    if (
+                        code === 'challenge_required' &&
+                        challengeExtra?.challenge_nonce &&
+                        challengeExtra?.turnstile_site_key
+                    ) {
+                        actions.setLoginChallenge(challengeExtra.challenge_nonce, challengeExtra.turnstile_site_key)
+                        throw e
+                    }
+                    // The server used the nonce up, so the next submit gets a new verdict
+                    actions.resetLoginChallenge()
                     if (code === '2fa_required') {
                         const next: string | undefined = router.values.searchParams.next
                         const searchParams: Record<string, any> = next ? { next } : {}
@@ -789,6 +841,11 @@ export const loginLogic = kea<loginLogicType>([
             const { passkeyLogic } = await import('scenes/authentication/shared/passkeyLogic')
             passkeyLogic.findMounted()?.actions.cancelPasskeyLogin()
         },
+        setLoginTurnstileToken: ({ token }) => {
+            if (token && values.loginChallenge) {
+                actions.submitLogin()
+            }
+        },
         submitLoginSuccess: () => {
             // A logged-in session reads the address from the user, so drop the stored one
             clearPendingVerificationEmail()
@@ -807,6 +864,8 @@ export const loginLogic = kea<loginLogicType>([
             if (name !== 'email') {
                 return
             }
+            // The server ties a challenge to the address that got it
+            actions.resetLoginChallenge()
             await breakpoint(PRECHECK_IDLE_DELAY_MS)
             const { email } = values.login
             if (isEmail(email, { requireTLD: true })) {
