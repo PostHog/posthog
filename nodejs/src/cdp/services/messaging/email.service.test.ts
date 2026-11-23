@@ -2505,8 +2505,13 @@ describe('EmailService', () => {
                             'cdp_email_queue_to_send_ms_count'
                         ),
                     ]
+                    const allSeries = async (): Promise<number[]> => [
+                        await metricTotal('cdp_ses_send_duration_ms', {}, 'cdp_ses_send_duration_ms_count'),
+                        await metricTotal('cdp_email_queue_to_send_ms', {}, 'cdp_email_queue_to_send_ms_count'),
+                    ]
                     const countedBefore = await latencyCounts(counted)
                     const untouchedBefore = await latencyCounts(untouched)
+                    const allSeriesBefore = await allSeries()
 
                     const result = await sender().executeSendEmail(invocation)
 
@@ -2515,6 +2520,7 @@ describe('EmailService', () => {
                     )
                     expect(await latencyCounts(counted)).toEqual(countedBefore.map((count) => count + 1))
                     expect(await latencyCounts(untouched)).toEqual(untouchedBefore)
+                    expect(await allSeries()).toEqual(allSeriesBefore.map((count) => count + 1))
                 }
             )
 
