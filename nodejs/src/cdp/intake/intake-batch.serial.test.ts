@@ -200,8 +200,7 @@ describe('insertIntakeBatch', () => {
         ])
     })
 
-    it('carries an encrypted send from the producer to Postgres, and still writes its recipient and file size', async () => {
-        const code = 'fake-login-code-482913'
+    const produceSealed = async (contentState: Record<string, unknown>): Promise<{ id: string; produced: Buffer }> => {
         const sealing = createInvocationSanitizer({
             CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
             CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: true,
@@ -230,18 +229,7 @@ describe('insertIntakeBatch', () => {
                     event: '$transactional_email',
                     properties: { to: 'ada@example.com' },
                 },
-                variables: { code },
-                send: {
-                    attachments: [
-                        {
-                            filename: 'invoice.pdf',
-                            contentType: 'application/pdf',
-                            sizeBytes: 700,
-                            sha256: 'a'.repeat(64),
-                        },
-                        { filename: 'logo.png', contentType: 'image/png', sizeBytes: 300, sha256: 'b'.repeat(64) },
-                    ],
-                },
+                ...contentState,
                 actionStepCount: 0,
             },
         } as CyclotronJobInvocation
@@ -250,14 +238,37 @@ describe('insertIntakeBatch', () => {
             { kind: 'transactional-email', invocation: run, fingerprint: 'fingerprint-a' },
             'async'
         )
-        await insertIntakeBatch([kafkaMessage(produced!)], services, OPTIONS)
+        return { id: run.id, produced: produced! }
+    }
 
-        expect(produced!.toString()).not.toContain(code)
-        const [job] = await storedJobs([run.id])
+    it('carries an encrypted send from the producer to Postgres, and still writes its recipient', async () => {
+        const code = 'fake-login-code-482913'
+        const { id, produced } = await produceSealed({ variables: { code } })
+
+        await insertIntakeBatch([kafkaMessage(produced)], services, OPTIONS)
+
+        expect(produced.toString()).not.toContain(code)
+        const [job] = await storedJobs([id])
         expect(JSON.stringify(job.state)).not.toContain(code)
         expect(job.state.sealed).toEqual(expect.any(String))
+        expect(emailStatuses()).toEqual([expect.objectContaining({ message_id: id, recipient: 'ada@example.com' })])
+    })
+
+    it('stores the file size of an encrypted send with files, whose files the token hides', async () => {
+        const attachment = (sizeBytes: number, sha: string): Record<string, unknown> => ({
+            filename: 'invoice.pdf',
+            contentType: 'application/pdf',
+            sizeBytes,
+            sha256: sha.repeat(64),
+        })
+        const { id, produced } = await produceSealed({
+            send: { attachments: [attachment(700, 'a'), attachment(300, 'b')] },
+        })
+
+        await insertIntakeBatch([kafkaMessage(produced)], services, OPTIONS)
+
+        const [job] = await storedJobs([id])
         expect(job.fileBytes).toBe('1000')
-        expect(emailStatuses()).toEqual([expect.objectContaining({ message_id: run.id, recipient: 'ada@example.com' })])
     })
 
     it('writes the queued status of a keyed send, dated by its trigger event', async () => {

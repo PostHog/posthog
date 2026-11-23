@@ -6,10 +6,8 @@
 -- idx_cyclotron_jobs_email_files_fair_dequeue leads with dequeue_seq, so without this index each poll walks
 -- every waiting send with files, future ones included, to find the due ones.
 --
--- Recovery note: an interrupted CONCURRENTLY build leaves the index INVALID, and a rerun's IF NOT EXISTS
--- skips it while sqlx records the migration as applied. Rebuild it in place by hand, then check
--- pg_index.indisvalid:
---   REINDEX INDEX CONCURRENTLY idx_cyclotron_jobs_email_files_due;
+-- An interrupted build leaves the index INVALID, and the rerun's IF NOT EXISTS skips it.
+-- rust/bin/migrate-entry rebuilds it after the migrations run.
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_cyclotron_jobs_email_files_due
     ON cyclotron_jobs (priority, scheduled)
     WHERE status = 'available' AND queue_name = 'email' AND file_bytes IS NOT NULL;

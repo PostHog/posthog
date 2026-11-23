@@ -142,7 +142,11 @@ export function encodeIntakeMessage({ kind, fingerprint, reply, shadow, job }: I
         return { status: 'invalid' }
     }
     const value = Buffer.from(JSON.stringify(message))
-    if (value.length > INTAKE_MESSAGE_MAX_BYTES) {
+    // The limit leaves room under the topics' max.message.bytes for this field, so it does not count. A send with
+    // files then fits whenever the same send fit before producers wrote the field.
+    const fileBytesField =
+        message.job.fileBytes != null ? Buffer.byteLength(`"fileBytes":${message.job.fileBytes},`) : 0
+    if (value.length - fileBytesField > INTAKE_MESSAGE_MAX_BYTES) {
         return { status: 'too_large', bytes: value.length }
     }
     return {

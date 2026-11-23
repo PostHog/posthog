@@ -178,6 +178,7 @@ async function insertNewJobsInTx(client: PoolClient, newJobs: CyclotronV2JobInit
     const distinctIds: (string | null)[] = []
     const personIds: (string | null)[] = []
     const actionIds: (string | null)[] = []
+    const fileBytes: (number | null)[] = []
 
     for (const job of newJobs) {
         ids.push(job.id ?? uuidv7())
@@ -191,6 +192,7 @@ async function insertNewJobsInTx(client: PoolClient, newJobs: CyclotronV2JobInit
         distinctIds.push(job.distinctId ?? null)
         personIds.push(job.personId ?? null)
         actionIds.push(job.actionId ?? null)
+        fileBytes.push(job.fileBytes ?? null)
     }
 
     await timeEnqueuePhase('insert', 'worker', () =>
@@ -198,7 +200,7 @@ async function insertNewJobsInTx(client: PoolClient, newJobs: CyclotronV2JobInit
             `INSERT INTO cyclotron_jobs
          (id, team_id, function_id, queue_name, status, priority, scheduled, created,
           lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
-          parent_run_id, state, distinct_id, person_id, action_id)
+          parent_run_id, state, distinct_id, person_id, action_id, file_bytes)
          SELECT
             unnest($1::uuid[]),
             unnest($2::int[]),
@@ -217,7 +219,8 @@ async function insertNewJobsInTx(client: PoolClient, newJobs: CyclotronV2JobInit
             unnest($8::bytea[]),
             unnest($9::text[]),
             unnest($10::text[]),
-            unnest($11::text[])`,
+            unnest($11::text[]),
+            unnest($13::bigint[])`,
             [
                 ids,
                 teamIds,
@@ -231,6 +234,7 @@ async function insertNewJobsInTx(client: PoolClient, newJobs: CyclotronV2JobInit
                 personIds,
                 actionIds,
                 now,
+                fileBytes,
             ]
         )
     )
