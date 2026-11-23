@@ -340,7 +340,6 @@ class TestHistoryLaneWrites(BaseTest):
         )
 
 
-# A run that keeps both tables writes its history lane as a companion of run "run".
 _HISTORY_RUN = f"run{COMPANION_RUN_SUFFIX}"
 _JAN, _FEB, _MAR = (datetime(2026, month, 1, tzinfo=UTC) for month in (1, 2, 3))
 

@@ -5335,7 +5335,6 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
                 True,
                 False,
             ),
-            # Only the source holds the rows of a main table added next to a history table.
             ("add_the_main_table", _OutputTablesCase(mode="both", initial_mode="cdc_only"), True, False),
             ("turn_off", _OutputTablesCase(mode="consolidated", initial_mode="both", cursor_type="date"), False, False),
             # The form sends the mode it shows on every save, which must not need the flag again.
@@ -5362,7 +5361,6 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
     def test_patch_sets_the_output_tables_of_an_incremental_table(
         self, _name: str, case: _OutputTablesCase, reloads: bool, seeds: bool
     ):
-        # A seed reads nothing from the source, so the billing limit does not hold it back.
         self._patch_output_tables(case, paused=seeds)
 
         self.schema.refresh_from_db()

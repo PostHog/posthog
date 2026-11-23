@@ -296,8 +296,7 @@ FAILURE_STREAK_LAST_FAILED_AT_KEY = "last_failed_at"
 INCREMENTAL_HISTORY_KEY = "incremental_history"
 # Late events can land before it, so the history table cannot tell when tracking began.
 HISTORY_TRACKED_SINCE_KEY = "history_tracked_since"
-# When history was turned on for a table that already holds rows. The next run copies them into the history
-# table, and clears it only if it still holds the same time.
+# When history was turned on for a table that already holds rows, which the next run copies into the history table.
 HISTORY_SEED_PENDING_KEY = "history_seed_pending"
 
 
