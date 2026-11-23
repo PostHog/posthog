@@ -962,10 +962,6 @@ export class ToolExecutor {
         }
     }
 
-    /**
-     * The loaded catalog holds every skill in the release, including the skills written
-     * for PostHog's own jobs, which `learn` must not serve to a customer's agent.
-     */
     private servedSkillCatalog(state: ResolvedState): SkillCatalog | undefined {
         const catalog = this.skillCatalogService?.getCatalog()
         if (!catalog || state.toolFeatureFlags?.[MCP_SERVED_SKILLS_LIST_FLAG] !== true) {

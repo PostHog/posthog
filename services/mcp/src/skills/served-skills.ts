@@ -27,7 +27,6 @@ export function getServedSkillFeatureFlags(served: ServedSkills = SERVED_SKILLS)
     return [...new Set([...served.values()].flatMap(({ feature_flag }) => (feature_flag ? [feature_flag] : [])))]
 }
 
-/** A flag gates a skill by the same rule as a tool's `feature_flag`: the value must be `true`. */
 export function isSkillServed(
     name: string,
     featureFlags: EvaluatedFlags = {},
