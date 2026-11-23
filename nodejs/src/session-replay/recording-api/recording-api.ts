@@ -550,7 +550,7 @@ export class RecordingApi {
             res.status(400).json({ error: paramsResult.error.issues[0].message })
             return
         }
-        await this.serveBlockByRef(req, res, paramsResult.data, false)
+        await this.serveBlockByRef(req, res, paramsResult.data)
     }
 
     // The internal twin of the browser route, for a ref from the block listing: only that session's key decodes it.
@@ -560,15 +560,13 @@ export class RecordingApi {
             res.status(400).json({ error: paramsResult.error.issues[0].message })
             return
         }
-        const decompress = req.query.decompress === 'true' || req.query.decompress === '1'
-        await this.serveBlockByRef(req, res, paramsResult.data, decompress)
+        await this.serveBlockByRef(req, res, paramsResult.data)
     }
 
     private async serveBlockByRef(
         req: express.Request,
         res: express.Response,
-        params: { team_id: number; session_id: string; ref: string },
-        decompress: boolean
+        params: { team_id: number; session_id: string; ref: string }
     ): Promise<void> {
         if (!this.recordingService) {
             res.status(503).json({ error: 'Service not initialized' })
@@ -607,8 +605,7 @@ export class RecordingApi {
                     }
                     return admission
                 },
-                this.publicBlockLimits!.readTimeoutMs,
-                decompress
+                this.publicBlockLimits!.readTimeoutMs
             )
             if (!result.ok) {
                 RecordingApiMetrics.incrementReplayBlockRequest(result.error === 'deleted' ? 'deleted' : result.error)
@@ -629,7 +626,7 @@ export class RecordingApi {
                 return
             }
             RecordingApiMetrics.incrementReplayBlockRequest('ok')
-            res.set('Content-Type', decompress ? 'application/jsonl' : 'application/octet-stream')
+            res.set('Content-Type', 'application/octet-stream')
             res.set('Content-Length', String(Buffer.byteLength(result.data)))
             res.set('Cache-Control', REPLAY_BLOCK_CACHE_CONTROL)
             // The block is attacker-influenced bytes on an app origin, so the browser must never sniff it as HTML.

@@ -827,21 +827,18 @@ describe('RecordingApi', () => {
             server.close()
         })
 
-        it('reads a block by its ref, decompressed on request', async () => {
+        it('reads a block by its ref', async () => {
             const res = await supertest(app)
                 .get('/api/projects/1/recordings/session-123/blocks/v1.abc')
-                .query({ decompress: 'true' })
                 .set('Authorization', staffToken())
 
             expect(res.status).toBe(200)
-            expect(res.headers['content-type']).toMatch(/application\/jsonl/)
             expect(mockService.getBlockByRef).toHaveBeenCalledWith(
                 1,
                 'session-123',
                 'v1.abc',
                 expect.any(Function),
-                expect.any(Number),
-                true
+                expect.any(Number)
             )
         })
 
@@ -965,8 +962,7 @@ describe('RecordingApi', () => {
                 'session-123',
                 'v1.abc',
                 expect.any(Function),
-                10000,
-                false
+                10000
             )
             expect(rateLimiter.rateLimitGrouped).toHaveBeenCalledWith([
                 { id: 'viewer:u7', cost: 1, bucketSize: 2000, refillRate: 8 },

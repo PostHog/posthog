@@ -19,7 +19,8 @@ CLAIM_LABEL = "toolbox-claimed"
 USAGE = """\
 List the blocks, then fetch each one by the ref the listing gives it:
   curl -H "Authorization: Bearer $TOKEN" "$URL/api/projects/<team_id>/recordings/<session_id>/blocks"
-  curl -H "Authorization: Bearer $TOKEN" "$URL/api/projects/<team_id>/recordings/<session_id>/blocks/<ref>?decompress=true"
+  curl -H "Authorization: Bearer $TOKEN" "$URL/api/projects/<team_id>/recordings/<session_id>/blocks/<ref>" -o block
+A block is snappy-compressed JSONL; python -c "import snappy,sys;sys.stdout.buffer.write(snappy.decompress(open('block','rb').read()))"
 Recordings from before encryption have no refs, so they cannot be read this way.
 """
 
