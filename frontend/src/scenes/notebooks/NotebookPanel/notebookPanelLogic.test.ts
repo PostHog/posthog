@@ -79,6 +79,7 @@ describe('notebookPanelLogic', () => {
         })
 
         notebookPanelLogic.actions.selectNotebook('abc123')
+        await expectLogic(notebookPanelLogic).toFinishAllListeners()
 
         expect(router.values.location.pathname).toContain(urls.notebook('abc123'))
         await expectLogic(sidePanelStateLogic).toMatchValues({ sidePanelOpen: false })
