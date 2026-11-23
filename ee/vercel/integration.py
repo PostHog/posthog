@@ -1012,6 +1012,9 @@ class VercelIntegration:
             user.is_email_verified = True
             user.save(update_fields=["is_email_verified"])
 
+        if resource_id:
+            VercelIntegration.set_active_project(user, claims.installation_id, resource_id)
+
         if user.is_email_verified is not True:
             # Only a new account gets here, because the other branches require the claim to prove the email.
             raise RequiresEmailVerification(
@@ -1019,8 +1022,6 @@ class VercelIntegration:
             )
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
-        if resource_id:
-            VercelIntegration.set_active_project(user, claims.installation_id, resource_id)
         return user
 
     @staticmethod
@@ -1153,7 +1154,7 @@ class VercelIntegration:
         cache.set(claims_key, claims, timeout=timeout)
 
     @staticmethod
-    def _verify_email_redirect(blocked: RequiresEmailVerification) -> str:
+    def _verify_email_redirect(blocked: RequiresEmailVerification, next_url: str) -> str:
         email_sent = True
         try:
             email_verification_code_verifier.send_code(blocked.user)
@@ -1171,7 +1172,7 @@ class VercelIntegration:
             integration="vercel",
         )
 
-        params = {"reason": SSO_VERIFY_EMAIL_REASON}
+        params = {"reason": SSO_VERIFY_EMAIL_REASON, "next": next_url}
         if not email_sent:
             params["email_sent"] = "false"
         return f"/verify_email/{blocked.user.uuid}?{urlencode(params)}"
@@ -1226,7 +1227,13 @@ class VercelIntegration:
             )
             return login_url
         except RequiresEmailVerification as e:
-            return VercelIntegration._verify_email_redirect(e)
+            next_url = VercelIntegration.determine_sso_redirect(
+                path=params.path,
+                url=params.url,
+                experimentation_item_id=params.experimentation_item_id,
+                user=e.user,
+            )
+            return VercelIntegration._verify_email_redirect(e, next_url)
         except SSOLoginRefused:
             return ACCOUNT_BLOCKED_LOGIN_URL
         except Exception as e:

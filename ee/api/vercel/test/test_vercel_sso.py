@@ -462,7 +462,9 @@ class TestSSOOrganizationHandling:
             SSOTestHelper.assert_successful_redirect(response)
             assert sso_setup["client"].session[SESSION_KEY] == str(new_user.pk)
         else:
-            SSOTestHelper.assert_successful_redirect(response, f"/verify_email/{new_user.uuid}?reason=vercel_sso")
+            SSOTestHelper.assert_successful_redirect(
+                response, f"/verify_email/{new_user.uuid}?reason=vercel_sso&next=%2F"
+            )
             assert SESSION_KEY not in sso_setup["client"].session
             assert mock_send_email.call_args.args[0] == new_user.pk
 

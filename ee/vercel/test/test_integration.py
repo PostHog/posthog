@@ -42,6 +42,8 @@ from ee.vercel.integration import (
     get_or_create_connectable_resource,
 )
 
+BILLING_NEXT = "%2Forganization%2Fbilling%2Foverview"
+
 # Hardcoded independently of ee.vercel.integration.CLIENT_ENV_PREFIXES so a dropped prefix fails these tests.
 EXPECTED_PREFIXES = ["NEXT_PUBLIC_", "VITE_", "NUXT_PUBLIC_", "PUBLIC_"]
 
@@ -530,9 +532,9 @@ class TestVercelIntegration(TestCase):
     @parameterized.expand(
         [
             ("verified_claim", True, False, None),
-            ("unverified_claim", False, False, "reason=vercel_sso"),
-            ("missing_claim", None, False, "reason=vercel_sso"),
-            ("unverified_claim_and_send_fails", False, True, "reason=vercel_sso&email_sent=false"),
+            ("unverified_claim", False, False, f"reason=vercel_sso&next={BILLING_NEXT}"),
+            ("missing_claim", None, False, f"reason=vercel_sso&next={BILLING_NEXT}"),
+            ("unverified_claim_and_send_fails", False, True, f"reason=vercel_sso&next={BILLING_NEXT}&email_sent=false"),
         ]
     )
     @patch("posthog.api.email_verification.send_email_verification_code")
@@ -551,17 +553,21 @@ class TestVercelIntegration(TestCase):
         claims.user_email_verified = claim_email_verified
         code = f"new_user_code_{_name}"
         VercelIntegration.set_cached_claims(code, claims, timeout=300)
+        team, resource = self.make_team_with_vercel(self.organization, self.user)
         request = RequestFactory().get("/")
         SessionMiddleware(lambda request: HttpResponse()).process_request(request)
 
-        redirect_url = VercelIntegration.authenticate_sso(request, SSOParams(mode="sso", code=code, state="state"))
+        redirect_url = VercelIntegration.authenticate_sso(
+            request, SSOParams(mode="sso", code=code, state="state", path="billing", resource_id=str(resource.pk))
+        )
 
         user = User.objects.get(email="new-sso-user@example.com")
         self.installation.refresh_from_db()
         assert self.installation.config["user_mappings"]["vercel_new_user"] == user.pk
         assert OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
+        assert user.current_team == team
         if verify_email_query is None:
-            assert redirect_url == VercelIntegration.SSO_DEFAULT_REDIRECT
+            assert redirect_url == VercelIntegration.SSO_PATH_REDIRECT_MAP["billing"]
             assert request.session.get(SESSION_KEY) == str(user.pk)
             assert user.is_email_verified is True
         else:
