@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use hogvm::OrderedJson;
@@ -25,6 +25,9 @@ use super::monitoring::{HogFunctionMonitoring, LogEntry};
 fn guarded<T>(run: impl FnOnce() -> T) -> Option<T> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)).ok()
 }
+
+/// Monitoring writes are best-effort. A write that gets no acknowledgement must end before the consumer task timeout, which replays the batch.
+const MONITORING_FLUSH_TIMEOUT: Duration = Duration::from_secs(5);
 
 const ATTR_TRANSFORMATIONS_FAILED: &str = "posthog.transformations_failed";
 const ATTR_TRANSFORMATIONS_SKIPPED: &str = "posthog.transformations_skipped";
@@ -517,7 +520,14 @@ impl LogsTransformer for LogsTransformerService {
     }
 
     async fn flush(&self) -> anyhow::Result<()> {
-        self.monitoring.flush().await;
+        if tokio::time::timeout(MONITORING_FLUSH_TIMEOUT, self.monitoring.flush())
+            .await
+            .is_err()
+        {
+            counter!("logs_ingestion_transformations_infra_errors_total", "source" => "monitoring_flush")
+                .increment(1);
+            tracing::warn!("[logs-transformer] monitoring flush timed out");
+        }
         Ok(())
     }
 }

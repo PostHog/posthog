@@ -204,7 +204,7 @@ pub fn redact_sensitive_values(message: &str, sensitive: &[String], max_units: u
         return message.to_string();
     }
     // The variants cost work to build, and the loop below counts what it compares.
-    let mut checks = sensitive.len().saturating_mul(3 * 64);
+    let mut checks = sensitive.len().saturating_mul(6 * 64);
     if checks > MAX_LOG_REDACTION_CHECKS {
         return REDACTED.to_string();
     }
@@ -212,15 +212,18 @@ pub fn redact_sensitive_values(message: &str, sensitive: &[String], max_units: u
     let mut seen: HashSet<String> = HashSet::new();
     for value in sensitive.iter().filter(|v| !v.is_empty()) {
         let escaped = json_stringify(&JsValue::string(value));
-        // A thrown message prints with its apostrophes escaped (`vm_error_text`), which Node does not redact.
-        let thrown = value.replace('\'', "\\'");
-        for variant in [
+        let hog_printed = hogvm::escape_string(value);
+        for form in [
             value.clone(),
             escaped[1..escaped.len() - 1].to_string(),
-            thrown,
+            hog_printed[1..hog_printed.len() - 1].to_string(),
         ] {
-            if seen.insert(variant.clone()) {
-                variants.push(variant);
+            // A thrown message prints with its apostrophes escaped (`vm_error_text`).
+            let thrown = form.replace('\'', "\\'");
+            for variant in [form, thrown] {
+                if seen.insert(variant.clone()) {
+                    variants.push(variant);
+                }
             }
         }
     }
@@ -462,6 +465,25 @@ pub fn hog_values_to_js(
     values.iter().map(|v| converter.convert(v)).collect()
 }
 
+fn convert_redacted(
+    vm: &HogVM,
+    value: &HogValue,
+    sensitive: &[String],
+    redaction_bytes: &mut usize,
+) -> Result<JsValue, ConvertError> {
+    let mut converter = Converter {
+        vm,
+        sensitive,
+        path: Vec::new(),
+        nodes: 0,
+        bytes: 0,
+        redaction_bytes: *redaction_bytes,
+    };
+    let converted = converter.convert(value);
+    *redaction_bytes = converter.redaction_bytes;
+    converted
+}
+
 pub type PrintHandler<'a> = dyn FnMut(&HogVM, Vec<HogValue>) -> Result<(), String> + 'a;
 
 /// A field of a result: `None` when absent, `Some(None)` for an explicit null.
@@ -487,6 +509,7 @@ pub fn run_program<T>(
     let context = ExecutionContext::with_defaults(program.clone())
         .with_ordered_globals(globals)
         .with_raw_result()
+        .with_coercing_comparisons()
         .with_max_steps(usize::MAX)
         .with_max_heap_size(LOG_TRANSFORMATION_MEMORY_LIMIT_BYTES)
         .with_regex_cache(TRANSFORMATION_REGEXES.clone());
@@ -699,7 +722,7 @@ fn result_fields(vm: &HogVM, value: &HogValue, sensitive: &[String]) -> JsValue 
                 }) else {
                     continue;
                 };
-                match hog_to_js(vm, item, sensitive) {
+                match convert_redacted(vm, item, sensitive, &mut redaction_bytes) {
                     Ok(v) => out.insert_str(&key, v),
                     Err(_) => return invalid,
                 }
@@ -780,16 +803,18 @@ pub fn resolve_inputs(
     budget_ms: f64,
 ) -> Result<(OrderedJson, f64), InputsError> {
     let mut inputs: Vec<(String, OrderedJson)> = Vec::with_capacity(function.inputs.len());
-    let mut duration_ms = 0.0;
+    // Each template run gets a copy of the inputs so far, and the VM timer does not see that copy.
+    let started = Instant::now();
+    let elapsed_ms = || started.elapsed().as_secs_f64() * 1000.0;
     let mut resolved_bytes = 0usize;
     for input in &function.inputs {
+        let failed = |error: &str| InputsError {
+            message: format!("Error: Could not resolve input '{}': {error}", input.key),
+            duration_ms: elapsed_ms(),
+        };
         let value = match &input.template {
             Some(template) => {
-                let failed = |error: &String, duration_ms: f64| InputsError {
-                    message: format!("Error: Could not resolve input '{}': {error}", input.key),
-                    duration_ms,
-                };
-                let program = template.as_ref().map_err(|e| failed(e, duration_ms))?;
+                let program = template.as_ref().map_err(|e| failed(e))?;
                 let run = run_program(
                     program,
                     globals(project, record, order_like_js(inputs.clone())),
@@ -797,15 +822,11 @@ pub fn resolve_inputs(
                     None,
                     |vm, value| hog_to_js(vm, &value, &[]).map_err(|e| format!("{e:?}")),
                 );
-                duration_ms += run.duration_ms;
-                let value = run.result.map_err(|e| failed(&e, duration_ms))?;
+                let value = run.result.map_err(|e| failed(&e))?;
                 // Each template has its own limits, so the number of templates multiplies both.
                 resolved_bytes = resolved_bytes.saturating_add(json_stringify(&value).len());
                 if resolved_bytes > MAX_RESOLVED_INPUT_BYTES {
-                    return Err(failed(&"the inputs are too large".to_string(), duration_ms));
-                }
-                if duration_ms > budget_ms {
-                    return Err(failed(&"the inputs took too long".to_string(), duration_ms));
+                    return Err(failed("the inputs are too large"));
                 }
                 js_to_ordered(&value)
             }
@@ -814,12 +835,12 @@ pub fn resolve_inputs(
                 .as_ref()
                 .map_or(OrderedJson::Null, js_to_ordered),
         };
-        match inputs.iter_mut().find(|(k, _)| *k == input.key) {
-            Some(slot) => slot.1 = value,
-            None => inputs.push((input.key.clone(), value)),
+        if elapsed_ms() > budget_ms {
+            return Err(failed("the inputs took too long"));
         }
+        inputs.push((input.key.clone(), value));
     }
-    Ok((order_like_js(inputs), duration_ms))
+    Ok((order_like_js(inputs), elapsed_ms()))
 }
 
 /// `inputs[key] = v` on a plain object puts array-index keys first.

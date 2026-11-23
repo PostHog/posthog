@@ -1,6 +1,7 @@
 mod common;
 
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use common::record_from_js;
@@ -103,11 +104,24 @@ fn service_with(
     clock: Clock,
 ) -> (LogsTransformerService, Arc<Captured>) {
     let outputs = Arc::new(Captured::default());
-    let monitoring = Arc::new(HogFunctionMonitoring::new(
+    let service = service_on(
         outputs.clone(),
-        clock.clone(),
-        true,
-    ));
+        functions,
+        hog_timeout_ms,
+        message_budget_ms,
+        clock,
+    );
+    (service, outputs)
+}
+
+fn service_on(
+    outputs: Arc<dyn IngestionOutputs>,
+    functions: Arc<dyn HogFunctionSource>,
+    hog_timeout_ms: f64,
+    message_budget_ms: f64,
+    clock: Clock,
+) -> LogsTransformerService {
+    let monitoring = Arc::new(HogFunctionMonitoring::new(outputs, clock.clone(), true));
     let config = LogsTransformerConfig {
         site_url: "http://localhost:8010".into(),
         hog_timeout_ms,
@@ -116,10 +130,7 @@ fn service_with(
         batch_deadline_ms: f64::INFINITY,
         max_error_logs_per_function_per_message: 3,
     };
-    (
-        LogsTransformerService::new(functions, monitoring, config, clock),
-        outputs,
-    )
+    LogsTransformerService::new(functions, monitoring, config, clock)
 }
 
 #[tokio::test]
@@ -622,23 +633,21 @@ async fn input_templates_share_one_size_limit_and_one_time_budget() {
     let records = run_one(function(IDENTITY, &body_inputs(80), None), vec![staged]).await;
     assert!(failed(&records[0]));
 
-    let clock: Clock = Arc::new(|| 0.0);
-    let (service, _) = service_with(
-        Arc::new(StaticHogFunctions(vec![function(
-            IDENTITY,
-            &body_inputs(2),
-            None,
-        )])),
-        60_000.0,
-        1e-9,
-        clock,
-    );
-    let mut records = vec![record("api")];
-    service
-        .transform_records(TEAM_ID, &mut records, None)
-        .await
-        .unwrap();
-    assert!(failed(&records[0]));
+    for inputs in [body_inputs(2), r#"{"plain": {"value": "x"}}"#.to_string()] {
+        let clock: Clock = Arc::new(|| 0.0);
+        let (service, _) = service_with(
+            Arc::new(StaticHogFunctions(vec![function(IDENTITY, &inputs, None)])),
+            60_000.0,
+            1e-9,
+            clock,
+        );
+        let mut records = vec![record("api")];
+        service
+            .transform_records(TEAM_ID, &mut records, None)
+            .await
+            .unwrap();
+        assert!(failed(&records[0]), "{inputs}");
+    }
 }
 
 // match(record.body, 'zzq-17-[a-z]+'); return record
@@ -658,4 +667,95 @@ async fn the_names_of_printed_closures_count_toward_the_size_limit() {
     let long_name = PRINT_MANY_CLOSURES.replace("zzname", &"n".repeat(32 * 1024));
     let records = run_one(function(&long_name, "{}", None), vec![record("api")]).await;
     assert!(failed(&records[0]));
+}
+
+// let r := record; if (r.attributes.status > 399) { r.attributes.failed := 'yes' }; return r
+const TAG_SERVER_ERRORS: &str = r#"["_H", 1, 32, "record", 1, 1, 33, 399, 36, 0, 32, "attributes", 45, 32, "status", 45, 13, 40, 10, 36, 0, 32, "attributes", 45, 32, "failed", 32, "yes", 46, 36, 0, 38, 35]"#;
+
+#[tokio::test]
+async fn an_attribute_compares_with_a_number_as_it_does_in_node() {
+    let staged = StagedRecord::fresh(record_from_js(&js(
+        r#"{"uuid": "u", "body": "b", "attributes": {"status": "500"}}"#,
+    )));
+    let records = run_one(function(TAG_SERVER_ERRORS, "{}", None), vec![staged]).await;
+    assert!(!failed(&records[0]));
+    assert!(attribute(&records[0], "failed").is_some());
+}
+
+// print(toString([inputs.key])); throw Error('stop')
+const PRINT_KEY_IN_A_LIST: &str = r#"["_H", 1, 32, "key", 32, "inputs", 1, 2, 43, 1, 2, "toString", 1, 2, "print", 1, 35, 32, "stop", 2, "Error", 1, 49]"#;
+
+#[tokio::test]
+async fn a_secret_that_hog_prints_inside_a_list_is_redacted() {
+    let encrypted = r#"{"key": {"value": "pa\"ss\\word", "order": 0}}"#;
+    let (service, outputs) = service(
+        Arc::new(StaticHogFunctions(vec![function(
+            PRINT_KEY_IN_A_LIST,
+            "{}",
+            Some(encrypted),
+        )])),
+        60_000.0,
+    );
+    let mut records = vec![record("api")];
+    service
+        .transform_records(TEAM_ID, &mut records, None)
+        .await
+        .unwrap();
+    service.flush().await.unwrap();
+    let logs = outputs.0.lock().unwrap().clone();
+    let printed: Vec<&(String, String)> = logs.iter().filter(|(o, _)| o == "log_entries").collect();
+    assert!(!printed.is_empty());
+    for (_, entry) in printed {
+        assert!(!entry.contains("word"), "{entry}");
+    }
+}
+
+// let r := record; let b := r.body; r.severity_text := b; r.attributes.a := b; r.resource_attributes.a := b; return r
+const BODY_IN_EVERY_FIELD: &str = r#"["_H", 1, 32, "record", 1, 1, 36, 0, 32, "body", 45, 36, 0, 32, "severity_text", 36, 1, 46, 36, 0, 32, "attributes", 45, 32, "a", 36, 1, 46, 36, 0, 32, "resource_attributes", 45, 32, "a", 36, 1, 46, 36, 0, 38, 35, 35]"#;
+
+#[tokio::test]
+async fn the_fields_of_a_result_share_one_redaction_limit() {
+    let staged = StagedRecord::fresh(record_from_js(&js(&format!(
+        r#"{{"uuid": "u", "body": "{}", "attributes": {{}}, "resource_attributes": {{}}}}"#,
+        "b".repeat(250 * 1024)
+    ))));
+    let records = run_one(
+        function(BODY_IN_EVERY_FIELD, "{}", Some(&secret_inputs(1_000))),
+        vec![staged],
+    )
+    .await;
+    assert!(failed(&records[0]));
+}
+
+struct Unacknowledged;
+
+#[async_trait]
+impl IngestionOutputs for Unacknowledged {
+    async fn produce(&self, _: &str, _: OutputMessage) -> anyhow::Result<()> {
+        std::future::pending().await
+    }
+
+    async fn queue_messages(&self, _: &str, _: Vec<OutputMessage>) -> anyhow::Result<()> {
+        std::future::pending().await
+    }
+}
+
+#[tokio::test]
+async fn a_monitoring_write_with_no_acknowledgement_ends_inside_the_task_timeout() {
+    let clock: Clock = Arc::new(|| 0.0);
+    let service = service_on(
+        Arc::new(Unacknowledged),
+        Arc::new(StaticHogFunctions(vec![function(THROW_BODY, "{}", None)])),
+        60_000.0,
+        60_000.0,
+        clock,
+    );
+    let mut records = vec![record("api")];
+    service
+        .transform_records(TEAM_ID, &mut records, None)
+        .await
+        .unwrap();
+    tokio::time::pause();
+    let flushed = tokio::time::timeout(Duration::from_secs(55), service.flush()).await;
+    assert!(flushed.is_ok());
 }
