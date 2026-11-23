@@ -638,7 +638,8 @@ class PlatformAlertsFlagPermission(BasePermission):
     """Lets a caller in when the flag of at least one source kind is on. Each action then serves only
     the kinds whose flag is on."""
 
-    message = f"This action requires feature flag {PLATFORM_ALERTS_FLAG!r} to be enabled for your organization."
+    # Each source kind has its own flag, so the message names none of them.
+    message = "Alerts are not available for this project yet."
     code = FEATURE_FLAG_REQUIRED_ERROR_CODE
 
     def has_permission(self, request: Request, view: APIView) -> bool:

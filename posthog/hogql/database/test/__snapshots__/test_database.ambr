@@ -9671,17 +9671,6 @@
                   "table": null,
                   "type": "string"
               },
-              "confidence": {
-                  "chain": null,
-                  "description": "Discovery confidence retained from the accepted proposal behind this active join, 0-1.",
-                  "fields": null,
-                  "hogql_value": "confidence",
-                  "id": null,
-                  "name": "confidence",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "float"
-              },
               "reasoning": {
                   "chain": null,
                   "description": "Why a join was proposed; retained on the active join after acceptance.",
@@ -10106,17 +10095,6 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
-              },
-              "confidence": {
-                  "chain": null,
-                  "description": "Discovery confidence in the proposed join, 0-1.",
-                  "fields": null,
-                  "hogql_value": "confidence",
-                  "id": null,
-                  "name": "confidence",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "float"
               },
               "reasoning": {
                   "chain": null,
@@ -26640,17 +26618,6 @@
                   "table": null,
                   "type": "string"
               },
-              "confidence": {
-                  "chain": null,
-                  "description": "Discovery confidence retained from the accepted proposal behind this active join, 0-1.",
-                  "fields": null,
-                  "hogql_value": "confidence",
-                  "id": null,
-                  "name": "confidence",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "float"
-              },
               "reasoning": {
                   "chain": null,
                   "description": "Why a join was proposed; retained on the active join after acceptance.",
@@ -27075,17 +27042,6 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
-              },
-              "confidence": {
-                  "chain": null,
-                  "description": "Discovery confidence in the proposed join, 0-1.",
-                  "fields": null,
-                  "hogql_value": "confidence",
-                  "id": null,
-                  "name": "confidence",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "float"
               },
               "reasoning": {
                   "chain": null,
