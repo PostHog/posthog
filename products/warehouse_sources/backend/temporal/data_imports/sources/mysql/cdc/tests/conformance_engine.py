@@ -201,8 +201,8 @@ class SimulatedMySQL:
 
     def _index_columns(
         self, _reader: MySQLCDCStreamReader, database: str, tables: list[str]
-    ) -> dict[tuple[str, str], list[str]]:
-        return {(table, "PRIMARY"): keys for table, keys in self._db.primary_keys(database, tables).items()}
+    ) -> dict[str, dict[str, list[str]]]:
+        return {table: {"PRIMARY": keys} for table, keys in self._db.primary_keys(database, tables).items()}
 
     @contextmanager
     def installed(self) -> Iterator[None]:
