@@ -101,8 +101,7 @@ Files and their diffs:
 +b
 </untrusted_pr_content>"""
 
-# Two of these do not fit one prompt together, and one does.
-_MOST_OF_THE_CAP = DIFF_MAX_CHARS * 6 // 10
+_OVER_HALF_THE_CAP = DIFF_MAX_CHARS * 6 // 10
 
 
 def _sized(owner: str, chars: int | None, *, lines: int = 1, pins: frozenset[Pin] = frozenset()) -> OwnerCandidate:
@@ -401,9 +400,9 @@ class TestDecideCuts:
             (
                 "groups_small_owners_and_splits_large_ones",
                 [
-                    _sized("team-a", _MOST_OF_THE_CAP, lines=3),
-                    _sized("team-b", _MOST_OF_THE_CAP, lines=2),
-                    _sized("team-c", _MOST_OF_THE_CAP),
+                    _sized("team-a", _OVER_HALF_THE_CAP, lines=3),
+                    _sized("team-b", _OVER_HALF_THE_CAP, lines=2),
+                    _sized("team-c", _OVER_HALF_THE_CAP),
                     _sized("team-t1", 10),
                     _sized("team-t2", 10),
                 ],
@@ -445,7 +444,7 @@ class TestDecideCuts:
             ),
             (
                 "a_failed_call_keeps_only_its_owners",
-                [_sized(owner, _MOST_OF_THE_CAP) for owner in ("team-a", "team-b", "team-c")],
+                [_sized(owner, _OVER_HALF_THE_CAP) for owner in ("team-a", "team-b", "team-c")],
                 {("team-a",): RuntimeError("timeout"), ("team-b",): None, ("team-c",): ["team-c"]},
                 {
                     "team-a": RoutingOwnerReason.DIFF_NOT_SEEN,
@@ -456,28 +455,35 @@ class TestDecideCuts:
             ),
             (
                 "every_call_failing_keeps_everyone",
-                [_sized(owner, _MOST_OF_THE_CAP) for owner in ("team-a", "team-b")],
+                [_sized(owner, _OVER_HALF_THE_CAP) for owner in ("team-a", "team-b")],
                 {("team-a",): RuntimeError("timeout"), ("team-b",): None},
                 {"team-a": RoutingOwnerReason.CUT_SKIPPED, "team-b": RoutingOwnerReason.CUT_SKIPPED},
                 LlmSkipReason.NO_ANSWER,
             ),
             (
                 "keeps_the_largest_owner_across_calls",
-                [_sized("team-a", _MOST_OF_THE_CAP, lines=9), _sized("team-b", _MOST_OF_THE_CAP, lines=5)],
+                [_sized("team-a", _OVER_HALF_THE_CAP, lines=9), _sized("team-b", _OVER_HALF_THE_CAP, lines=5)],
                 {("team-a",): ["team-a"], ("team-b",): ["team-b"]},
                 {"team-a": RoutingOwnerReason.LARGEST_OWNER, "team-b": RoutingOwnerReason.MODEL_CUT},
                 None,
             ),
             (
                 "a_call_cannot_cut_the_owner_of_another_call",
-                [_sized(owner, _MOST_OF_THE_CAP) for owner in ("team-a", "team-b")],
+                [_sized(owner, _OVER_HALF_THE_CAP) for owner in ("team-a", "team-b")],
                 {("team-a",): ["team-b"], ("team-b",): []},
                 {"team-a": RoutingOwnerReason.MODEL_KEPT, "team-b": RoutingOwnerReason.MODEL_KEPT},
                 None,
             ),
             (
+                "no_owner_fits_a_call",
+                [_sized(owner, DIFF_MAX_CHARS + 1) for owner in ("team-a", "team-b")],
+                {},
+                {"team-a": RoutingOwnerReason.DIFF_NOT_SEEN, "team-b": RoutingOwnerReason.DIFF_NOT_SEEN},
+                LlmSkipReason.NOTHING_CUTTABLE,
+            ),
+            (
                 "owners_past_the_call_cap_stay_requested",
-                [_sized(f"team-{index}", _MOST_OF_THE_CAP) for index in range(MAX_CUT_CALLS + 1)],
+                [_sized(f"team-{index}", _OVER_HALF_THE_CAP) for index in range(MAX_CUT_CALLS + 1)],
                 {(f"team-{index}",): [] for index in range(MAX_CUT_CALLS)},
                 {
                     **{f"team-{index}": RoutingOwnerReason.MODEL_KEPT for index in range(MAX_CUT_CALLS)},

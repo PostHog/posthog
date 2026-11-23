@@ -24,8 +24,7 @@ CUT_MODEL = "claude-haiku-5-5"
 
 DESCRIPTION_MAX_CHARS = 3_000
 DIFF_MAX_CHARS = 150_000
-# Each call mints its own capped token and can wait for its own timeout, so this bounds the spend and the wait of
-# a very large pull request. An owner that does not fit in these calls stays requested.
+# Each call mints its own capped token and has its own timeout, so this bounds the spend and the wait.
 MAX_CUT_CALLS = 4
 
 _UNTRUSTED_TAG = "untrusted_pr_content"
@@ -87,7 +86,6 @@ class CutPrompt:
     user_prompt: str
     # Owners with at least one file whose diff the model did not see. The guards never cut them.
     owners_left_out: frozenset[str]
-    # True when the input cap left out at least one diff that GitHub gave.
     diff_capped: bool
 
 
@@ -327,8 +325,7 @@ def _pack_batches(
     cuttable = [
         candidate for candidate in candidates if not candidate.is_pinned and all(file.patch for file in candidate.files)
     ]
-    # Smallest parts first: they put the most owners into the capped calls, and a small part is the likeliest
-    # to be trivial.
+    # Smallest parts first, so the capped calls cover the most owners.
     ordered = sorted(cuttable, key=lambda candidate: (_diff_chars(candidate), candidate.owner))
     batches: list[list[OwnerCandidate]] = []
     current: list[OwnerCandidate] = []
