@@ -1681,7 +1681,6 @@ export class CdpApi {
         return sesHtmlMaxBytes(html, {
             utmTags,
             invocation: rendered,
-            signer: this.emailTrackingCodeSigner,
             preheader: typeof preheader === 'string' ? preheader : undefined,
         })
     }
