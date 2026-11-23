@@ -279,7 +279,7 @@ class Table(FieldOrTable):
         return []
 
     def get_asterisk(self):
-        if isinstance(self, FunctionCallTable):
+        if isinstance(self, (FunctionCallTable, CTETable)):
             fields_to_avoid = self.avoid_asterisk_fields()
         else:
             fields_to_avoid = [*self.avoid_asterisk_fields(), "team_id"]
@@ -595,6 +595,10 @@ class FunctionCallTable(Table):
     requires_args: bool = True
     min_args: Optional[int] = None
     max_args: Optional[int] = None
+
+
+class CTETable(Table):
+    pass
 
 
 class DANGEROUS_NoTeamIdCheckTable(Table):

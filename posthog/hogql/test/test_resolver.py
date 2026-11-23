@@ -182,6 +182,15 @@ class TestInheritedCtes(SimpleTestCase):
             with self.assertRaises(QueryError):
                 resolve_types(query, context, "clickhouse", scopes=[parent.type])
 
+    def test_asterisk_over_cte_keeps_every_selected_column(self) -> None:
+        context = HogQLContext(database=Database(), enable_select_queries=True)
+        query = resolve_types(
+            parse_select("WITH c AS (SELECT team_id, event FROM events) SELECT * FROM c"), context, "clickhouse"
+        )
+
+        assert isinstance(query.type, ast.SelectQueryType)
+        assert list(query.type.columns) == ["team_id", "event"]
+
 
 class TestResolver(BaseTest):
     maxDiff = None
