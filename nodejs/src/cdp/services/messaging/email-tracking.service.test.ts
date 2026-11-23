@@ -1481,21 +1481,27 @@ describe('EmailTrackingService', () => {
                 expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)).toHaveLength(3)
             })
 
-            it('fails the batch so Kafka redelivers it when the flush fails', async () => {
+            it('fails the batch so Kafka redelivers it when the flush fails, and records it again on redelivery', async () => {
                 await postBounce({ functionId: hogFunction.id })
                 jest.spyOn(
                     consumer['emailTrackingService']['hogFunctionMonitoringService'],
                     'flush'
                 ).mockRejectedValueOnce(new Error('broker unavailable'))
+                const batch = queuedSesNotifications()
+                const redeliveredBefore = await queuedAtStage('redelivered')
 
-                await expect(consumer.processBatch(queuedSesNotifications())).rejects.toThrow('broker unavailable')
+                await expect(consumer.processBatch(batch)).rejects.toThrow('broker unavailable')
+                await consumer.processBatch(batch)
+
+                expect(await queuedAtStage('redelivered')).toBe(redeliveredBefore)
             })
 
-            it('flushes the notifications that recorded before it fails the batch', async () => {
+            it('flushes the notifications that recorded before it fails the batch, and counts them once when Kafka redelivers it', async () => {
                 const parentRunId = new UUIDT().toString()
+                const failingId = new UUIDT().toString()
                 await postEnvelope({
                     Type: 'Notification',
-                    MessageId: new UUIDT().toString(),
+                    MessageId: failingId,
                     TopicArn: sesTopicArn,
                     Message: JSON.stringify({
                         eventType: 'Open',
@@ -1519,17 +1525,25 @@ describe('EmailTrackingService', () => {
                         open: { timestamp: '2024-01-01T00:00:00.000Z' },
                     }),
                 })
-                const failingId = new UUIDT().toString()
-                await postBounce({ functionId: hogFunction.id, snsMessageId: failingId })
+                await postBounce({ functionId: hogFunction.id })
                 const service = consumer['emailTrackingService']
                 const record = service.recordQueuedSesNotification.bind(service)
-                jest.spyOn(service, 'recordQueuedSesNotification').mockImplementation((envelope) =>
-                    envelope.MessageId === failingId ? Promise.reject(new Error('datastore down')) : record(envelope)
-                )
+                let failed = false
+                jest.spyOn(service, 'recordQueuedSesNotification').mockImplementation((envelope) => {
+                    if (envelope.MessageId === failingId && !failed) {
+                        failed = true
+                        return Promise.reject(new Error('datastore down'))
+                    }
+                    return record(envelope)
+                })
+                const batch = queuedSesNotifications()
 
-                await expect(consumer.processBatch(queuedSesNotifications())).rejects.toThrow('datastore down')
+                await expect(consumer.processBatch(batch)).rejects.toThrow('datastore down')
+                expect(recordedMetrics()).toEqual(bounceMetrics)
+                await consumer.processBatch(batch)
 
                 expect(recordedMetrics()).toEqual([
+                    ...bounceMetrics,
                     ['email_opened', 1],
                     ['email_opened_by_person', 1],
                 ])
