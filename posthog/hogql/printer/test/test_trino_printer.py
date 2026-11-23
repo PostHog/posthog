@@ -3251,6 +3251,27 @@ def test_lowers_unaliased_left_any_join(people_column: str, expected: str, unrea
     ],
 )
 def test_curated_array_field_over_a_text_column_compares_as_text(structure: str, query: str, expected: str) -> None:
+    sql, _ = prepare_and_print_ast(parse_select(query), _context_with_warehouse_prices(structure), "trino")
+
+    assert expected in sql
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "SELECT day + 1 FROM (SELECT arrayJoin(tiers) AS day FROM prices)",
+        "WITH d AS (SELECT arrayJoin(tiers) AS day FROM prices) SELECT day + 1 FROM d",
+    ],
+)
+def test_stored_date_array_column_unnests_to_dates(query: str) -> None:
+    context = _context_with_warehouse_prices("`id` String, `tiers` Array(Date32)")
+
+    sql, _ = prepare_and_print_ast(parse_select(query), context, "trino")
+
+    assert "date_add('day', CAST(1 AS BIGINT), " in sql
+
+
+def _context_with_warehouse_prices(structure: str) -> HogQLContext:
     database = Database(include_posthog_tables=False)
     database.tables.add_child(
         TableNode(
@@ -3267,7 +3288,7 @@ def test_curated_array_field_over_a_text_column_compares_as_text(structure: str,
             ),
         )
     )
-    context = HogQLContext(
+    return HogQLContext(
         database=database,
         modifiers=_trino_modifiers(),
         enable_select_queries=True,
@@ -3275,10 +3296,6 @@ def test_curated_array_field_over_a_text_column_compares_as_text(structure: str,
         restricted_properties=set(),
         trino_table_locators={"prices": ("ducklake", "stripe", "prices")},
     )
-
-    sql, _ = prepare_and_print_ast(parse_select(query), context, "trino")
-
-    assert expected in sql
 
 
 @pytest.mark.parametrize(
