@@ -19,6 +19,7 @@ from products.warehouse_sources.sources.sdk import (
     UNVERSIONED_API_VERSION,
     ResumableSourceManager,
     SourceResponse,
+    flatten_jsonapi,
     make_tracked_session,
     retry_with_deadline,
 )
@@ -144,10 +145,7 @@ def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:
     Attribute keys stay in Persona's kebab-case (e.g. `created-at`); the pipeline snake-cases column
     names downstream, so `created-at` lands as the `created_at` warehouse column.
     """
-    if "attributes" in item and isinstance(item["attributes"], dict):
-        attributes = item.pop("attributes")
-        item.update(attributes)
-    return item
+    return flatten_jsonapi(item, relationships_as_ids=False, on_clash="nested")
 
 
 def validate_credentials(api_key: str, api_version: str) -> int:

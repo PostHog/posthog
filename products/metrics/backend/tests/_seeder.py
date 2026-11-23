@@ -19,7 +19,8 @@ import uuid
 import struct
 import hashlib
 import datetime as dt
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
+from contextlib import contextmanager
 from typing import Any
 
 from posthog.clickhouse.client import sync_execute
@@ -163,7 +164,27 @@ def _nan_bits(value: Any) -> int:
     return 0 if bits == _DEFAULT_NAN_BITS else bits
 
 
+_batch: list[dict[str, Any]] | None = None
+
+
+@contextmanager
+def batched_seeding() -> Iterator[None]:
+    """Collect the rows of every seed call in the block and insert them at once, for tests that seed many points."""
+    global _batch
+    _batch = []
+    try:
+        yield
+        rows = _batch
+    finally:
+        _batch = None
+    if rows:
+        _insert_input_rows(rows)
+
+
 def _insert_input_rows(rows: list[dict[str, Any]]) -> None:
+    if _batch is not None:
+        _batch.extend(rows)
+        return
     if not any(_nan_bits(row["value"]) for row in rows):
         payload = "\n".join(json.dumps(row) for row in rows)
         sync_execute(f"INSERT INTO metrics4_input FORMAT JSONEachRow {payload}")

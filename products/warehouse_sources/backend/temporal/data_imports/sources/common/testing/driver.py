@@ -1,10 +1,17 @@
+import io
 import asyncio
+import datetime
 import contextlib
-from collections.abc import Callable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator, Sequence
 from typing import Any
+
+import orjson
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import webhook_s3
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ResumableSource,
     SimpleSource,
@@ -78,13 +85,17 @@ class SourceDriver:
     around the run: it commits the resume cursor when the source hands over a row or reaches a safe
     point, which is what makes a cursor saved after the last row fail to persist, as in production.
 
-    The schema is never a webhook schema, so a source that can read webhook rows polls the API
-    instead, as it does before its webhook is live.
+    The schema is a webhook schema only when the driver is given `webhook_files`. Otherwise a source that
+    can read webhook rows polls the API instead, as it does before its webhook is live.
     """
 
-    def __init__(self, source: _BaseSource[Any], config: Any) -> None:
+    def __init__(
+        self, source: _BaseSource[Any], config: Any, *, webhook_files: Sequence[Sequence[dict[str, Any]]] | None = None
+    ) -> None:
+        """`webhook_files` turns the webhook on and stages each list of payloads as one file, in arrival order."""
         self._source = source
         self._config = config
+        self._webhook_files = webhook_files
 
     def run(
         self,
@@ -108,7 +119,10 @@ class SourceDriver:
             raised: BaseException | None = None
             response: SourceResponse | None = None
 
-            with self._recording_saves(saved), _webhooks_off():
+            with (
+                self._recording_saves(saved),
+                _webhooks_off() if self._webhook_files is None else _staged_webhook_files(built, self._webhook_files),
+            ):
                 manager = self._manager(built)
                 if manager is not None and resume_state is not None:
                     manager.save_state(resume_state)
@@ -219,8 +233,77 @@ def _webhooks_off() -> Iterator[None]:
         yield
 
 
+class _StagedWebhookFiles:
+    """The webhook folder of one schema in S3, holding the given files a minute apart."""
+
+    _FIRST_MODIFIED = datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
+
+    def __init__(self, inputs: SourceInputs, files: Sequence[Sequence[dict[str, Any]]]) -> None:
+        self._folder = webhook_s3._webhook_folder(inputs.team_id, inputs.schema_id)
+        self._files: dict[str, tuple[datetime.datetime, bytes]] = {}
+        for index, payloads in enumerate(files):
+            table = pa.table(
+                {
+                    "team_id": pa.array([inputs.team_id] * len(payloads), pa.int64()),
+                    "schema_id": pa.array([str(inputs.schema_id)] * len(payloads), pa.string()),
+                    "payload_json": pa.array([orjson.dumps(p).decode() for p in payloads], pa.string()),
+                }
+            )
+            buffer = io.BytesIO()
+            pq.write_table(table, buffer)
+            modified = self._FIRST_MODIFIED + datetime.timedelta(minutes=index)
+            self._files[f"{self._folder}/{index:04d}.parquet"] = (modified, buffer.getvalue())
+
+    async def _ls(self, path: str, detail: bool = False, refresh: bool = False) -> list[Any]:
+        if path.removeprefix("s3://") != self._folder:
+            raise FileNotFoundError(path)
+        return [{"Key": key, "type": "file", "LastModified": modified} for key, (modified, _) in self._files.items()]
+
+    async def open_async(self, path: str, mode: str = "rb") -> "_StagedFile":
+        return _StagedFile(self._files[path][1])
+
+    async def _rm(self, path: Any, recursive: bool = False) -> None:
+        return None
+
+    async def _pipe_file(self, path: str, data: bytes) -> None:
+        return None
+
+
+class _StagedFile:
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+
+    async def __aenter__(self) -> "_StagedFile":
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None
+
+    async def read(self) -> bytes:
+        return self._data
+
+
 @contextlib.contextmanager
-def _patched(target: type, name: str, value: Any) -> Iterator[None]:
+def _staged_webhook_files(inputs: SourceInputs, files: Sequence[Sequence[dict[str, Any]]]) -> Iterator[None]:
+    """Turn the webhook on and serve the files from a fake webhook folder."""
+    bucket = _StagedWebhookFiles(inputs, files)
+
+    async def webhook_on(self: WebhookSourceManager, *args: Any, **kwargs: Any) -> bool:
+        return True
+
+    @contextlib.asynccontextmanager
+    async def s3_client() -> AsyncIterator[_StagedWebhookFiles]:
+        yield bucket
+
+    with contextlib.ExitStack() as stack:
+        for name in _REAL_WEBHOOK_CHECKS:
+            stack.enter_context(_patched(WebhookSourceManager, name, webhook_on))
+        stack.enter_context(_patched(webhook_s3, "aget_s3_client", s3_client))
+        yield
+
+
+@contextlib.contextmanager
+def _patched(target: Any, name: str, value: Any) -> Iterator[None]:
     original = getattr(target, name)
     setattr(target, name, value)
     try:

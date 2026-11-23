@@ -207,7 +207,7 @@ class WorkflowReplayTarget:
     status: str
     # Templates of the workflow's function steps, so template filters can match a workflow.
     template_ids: tuple[str, ...]
-    # The rerun worker skips runs of these workflows, because their message data was not stored.
+    # The rerun worker skips runs of these workflows, because their message data was not stored. Push counts too.
     sends_sensitive_email: bool
 
 
@@ -263,6 +263,17 @@ class RealtimeCohortStatus:
 
 
 @frozen
+class RateLimitedAudienceAllowance:
+    """How far a sending rate limit can raise an email batch audience above its tier's cap."""
+
+    # The fastest rate that qualifies. A faster rate keeps the tier's cap.
+    max_emails_per_hour: int
+    max_days: int
+    # The audience a send at max_emails_per_hour reaches in max_days.
+    limit: int
+
+
+@frozen
 class AudienceSize:
     """How many recipients a batch audience matches, and the most a batch trigger may send to."""
 
@@ -274,6 +285,8 @@ class AudienceSize:
     realtime_cohort: RealtimeCohortStatus | None = None
     # Set when a realtime cohort shares the audience with other conditions, which a save rejects.
     realtime_cohort_with_other_conditions: RealtimeAudienceCohort | None = None
+    # Set when a sending rate limit can raise this audience's limit. None when no rate can.
+    rate_limited: RateLimitedAudienceAllowance | None = None
 
 
 @frozen
@@ -299,6 +312,73 @@ class PeopleImportSummary:
     dropped_invalid_email: int
     dropped_duplicate_email: int
     dropped_too_large: int
+    # Rows no person matched, left out because the import doesn't create new people.
+    skipped_new_people: int = 0
+    # How the people that rows matched by email spell that email in PostHog.
+    person_emails: tuple[str, ...] = ()
+
+
+@frozen
+class ProviderContactsResult:
+    """What importing one provider list of contacts did. Notes say what to fix when it failed."""
+
+    status: Literal["created", "skipped", "failed"]
+    cohort_id: int | None = None
+    cohort_name: str = ""
+    # Contacts sent to become or update a person. Ingestion adds them to the cohort a few minutes later.
+    people: int = 0
+    new_people: int = 0
+    skipped_new_people: int = 0
+    # Contacts without a valid email address, or repeating an earlier one.
+    dropped: int = 0
+    notes: tuple[str, ...] = ()
+    # How the people the contacts matched spell their email in PostHog, which can differ from the provider's.
+    person_emails: tuple[str, ...] = ()
+    # Where the people wait to be sent, in `chunks` parts, for `import_contact_chunk` and `fill_contacts_cohort`.
+    storage_prefix: str = ""
+    chunks: int = 0
+
+
+class ContactsCaptureFailed(Exception):
+    """Capture didn't acknowledge every event of a part. Sending the part again is safe."""
+
+    def __init__(self, message: str, *, acknowledged: int = 0, new_people: int = 0) -> None:
+        super().__init__(message)
+        # The part's people whose events capture did take, and how many of them are new.
+        self.acknowledged = acknowledged
+        self.new_people = new_people
+
+
+class ContactsImportAccessLost(Exception):
+    """The person who started the import can't edit persons in the project anymore. Another try finds the same."""
+
+
+class ContactsCohortGone(Exception):
+    """The cohort a list fills was deleted or isn't static anymore. Another try finds the same."""
+
+
+class ContactsCleanupFailed(Exception):
+    """Object storage kept some of the parts an import stored."""
+
+
+@frozen
+class ContactChunkOutcome:
+    """What sending one stored part of a provider list did."""
+
+    people: int
+    # Of them, the people PostHog had once ingestion caught up.
+    found: int
+    # Of them, the people PostHog didn't have when the list was stored.
+    new_people: int = 0
+
+
+@frozen
+class ContactsCohortFilled:
+    """How a provider list's cohort changed once every part was in."""
+
+    members: int
+    # Members not on the list anymore, such as contacts who left it or unsubscribed.
+    removed: int
 
 
 @frozen
@@ -331,6 +411,8 @@ class EmailSendingState:
     tier: int
     tier_pinned: bool
     tier_updated_at: datetime | None
+    provider_paused: bool = False
+    provider_reputation_impact: str = ""
 
 
 @frozen
@@ -348,6 +430,16 @@ class EmailSendingSuspensionChange:
 
 
 @frozen
+class EmailInfrastructureHealth:
+    """How the email every project in this region sends through PostHog fared, rounded for display."""
+
+    emails_sent_at_least: int
+    delivery_rate: float
+    bounce_rate: float
+    complaint_rate: float
+
+
+@frozen
 class EmailSendingAllowance:
     """A project's sending tier, what it allows, and how much of that it has used."""
 
@@ -357,6 +449,8 @@ class EmailSendingAllowance:
     max_batch_audience: int
     emails_sent_last_day: int
     enforced: bool
+    # The largest batch a slow enough sending rate limit allows. None when no rate raises the cap.
+    rate_limited_max_batch_audience: int | None = None
 
 
 class StaffPausedError(Exception):
@@ -771,6 +865,35 @@ class TransactionalEmailContentInvalid(Exception):
     """The content has no subject or no body, so the workflow could not send it."""
 
 
+TRANSACTIONAL_PUSH_ACTION_ID: Final[str] = "transactional_push"
+
+
+@frozen
+class TransactionalPushContent:
+    """What a transactional push's workflow sends, taken from the message template it was made from."""
+
+    message_template_id: UUID
+    name: str
+    title: str
+    body: str
+    # The Firebase and APNs integrations the push goes out through.
+    channel_ids: tuple[int, ...]
+    message_category_id: UUID | None
+    image: str = ""
+    link: str = ""
+    data: Mapping[str, str] = field(default_factory=dict)
+    # Sends keep a placeholder instead of the title and body.
+    sensitive: bool = False
+
+
+class TransactionalPushContentInvalid(Exception):
+    """The content has no title or body, or no push channel, so the workflow could not send it."""
+
+
+class TransactionalPushChannelUnavailable(Exception):
+    """A push channel is not a Firebase or APNs integration of this project."""
+
+
 class WorkflowNotFound(Exception):
     pass
 
@@ -1103,6 +1226,49 @@ class TranslatedWorkflow:
     name: str
     workflow: dict[str, Any]
     notes: tuple[ImportNote, ...]
+
+
+@frozen
+class ImportedEmail:
+    """An email another tool's automation sends, already converted to Liquid."""
+
+    subject: str
+    html: str
+    text: str = ""
+    from_email: str = ""
+    from_name: str = ""
+    # The team's PostHog sender with that address, when it has one.
+    sender_integration_id: int | None = None
+    reply_to: str = ""
+    # What to review about the email.
+    notes: tuple[str, ...] = ()
+    # Variables the tool fills from the contact by itself, when a step doesn't set them.
+    contact_variables: tuple[str, ...] = ()
+    # What to review about the sender, which doesn't apply when a step sets its own.
+    sender_notes: tuple[str, ...] = ()
+    # What to review about the subject, which doesn't apply when a step sets its own.
+    subject_notes: tuple[str, ...] = ()
+
+
+@frozen
+class ImportedStepEmail:
+    """What one automation step changes about the email it sends, already converted to Liquid."""
+
+    subject: str = ""
+    contact_variables: tuple[str, ...] = ()
+    from_email: str = ""
+    from_name: str = ""
+    sender_integration_id: int | None = None
+    reply_to: str = ""
+    notes: tuple[str, ...] = ()
+
+
+@frozen
+class ProviderAutomationResult:
+    # `skipped` when an earlier import of it still has its workflow.
+    status: Literal["created", "skipped", "failed"]
+    workflow_id: str | None
+    notes: tuple[str, ...]
 
 
 @frozen

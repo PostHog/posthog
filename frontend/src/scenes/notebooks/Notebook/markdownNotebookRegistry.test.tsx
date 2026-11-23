@@ -20,6 +20,7 @@ import notebookWidgetCatalog from 'products/notebooks/notebook-widget-catalog.js
 
 import { NotebookNodeType } from '../types'
 import { KNOWN_NODES } from '../utils'
+import type { NotebookCommentReply } from './MarkdownNotebookDiscussionComment'
 import {
     NOTEBOOK_MARKDOWN_REGISTRY,
     RealNotebookNodeEdit,
@@ -164,7 +165,8 @@ describe('markdownNotebookRegistry', () => {
 
         const renderCommentShell = (
             componentPanels: ComponentPanelVisibility,
-            mode: 'edit' | 'view'
+            mode: 'edit' | 'view',
+            replies: NotebookCommentReply[] = []
         ): ReturnType<typeof render> => {
             // No `showFilters` in props: composer visibility is driven by the transient panel
             // state, so the open state never has to be written into the shared document markdown.
@@ -172,7 +174,7 @@ describe('markdownNotebookRegistry', () => {
                 id: 'comment-node',
                 type: 'component',
                 tagName: 'Comment',
-                props: { replies: [] },
+                props: { replies },
             }
             return render(
                 <NotebookComponentShell
@@ -203,6 +205,15 @@ describe('markdownNotebookRegistry', () => {
             const { container } = renderCommentShell(componentPanels, mode)
             const composer = container.querySelector('[data-attr="notebook-discussion-comment-input"]')
             expect(composer !== null).toBe(expectComposer)
+        })
+
+        it('keeps the reply box of a thread with replies closed until someone chooses to reply', () => {
+            const { container } = renderCommentShell({ filters: false, results: true }, 'edit', [
+                { id: 'r1', text: 'Hi' },
+            ])
+            expect(container.querySelector('[data-attr="notebook-discussion-comment-input"]')).toBeNull()
+            fireEvent.click(container.querySelector('[data-attr="notebook-discussion-comment-reply"]')!)
+            expect(container.querySelector('[data-attr="notebook-discussion-comment-input"]')).not.toBeNull()
         })
     })
 

@@ -337,6 +337,14 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
             )
             return STEER_DECLINED_OUTCOME
 
+    if (
+        input.actor_user_id is not None
+        and input.actor_user_id != task_run.task.created_by_id
+        and not (task_run.state or {}).get("agent_memory_locked")
+    ):
+        # A failed write raises so the delivery retries: a resumed run reads the lock from run state.
+        TaskRun.update_state_atomic(task_run.id, updates={"agent_memory_locked": True})
+
     if input.actor_user_id is not None and is_slack_interaction_state(state):
         # Deliveries are serialized by the workflow, so stamping here moves
         # the durable actor only after an active steer passes its identity gate.
@@ -639,7 +647,7 @@ def _refresh_sandbox_mcp(
         token=access_token,
         team_id=task_run.team_id,
         user_id=actor_user.id,
-        include_personal=include_personal_mcp_for_task(task_run.task),
+        include_personal=include_personal_mcp_for_task(task_run.task, state),
         interaction_origin=(state or {}).get("interaction_origin"),
         slack_reply_context=(state or {}).get("slack_reply_context") is True,
         allowed_installation_ids=loop_mcp_installation_allowlist(state),

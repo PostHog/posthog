@@ -25,6 +25,7 @@ from products.warehouse_sources.sources.sdk import (
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
+    format_datetime,
     frozen,
     make_tracked_session,
     rest_api_resource,
@@ -63,10 +64,6 @@ def parse_pricing_nodes(pricing_nodes: Optional[str]) -> list[str]:
 
 def invalid_zones(zones: list[str]) -> list[str]:
     return [zone for zone in zones if not _ZONE_RE.match(zone)]
-
-
-def _format_datetime(value: datetime) -> str:
-    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _coerce_datetime(value: Any) -> Optional[datetime]:
@@ -128,8 +125,8 @@ class ElectricityMapsRangePaginator(BasePaginator):
         if request.params is None:
             request.params = {}
         request.params[self._zone_param] = self._zones[self._zone_index]
-        request.params["start"] = _format_datetime(self._window_start)
-        request.params["end"] = _format_datetime(self._window_end())
+        request.params["start"] = format_datetime(self._window_start, "iso_z")
+        request.params["end"] = format_datetime(self._window_end(), "iso_z")
 
     def init_request(self, request: Request) -> None:
         self._set_params(request)
@@ -150,7 +147,7 @@ class ElectricityMapsRangePaginator(BasePaginator):
         self._set_params(request)
 
     def get_resume_state(self) -> Optional[dict[str, Any]]:
-        return {"window_start": _format_datetime(self._window_start), "zone_index": self._zone_index}
+        return {"window_start": format_datetime(self._window_start, "iso_z"), "zone_index": self._zone_index}
 
     def set_resume_state(self, state: dict[str, Any]) -> None:
         window_start = _coerce_datetime(state.get("window_start"))

@@ -48,6 +48,18 @@ def current_monitoring_attempt(report: SignalReport) -> SignalReportMonitoringAt
     )
 
 
+def verifying_attempt(report: SignalReport, check: SignalReportCheck) -> SignalReportMonitoringAttempt | None:
+    """The current attempt when the check is one of its members and the report is still being verified."""
+    in_monitoring = report.status == SignalReport.Status.MONITORING or (
+        report.status == SignalReport.Status.SUPPRESSED
+        and report.status_before_suppression == SignalReport.Status.MONITORING
+    )
+    if not in_monitoring or not team_report_monitoring_enabled(report.team_id):
+        return None
+    attempt = current_monitoring_attempt(report)
+    return attempt if attempt is not None and str(check.id) in attempt.check_versions else None
+
+
 def complete_implementation(
     *,
     team_id: int,
@@ -55,6 +67,7 @@ def complete_implementation(
     monitoring_started_at: datetime | None,
     attribution: ArtefactAttribution | None = None,
     actor_user: User | None = None,
+    credited_user: User | None = None,
     close_pr_on_resolve: bool = False,
     from_pr_merge: bool = False,
     restart_monitoring: bool = False,
@@ -69,6 +82,7 @@ def complete_implementation(
         report = SignalReport.objects.select_for_update(no_key=True).get(team_id=team_id, id=report_id)
         report._transition_actor = attribution  # type: ignore[attr-defined]
         report._transition_actor_user = actor_user  # type: ignore[attr-defined]
+        report._credited_user = credited_user  # type: ignore[attr-defined]
         report._status_from_pr_state = from_pr_merge  # type: ignore[attr-defined]
         if report.status in {SignalReport.Status.RESOLVED, SignalReport.Status.CLOSED}:
             return None

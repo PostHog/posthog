@@ -64,6 +64,18 @@ async function fetchWithSession(uiHost: string, path: string): Promise<{ status:
     )
 }
 
+async function fetchSessionUser(uiHost: string): Promise<SessionUserResult> {
+    const { status, data } = await fetchWithSession(uiHost, getUsersRetrieveUrl('@me'))
+    if (status === 401 || status === 403) {
+        return { status: 'signed-out' }
+    }
+    const user = data as UserApi | null
+    if (status !== 200 || !user?.team) {
+        return { status: 'error' }
+    }
+    return { status: 'signed-in', user }
+}
+
 async function readResponse(request: Promise<Response>): Promise<{ status: number; data: unknown }> {
     try {
         const response = await request
@@ -267,18 +279,8 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
             {
                 loadSessionUser: async (): Promise<SessionUserResult | null> => {
                     const uiHost = values.uiHost
-                    const { status, data } = await fetchWithSession(uiHost, getUsersRetrieveUrl('@me'))
-                    if (values.uiHost !== uiHost) {
-                        return null
-                    }
-                    if (status === 401 || status === 403) {
-                        return { status: 'signed-out' }
-                    }
-                    const user = data as UserApi | null
-                    if (status !== 200 || !user?.team) {
-                        return { status: 'error' }
-                    }
-                    return { status: 'signed-in', user }
+                    const sessionUser = await fetchSessionUser(uiHost)
+                    return values.uiHost === uiHost ? sessionUser : null
                 },
             },
         ],
@@ -438,15 +440,21 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
             actions.loadAuthorizedUrls({ organizationId: user.organization.id, projectId: user.team.project_id })
         },
         switchProject: async ({ teamId }) => {
+            const uiHost = values.uiHost
             // The app's project-switch path moves the session's current project, which is the project
-            // toolbar authentication uses.
-            const { status } = await fetchWithSession(values.uiHost, `/project/${teamId}`)
-            if (status >= 200 && status < 300) {
+            // toolbar authentication uses. It answers with the app's HTML page and a 200 also when it refuses the
+            // switch, so the session's project, read afterwards, decides the outcome.
+            await fetchWithSession(uiHost, `/project/${teamId}`)
+            const sessionUser = await fetchSessionUser(uiHost)
+            if (values.uiHost !== uiHost) {
+                return
+            }
+            if (sessionUser.status === 'signed-in' && sessionUser.user.team.id === teamId) {
                 toolbarPosthogJS.capture('toolbar extension project switched')
             } else {
                 actions.setProjectSwitchFailed(true)
             }
-            actions.loadSessionUser()
+            actions.loadSessionUserSuccess(sessionUser)
             actions.loadToolbarAccess()
         },
         openPostHogPath: ({ path }) => {

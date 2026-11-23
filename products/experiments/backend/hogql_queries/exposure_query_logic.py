@@ -3,7 +3,7 @@
 import logging
 from collections.abc import Collection
 from datetime import UTC, datetime
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 import posthoganalytics
 
@@ -26,12 +26,14 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.property import action_to_expr, operator_is_negative, property_to_expr
+from posthog.hogql.transforms.flag_calls_from_flag_evaluations import EventsOnlyNames
 from posthog.hogql.utils import map_virtual_properties
 
 from posthog.models.team.team import Team
 
 from products.actions.backend.facade.api import get_action
 from products.actions.backend.facade.contracts import ActionNotFound
+from products.experiments.backend.warehouse_native_sources import warehouse_native_exposure_config
 
 logger = logging.getLogger(__name__)
 
@@ -108,14 +110,36 @@ def exposure_event_names(event: str, *, read_copies: bool = True) -> list[str]:
     return [event]
 
 
+def exposure_nodes_without_copies(criteria: Optional[ExperimentExposureCriteria]) -> list[dict[str, Any]]:
+    """The exposure and activation configs that read their events without the $experiment_exposure copy, as
+    EventsNode or ActionsNode dicts. Only the default exposure goes through `exposure_event_names`. An action
+    exposure and an activation read the events they name, as they are."""
+    if criteria is None:
+        return []
+    nodes: list[dict[str, Any]] = []
+    if isinstance(criteria.exposure_config, ActionsNode):
+        nodes.append(criteria.exposure_config.model_dump())
+    if has_activation_config(criteria):
+        activation = criteria.activation_config
+        if isinstance(activation, ActionsNode):
+            nodes.append(activation.model_dump())
+        elif isinstance(activation, ExperimentEventExposureConfig):
+            nodes.append({"kind": "EventsNode", "event": activation.event})
+    return nodes
+
+
 def exposure_event_name_filter(event: str, *, read_copies: bool = True) -> ast.Expr:
-    """Matches the events that `exposure_event_names` returns for a resolved exposure event."""
+    """Matches the events that `exposure_event_names` returns for a resolved exposure event.
+
+    A filter on more than one name reads `events` on every mode, and never reads `flag_evaluations` or the flag-call
+    union. The union scans `flag_evaluations` too, which costs an exposure query far more than `events` alone.
+    """
     names = exposure_event_names(event, read_copies=read_copies)
     if len(names) > 1:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.In,
             left=ast.Field(chain=["event"]),
-            right=ast.Constant(value=names),
+            right=ast.Constant(value=EventsOnlyNames(names)),
         )
     return ast.CompareOperation(
         op=ast.CompareOperationOp.Eq,
@@ -133,11 +157,17 @@ DEFAULT_FILTER_TEST_ACCOUNTS = True
 def apply_exposure_criteria_defaults(exposure_criteria: Union[dict, None]) -> dict:
     """Fill in what a new experiment gets when its criteria leave a field out.
 
-    Both experiment creation and the reads that estimate a baseline for a not-yet-created
-    experiment go through here, so the two cannot describe different populations.
+    Experiment creation and the reads that estimate a baseline for a not-yet-created experiment go
+    through here, so they cannot describe different populations. An update goes through here only for
+    a warehouse-native exposure, because a filled-in default moves the calculation key of an existing
+    experiment.
     """
     result = dict(exposure_criteria or {})
-    if result.get("filterTestAccounts") is None:
+    if warehouse_native_exposure_config(result) is not None:
+        # Test account filters match PostHog persons and events, which warehouse rows do not have. The exposure
+        # forms hide the switch, so the saved value is what makes the runner accept the experiment.
+        result["filterTestAccounts"] = False
+    elif result.get("filterTestAccounts") is None:
         result["filterTestAccounts"] = DEFAULT_FILTER_TEST_ACCOUNTS
     return result
 

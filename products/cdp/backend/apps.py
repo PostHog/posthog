@@ -12,6 +12,9 @@ class CdpConfig(AppConfig):
 
     def ready(self) -> None:
         from products.actions.backend.facade.api import on_action_saved  # noqa: PLC0415
+
+        # Connects the post_save receiver that queues shadow abuse scoring.
+        from products.cdp.backend.abuse import shadow  # noqa: F401, PLC0415
         from products.cdp.backend.models.hog_functions.hog_function import action_saved  # noqa: PLC0415
 
         # Compiled filters embed each action's matcher, so they must be rebuilt when an action is saved.

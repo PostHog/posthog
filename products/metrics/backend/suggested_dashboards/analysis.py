@@ -123,13 +123,16 @@ def _save_suggestions(team: Team, suggested: dict[str, str], matches: dict[str, 
             for field, value in values.items():
                 setattr(suggestion, field, value)
             suggestion.save(update_fields=[*values, "updated_at"])
-        # A suggestion that no longer fits goes away, unless the team still has its dashboard.
+        # A suggestion that no longer fits goes away, unless the team still has its dashboard. A dismissed
+        # suggestion stays too, because a later analysis that finds the same fit would suggest the template again.
         created = [suggestion.dashboard_id for suggestion in current.values() if suggestion.dashboard_id is not None]
         deleted = set(unknown_dashboard_ids(created, team_id=team.id)) if created else set()
         stale = [
             suggestion.id
             for template_id, suggestion in current.items()
-            if template_id not in keep and (suggestion.dashboard_id is None or suggestion.dashboard_id in deleted)
+            if template_id not in keep
+            and suggestion.dismissed_at is None
+            and (suggestion.dashboard_id is None or suggestion.dashboard_id in deleted)
         ]
         MetricsDashboardSuggestion.objects.for_team(team.id).filter(id__in=stale).delete()
     return len(suggested)

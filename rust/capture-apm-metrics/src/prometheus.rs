@@ -10,15 +10,17 @@ use axum::Json;
 use bytes::Bytes;
 use capture_logs::authorizer::Signal;
 use capture_logs::endpoints::prometheus::{
-    decode_write_request, estimate_expanded_bytes, write_timeseries_to_kafka_rows,
-    RemoteWriteEncoding,
+    decode_write_request, estimate_expanded_bytes, write_timeseries_to_kafka_rows_with_options,
+    RemoteWriteEncoding, RemoteWriteOptions,
 };
+use capture_logs::metric_record::sum_kafka_metric_row_bytes;
 use metrics::counter;
 use serde::Deserialize;
 use serde_json::json;
 use tracing::{debug, error, instrument};
 
 use crate::histogram_assembly::fold_classic_histograms;
+use crate::label_cardinality::Source;
 use crate::service::MetricsService;
 
 #[derive(Deserialize)]
@@ -144,13 +146,31 @@ pub async fn export_prometheus_remote_write_http(
         ));
     }
 
-    let (mut rows, timestamps_overridden) =
-        write_timeseries_to_kafka_rows(write_request.timeseries, &write_request.metadata);
+    let (mut rows, timestamps_overridden) = write_timeseries_to_kafka_rows_with_options(
+        write_request.timeseries,
+        &write_request.metadata,
+        RemoteWriteOptions {
+            keep_stale_markers: service.keep_stale_markers,
+        },
+    );
     // Before the histogram fold, so folded histograms carry the attributes and
     // fingerprint them.
     service.k8s_resource_attributes.apply(&token, &mut rows);
     let mut rows = fold_classic_histograms(rows, &write_request.metadata);
-    let (labelled, records_bytes) = service.series_label_gate.decide_metered(&token, &mut rows);
+    let source = Source::remote_write(&write_request.metadata);
+    let detector = &service.label_cardinality;
+    let records_bytes = sum_kafka_metric_row_bytes(&rows);
+    let gate = &service.series_label_gate;
+    let labelled = gate.classify(&token, &rows);
+    // A full cache reports uncached series as new on every row, so they count as repeats.
+    let new_rows = if gate.cache_full(&token) {
+        &[]
+    } else {
+        labelled.new_series_rows()
+    };
+    detector.observe(&token, &rows, new_rows, &source);
+    detector.note_new_series(&token, &rows, new_rows, &source);
+    gate.strip_repeats(&mut rows, &labelled);
     let row_count = rows.len();
 
     if let Err(e) = service

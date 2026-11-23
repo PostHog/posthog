@@ -220,6 +220,25 @@ def insight_ids_modified_since(*, team_ids: Collection[int], since: datetime) ->
     )
 
 
+def insight_ids_by_short_ids(*, team_id: int, short_ids: Collection[str]) -> set[int]:
+    if not short_ids:
+        return set()
+    return set(
+        Insight.objects.filter(team_id=team_id, short_id__in=list(short_ids), deleted=False).values_list(
+            "id", flat=True
+        )
+    )
+
+
+def insight_ids_named_like(*, team_id: int, search: str) -> set[int]:
+    unnamed = Q(name__isnull=True) | Q(name="")
+    return set(
+        Insight.objects.filter(team_id=team_id, deleted=False)
+        .filter(Q(name__icontains=search) | (unnamed & Q(derived_name__icontains=search)))
+        .values_list("id", flat=True)
+    )
+
+
 def recent_viewers_by_insight(
     *, team_id: int, insight_ids: Collection[int], since: datetime, max_per_insight: int
 ) -> dict[int, list["User"]]:

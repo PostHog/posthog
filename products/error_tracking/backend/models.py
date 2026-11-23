@@ -3,7 +3,7 @@ import dataclasses
 from collections.abc import Iterable, Sequence
 from decimal import Decimal
 from enum import StrEnum
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -124,6 +124,15 @@ class ErrorTrackingIssue(UUIDTModel):
         if not source_issue_ids:
             return ErrorTrackingIssueMergeOutcome(ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES)
 
+        from products.error_tracking.backend.logic.issue_tags.gate import (  # noqa: PLC0415 - logic imports this module
+            issue_tags_enabled,
+        )
+        from products.error_tracking.backend.logic.issue_tags.writer import (  # noqa: PLC0415 - logic imports this module
+            carry_issue_tags_on_merge,
+        )
+
+        # A flag evaluation can make a network call, so it runs before the merge takes its row locks.
+        carry_tags = issue_tags_enabled(team_id)
         with transaction.atomic():
             locked = _lock_merge_issues(
                 team_id=team_id, target_issue_id=target_issue_id, source_issue_ids=source_issue_ids
@@ -159,10 +168,12 @@ class ErrorTrackingIssue(UUIDTModel):
             ErrorTrackingSpikeEvent.objects.filter(team_id=team_id, issue_id__in=existing_source_issue_ids).update(
                 issue_id=target_issue_id
             )
-            # Read source assignees before the delete cascades their assignment rows away
+            # Read source assignees and labels before the delete cascades their rows away
             _adopt_source_assignee_on_merge(
                 team_id=team_id, target_issue_id=target_issue_id, source_issue_ids=existing_source_issue_ids
             )
+            if carry_tags:
+                carry_issue_tags_on_merge(target=self, source_issue_ids=existing_source_issue_ids)
             ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=existing_source_issue_ids).delete()
 
             # Stamp the surviving row so deleting the latest source cannot move the cache watermark backward.
@@ -559,6 +570,37 @@ class ErrorTrackingSeverityRule(TeamScopedRootMixin, UUIDTModel):
         db_table = "posthog_errortrackingseverityrule"
 
 
+def _issue_tag_rule_key() -> str:
+    return f"rule_{uuid4().hex}"
+
+
+class ErrorTrackingIssueTagRule(TeamScopedRootMixin, UUIDModel):
+    """A team's issue tag. Its label applies to a new issue when `bytecode` matches the issue's first event."""
+
+    # The unique constraint leads with team, so it serves the per-team rules read without a separate team index.
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+", db_index=False
+    )
+    key = models.CharField(max_length=64, default=_issue_tag_rule_key)
+    label = models.CharField(max_length=128)
+    description = models.TextField(blank=True, default="")
+    filters = models.JSONField(null=False, blank=False)
+    bytecode = models.JSONField(null=False, blank=False)
+    # Stored on each answer as question_version, so an edit can tell old answers from new ones.
+    version = models.PositiveSmallIntegerField(default=1)
+    # The order of the rules in settings. A rule applies its own label, so the order never decides between rules.
+    order_key = models.IntegerField(null=False, blank=False)
+    disabled_data = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_errortrackingissuetagrule"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "key"], name="et_issue_tag_rule_team_key_unique"),
+        ]
+
+
 # A custom grouping rule works as follows:
 # - Events are run against the filter code
 # - If an event matches, the fingerprint of the event is set as "custom-rule:<rule_id>"
@@ -935,6 +977,7 @@ class ErrorTrackingSettings(models.Model):
     project_rate_limit_bucket_size_minutes = models.IntegerField(null=True, blank=True)
     per_issue_rate_limit_value = models.IntegerField(null=True, blank=True)
     per_issue_rate_limit_bucket_size_minutes = models.IntegerField(null=True, blank=True)
+    ai_issue_summaries_enabled = models.BooleanField(default=False, db_default=False)
 
     class Meta:
         db_table = "posthog_errortrackingsettings"
@@ -1215,11 +1258,13 @@ class ErrorTrackingIssueTag(TeamScopedRootMixin, UUIDModel):
     """The answer to one tag question about an issue.
 
     A row holds only the answer of the highest-ranked tagger that answered, so write it through
-    logic/issue_tags/writer.py. A missing row and a null `value` both read as unknown.
+    logic/issue_tags/writer.py. Only a true `value` applies the label. A missing row, a false `value` and a null
+    `value` all mean no label.
     """
 
     class Source(models.TextChoices):
         MANUAL = "manual", "Manual"
+        RULE = "rule", "Rule"
         JEV = "jev", "Jev"
 
     # db_constraint=False keeps inserts lock-free on hot tables (posthog_team / posthog_user);

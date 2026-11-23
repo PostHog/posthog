@@ -1,7 +1,14 @@
+from concurrent.futures import Future, ThreadPoolExecutor
 from io import StringIO
+from queue import Queue
+from threading import Event
+from time import monotonic
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import MagicMock, patch
+
+from django.db import connection, transaction
+from django.db.models import F
 
 from parameterized import parameterized
 
@@ -363,15 +370,15 @@ user5@example.com,cio_6,"{""topics"": {""topic_1"": true}}"
         assert result["suppressions_imported"] == 2
         assert any("invalid_emails" in error for error in result["errors"])
         rows = {
-            row.identifier: (row.source, row.suppressed, row.deleted)
+            row.identifier: (row.source, row.suppressed, row.deleted, row.hard_bounced_at is not None)
             for row in MessageSuppression.objects.for_team(self.team.id).all()
         }
         assert rows == {
-            "bounced@example.com": (SuppressionSource.BOUNCE, True, False),
-            "spam@example.com": (SuppressionSource.COMPLAINT, True, False),
-            "manual@example.com": (SuppressionSource.MANUAL, True, False),
-            "removed@example.com": (SuppressionSource.BOUNCE, False, True),
-            "earlier@example.com": (SuppressionSource.BOUNCE, True, False),
+            "bounced@example.com": (SuppressionSource.BOUNCE, True, False, True),
+            "spam@example.com": (SuppressionSource.COMPLAINT, True, False, False),
+            "manual@example.com": (SuppressionSource.MANUAL, True, False, True),
+            "removed@example.com": (SuppressionSource.BOUNCE, False, True, False),
+            "earlier@example.com": (SuppressionSource.BOUNCE, True, False, True),
         }
         details = {
             row.identifier: (
@@ -447,3 +454,143 @@ user3@example.com,cio_3,"{""topics"": {""topic_1"": false}}"
 
         assert result["status"] == "completed"
         assert result["total_unique_users"] == 3
+
+
+class TestCustomerIOImportWithConcurrentBounceWrites(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self):
+        super().setUp()
+        module = "products.messaging.backend.services.customerio_import_service"
+        delay_patch = patch(f"{module}.SUPPRESSION_PAGE_DELAY_SECONDS", 0)
+        client_patch = patch(f"{module}.CustomerIOClient")
+        delay_patch.start()
+        client = self.customerio = client_patch.start().return_value
+        self.addCleanup(delay_patch.stop)
+        self.addCleanup(client_patch.stop)
+        client.validate_credentials.return_value = True
+        client.get_subscription_topics.return_value = []
+        client.get_globally_unsubscribed_customers.return_value = {"identifiers": []}
+        client.get_suppressions.side_effect = lambda suppression_type, limit, offset: (
+            [{"email": "known@example.com"}, {"email": "new@example.com"}]
+            if (suppression_type, offset) == ("bounces", 0)
+            else []
+        )
+        self.rows = MessageSuppression.objects.for_team(self.team.id)
+        self.import_pid: Queue[int] = Queue()
+
+    def _start_import(self, executor: ThreadPoolExecutor) -> Future[dict]:
+        def run() -> dict:
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("SET statement_timeout = '15s'")
+                    cursor.execute("SELECT pg_backend_pid()")
+                    self.import_pid.put(cursor.fetchone()[0])
+                return CustomerIOImportService(self.team.id, "test-api-key", self.user.id).import_api_data()
+            finally:
+                connection.close()
+
+        return executor.submit(run)
+
+    def _wait_until_the_import_stops(self, result: Future[dict], paused: Event | None = None) -> None:
+        pid = self.import_pid.get(timeout=10)
+        deadline = monotonic() + 10
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_backend_pid()")
+            holder_pid = cursor.fetchone()[0]
+            while not result.done() and monotonic() < deadline:
+                if paused is not None and paused.is_set():
+                    return
+                cursor.execute("SELECT %s = ANY(pg_blocking_pids(%s))", [holder_pid, pid])
+                if cursor.fetchone()[0]:
+                    return
+        self.fail("The import neither waited on the bounce write nor paused")
+
+    def test_import_blocks_transactional_email_to_an_address_the_bounce_feedback_inserts_meanwhile(self):
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            with transaction.atomic():
+                self.rows.create(
+                    team=self.team,
+                    identifier="known@example.com",
+                    source=SuppressionSource.BOUNCE,
+                    suppressed=False,
+                    transient_bounce_count=1,
+                )
+                result = self._start_import(executor)
+                self._wait_until_the_import_stops(result)
+            assert result.result(timeout=10)["status"] == "completed"
+
+        row = self.rows.get(identifier="known@example.com")
+        assert (row.suppressed, row.hard_bounced_at is not None, row.transient_bounce_count) == (True, True, 1)
+
+    def test_import_page_lets_a_bounce_write_that_holds_one_of_its_rows_insert_another(self):
+        self.rows.create(
+            team=self.team, identifier="known@example.com", source=SuppressionSource.MANUAL, suppressed=True
+        )
+        paused, released = Event(), Event()
+
+        def pause(seconds: float) -> None:
+            if seconds:
+                paused.set()
+                released.wait(timeout=10)
+
+        with (
+            patch("products.messaging.backend.services.customerio_import_service.time.sleep", side_effect=pause),
+            ThreadPoolExecutor(max_workers=1) as executor,
+        ):
+            try:
+                with transaction.atomic():
+                    self.rows.filter(identifier="known@example.com").update(
+                        transient_bounce_count=F("transient_bounce_count") + 1
+                    )
+                    result = self._start_import(executor)
+                    self._wait_until_the_import_stops(result, paused)
+                    self.rows.create(
+                        team=self.team,
+                        identifier="new@example.com",
+                        source=SuppressionSource.BOUNCE,
+                        suppressed=False,
+                        transient_bounce_count=1,
+                    )
+            finally:
+                released.set()
+            progress = result.result(timeout=10)
+
+        assert (progress["status"], progress["suppressions_imported"]) == ("completed", 0)
+        assert [
+            (row.identifier, row.transient_bounce_count, row.suppressed, row.hard_bounced_at is not None)
+            for row in self.rows.order_by("identifier")
+        ] == [("known@example.com", 1, True, True), ("new@example.com", 1, True, True)]
+
+    def test_import_reports_failure_for_a_page_a_bounce_write_holds_through_every_retry_and_finishes_the_rest(self):
+        self.rows.create(
+            team=self.team, identifier="known@example.com", source=SuppressionSource.MANUAL, suppressed=True
+        )
+        self.customerio.get_globally_unsubscribed_customers.side_effect = lambda limit, start: (
+            {"identifiers": [{"email": "unsubscribed@example.com"}]} if start is None else {"identifiers": []}
+        )
+
+        with (
+            patch("products.messaging.backend.services.customerio_import_service.time.sleep"),
+            ThreadPoolExecutor(max_workers=1) as executor,
+        ):
+            with transaction.atomic():
+                self.rows.filter(identifier="known@example.com").update(
+                    transient_bounce_count=F("transient_bounce_count") + 1
+                )
+                progress = self._start_import(executor).result(timeout=10)
+
+        assert (progress["status"], progress["suppressions_imported"], progress["globally_unsubscribed_count"]) == (
+            "failed",
+            0,
+            1,
+        )
+        assert progress["errors"] == [
+            "Couldn't import part of the Customer.io bounces list because bounce feedback was updating some of the "
+            "same addresses. Run the import again to add them."
+        ]
+        assert [
+            (row.identifier, row.transient_bounce_count, row.hard_bounced_at is None)
+            for row in self.rows.order_by("identifier")
+        ] == [("known@example.com", 1, True)]
+        assert MessageRecipientPreference.objects.filter(team=self.team, identifier="unsubscribed@example.com").exists()

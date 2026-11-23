@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 from products.web_analytics.backend.temporal.page_history.activities import (
     claim_capture,
     finish_capture,
@@ -10,5 +12,14 @@ from products.web_analytics.backend.temporal.page_history.workflows import (
     HeatmapPageHistoryTickWorkflow,
 )
 
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
+
 WORKFLOWS = [HeatmapPageHistoryCaptureWorkflow, HeatmapPageHistoryTickWorkflow]
-ACTIVITIES = [claim_capture, render_capture, finish_capture, prune_page_history, schedule_page_history]
+ACTIVITIES: list[ActivityDefinition] = [
+    claim_capture,
+    render_capture,
+    finish_capture,
+    prune_page_history,
+    schedule_page_history,
+]

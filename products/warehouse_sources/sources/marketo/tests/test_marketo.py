@@ -13,6 +13,7 @@ from requests.structures import CaseInsensitiveDict
 
 from products.warehouse_sources.sources.marketo._config import MarketoSourceConfig
 from products.warehouse_sources.sources.marketo.marketo import (
+    BULK_CANCEL_TIMEOUT_SECONDS,
     BULK_CHUNK_ROWS,
     MarketoAPIError,
     MarketoAuthError,
@@ -33,7 +34,7 @@ from products.warehouse_sources.sources.marketo.marketo import (
 )
 from products.warehouse_sources.sources.marketo.settings import MARKETO_ENDPOINTS
 from products.warehouse_sources.sources.marketo.source import MarketoSource
-from products.warehouse_sources.sources.sdk import ResumableSourceManager
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, WorkerShuttingDownError
 from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -70,6 +71,11 @@ class FakeResumeManager(ResumableSourceManager[MarketoResumeConfig]):
 
     def clear_state(self) -> None:
         self.cleared = True
+
+
+class ShuttingDownResumeManager(FakeResumeManager):
+    def safe_point(self) -> None:
+        raise WorkerShuttingDownError("activity-1", "import_data_activity", "queue", 1, None, None)
 
 
 def _response(body: Any, status: int = 200, content_type: str = "application/json") -> Response:
@@ -462,6 +468,45 @@ class TestMarketo:
         assert session.request.call_args_list[1].kwargs["json"]["fields"] == ["id", "email"]
         assert rows == [{"id": 5, "email": "a@example.com"}]
 
+    @pytest.mark.parametrize(
+        "cancel_body",
+        [
+            {"success": True, "result": [{"exportId": "exp-1", "status": "Cancelled"}]},
+            {"success": False, "errors": [{"code": "1003", "message": "Export cannot be cancelled"}]},
+            {"success": False, "errors": [{"code": "606", "message": "Max rate limit exceeded"}]},
+        ],
+    )
+    def test_a_hand_off_during_the_poll_cancels_the_export(self, cancel_body: dict[str, Any]) -> None:
+        session = _session(
+            responses=[
+                _response({"success": True, "result": [{"exportId": "exp-1", "status": "Created"}]}),
+                _response({"success": True, "result": [{"exportId": "exp-1", "status": "Queued"}]}),
+                _response(cancel_body),
+            ]
+        )
+        client = _make_client(session)
+
+        with pytest.raises(WorkerShuttingDownError):
+            _drain(
+                _bulk_rows(
+                    client,
+                    MARKETO_ENDPOINTS["activities"],
+                    datetime(2024, 1, 1, tzinfo=UTC),
+                    datetime(2024, 1, 10, tzinfo=UTC),
+                    ShuttingDownResumeManager(),
+                    mock.MagicMock(),
+                )
+            )
+
+        base = f"https://{MUNCHKIN}.mktorest.com"
+        requests_sent = [(call.args[0], call.args[1].removeprefix(base)) for call in session.request.call_args_list]
+        assert requests_sent == [
+            ("POST", "/bulk/v1/activities/export/create.json"),
+            ("POST", "/bulk/v1/activities/export/exp-1/enqueue.json"),
+            ("POST", "/bulk/v1/activities/export/exp-1/cancel.json"),
+        ]
+        assert session.request.call_args_list[-1].kwargs["timeout"] == BULK_CANCEL_TIMEOUT_SECONDS
+
     @pytest.mark.parametrize("status", ["Failed", "Cancelled"])
     def test_a_terminal_export_status_fails_the_sync(self, status: str) -> None:
         result = _driver(_recent_start()).run(
@@ -672,3 +717,133 @@ class TestMarketo:
         assert result.params("endAt")[3:] == [query_end]
         assert result.params("nextPageToken")[3:] == ["p3"]
         assert result.rows == [{"leadId": 7, "updatedAt": window_start, "programId": 2}]
+
+    def test_segments_page_each_segmentation_by_offset_in_id_order(self) -> None:
+        full_page = [{"id": index} for index in range(200)]
+        result = _driver().run(
+            "segments",
+            [
+                _token_response(),
+                _ok({"result": [{"id": 1002}, {"id": 1001}]}),
+                _ok({"result": full_page}),
+                _ok({"result": [{"id": 500}]}),
+                _ok({"result": []}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths[1:] == [
+            "/rest/asset/v1/segmentation.json",
+            "/rest/asset/v1/segmentation/1001/segments.json",
+            "/rest/asset/v1/segmentation/1001/segments.json",
+            "/rest/asset/v1/segmentation/1002/segments.json",
+        ]
+        assert result.queries[1] == {}
+        assert result.params("offset")[2:] == ["0", "200", "0"]
+        assert len(result.rows) == 201
+        assert {row["segmentationId"] for row in result.rows} == {1001}
+        assert result.saved_states == [
+            MarketoResumeConfig(parent_id=1001, offset=200),
+            MarketoResumeConfig(parent_id=1001),
+            MarketoResumeConfig(parent_id=1002),
+        ]
+        assert result.final_state is None
+        assert result.response is not None
+        assert result.response.primary_keys == ["segmentationId", "id"]
+        assert result.response.sort_mode is None
+
+    @pytest.mark.parametrize(
+        "resume,expected_paths,expected_offsets",
+        [
+            (
+                MarketoResumeConfig(parent_id=1001, offset=400),
+                ["/rest/asset/v1/segmentation/1001/segments.json", "/rest/asset/v1/segmentation/1002/segments.json"],
+                ["400", "0"],
+            ),
+            (MarketoResumeConfig(parent_id=1001), ["/rest/asset/v1/segmentation/1002/segments.json"], ["0"]),
+            # The segmentation the cursor was in is gone, so the next one starts from its first page.
+            (
+                MarketoResumeConfig(parent_id=1000, offset=200),
+                ["/rest/asset/v1/segmentation/1001/segments.json", "/rest/asset/v1/segmentation/1002/segments.json"],
+                ["0", "0"],
+            ),
+        ],
+    )
+    def test_segments_resume_skips_finished_segmentations(
+        self,
+        resume: MarketoResumeConfig,
+        expected_paths: list[str],
+        expected_offsets: list[str],
+    ) -> None:
+        result = _driver().run(
+            "segments",
+            [
+                _token_response(),
+                _ok({"result": [{"id": 1001}, {"id": 1002}]}),
+                *[_ok({"result": [{"id": 1}]}) for _ in expected_paths],
+            ],
+            resume_state=resume,
+        )
+
+        assert result.raised is None
+        assert result.paths[2:] == expected_paths
+        assert result.params("offset")[2:] == expected_offsets
+
+    @pytest.mark.parametrize(
+        "endpoint,inputs,expected_query",
+        [
+            ("segmentations", {}, {}),
+            ("email_templates", {}, {"offset": ("0",), "maxReturn": ("200",)}),
+            (
+                "smart_lists",
+                {"incremental_field": "updatedAt", "db_incremental_field_last_value": datetime(2024, 3, 1, tzinfo=UTC)},
+                {"offset": ("0",), "maxReturn": ("200",), "earliestUpdatedAt": ("2024-03-01T00:00:00Z",)},
+            ),
+            # No watermark yet, so the first incremental run reads every smart list.
+            ("smart_lists", {"incremental_field": "updatedAt"}, {"offset": ("0",), "maxReturn": ("200",)}),
+            (
+                "smart_lists",
+                {
+                    "incremental_field": "updatedAt",
+                    "should_use_incremental_field": False,
+                    "db_incremental_field_last_value": datetime(2024, 3, 1, tzinfo=UTC),
+                },
+                {"offset": ("0",), "maxReturn": ("200",)},
+            ),
+        ],
+    )
+    def test_asset_browse_request_shaping(
+        self, endpoint: str, inputs: dict[str, Any], expected_query: dict[str, tuple[str, ...]]
+    ) -> None:
+        result = _driver().run(endpoint, [_token_response(), _ok({"result": [{"id": 1}]})], **inputs)
+
+        assert result.raised is None
+        assert result.queries[1] == expected_query
+
+    def test_segmentations_take_one_request_however_many_rows_return(self) -> None:
+        result = _driver().run(
+            "segmentations", [_token_response(), _ok({"result": [{"id": index} for index in range(200)]})]
+        )
+
+        assert result.raised is None
+        assert len(result.requests) == 2
+        assert len(result.rows) == 200
+
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("2019-06-03T23:01:13Z+0000", datetime(2019, 6, 3, 23, 1, 13, tzinfo=UTC)),
+            ("2019-06-03T23:01:13Z", datetime(2019, 6, 3, 23, 1, 13, tzinfo=UTC)),
+            (None, None),
+            ("not a date", None),
+        ],
+    )
+    def test_smart_list_timestamps_become_datetimes(self, raw: Optional[str], expected: Optional[datetime]) -> None:
+        result = _driver().run(
+            "smart_lists",
+            [_token_response(), _ok({"result": [{"id": 1, "createdAt": raw, "updatedAt": raw, "name": "Leads"}]})],
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": 1, "createdAt": expected, "updatedAt": expected, "name": "Leads"}]
+        assert result.response is not None and result.response.sort_mode is None

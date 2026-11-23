@@ -5,30 +5,14 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { TeamMembershipLevel } from 'lib/constants'
 import { IconSubArrowRight } from 'lib/lemon-ui/icons'
 
-import { EventTriggerConfig, SessionRecordingTriggerGroup } from '~/lib/components/IngestionControls/types'
+import { SessionRecordingTriggerGroup } from '~/lib/components/IngestionControls/types'
 
-/** Short display labels for trigger property operators */
-const OPERATOR_DISPLAY: Record<string, string> = {
-    exact: 'equals',
-    is_not: 'not equals',
-    icontains: 'contains',
-    not_icontains: 'not contains',
-    regex: 'matches regex',
-    not_regex: 'not matches regex',
-    gt: '>',
-    lt: '<',
-}
+import { buildConditionRows, ConditionRowProps, OPERATOR_DISPLAY } from './triggerGroupHelpers'
+
 export interface TriggerGroupCardProps {
     group: SessionRecordingTriggerGroup
     onEdit?: () => void
     onDelete?: (id: string) => void
-}
-
-interface ConditionRowProps {
-    type: 'events' | 'urls' | 'flag'
-    values: string[]
-    matchType: 'any' | 'all'
-    eventConfigs?: EventTriggerConfig[]
 }
 
 function ConditionRow({
@@ -117,36 +101,7 @@ export function TriggerGroupCard({ group, onEdit, onDelete }: TriggerGroupCardPr
     // Format display name
     const displayName = name || `Trigger group ${id.slice(0, 8)}`
 
-    // Build condition rows - group same types together
-    const conditionRows: ConditionRowProps[] = []
-
-    if (conditions.events && conditions.events.length > 0) {
-        const eventValues = conditions.events.map((e) => (typeof e === 'string' ? e : e.name))
-        const eventConfigs = conditions.events.map((e): EventTriggerConfig => (typeof e === 'string' ? { name: e } : e))
-        conditionRows.push({
-            type: 'events',
-            values: eventValues,
-            matchType: conditions.matchType,
-            eventConfigs,
-        })
-    }
-
-    if (conditions.urls && conditions.urls.length > 0) {
-        conditionRows.push({
-            type: 'urls',
-            values: conditions.urls.map((urlConfig) => urlConfig.url),
-            matchType: conditions.matchType,
-        })
-    }
-
-    if (conditions.flag) {
-        const flagKey = typeof conditions.flag === 'string' ? conditions.flag : conditions.flag.key
-        conditionRows.push({
-            type: 'flag',
-            values: [flagKey],
-            matchType: conditions.matchType,
-        })
-    }
+    const conditionRows = buildConditionRows(conditions)
 
     const hasConditions = conditionRows.length > 0
     const matchType = conditions.matchType === 'any' ? 'any' : 'all'

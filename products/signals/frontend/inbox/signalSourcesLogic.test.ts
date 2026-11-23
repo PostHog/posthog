@@ -74,6 +74,7 @@ const githubIssuesConfig = {
     created_at: '2026-07-27T00:00:00Z',
     updated_at: '2026-07-27T00:00:00Z',
     status: null,
+    filter_status: null,
 }
 
 const declinedJiraDraft: InboxOnboardingDraftApi = {
@@ -678,6 +679,7 @@ describe('signalSourcesLogic', () => {
                 }
                 return {
                     ...analyticsConfig,
+                    filter_status: null,
                     config: { ...analyticsConfig.config, alert_scope: scope },
                 } as SignalSourceConfigApi
             })
@@ -705,6 +707,7 @@ describe('signalSourcesLogic', () => {
             created_at: '2026-07-30T00:00:00Z',
             updated_at: '2026-07-30T00:00:00Z',
             status: null,
+            filter_status: null,
         })
         logic.actions.loadSourceConfigsSuccess([
             {

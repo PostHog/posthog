@@ -38,6 +38,7 @@ from django.conf import settings
 import structlog
 import temporalio.activity
 import temporalio.workflow
+from posthoganalytics import capture_exception
 from structlog._frames import _find_first_app_frame_and_name
 from structlog._log_levels import LEVEL_TO_NAME, NAME_TO_LEVEL
 from structlog.processors import EventRenamer
@@ -48,6 +49,7 @@ from posthog.logging.exceptions import add_otel_exception_attributes
 if typing.TYPE_CHECKING:
     from posthog.kafka_client.client import _AsyncKafkaProducer
     from posthog.temporal.common.internal_logs import InternalLogsSink
+    from posthog.temporal.common.registration import LogSourceResolver
 
 BACKGROUND_LOGGER_TASKS: dict[str, asyncio.Task[typing.Any]] = {}
 
@@ -132,6 +134,7 @@ class LogMessagesRenderer:
         self,
         event_key: str = "event",
         json_serializer: typing.Callable[[structlog.types.EventDict], str] = DEFAULT_SERIALIZER,
+        log_sources: "collections.abc.Sequence[LogSourceResolver]" = (),
     ):
         """Initialize renderer.
 
@@ -140,9 +143,12 @@ class LogMessagesRenderer:
                 "event" in line with other structlog renderers.
             json_serializer: Function used to serialize as JSON. By default, uses
                 stdlib's `json.dumps`.
+            log_sources: The log-source resolvers that products declare in `TEMPORAL`. A resolver
+                that answers wins over `resolve_log_source`.
         """
         self.json_serializer = json_serializer
         self.event_key = event_key
+        self.log_sources = log_sources
 
     def __call__(self, logger: Logger, name: str, event_dict: structlog.types.EventDict) -> LogMessages:
         """Return rendered messages meant for `Logger.process`.
@@ -161,7 +167,22 @@ class LogMessagesRenderer:
         produce_message = None
         if not write_only:
             try:
-                log_source, log_source_id = resolve_log_source(event_dict["workflow_type"], event_dict["workflow_id"])
+                workflow_type = event_dict["workflow_type"]
+                workflow_id = event_dict["workflow_id"]
+                log_source, log_source_id = resolve_log_source(workflow_type, workflow_id)
+                # A product resolves its own workflows through the resolvers in its TEMPORAL
+                # declaration, so a declared resolver wins over the branches in resolve_log_source.
+                for resolve in self.log_sources:
+                    try:
+                        resolved = resolve(workflow_type, workflow_id)
+                    except Exception as error:
+                        # A broken product resolver must not break the log call, so the log keeps the
+                        # built-in source and the error goes to error tracking.
+                        capture_exception(error)
+                        continue
+                    if resolved is not None:
+                        log_source, log_source_id = resolved
+                        break
 
                 # Event-level overrides let one workflow_type route to multiple schemas.
                 log_source = event_dict.pop("log_source", log_source)
@@ -497,6 +518,7 @@ def configure_logger(
     raise_on_producer_error: bool = False,
     otel_log_mirror: structlog.types.Processor | None = None,
     internal_logs: "InternalLogsSink | None" = None,
+    log_sources: "collections.abc.Sequence[LogSourceResolver]" = (),
 ) -> collections.abc.Callable[[], collections.abc.Awaitable[None]] | None:
     """Configure a structlog for Temporal workflows.
 
@@ -530,6 +552,8 @@ def configure_logger(
             records to the Logs product over OTLP.
         internal_logs: Optionally, also send each produced `log_entries` message to the
             team's logs product as a signed internal log.
+        log_sources: The log-source resolvers that products declare in their `TEMPORAL`
+            declaration, which the worker passes in.
 
     Returns:
         A coroutine function that sends every queued log and stops the producer, or `None`
@@ -592,7 +616,7 @@ def configure_logger(
         base_processors += [
             add_otel_exception_attributes,
             EventRenamer("msg"),
-            LogMessagesRenderer(event_key="msg"),
+            LogMessagesRenderer(event_key="msg", log_sources=log_sources),
         ]
 
     extra_processors_to_add = extra_processors if extra_processors is not None else []
@@ -896,6 +920,9 @@ def resolve_log_source(workflow_type: str, workflow_id: str) -> tuple[str | None
     This function is used to resolve parameters for ingesting logs into the
     `log_entries` table.
 
+    A product resolves its own workflows with a `LogSourceResolver` in its `TEMPORAL` declaration
+    (posthog/temporal/common/registration.py), not with a new branch here.
+
     When a new product/feature is developed, a new branch should be added in this
     function if logs are to be produced correctly to `log_entries`.
 
@@ -903,13 +930,12 @@ def resolve_log_source(workflow_type: str, workflow_id: str) -> tuple[str | None
     `log_source` and `log_source_id`. So, we concentrate the hard-coded resolution here
     to make it easy to find and update.
 
-    Returns:
-        A tuple of strings, if we could resolve `log_source` and `log_source_id` else a
-        tuple of `None`.
-    """
-    log_source_id: str | None = None
-    log_source: str | None = None
+    A workflow type without a branch falls back to `temporal_workflow`, so its lines are not
+    lost, but no product UI reads that source.
 
+    Returns:
+        A tuple of `log_source` and `log_source_id`.
+    """
     if workflow_type == "backfill-batch-export":
         # This works because the WorkflowID is made up like f"{batch_export_id}-Backfill-{data_interval_end}"
         log_source_id = workflow_id.split("-Backfill")[0]
@@ -937,5 +963,8 @@ def resolve_log_source(workflow_type: str, workflow_id: str) -> tuple[str | None
         # date. Plus one more leaves us at the end of right at the end of 'batch_export_id'.
         log_source_id = workflow_id.rsplit("-", maxsplit=3)[0]
         log_source = "batch_exports"
+    else:
+        log_source_id = workflow_type
+        log_source = "temporal_workflow"
 
     return (log_source, log_source_id)

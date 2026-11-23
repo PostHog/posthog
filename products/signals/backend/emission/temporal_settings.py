@@ -7,6 +7,8 @@ signals internals; warehouse_sources only triggers them by workflow name via
 `external_product_hooks`, so it never imports them.
 """
 
+from typing import TYPE_CHECKING
+
 from products.signals.backend.emission.conversations_coordinator import (
     ConversationsSignalsCoordinatorWorkflow,
     EmitConversationsSignalsWorkflow,
@@ -18,12 +20,15 @@ from products.signals.backend.emission.emit_signals import (
     emit_data_import_signals_activity,
 )
 
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
+
 EMIT_SIGNALS_WORKFLOWS = [
     EmitDataImportSignalsWorkflow,
     ConversationsSignalsCoordinatorWorkflow,
     EmitConversationsSignalsWorkflow,
 ]
-EMIT_SIGNALS_ACTIVITIES = [
+EMIT_SIGNALS_ACTIVITIES: list[ActivityDefinition] = [
     emit_data_import_signals_activity,
     emit_conversations_signals_activity,
     get_conversations_signals_enabled_teams_activity,
