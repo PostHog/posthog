@@ -283,6 +283,7 @@ class TestIntercomImportBatchActivity(BaseTest):
                 {"type": "contact", "id": "contact-1"},
                 {"type": "contact", "id": "contact-real"},
                 {"type": "contact", "id": "contact-third"},
+                {"type": "contact", "id": "contact-malformed"},
             ],
         )
 
@@ -291,6 +292,7 @@ class TestIntercomImportBatchActivity(BaseTest):
             contacts={
                 "contact-real": {"id": "contact-real", "name": "Real Sender", "email": "real@example.org"},
                 "contact-third": {"id": "contact-third", "name": "Third", "email": "Third@example.org"},
+                "contact-malformed": {"id": "contact-malformed", "name": "Malformed", "email": "broken@"},
             },
         )
 
@@ -323,6 +325,18 @@ class TestIntercomImportBatchActivity(BaseTest):
 
         assert (result.imported, result.failed) == (1, 0)
         assert Ticket.objects.get(team_id=self.team.id, intercom_conversation_id="311").email_from is None
+
+        unreadable_copy = _conversation(
+            "313", contacts=[{"type": "contact", "id": "contact-1"}, {"type": "contact", "id": "forbidden1"}]
+        )
+
+        result, _ = self._run_batch(
+            [unreadable_copy], contacts={"forbidden1": ValueError("Invalid Intercom contact id")}
+        )
+
+        assert (result.imported, result.failed) == (1, 0)
+        ticket = Ticket.objects.get(team_id=self.team.id, intercom_conversation_id="313")
+        assert (ticket.email_from, ticket.cc_participants) == ("jane@example.com", [])
 
         flaky = _conversation("312", source_author=outbound, contacts=[{"type": "contact", "id": "slow1"}])
         with pytest.raises(IntercomRateLimitError):

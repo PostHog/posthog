@@ -12,6 +12,8 @@ from temporalio import activity, workflow
 # The package __init__ imports this module inside the Temporal workflow sandbox; only the activity
 # sync helpers touch Django/models at runtime, so pass them through the sandbox unmodified.
 with workflow.unsafe.imports_passed_through():
+    from django.core.exceptions import ValidationError
+    from django.core.validators import validate_email
     from django.db import InterfaceError, OperationalError
     from django.utils import timezone
 
@@ -249,8 +251,27 @@ def _conversation_contacts(client: IntercomImportClient, conversation: dict[str,
         if not contact_id or contact_id in seen_ids:
             continue
         seen_ids.add(contact_id)
-        contacts.append(_fetch_contact(client, contact_id))
+        decides_requester = not contacts
+        try:
+            contacts.append(_fetch_contact(client, contact_id))
+        except Exception as exc:
+            # The first contact decides who the ticket belongs to, so its lookup must succeed.
+            # Any other contact is only copied on replies, so a lookup that a retry cannot fix
+            # leaves that contact out and keeps the conversation.
+            if decides_requester or is_retryable_error(exc):
+                raise
+            logger.warning(
+                "intercom_import_contact_lookup_failed", contact_id=contact_id, error_type=type(exc).__name__
+            )
     return contacts
+
+
+def _is_valid_email(value: str) -> bool:
+    try:
+        validate_email(value)
+    except ValidationError:
+        return False
+    return True
 
 
 def _pick_participants(contacts: list[_Contact], own_addresses: frozenset[str]) -> _Participants:
@@ -262,7 +283,9 @@ def _pick_participants(contacts: list[_Contact], own_addresses: frozenset[str]) 
     """
 
     def is_outside(contact: _Contact) -> bool:
-        return "@" in contact.email and contact.email.lower() not in own_addresses
+        # These addresses receive every reply on the ticket, and one malformed address makes
+        # the mail backend reject the whole message.
+        return _is_valid_email(contact.email) and contact.email.lower() not in own_addresses
 
     if not contacts:
         return _Participants(requester=_Contact(name="", email="", contact_id=""), cc=[])
