@@ -22,10 +22,18 @@ describe('parseAiEventsRetentionDaysByTeam', () => {
         expect([...parseAiEventsRetentionDaysByTeam(raw)]).toEqual(expected)
     })
 
-    it.each(['1:29', '1:366', '1:abc', 'x:90', '1', '1:90,1:120', '1:90.5', '1:90,', '-1:90', '1:90:120'])(
-        'rejects %j',
-        (raw) => {
-            expect(() => parseAiEventsRetentionDaysByTeam(raw)).toThrow('AI_EVENTS_RETENTION_DAYS_BY_TEAM')
-        }
-    )
+    it.each([
+        ['1:29,2:90', [[2, 90]]],
+        ['1:366,2:90', [[2, 90]]],
+        ['1:abc,2:90', [[2, 90]]],
+        ['x:90,2:90', [[2, 90]]],
+        ['1,2:90', [[2, 90]]],
+        ['1:90.5,2:90', [[2, 90]]],
+        ['-1:90,2:90', [[2, 90]]],
+        ['1:90:120,2:90', [[2, 90]]],
+        ['2:90,', [[2, 90]]],
+        ['2:90,2:120', [[2, 90]]],
+    ])('skips the invalid entry of %j and keeps the rest', (raw, expected) => {
+        expect([...parseAiEventsRetentionDaysByTeam(raw)]).toEqual(expected)
+    })
 })

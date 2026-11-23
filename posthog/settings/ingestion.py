@@ -3,11 +3,13 @@ import re
 from typing import Literal
 from uuid import UUID
 
-from django.core.exceptions import ImproperlyConfigured
+import structlog
 
 from posthog.settings.base_variables import DEBUG, TEST
 from posthog.settings.utils import get_from_env, get_list, get_set
 from posthog.utils import str_to_bool
+
+logger = structlog.get_logger(__name__)
 
 INGESTION_LAG_METRIC_TEAM_IDS = get_list(os.getenv("INGESTION_LAG_METRIC_TEAM_IDS", ""))
 
@@ -205,10 +207,14 @@ def parse_ai_events_retention_days_by_team(raw: str) -> dict[int, int]:
             or not AI_EVENTS_DEFAULT_RETENTION_DAYS <= int(match[2]) <= _AI_EVENTS_MAX_RETENTION_DAYS
             or int(match[1]) in retention_days_by_team
         ):
-            raise ImproperlyConfigured(
-                f'AI_EVENTS_RETENTION_DAYS_BY_TEAM has an invalid entry "{entry}": expected team_id:days, days from '
-                f"{AI_EVENTS_DEFAULT_RETENTION_DAYS} to {_AI_EVENTS_MAX_RETENTION_DAYS}, each team once"
+            # The ingestion parser skips the same entries, so both sides agree on what a malformed value means.
+            logger.error(
+                "AI_EVENTS_RETENTION_DAYS_BY_TEAM has an invalid entry, skipping it",
+                entry=entry,
+                expected=f"team_id:days, days from {AI_EVENTS_DEFAULT_RETENTION_DAYS} to "
+                f"{_AI_EVENTS_MAX_RETENTION_DAYS}, each team once",
             )
+            continue
         retention_days_by_team[int(match[1])] = int(match[2])
     return retention_days_by_team
 

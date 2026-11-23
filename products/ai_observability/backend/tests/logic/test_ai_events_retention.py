@@ -1,6 +1,5 @@
 import pytest
 
-from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 
 from posthog.settings.ingestion import parse_ai_events_retention_days_by_team
@@ -22,11 +21,22 @@ def test_parses_retention_days_by_team(raw, expected):
 
 
 @pytest.mark.parametrize(
-    "raw", ["1:29", "1:366", "1:abc", "x:90", "1", "1:90,1:120", "1:90.5", "1:90,", "-1:90", "1:90:120"]
+    "raw",
+    [
+        "1:29,2:90",
+        "1:366,2:90",
+        "1:abc,2:90",
+        "x:90,2:90",
+        "1,2:90",
+        "1:90.5,2:90",
+        "-1:90,2:90",
+        "1:90:120,2:90",
+        "2:90,",
+        "2:90,2:120",
+    ],
 )
-def test_rejects_invalid_retention_days_by_team(raw):
-    with pytest.raises(ImproperlyConfigured, match="AI_EVENTS_RETENTION_DAYS_BY_TEAM"):
-        parse_ai_events_retention_days_by_team(raw)
+def test_skips_an_invalid_entry_and_keeps_the_rest(raw):
+    assert parse_ai_events_retention_days_by_team(raw) == {2: 90}
 
 
 @pytest.mark.parametrize("team_id,expected", [(7, 90), (8, 30)])

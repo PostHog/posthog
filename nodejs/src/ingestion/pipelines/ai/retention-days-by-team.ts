@@ -1,3 +1,5 @@
+import { logger } from '~/common/utils/logger'
+
 const MIN_RETENTION_DAYS = 30
 const MAX_RETENTION_DAYS = 365
 
@@ -11,10 +13,12 @@ export function parseAiEventsRetentionDaysByTeam(raw: string): ReadonlyMap<numbe
         const teamId = Number(match?.[1])
         const days = Number(match?.[2])
         if (!match || days < MIN_RETENTION_DAYS || days > MAX_RETENTION_DAYS || retentionDaysByTeam.has(teamId)) {
-            throw new Error(
-                `AI_EVENTS_RETENTION_DAYS_BY_TEAM has an invalid entry "${entry}": expected team_id:days, ` +
-                    `days from ${MIN_RETENTION_DAYS} to ${MAX_RETENTION_DAYS}, each team once`
-            )
+            // The Django settings parser skips the same entries, so both sides agree on what a malformed value means.
+            logger.error('AI_EVENTS_RETENTION_DAYS_BY_TEAM has an invalid entry, skipping it', {
+                entry,
+                expected: `team_id:days, days from ${MIN_RETENTION_DAYS} to ${MAX_RETENTION_DAYS}, each team once`,
+            })
+            continue
         }
         retentionDaysByTeam.set(teamId, days)
     }
