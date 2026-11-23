@@ -4017,6 +4017,7 @@ class TestExternalDataSource(APIBaseTest):
                     "cdc_table_mode": "consolidated",
                     "incremental_sync_blocked": None,
                     "webhook_not_registered": False,
+                    "webhook_issue": None,
                     "enabled_columns": None,
                     "masked_columns": None,
                     "row_filters": None,
