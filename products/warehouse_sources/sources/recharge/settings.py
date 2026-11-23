@@ -48,8 +48,7 @@ class RechargeEndpointConfig:
     # Records requested per page. Capped at 250 by Recharge; lower it for
     # endpoints whose pages are too slow to generate within the read timeout.
     page_size: int = DEFAULT_PAGE_SIZE
-    # Fail when the response has no list under the endpoint key, rather than sync zero rows.
-    data_selector_required: bool = False
+    accepts_bare_list: bool = False
     # Values of the required `owner_resource` param. The table reads one request series per value.
     owner_resources: tuple[str, ...] = ()
 
@@ -169,20 +168,16 @@ RECHARGE_ENDPOINTS: dict[str, RechargeEndpointConfig] = {
         incremental_fields=[],
         supports_incremental=False,
     ),
-    # `/customer_entitlements` has no timestamp filter and no `sort_by` (it returns id-desc), and
-    # does not return deleted entitlements. The docs show a bare array in the response example
-    # but cursor fields in the params, so a body without the `customer_entitlements` key fails
-    # the sync instead of syncing zero rows.
+    # No timestamp filter or `sort_by`. The docs show a bare array in the response example but
+    # document cursor pagination, which needs the envelope, so both shapes are read.
     "customer_entitlements": RechargeEndpointConfig(
         name="customer_entitlements",
         path="/customer_entitlements",
         incremental_fields=[],
         supports_incremental=False,
         supports_sort=False,
-        data_selector_required=True,
+        accepts_bare_list=True,
     ),
-    # `/metafields` requires `owner_resource` and has no timestamp filter, so it reads each owner
-    # type in turn on a full refresh. Metafield ids are unique across owner types.
     "metafields": RechargeEndpointConfig(
         name="metafields",
         path="/metafields",

@@ -218,17 +218,41 @@ class TestRechargeSource:
 class TestCustomerEntitlements:
     @parameterized.expand(
         [
-            ("envelope", {"customer_entitlements": [{"id": 7}], "next_cursor": None}, [7], False),
-            ("bare_array", [{"id": 7}], [], True),
+            ("envelope", {"customer_entitlements": [{"id": 7}], "next_cursor": None}, [7]),
+            ("empty_envelope", {"customer_entitlements": [], "next_cursor": None}, []),
+            ("bare_array", [{"id": 7}, {"id": 8}], [7, 8]),
+            ("empty_bare_array", [], []),
         ]
     )
-    def test_rows_are_read_only_from_the_envelope(
-        self, _name: str, body: Any, expected_ids: list[int], expect_error: bool
-    ) -> None:
+    def test_reads_rows_from_either_response_shape(self, _name: str, body: Any, expected_ids: list[int]) -> None:
         result = _drive("customer_entitlements", [ScriptedResponse(json=body)])
 
+        assert result.raised is None
         assert [row["id"] for row in result.rows] == expected_ids
-        assert (result.raised is not None) is expect_error
+
+    def test_follows_the_envelope_cursor(self) -> None:
+        result = _drive(
+            "customer_entitlements",
+            [
+                _page("customer_entitlements", [{"id": 9}], "entitlements-2"),
+                _page("customer_entitlements", [{"id": 8}], None),
+            ],
+        )
+
+        assert [row["id"] for row in result.rows] == [9, 8]
+        assert result.queries == [{"limit": ("250",)}, {"cursor": ("entitlements-2",), "limit": ("250",)}]
+
+    @parameterized.expand(
+        [
+            ("full_bare_page_cannot_be_paged", [{"id": i} for i in range(250)]),
+            ("object_without_rows", {"error": "unexpected"}),
+        ]
+    )
+    def test_fails_instead_of_dropping_rows(self, _name: str, body: Any) -> None:
+        result = _drive("customer_entitlements", [ScriptedResponse(json=body)])
+
+        assert isinstance(result.raised, ValueError)
+        assert result.rows == []
 
 
 class TestMetafieldsOwnerWalk:
@@ -263,6 +287,20 @@ class TestMetafieldsOwnerWalk:
                 for owner in ("store", "customer", "subscription", "order", "charge")
             ],
         ]
+
+    def test_resume_after_the_last_page_of_an_owner_type_starts_the_next_one(self) -> None:
+        result = _drive(
+            "metafields",
+            [
+                _page("metafields", [{"id": 1}], "address-2"),
+                _page("metafields", [{"id": 2}], None),
+                ScriptedResponse(status=403, json={"errors": "forbidden"}),
+            ],
+        )
+
+        assert result.raised is not None
+        assert [row["id"] for row in result.rows] == [1, 2]
+        assert result.final_state == RechargeResumeConfig(endpoint="metafields", owner_resource="store")
 
     @parameterized.expand(
         [

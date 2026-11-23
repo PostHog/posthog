@@ -38,7 +38,7 @@ Source: Recharge Payments — subscription management for e-commerce.
 | `credit_accounts`       | `/credit_accounts`       | `id`        | `created_at`  | ➖ full     | Filters only on `expires_at`. No `sort_by`. Plus plan.                                   |
 | `credit_adjustments`    | `/credit_adjustments`    | `id`        | `created_at`  | ✅          | `updated_at_min` / `created_at_min`. Sort param has no documented name, so none is sent. |
 | `bundle_selections`     | `/bundle_selections`     | `id`        | `created_at`  | ➖ full     | Accepts `sort_by` (`id-asc`) but has no timestamp filter. Plus plan.                     |
-| `customer_entitlements` | `/customer_entitlements` | `id`        | `created_at`  | ➖ full     | No timestamp filter or `sort_by`. Deleted entitlements are not returned.                 |
+| `customer_entitlements` | `/customer_entitlements` | `id`        | `created_at`  | ➖ full     | Reads the envelope or a bare array. No timestamp filter or `sort_by`.                    |
 | `metafields`            | `/metafields`            | `id`        | `created_at`  | ➖ full     | Reads each `owner_resource` type in turn. Sorted `id-asc`. No timestamp filter.          |
 
 ## Possible future work

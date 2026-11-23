@@ -29,6 +29,7 @@ from requests import Request, Response
 from products.warehouse_sources.sources.recharge.settings import RECHARGE_ENDPOINTS, RechargeEndpointConfig
 from products.warehouse_sources.sources.sdk import (
     BasePaginator,
+    EndpointResource,
     Resource,
     RESTAPIConfig,
     ResumableSourceManager,
@@ -87,9 +88,15 @@ class RechargeCursorPaginator(BasePaginator):
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         try:
-            next_cursor = response.json().get("next_cursor")
+            body = response.json()
         except Exception:
-            next_cursor = None
+            body = None
+        if isinstance(body, list) and len(body) >= self.limit:
+            raise ValueError(
+                f"Recharge returned a full page of {len(body)} rows with no next_cursor, "
+                "so the rows after this page cannot be read."
+            )
+        next_cursor = body.get("next_cursor") if isinstance(body, dict) else None
         if next_cursor:
             self._cursor = next_cursor
             self._has_next_page = True
@@ -167,24 +174,23 @@ def _build_initial_params(
     return params
 
 
+def _page_rows(key: str, item: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+    """Read the rows of a page that is either an envelope with the rows under ``key`` or a bare array."""
+    if key in item:
+        return item[key] or []
+    if "id" in item:
+        return item
+    raise ValueError(f"Recharge {key} response has no {key} list (keys: {sorted(item)[:20]})")
+
+
 def _iter_owner_resources(
-    owner_resources: tuple[str, ...],
+    owner_count: int,
     start_index: int,
     start_state: Optional[dict[str, Any]],
-    build_resource: Callable[[str, Optional[dict[str, Any]]], Any],
-    save_owner_start: Callable[[str], None],
+    build_resource: Callable[[int, Optional[dict[str, Any]]], Any],
 ) -> Iterator[list[dict[str, Any]]]:
-    """Yield the pages of each owner type in turn, from ``start_index``.
-
-    Before the first page of the next owner type, stage a state that starts that
-    owner type from its first page, so a resume does not read the finished owner
-    types again.
-    """
-    for index in range(start_index, len(owner_resources)):
-        owner_resource = owner_resources[index]
-        if index > start_index:
-            save_owner_start(owner_resource)
-        yield from build_resource(owner_resource, start_state if index == start_index else None)
+    for index in range(start_index, owner_count):
+        yield from build_resource(index, start_state if index == start_index else None)
 
 
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
@@ -244,6 +250,19 @@ def recharge_source(
         initial_paginator_state: Optional[dict[str, Any]],
         resume_hook: Callable[[Optional[dict[str, Any]]], None],
     ) -> Resource:
+        resource_config: EndpointResource = {
+            "name": endpoint,
+            "endpoint": {
+                "path": config.path,
+                "params": request_params,
+                # Recharge wraps records under a key matching the resource
+                # (e.g. `{"customers": [...], "next_cursor": "..."}`).
+                "data_selector": None if config.accepts_bare_list else endpoint,
+                "paginator": RechargeCursorPaginator(limit=config.page_size),
+            },
+        }
+        if config.accepts_bare_list:
+            resource_config["data_map"] = partial(_page_rows, endpoint)
         rest_config: RESTAPIConfig = {
             "client": {
                 "base_url": RECHARGE_BASE_URL,
@@ -258,20 +277,7 @@ def recharge_source(
                 },
             },
             "resource_defaults": {},
-            "resources": [
-                {
-                    "name": endpoint,
-                    "endpoint": {
-                        "path": config.path,
-                        "params": request_params,
-                        # Recharge wraps records under a key matching the resource
-                        # (e.g. `{"customers": [...], "next_cursor": "..."}`).
-                        "data_selector": endpoint,
-                        "data_selector_required": config.data_selector_required,
-                        "paginator": RechargeCursorPaginator(limit=config.page_size),
-                    },
-                }
-            ],
+            "resources": [resource_config],
         }
         return rest_api_resource(
             rest_config,
@@ -290,25 +296,25 @@ def recharge_source(
         if resume is not None and resume.owner_resource in owners:
             start_index = owners.index(resume.owner_resource)
         else:
-            # A cursor without a known owner type cannot be replayed safely.
             start_index, resume_state = 0, None
 
-        def build_owner_resource(owner_resource: str, state: Optional[dict[str, Any]]) -> Resource:
+        def save_owner_checkpoint(index: int, state: Optional[dict[str, Any]]) -> None:
+            if state and state.get("cursor"):
+                save_checkpoint(state, owners[index])
+            elif index + 1 < len(owners):
+                # Staged with the last page of an owner type, so a resume after that page starts the next one.
+                resumable_source_manager.save_state(
+                    RechargeResumeConfig(endpoint=endpoint, owner_resource=owners[index + 1])
+                )
+
+        def build_owner_resource(index: int, state: Optional[dict[str, Any]]) -> Resource:
             return build_resource(
-                {**params, "owner_resource": owner_resource},
-                state,
-                lambda page_state: save_checkpoint(page_state, owner_resource),
+                {**params, "owner_resource": owners[index]}, state, partial(save_owner_checkpoint, index)
             )
 
-        def save_owner_start(owner_resource: str) -> None:
-            resumable_source_manager.save_state(RechargeResumeConfig(endpoint=endpoint, owner_resource=owner_resource))
-
-        # Built only to carry the column hints; the walk builds one resource per owner type.
-        resource = build_owner_resource(owners[start_index], resume_state)
-        # The walk hands each page on unchanged and holds no rows. As a `Resource` it keeps the
-        # framework's per-page safe points.
+        resource = build_owner_resource(start_index, resume_state)
         owner_walk = Resource(
-            partial(_iter_owner_resources, owners, start_index, resume_state, build_owner_resource, save_owner_start),
+            partial(_iter_owner_resources, len(owners), start_index, resume_state, build_owner_resource),
             name=endpoint,
             hints=resource._hints,
         )
