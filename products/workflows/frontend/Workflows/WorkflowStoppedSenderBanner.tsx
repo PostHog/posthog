@@ -70,6 +70,7 @@ function StoppedSenderBanner({ broken, ...props }: WorkflowLogicProps & { broken
                     <LemonButton
                         type="secondary"
                         size="small"
+                        className="w-fit"
                         data-attr="workflow-stopped-sender-change-sender"
                         // The editor reads the step and mode from the URL when it mounts, so this works from any tab.
                         to={
