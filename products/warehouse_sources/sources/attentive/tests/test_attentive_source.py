@@ -102,7 +102,16 @@ class TestAttentiveSource:
         assert result.requests == []
         assert result.response is not None
         assert result.response.webhook_only is True
+        assert result.response.supports_resume is False
         assert result.response.primary_keys == ["event_id"]
+
+    @parameterized.expand([("segments", True), ("sms_sent", False), ("email_opened", False), (None, False)])
+    def test_resume_budget_covers_only_the_segments_table(self, schema_name, expected):
+        for incremental_or_append in (True, False):
+            covered = self.source.resume_covers_run(
+                incremental_or_append=incremental_or_append, schema_name=schema_name
+            )
+            assert covered is expected
 
 
 def _segment(external_id: str) -> dict[str, Any]:
@@ -161,23 +170,43 @@ class TestAttentiveSegments:
         assert result.response.primary_keys == ["externalId"]
         assert result.response.webhook_only is False
 
-    def test_resumes_from_the_saved_cursor(self):
+    @parameterized.expand(
+        [
+            ("full_refresh_walk", None, {}),
+            (
+                "incremental_walk_with_advanced_watermark",
+                "2026-01-01T00:00:00Z",
+                {
+                    "incremental_field": "updated",
+                    "db_incremental_field_last_value": datetime(2026, 3, 1, 12, 30, tzinfo=UTC),
+                },
+            ),
+        ]
+    )
+    def test_resumes_with_the_cursor_and_filter_of_the_interrupted_walk(self, _name, saved_updated_since, inputs):
         result = self.driver.run(
             "segments",
             [_page(["seg_3"], None)],
-            resume_state=AttentiveResumeConfig(cursor="c3"),
+            resume_state=AttentiveResumeConfig(cursor="c3", updated_since=saved_updated_since),
+            **inputs,
         )
 
         assert result.raised is None
         assert result.params("cursor") == ["c3"]
+        assert result.params("updatedSince") == [saved_updated_since]
         assert [row["externalId"] for row in result.rows] == ["seg_3"]
 
     def test_cursor_of_a_written_page_survives_a_failed_next_page(self):
-        result = self.driver.run("segments", [_page(["seg_1"], "c2"), ScriptedResponse(status=400)])
+        result = self.driver.run(
+            "segments",
+            [_page(["seg_1"], "c2"), ScriptedResponse(status=400)],
+            incremental_field="updated",
+            db_incremental_field_last_value=datetime(2026, 3, 1, tzinfo=UTC),
+        )
 
         assert result.raised is not None
         assert [row["externalId"] for row in result.rows] == ["seg_1"]
-        assert result.committed_states == [AttentiveResumeConfig(cursor="c2")]
+        assert result.committed_states == [AttentiveResumeConfig(cursor="c2", updated_since="2026-03-01T00:00:00Z")]
 
     @parameterized.expand(
         [

@@ -6,7 +6,6 @@ webhook management (`/v1/webhooks`), the token probe (`/v2/me`) and the segment
 list (`/v2/segments`).
 """
 
-import dataclasses
 from collections.abc import Iterator
 from typing import Any
 
@@ -25,6 +24,7 @@ from products.warehouse_sources.sources.sdk import (
     WebhookCreationResult,
     WebhookDeletionResult,
     WebhookSyncResult,
+    frozen,
     make_tracked_session,
 )
 
@@ -55,9 +55,12 @@ SEGMENTS_PERMISSION_ERROR = (
 )
 
 
-@dataclasses.dataclass
+@frozen
 class AttentiveResumeConfig:
     cursor: str
+    # The `updatedSince` value the interrupted walk used. The watermark can advance from committed
+    # pages, and a narrower filter on resume would skip rows on the pages after the cursor.
+    updated_since: str | None = None
 
 
 class AttentiveSegmentsPermissionError(Exception):
@@ -308,6 +311,8 @@ def iter_segments(
     session = _session(api_key)
     resume = manager.load_state() if manager.can_resume() else None
     cursor = resume.cursor if resume else None
+    if resume is not None:
+        updated_since = resume.updated_since
 
     while True:
         params: dict[str, Any] = {"limit": SEGMENTS_PAGE_SIZE}
@@ -326,7 +331,7 @@ def iter_segments(
         cursor = payload.get("cursor") if payload.get("hasMore") is not False else None
 
         if cursor:
-            manager.save_state(AttentiveResumeConfig(cursor=cursor))
+            manager.save_state(AttentiveResumeConfig(cursor=cursor, updated_since=updated_since))
         if segments:
             yield segments
         else:

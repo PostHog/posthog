@@ -218,6 +218,8 @@ class AttentiveSource(
         schemas.append(
             SourceSchema(
                 name=SEGMENTS_SCHEMA_NAME,
+                # Needs the beta segments:read scope, which source creation does not check.
+                should_sync_default=False,
                 supports_incremental=True,
                 supports_append=False,
                 incremental_fields=[
@@ -234,6 +236,10 @@ class AttentiveSource(
             names_set = set(names)
             schemas = [s for s in schemas if s.name in names_set]
         return schemas
+
+    def resume_covers_run(self, *, incremental_or_append: bool, schema_name: str | None = None) -> bool:
+        # Only the segments table pages by a saved cursor. The webhook tables never save one.
+        return schema_name == SEGMENTS_SCHEMA_NAME
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AttentiveResumeConfig]:
         return ResumableSourceManager[AttentiveResumeConfig](inputs, AttentiveResumeConfig)
@@ -322,4 +328,5 @@ class AttentiveSource(
             partition_format="week",
             partition_keys=["created_at"],
             webhook_only=True,
+            supports_resume=False,
         )
