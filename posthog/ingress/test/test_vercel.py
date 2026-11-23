@@ -91,7 +91,6 @@ class TestVercelProvider(SimpleTestCase):
         deliveries = self.provider.deliveries(_request(self.body), json.loads(self.body), {})
 
         self.assertEqual(deliveries[0].payload["type"], "marketplace.invoice.paid")
-        # The dispatcher keys dedup on this, so a body that loses it runs every copy again.
         self.assertEqual(deliveries[0].delivery_id, DELIVERY_ID)
 
     @parameterized.expand(

@@ -36,10 +36,8 @@ MILLISECONDS_PER_SECOND = 1000
 
 VERCEL_CLOCK_SKEW_SECONDS = 5 * 60
 
-# The signature covers the body and nothing else, so the dedup mark on the body's `id` is the only
-# thing that refuses a second copy of a delivery, and that mark expires `DELIVERY_DEDUP_TTL_SECONDS`
-# after the work finished. Refusing anything older than the mark's lifetime, less the skew a fast
-# clock adds to `createdAt`, means a copy either meets the mark or is too old to accept.
+# A copy older than this would outlive the dedup mark on its `id` and run again. The skew allowance
+# covers a Vercel clock that runs ahead of this one.
 VERCEL_DELIVERY_MAX_AGE_SECONDS = DELIVERY_DEDUP_TTL_SECONDS - VERCEL_CLOCK_SKEW_SECONDS
 
 # Whether the request reached the region the marketplace App's one webhook URL names. Only that

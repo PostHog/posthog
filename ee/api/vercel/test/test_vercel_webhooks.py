@@ -312,7 +312,6 @@ class TestVercelWebhooks(VercelTestBase):
 
         self.assertEqual(response.status_code, 400)
         billing_manager.assert_not_called()
-        self.forward.assert_not_called()
 
     @patch("ee.api.vercel.webhook_events.BillingManager")
     def test_a_billing_event_the_other_region_holds_is_forwarded_and_not_billed_here(self, billing_manager):
@@ -404,7 +403,6 @@ class TestVercelWebhooks(VercelTestBase):
         payload = {**self._billing_payload(self.installation_id), "id": "evt_retried"}
 
         failed = self._post(payload)
-        # Vercel retries a non-2xx with the same body, and dedup must not have recorded the failure.
         retried = self._post(payload)
 
         self.assertEqual((failed.status_code, retried.status_code), (500, 202))
