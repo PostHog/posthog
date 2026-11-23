@@ -59,6 +59,7 @@ class TestAgentEgressProbeValidation(SimpleTestCase):
             ("tunnel", "DEV", "modal", False),
             ("production_us", "US", "modal", False),
             ("production_eu", "EU", "modal", False),
+            ("enrollment_configured", "US", "modal", False),
             ("self_hosted", None, "modal", False),
             ("local_provider", "DEV", "MODAL_DOCKER", False),
         ]
@@ -81,6 +82,9 @@ class TestAgentEgressProbeValidation(SimpleTestCase):
                 SANDBOX_PROVIDER=provider,
                 AGENT_EGRESS_PROBE_CONFIG_DIR=directory,
                 AGENT_EGRESS_STAGING_PROBE_RUN_ID=selected_run,
+                AGENT_EGRESS_ENROLLMENT_CONFIG=str(Path(directory) / "probe.json")
+                if case == "enrollment_configured"
+                else "",
             ),
         ):
             path = Path(directory) / "probe.json"

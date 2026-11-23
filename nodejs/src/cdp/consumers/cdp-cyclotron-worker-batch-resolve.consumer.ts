@@ -472,7 +472,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                         job,
                         state,
                         'realtime_cohort_unavailable',
-                        "Sending to a realtime cohort isn't available here yet. Use a different audience."
+                        "Sending to a real-time cohort isn't available here yet. Use a different audience."
                     )
                     return
                 }

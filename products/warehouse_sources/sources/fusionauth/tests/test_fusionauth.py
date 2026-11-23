@@ -227,6 +227,31 @@ parameterized_secret_cases = pytest.mark.parametrize(
             {"id": "g1", "userId": "u1", "entity": {"id": "e1", "clientSecret": "fake-secret"}},
             {"id": "g1", "userId": "u1", "entity": {"id": "e1"}},
         ),
+        (
+            "IdentityProviders",
+            "identityProviders",
+            {
+                "id": "i1",
+                "type": "OpenIDConnect",
+                "oauth2": {"client_id": "c1", "client_secret": "fake-secret"},
+                "applicationConfiguration": {
+                    "a1": {"enabled": True, "client_secret": "fake-secret", "oauth2": {"client_secret": "fake"}},
+                    "a2": None,
+                },
+            },
+            {
+                "id": "i1",
+                "type": "OpenIDConnect",
+                "oauth2": {"client_id": "c1"},
+                "applicationConfiguration": {"a1": {"enabled": True, "oauth2": {}}, "a2": None},
+            },
+        ),
+        (
+            "IdentityProviders",
+            "identityProviders",
+            {"id": "i2", "type": "Steam", "client_id": "c2", "webAPIKey": "fake-key", "applicationConfiguration": {}},
+            {"id": "i2", "type": "Steam", "client_id": "c2", "applicationConfiguration": {}},
+        ),
     ],
 )
 
@@ -670,6 +695,20 @@ class TestFusionAuthLookups:
                 [{"start": 0, "end": NOW_MILLIS}],
             ),
             ("MonthlyActiveUsers", "monthlyActiveUsers", [[]], [], [{"start": 0, "end": NOW_MILLIS}]),
+            (
+                "RegistrationReport",
+                "hourlyCounts",
+                [[{"interval": 486000, "count": 3}]],
+                [{"interval": 486000, "count": 3}],
+                [{"start": 0, "end": NOW_MILLIS}],
+            ),
+            (
+                "LoginReport",
+                "hourlyCounts",
+                [[{"interval": 486000, "count": 7}, {"interval": 486001, "count": 2}]],
+                [{"interval": 486000, "count": 7}, {"interval": 486001, "count": 2}],
+                [{"start": 0, "end": NOW_MILLIS}],
+            ),
         ],
     )
     @mock.patch.object(fusionauth_module, "_now_millis", return_value=NOW_MILLIS)

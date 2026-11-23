@@ -160,7 +160,8 @@ class TestDashboardImportAPI(APIBaseTest):
 
     def test_hides_the_description_of_imported_panels_that_have_one(self) -> None:
         grafana = json.loads(_grafana("sum(rate(orders_total[5m]))", "sum(orders_total)"))
-        grafana["panels"][1]["description"] = "Orders per second."
+        # Longer than the 400 characters an insight description holds.
+        grafana["panels"][1]["description"] = "Orders per second. " * 30
 
         body = self._start(source="grafana", grafana_json=json.dumps(grafana))
 

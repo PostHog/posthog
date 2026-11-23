@@ -716,12 +716,12 @@ class _Introspection:
         accepted_relationships = _catalog_accepted_relationships(self.context, self.allowed_tables)
         enriched_rows: list[list[Any]] = []
         for relationship in self.collect().relationships:
-            confidence, reasoning = (
-                accepted_relationships.get(relationship.provenance_key, (None, None))
+            reasoning = (
+                accepted_relationships.get(relationship.provenance_key)
                 if relationship.provenance_key is not None
-                else (None, None)
+                else None
             )
-            enriched_rows.append([*relationship.values, confidence, reasoning])
+            enriched_rows.append([*relationship.values, reasoning])
         self._data_catalog_enriched_relationship_rows = enriched_rows
         return self._data_catalog_enriched_relationship_rows
 
@@ -928,10 +928,9 @@ _RELATIONSHIPS_COLUMNS: list[tuple[str, str]] = [
 ]
 _DATA_CATALOG_ENRICHED_RELATIONSHIPS_COLUMNS: list[tuple[str, str]] = [
     *_RELATIONSHIPS_COLUMNS,
-    ("confidence", _NULLABLE_FLOAT),
     ("reasoning", _NULLABLE_STRING),
 ]
-_DATA_CATALOG_RELATIONSHIP_FIELDS = frozenset({"confidence", "reasoning"})
+_DATA_CATALOG_RELATIONSHIP_FIELDS = frozenset({"reasoning"})
 
 _RELATIONSHIPS_DESCRIPTION = (
     "Joinable relationships between tables (lazy joins and field traversers); one row per relationship. "
@@ -1054,7 +1053,6 @@ _RELATIONSHIP_PROPOSALS_COLUMNS: list[tuple[str, str]] = [
     ("field_name", _STRING),
     ("configuration", _NULLABLE_STRING),
     ("evidence", _NULLABLE_STRING),
-    ("confidence", _NULLABLE_FLOAT),
     ("reasoning", _NULLABLE_STRING),
     ("created_at", _STRING),
 ]
@@ -1476,14 +1474,14 @@ def _catalog_table_visible(context: "HogQLContext", table_name: str) -> bool:
 
 def _catalog_accepted_relationships(
     context: "HogQLContext", allowed: Optional[frozenset[str]]
-) -> dict[_RelationshipProvenanceKey, tuple[Optional[float], Optional[str]]]:
+) -> dict[_RelationshipProvenanceKey, Optional[str]]:
     """Accepted proposals keyed by their created join's identity, only while that join still matches
     what was reviewed (fail-soft).
 
     The join is a mutable ``DataWarehouseJoin``: editing its tables, keys, field name, or
     configuration needs only ``warehouse_view:write``, not ``data_catalog_approval:write``. Keying
     provenance off the join's current fields alone would let such an edit inherit the old proposal's
-    confidence/reasoning, making an unreviewed join look reviewed. So we compare every reviewed
+    reasoning, making an unreviewed join look reviewed. So we compare every reviewed
     snapshot field (identity + configuration) against the live join and drop provenance the moment
     they diverge.
     """
@@ -1502,7 +1500,7 @@ def _catalog_accepted_relationships(
         )
         if allowed is not None:
             accepted = accepted.filter(created_join__source_table_name__in=allowed)
-        result: dict[_RelationshipProvenanceKey, tuple[Optional[float], Optional[str]]] = {}
+        result: dict[_RelationshipProvenanceKey, Optional[str]] = {}
         for (
             p_source_table,
             p_source_key,
@@ -1516,7 +1514,6 @@ def _catalog_accepted_relationships(
             target_key,
             field_name,
             configuration,
-            confidence,
             reasoning,
         ) in accepted.values_list(
             "source_table_name",
@@ -1531,7 +1528,6 @@ def _catalog_accepted_relationships(
             "created_join__joining_table_key",
             "created_join__field_name",
             "created_join__configuration",
-            "confidence",
             "reasoning",
         ):
             # Trust provenance only if the live join is still identical to the reviewed snapshot.
@@ -1547,10 +1543,7 @@ def _catalog_accepted_relationships(
                 continue
             if not _catalog_table_visible(context, source_table) or not _catalog_table_visible(context, target_table):
                 continue
-            result[(source_table, field_name, source_key, target_table, target_key)] = (
-                confidence,
-                reasoning or None,
-            )
+            result[(source_table, field_name, source_key, target_table, target_key)] = reasoning or None
         return result
     except Exception:
         record_catalog_read_failure("relationships")
@@ -1593,7 +1586,6 @@ def _catalog_relationship_proposals(context: "HogQLContext", allowed: Optional[f
                     proposal.field_name,
                     json.dumps(proposal.configuration) if proposal.configuration else None,
                     json.dumps(proposal.evidence) if proposal.evidence else None,
-                    proposal.confidence,
                     proposal.reasoning or None,
                     proposal.created_at.isoformat(),
                 ]
@@ -1877,11 +1869,6 @@ class InformationSchemaRelationshipsTable(InformationSchemaTable):
         "via": _string_field(
             "via", nullable=True, description="Internal resolver backing a lazy join, NULL for field traversers."
         ),
-        "confidence": FloatDatabaseField(
-            name="confidence",
-            nullable=True,
-            description="Discovery confidence retained from the accepted proposal behind this active join, 0-1.",
-        ),
         "reasoning": _string_field(
             "reasoning",
             nullable=True,
@@ -1892,7 +1879,7 @@ class InformationSchemaRelationshipsTable(InformationSchemaTable):
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
         allowed = _pushdown_table_filter(node, "source_table")
         introspection = _introspection(context, allowed)
-        data_catalog_enrichment_requested = "confidence" in self.fields and _accesses_any_field(
+        data_catalog_enrichment_requested = "reasoning" in self.fields and _accesses_any_field(
             table_to_add, _DATA_CATALOG_RELATIONSHIP_FIELDS
         )
         if introspection is None:
@@ -2087,9 +2074,6 @@ class InformationSchemaRelationshipProposalsTable(InformationSchemaTable):
             "evidence",
             nullable=True,
             description="Sampling evidence as JSON (match rates, sample values) backing the proposal — summarize this for the human reviewer. NULL when empty.",
-        ),
-        "confidence": FloatDatabaseField(
-            name="confidence", nullable=True, description="Discovery confidence in the proposed join, 0-1."
         ),
         "reasoning": _string_field(
             "reasoning", nullable=True, description="Why the join was proposed; review context."
@@ -2370,6 +2354,5 @@ def disable_data_catalog(info_schema: TableNode) -> None:
 
     relationships = info_schema.children.get("relationships")
     if relationships is not None and isinstance(relationships.table, InformationSchemaRelationshipsTable):
-        relationships.table.fields.pop("confidence", None)
         relationships.table.fields.pop("reasoning", None)
         relationships.table.description = _RELATIONSHIPS_DESCRIPTION
