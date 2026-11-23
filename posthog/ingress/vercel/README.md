@@ -13,15 +13,22 @@ Vercel sends no delivery header and no timestamp header. The delivery id is in t
 HMAC-SHA1 over the raw body, hex encoded, with no prefix.
 The key is the integration's Client Secret, which Vercel also calls the Integration Secret ([Vercel request headers](https://vercel.com/docs/headers/request-headers#x-vercel-signature)).
 SHA-1 is Vercel's choice, not one made here; every other provider in this package signs with SHA-256.
-There is no replay window, because there is no timestamp to check.
+The scheme has no replay window, because no header carries a timestamp.
+The provider reads freshness off the signed body instead, in `deliveries()` (see below).
 Vercel ships no Python verifier, so the shared `HmacSignature` does the check rather than a vendor SDK.
 
 ## Delivery id and event type
 
-Vercel sends a delivery id as the body's `id` field ([Vercel webhooks](https://vercel.com/docs/webhooks)).
-It is not used: `delivery_id` is `None`, so dedup is off.
-Turning dedup on changes which redeliveries reach the consumer, and a mark that outlives a run can drop a delivery, so it gets its own change rather than riding along with a transport swap.
-The consumer carries its own idempotency in the meantime, as it did before.
+Vercel sends a delivery id as the body's `id` field and the time it generated the event as `createdAt`, in milliseconds since the epoch ([Vercel webhooks](https://vercel.com/docs/webhooks)).
+The signature covers both, so a second copy of a delivery carries the same values.
+
+The `id` is the `delivery_id`, so dedup is on and a second copy of a delivery the consumer already finished is receipted without running it again.
+The mark settles only when the consumer returns; a consumer that raised releases it, so Vercel's retry of a failed delivery still runs.
+
+A dedup mark expires 24 hours after the work finished (`DELIVERY_DEDUP_TTL_SECONDS`), so a delivery is refused with 400 when `createdAt` is older than that, less a five-minute allowance for clock skew, or more than that allowance in the future.
+That way every delivery the endpoint accepts is still inside its mark's lifetime.
+A body with no string `id`, or with a `createdAt` that is missing or not a number, is refused the same way, because nothing would stop it from being accepted again after its mark expires.
+Vercel retries for 24 hours, so a retry in the last minutes of that window can meet the 400 rather than the consumer.
 
 The event type is the body's `type`.
 Vercel names every invoice event `marketplace.invoice.<something>` and adds to the family over time, while the registry matches an exact event type.
