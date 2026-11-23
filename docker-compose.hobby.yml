@@ -287,7 +287,9 @@ services:
             file: docker-compose.base.yml
             service: plugins
         restart: unless-stopped
-        image: ghcr.io/posthog/posthog-node:${POSTHOG_NODE_TAG:-latest}
+        # CI publishes the Node image to GHCR. An install that mirrors images sets
+        # NODE_IMAGES_REGISTRY_URL in .env to the mirror's repository for it.
+        image: ${NODE_IMAGES_REGISTRY_URL:-ghcr.io/posthog/posthog-node}:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
             <<: *slow-idle-kafka-fetch
@@ -365,7 +367,7 @@ services:
             file: docker-compose.base.yml
             service: ingestion-general
         restart: unless-stopped
-        image: ghcr.io/posthog/posthog-node:${POSTHOG_NODE_TAG:-latest}
+        image: ${NODE_IMAGES_REGISTRY_URL:-ghcr.io/posthog/posthog-node}:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
             <<: *slow-idle-kafka-fetch
@@ -401,7 +403,7 @@ services:
             file: docker-compose.base.yml
             service: ingestion-sessionreplay
         restart: unless-stopped
-        image: ghcr.io/posthog/posthog-node:${POSTHOG_NODE_TAG:-latest}
+        image: ${NODE_IMAGES_REGISTRY_URL:-ghcr.io/posthog/posthog-node}:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
             <<: *slow-idle-kafka-fetch
@@ -421,7 +423,7 @@ services:
             file: docker-compose.base.yml
             service: recording-api
         restart: unless-stopped
-        image: ghcr.io/posthog/posthog-node:${POSTHOG_NODE_TAG:-latest}
+        image: ${NODE_IMAGES_REGISTRY_URL:-ghcr.io/posthog/posthog-node}:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
             <<: *slow-idle-kafka-fetch
@@ -450,7 +452,7 @@ services:
             file: docker-compose.base.yml
             service: ingestion-error-tracking
         restart: unless-stopped
-        image: ghcr.io/posthog/posthog-node:${POSTHOG_NODE_TAG:-latest}
+        image: ${NODE_IMAGES_REGISTRY_URL:-ghcr.io/posthog/posthog-node}:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
             <<: *slow-idle-kafka-fetch
@@ -477,7 +479,7 @@ services:
             file: docker-compose.base.yml
             service: ingestion-logs
         restart: unless-stopped
-        image: ghcr.io/posthog/posthog-node:${POSTHOG_NODE_TAG:-latest}
+        image: ${NODE_IMAGES_REGISTRY_URL:-ghcr.io/posthog/posthog-node}:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
             <<: *slow-idle-kafka-fetch
@@ -492,7 +494,7 @@ services:
             file: docker-compose.base.yml
             service: ingestion-traces
         restart: unless-stopped
-        image: ghcr.io/posthog/posthog-node:${POSTHOG_NODE_TAG:-latest}
+        image: ${NODE_IMAGES_REGISTRY_URL:-ghcr.io/posthog/posthog-node}:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
             <<: *slow-idle-kafka-fetch

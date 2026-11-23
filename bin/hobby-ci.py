@@ -1048,7 +1048,7 @@ runcmd:
         update_compose_cmd = (
             f"cd /hobby && "
             f"sed -i 's|posthog/posthog:[a-f0-9]\\{{40\\}}|posthog/posthog:{new_sha}|g' docker-compose.yml && "
-            f"sed -i 's|ghcr.io/posthog/posthog-node:[^[:space:]]*|ghcr.io/posthog/posthog-node:{node_tag}|g' docker-compose.yml"
+            f"sed -i 's|\\(posthog-node}}\\{{0,1\\}}\\):[^[:space:]]*|\\1:{node_tag}|g' docker-compose.yml"
         )
         result = self.run_ssh_command(update_compose_cmd, timeout=30)
         if result["exit_code"] != 0:
