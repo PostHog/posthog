@@ -3,12 +3,19 @@ from typing import Any
 
 import pytest
 import time_machine
+from unittest import mock
 
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.sources.appbot import appbot
 from products.warehouse_sources.sources.appbot._config import AppbotSourceConfig
-from products.warehouse_sources.sources.appbot.appbot import AppbotResumeConfig, validate_credentials
+from products.warehouse_sources.sources.appbot.appbot import (
+    AppbotIncompleteReadError,
+    AppbotPageTokenExpiredError,
+    AppbotResumeConfig,
+    validate_credentials,
+)
 from products.warehouse_sources.sources.appbot.source import AppbotSource
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
@@ -97,10 +104,11 @@ class TestReviews:
         ]
 
     def test_resumes_inside_the_saved_window_and_page(self) -> None:
+        # The app list comes back in another order, so a resume must not depend on list positions.
         result = _driver().run(
             "reviews",
-            [_apps(1, 2, 3), _reviews([7], page=4, total_pages=4), _reviews([8], page=1, total_pages=1)],
-            resume_state=AppbotResumeConfig(app_id=2, windows=[["2020-01-01", "2026-03-10"]], page=4),
+            [_apps(3, 1, 2), _reviews([7], page=4, total_pages=4), _reviews([8], page=1, total_pages=1)],
+            resume_state=AppbotResumeConfig(done_app_ids=[1], app_id=2, windows=[["2020-01-01", "2026-03-10"]], page=4),
         )
 
         assert result.raised is None
@@ -108,6 +116,34 @@ class TestReviews:
         assert result.params("page")[1:] == ["4", "1"]
         assert result.params("start")[1:] == ["2020-01-01", "2008-01-01"]
         assert [(row["app_id"], row["id"]) for row in result.rows] == [(2, 7), (3, 8)]
+
+    @parameterized.expand(
+        [
+            (
+                "one_day_over_the_page_depth_limit",
+                [["2026-03-10", "2026-03-10"]],
+                [_reviews([1], page=1, total_pages=3000, total_count=60_000)],
+            ),
+            (
+                "page_cap_reached",
+                [["2026-01-01", "2026-03-10"]],
+                [_reviews([1], page=1, total_pages=9), _reviews([2], page=2, total_pages=9)],
+            ),
+        ]
+    )
+    def test_fails_instead_of_skipping_reviews_it_cannot_read(
+        self, _name: str, windows: list[list[str]], pages: list[ScriptedResponse]
+    ) -> None:
+        with mock.patch.object(appbot, "MAX_REVIEW_PAGES_PER_WINDOW", 2):
+            result = _driver().run(
+                "reviews",
+                [_apps(1), *pages],
+                resume_state=AppbotResumeConfig(app_id=1, windows=windows, page=1),
+            )
+
+        assert isinstance(result.raised, AppbotIncompleteReadError)
+        # The cursor stays on the unread window, so no later state claims the window is done.
+        assert result.final_state.windows == windows
 
     def test_skips_an_app_removed_after_the_app_list_was_read(self) -> None:
         result = _driver().run(
@@ -148,23 +184,27 @@ class TestRatings:
         assert set(result.params("start")[1:]) == {expected_start}
         assert set(result.params("page_size")[1:]) == {"1000"}
 
-    def test_reads_the_app_again_when_the_saved_token_expired(self) -> None:
-        row = {"country_id": 7, "created_at": "2026-03-01T01:00:00.000Z"}
+    @parameterized.expand(
+        [
+            ("saved_token_refused", AppbotResumeConfig(app_id=1, next_page_token="expired"), [], 400),
+            ("saved_token_for_a_removed_app", AppbotResumeConfig(app_id=1, next_page_token="expired"), [], 404),
+            ("token_expired_during_the_walk", None, [_ratings([{"country_id": 7, "created_at": "t1"}], "tok-1")], 400),
+        ]
+    )
+    def test_restarts_the_sync_when_a_page_token_is_refused(
+        self, _name: str, resume_state: AppbotResumeConfig | None, pages: list[ScriptedResponse], status: int
+    ) -> None:
         result = _driver().run(
             "ratings",
-            [
-                _apps(1, 2),
-                ScriptedResponse(status=400, json={"errors": ["next_page_token is invalid"]}),
-                _ratings([row], token=None),
-                _ratings([], token=None),
-            ],
-            resume_state=AppbotResumeConfig(app_id=1, next_page_token="expired"),
+            [_apps(1, 2), *pages, ScriptedResponse(status=status, json={"errors": ["invalid token"]})],
+            resume_state=resume_state,
         )
 
-        assert result.raised is None
-        assert result.params("next_page_token")[1:] == ["expired", None, None]
-        assert result.paths[1:] == ["/api/v2/apps/1/ratings/bulk"] * 2 + ["/api/v2/apps/2/ratings/bulk"]
-        assert [r["id"] for r in result.rows] == ["1:7:2026-03-01T01:00:00.000Z"]
+        # Reading the app again would append its earlier pages twice, so the run drops its cursor and
+        # the retried attempt reads the table from the start.
+        assert isinstance(result.raised, AppbotPageTokenExpiredError)
+        assert result.final_state is None
+        assert "/api/v2/apps/2/ratings/bulk" not in result.paths
 
 
 def test_bad_credentials_fail_with_a_non_retryable_error() -> None:

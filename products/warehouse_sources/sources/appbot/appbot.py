@@ -1,4 +1,3 @@
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -12,6 +11,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
     format_datetime,
+    frozen,
     make_tracked_session,
     raise_for_retryable_status,
     raise_for_status_redacted,
@@ -42,10 +42,17 @@ RATINGS_LOOKBACK = timedelta(days=2)
 
 RATINGS_PAGE_SIZE = 1000
 
+# The statuses Appbot can send for a bulk ratings page token that is no longer valid. The docs do not
+# name one, so a 404 counts too: the next attempt lists the apps again and skips a removed app.
+EXPIRED_TOKEN_STATUSES = (400, 404, 410, 422)
 
-@dataclasses.dataclass
+
+@frozen
 class AppbotResumeConfig:
-    # Stable app id, not a list position, so apps added or removed before a resume can't shift it.
+    # Apps whose rows are all yielded. A set of ids, not a list position, so a resume against an app
+    # list in another order, or with new apps, skips no app.
+    done_app_ids: list[int] | None = None
+    # The app that was read when the state was saved.
     app_id: int | None = None
     # Reviews: the date windows ([start, end] as yyyy-mm-dd) still to read for `app_id`, oldest first,
     # and the page of the first window to read next.
@@ -53,6 +60,20 @@ class AppbotResumeConfig:
     page: int = 1
     # Ratings: the token of the next bulk page. Appbot expires it after 10 minutes.
     next_page_token: str | None = None
+
+
+@frozen
+class ReviewWindow:
+    start: date
+    end: date
+
+
+class AppbotIncompleteReadError(Exception):
+    pass
+
+
+class AppbotPageTokenExpiredError(Exception):
+    pass
 
 
 def make_session(username: str, password: str) -> requests.Session:
@@ -96,56 +117,66 @@ def _status_of(exc: requests.HTTPError) -> int | None:
     return exc.response.status_code if exc.response is not None else None
 
 
-def _remaining_app_ids(app_ids: list[int], resume: AppbotResumeConfig | None) -> tuple[list[int], bool]:
-    if resume is not None and resume.app_id in app_ids:
-        return app_ids[app_ids.index(resume.app_id) :], True
-    return app_ids, False
-
-
 def _load_resume(manager: ResumableSourceManager[AppbotResumeConfig]) -> AppbotResumeConfig | None:
     return manager.load_state() if manager.can_resume() else None
 
 
-def _split_window(start: date, end: date) -> list[tuple[date, date]]:
-    middle = start + timedelta(days=(end - start).days // 2)
-    return [(start, middle), (middle + timedelta(days=1), end)]
+def _worklist(app_ids: list[int], resume: AppbotResumeConfig | None) -> list[int]:
+    """The apps still to read, with the app of a resumed run first."""
+    if resume is None:
+        return app_ids
+    done = set(resume.done_app_ids or [])
+    remaining = [app_id for app_id in app_ids if app_id not in done]
+    if resume.app_id in remaining:
+        remaining.remove(resume.app_id)
+        remaining.insert(0, resume.app_id)
+    return remaining
 
 
-def _encode_windows(windows: list[tuple[date, date]]) -> list[list[str]]:
-    return [[start.isoformat(), end.isoformat()] for start, end in windows]
+def _split_window(window: ReviewWindow) -> list[ReviewWindow]:
+    middle = window.start + timedelta(days=(window.end - window.start).days // 2)
+    return [
+        ReviewWindow(start=window.start, end=middle),
+        ReviewWindow(start=middle + timedelta(days=1), end=window.end),
+    ]
 
 
-def _decode_windows(windows: list[list[str]]) -> list[tuple[date, date]]:
-    return [(date.fromisoformat(start), date.fromisoformat(end)) for start, end in windows]
+def _encode_windows(windows: list[ReviewWindow]) -> list[list[str]]:
+    return [[window.start.isoformat(), window.end.isoformat()] for window in windows]
+
+
+def _decode_windows(windows: list[list[str]]) -> list[ReviewWindow]:
+    return [ReviewWindow(start=date.fromisoformat(start), end=date.fromisoformat(end)) for start, end in windows]
 
 
 def _app_review_rows(
     session: requests.Session,
     app_id: int,
-    windows: list[tuple[date, date]],
+    windows: list[ReviewWindow],
     page: int,
-    following_app_id: int | None,
-    logger: FilteringBoundLogger,
+    done_app_ids: list[int],
     manager: ResumableSourceManager[AppbotResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     pages_in_window = 0
     while windows:
-        window_start, window_end = windows[0]
+        window = windows[0]
         data = _fetch(
             session,
             f"/apps/{app_id}/reviews",
-            {"start": window_start.isoformat(), "end": window_end.isoformat(), "page": page},
+            {"start": window.start.isoformat(), "end": window.end.isoformat(), "page": page},
         )
 
         total_count = data.get("total_count")
-        if (
-            page == 1
-            and isinstance(total_count, int)
-            and total_count > MAX_REVIEWS_PER_WINDOW
-            and window_start < window_end
-        ):
-            windows = [*_split_window(window_start, window_end), *windows[1:]]
-            manager.save_state(AppbotResumeConfig(app_id=app_id, windows=_encode_windows(windows), page=1))
+        if page == 1 and isinstance(total_count, int) and total_count > MAX_REVIEWS_PER_WINDOW:
+            if window.start >= window.end:
+                raise AppbotIncompleteReadError(
+                    f"Appbot has {total_count} reviews for app {app_id} on {window.start}, more than the "
+                    f"{MAX_REVIEWS_PER_WINDOW} reviews its API can page through for one day"
+                )
+            windows = [*_split_window(window), *windows[1:]]
+            manager.save_state(
+                AppbotResumeConfig(done_app_ids=done_app_ids, app_id=app_id, windows=_encode_windows(windows), page=1)
+            )
             manager.safe_point()
             continue
 
@@ -154,11 +185,11 @@ def _app_review_rows(
         total_pages = data.get("total_pages")
         has_next_page = bool(rows) and (page < total_pages if isinstance(total_pages, int) else True)
         if has_next_page and pages_in_window >= MAX_REVIEW_PAGES_PER_WINDOW:
-            logger.warning(
-                f"Appbot: page cap ({MAX_REVIEW_PAGES_PER_WINDOW}) reached for app {app_id} reviews "
-                f"from {window_start} to {window_end}, skipping the rest of this window"
+            # Advancing past the window would let the watermark move over reviews that were never read.
+            raise AppbotIncompleteReadError(
+                f"Appbot returned more than {MAX_REVIEW_PAGES_PER_WINDOW} pages of reviews for app {app_id} "
+                f"from {window.start} to {window.end}"
             )
-            has_next_page = False
 
         if has_next_page:
             page += 1
@@ -168,9 +199,13 @@ def _app_review_rows(
             pages_in_window = 0
 
         if windows:
-            manager.save_state(AppbotResumeConfig(app_id=app_id, windows=_encode_windows(windows), page=page))
-        elif following_app_id is not None:
-            manager.save_state(AppbotResumeConfig(app_id=following_app_id))
+            manager.save_state(
+                AppbotResumeConfig(
+                    done_app_ids=done_app_ids, app_id=app_id, windows=_encode_windows(windows), page=page
+                )
+            )
+        else:
+            manager.save_state(AppbotResumeConfig(done_app_ids=[*done_app_ids, app_id]))
 
         if rows:
             # The documented example shows a placeholder in `app_id`, so the key column comes from
@@ -189,27 +224,26 @@ def _reviews_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     app_ids = [app["id"] for app in _list_apps(session)]
     resume = _load_resume(manager)
-    remaining, resumed = _remaining_app_ids(app_ids, resume)
+    done_app_ids = list(resume.done_app_ids or []) if resume else []
 
-    for index, app_id in enumerate(remaining):
-        following = remaining[index + 1] if index + 1 < len(remaining) else None
-        if index == 0 and resumed and resume is not None and resume.windows:
+    for index, app_id in enumerate(_worklist(app_ids, resume)):
+        if index == 0 and resume is not None and resume.app_id == app_id and resume.windows:
             windows = _decode_windows(resume.windows)
             page = resume.page
         else:
-            windows = [(start, end)]
+            windows = [ReviewWindow(start=start, end=end)]
             page = 1
 
         try:
-            yield from _app_review_rows(session, app_id, windows, page, following, logger, manager)
+            yield from _app_review_rows(session, app_id, windows, page, done_app_ids, manager)
         except requests.HTTPError as exc:
             # An app removed from the team after the app list was read.
             if _status_of(exc) != 404:
                 raise
             logger.warning(f"Appbot: app {app_id} not found while reading reviews, skipping it")
-            if following is not None:
-                manager.save_state(AppbotResumeConfig(app_id=following))
+            manager.save_state(AppbotResumeConfig(done_app_ids=[*done_app_ids, app_id]))
             manager.safe_point()
+        done_app_ids = [*done_app_ids, app_id]
 
 
 def _ratings_row(app_id: int, row: dict[str, Any]) -> dict[str, Any]:
@@ -223,24 +257,32 @@ def _app_ratings_rows(
     app_id: int,
     start: str,
     token: str | None,
-    following_app_id: int | None,
+    done_app_ids: list[int],
     manager: ResumableSourceManager[AppbotResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     # Every page after the first must repeat the query of the first page.
     params: dict[str, Any] = {"start": start, "page_size": RATINGS_PAGE_SIZE}
     while True:
-        data = _fetch(
-            session,
-            f"/apps/{app_id}/ratings/bulk",
-            {**params, "next_page_token": token} if token else params,
-        )
+        try:
+            data = _fetch(
+                session,
+                f"/apps/{app_id}/ratings/bulk",
+                {**params, "next_page_token": token} if token else params,
+            )
+        except requests.HTTPError as exc:
+            if token is not None and _status_of(exc) in EXPIRED_TOKEN_STATUSES:
+                raise AppbotPageTokenExpiredError(
+                    f"Appbot refused the ratings page token for app {app_id} (status {_status_of(exc)})"
+                ) from exc
+            raise
+
         rows = data.get("results") or []
         token = data.get("next_page_token") or None
 
         if token:
-            manager.save_state(AppbotResumeConfig(app_id=app_id, next_page_token=token))
-        elif following_app_id is not None:
-            manager.save_state(AppbotResumeConfig(app_id=following_app_id))
+            manager.save_state(AppbotResumeConfig(done_app_ids=done_app_ids, app_id=app_id, next_page_token=token))
+        else:
+            manager.save_state(AppbotResumeConfig(done_app_ids=[*done_app_ids, app_id]))
 
         if rows:
             yield [_ratings_row(app_id, row) for row in rows]
@@ -259,28 +301,28 @@ def _ratings_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     app_ids = [app["id"] for app in _list_apps(session)]
     resume = _load_resume(manager)
-    remaining, resumed = _remaining_app_ids(app_ids, resume)
+    done_app_ids = list(resume.done_app_ids or []) if resume else []
 
-    for index, app_id in enumerate(remaining):
-        following = remaining[index + 1] if index + 1 < len(remaining) else None
-        token = resume.next_page_token if index == 0 and resumed and resume is not None else None
+    for index, app_id in enumerate(_worklist(app_ids, resume)):
+        token = resume.next_page_token if index == 0 and resume is not None and resume.app_id == app_id else None
 
         try:
-            yield from _app_ratings_rows(session, app_id, start, token, following, manager)
+            yield from _app_ratings_rows(session, app_id, start, token, done_app_ids, manager)
+        except AppbotPageTokenExpiredError:
+            # Pages of this app before the token can already be in the table, and a first sync or a
+            # full refresh appends, so reading the app again here would store those rows twice. Drop
+            # the cursor instead: the retried attempt reads the whole table again and replaces it.
+            logger.warning(f"Appbot: ratings page token for app {app_id} expired, restarting the sync")
+            manager.clear_state()
+            raise
         except requests.HTTPError as exc:
-            status = _status_of(exc)
-            if token is not None and status in (400, 404, 410, 422):
-                # The saved token expired (Appbot keeps it for 10 minutes), so read this app again
-                # from the start. Merge dedupes the rows read twice.
-                logger.warning(f"Appbot: ratings page token for app {app_id} was refused, reading the app again")
-                yield from _app_ratings_rows(session, app_id, start, None, following, manager)
-            elif status == 404:
-                logger.warning(f"Appbot: app {app_id} not found while reading ratings, skipping it")
-                if following is not None:
-                    manager.save_state(AppbotResumeConfig(app_id=following))
-                manager.safe_point()
-            else:
+            # An app removed from the team after the app list was read.
+            if _status_of(exc) != 404:
                 raise
+            logger.warning(f"Appbot: app {app_id} not found while reading ratings, skipping it")
+            manager.save_state(AppbotResumeConfig(done_app_ids=[*done_app_ids, app_id]))
+            manager.safe_point()
+        done_app_ids = [*done_app_ids, app_id]
 
 
 def _today() -> date:

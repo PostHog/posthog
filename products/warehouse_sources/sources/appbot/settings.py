@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
-from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, incremental_field
 
 APPBOT_V2 = "v2"
 
@@ -25,14 +25,7 @@ APPBOT_ENDPOINTS: dict[str, AppbotEndpointConfig] = {
         # Review ids are only documented per app, so the app id is part of the key.
         primary_keys=["app_id", "id"],
         partition_key="published_at",
-        incremental_fields=[
-            {
-                "label": "published_at",
-                "type": IncrementalFieldType.Date,
-                "field": "published_at",
-                "field_type": IncrementalFieldType.Date,
-            }
-        ],
+        incremental_fields=[incremental_field("published_at", IncrementalFieldType.Date)],
     ),
     "ratings": AppbotEndpointConfig(
         name="ratings",
@@ -41,14 +34,7 @@ APPBOT_ENDPOINTS: dict[str, AppbotEndpointConfig] = {
         # summary rows have no country_id and a null key column cannot be merged.
         primary_keys=["id"],
         partition_key="created_at",
-        incremental_fields=[
-            {
-                "label": "created_at",
-                "type": IncrementalFieldType.DateTime,
-                "field": "created_at",
-                "field_type": IncrementalFieldType.DateTime,
-            }
-        ],
+        incremental_fields=[incremental_field("created_at")],
     ),
 }
 
