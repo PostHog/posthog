@@ -5273,8 +5273,7 @@ describe('CDP API', () => {
                 const pass = () => (holding = false)
                 return { reached, release, pass }
             }
-            const setIntakeModes = ({ shadow = '', async = '' }: { shadow?: string; async?: string }) => {
-                api['config'].CDP_INTAKE_KAFKA_SHADOW_TEAMS = shadow
+            const setIntakeModes = ({ async = '' }: { async?: string }) => {
                 api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = async
             }
             let intakeRecords: () => Buffer[]
@@ -5572,11 +5571,8 @@ describe('CDP API', () => {
                 }
             })
 
-            it.each([
-                ['off', false],
-                ['shadow', true],
-            ])('refuses a batch with 409 for a team in intake mode %s, and sends nothing', async (_mode, shadow) => {
-                setIntakeModes({ shadow: shadow ? String(team.id) : '' })
+            it('refuses a batch with 409 for a team not in intake async mode, and sends nothing', async () => {
+                setIntakeModes({})
 
                 const res = await sendBatch(TEMPLATE, {
                     variables: body.variables,
