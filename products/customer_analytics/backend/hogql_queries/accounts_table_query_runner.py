@@ -41,7 +41,10 @@ from posthog.hogql.constants import get_default_limit_for_context, get_max_limit
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import User
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.logic.account_filters import parse_email_search
 
@@ -100,7 +103,13 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
         return payload
 
     def validate_query_runner_access(self, user: User) -> bool:
-        return UserAccessControl(user=user, team=self.team).assert_access_level_for_resource("account", "viewer")
+        if not authorization.check(
+            resource=Resource(type=ResourceType.ACCOUNT, project_id=self.team.id),
+            action=Action.VIEW,
+            subject=Subject(user_id=user.pk),
+        ):
+            raise UserAccessControlError("account", "viewer")
+        return True
 
     def to_query(self) -> NoReturn:
         raise NotImplementedError("AccountsTableQueryRunner executes against Postgres")

@@ -45,7 +45,6 @@ from posthog.auth import SessionAuthentication, is_mcp_request
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict, InsufficientScope
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.paging import Page, PageRequest
@@ -64,14 +63,12 @@ from posthog.permissions import (
 )
 from posthog.rate_limit import RunSavedQueryRateThrottle
 from posthog.scopes.catalog import APIScopeObjectOrNotSupported
-from posthog.user_permissions import UserPermissions
 
-from products.access_control.backend.facade.user_access_control import (
-    AccessControlLevel,
-    UserAccessControl,
-    model_to_resource,
-)
+from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.cdp.backend.presentation.icons import CDPIconsService
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.facade.constants import (
@@ -160,52 +157,12 @@ _OBJECT_WRITE_LEVEL = "editor"
 _ICON_DOMAIN_VALIDATOR = DomainNameValidator(accept_idna=False)
 
 
-# Custom-property responses can include metadata from these resources. Token scopes must apply even
-# though the endpoint itself is authorized as an account resource.
-_SCOPE_GATED_RESOURCES = frozenset({"external_data_source", "warehouse_view", "hog_flow"})
-
-
-class _ScopeGatedAccessControl:
-    """Wraps ``UserAccessControl`` so cross-resource reads require the matching token scope.
-
-    Custom-property sources and workflow references resolve through object access checks and queryset
-    filtering. Applying token scopes here keeps those secondary resources from leaking through an
-    account-scoped endpoint. Session auth and ``*`` tokens keep the wrapped access-control behavior.
-    """
-
-    def __init__(self, inner: UserAccessControl, token_scopes: list[str]) -> None:
-        self._inner = inner
-        self._token_scopes = token_scopes
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._inner, name)
-
-    def check_access_level_for_object(self, obj: Any, required_level: Any, *args: Any, **kwargs: Any) -> bool:
-        if self._token_lacks_scope_for_resource(model_to_resource(obj), required_level):
-            return False
-        return self._inner.check_access_level_for_object(obj, required_level, *args, **kwargs)
-
-    def filter_queryset_by_access_level(self, queryset: Any, *args: Any, **kwargs: Any) -> Any:
-        resource = kwargs.get("resource") or model_to_resource(queryset.model)
-        if self._token_lacks_scope_for_resource(resource, "viewer"):
-            return queryset.none()
-        return self._inner.filter_queryset_by_access_level(queryset, *args, **kwargs)
-
-    def _token_lacks_scope_for_resource(self, resource: str | None, required_level: Any) -> bool:
-        scopes = self._token_scopes
-        if "*" in scopes or resource not in _SCOPE_GATED_RESOURCES:
-            return False
-        if f"{resource}:write" in scopes:
-            return False
-        return not (required_level == "viewer" and f"{resource}:read" in scopes)
-
-
 def _warehouse_scoped_uac(view: Any) -> UserAccessControl:
     """The view's ``UserAccessControl``, with token scopes applied to secondary resource reads."""
     scopes = get_authenticator_scopes(getattr(view.request, "successful_authenticator", None))
     if scopes is None:
         return view.user_access_control
-    return cast(UserAccessControl, _ScopeGatedAccessControl(view.user_access_control, scopes))
+    return api.scope_warehouse_access(view.user_access_control, scopes)
 
 
 _PARENT_ACCOUNT_ID = PathParameter(type=UUID, description="UUID of the parent account.")
@@ -868,9 +825,6 @@ class CanonicalTeamViewSet(Protocol):
     @property
     def team_id(self) -> int: ...
 
-    @property
-    def user_permissions(self) -> UserPermissions: ...
-
 
 class CanonicalTeamAccessPermission(BasePermission):
     """Data under an environment URL belongs to its parent project, so access must hold on that project too."""
@@ -887,7 +841,7 @@ class CanonicalTeamAccessPermission(BasePermission):
         scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
         if scoped_team_ids and canonical_team.id not in scoped_team_ids:
             return False
-        return canonical_view.user_permissions.team(canonical_team).effective_membership_level is not None
+        return authorization.check(resource=Resource.project(canonical_team.id), action=Action.VIEW)
 
 
 class AccountViewChangePermission(AccessControlPermission):
@@ -931,12 +885,14 @@ class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         ]
 
     def _is_project_admin(self) -> bool:
-        if self.user_access_control.is_organization_admin:
+        if authorization.check(resource=Resource.organization(self.canonical_team.organization_id), action=Action.EDIT):
             return True
         return bool(self.user_access_control.check_access_level_for_object(self.canonical_team, "admin", explicit=True))
 
     def _can_edit_team_views(self) -> bool:
-        return self.user_access_control.check_access_level_for_resource("account", "editor")
+        return authorization.check(
+            resource=Resource(type=ResourceType.ACCOUNT, project_id=self.canonical_team.id), action=Action.EDIT
+        )
 
     @extend_schema(responses={200: AccountViewSerializer(many=True)}, summary="List account views")
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -2358,8 +2314,7 @@ class AccountViewSet(
         serializer = AccountSerializer(data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        membership_level = self.user_permissions.current_team.effective_membership_level
-        allow_matching_updates = membership_level is not None and membership_level >= OrganizationMembership.Level.ADMIN
+        allow_matching_updates = authorization.check(resource=Resource.project(self.team_id), action=Action.EDIT)
         try:
             account = api.update_account_for_view(
                 team_id=self.team_id,
@@ -3172,8 +3127,7 @@ class CalendarSyncViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vie
     )
     @action(methods=["POST"], detail=False, url_path="interval")
     def interval(self, request: ValidatedRequest, *args, **kwargs) -> Response:
-        requesting_level = self.user_permissions.current_team.effective_membership_level
-        if requesting_level is None or requesting_level < OrganizationMembership.Level.ADMIN:
+        if not authorization.check(resource=Resource.project(self.team_id), action=Action.EDIT):
             raise PermissionDenied("Only project admins can change Google account sync intervals.")
         integration_id = request.validated_data["integration_id"]
         interval_minutes = request.validated_data["sync_interval_minutes"]
@@ -3189,8 +3143,7 @@ class CalendarSyncViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vie
     )
     @action(methods=["POST"], detail=False, url_path="backfill")
     def backfill(self, request: ValidatedRequest, *args, **kwargs) -> Response:
-        requesting_level = self.user_permissions.current_team.effective_membership_level
-        has_management_access = requesting_level is not None and requesting_level >= OrganizationMembership.Level.ADMIN
+        has_management_access = authorization.check(resource=Resource.project(self.team_id), action=Action.EDIT)
         try:
             result = api.trigger_google_account_backfill(
                 self.team_id,
@@ -3226,8 +3179,7 @@ class CalendarSyncViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vie
     )
     @action(methods=["POST"], detail=False, url_path="sync_now")
     def sync_now(self, request: ValidatedRequest, *args, **kwargs) -> Response:
-        requesting_level = self.user_permissions.current_team.effective_membership_level
-        has_management_access = requesting_level is not None and requesting_level >= OrganizationMembership.Level.ADMIN
+        has_management_access = authorization.check(resource=Resource.project(self.team_id), action=Action.EDIT)
         try:
             result = api.trigger_calendar_sync(
                 self.team_id,

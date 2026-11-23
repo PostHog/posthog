@@ -1,10 +1,11 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.customer_analytics.backend.presentation.views.views import _ScopeGatedAccessControl
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.customer_analytics.backend.facade.api import scope_warehouse_access
 
 
 class _Meta:
@@ -15,13 +16,16 @@ class _Meta:
 class _FakeModel:
     def __init__(self, model_name: str) -> None:
         self._meta = _Meta(model_name)
+        self.pk = 1
 
 
 class TestScopeGatedAccessControl(SimpleTestCase):
-    def _gate(self, scopes: list[str]) -> tuple[_ScopeGatedAccessControl, MagicMock]:
+    def _gate(self, scopes: list[str]) -> tuple[UserAccessControl, MagicMock]:
         inner = MagicMock()
+        inner.team.id = 1
+        inner.user.pk = 2
         inner.check_access_level_for_object.return_value = True
-        return _ScopeGatedAccessControl(inner, scopes), inner
+        return scope_warehouse_access(inner, scopes), inner
 
     @parameterized.expand(
         [
@@ -52,12 +56,12 @@ class TestScopeGatedAccessControl(SimpleTestCase):
         ]
     )
     def test_warehouse_object_gated_on_token_scope(self, _name, model_name, scopes, level, allowed):
-        gate, inner = self._gate(scopes)
-        result = gate.check_access_level_for_object(_FakeModel(model_name), required_level=level)
+        gate, _ = self._gate(scopes)
+        with patch("products.authorization.backend.facade.api.check", return_value=True) as check:
+            result = gate.check_access_level_for_object(_FakeModel(model_name), required_level=level)
         assert result is allowed
-        # When the token scope denies, the wrapped RBAC check is never consulted (fail closed on scope).
         if not allowed:
-            inner.check_access_level_for_object.assert_not_called()
+            check.assert_not_called()
 
     def test_non_warehouse_object_delegates(self):
         # A different resource is unaffected by the warehouse scope gate — it delegates to the RBAC check.

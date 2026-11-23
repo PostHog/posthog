@@ -162,6 +162,9 @@ from products.customer_analytics.backend.logic.person_property_projection import
 from products.customer_analytics.backend.logic.usage_spike_notifications import (
     notify_managers_of_usage_spike as notify_managers_of_usage_spike,
 )
+from products.customer_analytics.backend.logic.warehouse_scope_gate import (
+    ScopeGatedAccessControl as _ScopeGatedAccessControl,
+)
 from products.customer_analytics.backend.models import (
     CANONICAL_DISPLAY_TYPE_BY_NAME,
     Account,
@@ -1558,6 +1561,18 @@ def _to_custom_property_options(
     return [contracts.CustomPropertyOption(**option) for option in options]
 
 
+def scope_warehouse_access(access: UserAccessControl, scopes: list[str]) -> UserAccessControl:
+    return cast(UserAccessControl, _ScopeGatedAccessControl(access, scopes))
+
+
+def _filter_workflow_references_for_caller(
+    team_id: int, references: dict[str, list[HogFlowReference]], access: "UserAccessControl"
+) -> dict[str, list[HogFlowReference]]:
+    if isinstance(access, _ScopeGatedAccessControl) and not access.allows_scope("hog_flow", "viewer"):
+        return {}
+    return filter_hog_flow_references_by_access_level(team_id, references, access)
+
+
 def _custom_property_references_by_definition_id(
     team_id: int, definition_id: str | None = None
 ) -> dict[str, list[HogFlowReference]]:
@@ -1620,7 +1635,7 @@ def _to_custom_property_definition_views(
     team_id: int, page: list[CustomPropertyDefinition], user_access_control: "UserAccessControl"
 ) -> list[contracts.CustomPropertyDefinitionView]:
     workflow_references = _custom_property_references_by_definition_id(team_id)
-    references = filter_hog_flow_references_by_access_level(team_id, workflow_references, user_access_control)
+    references = _filter_workflow_references_for_caller(team_id, workflow_references, user_access_control)
     sources: list[CustomPropertySource] = []
     for d in page:
         try:
@@ -1686,7 +1701,7 @@ def get_custom_property_definition(
         team_id, definition_id=str(definition.id)
     )
     workflow_references = workflow_references_by_definition_id.get(str(definition.id), [])
-    references = filter_hog_flow_references_by_access_level(
+    references = _filter_workflow_references_for_caller(
         team_id, workflow_references_by_definition_id, user_access_control
     ).get(str(definition.id), [])
     return _to_custom_property_definition_view(
@@ -1817,9 +1832,9 @@ def update_custom_property_definition(
     )
     workflow_references = workflow_references_by_definition_id.get(str(definition.id), [])
     references = (
-        filter_hog_flow_references_by_access_level(
-            team_id, workflow_references_by_definition_id, user_access_control
-        ).get(str(definition.id), [])
+        _filter_workflow_references_for_caller(team_id, workflow_references_by_definition_id, user_access_control).get(
+            str(definition.id), []
+        )
         if user_access_control is not None
         else []
     )
