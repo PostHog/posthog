@@ -2685,6 +2685,12 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
         assert native_breakdown == read_flags(breakdown, use_new_events_schema=False)
         assert native_breakdown[0] == [("", 1), ("control", 1), (None, 1)]
 
+        missing_flag = (
+            f"SELECT count() FROM events WHERE uuid = '{flag_uuid}' AND properties.`$feature/$ai_trace_id` != ''"
+        )
+        for use_new_events_schema in (True, False):
+            assert read_flags(missing_flag, use_new_events_schema)[0] == [(1,)]
+
         # A join constraint keeps the NULL of a missing flag, so `!=` drops the row there.
         join_on_flag = (
             "SELECT f.event FROM events e JOIN events f ON e.uuid = f.uuid AND e.properties.`$feature/{flag}` != 'x' "

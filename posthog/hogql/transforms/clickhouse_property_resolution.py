@@ -43,7 +43,7 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.clickhouse.json import JSON_KEY_PATH_FUNCTIONS, JSON_TYPED_PATH_FUNCTIONS
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.printer.base import resolve_field_type
-from posthog.hogql.printer.clickhouse import AI_BLOOM_FILTER_PROPERTIES, COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
+from posthog.hogql.printer.clickhouse import AI_BLOOM_FILTER_COLUMNS, AI_BLOOM_FILTER_PROPERTIES
 from posthog.hogql.restricted_properties import (
     key_read_overlaps_restriction,
     mirrored_properties_for_column,
@@ -84,10 +84,6 @@ from posthog.clickhouse.workload import Workload
 from posthog.schema_enums import MaterializationMode, PropertyGroupsMode
 
 MAX_MATERIALIZED_LIKE_PATTERN_LENGTH = 16 * 1024
-
-# Leave the legacy $ai_* bloom-filter columns to the printer: its comparison code already keeps them index-eligible
-# (`COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING`, imported above so the two lists stay in sync). The value-read side skips
-# their nullIf scrubbing for the same reason, via `AI_BLOOM_FILTER_PROPERTIES` (the same columns, named as properties).
 
 _RANGE_OP_TO_CH_NAME: dict[ast.CompareOperationOp, str] = {
     ast.CompareOperationOp.Lt: "less",
@@ -2263,10 +2259,7 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
 
     @staticmethod
     def _is_ai_column(source: MaterializedPropertySource) -> bool:
-        return (
-            source.kind != "json_subcolumn"
-            and source.column.strip("`\"'") in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
-        )
+        return source.kind == "materialized_column" and source.column in AI_BLOOM_FILTER_COLUMNS
 
     # --- property-group optimizers ---
 
