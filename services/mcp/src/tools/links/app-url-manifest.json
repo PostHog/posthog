@@ -1289,6 +1289,16 @@
         "params": [],
         "scope": "project"
     },
+    "mcpAnalyticsUser": {
+        "template": "/mcp-analytics/users/{distinctId}",
+        "params": ["distinctId"],
+        "scope": "project"
+    },
+    "mcpAnalyticsUsers": {
+        "template": "/mcp-analytics/users",
+        "params": [],
+        "scope": "project"
+    },
     "mcpGateway": {
         "template": "/mcp-servers",
         "params": [],

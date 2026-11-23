@@ -1,4 +1,7 @@
+import { MOCK_DEFAULT_ORGANIZATION } from '~/lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
 
 import { ProductEmptyState } from 'lib/components/ProductEmptyState/ProductEmptyState'
 import { productEmptyStateStory } from 'lib/components/ProductEmptyState/storybookHelpers'
@@ -7,6 +10,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { mswDecorator } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
+
+import { userEvent } from 'storybook/test'
 
 import { mcpAnalyticsEmptyState } from '../emptyState/mcpAnalyticsEmptyState'
 import type { MCPActivityOverviewApi, MCPActivityRecentCallApi } from '../generated/api.schemas'
@@ -121,22 +126,74 @@ export const FirstCallWithoutIntent: Story = {
     },
 }
 
+const WEEKLY_REPORT_BUTTON = '[data-attr=mcp-analytics-activity-next-step-weekly-report]'
+
+const USEFUL_GET_MOCKS = {
+    '/_preflight': { ...preflightJson, cloud: true, realm: 'cloud' },
+    '/api/projects/:team_id/mcp_analytics/sessions/activity_overview/': OVERVIEW,
+    '/api/projects/:team_id/hog_functions': EMPTY_PAGINATED_RESPONSE,
+    '/api/projects/:team_id/subscriptions': EMPTY_PAGINATED_RESPONSE,
+}
+
 export const MakeItUseful: Story = {
     args: { step: 'useful', recentCalls: [FAILED_CALL, SUCCESS_CALL] },
+    decorators: [mswDecorator({ get: USEFUL_GET_MOCKS })],
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT],
+        testOptions: { waitForSelector: WEEKLY_REPORT_BUTTON },
+    },
+}
+
+// A bare querySelector misses while the card is still loading, and the click would silently do nothing.
+async function clickWeeklyReportButton(): Promise<void> {
+    const button = await waitFor(
+        () => {
+            const element = document.querySelector<HTMLElement>(WEEKLY_REPORT_BUTTON)
+            if (!element) {
+                throw new Error('The weekly report button is not rendered')
+            }
+            return element
+        },
+        { timeout: 15000 }
+    )
+    await userEvent.click(button)
+}
+
+export const MakeItUsefulReportFailed: Story = {
+    args: MakeItUseful.args,
     decorators: [
         mswDecorator({
-            get: {
-                '/_preflight': { ...preflightJson, cloud: true, realm: 'cloud' },
-                '/api/projects/:team_id/mcp_analytics/sessions/activity_overview/': OVERVIEW,
-                '/api/projects/:team_id/hog_functions': EMPTY_PAGINATED_RESPONSE,
-                '/api/projects/:team_id/subscriptions': EMPTY_PAGINATED_RESPONSE,
+            get: USEFUL_GET_MOCKS,
+            post: {
+                '/api/projects/:team_id/subscriptions': (): [number, { detail: string }] => [
+                    400,
+                    { detail: 'Your plan is limited to 5 subscriptions.' },
+                ],
             },
         }),
     ],
     parameters: {
         featureFlags: [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT],
-        testOptions: { waitForSelector: '[data-attr=mcp-analytics-activity-next-step-weekly-report]' },
+        testOptions: { waitForSelector: '[role=alert]' },
     },
+    play: clickWeeklyReportButton,
+}
+
+export const MakeItUsefulReportNeedsConsent: Story = {
+    args: MakeItUseful.args,
+    decorators: [
+        mswDecorator({
+            get: {
+                ...USEFUL_GET_MOCKS,
+                '/api/organizations/@current/': { ...MOCK_DEFAULT_ORGANIZATION, is_ai_data_processing_approved: false },
+            },
+        }),
+    ],
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT],
+        testOptions: { waitForSelector: '[data-attr=ai-consent-approve]' },
+    },
+    play: clickWeeklyReportButton,
 }
 
 const SETUP_SCREEN = productEmptyStateStory(mcpAnalyticsEmptyState, 'needs-setup', {

@@ -284,18 +284,22 @@ export interface mcpAnalyticsFiltersLogicMeta {
             filterTestAccountsOverride: boolean | null,
             currentTeam: TeamPublicType | TeamType | null
         ) => boolean
-        slowThresholdMs: (facetFilters: any, facets: any) => number | null
-        newToolsKey: (facetFilters: any, facets: any, searchParams: any) => string | null
-        feedbackSessionsKey: (facetFilters: any, facets: any) => string | null
+        slowThresholdMs: (facetFilters: McpFacetFilters, facets: McpFacets | null) => number | null
+        newToolsKey: (
+            facetFilters: McpFacetFilters,
+            facets: McpFacets | null,
+            searchParams: Record<string, any>
+        ) => string | null
+        feedbackSessionsKey: (facetFilters: McpFacetFilters, facets: McpFacets | null) => string | null
         queryFilters: (
             filterTestAccounts: boolean,
             propertyFilters: AnyPropertyFilter[],
-            facetFilters: any,
-            slowThresholdMs: any,
-            newToolsKey: any,
-            feedbackSessionsKey: any
+            facetFilters: McpFacetFilters,
+            slowThresholdMs: number | null,
+            newToolsKey: string | null,
+            feedbackSessionsKey: string | null
         ) => MCPSharedQueryFilters
-        hasActiveFacetFilters: (facetFilters: any) => boolean
+        hasActiveFacetFilters: (facetFilters: McpFacetFilters) => boolean
     }
 }
 

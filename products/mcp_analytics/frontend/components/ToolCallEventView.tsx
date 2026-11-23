@@ -124,22 +124,32 @@ export function ToolCallEventView({
                     key: 'properties',
                     label: 'Properties',
                     content: (
-                        <PropertiesTable
-                            type={PropertyDefinitionType.Event}
-                            properties={event.properties}
-                            useDetectedPropertyType
-                            filterable
-                            sortProperties
-                            searchable
-                            collapsible
-                        />
+                        <div className="ph-no-capture">
+                            <PropertiesTable
+                                type={PropertyDefinitionType.Event}
+                                properties={event.properties}
+                                useDetectedPropertyType
+                                filterable
+                                sortProperties
+                                searchable
+                                collapsible
+                            />
+                        </div>
                     ),
                 },
                 {
                     key: 'raw',
                     label: 'Raw',
                     content: (
-                        <JSONViewer src={event} name="event" collapsed={1} collapseStringsAfterLength={80} sortKeys />
+                        <div className="ph-no-capture">
+                            <JSONViewer
+                                src={event}
+                                name="event"
+                                collapsed={1}
+                                collapseStringsAfterLength={80}
+                                sortKeys
+                            />
+                        </div>
                     ),
                 },
             ]}

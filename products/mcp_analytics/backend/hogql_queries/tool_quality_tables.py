@@ -6,6 +6,7 @@ calls match the per-tool detail runners. Category queries use the event-supplied
 
 import math
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import datetime
 from functools import cached_property
 from typing import TYPE_CHECKING, Literal, cast
@@ -40,6 +41,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import DateRangeBounds, QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
@@ -87,7 +89,18 @@ _TOOL_SORT_COLUMNS = {
 # same ranking holds for small and large projects.
 _TREND_SCORE_MIN_K = 10
 _TREND_SCORE_VOLUME_FRACTION = 0.0001
-_NO_BUCKETS: tuple[list, None, None] = ([], None, None)
+
+
+@frozen
+class _ToolVolume:
+    """A tool's volume chart buckets, with the description and category from its latest call that sent one."""
+
+    buckets: list[MCPToolQualityRowBucket]
+    description: str | None
+    category: str | None
+
+
+_NO_VOLUME = _ToolVolume(buckets=[], description=None, category=None)
 
 
 def _category_in(categories: list[str] | None) -> list[ast.Expr]:
@@ -380,9 +393,7 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
             },
         )
 
-    def _page_buckets(
-        self, tools: list[str]
-    ) -> dict[str, tuple[list[MCPToolQualityRowBucket], str | None, str | None]]:
+    def _page_buckets(self, tools: list[str]) -> dict[str, _ToolVolume]:
         if not tools:
             return {}
         response = execute_hogql_query(
@@ -394,10 +405,10 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
             modifiers=self.modifiers,
             limit_context=self.limit_context,
         )
-        by_tool: dict[str, tuple[list[MCPToolQualityRowBucket], str | None, str | None]] = {}
+        by_tool: dict[str, _ToolVolume] = {}
         for tool, bucket, calls, errors, p95, description, category in response.results or []:
-            buckets, kept_description, kept_category = by_tool.get(str(tool), ([], None, None))
-            buckets.append(
+            kept = by_tool.setdefault(str(tool), _ToolVolume(buckets=[], description=None, category=None))
+            kept.buckets.append(
                 MCPToolQualityRowBucket(
                     bucket=str(bucket),
                     calls=int(calls or 0),
@@ -406,7 +417,9 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                 )
             )
             # Rows come in bucket order, so a later bucket's description is the newer one.
-            by_tool[str(tool)] = (buckets, description or kept_description, category or kept_category)
+            by_tool[str(tool)] = replace(
+                kept, description=description or kept.description, category=category or kept.category
+            )
         return by_tool
 
     def _total_sessions_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -501,9 +514,9 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                 previous_errors=int(row[14] or 0),
                 previous_p95_duration_ms=None if row[15] is None else float(row[15]),
                 previous_sessions=int(row[16] or 0),
-                buckets=page_buckets.get(str(row[0] or ""), _NO_BUCKETS)[0],
-                description=page_buckets.get(str(row[0] or ""), _NO_BUCKETS)[1],
-                category=page_buckets.get(str(row[0] or ""), _NO_BUCKETS)[2],
+                buckets=page_buckets.get(str(row[0] or ""), _NO_VOLUME).buckets,
+                description=page_buckets.get(str(row[0] or ""), _NO_VOLUME).description,
+                category=page_buckets.get(str(row[0] or ""), _NO_VOLUME).category,
             )
             for row in rows
         ]
