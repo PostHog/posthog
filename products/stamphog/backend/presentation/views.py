@@ -42,7 +42,7 @@ from products.stamphog.backend.facade import (
     api as facade_api,
     contracts,
 )
-from products.stamphog.backend.facade.enums import ReviewMode, ReviewRequestRefusal, ReviewTrigger
+from products.stamphog.backend.facade.enums import ReviewRequestRefusal, ReviewTrigger
 
 from ..facade import review_requests
 from ..facade.github import (
@@ -260,7 +260,8 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
         )
 
     def _queue_trigger_label_creation(self, config: contracts.RepoConfigDTO) -> None:
-        if not (config.enabled and config.review_mode == ReviewMode.LABEL):
+        # Both modes act on the trigger label: LABEL mode for every review, ALL mode for a re-review.
+        if not config.enabled:
             return
         # The write already committed, so an unreachable broker must not turn it into a 500.
         try:

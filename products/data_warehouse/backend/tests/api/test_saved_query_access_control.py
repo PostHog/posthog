@@ -4,6 +4,8 @@ from datetime import timedelta
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 from temporalio.service import RPCError, RPCStatusCode
@@ -13,8 +15,10 @@ from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade.api import mark_node_suspended, set_declared_target, suspension_state
+from products.data_modeling.backend.facade.contracts import Bound, SavedQueryFrequencyBounds, TargetBounds
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
+from products.data_warehouse.backend.presentation.views.saved_query.sync_cadence import _frequency_bounds_payload
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,
@@ -1120,3 +1124,22 @@ class TestRefusedDeleteAccessControl(WarehouseAccessControlTestMixin):
         self.assertNotIn("denied_view", response.content.decode())
         self.assertNotIn(str(denied_node.id), response.content.decode())
         self.assertEqual(payload["extra"], {"node_id": str(self.upstream_node.id)})
+
+
+class TestFrequencyBoundsPayloadAccess(SimpleTestCase):
+    @parameterized.expand([("visible", {"upstream": "upstream_view"}, True), ("withheld", {}, False)])
+    def test_a_pinned_floor_is_marked_only_when_its_view_is_visible(self, _name, visible_names, expected):
+        resolved = SavedQueryFrequencyBounds(
+            bounds=TargetBounds(options=(), floor=Bound(value=timedelta(hours=6), blocker="upstream")),
+            names={},
+            identities={},
+            best_effort_source_ids=set(),
+            max_data_age=timedelta(0),
+            speeds_up={},
+            pinned=False,
+            floor_pinned=True,
+        )
+
+        floor = _frequency_bounds_payload(resolved, visible_names)["floor"]
+
+        self.assertEqual(floor["pinned"], expected)

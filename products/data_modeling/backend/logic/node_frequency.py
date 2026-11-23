@@ -19,6 +19,7 @@ from posthog.dataclasses import frozen
 
 from products.data_modeling.backend.facade.contracts import (
     NodeIdentity,
+    PlanFloorClamp,
     SavedQueryFrequencyBounds,
     SavedQueryNodeState,
     SavedQuerySchedule,
@@ -163,6 +164,7 @@ def node_states_by_saved_query(
                 engine: SuspensionMarker(at=marker["at"], reason=marker["reason"], job_id=marker["job_id"])
                 for engine, marker in merged_suspension_state(nodes).items()
             },
+            plan_clamp=plan_floor_clamp_from_properties(node.properties for node in nodes),
         )
         for query_id, nodes in nodes_by_query.items()
     }
@@ -195,7 +197,8 @@ def stage_plan_floor_clamp(node: Node, *, plan_floor: timedelta, at: datetime) -
 
     A node rewritten again keeps the first cadence it replaced, which is the one a person chose.
     """
-    previous = target_before_plan_floor_clamp(node.properties) or get_declared_target(node)
+    earlier = get_plan_floor_clamp(node.properties)
+    previous = earlier.previous_target if earlier is not None else get_declared_target(node)
     stage_declared_target(node, plan_floor)
     frequency = node.properties[_SYSTEM_KEY][_FREQUENCY_KEY]
     frequency[_PLAN_CLAMP_KEY] = {
@@ -209,17 +212,25 @@ def drop_plan_floor_clamp(node: Node) -> None:
     (node.properties or {}).get(_SYSTEM_KEY, {}).get(_FREQUENCY_KEY, {}).pop(_PLAN_CLAMP_KEY, None)
 
 
-def target_before_plan_floor_clamp(properties: Mapping[str, Any] | None) -> timedelta | None:
-    """The cadence a plan floor rewrite replaced, or None when the node's target was not rewritten."""
-    clamp = (properties or {}).get(_SYSTEM_KEY, {}).get(_FREQUENCY_KEY, {}).get(_PLAN_CLAMP_KEY) or {}
-    seconds = clamp.get("previous_target_seconds")
-    return timedelta(seconds=seconds) if seconds is not None else None
+def get_plan_floor_clamp(properties: Mapping[str, Any] | None) -> PlanFloorClamp | None:
+    clamp = (properties or {}).get(_SYSTEM_KEY, {}).get(_FREQUENCY_KEY, {}).get(_PLAN_CLAMP_KEY)
+    if not clamp:
+        return None
+    previous_seconds = clamp["previous_target_seconds"]
+    return PlanFloorClamp(
+        previous_target=timedelta(seconds=previous_seconds) if previous_seconds is not None else None,
+        plan_floor=timedelta(seconds=clamp["plan_floor_seconds"]),
+        at=datetime.fromisoformat(clamp["at"]),
+    )
 
 
-def target_before_plan_floor_clamp_by_saved_query(team_id: int, saved_query_id: str | uuid.UUID) -> timedelta | None:
-    """The cadence a plan floor rewrite replaced on any of the saved query's nodes, or None when none was rewritten."""
+def plan_floor_clamp_from_properties(properties: Iterable[Mapping[str, Any] | None]) -> PlanFloorClamp | None:
+    return next((clamp for props in properties if (clamp := get_plan_floor_clamp(props)) is not None), None)
+
+
+def get_plan_floor_clamp_by_saved_query(team_id: int, saved_query_id: str | uuid.UUID) -> PlanFloorClamp | None:
     nodes = Node.objects.filter(team_id=team_id, saved_query_id=saved_query_id).only("properties")
-    return next((target for node in nodes if (target := target_before_plan_floor_clamp(node.properties))), None)
+    return plan_floor_clamp_from_properties(node.properties for node in nodes)
 
 
 def set_declared_pin(node: Node, pinned: bool) -> None:
@@ -492,6 +503,7 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
     best_effort: set[str] = set()
     speeds_up: dict[timedelta, set[str]] = {}
     data_ages: list[timedelta] = []
+    pinned_views: set[str] = set()
     graphs: dict[str, FrequencyGraph] = {}
     for node in nodes:
         # a saved query can hold two nodes in one DAG, and that DAG's graph is the same for both
@@ -502,6 +514,7 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
         per_dag.append(graph.target_bounds(str(node.id)))
         names.update(graph.names)
         identities.update(graph.identities)
+        pinned_views |= graph.pinned
         # a best-effort source elsewhere in the DAG says nothing about this node's freshness
         ancestors = ancestors_of(str(node.id), graph.edges)
         best_effort |= graph.best_effort_source_ids & ancestors
@@ -510,14 +523,16 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
             speeds_up.setdefault(cadence, set()).update(sped_up)
         data_ages.append(max_data_age(str(node.id), graph.edges, graph.source_intervals, graph.declared_targets))
 
+    bounds = intersect_target_bounds(per_dag)
     return SavedQueryFrequencyBounds(
-        bounds=intersect_target_bounds(per_dag),
+        bounds=bounds,
         names=names,
         identities=identities,
         best_effort_source_ids=best_effort,
         max_data_age=max(data_ages),
         speeds_up=speeds_up,
         pinned=any(get_declared_pin(node) for node in nodes),
+        floor_pinned=bounds.floor is not None and bounds.floor.blocker in pinned_views,
     )
 
 

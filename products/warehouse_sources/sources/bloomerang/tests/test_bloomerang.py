@@ -281,6 +281,69 @@ class TestBloomerangSourceTransport:
         assert result.params("skip") == ["50", "0"]
         assert result.rows == [{"Id": 7, "ConstituentId": 152}]
 
+    def test_users_reads_active_then_inactive_users_across_pages(self) -> None:
+        result = self._driver().run(
+            "Users",
+            [
+                _response([{"Id": i, "IsActive": True} for i in range(1, 51)], total_filtered=51),
+                _response([{"Id": 51, "IsActive": True}], total_filtered=51),
+                _response([{"Id": 90, "IsActive": False}], total_filtered=1),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v2/users"] * 3
+        assert result.params("isActive") == ["true", "true", "false"]
+        assert result.params("skip") == ["0", "50", "0"]
+        assert [row["Id"] for row in result.rows] == [*range(1, 52), 90]
+        assert result.saved_states == [
+            BloomerangResumeConfig(next_offset=50, param_variant=0),
+            BloomerangResumeConfig(next_offset=0, param_variant=1),
+        ]
+
+    @parameterized.expand(
+        [
+            (
+                "mid_active_pass",
+                BloomerangResumeConfig(next_offset=50, param_variant=0),
+                ["true", "false"],
+                ["50", "0"],
+            ),
+            ("start_of_inactive_pass", BloomerangResumeConfig(next_offset=0, param_variant=1), ["false"], ["0"]),
+            ("mid_inactive_pass", BloomerangResumeConfig(next_offset=50, param_variant=1), ["false"], ["50"]),
+        ]
+    )
+    def test_users_resumes_at_saved_pass_and_offset(
+        self,
+        _name: str,
+        resume_state: BloomerangResumeConfig,
+        expected_is_active: list[str],
+        expected_skip: list[str],
+    ) -> None:
+        result = self._driver().run(
+            "Users",
+            [_response([{"Id": 7}], total_filtered=1) for _ in expected_skip],
+            resume_state=resume_state,
+        )
+
+        assert result.raised is None
+        assert result.params("isActive") == expected_is_active
+        assert result.params("skip") == expected_skip
+
+    def test_users_empty_active_pass_still_reads_inactive_users(self) -> None:
+        result = self._driver().run(
+            "Users",
+            [
+                _response([], total_filtered=0),
+                _response([{"Id": 90, "IsActive": False}], total_filtered=1),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.params("isActive") == ["true", "false"]
+        assert [row["Id"] for row in result.rows] == [90]
+        assert result.saved_states == []
+
     @parameterized.expand(
         [
             ("Constituents", "merge"),

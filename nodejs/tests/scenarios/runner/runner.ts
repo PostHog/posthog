@@ -1,14 +1,5 @@
 import { randomUUID } from 'crypto'
-import {
-    createReadStream,
-    createWriteStream,
-    existsSync,
-    mkdirSync,
-    renameSync,
-    rmSync,
-    statSync,
-    writeFileSync,
-} from 'fs'
+import { createReadStream, createWriteStream, existsSync, mkdirSync, statSync, writeFileSync } from 'fs'
 import type { ProducerGlobalConfig } from 'node-rdkafka'
 import os from 'os'
 import path from 'path'
@@ -55,7 +46,7 @@ import {
     measure,
     startSampler,
 } from '../judge/measurements'
-import { Ramp, rampOf, watchRamp } from '../judge/ramp'
+import { Ramp, rampOf, stepRatesOf, watchRamp } from '../judge/ramp'
 import { edgeTruth } from '../judge/truth'
 import { CyclotronProbe, Queue, createCyclotronProbe } from '../probe/cyclotron-probe'
 import { Sampling, sampleEvery } from '../probe/every'
@@ -66,10 +57,12 @@ import { scorecardOf } from '../scorecard/scorecard'
 import { publish } from '../scorecard/write'
 import { reportToStore } from '../store/client'
 import { ValveTimelineEntry, createValves } from '../valves/valves'
+import { writeJson } from './evidence-file'
 import { openLiveLog } from './live'
 import { SAVED_RUN_FILE, SavedRun } from './saved-run'
-import { Admission, Status, admissionsOf, statusOf, unobservedReasonOf } from './status'
+import { Admission, Status, admissionsOf, judgedInvariantsOf, statusOf, unobservedReasonOf } from './status'
 
+const CLOUD_RUN_HOST_LABEL = 'run-host'
 const EDGE_HOSTS = ['ses', WEBHOOK_HOST]
 
 export type TargetRun = Pick<JudgeOptions, 'truth' | 'fetchRetries' | 'residentBacklog'> & {
@@ -235,18 +228,6 @@ function keepLogTails(stateDir: string, specs: RoleSpec[]): (evidenceDir: string
     }
 }
 
-function writeJson(evidenceDir: string, name: string, value: unknown): void {
-    const file = path.join(evidenceDir, name)
-    const partial = `${file}.partial`
-    try {
-        writeFileSync(partial, JSON.stringify(value, null, 2))
-        renameSync(partial, file)
-    } catch (error) {
-        rmSync(partial, { force: true })
-        throw error
-    }
-}
-
 async function errorOf(write: () => Promise<void> | void): Promise<string | undefined> {
     try {
         await write()
@@ -356,6 +337,22 @@ const admittedWindowOf = (
         ? { startedAt: first.startedAt, endedAt: first.endedAt }
         : firstStepOf(window, stepsOf(drive))
 
+function cdpApiUrlsOf(environment: Environment): string[] {
+    const urls = environment
+        .roles()
+        .filter(({ name }) => name === 'cdp-api')
+        .map(({ url }) => url)
+    if (urls.length === 0) {
+        throw new Error('no cdp-api replica is running to take the intake offers')
+    }
+    return urls
+}
+
+function roundRobin(urls: readonly string[]): () => string {
+    let next = 0
+    return () => urls[next++ % urls.length]
+}
+
 function localTarget(
     environment: Environment,
     env: NodeJS.ProcessEnv,
@@ -379,13 +376,10 @@ function localTarget(
                 profile.replicas
             )
             const writeLogTails = keepLogTails(stateDir, specs)
-            const cdpApi = {
-                url: environment.role('cdp-api').url,
-                jwt: new ScopedServiceJwt(
-                    PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL,
-                    secrets.transactionalEmailJwtSecret
-                ),
-            }
+            const jwt = new ScopedServiceJwt(
+                PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL,
+                secrets.transactionalEmailJwtSecret
+            )
             const groups = consumerGroupsOf(specs)
             const eventsTopic = groups[0].topics[0]
             const cyclotronUrl = cyclotronUrlOf(specs[0])
@@ -406,6 +400,7 @@ function localTarget(
                     if (!producer) {
                         throw new Error('the load producer is not connected')
                     }
+                    const cdpApi = { nextUrl: roundRobin(cdpApiUrlsOf(environment)), jwt }
                     const sesFeedback = await watchSesFeedback({
                         edgeUrl,
                         lag: () => environment.groupLag(SES_WEBHOOKS_GROUP),
@@ -538,6 +533,14 @@ export function createRunner(
             let pendingJudgments = (): Promise<void> => Promise.resolve()
             let driven: DriveWindow | undefined
             let recorded: Wiring | undefined
+            const writerCpuReads: (DriveWindow & { read: WriterCpu })[] = []
+            const readWriterCpu = async (window: DriveWindow, readSignal: AbortSignal): Promise<WriterCpu> => {
+                const read = await writerCpuFor(card.bars, window, readSignal)
+                if (card.bars.some(({ name }) => name === 'writer_cpu_under')) {
+                    writerCpuReads.push({ startedAt: window.startedAt, endedAt: window.endedAt, read })
+                }
+                return read
+            }
             try {
                 await opened.connect()
                 live.write({ type: 'phase', at: Date.now(), phase: 'reset' })
@@ -617,7 +620,7 @@ export function createRunner(
                               host: () => sampling.sampler.host(),
                               queue: () => sampling.probes.queue(),
                               profile,
-                              writerCpu: (window) => writerCpuFor(card.bars, window, liveSignal),
+                              writerCpu: (window) => readWriterCpu(window, liveSignal),
                               targetLimit: opened.limit,
                           },
                           liveSignal
@@ -639,11 +642,14 @@ export function createRunner(
                     gate: watch?.gate,
                 }).finally(() => windowOpen.abort())
                 const steps = drivenStepsOf(units.steps, driveStartedAt, card.drive.stopOnBreak === true)
-                const driveWindow: DriveWindow = { startedAt: driveStartedAt, endedAt: Date.now() }
+                const driveWindow: DriveWindow = {
+                    startedAt: driveStartedAt,
+                    endedAt: Math.min(Date.now(), units.steps.at(-1)?.endedAt ?? Infinity),
+                }
                 driven = driveWindow
                 await valves.releaseAll()
                 live.write({ type: 'phase', at: Date.now(), phase: 'converge' })
-                const convergence = await judge.converge(durationMs(card.convergeWithin), signal)
+                const converged = await judge.converge(durationMs(card.convergeWithin), signal)
                 await pendingJudgments()
                 const stop = watch?.stopped()
                 live.write({ type: 'phase', at: Date.now(), phase: 'judge' })
@@ -652,7 +658,10 @@ export function createRunner(
                 await live.stop()
                 const down = await stopHealth()
                 const janitorResets = janitorResetsOf({ ...sampled, sampledFrom: sampler.sampledFrom })
-                const invariants = await judge.check(card.invariants, card.gates, { janitorResets })
+                const checked = await judge.check(card.invariants, card.gates, { janitorResets })
+                const { unread } = judge.evidence()
+                const convergence: Convergence = unread === undefined ? converged : { ...converged, unread }
+                const invariants = judgedInvariantsOf(checked, convergence)
                 const evidence = {
                     ...judge.evidence(),
                     ...sampled,
@@ -665,12 +674,13 @@ export function createRunner(
                 const measurements = measure(card.measure, evidence)
                 const admissions = admissionsOf(
                     profile,
-                    baselineOf({ ...evidence, drive: admittedWindowOf(card.drive, driveWindow, units.steps) })
+                    baselineOf({ ...evidence, drive: admittedWindowOf(card.drive, driveWindow, units.steps) }),
+                    units.steps[0]?.scale
                 )
                 const bars = judgeBars(card.bars, {
                     ...evidence,
                     hostCpuCeiling: profile.host?.cpuCeiling,
-                    writerCpu: await writerCpuFor(card.bars, driveWindow, signal),
+                    writerCpu: await readWriterCpu(driveWindow, signal),
                     settled: watch?.settled(),
                 })
                 const ramp = card.drive.stopOnBreak
@@ -684,7 +694,16 @@ export function createRunner(
                           gates: card.gates,
                           journal: evidence.journal,
                           admissions,
-                          converged: convergence.converged,
+                          convergence,
+                          rates: stepRatesOf(
+                              units.steps,
+                              evidence,
+                              {
+                                  lost: card.invariants.some(({ name }) => name === 'at_least_once'),
+                                  duplicates: card.invariants.some(({ name }) => name === 'duplicate_sends'),
+                              },
+                              convergence
+                          ),
                       })
                     : undefined
                 const verdict = statusOf({
@@ -764,7 +783,7 @@ export function createRunner(
                 evidenceDir,
             }
             const provenance = provenanceOf()
-            const host = os.hostname()
+            const host = manifest ? CLOUD_RUN_HOST_LABEL : os.hostname()
             const evidenceError = await errorOf(async () => {
                 await opened.writeLogTails(evidenceDir)
                 const { journal, truth } = judge.evidence()
@@ -772,6 +791,9 @@ export function createRunner(
                 writeJson(evidenceDir, 'truth.json', truth)
                 writeJson(evidenceDir, 'metrics.json', sampled)
                 writeJson(evidenceDir, 'probes.json', { drive: driven ?? null, ...probed })
+                if (writerCpuReads.length > 0) {
+                    writeJson(evidenceDir, 'writer-cpu.json', writerCpuReads)
+                }
                 if (recorded) {
                     writeJson(evidenceDir, TOPOLOGY_FILE, { ...recorded, hosts: hostsOf(truth) })
                 }
