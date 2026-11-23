@@ -4,7 +4,12 @@ import { dayjs } from 'lib/dayjs'
 
 import { initKeaTests } from '~/test/init'
 
-import { platformAlertsList, platformAlertsPartialUpdate, platformAlertsSnoozeCreate } from './generated/api'
+import {
+    platformAlertsList,
+    platformAlertsPartialUpdate,
+    platformAlertsSnoozeCreate,
+    platformAlertsSnoozeGroupCreate,
+} from './generated/api'
 import { PlatformAlertApi, PlatformAlertConfigurationApi } from './generated/api.schemas'
 import { platformAlertsLogic } from './platformAlertsLogic'
 
@@ -13,6 +18,7 @@ jest.mock('./generated/api', () => ({
     platformAlertsList: jest.fn(),
     platformAlertsPartialUpdate: jest.fn(),
     platformAlertsSnoozeCreate: jest.fn(),
+    platformAlertsSnoozeGroupCreate: jest.fn(),
 }))
 jest.mock('@posthog/lemon-ui', () => ({
     lemonToast: { success: jest.fn(), error: jest.fn() },
@@ -21,6 +27,7 @@ jest.mock('@posthog/lemon-ui', () => ({
 const mockList = platformAlertsList as jest.MockedFunction<typeof platformAlertsList>
 const mockPartialUpdate = platformAlertsPartialUpdate as jest.MockedFunction<typeof platformAlertsPartialUpdate>
 const mockSnooze = platformAlertsSnoozeCreate as jest.MockedFunction<typeof platformAlertsSnoozeCreate>
+const mockSnoozeGroup = platformAlertsSnoozeGroupCreate as jest.MockedFunction<typeof platformAlertsSnoozeGroupCreate>
 
 const GROUP = { id: 'group-1', grouping_key: 'checkout', snooze_until: null } as PlatformAlertApi
 const CONFIGURATION = {
@@ -134,6 +141,7 @@ describe('platformAlertsLogic', () => {
             }
             return save(id, changes as Partial<PlatformAlertConfigurationApi>)
         })
+        mockSnoozeGroup.mockResolvedValue(GROUP)
         logic = platformAlertsLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -151,6 +159,22 @@ describe('platformAlertsLogic', () => {
         const snoozedFor = new Date(listed(ALERT.id)?.snooze_until as string).getTime() - before
         expect(snoozedFor).toBeGreaterThanOrEqual(4 * 3600 * 1000)
         expect(snoozedFor).toBeLessThan(4 * 3600 * 1000 + 60 * 1000)
+    })
+
+    it.each<[string, () => void, string | null]>([
+        ['snoozes', () => logic.actions.snoozeGroup(ALERT, GROUP, '1h', 1), expect.any(String)],
+        ['unsnoozes', () => logic.actions.unsnoozeGroup(ALERT, GROUP), null],
+    ])('%s one group by its key and reloads the list', async (_, act, snoozeUntil) => {
+        mockList.mockClear()
+        act()
+        expect(logic.values.updatingAlertIds).toEqual(new Set([GROUP.id]))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockSnoozeGroup).toHaveBeenCalledWith(expect.any(String), ALERT.id, {
+            grouping_key: GROUP.grouping_key,
+            snooze_until: snoozeUntil,
+        })
+        expect(mockList).toHaveBeenCalledTimes(1)
     })
 
     it('unsnoozes the alert and shows it in the reloaded list', async () => {

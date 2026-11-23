@@ -236,6 +236,11 @@ export function canChangeFromList(configuration: PlatformAlertConfigurationApi):
     return configuration.owner === PlatformAlertOwnerEnumApi.Platform
 }
 
+// The API refuses a group snooze on a source-owned alert (409) and on an ungrouped one (400).
+export function canSnoozeGroups(configuration: PlatformAlertConfigurationApi): boolean {
+    return configuration.owner === 'platform' && configuration.grouping.mode === 'by_result_labels'
+}
+
 export function describeOverflow(configuration: PlatformAlertConfigurationApi): string | null {
     const count = configuration.overflowed_groups
     if (count <= 0) {

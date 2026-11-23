@@ -13,9 +13,19 @@ import { urls } from 'scenes/urls'
 import { Breadcrumb } from '~/types'
 import type { TeamPublicType } from '~/types'
 
-import { platformAlertsList, platformAlertsPartialUpdate, platformAlertsSnoozeCreate } from './generated/api'
-import { PaginatedPlatformAlertConfigurationListApi, PlatformAlertConfigurationApi } from './generated/api.schemas'
+import {
+    platformAlertsList,
+    platformAlertsPartialUpdate,
+    platformAlertsSnoozeCreate,
+    platformAlertsSnoozeGroupCreate,
+} from './generated/api'
+import {
+    PaginatedPlatformAlertConfigurationListApi,
+    PlatformAlertApi,
+    PlatformAlertConfigurationApi,
+} from './generated/api.schemas'
 import { PlatformAlertListRow, configurationListRows } from './platformAlertFormat'
+import type { GroupSnoozeDuration } from './platformAlertLogic'
 
 export const PLATFORM_ALERTS_PAGE_SIZE = 50
 
@@ -95,11 +105,29 @@ export interface platformAlertsLogicActions {
         configuration: PlatformAlertConfigurationApi
         hours: number
     }
+    snoozeGroup: (
+        configuration: PlatformAlertConfigurationApi,
+        group: PlatformAlertApi,
+        duration: GroupSnoozeDuration,
+        hours: number
+    ) => {
+        configuration: PlatformAlertConfigurationApi
+        duration: GroupSnoozeDuration
+        group: PlatformAlertApi
+        hours: number
+    }
     toggleExpanded: (id: string) => {
         id: string
     }
     unsnoozeAlert: (configuration: PlatformAlertConfigurationApi) => {
         configuration: PlatformAlertConfigurationApi
+    }
+    unsnoozeGroup: (
+        configuration: PlatformAlertConfigurationApi,
+        group: PlatformAlertApi
+    ) => {
+        configuration: PlatformAlertConfigurationApi
+        group: PlatformAlertApi
     }
 }
 
@@ -160,6 +188,16 @@ export const platformAlertsLogic = kea<platformAlertsLogicType>([
         setAlertEnabled: (configuration: PlatformAlertConfigurationApi, enabled: boolean) => ({
             configuration,
             enabled,
+        }),
+        snoozeGroup: (
+            configuration: PlatformAlertConfigurationApi,
+            group: PlatformAlertApi,
+            duration: GroupSnoozeDuration,
+            hours: number
+        ) => ({ configuration, group, duration, hours }),
+        unsnoozeGroup: (configuration: PlatformAlertConfigurationApi, group: PlatformAlertApi) => ({
+            configuration,
+            group,
         }),
         setUpdatingAlertId: (id: string, updating: boolean) => ({ id, updating }),
     }),
@@ -231,9 +269,10 @@ export const platformAlertsLogic = kea<platformAlertsLogicType>([
             request: (projectId: string) => Promise<unknown>,
             event: string,
             properties: Record<string, unknown>,
-            done: string
+            done: string,
+            updatingId: string = configuration.id
         ): Promise<void> => {
-            actions.setUpdatingAlertId(configuration.id, true)
+            actions.setUpdatingAlertId(updatingId, true)
             try {
                 await request(String(values.currentTeamId))
                 posthog.capture(event, {
@@ -246,7 +285,7 @@ export const platformAlertsLogic = kea<platformAlertsLogicType>([
             } catch (error: any) {
                 lemonToast.error(error?.detail ?? "Couldn't update the alert. Try again.")
             } finally {
-                actions.setUpdatingAlertId(configuration.id, false)
+                actions.setUpdatingAlertId(updatingId, false)
             }
         }
         return {
@@ -281,6 +320,32 @@ export const platformAlertsLogic = kea<platformAlertsLogicType>([
                     'platform alert enabled toggled',
                     { enabled },
                     enabled ? 'Alert enabled' : 'Alert disabled'
+                ),
+            snoozeGroup: ({ configuration, group, duration, hours }) =>
+                change(
+                    configuration,
+                    (projectId) =>
+                        platformAlertsSnoozeGroupCreate(projectId, configuration.id, {
+                            grouping_key: group.grouping_key,
+                            snooze_until: dayjs().add(hours, 'hour').toISOString(),
+                        }),
+                    'platform alert group snoozed',
+                    { duration },
+                    'Group snoozed',
+                    group.id
+                ),
+            unsnoozeGroup: ({ configuration, group }) =>
+                change(
+                    configuration,
+                    (projectId) =>
+                        platformAlertsSnoozeGroupCreate(projectId, configuration.id, {
+                            grouping_key: group.grouping_key,
+                            snooze_until: null,
+                        }),
+                    'platform alert group unsnoozed',
+                    { duration: null },
+                    'Group unsnoozed',
+                    group.id
                 ),
             setPage: () => {
                 actions.loadConfigurations()

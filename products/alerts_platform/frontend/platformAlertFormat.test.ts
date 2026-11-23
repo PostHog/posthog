@@ -16,6 +16,7 @@ import {
     describeInterval,
     describeOverflow,
     canChangeFromList,
+    canSnoozeGroups,
     describeSchedule,
     listRowMute,
     groupLabels,
@@ -164,6 +165,27 @@ describe('platformAlertFormat', () => {
                 ? { kind: 'alert', configuration }
                 : { kind: 'group', configuration, group: alerts[groupIndex] }
         expect(listRowMute(row, new Date('2026-10-05T12:00:00Z'))).toEqual(expected)
+    })
+
+    test.each<[string, Partial<PlatformAlertConfigurationApi>, boolean]>([
+        ['a grouped alert the platform owns', { owner: 'platform' }, true],
+        ['a grouped alert its source owns', { owner: 'source' }, false],
+        [
+            'an ungrouped alert',
+            {
+                owner: 'platform',
+                grouping: { mode: 'single', keys: [], max_instances: 100, on_overflow: 'degrade_visible' },
+            },
+            false,
+        ],
+    ])('canSnoozeGroups: %s', (_, overrides, expected) => {
+        const grouping: PlatformAlertConfigurationApi['grouping'] = {
+            mode: 'by_result_labels',
+            keys: ['service_name'],
+            max_instances: 100,
+            on_overflow: 'degrade_visible',
+        }
+        expect(canSnoozeGroups(makeConfiguration({ grouping, ...overrides }))).toEqual(expected)
     })
 
     test.each<[string, Partial<PlatformAlertConfigurationApi>, boolean]>([
