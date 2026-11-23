@@ -1,5 +1,5 @@
 import re
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import replace
 from string import Formatter
 from typing import TYPE_CHECKING, ClassVar, NoReturn
@@ -7,7 +7,12 @@ from typing import TYPE_CHECKING, ClassVar, NoReturn
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.database.direct_trino_table import DirectTrinoTable
-from posthog.hogql.database.models import DatabaseField, UUIDDatabaseField
+from posthog.hogql.database.models import (
+    DatabaseField,
+    DecimalDatabaseField,
+    UUIDDatabaseField,
+    clickhouse_decimal_scale,
+)
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.trino_locator import resolve_trino_table_locator
@@ -1802,8 +1807,14 @@ class TrinoPrinter(PostgresPrinter):
             return bool(select_type.types) and all(
                 self._is_boolean_column(branch, name) for branch in select_type.types
             )
-        if not isinstance(select_type, ast.SelectQueryType) or not self.stack:
+        if not isinstance(select_type, ast.SelectQueryType):
             return False
+        projected = self._projected_expression(select_type, name)
+        return projected is not None and isinstance(self._resolve_type(projected), ast.BooleanType)
+
+    def _projected_expression(self, select_type: ast.SelectQueryType, name: str) -> ast.Expr | None:
+        if not self.stack:
+            return None
         root = self.stack[0]
         cached = self.__dict__.get("_select_query_index")
         if cached is None or cached[0] is not root:
@@ -1813,13 +1824,13 @@ class TrinoPrinter(PostgresPrinter):
             self.__dict__["_select_query_index"] = cached
         query = cached[1].get(id(select_type))
         if query is None or query.type is not select_type:
-            return False
+            return None
         for projection in query.select:
             if isinstance(projection, ast.Alias) and projection.alias == name:
-                return isinstance(self._resolve_type(projection.expr), ast.BooleanType)
+                return projection.expr
             if isinstance(projection, ast.Field) and projection.chain and projection.chain[-1] == name:
-                return isinstance(self._resolve_type(projection), ast.BooleanType)
-        return False
+                return projection
+        return None
 
     def _is_text_backed_warehouse_column(self, field_type: ast.FieldType) -> bool:
         # Curated source schemas type some JSON text columns as arrays, but the synced column is text.
@@ -2132,8 +2143,9 @@ class TrinoPrinter(PostgresPrinter):
             return self.visit(ast.Constant(value=""))
         return parts[0] if len(parts) == 1 else f"concat({', '.join(parts)})"
 
-    @staticmethod
-    def _known_decimal_scale(node: ast.Expr) -> int | None:
+    def _known_decimal_scale(self, node: ast.Expr) -> int | None:
+        if isinstance(node, ast.Alias):
+            return self._known_decimal_scale(node.expr)
         if isinstance(node, ast.Constant):
             if isinstance(node.value, bool):
                 return None
@@ -2141,50 +2153,86 @@ class TrinoPrinter(PostgresPrinter):
                 return 0
             if isinstance(node.value, float):
                 return max(0, len(str(node.value).partition(".")[2]))
+            return None
+        if isinstance(node, ast.Field):
+            return self._field_decimal_scale(node)
         if isinstance(node, ast.Call):
-            if node.name.lower() == "todecimal" and len(node.args) == 2:
-                scale = node.args[1]
-                if (
-                    isinstance(scale, ast.Constant)
-                    and isinstance(scale.value, int)
-                    and not isinstance(scale.value, bool)
-                ):
-                    return scale.value
-            if node.name.lower() == "accuratecastornull" and len(node.args) == 2:
-                target = node.args[1]
-                if isinstance(target, ast.Constant) and isinstance(target.value, str):
-                    match = re.fullmatch(
-                        r"(?:nullable\()?decimal(?:32|64|128|256)\((\d+)\)\)?", target.value, re.IGNORECASE
-                    )
-                    if match is not None:
-                        return int(match.group(1))
+            return self._call_decimal_scale(node)
         return None
+
+    def _call_decimal_scale(self, node: ast.Call) -> int | None:
+        name = node.name.lower()
+        if name == "todecimal" and len(node.args) == 2:
+            return constant_integer(node.args[1])
+        if name == "accuratecastornull" and len(node.args) == 2:
+            target = node.args[1]
+            if isinstance(target, ast.Constant) and isinstance(target.value, str):
+                return clickhouse_decimal_scale(target.value)
+            return None
+        if name in {"multiplydecimal", "dividedecimal"} and len(node.args) in {2, 3}:
+            if len(node.args) == 3:
+                return constant_integer(node.args[2])
+            return self._max_decimal_scale(node.args if name == "multiplydecimal" else node.args[:1])
+        if name == "if" and len(node.args) == 3:
+            return self._max_decimal_scale(node.args[1:])
+        if name == "multiif" and len(node.args) % 2 == 1:
+            return self._max_decimal_scale([*node.args[1:-1:2], node.args[-1]])
+        if name in {"coalesce", "ifnull"}:
+            return self._max_decimal_scale(node.args)
+        return None
+
+    def _max_decimal_scale(self, values: Sequence[ast.Expr]) -> int | None:
+        typed_values = [value for value in values if not (isinstance(value, ast.Constant) and value.value is None)]
+        scales = [self._known_decimal_scale(value) for value in typed_values]
+        if not scales or None in scales:
+            return None
+        return max(scale for scale in scales if scale is not None)
+
+    def _field_decimal_scale(self, node: ast.Field) -> int | None:
+        field_type = node.type
+        if isinstance(field_type, ast.FieldAliasType):
+            aliased = self._enclosing_alias_expression(field_type.alias)
+            return self._known_decimal_scale(aliased) if aliased is not None else None
+        if not isinstance(field_type, ast.FieldType):
+            return None
+        projected = self._derived_column_expression(field_type)
+        if projected is not None:
+            return self._known_decimal_scale(projected)
+        database_field = field_type.resolve_database_field(self.context)
+        return database_field.scale if isinstance(database_field, DecimalDatabaseField) else None
+
+    def _enclosing_alias_expression(self, alias: str) -> ast.Expr | None:
+        for frame in reversed(self.stack):
+            if not isinstance(frame, ast.SelectQuery):
+                continue
+            for projection in frame.select:
+                if isinstance(projection, ast.Alias) and projection.alias == alias:
+                    return projection.expr
+        return None
+
+    def _derived_column_expression(self, field_type: ast.FieldType) -> ast.Expr | None:
+        table_type: ast.Type = field_type.table_type
+        if isinstance(table_type, ast.CTETableAliasType):
+            table_type = table_type.cte_table_type
+        if isinstance(table_type, (ast.CTETableType, ast.SelectQueryAliasType)):
+            table_type = table_type.select_query_type
+        while isinstance(table_type, ast.SelectSetQueryType) and table_type.types:
+            table_type = table_type.types[0]
+        if not isinstance(table_type, ast.SelectQueryType):
+            return None
+        return self._projected_expression(table_type, field_type.name)
 
     def _visit_multiply_decimal(self, node: ast.Call) -> str:
         if len(node.args) not in {2, 3}:
             self._invalid_function_arguments(node, "multiplyDecimal expects two values and an optional scale.")
-        scale_expr = node.args[2] if len(node.args) == 3 else None
-        if scale_expr is None:
-            operand_scales = [self._known_decimal_scale(arg) for arg in node.args]
-            if any(scale is None for scale in operand_scales):
-                self._unsupported(
-                    "TRINO_DECIMAL_SCALE_UNSUPPORTED",
-                    "multiplyDecimal requires a result scale when operand scales cannot be inferred in Trino mode.",
-                    node,
-                )
-            scale = max(scale for scale in operand_scales if scale is not None)
-        elif (
-            isinstance(scale_expr, ast.Constant)
-            and isinstance(scale_expr.value, int)
-            and not isinstance(scale_expr.value, bool)
-        ):
-            scale = scale_expr.value
-        else:
-            self._unsupported(
-                "TRINO_DECIMAL_SCALE_UNSUPPORTED",
-                "multiplyDecimal requires a constant result scale in Trino mode.",
-                node,
+        scale = self._call_decimal_scale(node)
+        if scale is None:
+            message = (
+                "multiplyDecimal requires a constant result scale in Trino mode."
+                if len(node.args) == 3
+                else "multiplyDecimal requires a result scale when operand scales cannot be inferred in Trino mode."
             )
+            self._unsupported("TRINO_DECIMAL_SCALE_UNSUPPORTED", message, node)
         if not 0 <= scale <= 38:
             self._unsupported(
                 "TRINO_DECIMAL_SCALE_UNSUPPORTED",
