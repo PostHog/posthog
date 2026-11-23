@@ -1,10 +1,13 @@
 """Thin client for the Attentive REST API endpoints used by the data warehouse source.
 
 Spec: https://docs.attentive.com/openapi/reference/
-Attentive's public API is write-oriented; the only endpoints this source needs
-are webhook management (`/v1/webhooks`) and the token probe (`/v2/me`).
+Attentive's public API is write-oriented; the endpoints this source needs are
+webhook management (`/v1/webhooks`), the token probe (`/v2/me`) and the segment
+list (`/v2/segments`).
 """
 
+import dataclasses
+from collections.abc import Iterator
 from typing import Any
 
 import requests
@@ -13,10 +16,12 @@ import structlog
 from products.warehouse_sources.sources.attentive.constants import (
     ATTENTIVE_API_ORIGIN,
     ATTENTIVE_V1_BASE_URL,
+    ATTENTIVE_V2_BASE_URL,
     RESOURCE_TO_ATTENTIVE_EVENT_TYPE,
 )
 from products.warehouse_sources.sources.sdk import (
     ExternalWebhookInfo,
+    ResumableSourceManager,
     WebhookCreationResult,
     WebhookDeletionResult,
     WebhookSyncResult,
@@ -26,6 +31,8 @@ from products.warehouse_sources.sources.sdk import (
 LOGGER = structlog.get_logger(__name__)
 
 WEBHOOKS_URL = f"{ATTENTIVE_V1_BASE_URL}/webhooks"
+SEGMENTS_URL = f"{ATTENTIVE_V2_BASE_URL}/segments"
+SEGMENTS_PAGE_SIZE = 1000
 REQUEST_TIMEOUT_SECONDS = 30
 
 API_KEY_REJECTED_ERROR = (
@@ -42,6 +49,19 @@ REQUEST_REJECTED_ERROR = (
     "Attentive, then reconnect."
 )
 UNREACHABLE_ERROR = "Could not reach Attentive. Check your network, then try again."
+SEGMENTS_PERMISSION_ERROR = (
+    "Your Attentive private app can't read segments. Grant it the Segments read permission under "
+    "Marketplace in Attentive, then sync the segments table again."
+)
+
+
+@dataclasses.dataclass
+class AttentiveResumeConfig:
+    cursor: str
+
+
+class AttentiveSegmentsPermissionError(Exception):
+    pass
 
 
 def _session(api_key: str) -> requests.Session:
@@ -278,3 +298,38 @@ def get_external_webhook_info(api_key: str, webhook_url: str) -> ExternalWebhook
         enabled_events=enabled_events,
         status="disabled" if existing.get("disabledAt") else "enabled",
     )
+
+
+def iter_segments(
+    api_key: str,
+    updated_since: str | None,
+    manager: ResumableSourceManager[AttentiveResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    session = _session(api_key)
+    resume = manager.load_state() if manager.can_resume() else None
+    cursor = resume.cursor if resume else None
+
+    while True:
+        params: dict[str, Any] = {"limit": SEGMENTS_PAGE_SIZE}
+        if updated_since is not None:
+            params["updatedSince"] = updated_since
+        if cursor:
+            params["cursor"] = cursor
+
+        response = session.get(SEGMENTS_URL, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
+        if response.status_code == 403:
+            raise AttentiveSegmentsPermissionError(SEGMENTS_PERMISSION_ERROR)
+        response.raise_for_status()
+
+        payload = response.json() or {}
+        segments = [segment for segment in payload.get("segments") or [] if isinstance(segment, dict)]
+        cursor = payload.get("cursor") if payload.get("hasMore") is not False else None
+
+        if cursor:
+            manager.save_state(AttentiveResumeConfig(cursor=cursor))
+        if segments:
+            yield segments
+        else:
+            manager.safe_point()
+        if not cursor:
+            return
