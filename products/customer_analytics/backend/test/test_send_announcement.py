@@ -16,7 +16,7 @@ from products.customer_analytics.backend.models import Announcement, Announcemen
 from products.customer_analytics.backend.tasks import send_announcement
 
 POST = "products.customer_analytics.backend.logic.announcements.post_support_message"
-CAPTURE = "products.customer_analytics.backend.logic.announcement_monitoring.ph_background_capture"
+CAPTURE = "products.customer_analytics.backend.logic.announcement_monitoring.ph_scoped_capture"
 
 
 class TestSendAnnouncement(BaseTest):
@@ -38,7 +38,8 @@ class TestSendAnnouncement(BaseTest):
         return AnnouncementDelivery.all_teams.get(announcement=announcement, slack_channel_id=channel_id)
 
     def _captured(self, mock_capture: MagicMock) -> dict[str, dict]:
-        return {c.kwargs["event"]: c.kwargs["properties"] for c in mock_capture.return_value.call_args_list}
+        capture = mock_capture.return_value.__enter__.return_value
+        return {c.kwargs["event"]: c.kwargs["properties"] for c in capture.call_args_list}
 
     @patch(POST)
     def test_all_channels_succeed(self, mock_post: MagicMock):
@@ -157,6 +158,8 @@ class TestSendAnnouncement(BaseTest):
         assert delivery["post_seconds"] >= 0
         send = events["customer_analytics_announcement_send"]
         assert (send["posted"], send["deferred"]) == (1, deferred)
+        mock_capture.assert_called_once_with()
+        mock_capture.return_value.__exit__.assert_called_once()
 
     @patch(POST)
     def test_rerun_does_not_repost_to_already_sent_channels(self, mock_post: MagicMock):
