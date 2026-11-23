@@ -397,8 +397,12 @@ def _read_targets(
         is_first_page = index > 0 or saved_offset == 0
         previous_page: set[str] = set()
         while True:
+            # A contact who leaves the list or changes moves every unread contact back, so each page starts a little
+            # before the last one ended and skips the contacts that page already returned.
+            overlap = mailchimp_client.PAGE_SIZE // 10 if previous_page else 0
+            request_offset = max(offset - overlap, 0)
             try:
-                request_offset, page = _page_after(client, target, offset, previous_page)
+                page = client.page(target.path, target.items_key, request_offset, dict(target.params))
             except MailchimpNotFound:
                 audience_id = str(target.details["audience"]["id"])
                 report = audience_id not in missing_audiences
@@ -406,10 +410,12 @@ def _read_targets(
                 save_missing = partial(_missing_audience, target) if report else lambda: SavedPage(imported=0)
                 yield ImportPage(processed=0, save=save_missing, checkpoint=after_target)
                 break
+            end = request_offset + len(page.items)
+            moved_on = end > offset
+            offset = max(offset, end)
+            more = moved_on and offset < page.total
             items = [item for item in page.items if _item_key(item) not in previous_page]
             previous_page = {_item_key(item) for item in page.items}
-            offset = request_offset + len(page.items)
-            more = bool(items) and offset < page.total
             yield ImportPage(
                 processed=len(items),
                 save=partial(save, target, items, is_first_page),
@@ -418,23 +424,6 @@ def _read_targets(
             is_first_page = False
             if not more:
                 break
-
-
-def _page_after(
-    client: MailchimpClient, target: _Target, offset: int, previous_page: set[str]
-) -> tuple[int, mailchimp_client.MailchimpPage]:
-    """The page after `offset`, starting early enough to overlap the previous page.
-
-    A contact who leaves the list or changes moves every unread contact back. Each page starts a tenth of a page
-    early, and starts a whole page earlier again until it overlaps the previous page, so no contact falls in between.
-    """
-    request_offset = max(offset - mailchimp_client.PAGE_SIZE // 10, 0) if previous_page else offset
-    while True:
-        page = client.page(target.path, target.items_key, request_offset, dict(target.params))
-        overlap = page.items[: offset - request_offset]
-        if request_offset in (0, offset) or any(_item_key(item) in previous_page for item in overlap):
-            return request_offset, page
-        request_offset = max(request_offset - mailchimp_client.PAGE_SIZE, 0)
 
 
 def _item_key(item: Mapping[str, Any]) -> str:
