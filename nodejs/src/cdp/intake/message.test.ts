@@ -33,6 +33,14 @@ const job = (overrides: Partial<CyclotronV2JobInit> = {}): CyclotronV2JobInit & 
 
 const wireValue = (message: unknown): Buffer => Buffer.from(JSON.stringify(message))
 
+const insertedFileBytes = (value: Buffer): number | null | undefined => {
+    const decoded = decodeIntakeMessage(value)
+    if (decoded.status !== 'decoded') {
+        throw new Error(`expected a decoded message, got ${decoded.status}`)
+    }
+    return intakeJobInit(decoded.message).fileBytes
+}
+
 const nested = (depth: number): unknown => parseJSON('{"x":'.repeat(depth) + '0' + '}'.repeat(depth))
 
 const validWireMessage = {
@@ -55,58 +63,38 @@ const validWireMessage = {
 }
 
 describe('intake message', () => {
-    it.each([
-        ['without files, with no file size field', undefined, validWireMessage],
-        ['without files, with a null size, with no file size field', null, validWireMessage],
-        [
-            'with files, with their size',
-            1000,
-            { ...validWireMessage, job: { ...validWireMessage.job, fileBytes: 1000 } },
-        ],
-        [
-            'with one empty file, with a size of zero',
-            0,
-            { ...validWireMessage, job: { ...validWireMessage.job, fileBytes: 0 } },
-        ],
-    ])(
-        'carries the job state as JSON, keyed and headed by the run, and decodes to the same job, for a send %s',
-        (_case, fileBytes, wire) => {
-            const encoded = encodeIntakeMessage({
-                kind: 'transactional-email',
-                fingerprint: 'abc123',
-                job: job({ fileBytes }),
-            })
+    it('carries the job state as JSON, keyed and headed by the run, and decodes to the same job', () => {
+        const encoded = encodeIntakeMessage({ kind: 'transactional-email', fingerprint: 'abc123', job: job() })
 
-            expect(encoded).toEqual({
-                status: 'encoded',
-                message: {
-                    key: RUN_ID,
-                    value: expect.any(Buffer),
-                    headers: {
-                        intake_version: '1',
-                        team_id: '7',
-                        run_kind: 'transactional-email',
-                        run_id: RUN_ID,
-                    },
+        expect(encoded).toEqual({
+            status: 'encoded',
+            message: {
+                key: RUN_ID,
+                value: expect.any(Buffer),
+                headers: {
+                    intake_version: '1',
+                    team_id: '7',
+                    run_kind: 'transactional-email',
+                    run_id: RUN_ID,
                 },
-            })
-            if (encoded.status !== 'encoded') {
-                throw new Error('expected an encoded message')
-            }
-            expect(parseJSON(encoded.message.value.toString())).toEqual(wire)
-
-            const decoded = decodeIntakeMessage(encoded.message.value)
-            if (decoded.status !== 'decoded') {
-                throw new Error(`expected a decoded message, got ${decoded.status}`)
-            }
-            expect(decoded.message.fingerprint).toBe('abc123')
-            expect(decoded.message.job.state?.state?.acceptedAt).toBe('2026-11-11T10:00:00.000Z')
-            const { state, ...rest } = intakeJobInit(decoded.message)
-            const { state: originalState, ...originalRest } = job()
-            expect(rest).toEqual({ ...originalRest, fileBytes: fileBytes ?? null })
-            expect(parseJSON(state!.toString())).toEqual(parseJSON(originalState!.toString()))
+            },
+        })
+        if (encoded.status !== 'encoded') {
+            throw new Error('expected an encoded message')
         }
-    )
+        expect(parseJSON(encoded.message.value.toString())).toEqual(validWireMessage)
+
+        const decoded = decodeIntakeMessage(encoded.message.value)
+        if (decoded.status !== 'decoded') {
+            throw new Error(`expected a decoded message, got ${decoded.status}`)
+        }
+        expect(decoded.message.fingerprint).toBe('abc123')
+        expect(decoded.message.job.state?.state?.acceptedAt).toBe('2026-11-11T10:00:00.000Z')
+        const { state, ...rest } = intakeJobInit(decoded.message)
+        const { state: originalState, ...originalRest } = job()
+        expect(rest).toEqual({ ...originalRest, fileBytes: null })
+        expect(parseJSON(state!.toString())).toEqual(parseJSON(originalState!.toString()))
+    })
 
     it('decodes a keyless webhook run, whose run id is the invocation id and carries no fingerprint', () => {
         const encoded = encodeIntakeMessage({
@@ -221,16 +209,39 @@ describe('intake message', () => {
     })
 
     it.each([
-        ['a send from a producer that does not write the file size, as one without files', undefined, null],
+        ['a send without files', undefined, null],
+        ['a send with files', 1000, 1000],
         ['a send whose only file is empty', 0, 0],
-    ])('reads the file size of %s', (_case, fileBytes, read) => {
-        const decoded = decodeIntakeMessage(
-            wireValue({ ...validWireMessage, job: { ...validWireMessage.job, fileBytes } })
-        )
-        if (decoded.status !== 'decoded') {
-            throw new Error(`expected a decoded message, got ${decoded.status}`)
+    ])('carries the file size of %s to the job the consumer inserts', (_case, fileBytes, inserted) => {
+        const encoded = encodeIntakeMessage({ kind: 'transactional-email', job: job({ fileBytes }) })
+        if (encoded.status !== 'encoded') {
+            throw new Error(`expected an encoded message, got ${encoded.status}`)
         }
 
-        expect(intakeJobInit(decoded.message).fileBytes).toBe(read)
+        expect(insertedFileBytes(encoded.message.value)).toBe(inserted)
+    })
+
+    it('reads a send from a producer that does not write the file size as one without files', () => {
+        expect(insertedFileBytes(wireValue(validWireMessage))).toBeNull()
+    })
+
+    it.each([
+        ['at the size limit', 0, 'encoded'],
+        ['one byte over the size limit', 1, 'too_large'],
+    ])('holds a send with files to the size limit of the same send without them: %s', (_case, overBytes, status) => {
+        const padded = (padding: number): CyclotronV2JobInit & { id: string } =>
+            job({
+                state: Buffer.from(JSON.stringify({ ...jobState, queueMetadata: { padding: 'x'.repeat(padding) } })),
+            })
+        const unpadded = encodeIntakeMessage({ kind: 'transactional-email', job: padded(0) })
+        if (unpadded.status !== 'encoded') {
+            throw new Error('expected an encoded message')
+        }
+        const sized = padded(INTAKE_MESSAGE_MAX_BYTES - unpadded.message.value.length + overBytes)
+
+        expect(encodeIntakeMessage({ kind: 'transactional-email', job: sized }).status).toBe(status)
+        expect(
+            encodeIntakeMessage({ kind: 'transactional-email', job: { ...sized, fileBytes: 10_000_000 } }).status
+        ).toBe(status)
     })
 })
