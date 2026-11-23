@@ -21,6 +21,7 @@ export {
     type CredenzaProps,
 } from './credenza'
 export { DataTable, type DataTableProps } from './data-table'
+export { Infotip, type InfotipProps } from './infotip'
 export {
     FilterCheckboxSubMenu,
     FilterClearItem,

@@ -98,6 +98,7 @@ Every menu-like list marks its active row the same way: the row that keyboard in
 | Credenza    | A Dialog on a wide viewport and a bottom Drawer on a phone, from one set of parts. Lives in `@posthog/quill-components`                 |
 | Popover     | Non-modal panel anchored to a trigger, with interactive content (filters, pickers)                                                      |
 | Tooltip     | Hover-only text hint; never interactive content, never essential information                                                            |
+| Infotip     | An info icon that explains the value beside it, on hover or click. Use it instead of a Tooltip on an info icon. In quill-components     |
 | Toast       | Async outcome notification (`toast.success({ title })`) — fire and forget                                                               |
 
 Toast vs Callout: a toast reports an outcome and goes away; a Callout stays in the layout next to the content it is about.
@@ -705,6 +706,8 @@ The arrow inherits the popup's border and background, so restyling the popover c
   {/* the arrow is 2px and accent-colored too */}
 </PopoverContent>
 ```
+
+Name the popup with `PopoverTitle` and describe it with `PopoverDescription`. Base UI points the popup's `aria-labelledby` and `aria-describedby` at them. `PopoverHeader` stacks the two.
 
 `PopoverContent` forwards `collisionAvoidance` to the positioner. Pass `fallbackAxisSide: 'none'` to keep a tall panel on its requested axis (e.g. below the trigger, flipping above only if it won't fit) instead of jumping beside the trigger when vertical space is tight: `collisionAvoidance={{ side: 'flip', align: 'shift', fallbackAxisSide: 'none' }}`.
 

@@ -6,6 +6,7 @@ Quick-reference for AI agents using `@posthog/quill-components` — composed com
 
 - `Credenza`, `CredenzaTrigger`, `CredenzaContent`, `CredenzaHeader`, `CredenzaTitle`, `CredenzaDescription`, `CredenzaBody`, `CredenzaFooter`, `CredenzaClose` — a `Dialog` on a wide viewport and a bottom `Drawer` on a phone, from one set of parts
 - `DataTable` — TanStack Table wired onto quill `Table` + `Pagination`, with an opt-in `selectable` checkbox variant
+- `Infotip` — an info icon button that explains the value next to it, on hover, click, keyboard and touch (a toggletip built from `Popover` + `Button`)
 - `FilterMenuTrigger`, `FilterRadioSubMenu`, `FilterCheckboxSubMenu`, `FilterSearchSubMenu`, `FilterSubMenu`, `FilterClearItem`, `filterSummary` — the parts of a list's one filter menu
 - `DateTimePicker` — calendar range picker with quick-range presets (`quickRanges`, `CUSTOM_RANGE`)
 - `DatePicker` — single-date picker (one calendar, optional time, no quick ranges)
@@ -40,6 +41,23 @@ Rules:
 - Write the footer as Cancel first, main action last. The dialog shows them in a row, with the main action on the right. The drawer stacks them full width, with the main action on top.
 - A change of mode remounts the popup and its parts, but never a `CredenzaTrigger`: the triggers attach to the mounted root through a shared handle. Focus goes back to the trigger that opened it, and any number of triggers works with no extra props.
 - Use `Dialog` or `Drawer` directly when the surface must be the same on every viewport.
+
+## Infotip
+
+```tsx
+<CardTitle className="flex items-center gap-1">
+  Average position
+  <Infotip label="About average position">Where your site appears among the cited sources. 1 is first.</Infotip>
+</CardTitle>
+```
+
+Rules:
+
+- Use `Infotip` for every icon-only info hint. Don't wrap an info icon in a `Tooltip`: a tooltip is hover-only, so touch users can't open it, and a click on it does nothing.
+- Hover opens it after `delay` (100ms by default). A click, Enter or Space opens it and keeps it open until Escape or a click outside, and focus then returns to the icon.
+- `label` is required. It names the icon button and the popup for screen readers, so name the value it explains ("About average position"), not "More info". The children are the popup's description.
+- Keep the content to short text, optionally with an inline link. It renders inside a `<p>`, so no block elements. Anything longer, or with controls, is a `Popover`.
+- `side` and `align` place the popup (top and center by default). `className` styles the icon button and `contentClassName` the popup.
 
 ## DataTable
 
@@ -226,7 +244,7 @@ Rules:
 - Supports `restingSubtitle`, `hoverChangeFromPreviousPoint`, `changeTooltip`, and `positiveColor`/`negativeColor` for user-configured pill colors; omit the color props to keep the semantic `Badge` variants.
 - `series` draws a multi-series sparkline (one line per series, the charts' `Series[]` shape) instead of the single `data` line. It's purely visual — the headline, hover and change pill still read `data`, so pass the numbers the tile should read (e.g. the per-index totals) as `data` alongside it; the types reject `series` without `data`. The single-line conveniences (`color`, `sparklineDashedFromIndex`) don't apply — set them per series.
 - `sparklineTooltip` is a render prop passed straight to the sparkline (off by default, since hover already scrubs the headline) — supply `(ctx) => <DefaultTooltip {...ctx} />` to also show a hover tooltip, e.g. the per-series breakdown behind a multi-series total.
-- Things `Metric` deliberately doesn't have props for — compose them yourself around it: a clickable tile (put the handler on the wrapping `Card`), a footer (a sibling node after `MetricSparkline`), an info icon next to the title (a `Tooltip` inside `MetricTitle`), and a loading state (render `Skeleton`s instead of the `Metric`).
+- Things `Metric` deliberately doesn't have props for — compose them yourself around it: a clickable tile (put the handler on the wrapping `Card`), a footer (a sibling node after `MetricSparkline`), an info icon next to the title (an `Infotip` inside `MetricTitle`), and a loading state (render `Skeleton`s instead of the `Metric`).
 
 ## Maintenance
 
