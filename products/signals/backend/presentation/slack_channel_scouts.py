@@ -15,19 +15,16 @@ from posthog.models import Team, User
 from posthog.permissions import APIScopePermission
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.signals.backend.models import SignalScoutConfig
-from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
-from products.signals.backend.scout_harness.create_access import can_create_scout
-from products.signals.backend.scout_harness.serializers import SignalScoutConfigSerializer
-from products.signals.backend.scout_harness.views import create_scout_with_generated_slug, scout_config_context
-from products.signals.backend.slack_channel_scouts import (
+from products.signals.backend.facade import api as signals_facade
+from products.signals.backend.facade.slack_channel_scouts import (
     MAX_SLACK_SCOUT_CHANNELS,
+    SLACK_SCOUT_NAME_MAX_LENGTH,
     SLACK_SCOUT_SOURCE_PRODUCT,
     SlackChannelSelectionError,
-    build_slack_scout_definition,
     list_slack_channel_sources,
-    select_slack_channels,
+    plan_slack_channel_scout,
 )
+from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 
 SLACK_SCOUT_STEER_MAX_LENGTH = 4000
 
@@ -55,7 +52,7 @@ class SlackScoutChannelSourcesSerializer(serializers.Serializer):
 
 class SlackChannelScoutCreateSerializer(serializers.Serializer):
     display_name = serializers.CharField(
-        max_length=SignalScoutConfig.MAX_DISPLAY_NAME_LENGTH,
+        max_length=SLACK_SCOUT_NAME_MAX_LENGTH,
         help_text="Name shown wherever people identify this scout. The scout's skill name is generated from it.",
     )
     source_id = serializers.UUIDField(help_text="Id of the Slack data warehouse source to read.")
@@ -94,7 +91,9 @@ class SlackChannelScoutCreateSerializer(serializers.Serializer):
 
 class SlackChannelScoutCreateResponseSerializer(serializers.Serializer):
     created = serializers.BooleanField(help_text="True when this request created the scout.")
-    config = SignalScoutConfigSerializer(help_text="The scout's config, with the Slack source recorded as its owner.")
+    skill_name = serializers.CharField(
+        help_text="The new scout's skill name, its permanent identifier. Its config records the Slack source as owner."
+    )
 
 
 class SlackChannelScoutViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -149,23 +148,23 @@ class SlackChannelScoutViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def create(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         team = self._canonical_team()
         user = cast(User, request.user)
-        if not can_create_scout(user, team):
-            raise exceptions.PermissionDenied("Creating a scout requires editor access to skills.")
         self._assert_can_read_sources(team)
         validated = request.validated_data
         source_id = str(validated["source_id"])
         try:
-            channels = select_slack_channels(
-                list_slack_channel_sources(team.id), source_id=source_id, channel_ids=validated["channel_ids"]
+            definition = plan_slack_channel_scout(
+                team_id=team.id,
+                source_id=source_id,
+                channel_ids=validated["channel_ids"],
+                steer=validated.get("steer", ""),
             )
-            definition = build_slack_scout_definition(channels=channels, steer=validated.get("steer", ""))
         except SlackChannelSelectionError as error:
             raise exceptions.ValidationError({"channel_ids": str(error)})
-
         config_options: dict[str, Any] = {"emit": validated["emit"], "precheck_query": definition.precheck_query}
         if validated.get("run_cron_schedule"):
             config_options["run_cron_schedule"] = validated["run_cron_schedule"]
-        outcome = create_scout_with_generated_slug(
+        # The facade checks the skill-authoring bar a scout needs, so this view only adds the warehouse read check.
+        result = signals_facade.create_scout_for_source(
             team=team,
             user=user,
             display_name=validated["display_name"],
@@ -182,7 +181,7 @@ class SlackChannelScoutViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             user,
             "inbox_slack_channel_scout_created",
             {
-                "channel_count": len(channels),
+                "channel_count": len(dict.fromkeys(validated["channel_ids"])),
                 "has_steer": bool(validated.get("steer", "").strip()),
                 "has_cron_schedule": bool(validated.get("run_cron_schedule")),
                 "emit": validated["emit"],
@@ -192,8 +191,7 @@ class SlackChannelScoutViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
         return Response(
             SlackChannelScoutCreateResponseSerializer(
-                {"created": outcome.created, "config": outcome.config},
-                context=scout_config_context(team, [outcome.config.skill_name], request),
+                {"created": result.created, "skill_name": result.config.skill_name}
             ).data,
             status=status.HTTP_201_CREATED,
         )

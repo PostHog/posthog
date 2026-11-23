@@ -72,7 +72,7 @@ class TestSlackChannelScoutsAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
-        config = SignalScoutConfig.objects.get(team=self.team, skill_name=response.json()["config"]["skill_name"])
+        config = SignalScoutConfig.objects.get(team=self.team, skill_name=response.json()["skill_name"])
         assert (config.source_product, config.source_id) == ("slack", str(source.id))
         assert config.display_name == "Support channels"
         assert config.emit is False

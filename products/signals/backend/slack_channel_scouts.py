@@ -8,18 +8,16 @@ The picked channels live in the scout's own text, so a person can read and edit 
 instruction. The config records the warehouse source the scout reads as its `(source_product, source_id)` owner.
 """
 
-from django.db.models import Q
-
-from posthog.hogql.database.database import get_data_warehouse_table_name
-
 from posthog.dataclasses import frozen
 
 from products.signals.backend.enums import SignalSourceProduct
-from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.signals.backend.models import SignalScoutConfig
+from products.warehouse_sources.backend.facade import api as warehouse_facade
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 SLACK_SCOUT_SOURCE_PRODUCT = SignalSourceProduct.SLACK.value
 MAX_SLACK_SCOUT_CHANNELS = 20
+SLACK_SCOUT_NAME_MAX_LENGTH = SignalScoutConfig.MAX_DISPLAY_NAME_LENGTH
 # Tables every Slack source syncs. They are not channels.
 _FIXED_SLACK_TABLES = frozenset({"$channels", "$users"})
 
@@ -51,33 +49,36 @@ class SlackScoutDefinition:
 
 def list_slack_channel_sources(team_id: int) -> list[SlackChannelSource]:
     """The team's Slack warehouse sources, each with the channels it syncs, ordered by channel name."""
-    sources = list(
-        ExternalDataSource.objects.filter(team_id=team_id, source_type=ExternalDataSourceType.SLACK)
-        .exclude(deleted=True)
-        .order_by("created_at")
+    sources = sorted(
+        (
+            source
+            for source in warehouse_facade.list_sources(team_id)
+            if source.source_type == ExternalDataSourceType.SLACK
+        ),
+        key=lambda source: source.created_at,
     )
-    schemas = (
-        ExternalDataSchema.objects.filter(team_id=team_id, source__in=sources, should_sync=True)
-        .exclude(deleted=True)
-        .exclude(name__in=_FIXED_SLACK_TABLES)
-        .exclude(Q(table__isnull=False) & Q(table__deleted=True))
-        .select_related("table")
-    )
-    channels_by_source: dict[str, list[SlackChannel]] = {str(source.id): [] for source in sources}
-    sources_by_id = {str(source.id): source for source in sources}
-    for schema in schemas:
-        source = sources_by_id[str(schema.source_id)]
-        channels_by_source[str(source.id)].append(
-            SlackChannel(
-                id=schema.name,
-                name=schema.label or schema.name,
-                table_name=get_data_warehouse_table_name(source, schema.table.name) if schema.table else None,
+    if not sources:
+        return []
+    # Only a table that is still queryable counts as synced, so a deleted schema or table never reaches the prompt.
+    queryable_tables = warehouse_facade.all_queryable_table_keys(team_id)
+    result: list[SlackChannelSource] = []
+    for source in sources:
+        channels = []
+        for schema in warehouse_facade.list_schemas_for_source(source.id, team_id):
+            if not schema.should_sync or schema.name in _FIXED_SLACK_TABLES:
+                continue
+            table = queryable_tables.get(schema.table_id) if schema.table_id else None
+            channels.append(
+                SlackChannel(
+                    id=schema.name,
+                    name=schema.label or schema.name,
+                    table_name=table.queryable_key if table else None,
+                )
             )
+        result.append(
+            SlackChannelSource(id=str(source.id), channels=sorted(channels, key=lambda channel: channel.name.lower()))
         )
-    return [
-        SlackChannelSource(id=source_id, channels=sorted(channels, key=lambda channel: channel.name.lower()))
-        for source_id, channels in channels_by_source.items()
-    ]
+    return result
 
 
 def select_slack_channels(
@@ -146,3 +147,11 @@ message, `user` is the Slack user id of the author, and `thread_ts` groups the r
         body=body,
         precheck_query=precheck_query,
     )
+
+
+def plan_slack_channel_scout(
+    *, team_id: int, source_id: str, channel_ids: list[str], steer: str
+) -> SlackScoutDefinition:
+    """The scout text and pre-check for the picked channels of one of the team's Slack sources."""
+    channels = select_slack_channels(list_slack_channel_sources(team_id), source_id=source_id, channel_ids=channel_ids)
+    return build_slack_scout_definition(channels=channels, steer=steer)
