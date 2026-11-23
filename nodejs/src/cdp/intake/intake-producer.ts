@@ -15,7 +15,7 @@ import {
 import { KafkaMskCdpIntakeProducerEnvConfig } from '../outputs/producers'
 import { encodeJob } from '../services/cyclotron-v2/job-codec'
 import { CyclotronJobInvocation } from '../types'
-import { RunKind, encodeIntakeMessage } from './message'
+import { EncodedIntakeMessage, RunKind, encodeIntakeMessage } from './message'
 
 export type IntakeMode = 'off' | 'shadow' | 'async'
 export type IntakeCluster = 'warpstream' | 'msk'
@@ -97,6 +97,15 @@ export type IntakeRun = {
     reply?: Record<string, unknown>
 }
 
+export type EncodedIntakeRun = {
+    kind: RunKind
+    mode: IntakeMode
+    cluster: IntakeCluster
+    teamId: number
+    runId: string
+    message: EncodedIntakeMessage
+}
+
 export class IntakeProducer {
     constructor(
         private outputs: IngestionOutputs<IntakeOutput>,
@@ -106,11 +115,17 @@ export class IntakeProducer {
         private clusterOf: (teamId: number) => IntakeCluster = () => 'warpstream'
     ) {}
 
-    async produce(
+    async produce(run: IntakeRun, mode: IntakeMode, settlement?: PublishSettlement): Promise<IntakeProduceOutcome> {
+        const encoded = this.encode(run, mode)
+        return typeof encoded === 'string' ? encoded : this.publish(encoded, settlement)
+    }
+
+    // Encoding seals and serializes on the event loop, so a caller with a deadline encodes all its runs, checks its
+    // clock, and only then publishes them.
+    encode(
         { kind, invocation, fingerprint, reply }: IntakeRun,
-        mode: IntakeMode,
-        settlement?: PublishSettlement
-    ): Promise<IntakeProduceOutcome> {
+        mode: IntakeMode
+    ): EncodedIntakeRun | 'too_large' | 'invalid' {
         const cluster = this.clusterOf(invocation.teamId)
         const encoded = encodeIntakeMessage({
             kind,
@@ -123,9 +138,16 @@ export class IntakeProducer {
             launchesCounter.labels({ kind, mode, outcome: encoded.status, cluster }).inc()
             return encoded.status
         }
+        return { kind, mode, cluster, teamId: invocation.teamId, runId: invocation.id, message: encoded.message }
+    }
+
+    async publish(
+        { kind, mode, cluster, teamId, runId, message }: EncodedIntakeRun,
+        settlement?: PublishSettlement
+    ): Promise<'acked' | 'unacked'> {
         const startedAt = performance.now()
         try {
-            await this.withinDeadline(this.outputs.produce(OUTPUT_OF[cluster][kind], encoded.message), settlement)
+            await this.withinDeadline(this.outputs.produce(OUTPUT_OF[cluster][kind], message), settlement)
             ackMs.labels({ kind, cluster }).observe(performance.now() - startedAt)
             launchesCounter.labels({ kind, mode, outcome: 'acked', cluster }).inc()
             return 'acked'
@@ -134,8 +156,8 @@ export class IntakeProducer {
             logger.warn('[CdpIntake] An intake produce got no ack', {
                 kind,
                 cluster,
-                team_id: invocation.teamId,
-                run_id: invocation.id,
+                team_id: teamId,
+                run_id: runId,
                 error: error instanceof Error ? error.message : String(error),
             })
             return 'unacked'

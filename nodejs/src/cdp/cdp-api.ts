@@ -1858,8 +1858,11 @@ export class CdpApi {
         return res.status(status).json(body)
     }
 
+    private refusalDeadline?: () => Promise<void>
+
     private transactionalSendsForRequest(): TransactionalSends {
         return new TransactionalSends({
+            refusalDeadline: this.refusalDeadline,
             siteUrl: this.config.SITE_URL ?? 'http://localhost:8000',
             encryptedFields: this.fingerprintSigner,
             runIntake: new RunIntake({

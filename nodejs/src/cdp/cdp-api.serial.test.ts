@@ -15,6 +15,7 @@ import supertest from 'supertest'
 import express from 'ultimate-express'
 import { version as uuidVersion } from 'uuid'
 
+import * as intakeMessage from '~/cdp/intake/message'
 import { keyedRunId } from '~/cdp/intake/run-intake'
 import { CyclotronInputType } from '~/cdp/schema/cyclotron'
 import { HogFlow } from '~/cdp/schema/hogflow'
@@ -5297,6 +5298,35 @@ describe('CDP API', () => {
                 )
                 return { suppressed, unreachable: recipient(`user@${noMailDomain}`) }
             }
+            const variablesOf = (records: Buffer[]): Record<string, unknown> =>
+                Object.fromEntries(
+                    records.map((value) => {
+                        const { job } = parseJSON(value.toString())
+                        return [job.id, job.state.state.variables]
+                    })
+                )
+            let releaseStalledReads = () => {}
+            const stallSuppressionReads = () => {
+                const postgres = api['emailSuppressionService']['postgres']
+                const query = postgres.query.bind(postgres)
+                let reachedRead!: () => void
+                const reached = new Promise<void>((resolve) => (reachedRead = resolve))
+                const held: (() => void)[] = []
+                let holding = true
+                jest.spyOn(postgres, 'query').mockImplementation(((...args: Parameters<typeof query>) => {
+                    if (!holding || !String(args[1]).includes('blocks_transactional')) {
+                        return query(...args)
+                    }
+                    reachedRead()
+                    return new Promise((resolve, reject) => held.push(() => query(...args).then(resolve, reject)))
+                }) as typeof postgres.query)
+                const release = () => {
+                    holding = false
+                    held.splice(0).forEach((read) => read())
+                }
+                releaseStalledReads = release
+                return { reached, release }
+            }
             const setIntakeModes = ({ shadow = '', async = '' }: { shadow?: string; async?: string }) => {
                 api['config'].CDP_INTAKE_KAFKA_SHADOW_TEAMS = shadow
                 api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = async
@@ -5311,6 +5341,8 @@ describe('CDP API', () => {
 
             afterEach(() => {
                 setIntakeModes({})
+                releaseStalledReads()
+                api['refusalDeadline'] = undefined
                 // The team outlives each test, so its cached workflows config would carry a suspension into the next one.
                 api['teamWorkflowsConfigService']['lazyLoader'].markForRefresh(String(team.id))
             })
@@ -5354,21 +5386,56 @@ describe('CDP API', () => {
                     ])
                 )
                 expect(intakeRecords()).toHaveLength(2)
+                expect(variablesOf(intakeRecords())).toEqual({
+                    [runIdOf(recipients[0])]: { name: 'Ada' },
+                    [runIdOf(recipients[3])]: { name: 'there' },
+                })
                 expect(await storedRuns()).toEqual([])
+                const refusedRows = (refused: (typeof recipients)[number], reason: string) => {
+                    const row = {
+                        team_id: team.id,
+                        message_id: runIdOf(refused),
+                        recipient: refused.to,
+                        function_id: hogFlow.id,
+                    }
+                    return [
+                        expect.objectContaining({ ...row, status: 'queued' }),
+                        expect.objectContaining({ ...row, status: 'failed', reason }),
+                    ]
+                }
+                // An address the request schema refuses gets no row, as on a single send.
+                expect(emailStatusRows()).toEqual(
+                    expect.arrayContaining([
+                        ...refusedRows(suppressed, 'recipient_suppressed'),
+                        ...refusedRows(unreachable, 'recipient_unreachable'),
+                    ])
+                )
+                expect(emailStatusRows()).toHaveLength(4)
             })
 
-            it('publishes every recipient for the email worker to check when the suppression lookup does not answer in time', async () => {
+            it('refuses the recipients whose lookups answered and publishes the rest when the suppression read does not answer in time', async () => {
                 const { suppressed, unreachable } = await refusableRecipients()
-                jest.spyOn(api['emailSuppressionService'], 'isKnownSuppressed').mockReturnValue(new Promise(() => {}))
-                const recipients = [suppressed, unreachable, recipient('ada@example.com')]
+                const sendable = recipient(`ada-${new UUIDT().toString()}@example.com`)
+                const read = stallSuppressionReads()
+                // The time runs out once the suppression read hangs, after the mail server lookups answered.
+                api['refusalDeadline'] = () => read.reached.then(() => new Promise<void>((done) => setImmediate(done)))
 
-                const res = await sendBatch(TEMPLATE, { variables: body.variables, recipients })
+                const res = await sendBatch(TEMPLATE, {
+                    variables: body.variables,
+                    recipients: [suppressed, unreachable, sendable],
+                })
+                read.release()
 
-                expect(res.body.results).toEqual(recipients.map((r) => ({ status: 202, body: queuedAs(runIdOf(r)) })))
-                expect(intakeRunsOf(intakeRecords()).map(({ id }) => id)).toEqual(
-                    expect.arrayContaining(recipients.map(runIdOf))
-                )
-                expect(intakeRecords()).toHaveLength(3)
+                expect(res.body.results).toEqual([
+                    { status: 202, body: queuedAs(runIdOf(suppressed)) },
+                    { status: 422, body: { error: 'recipient_unreachable', invocation_id: runIdOf(unreachable) } },
+                    { status: 202, body: queuedAs(runIdOf(sendable)) },
+                ])
+                expect(
+                    intakeRunsOf(intakeRecords())
+                        .map(({ id }) => id)
+                        .sort()
+                ).toEqual([runIdOf(suppressed), runIdOf(sendable)].sort())
             })
 
             it('replays a recipient whose key a single send queued, suppressed since or not, and refuses one whose key it used for other data', async () => {
@@ -5620,24 +5687,57 @@ describe('CDP API', () => {
                 expect(intakeRecords()).toEqual([])
             })
 
-            it('answers 503 and publishes nothing when the batch reaches its publish after the deadline', async () => {
-                const realNow = performance.now.bind(performance)
-                let skippedMs = 0
-                jest.spyOn(performance, 'now').mockImplementation(() => realNow() + skippedMs)
-                const queue = api['hogflowQueue']
-                const findIdempotencyKeys = queue.findIdempotencyKeys.bind(queue)
-                jest.spyOn(queue, 'findIdempotencyKeys').mockImplementation((...args) => {
-                    skippedMs = BATCH_PUBLISH_DEADLINE_MS
-                    return findIdempotencyKeys(...args)
-                })
+            it.each([
+                [
+                    'its claim lookup',
+                    () => api['hogflowQueue'] as unknown as Record<string, (...args: unknown[]) => unknown>,
+                    'findIdempotencyKeys',
+                ],
+                [
+                    'encoding its records',
+                    () => intakeMessage as unknown as Record<string, (...args: unknown[]) => unknown>,
+                    'encodeIntakeMessage',
+                ],
+            ] as const)(
+                'answers 503 and publishes nothing when the batch passes its publish deadline during %s',
+                async (_stage, ownerOf, method) => {
+                    const realNow = performance.now.bind(performance)
+                    let skippedMs = 0
+                    jest.spyOn(performance, 'now').mockImplementation(() => realNow() + skippedMs)
+                    const owner = ownerOf()
+                    const original = owner[method].bind(owner)
+                    jest.spyOn(owner, method).mockImplementation((...args: unknown[]) => {
+                        skippedMs = BATCH_PUBLISH_DEADLINE_MS
+                        return original(...args)
+                    })
 
-                const res = await sendBatch(TEMPLATE, {
-                    variables: body.variables,
-                    recipients: [recipient('ada@example.com')],
-                })
+                    const res = await sendBatch(TEMPLATE, {
+                        variables: body.variables,
+                        recipients: [recipient('ada@example.com'), recipient('bo@example.com')],
+                    })
 
-                expect([res.status, res.body]).toEqual([503, { error: 'deadline_exceeded' }])
-                expect(intakeRecords()).toEqual([])
+                    expect([res.status, res.body]).toEqual([503, { error: 'deadline_exceeded' }])
+                    expect(intakeRecords()).toEqual([])
+                }
+            )
+
+            it('answers each recipient with its own broker result when one ack fails and another succeeds', async () => {
+                const [unacked, acked] = [recipient('ada@example.com'), recipient('bo@example.com')]
+                const outputs = api['outputs']
+                // The status rows' spy already wraps this instance's method, so the pass-through calls the class's own.
+                const produce = Object.getPrototypeOf(outputs).produce as typeof outputs.produce
+                jest.spyOn(outputs, 'produce').mockImplementation(((...args: Parameters<typeof produce>) =>
+                    args[1].key === runIdOf(unacked)
+                        ? Promise.reject(new Error('Broker: Request timed out'))
+                        : produce.apply(outputs, args)) as typeof outputs.produce)
+
+                const res = await sendBatch(TEMPLATE, { variables: body.variables, recipients: [unacked, acked] })
+
+                expect(res.body.results).toEqual([
+                    { status: 503, body: expect.objectContaining({ error: 'intake_unavailable' }) },
+                    { status: 202, body: queuedAs(runIdOf(acked)) },
+                ])
+                expect(intakeRunsOf(intakeRecords()).map(({ id }) => id)).toEqual([runIdOf(acked)])
             })
 
             it('answers each recipient on its own when one is too large for the intake topic', async () => {
@@ -5723,19 +5823,30 @@ describe('CDP API', () => {
                     )
                 })
 
-                it('refuses a batch over the pod cap with 503 and frees its admission at the answer', async () => {
-                    const { app: full } = await servedWith({ CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS: 0 })
+                it('refuses with 503 a batch that arrives while another holds the pod cap, and frees the slot at the answer', async () => {
+                    const { app: off } = await servedWith({ CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS: 0 })
                     const { app: one } = await servedWith({ CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS: 1 })
+                    const pod = served[served.length - 1].cdpApi
+                    const read = stallSuppressionReads()
+                    let expire!: () => void
+                    pod['refusalDeadline'] = () => new Promise<void>((done) => (expire = done))
+                    const holder = recipient(`ada-${new UUIDT().toString()}@example.com`)
 
-                    const refused = await sendBatchTo(full, TEMPLATE, batchOf(recipient('ada@example.com')))
-                    const first = await sendBatchTo(one, TEMPLATE, batchOf(recipient('bo@example.com')))
-                    const second = await sendBatchTo(one, TEMPLATE, batchOf(recipient('cy@example.com')))
+                    const switchedOff = await sendBatchTo(off, TEMPLATE, batchOf(recipient('bo@example.com')))
+                    const first = sendBatchTo(one, TEMPLATE, batchOf(holder)).then((answer) => answer)
+                    await read.reached
+                    const overlapping = await sendBatchTo(one, TEMPLATE, batchOf(recipient('cy@example.com')))
+                    expire()
+                    const held = await first
+                    read.release()
+                    const after = await sendBatchTo(one, TEMPLATE, batchOf(recipient('di@example.com')))
 
-                    expect([refused.status, refused.body]).toEqual([503, { error: 'over_capacity' }])
-                    expect([first.status, second.status]).toEqual([200, 200])
+                    expect([switchedOff.status, switchedOff.body]).toEqual([503, { error: 'over_capacity' }])
+                    expect([overlapping.status, overlapping.body]).toEqual([503, { error: 'over_capacity' }])
+                    expect([held.status, after.status]).toEqual([200, 200])
                     expect(intakeRunsOf(intakeRecords()).map(({ distinctId }) => distinctId)).toEqual([
-                        'person-bo@example.com',
-                        'person-cy@example.com',
+                        `person-${holder.to}`,
+                        'person-di@example.com',
                     ])
                 })
 

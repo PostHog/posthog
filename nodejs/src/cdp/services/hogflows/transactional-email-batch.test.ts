@@ -1,3 +1,5 @@
+import { parseJSON } from '~/common/utils/json-parse'
+
 import {
     BATCH_COPIED_BYTES_MAX,
     BATCH_COPIED_NODES_MAX,
@@ -66,14 +68,6 @@ describe('transactional email batch', () => {
             variables: { a: { b: Array.from({ length: BATCH_COPIED_NODES_MAX / 2 - 2 }, (_, i) => i) } },
             recipients: [recipient('ada', own), recipient('bo')],
         })
-        const unwalkable = new Proxy(
-            {},
-            {
-                ownKeys: () => {
-                    throw new Error('walked an element past the node limit')
-                },
-            }
-        )
         it.each([
             {
                 batch: 'shared variables nested to the depth limit',
@@ -95,11 +89,15 @@ describe('transactional email batch', () => {
             { batch: 'nested keys and elements at the node limit', body: nodesTo({}), exceeds: false },
             { batch: 'nested keys and elements one node over the limit', body: nodesTo({ c: 0 }), exceeds: true },
             {
-                batch: 'a list wider than the node limit, without walking its elements',
-                body: {
-                    variables: { a: Array(BATCH_COPIED_NODES_MAX + 1).fill(unwalkable) },
-                    recipients: [recipient('ada')],
-                },
+                batch: 'a list one element wider than the node limit, parsed as the route parses it',
+                body: TemplateBatchRequestSchema.parse(
+                    parseJSON(
+                        JSON.stringify({
+                            variables: { a: Array(BATCH_COPIED_NODES_MAX + 1).fill({}) },
+                            recipients: [recipient('ada')],
+                        })
+                    )
+                ),
                 exceeds: true,
             },
             {
