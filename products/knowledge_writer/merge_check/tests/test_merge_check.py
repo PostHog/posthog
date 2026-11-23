@@ -31,7 +31,7 @@ from products.knowledge_writer.merge_check.facts import (
 )
 from products.knowledge_writer.merge_check.gather import DocsPage, docs_content_root
 from products.knowledge_writer.merge_check.judge import JudgeVerdict
-from products.knowledge_writer.merge_check.sources import LandedChange
+from products.knowledge_writer.merge_check.sources import LandedChange, read_page_sources
 
 COMPONENT_PATH = "products/feature_flags/frontend/FlagBanner.tsx"
 DIFF_QUOTE = "showLegacyRollout = false"
@@ -660,3 +660,24 @@ def test_a_merge_into_a_branch_that_never_reached_the_default_branch_is_retried_
     report = check_merge(commit_sha, github, judge_returning_malformed_output(), is_final_attempt=True)
 
     assert (report.needs_docs, report.reason) == (False, "not_on_default_branch")
+
+
+def test_a_diff_path_cannot_read_outside_the_repository_contents() -> None:
+    requested_paths: list[str] = []
+
+    class RecordingGitHub:
+        def api_request(self, method: str, path: str, **_request: object) -> requests.Response:
+            requested_paths.append(path)
+            response = requests.Response()
+            response.status_code = 200
+            response._content = b"text"
+            return response
+
+    traversal_paths = ["%2e%2e/%2e%2e/orgs/PostHog", "docs/../../orgs/PostHog", "posthog/models/team.py"]
+    read_page_sources(
+        RecordingGitHub(), "PostHog/posthog", {path: path for path in traversal_paths}, docs_commit_sha=None
+    )
+    assert requested_paths == [
+        "/repos/PostHog/posthog/contents/%252e%252e/%252e%252e/orgs/PostHog",
+        "/repos/PostHog/posthog/contents/posthog/models/team.py",
+    ]

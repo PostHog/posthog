@@ -124,8 +124,28 @@ SOURCE_DIFF = (
     "diff --git a/posthog/session_recordings/retention.py b/posthog/session_recordings/retention.py\n"
     '+    """Retention presets keep recordings for 90 days."""\n'
 )
+SOURCE_FILE_TEXT = 'RETENTION_PRESETS = ("30 days", "90 days")  # Presets apply to every project in the team.\n'
+UNCHANGED_SOURCE_LINE_CLAIM = "Presets apply to every project in the team."
 GROUNDING_DID_NOT_RUN = "Grounding did not run"
-SUPPORTED_QUOTES = {NEW_PAGE_HEADING: "Retention presets keep", NEW_PAGE_LINE: "keep recordings for 90 days"}
+NUMBERED_HEADING = "## Keep recordings for 90 days"
+SUPPORTED_QUOTES = {
+    NEW_PAGE_LINE: "keep recordings for 90 days",
+    UNCHANGED_SOURCE_LINE_CLAIM: "Presets apply to every project",
+}
+STRUCTURED_NEW_PAGE_PATCH = "\n".join(
+    [
+        "@@ -0,0 +1,9 @@",
+        "+---",
+        "+title: Retention presets",
+        "+sidebar: Docs",
+        "+---",
+        '+import { CalloutBox } from "components/Docs/CalloutBox"',
+        "+<RetentionPresetsIntro />",
+        "+## Pick a preset",
+        f"+{NUMBERED_HEADING}",
+        f"+{NEW_PAGE_LINE}",
+    ]
+)
 
 COMMIT_URL = f"https://github.com/PostHog/posthog/commit/{'a' * 40}"
 OPENED_PULL_REQUEST_NUMBER = 9
@@ -312,6 +332,8 @@ class DocsGitHub:
                 raise self.lookup_error
             is_published = any(f"/docs/published/docs/{page}." in path for page in self.published_page_paths)
             return MagicMock(status_code=200 if is_published else 404)
+        if path.startswith("/repos/PostHog/posthog/contents/"):
+            return MagicMock(status_code=200, text=SOURCE_FILE_TEXT)
         if path.endswith(f"/pulls/{OPENED_PULL_REQUEST_NUMBER}"):
             return _replied(
                 {"number": OPENED_PULL_REQUEST_NUMBER, "requested_reviewers": self.requested_logins_payload()}
@@ -786,10 +808,10 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
             (None, "review_request_failed", 422),
             NEW_PAGE_AND_UNROUTED_PAGE_FILES,
             None,
-            {NEW_PAGE_HEADING: "Retention presets last forever", NEW_PAGE_LINE: "github.com/PostHog/posthog/pull"},
+            {NEW_PAGE_LINE: "github.com/PostHog/posthog/pull"},
             True,
-            [NEW_PAGE_HEADING, NEW_PAGE_LINE, SHARING_PAGE_PATH],
-            (True, [NEW_PAGE_HEADING, NEW_PAGE_LINE], [SHARING_PAGE_PATH], []),
+            [NEW_PAGE_LINE, SHARING_PAGE_PATH],
+            (True, [NEW_PAGE_LINE], [SHARING_PAGE_PATH], []),
             id="failed_request_is_recorded_and_unquoted_lines_and_an_unrouted_page_open_a_draft",
         ),
         pytest.param(
@@ -1016,19 +1038,26 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
     ) == expected_review
 
 
+@pytest.mark.parametrize(
+    "page_patch, expected_unsupported_lines",
+    [
+        pytest.param(STRUCTURED_NEW_PAGE_PATCH, (NUMBERED_HEADING,), id="without_sending_page_structure"),
+        pytest.param(f"+{UNCHANGED_SOURCE_LINE_CLAIM}", (), id="against_unchanged_lines_of_touched_files"),
+    ],
+)
 @pytest.mark.django_db
-def test_a_source_owner_without_a_github_integration_is_grounded_through_the_docs_repository_integration(
-    team, monkeypatch
+def test_a_source_owner_without_a_github_integration_is_grounded(
+    team, monkeypatch, page_patch: str, expected_unsupported_lines: tuple[str, ...]
 ) -> None:
     Integration.objects.create(
         team=team, kind="github", integration_id="31338", config={"account": {"name": "posthog-docs"}}
     )
     monkeypatch.setattr(GROUNDING_GATEWAY, _grounding_gateway(SUPPORTED_QUOTES))
     source = SourceChange(repository="PostHog/posthog", commit_sha="a" * 40)
-    added_page = {"filename": NEW_PAGE_PATH, "patch": f"+{NEW_PAGE_HEADING}\n+{NEW_PAGE_LINE}"}
+    added_page = {"filename": NEW_PAGE_PATH, "patch": page_patch}
     with patch(GITHUB_REQUEST, side_effect=DocsGitHub()):
         grounding = ground_draft(source_github(team.id, source, "posthog-docs/posthog.com"), source, [added_page])
-    assert (grounding.ran, grounding.unsupported_lines) == (True, ())
+    assert (grounding.ran, grounding.unsupported_lines) == (True, expected_unsupported_lines)
 
 
 @pytest.mark.django_db
