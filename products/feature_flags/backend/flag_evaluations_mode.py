@@ -100,26 +100,33 @@ class RecordedHistory:
     before: FlagEvaluationsConfig
     # The settings after the last run that changed it.
     after: FlagEvaluationsConfig
-    # False when a record does not start from the settings the previous record ended at. Something outside the runs
-    # then changed the organization between two of them.
+    # False when a record starts from settings that no earlier record of the organization started or ended at.
+    # Something outside the runs then changed the organization between two of them.
     unbroken: bool
 
 
 def collapse_recorded_changes(changes: Iterable[RecordedChange]) -> dict[UUID, RecordedHistory]:
     """The history of each organization, in the order the records first name them. Records are in the order the runs
-    appended them."""
+    appended them.
+
+    A record may start from any settings the organization's earlier records reached, not only from the last one. A
+    chunk writes its lines before it commits, so a chunk that never committed leaves records that the rerun repeats.
+    A restore between two runs on the same file also returns the organization to settings an earlier record holds.
+    """
     histories: dict[UUID, RecordedHistory] = {}
+    reached: dict[UUID, set[FlagEvaluationsConfig]] = {}
     for change in changes:
         previous = histories.get(change.organization_id)
-        histories[change.organization_id] = (
-            RecordedHistory(before=change.before, after=change.after, unbroken=True)
-            if previous is None
-            else RecordedHistory(
-                before=previous.before,
-                after=change.after,
-                unbroken=previous.unbroken and previous.after == change.before,
-            )
+        if previous is None:
+            histories[change.organization_id] = RecordedHistory(before=change.before, after=change.after, unbroken=True)
+            reached[change.organization_id] = {change.before, change.after}
+            continue
+        histories[change.organization_id] = RecordedHistory(
+            before=previous.before,
+            after=change.after,
+            unbroken=previous.unbroken and change.before in reached[change.organization_id],
         )
+        reached[change.organization_id].add(change.after)
     return histories
 
 
@@ -344,11 +351,16 @@ def set_organizations_flag_evaluations_mode(
     `keep_writing_flag_calls_to_events` applies only to FLAG_EVALUATIONS_ONLY. Ingestion then keeps writing
     $feature_flag_called to events, and the readers behave as on FLAG_EVALUATIONS_ONLY. Any other mode clears it.
 
-    Opens no transaction. A caller that must apply the whole list or none of it wraps the call.
+    Opens no transaction. Unless `dry_run` is set, the caller wraps the call in one, because the call locks the
+    organizations' rows until the transaction ends.
     """
     organization_ids = [organization.id for organization in organizations]
     if len(set(organization_ids)) != len(organization_ids):
         raise ValueError("Each organization must appear once")
+    if not dry_run:
+        # The lock holds each row at the config the read reports, so a --write-changed-ids record of that config is
+        # the one the write replaced. A row that does not exist yet has nothing to lock.
+        _lock_organization_configs(organization_ids)
     current_configs = get_organization_flag_evaluations_configs(organization_ids)
     keeps_events_writes = keep_writing_flag_calls_to_events and mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
     team_counts = dict(

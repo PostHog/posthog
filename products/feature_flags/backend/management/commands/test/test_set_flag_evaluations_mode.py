@@ -87,8 +87,8 @@ class TestSetFlagEvaluationsMode(BaseTest):
         path.write_text("".join(f"{line}\n" for line in lines))
         return str(path)
 
-    def _file_locked_by_another_run(self) -> str:
-        path = self._ids_file()
+    def _file_locked_by_another_run(self, *lines: object) -> str:
+        path = self._ids_file(*lines)
         file = open(path, "a")
         self.addCleanup(file.close)
         fcntl.flock(file.fileno(), fcntl.LOCK_EX)
@@ -317,7 +317,7 @@ class TestSetFlagEvaluationsMode(BaseTest):
                     "--write-changed-ids",
                     self._ids_file(self.organization.id),
                 ),
-                "Write the changed ids to a new file",
+                "write the changed ids to a new file",
             ),
             (
                 "changed_ids_file_as_the_ids_file",
@@ -509,6 +509,20 @@ class TestSetFlagEvaluationsMode(BaseTest):
                 "Restored 1 organization(s).",
             ),
             (
+                "restores_an_organization_whose_record_repeats_after_a_chunk_that_never_committed",
+                ["0 0 2 0", "0 0 2 0"],
+                (FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False),
+                (FlagEvaluationsMode.EVENTS, False),
+                "Restored 1 organization(s).",
+            ),
+            (
+                "restores_an_organization_whose_record_starts_from_an_earlier_record",
+                ["0 0 1 0", "1 0 2 0", "1 0 2 0"],
+                (FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False),
+                (FlagEvaluationsMode.EVENTS, False),
+                "Restored 1 organization(s).",
+            ),
+            (
                 "leaves_an_organization_already_back_at_its_first_record",
                 ["0 0 2 0"],
                 (FlagEvaluationsMode.EVENTS, False),
@@ -568,33 +582,75 @@ class TestSetFlagEvaluationsMode(BaseTest):
 
         self.assertEqual(self._stored_mode(self.organization), FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
 
-    def test_a_restore_refuses_a_file_without_the_settings_from_before_the_run(self) -> None:
+    @parameterized.expand(
+        [
+            ("a_line_without_the_settings_from_before_the_run", False, ":2:"),
+            ("a_file_another_run_writes", True, "Another run is writing to"),
+        ]
+    )
+    def test_a_restore_refuses_the_file(self, _name: str, locked_by_another_run: bool, message: str) -> None:
         self._store_mode(self.organization, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
-        changed_ids_file = self._ids_file(f"{self.organization.id} 0 0 2 0", self.organization.id)
+        lines = (
+            (f"{self.organization.id} 0 0 2 0",)
+            if locked_by_another_run
+            else (
+                f"{self.organization.id} 0 0 2 0",
+                self.organization.id,
+            )
+        )
+        changed_ids_file = self._file_locked_by_another_run(*lines) if locked_by_another_run else self._ids_file(*lines)
 
-        with self.assertRaisesMessage(CommandError, f"{changed_ids_file}:2:"):
+        with self.assertRaisesMessage(CommandError, message):
             self._run("--restore-from-changed-ids-file", changed_ids_file)
 
         self.assertEqual(self._stored_mode(self.organization), FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
 
-    def test_a_restore_locks_every_listed_row_in_id_order_before_it_writes(self) -> None:
-        # Other writers lock rows in id order. The restore's UPDATE joins an unnest, whose plan sets the order it
-        # locks rows in, so without an up-front lock in id order a concurrent writer can deadlock with it.
+    @parameterized.expand(
+        [
+            # The restore's UPDATE joins an unnest, whose plan sets the order it locks rows in. Without an up-front
+            # lock in id order, a concurrent writer can deadlock with it.
+            (
+                "a_restore",
+                lambda first, second, path: ("--restore-from-changed-ids-file", path),
+                (FlagEvaluationsMode.EVENTS, False),
+            ),
+            # Without the lock, a concurrent write between the read and the write makes the run record a "before"
+            # that the organization no longer had.
+            (
+                "a_run",
+                lambda first, second, path: (
+                    "--mode",
+                    "0",
+                    "--allow-downgrade",
+                    "--organization-id",
+                    str(second.id),
+                    "--organization-id",
+                    str(first.id),
+                ),
+                (FlagEvaluationsMode.EVENTS, False),
+            ),
+        ]
+    )
+    def test_locks_every_listed_row_in_id_order_before_it_reads_and_writes(
+        self, _name: str, build_args: Any, expected: tuple[FlagEvaluationsMode, bool]
+    ) -> None:
         first, second = self._organizations_without_config(2)
         self._store_config(first, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False)
         self._store_config(second, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False)
-        changed_ids_file = self._ids_file(f"{second.id} 1 0 2 0", f"{first.id} 0 0 2 0")
+        changed_ids_file = self._ids_file(f"{second.id} 0 0 2 0", f"{first.id} 0 0 2 0")
 
         with CaptureQueriesContext(connection) as queries:
-            self._run("--restore-from-changed-ids-file", changed_ids_file)
+            self._run(*build_args(first, second, changed_ids_file), "--skip-experiment-count")
 
         statements = [query["sql"] for query in queries]
         lock = next(i for i, sql in enumerate(statements) if "FOR UPDATE" in sql)
-        first_write = next(i for i, sql in enumerate(statements) if sql.lstrip().startswith("UPDATE"))
-        self.assertLess(lock, first_write)
+        read = next(i for i, sql in enumerate(statements) if '"keep_writing_flag_calls_to_events" FROM' in sql)
+        write = next(i for i, sql in enumerate(statements) if sql.lstrip().startswith(("UPDATE", "INSERT")))
+        self.assertLess(lock, read)
+        self.assertLess(read, write)
         self.assertRegex(statements[lock], r"^SELECT \S+\.\"organization_id\" .* ORDER BY 1 ASC FOR UPDATE$")
-        self.assertEqual(self._stored_config(first), (FlagEvaluationsMode.EVENTS, False))
-        self.assertEqual(self._stored_config(second), (FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False))
+        self.assertEqual(self._stored_config(first), expected)
+        self.assertEqual(self._stored_config(second), expected)
 
     def test_a_restore_that_fails_partway_finishes_when_it_runs_again(self) -> None:
         first, second = self._organizations_without_config(2)
@@ -664,14 +720,25 @@ class TestSetFlagEvaluationsMode(BaseTest):
         self.assertIn(expected_line, output)
         self.assertNotIn(unexpected_text, output)
 
-    def test_a_run_appends_to_an_ids_file_that_lacks_a_final_newline(self) -> None:
-        listed, moved = self._organizations_without_config(2)
+    @parameterized.expand(
+        [
+            ("keeps_a_whole_last_line", "1 0", True),
+            ("drops_an_unfinished_last_line_from_a_chunk_that_never_committed", "1", False),
+        ]
+    )
+    def test_a_run_appends_to_an_ids_file_that_lacks_a_final_newline(
+        self, _name: str, last_line_end: str, expects_last_line_kept: bool
+    ) -> None:
+        kept, last, moved = self._organizations_without_config(3)
         changed_ids_file = self._ids_file()
-        Path(changed_ids_file).write_text(f"{listed.id} 0 0 1 0")
+        Path(changed_ids_file).write_text(f"{kept.id} 0 0 1 0\n{last.id} 0 0 {last_line_end}")
 
         self._run("--mode", "1", "--organization-id", str(moved.id), "--write-changed-ids", changed_ids_file)
 
-        self.assertEqual(self._listed_ids(changed_ids_file), [str(listed.id), str(moved.id)])
+        self.assertEqual(
+            self._listed_ids(changed_ids_file),
+            [str(kept.id), *([str(last.id)] if expects_last_line_kept else []), str(moved.id)],
+        )
 
     def test_the_upsert_sends_ids_in_sorted_order(self) -> None:
         organizations = self._organizations_without_config(5)

@@ -95,13 +95,21 @@ def _is_recorded_change(text: str) -> bool:
     return True
 
 
-def _read_changed_ids_file(path: Path) -> list[RecordedChange]:
-    try:
-        lines = path.read_text().splitlines()
-    except OSError as error:
-        raise CommandError(f"Cannot read {path}: {error}") from error
+def _parse_changed_ids(content: str, path: Path) -> tuple[list[RecordedChange], str]:
+    """The records of a changed-ids file, and its unfinished last line, or "" when it has none.
+
+    An unfinished last line has no final newline and is neither a record nor a bare id. A run syncs a chunk's lines
+    to disk before the chunk commits, so such a line comes from a chunk that never committed. Any other line that is
+    not a record fails the run.
+    """
+    body, unfinished = content, ""
+    if content and not content.endswith("\n"):
+        start = content.rfind("\n") + 1
+        tail = content[start:].strip()
+        if not _is_recorded_change(tail) and not _is_uuid(tail):
+            body, unfinished = content[:start], content[start:]
     changes = []
-    for line_number, line in enumerate(lines, start=1):
+    for line_number, line in enumerate(body.splitlines(), start=1):
         if not (text := line.strip()):
             continue
         try:
@@ -111,7 +119,15 @@ def _read_changed_ids_file(path: Path) -> list[RecordedChange]:
                 f"{path}:{line_number}: {error}. Only a --write-changed-ids file records the settings from before "
                 "the run. Roll back an older file of bare ids with --mode 0 --allow-downgrade --organization-ids-file."
             ) from error
-    return changes
+    return changes, unfinished
+
+
+def _is_uuid(text: str) -> bool:
+    try:
+        UUID(text)
+    except ValueError:
+        return False
+    return True
 
 
 def _describe(config: FlagEvaluationsConfig) -> str:
@@ -367,10 +383,26 @@ class Command(BaseCommand):
             raise CommandError(f"--restore-from-changed-ids-file does not take {', '.join(ignored)}")
 
         path: Path = options["restore_from_changed_ids_file"]
+        try:
+            file = path.open()
+        except OSError as error:
+            raise CommandError(f"Cannot read {path}: {error}") from error
+        with file:
+            # A run that still appends to the file holds an exclusive lock on it. The shared lock refuses the restore
+            # until that run ends, and keeps a new run from starting until the restore ends.
+            try:
+                fcntl.flock(file.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
+            except BlockingIOError as error:
+                raise CommandError(f"Another run is writing to {path}") from error
+            changes, unfinished = _parse_changed_ids(file.read(), path)
+            if unfinished:
+                self.stdout.write(f"Skipping the unfinished last line of {path}, from a chunk that never committed.")
+            self._restore_histories(collapse_recorded_changes(changes), path, options)
+
+    def _restore_histories(self, histories: dict[UUID, RecordedHistory], path: Path, options: dict[str, Any]) -> None:
         dry_run: bool = options["dry_run"]
         chunk_size: int = options["chunk_size"]
         count_experiments = not options["skip_experiment_count"]
-        histories = collapse_recorded_changes(_read_changed_ids_file(path))
         known_ids = self._known(histories, skip_unknown=options["skip_unknown_organization_ids"], source=str(path))
         self.stdout.write(
             f"{'Would restore' if dry_run else 'Restoring'} {len(known_ids)} organization(s) in {path} to their "
@@ -410,7 +442,7 @@ class Command(BaseCommand):
         if changed_outside:
             self.stdout.write(
                 f"Kept the settings of {len(changed_outside)} organization(s) that changed outside the runs that "
-                f"wrote {path}:"
+                f"wrote {path}{'.' if per_organization_lines else ':'}"
             )
             if not per_organization_lines:
                 for restore in changed_outside:
@@ -468,15 +500,20 @@ class Command(BaseCommand):
             raise CommandError(f"Another run is writing to {path}") from error
         file.seek(0)
         listed = file.read()
-        listed_lines = [line.strip() for line in listed.splitlines() if line.strip()]
-        if not all(_is_recorded_change(line) for line in listed_lines):
+        try:
+            listed_changes, unfinished = _parse_changed_ids(listed, path)
+        except CommandError as error:
             file.close()
             raise CommandError(
-                f"{path} holds lines in another format, such as bare ids from an older run. A restore needs every "
-                "line to record the settings from before the run. Write the changed ids to a new file."
-            )
-        if listed_lines:
-            self.stdout.write(f"Appending to {path}, which lists {len(listed_lines)} change(s) already.")
+                f"{error} A restore needs every line of the file to record the settings from before the run, so "
+                "write the changed ids to a new file."
+            ) from error
+        if unfinished:
+            listed = listed.removesuffix(unfinished)
+            file.truncate(len(listed.encode()))
+            self.stdout.write(f"Dropped the unfinished last line of {path}, from a chunk that never committed.")
+        if listed_changes:
+            self.stdout.write(f"Appending to {path}, which lists {len(listed_changes)} change(s) already.")
         if listed and not listed.endswith("\n"):
             file.write("\n")
         file.seek(0, os.SEEK_END)
