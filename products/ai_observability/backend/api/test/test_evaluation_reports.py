@@ -687,15 +687,22 @@ class TestEvaluationReportApi(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("missing_value", {"type": "email"}),
-            ("only_separators", {"type": "email", "value": " , "}),
-            ("not_a_string", {"type": "email", "value": ["a@example.com"]}),
+            ("missing_value", [{"type": "email"}]),
+            ("only_separators", [{"type": "email", "value": " , "}]),
+            ("not_a_string", [{"type": "email", "value": ["a@example.com"]}]),
+            (
+                "too_many_addresses_across_targets",
+                [
+                    {"type": "email", "value": ",".join(f"a{i}@example.com" for i in range(60))},
+                    {"type": "email", "value": ",".join(f"b{i}@example.com" for i in range(41))},
+                ],
+            ),
         ]
     )
-    def test_validate_email_target(self, _name, target):
+    def test_validate_email_target(self, _name, targets):
         response = self.client.post(
             self.base_url,
-            self._scheduled_payload(delivery_targets=[target]),
+            self._scheduled_payload(delivery_targets=targets),
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
