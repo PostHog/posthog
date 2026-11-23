@@ -2593,7 +2593,7 @@ Note: The official reference embeds OpenAPI, which was parsed to compare every G
 
 ## Buildkite — gaps
 
-Today (17): `agents`, `annotations`, `artifacts`, `builds`, `cluster_queues`, `clusters`, `jobs`, `organization_members`, `organizations`, `pipeline_schedules`, `pipelines`, `team_members`, `team_pipelines`, `teams`, `test_suite_runs`, `test_suite_tests`, `test_suites`
+Today (21): `agents`, `annotations`, `artifacts`, `audit_events`, `build_tests`, `builds`, `cluster_queues`, `clusters`, `jobs`, `organization_members`, `organization_usage`, `organizations`, `pipeline_schedules`, `pipelines`, `team_members`, `team_pipelines`, `team_suites`, `teams`, `test_suite_runs`, `test_suite_tests`, `test_suites`
 
 Diffed against: <https://buildkite.com/docs/llms.txt>
 
@@ -2615,11 +2615,11 @@ Note: Buildkite publishes a complete machine-readable docs index at /docs/llms.t
 
 Re-audited 2026-11-19 against: <https://buildkite.com/docs/llms.txt>
 
-- [ ] `Audit events (GET /v2/organizations/{org.slug}/audit_events)` — who changed what in the organization, for security and compliance reporting (high)
-- [ ] `Organization usage (GET /v2/organizations/{org.slug}/usage)` — active-user counts and product usage summaries for billing and seat tracking (medium)
-- [ ] `Build tests (GET /v2/analytics/organizations/{org.slug}/builds/{build.id}/tests)` — tests and aggregated execution metrics per build, joins Test Engine to builds we sync (medium)
+- [x] `Audit events (GET /v2/organizations/{org.slug}/audit_events)` — who changed what in the organization, for security and compliance reporting (high)
+- [x] `Organization usage (GET /v2/organizations/{org.slug}/usage)` — active-user counts and product usage summaries for billing and seat tracking (medium)
+- [x] `Build tests (GET /v2/analytics/organizations/{org.slug}/builds/{build.id}/tests)` — tests and aggregated execution metrics per build, joins Test Engine to builds we sync (medium)
 - [ ] `Test Engine workflows (GET /v2/analytics/organizations/{org.slug}/suites/{suite.slug}/workflows)` — flaky-test and quarantine workflow definitions per suite, fan-out under suites (low)
-- [ ] `Team suites (GET /v2/organizations/{org.slug}/teams/{team.uuid}/suites)` — membership table joining teams to test suites, matches team_pipelines (medium)
+- [x] `Team suites (GET /v2/organizations/{org.slug}/teams/{team.uuid}/suites)` — membership table joining teams to test suites, matches team_pipelines (medium)
 - [ ] `Package registries (GET /v2/packages/organizations/{org.slug}/registries)` — lookup of package registries for Buildkite Packages (low)
 - [ ] `Packages (GET /v2/packages/organizations/{org.slug}/registries/{registry.slug}/packages)` — published package inventory per registry, fan-out under registries (low)
 - [ ] `Pipeline templates (GET /v2/organizations/{org.slug}/pipeline-templates)` — lookup of templates that pipelines are built from (Enterprise) (low)
