@@ -142,6 +142,20 @@ def test_star_projection_preserves_logical_name_for_physical_column_alias(expose
     )
     assert 'PARTITION BY "subscriptions"."customer" ORDER BY "subscriptions"."customer" ASC' in window_sql
 
+    where_sql, _ = prepare_and_print_ast(
+        parse_select("SELECT customer_id AS c FROM subscriptions WHERE c != ''"),
+        context,
+        "trino",
+    )
+    assert 'WHERE ("subscriptions"."customer" != ' in where_sql
+
+    order_sql, _ = prepare_and_print_ast(
+        parse_select("SELECT customer_id AS c, 0 AS s FROM subscriptions AS s ORDER BY c"),
+        context,
+        "trino",
+    )
+    assert order_sql.endswith("ORDER BY 1 ASC")
+
     join_sql, _ = prepare_and_print_ast(
         parse_select(
             "SELECT s.customer_id, other.created_at FROM subscriptions AS s "
@@ -1386,17 +1400,29 @@ def test_lowers_event_property_backed_fields_to_the_physical_json_column() -> No
         database=Database(include_posthog_tables=True),
         modifiers=_trino_modifiers(),
         enable_select_queries=True,
-        trino_table_locators={"events": ("tenant", "posthog", "events")},
+        trino_table_locators={
+            "events": ("tenant", "posthog", "events"),
+            "raw_groups": ("tenant", "posthog", "groups"),
+        },
     )
 
     sql, _ = prepare_and_print_ast(
-        parse_select("SELECT events.`$session_id`, events.`$window_id`, events.`$group_0` FROM events"),
+        parse_select(
+            "SELECT events.`$session_id`, events.`$window_id`, events.`$group_0`, cityHash64(`$group_2`), group_1.key"
+            " FROM events"
+        ),
         context,
         "trino",
     )
 
     for key in ("$session_id", "$window_id", "$group_0"):
         assert f'json_extract_scalar("tenant"."posthog"."events"."properties", \'$["{key}"]\')' in sql
+    assert 'ch_cityhash64(json_extract_scalar("tenant"."posthog"."events"."properties", \'$["$group_2"]\'))' in sql
+    assert (
+        'json_extract_scalar("tenant"."posthog"."events"."properties", \'$["$group_1"]\') = "events__group_1"."key"'
+        in sql
+    )
+    assert 'WHERE ("tenant"."posthog"."groups"."group_type_index" = 1)' in sql
     assert context.values == {}
 
 
