@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTable, LemonTableColumns, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
@@ -149,6 +150,7 @@ export function PlatformAlertsScene(): JSX.Element {
         expandedIds,
     } = useValues(platformAlertsLogic)
     const { loadConfigurations, setPage, setActiveTab, toggleExpanded } = useActions(platformAlertsLogic)
+    const columns = useMemo(() => listColumns(expandedIds, toggleExpanded), [expandedIds, toggleExpanded])
 
     if (!featureFlags[FEATURE_FLAGS.PLATFORM_ALERTS]) {
         return <NotFound object="page" />
@@ -169,7 +171,7 @@ export function PlatformAlertsScene(): JSX.Element {
         <div className="@container/alerts-list">
             <LemonTable
                 dataSource={listRows}
-                columns={listColumns(expandedIds, toggleExpanded)}
+                columns={columns}
                 loading={configurationsPageLoading || configurationsPage === null}
                 rowKey={({ configuration, group }) => group?.id ?? configuration.id}
                 rowClassName={({ group }) => (group ? 'bg-surface-secondary' : null)}
