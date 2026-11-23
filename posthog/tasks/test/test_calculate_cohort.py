@@ -22,6 +22,7 @@ from posthog.hogql.errors import QueryError
 
 from posthog.errors import CHQueryErrorQueryWasCancelled
 from posthog.exceptions import ClickHouseAtCapacity
+from posthog.models import Organization, Team
 from posthog.tasks.calculate_cohort import (
     COHORT_BACKFILL_REFUSAL_OUTCOMES,
     COHORT_BACKFILL_TRIGGER_TASK_COUNTER,
@@ -1063,6 +1064,19 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
 
 class TestCohortCalculationTasks(APIBaseTest):
+    @patch("posthog.tasks.calculate_cohort.increment_version_and_enqueue_calculate_cohort")
+    def test_skips_cohorts_of_deactivated_organizations(self, patch_enqueue: MagicMock) -> None:
+        deactivated_organization = Organization.objects.create(name="Deactivated", is_active=False)
+        deactivated_team = Team.objects.create(organization=deactivated_organization, name="Deactivated team")
+        stale = timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES + 1)
+        Cohort.objects.create(team_id=deactivated_team.pk, last_calculation=stale)
+        active_cohort = Cohort.objects.create(team_id=self.team.pk, last_calculation=stale)
+
+        enqueue_cohorts_to_calculate(5)
+
+        enqueued = [call.args[0].pk for call in patch_enqueue.call_args_list]
+        self.assertEqual(enqueued, [active_cohort.pk])
+
     def _backfillable_cohort(self) -> Cohort:
         return Cohort.objects.create(
             team=self.team,

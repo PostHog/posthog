@@ -216,13 +216,17 @@ def static_cohort_has_supported_population_source(cohort: Cohort) -> bool:
 
 
 def get_cohort_calculation_candidates_queryset() -> QuerySet:
-    return Cohort.objects.filter(
-        Q(last_calculation__lte=timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES))
-        | Q(last_calculation__isnull=True),
-        deleted=False,
-        is_calculating=False,
-        errors_calculating__lte=MAX_ERRORS_CALCULATING,
-    ).exclude(is_static=True)
+    return (
+        Cohort.objects.filter(
+            Q(last_calculation__lte=timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES))
+            | Q(last_calculation__isnull=True),
+            deleted=False,
+            is_calculating=False,
+            errors_calculating__lte=MAX_ERRORS_CALCULATING,
+        )
+        .exclude(is_static=True)
+        .exclude(team__organization__is_active=False)
+    )
 
 
 def get_stuck_cohort_calculation_candidates_queryset() -> QuerySet:
