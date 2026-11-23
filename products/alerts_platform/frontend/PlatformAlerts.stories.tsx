@@ -295,6 +295,16 @@ export const ListTypeTooltipOpen: Story = {
     },
 }
 
+export const ListGroupsExpanded: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    // A native click rather than userEvent, for the reason in DetailGroupedSnoozeMenuOpen.
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findByText('Errors per service above 50')
+        canvasElement.querySelector<HTMLElement>('.LemonTable__toggle button')?.click()
+        await within(canvasElement).findByText('Firing since')
+    },
+}
+
 export const Detail: Story = {
     parameters: { pageUrl: urls.platformAlert(CONFIGURATION.id) },
 }

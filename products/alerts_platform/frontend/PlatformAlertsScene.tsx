@@ -15,6 +15,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { PlatformAlertConfigurationApi } from './generated/api.schemas'
 import { OptionalTimeLabel } from './OptionalTimeLabel'
 import { SOURCE_KINDS, describeCondition, describeInterval, describeSchedule } from './platformAlertFormat'
+import { PlatformAlertGroupRows } from './PlatformAlertGroupRows'
 import { PLATFORM_ALERTS_PAGE_SIZE, PlatformAlertsTab, platformAlertsLogic } from './platformAlertsLogic'
 import { PlatformAlertStateSummary } from './PlatformAlertStateSummary'
 import { PlatformAlertRouting } from './routing/PlatformAlertRouting'
@@ -108,6 +109,10 @@ export function PlatformAlertsScene(): JSX.Element {
             columns={COLUMNS}
             loading={configurationsPageLoading || configurationsPage === null}
             rowKey="id"
+            expandable={{
+                rowExpandable: (configuration) => configuration.alerts.length > 1,
+                expandedRowRender: (configuration) => <PlatformAlertGroupRows configuration={configuration} />,
+            }}
             emptyState="No alert configurations on the platform for this project yet."
             pagination={{
                 controlled: true,
