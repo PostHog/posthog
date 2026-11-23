@@ -613,6 +613,7 @@ class TestEmailDomainDnsLookups(EmailDomainApiTestCase):
         [
             ("spaced_tags", [" V = DMARC1 ; p = reject "]),
             ("lowercase_copy_receivers_ignore", ["v=dmarc1; p=none", "v=DMARC1; p=reject"]),
+            ("preview_version_receivers_ignore", ["v=DMARC1-preview; p=none", "v=DMARC1; p=reject"]),
         ]
     )
     def test_dmarc_record_receivers_apply_counts(self, _name: str, dmarc: list[str]) -> None:

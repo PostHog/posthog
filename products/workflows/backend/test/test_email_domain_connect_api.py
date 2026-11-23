@@ -164,7 +164,11 @@ class TestOneClickEmailDomainSetup(EmailDomainConnectTestCase):
         assert self.status_body(sender)["status"] == "verified"
 
     @parameterized.expand(
-        [("version_tag_other_than_dmarc1", "v=DMARC10; p=reject"), ("lowercase_version", "v=dmarc1; p=reject")]
+        [
+            ("version_tag_other_than_dmarc1", "v=DMARC10; p=reject"),
+            ("lowercase_version", "v=dmarc1; p=reject"),
+            ("preview_version", "V = DMARC1-preview; p=reject"),
+        ]
     )
     def test_approved_setup_publishes_dmarc_beneath_a_parent_record_receivers_ignore(
         self, _name: str, parent_dmarc: str

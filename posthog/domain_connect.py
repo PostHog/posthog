@@ -37,7 +37,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.security.oob_domains import matched_oob_domain
 
 logger = logging.getLogger(__name__)
-_DMARC_RECORD = re.compile(r"[vV]\s*=\s*DMARC1(\W|\Z)")
+_DMARC_RECORD = re.compile(r"[vV]\s*=\s*DMARC1(\s|;|\Z)")
 _DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_domains=True)
 
 # Maps _domainconnect TXT record values (provider endpoints) to display names.
