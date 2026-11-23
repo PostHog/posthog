@@ -12,7 +12,6 @@ from typing import Any
 import structlog
 
 from products.stamphog.backend.logic.attestation_checks import PendingCheck
-from products.stamphog.backend.logic.attestation_pins import get_check_runs_with_pins
 from products.stamphog.backend.logic.engine_pregate import (
     AttestationProof,
     EnginePregateError,
@@ -21,6 +20,7 @@ from products.stamphog.backend.logic.engine_pregate import (
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.issuer_manifests import issuer_manifest_paths
 from products.stamphog.backend.logic.routing.candidates import files_truncated
+from products.stamphog.backend.logic.workflow_proofs import proven_check_runs
 from products.stamphog.backend.temporal.constants import STAMPHOG_POLICY_ENTRYPOINT
 
 logger = structlog.get_logger(__name__)
@@ -99,7 +99,14 @@ def attestation_proven(client: StamphogGitHubClient, repository: str, pr: Mappin
     context: dict[str, Any] = {
         "repo": repository,
         "pr": dict(pr),
-        "check_runs": get_check_runs_with_pins(client, repository, head_sha),
+        "check_runs": proven_check_runs(
+            client,
+            repository,
+            pr_number=int(pr.get("number") or 0),
+            head_sha=head_sha,
+            check_runs=client.get_check_runs(repository, head_sha),
+            policy=policy_files[STAMPHOG_POLICY_ENTRYPOINT],
+        ),
         "merge_base_sha": merge_base_sha,
         "files": files,
     }

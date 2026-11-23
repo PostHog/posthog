@@ -46,6 +46,8 @@ _TASKS = (
     ("post_approval_comment", "delay"),
     ("reconcile_quarantine_lifts", "delay"),
     ("notify_quarantine_owners", "apply_async"),
+    ("publish_visual_review_quarantine_statuses", "delay"),
+    ("publish_visual_review_commit_status", "delay"),
 )
 
 
@@ -140,12 +142,17 @@ class _Harness:
                     run.approved,
                     run.review_decision,
                     run.error_message,
+                    run.gate,
                     [
                         (s.identifier, s.result, s.baseline_hash, s.review_state, s.approved_hash, s.is_quarantined)
                         for s in RunSnapshot.objects.filter(run_id=run.id).order_by("identifier")
                     ],
                 )
                 for run in repo_runs
+            ],
+            "statuses": [
+                (call.kwargs["context"], call.kwargs["state"], call.kwargs["description"])
+                for call in self.mocks["status"].call_args_list
             ],
             "baseline_commits": [
                 (call.args[0].commit_sha, sorted(update["identifier"] for update in call.args[2]))
@@ -279,6 +286,7 @@ def test_shadow_mode_leaves_the_old_flow_as_yaml_mode_runs_it(team, user, mocker
     )
     mocker.patch.object(baselines, "_resolve_baselines_with_merge_base", return_value=(YAML_BASELINE, 0))
     mocks = {
+        "status": mocker.patch.object(ci_status, "_send_commit_status", return_value=ci_status.StatusPost.POSTED),
         "commit": mocker.patch.object(baselines, "_commit_baseline_to_github"),
         "rerun": mocker.patch.object(ci_status, "_rerun_github_job", return_value=(True, None)),
         "prompt": mocker.patch.object(comments, "_post_review_prompt_comment"),

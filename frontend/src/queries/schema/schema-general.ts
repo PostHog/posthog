@@ -584,6 +584,8 @@ export interface HogQLQueryModifiers {
     usePreaggregatedTableTransforms?: boolean
     usePreaggregatedIntermediateResults?: boolean
     optimizeProjections?: boolean
+    /** Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints */
+    optimizeCrossJoins?: boolean
     /** Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag. */
     materializeRepeatedCTEs?: boolean
     /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
@@ -1644,6 +1646,8 @@ export interface ChartSettings {
     stackBars100?: boolean
     /** Color each X-axis category in single-series bar charts. */
     colorBarsByCategory?: boolean
+    showMovingAverage?: boolean
+    movingAverageIntervals?: number
     seriesBreakdownColumn?: string | null
     showXAxisTicks?: boolean
     showXAxisBorder?: boolean
@@ -4759,7 +4763,7 @@ export interface WebPageDirectoryRow extends WebPageDirectoryMetrics {
 }
 
 export interface WebPageDirectorySiteTotals extends WebPageDirectoryMetrics {
-    serverLogs: integer
+    serverLogs?: integer
 }
 
 export interface WebPageDirectoryQueryResponse extends AnalyticsQueryResponseBase {
@@ -4768,6 +4772,8 @@ export interface WebPageDirectoryQueryResponse extends AnalyticsQueryResponseBas
     hasMore?: boolean
     limit?: integer
     offset?: integer
+    preComputeStale?: boolean
+    preComputedAt?: string
 }
 export type CachedWebPageDirectoryQueryResponse = CachedQueryResponse<WebPageDirectoryQueryResponse>
 
@@ -9196,6 +9202,8 @@ export interface MarketingAnalyticsRecommendationsSource {
     performanceMaxSearchTermTable?: string
     /** Google Ads ad table, used to read the ad copy and landing pages of each ad group. */
     adTable?: string
+    /** Google Ads keyword table, used to tell which searches are already keywords. */
+    keywordTable?: string
     /** Google Ads daily campaign conversions split by conversion action. */
     campaignConversionActionTable?: string
     /** Google Ads daily search term conversions split by conversion action. */
@@ -9276,6 +9284,13 @@ export interface MarketingAnalyticsRecommendationIdentity {
 
 export type MarketingAnalyticsRecommendationResolutionState = 'dismissed' | 'applied'
 
+/**
+ * `negative_keyword`: the search is now excluded by a negative keyword.
+ * `brand_negative`: the brand searches of the campaigns are now excluded by negative keywords.
+ * `keyword_added`: the search is now a keyword in an active Search campaign.
+ */
+export type MarketingAnalyticsRecommendationDetectedChange = 'negative_keyword' | 'brand_negative' | 'keyword_added'
+
 export interface MarketingAnalyticsRecommendationResolution {
     /** The resolution id. Delete it through the resolutions API to show the recommendation again. */
     id: string
@@ -9335,6 +9350,8 @@ export interface MarketingAnalyticsRecommendation {
     key: string
     /** Set only when the query includes resolved recommendations and someone dismissed this one or marked it as applied. */
     resolution?: MarketingAnalyticsRecommendationResolution | null
+    /** The change in Google Ads that applied this recommendation, when the synced data shows one. A detected recommendation counts as applied, so it follows the same rules as a resolved one. */
+    detectedChange?: MarketingAnalyticsRecommendationDetectedChange | null
     action: string
     reason: string
     /** Monthly money impact in the account currency. Null when the rule has no money impact. */
@@ -10473,6 +10490,9 @@ export enum ProductIntentContext {
 
     // Workflows
     WORKFLOW_CREATED = 'workflow_created',
+    WORKFLOW_EMAIL_IMPACT_TURN_ON_REPLAY = 'workflow_email_impact_turn_on_replay',
+    WORKFLOW_SURVEY_TRIGGER_CREATE_SURVEY = 'workflow_survey_trigger_create_survey',
+    WORKFLOW_WAREHOUSE_TABLE_TRIGGER_SET_UP_SOURCE = 'workflow_warehouse_table_trigger_set_up_source',
 
     // Data Pipelines
     DATA_PIPELINE_CREATED = 'data_pipeline_created',

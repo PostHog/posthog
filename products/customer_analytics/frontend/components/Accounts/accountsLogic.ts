@@ -17,6 +17,21 @@ import { membersLogic } from '~/models/membersLogic'
 import { type DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import type {
+    ErrorTrackingQueryResponse,
+    HogQLAutocompleteResponse,
+    HogQLMetadataResponse,
+    HogQLQueryResponse,
+    HogQueryResponse,
+    LogAttributesQueryResponse,
+    LogValuesQueryResponse,
+    MetricsQueryResponse,
+    SessionsQueryResponse,
+    TraceSpansAggregationQueryResponse,
+    TraceSpansAttributeBreakdownQueryResponse,
+    TraceSpansQueryResponse,
+    TraceSpansTreeQueryResponse,
+} from '~/queries/schema/schema-general'
+import type {
     AccountsTableCustomPropertyDefinition,
     AccountsTableRelationshipDefinition,
 } from '~/queries/schema/schema-general'
@@ -53,6 +68,7 @@ import type {
 } from '../../generated/api.schemas'
 import { accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import type { AccountColumnDisplayState } from './accountsColumnConfigLogic'
+import type { AccountColumnDisplayConfig } from './accountsColumnConfigLogic'
 import { accountsOverviewTilesLogic, TileFilter } from './accountsOverviewTilesLogic'
 import type { AccountsOverviewTile } from './accountsOverviewTilesLogic'
 import type { AccountFilter } from './accountsPropertyFilters'
@@ -309,9 +325,9 @@ export interface accountsLogicActions {
     } // accountsColumnConfigLogic
     setColumnDisplay: (
         definitionId: string,
-        config: null | import('./accountsColumnConfigLogic').AccountColumnDisplayConfig
+        config: AccountColumnDisplayConfig | null
     ) => {
-        config: null | import('./accountsColumnConfigLogic').AccountColumnDisplayConfig
+        config: AccountColumnDisplayConfig | null
         definitionId: string
     } // accountsColumnConfigLogic
     setColumnDisplayConfig: (config: AccountColumnDisplayState) => {
@@ -341,21 +357,21 @@ export interface accountsLogicActions {
     } // dataNodeLogic
     listLoadDataSuccess: (
         response:
+            | ErrorTrackingQueryResponse
+            | HogQLAutocompleteResponse
+            | HogQLMetadataResponse
+            | HogQLQueryResponse<any[]>
+            | HogQueryResponse
+            | LogAttributesQueryResponse
+            | LogValuesQueryResponse
+            | MetricsQueryResponse
             | Record<string, any>
-            | null
-            | import('~/queries/schema').ErrorTrackingQueryResponse
-            | import('~/queries/schema').HogQLAutocompleteResponse
-            | import('~/queries/schema').HogQLMetadataResponse
-            | import('~/queries/schema').HogQLQueryResponse<any[]>
-            | import('~/queries/schema').HogQueryResponse
-            | import('~/queries/schema').LogAttributesQueryResponse
-            | import('~/queries/schema').LogValuesQueryResponse
-            | import('~/queries/schema').MetricsQueryResponse
-            | import('~/queries/schema').SessionsQueryResponse
-            | import('~/queries/schema').TraceSpansAggregationQueryResponse
-            | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
-            | import('~/queries/schema').TraceSpansQueryResponse
-            | import('~/queries/schema').TraceSpansTreeQueryResponse,
+            | SessionsQueryResponse
+            | TraceSpansAggregationQueryResponse
+            | TraceSpansAttributeBreakdownQueryResponse
+            | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
+            | null,
         payload?:
             | {
                   overrideQuery: DataNode<Record<string, any>> | undefined
@@ -372,21 +388,21 @@ export interface accountsLogicActions {
             refresh: RefreshType | undefined
         }
         response:
+            | ErrorTrackingQueryResponse
+            | HogQLAutocompleteResponse
+            | HogQLMetadataResponse
+            | HogQLQueryResponse<any[]>
+            | HogQueryResponse
+            | LogAttributesQueryResponse
+            | LogValuesQueryResponse
+            | MetricsQueryResponse
             | Record<string, any>
+            | SessionsQueryResponse
+            | TraceSpansAggregationQueryResponse
+            | TraceSpansAttributeBreakdownQueryResponse
+            | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
-            | import('~/queries/schema').ErrorTrackingQueryResponse
-            | import('~/queries/schema').HogQLAutocompleteResponse
-            | import('~/queries/schema').HogQLMetadataResponse
-            | import('~/queries/schema').HogQLQueryResponse<any[]>
-            | import('~/queries/schema').HogQueryResponse
-            | import('~/queries/schema').LogAttributesQueryResponse
-            | import('~/queries/schema').LogValuesQueryResponse
-            | import('~/queries/schema').MetricsQueryResponse
-            | import('~/queries/schema').SessionsQueryResponse
-            | import('~/queries/schema').TraceSpansAggregationQueryResponse
-            | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
-            | import('~/queries/schema').TraceSpansQueryResponse
-            | import('~/queries/schema').TraceSpansTreeQueryResponse
     } // dataNodeLogic
     ensureAllMembersLoaded: () => {
         value: true

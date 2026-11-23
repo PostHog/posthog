@@ -385,4 +385,21 @@ describe('URL Routing', () => {
             expect(parseRequestProperties(request, {}).excludeTools).toHaveLength(32)
         })
     })
+
+    describe('resources parsing', () => {
+        it.each([
+            ['?resources=none', {}, ['none']],
+            ['?resources=Feature_Flags, docs,,docs', {}, ['feature-flags', 'docs']],
+            ['?resources=docs', { 'x-posthog-mcp-resources': 'apps' }, ['apps']],
+            ['?resources=nope!,docs', {}, ['docs']],
+            ['?resources=posthog://skills/logs', {}, []],
+            ['?resources=%20', {}, []],
+            ['?resources=,,', {}, undefined],
+            ['?resources=', {}, undefined],
+            ['', {}, undefined],
+        ])('parses %s with headers %j as %j', (search, headers, expected) => {
+            const request = new Request(`https://example.com/mcp${search}`, { headers })
+            expect(parseRequestProperties(request, {}).resources).toEqual(expected)
+        })
+    })
 })

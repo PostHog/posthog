@@ -6,6 +6,7 @@ import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import exceptions, serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -18,7 +19,13 @@ from posthog.event_usage import groups
 from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
-from products.messaging.backend.facade.transactional_email import EmailSendStatus, EmailStatus, get_email_status
+from products.messaging.backend.facade.transactional_email import (
+    EmailSendStatus,
+    EmailStatus,
+    get_email_status,
+    is_idempotency_key,
+    keyed_message_id,
+)
 from products.messaging.backend.presentation.views.message_templates import (
     TRANSACTIONAL_EMAIL_STATUS_SCOPE,
     require_email_status_read,
@@ -56,6 +63,29 @@ class EmailStatusSerializer(serializers.Serializer):
     )
 
 
+class EmailStatusLookupSerializer(serializers.Serializer):
+    message_id = serializers.UUIDField(required=False, help_text="The `message_id` that the send returned.")
+    idempotency_key = serializers.CharField(
+        required=False,
+        trim_whitespace=False,
+        help_text="The `idempotency_key` the send was made with, when you don't have its `message_id`, for example "
+        "after a lost response.",
+    )
+
+    def validate_idempotency_key(self, value: str) -> str:
+        if not is_idempotency_key(value):
+            raise serializers.ValidationError("Use 1 to 255 visible ASCII characters, with no spaces.")
+        return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        named = [name for name in ("message_id", "idempotency_key") if name in self.initial_data]
+        if len(named) != 1 or named[0] not in attrs:
+            raise serializers.ValidationError("Name the email with either `message_id` or `idempotency_key`.")
+        if len(self.initial_data.getlist(named[0])) > 1:
+            raise serializers.ValidationError(f"Name the email with one `{named[0]}`.")
+        return attrs
+
+
 # Reads have their own buckets, so polling for status can't use up the send budget.
 class TransactionalEmailReadBurstThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
     scope = "transactional_email_read_burst"
@@ -82,7 +112,7 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     required_scopes = [TRANSACTIONAL_EMAIL_STATUS_SCOPE]
     permission_classes = [IsAuthenticated]
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
-    psak_allowed_actions = ["retrieve"]
+    psak_allowed_actions = ["retrieve", "lookup"]
 
     def get_throttles(self) -> list[BaseThrottle]:
         # Only a project secret API key can read, and the email read buckets count those. Any other caller gets the
@@ -122,6 +152,48 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             raise exceptions.NotAuthenticated()
         require_email_status_read(self.team)
         email_status = self._email_status(pk)
+        self._report_status_read(request, email_status)
+        if email_status is None:
+            raise NotFound()
+        return Response(EmailStatusSerializer(email_status).data)
+
+    @extend_schema(
+        parameters=[EmailStatusLookupSerializer],
+        responses={
+            200: EmailStatusSerializer,
+            400: OpenApiResponse(
+                description="The request names neither or both of `message_id` and `idempotency_key`, names one of "
+                "them twice, or gives one in the wrong format: a `message_id` that isn't a UUID, or an "
+                "`idempotency_key` that isn't 1 to 255 visible ASCII characters."
+            ),
+            401: OpenApiResponse(description="The request has no project secret API key."),
+            404: OpenApiResponse(
+                description="No email of this project has this ID or key, or it is older than 30 days. In the first "
+                "seconds after a send, it means PostHog accepted the email but hasn't recorded its first status yet."
+            ),
+        },
+        summary="Find a transactional email's status",
+        description=(
+            "Get the status of one transactional email by its `message_id`, or by the `idempotency_key` it was sent "
+            "with when the send's response was lost. Name exactly one of them. A key gives the latest send with it "
+            "that PostHog has a status for. Compare the response's `created_at` with when you sent: an earlier time "
+            "means an earlier send with the same key, not the one whose response was lost. It answers like the read "
+            "by `message_id`, for 30 days after the send, and needs the same `transactional_email:read` scope. A 404 "
+            "doesn't mean the email wasn't sent: its first status can take a few seconds to arrive. To make sure it "
+            "goes out, send it again with the same key within 24 hours."
+        ),
+    )
+    @action(detail=False, methods=["GET"], url_path="status")
+    def lookup(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if not is_authenticated_via_project_secret_api_key(request):
+            raise exceptions.NotAuthenticated()
+        require_email_status_read(self.team)
+        lookup = EmailStatusLookupSerializer(data=request.query_params)
+        lookup.is_valid(raise_exception=True)
+        message_id = lookup.validated_data.get("message_id") or keyed_message_id(
+            self.team_id, lookup.validated_data["idempotency_key"]
+        )
+        email_status = get_email_status(self.team_id, message_id)
         self._report_status_read(request, email_status)
         if email_status is None:
             raise NotFound()

@@ -361,7 +361,7 @@ class VirtualTableType(BaseTableType):
         return self.get_child(self.field, context).resolve_constant_type(context)
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(frozen=False, kw_only=True, slots=True)
 class SelectQueryType(Type):
     """Type and new enclosed scope for a select query. Contains information about all tables and columns in the query."""
 
@@ -378,6 +378,14 @@ class SelectQueryType(Type):
     parent: Optional[Union["SelectQueryType", "SelectSetQueryType"]] = None
     # whether this type is related to a lambda scope
     is_lambda_type: bool = False
+
+    implicit_table_aliases: set[str] | None = field(default=None, compare=False, repr=False)
+
+    def register_implicit_table_alias(self, alias: str) -> str:
+        if self.implicit_table_aliases is None:
+            self.implicit_table_aliases = set()
+        self.implicit_table_aliases.add(alias)
+        return alias
 
     def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
         for key, value in self.tables.items():

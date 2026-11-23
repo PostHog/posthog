@@ -710,19 +710,13 @@ export interface verifiedDomainsLogicMeta {
             user: UserType | null
         ) => OrganizationDomainType | null
         isSSOEnforcementAvailable: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean
         ) => boolean
-        isSAMLAvailable: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
-        ) => boolean
-        isOIDCAvailable: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
-        ) => boolean
-        isSCIMAvailable: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
-        ) => boolean
+        isSAMLAvailable: (hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean) => boolean
+        isOIDCAvailable: (hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean) => boolean
+        isSCIMAvailable: (hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean) => boolean
         isXAAAuthenticationAvailable: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean
         ) => boolean
     }
 }

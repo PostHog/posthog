@@ -337,8 +337,19 @@ class TestPagination:
 
         assert result.requests[0].param("DateSent>") == "2026-03-04"
 
+    def test_balance_object_body_becomes_one_row(self):
+        result = _run(
+            "balance",
+            [_response({"account_sid": ACCOUNT_SID, "balance": "12.34", "currency": "USD"})],
+        )
+
+        assert result.rows == [{"account_sid": ACCOUNT_SID, "balance": "12.34", "currency": "USD"}]
+        assert [request.path for request in result.requests] == [f"/2010-04-01/Accounts/{ACCOUNT_SID}/Balance.json"]
+        assert result.saved_states == []
+
 
 MESSAGES_PATH = f"/2010-04-01/Accounts/{ACCOUNT_SID}/Messages.json"
+RECORDINGS_PATH = f"/2010-04-01/Accounts/{ACCOUNT_SID}/Recordings.json"
 
 
 def _media_path(message_sid: str) -> str:
@@ -382,16 +393,47 @@ class TestMessageMediaFanout:
         assert all(state.fanout_state is not None and state.next_url is None for state in result.saved_states)
 
     @pytest.mark.parametrize(
+        "endpoint, parent_path, parent_body, child_path, child_body, filter_param",
+        [
+            (
+                "message_media",
+                MESSAGES_PATH,
+                {"messages": [{"sid": "SM1", "num_media": "1"}]},
+                _media_path("SM1"),
+                {"media_list": [{"sid": "ME1"}]},
+                "DateSent>",
+            ),
+            (
+                "recording_add_on_results",
+                RECORDINGS_PATH,
+                {"recordings": [{"sid": "RE1"}]},
+                f"/2010-04-01/Accounts/{ACCOUNT_SID}/Recordings/RE1/AddOnResults.json",
+                {"add_on_results": [{"sid": "XR1", "reference_sid": "RE1"}]},
+                "DateCreated>",
+            ),
+        ],
+    )
+    @pytest.mark.parametrize(
         "incremental, expected_parent_filter",
         [(False, None), (True, "2026-03-04")],
     )
-    def test_incremental_run_lists_only_recent_messages(self, incremental, expected_parent_filter):
+    def test_incremental_run_lists_only_recent_parents(
+        self,
+        endpoint,
+        parent_path,
+        parent_body,
+        child_path,
+        child_body,
+        filter_param,
+        incremental,
+        expected_parent_filter,
+    ):
         result = _run(
-            "message_media",
+            endpoint,
             route(
                 {
-                    MESSAGES_PATH: [_response({"messages": [{"sid": "SM1", "num_media": "1"}], "next_page_uri": None})],
-                    _media_path("SM1"): [_response({"media_list": [{"sid": "ME1"}], "next_page_uri": None})],
+                    parent_path: [_response({**parent_body, "next_page_uri": None})],
+                    child_path: [_response({**child_body, "next_page_uri": None})],
                 }
             ),
             should_use_incremental_field=incremental,
@@ -399,8 +441,9 @@ class TestMessageMediaFanout:
             incremental_field="date_created",
         )
 
-        parent_request = next(request for request in result.requests if request.path == MESSAGES_PATH)
-        assert parent_request.param("DateSent>") == expected_parent_filter
+        assert [row["sid"] for row in result.rows] == [child_body[next(iter(child_body))][0]["sid"]]
+        parent_request = next(request for request in result.requests if request.path == parent_path)
+        assert parent_request.param(filter_param) == expected_parent_filter
 
     def test_resume_skips_finished_messages(self):
         result = _run(

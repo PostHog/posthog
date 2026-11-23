@@ -204,6 +204,7 @@ from posthog.schema_enums import (
     MarketingAnalyticsDrillDownLevel as MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsOrderByEnum as MarketingAnalyticsOrderByEnum,
     MarketingAnalyticsRecommendationCpaBenchmarkSource as MarketingAnalyticsRecommendationCpaBenchmarkSource,
+    MarketingAnalyticsRecommendationDetectedChange as MarketingAnalyticsRecommendationDetectedChange,
     MarketingAnalyticsRecommendationIdentitySourceType as MarketingAnalyticsRecommendationIdentitySourceType,
     MarketingAnalyticsRecommendationImpactDirection as MarketingAnalyticsRecommendationImpactDirection,
     MarketingAnalyticsRecommendationImpactType as MarketingAnalyticsRecommendationImpactType,
@@ -6726,6 +6727,12 @@ class HogQLQueryModifiers(BaseModel):
             " and the join would be a LEFT JOIN."
         ),
     )
+    optimizeCrossJoins: bool | None = Field(
+        default=None,
+        description=(
+            "Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints"
+        ),
+    )
     optimizeJoinedFilters: bool | None = None
     optimizeProjections: bool | None = None
     parserMode: ParserMode | None = Field(
@@ -7422,6 +7429,10 @@ class MarketingAnalyticsRecommendationsSource(BaseModel):
     customerTable: str | None = Field(
         default=None,
         description="Google Ads customer table, used for the account currency.",
+    )
+    keywordTable: str | None = Field(
+        default=None,
+        description=("Google Ads keyword table, used to tell which searches are already keywords."),
     )
     performanceMaxSearchTermTable: str | None = Field(
         default=None,
@@ -9663,7 +9674,7 @@ class WebPageDirectorySiteTotals(BaseModel):
     bounceRate: float | None = None
     conversions: WebPageDirectoryValue | None = None
     googleSearch: WebPageDirectoryValue | None = None
-    serverLogs: int
+    serverLogs: int | None = None
     timeOnPageP90: float | None = None
     visitors: WebPageDirectoryValue | None = None
 
@@ -17759,6 +17770,8 @@ class CachedWebPageDirectoryQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
+    preComputeStale: bool | None = None
+    preComputedAt: str | None = None
     query_metadata: dict[str, Any] | None = None
     query_scan: QueryScanSummary | None = Field(
         default=None,
@@ -18152,6 +18165,7 @@ class ChartSettings(BaseModel):
         ),
     )
     metric: MetricChartSettings | None = None
+    movingAverageIntervals: float | None = None
     pie: PieChartSettings | None = None
     resultCustomizations: dict[str, ResultCustomizationByValue] | None = Field(
         default=None,
@@ -18162,6 +18176,7 @@ class ChartSettings(BaseModel):
     seriesBreakdownColumn: str | None = None
     showAnnotations: bool | None = None
     showLegend: bool | None = None
+    showMovingAverage: bool | None = None
     showNullsAsZero: bool | None = None
     showPieTotal: bool | None = None
     showTotalRow: bool | None = None
@@ -22484,6 +22499,14 @@ class MarketingAnalyticsRecommendation(BaseModel):
         default=None, description="CPA figures in the account currency."
     )
     currency: str | None = None
+    detectedChange: MarketingAnalyticsRecommendationDetectedChange | None = Field(
+        default=None,
+        description=(
+            "The change in Google Ads that applied this recommendation, when the synced"
+            " data shows one. A detected recommendation counts as applied, so it"
+            " follows the same rules as a resolved one."
+        ),
+    )
     identity: MarketingAnalyticsRecommendationIdentity
     impact: float | None = Field(
         default=None,
@@ -24334,6 +24357,8 @@ class QueryResponseAlternative27(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStale: bool | None = None
+    preComputedAt: str | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -30901,6 +30926,8 @@ class WebPageDirectoryQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStale: bool | None = None
+    preComputedAt: str | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),

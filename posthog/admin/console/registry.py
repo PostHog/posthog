@@ -160,7 +160,8 @@ class ConsoleRegistry:
     def owners(self) -> set[Owner]:
         self.discover()
         panel_owners = {panel_class.owner for panels in self._panels.values() for panel_class in panels.values()}
-        return panel_owners | {tool_class.owner for tool_class in self._tools.values()}
+        owners = panel_owners | {tool_class.owner for tool_class in self._tools.values()}
+        return {owner for owner in owners if owner is not None}
 
     def staff_groups(self) -> set[str]:
         return {owner.staff_group for owner in self.owners() if owner.staff_group is not None}
