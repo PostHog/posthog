@@ -4919,11 +4919,19 @@ export interface ErrorTrackingPendingFingerprintIssueStateUpdate {
     version: integer
 }
 
+/** @deprecated Use `ErrorTrackingIssueTagsFilter`. */
 export interface ErrorTrackingIssueTagFilter {
     /** Key of the tag definition. */
     key: string
     /** True matches the issues the tag is applied to. False matches every other issue. */
     applied: boolean
+}
+
+export interface ErrorTrackingIssueTagsFilter {
+    /** Keys of tag definitions. Keeps the issues that have all of these tags. */
+    has?: string[]
+    /** Keys of tag definitions. Keeps the issues that have none of these tags. */
+    hasNot?: string[]
 }
 
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
@@ -4940,8 +4948,13 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     status?: ErrorTrackingQueryStatus
     /** Filter by issue severity. */
     severity?: ErrorTrackingQueryIssueSeverity | null
-    /** Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project. */
+    /** @deprecated Use `issueTags`. The query adds this tag to `has` when `applied` is true, else to `hasNot`. */
     issueTag?: ErrorTrackingIssueTagFilter | null
+    /**
+     * Filter by issue tags. Get the keys from the issue tag definitions. The query ignores a key whose tag is off for
+     * the project.
+     */
+    issueTags?: ErrorTrackingIssueTagsFilter | null
     assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter
     /** Whether to filter out test accounts. */

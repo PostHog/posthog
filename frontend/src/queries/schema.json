@@ -27408,6 +27408,7 @@
         },
         "ErrorTrackingIssueTagFilter": {
             "additionalProperties": false,
+            "deprecated": "Use `ErrorTrackingIssueTagsFilter`.",
             "properties": {
                 "applied": {
                     "description": "True matches the issues the tag is applied to. False matches every other issue.",
@@ -27419,6 +27420,26 @@
                 }
             },
             "required": ["key", "applied"],
+            "type": "object"
+        },
+        "ErrorTrackingIssueTagsFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "has": {
+                    "description": "Keys of tag definitions. Keeps the issues that have all of these tags.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "hasNot": {
+                    "description": "Keys of tag definitions. Keeps the issues that have none of these tags.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
             "type": "object"
         },
         "ErrorTrackingOrderBy": {
@@ -27538,7 +27559,18 @@
                             "type": "null"
                         }
                     ],
-                    "description": "Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project."
+                    "deprecated": "Use `issueTags`. The query adds this tag to `has` when `applied` is true, else to `hasNot`."
+                },
+                "issueTags": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ErrorTrackingIssueTagsFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Filter by issue tags. Get the keys from the issue tag definitions. The query ignores a key whose tag is off for the project."
                 },
                 "kind": {
                     "const": "ErrorTrackingQuery",
