@@ -16719,6 +16719,13 @@ export namespace Schemas {
          * @nullable
          */
       scored_through: string | null;
+      /**
+         * The `viewed_within_days` of the request. Null when it passed none, so the result covers every insight in the project. When `viewed_scope_empty` is true, the result covers every insight too.
+         * @nullable
+         */
+      viewed_within_days: number | null;
+      /** True when the request passed `viewed_within_days` and the caller viewed no insight or dashboard with an insight in that window, so the result covers every insight in the project instead. */
+      viewed_scope_empty: boolean;
     }
 
     export interface AppSandboxContract {
@@ -29308,7 +29315,7 @@ export namespace Schemas {
       description: string;
       /** Tags for organizing transactional emails. */
       tags: string[];
-      /** True when PostHog keeps no copy of each sent email's body and doesn't track link clicks. */
+      /** True when PostHog keeps no copy of each sent email's body and records only the site address of a clicked link. */
       sensitive: boolean;
       /**
          * A link to the file in your repository that sends this email. Null when unlinked.
@@ -49710,6 +49717,7 @@ export namespace Schemas {
      * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
      * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
      * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
+     * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters
      */
     export type ExperimentHealthValueKeyEnum = typeof ExperimentHealthValueKeyEnum[keyof typeof ExperimentHealthValueKeyEnum];
 
@@ -49773,6 +49781,7 @@ export namespace Schemas {
       OtherRunningExperimentCount: 'other_running_experiment_count',
       AssignedOutsideCount: 'assigned_outside_count',
       OtherDraftExperimentCount: 'other_draft_experiment_count',
+      FiltersTestAccounts: 'filters_test_accounts',
     } as const;
 
     /**
@@ -49857,7 +49866,8 @@ export namespace Schemas {
        * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
        * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
        * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
-       * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived */
+       * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
+       * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters */
       value: ExperimentHealthValueKeyEnum;
       /** The value that the key must reach. Below it, the check reports no finding. */
       threshold: number;
@@ -49923,7 +49933,8 @@ export namespace Schemas {
        * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
        * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
        * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
-       * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived */
+       * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
+       * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters */
       value: ExperimentHealthValueKeyEnum;
       /** The threshold, in the unit that the suffix of the key gives. */
       threshold: number;
@@ -50014,6 +50025,34 @@ export namespace Schemas {
          * @nullable
          */
       aggregation_group_type_index: number | null;
+      /**
+         * The key of the variant that the condition set serves to every user it matches, its variant override. Null when the flag's split picks the variant, or when the override names no variant of the flag, which the flag service ignores.
+         * @nullable
+         */
+      variant: string | null;
+      /**
+         * Whether the condition set can serve anyone. False when its rollout is 0%, or when an earlier set without filters ends the flag's evaluation before it, so its rollout and variant override apply to nobody. Null when the flag buckets by device ID, because a request without a device ID skips the earlier sets that need the bucketing hash and can reach this set anyway.
+         * @nullable
+         */
+      reachable: boolean | null;
+    }
+
+    export interface ExperimentHealthExposureSetup {
+      /**
+         * The event that the exposure criteria count. Null when they count the flag's calls or an action.
+         * @nullable
+         */
+      event: string | null;
+      /**
+         * The name of the action that the exposure criteria count. Null when they count an event.
+         * @nullable
+         */
+      action: string | null;
+      /**
+         * The event, or the name of the action, that has to follow a user's flag call before the user counts as exposed. Null without one.
+         * @nullable
+         */
+      activation: string | null;
     }
 
     export interface ExperimentHealthSetup {
@@ -50041,6 +50080,8 @@ export namespace Schemas {
       evaluation_contexts: string[];
       /** The flag's 'Persist flag across authentication steps' setting. */
       ensure_experience_continuity: boolean;
+      /** What the exposure criteria count as an exposure. Null when they can't be read, or when the exposures come from a data warehouse table. */
+      exposure: ExperimentHealthExposureSetup | null;
     }
 
     export interface ExperimentHealth {
@@ -65491,11 +65532,11 @@ export namespace Schemas {
       last_error: string | null;
       /** A breakdown of what the step did. Only counts above zero appear. */
       counts: ImportStepCount[];
-      /** The objects the step handled, with anything to review. */
+      /** The objects the step handled, with anything to review. Always empty in the list of runs; get the run for them. */
       items: ImportStepItem[];
       /** How many more warnings there were than `warnings` holds. */
       warnings_omitted: number;
-      /** How many more objects there were than `items` holds. */
+      /** How many more objects there were than `items` holds. In the list of runs, this counts every object. */
       items_omitted: number;
     }
 
@@ -79435,6 +79476,14 @@ export namespace Schemas {
       action?: OrganizationMemberNoticeAction | null;
     }
 
+    export interface OrganizationExternalProjectLink {
+      readonly id: string;
+      /** Name shown for the project in the project switcher. */
+      readonly name: string;
+      /** Full URL of the project on the other PostHog instance. */
+      readonly url: string;
+    }
+
     export interface Organization {
       readonly id: string;
       /**
@@ -79554,6 +79603,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly ip_restrictions_warning: string | null;
+      /** Projects on other PostHog instances, such as another cloud region, shown in the project switcher. Set by PostHog staff. */
+      readonly external_project_links: readonly OrganizationExternalProjectLink[];
     }
 
     export interface OrganizationAIAccessRequestResponse {
@@ -86142,9 +86193,6 @@ export namespace Schemas {
       properties?: TaggerConditionPropertiesItem[];
     }
 
-    /**
-     * Nested serializer for model configuration.
-     */
     export interface TaggerModelConfiguration {
       /** LLM provider to use for this tagger.
        *
@@ -86164,30 +86212,29 @@ export namespace Schemas {
          */
       model: string;
       /**
-         * Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned.
+         * LLM provider key UUID pinned for this tagger, or null when none is pinned.
          * @nullable
          */
-      provider_key_id?: string | null;
+      provider_key_id: string | null;
       /** @nullable */
       readonly provider_key_name: string | null;
     }
 
     export interface Tagger {
       readonly id: string;
-      /** @maxLength 400 */
-      name: string;
-      description?: string;
-      enabled?: boolean;
-      tagger_type?: TaggerTypeEnum;
+      readonly name: string;
+      readonly description: string;
+      readonly enabled: boolean;
+      readonly tagger_type: TaggerTypeEnum;
       /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-      tagger_config: TaggerConfig;
-      /** Conditions that scope when the tagger runs */
-      conditions?: TaggerCondition[];
-      model_configuration?: TaggerModelConfiguration | null;
+      readonly tagger_config: TaggerConfig;
+      /** Conditions that scoped when the tagger ran */
+      readonly conditions: readonly TaggerCondition[];
+      readonly model_configuration: TaggerModelConfiguration | null;
       readonly created_at: string;
       readonly updated_at: string;
       readonly created_by: UserBasic;
-      deleted?: boolean;
+      readonly deleted: boolean;
       /**
          * The evaluation that replaced this tagger when it was migrated. Null until then.
          * @nullable
@@ -95561,6 +95608,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly ip_restrictions_warning?: string | null;
+      /** Projects on other PostHog instances, such as another cloud region, shown in the project switcher. Set by PostHog staff. */
+      readonly external_project_links?: readonly OrganizationExternalProjectLink[];
     }
 
     export interface PatchedOrganizationDomain {
@@ -99444,45 +99493,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
-    }
-
-    export interface TaggerModelConfigurationWrite {
-      /** LLM provider to use for this tagger.
-       *
-       * * `openai` - Openai
-       * * `anthropic` - Anthropic
-       * * `gemini` - Gemini
-       * * `openrouter` - Openrouter
-       * * `fireworks` - Fireworks
-       * * `azure_openai` - Azure OpenAI
-       * * `together_ai` - Together AI
-       * * `minimax` - MiniMax
-       * * `openai_compatible` - OpenAI-compatible */
-      provider: LLMCompletionProviderEnum;
-      /**
-         * Provider model identifier to use for this tagger.
-         * @maxLength 100
-         */
-      model: string;
-      /**
-         * Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned.
-         * @nullable
-         */
-      provider_key_id?: string | null;
-    }
-
-    export interface PatchedTaggerUpdate {
-      /** @maxLength 400 */
-      name?: string;
-      description?: string;
-      enabled?: boolean;
-      tagger_type?: TaggerTypeEnum;
-      /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-      tagger_config?: TaggerConfig;
-      /** Conditions that scope when the tagger runs */
-      conditions?: TaggerCondition[];
-      model_configuration?: TaggerModelConfigurationWrite | null;
-      deleted?: boolean;
     }
 
     export interface PatchedTaskRunSetOutputRequest {
@@ -118251,12 +118261,12 @@ export namespace Schemas {
     export type SendEmailMessageData = {[key: string]: unknown};
 
     /**
-     * What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and captures engagement events, and tracks clicks only when the email isn't sensitive (see `sensitive`). Turn on `clicks` for a sensitive email only when its links are safe to send through a redirect. A link with `data-ph-no-track` keeps its own address either way. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body.
+     * What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and clicks and captures engagement events, for sensitive emails too. A link with `data-ph-no-track` keeps its own address, so an app link still opens the app. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body.
      */
     export type SendEmailTracking = boolean | {
       /** Whether PostHog adds its open pixel to the email. Defaults to true. */
       opens?: boolean;
-      /** Whether the email's links go through a redirect that counts clicks. Defaults to true when the email isn't sensitive and false when it is. Needs `opens`. A link with `data-ph-no-track` keeps its own address. */
+      /** Whether the email's links go through a redirect that counts clicks. Defaults to true, for sensitive emails too. Needs `opens`. A link with `data-ph-no-track` keeps its own address. */
       clicks?: boolean;
       /** Whether the email's engagement events (sent, delivered, opened, clicked, bounced) are captured as analytics events of the recipient. Defaults to true. */
       engagement?: boolean;
@@ -118307,14 +118317,14 @@ export namespace Schemas {
          * @deprecated
          */
       capture_engagement?: boolean;
-      /** What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and captures engagement events, and tracks clicks only when the email isn't sensitive (see `sensitive`). Turn on `clicks` for a sensitive email only when its links are safe to send through a redirect. A link with `data-ph-no-track` keeps its own address either way. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body. */
+      /** What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and clicks and captures engagement events, for sensitive emails too. A link with `data-ph-no-track` keeps its own address, so an app link still opens the app. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body. */
       tracking?: SendEmailTracking;
       /**
          * When to send the email, as `YYYY-MM-DDThh:mm:ss.sss` followed by a UTC offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. Seconds and their fraction are optional. PostHog holds the email until then, at most 7 days after the request, and rounds a finer time up to the next millisecond. A time that has passed sends the email now. Leave it out or send null to send now. Send it once: a JSON body that repeats it keeps the last value, and a form body that repeats it gets a 400. Scheduling is on only in some projects so far, and a project without it refuses a time with a 400.
          * @nullable
          */
       scheduled_at?: string | null;
-      /** Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails keep their links unchanged unless `tracking` turns clicks on, leave the subject off engagement events, and keep the content out of logs. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive. */
+      /** Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails leave the subject off engagement events, record only the site address of a clicked link, and keep the content out of logs. They are tracked like any other email unless `tracking` turns tracking off. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive. */
       sensitive?: boolean;
       /**
          * Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default. A project with no verified sending domain can send from the PostHog test sender only when PostHog offers that sender to its organization, and then only to members of the organization. That sender ignores this field and says so in the response's `warnings`.
@@ -123381,20 +123391,6 @@ export namespace Schemas {
       people: number;
     }
 
-    export interface TaggerUpdate {
-      /** @maxLength 400 */
-      name: string;
-      description?: string;
-      enabled?: boolean;
-      tagger_type?: TaggerTypeEnum;
-      /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-      tagger_config: TaggerConfig;
-      /** Conditions that scope when the tagger runs */
-      conditions?: TaggerCondition[];
-      model_configuration?: TaggerModelConfigurationWrite | null;
-      deleted?: boolean;
-    }
-
     /**
      * Response shape for one task in the requester's activity feed (one row per task).
      */
@@ -126542,65 +126538,6 @@ export namespace Schemas {
       message?: string;
     }
 
-    export interface TestHogTaggerTag {
-      /**
-         * Tag identifier to allow in Hog test results.
-         * @maxLength 100
-         */
-      name: string;
-      /**
-         * Optional description for the tag.
-         * @maxLength 500
-         */
-      description?: string;
-    }
-
-    export interface TestHogTaggerRequest {
-      /**
-         * Hog source code to test. Return a tag name string, a list of tag name strings, or null.
-         * @minLength 1
-         */
-      source: string;
-      /**
-         * Number of recent $ai_generation events to test against (1-10, default 5).
-         * @minimum 1
-         * @maximum 10
-         */
-      sample_count?: number;
-      /** Optional tag whitelist. Returned tags outside this list are filtered out. */
-      tags?: TestHogTaggerTag[];
-    }
-
-    export interface TestHogTaggerResultItem {
-      /** UUID of the sampled $ai_generation event. */
-      event_uuid: string;
-      /**
-         * Trace ID if available.
-         * @nullable
-         */
-      trace_id?: string | null;
-      /** First 200 characters of the generation input. */
-      input_preview: string;
-      /** First 200 characters of the generation output. */
-      output_preview: string;
-      /** Tag names returned by the Hog code. */
-      tags: string[];
-      /** Text written to stdout by the Hog code. */
-      reasoning: string;
-      /**
-         * Error message if the Hog code failed.
-         * @nullable
-         */
-      error?: string | null;
-    }
-
-    export interface TestHogTaggerResponse {
-      /** Per-event Hog tagger test results. */
-      results: TestHogTaggerResultItem[];
-      /** Optional message, for example when no recent AI events were found. */
-      message?: string;
-    }
-
     export interface TextReprMetadata {
       event_type?: string;
       event_id?: string;
@@ -127832,7 +127769,7 @@ export namespace Schemas {
       clicked: number;
       /** Delivered sends nobody clicked. */
       not_clicked: number;
-      /** Sends that went out with open and click tracking off, as sensitive emails do, counted by when they were queued like the other counts. They can't record an open or a click. */
+      /** Sends that went out with open and click tracking off, counted by when they were queued like the other counts. They can't record an open or a click. */
       untracked: number;
       /** How many days after the click or the send the event counts. */
       window_days: number;
@@ -149662,6 +149599,16 @@ export namespace Schemas {
      * @maxLength 200
      */
     search?: string;
+    /**
+     * Only the insights the caller viewed in this many days: insights they opened, and insights on the dashboards they opened, with the tiles those dashboards have now. Views count only in the web app, not through the API or an MCP tool. Without it the search covers every insight in the project. When the caller viewed no insight in the window, the search covers every insight and `viewed_scope_empty` is true.
+     *
+     * * `7` - 7
+     * * `14` - 14
+     * * `30` - 30
+     * * `45` - 45
+     * * `90` - 90
+     */
+    viewed_within_days?: SignalsAnomaliesSearchRetrieveViewedWithinDays;
     };
 
     export type SignalsAnomaliesSearchRetrieveGroupBy = typeof SignalsAnomaliesSearchRetrieveGroupBy[keyof typeof SignalsAnomaliesSearchRetrieveGroupBy];
@@ -149688,6 +149635,17 @@ export namespace Schemas {
     export const SignalsAnomaliesSearchRetrieveOrder = {
       Unusual: 'unusual',
       Recent: 'recent',
+    } as const;
+
+    export type SignalsAnomaliesSearchRetrieveViewedWithinDays = typeof SignalsAnomaliesSearchRetrieveViewedWithinDays[keyof typeof SignalsAnomaliesSearchRetrieveViewedWithinDays];
+
+
+    export const SignalsAnomaliesSearchRetrieveViewedWithinDays = {
+      Number7: 7,
+      Number14: 14,
+      Number30: 30,
+      Number45: 45,
+      Number90: 90,
     } as const;
 
     export type SignalsProcessingListParams = {
