@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { IconMessage, IconPlusSmall } from '@posthog/icons'
@@ -88,10 +87,9 @@ function AlertDestinationIcons({ alert }: { alert: PlatformAlertConfigurationApi
                     {[...shown].reverse().map((type, index) => (
                         <span
                             key={type}
-                            className={clsx(
-                                'relative rounded bg-surface-primary ring-2 ring-surface-primary',
-                                index < shown.length - 1 && '-ml-4'
-                            )}
+                            className={`relative rounded bg-surface-primary ring-2 ring-surface-primary${
+                                index < shown.length - 1 ? ' -ml-4' : ''
+                            }`}
                         >
                             <DestinationTypeIcon type={type} />
                         </span>
@@ -155,21 +153,20 @@ export function WarehouseAlertsSection({ entry, ...logicProps }: WarehouseAlerts
             sticky: true,
             sorter: (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }),
             render: (_, alert) => (
-                <div data-attr="warehouse-alert-row-open">
-                    <LemonTableLink
-                        onClick={() => openForEdit(entry, alert)}
-                        title={
-                            <>
-                                <span>{alert.name}</span>
-                                <LemonTag size="small" type="muted">
-                                    {isSourceAlert ? 'Source' : 'Destination'}
-                                </LemonTag>
-                            </>
-                        }
-                        description={describeWatches(alert)}
-                        truncateDescription
-                    />
-                </div>
+                <LemonTableLink
+                    title={
+                        <>
+                            <Link subtle onClick={() => openForEdit(entry, alert)} data-attr="warehouse-alert-row-open">
+                                {alert.name}
+                            </Link>
+                            <LemonTag size="small" type="muted">
+                                {isSourceAlert ? 'Source' : 'Destination'}
+                            </LemonTag>
+                        </>
+                    }
+                    description={describeWatches(alert)}
+                    truncateDescription
+                />
             ),
         },
         ...(isSourceAlert
@@ -187,7 +184,7 @@ export function WarehouseAlertsSection({ entry, ...logicProps }: WarehouseAlerts
             key: 'email',
             render: (_, alert) => (emailsProjectMembers(alert) ? 'Yes' : 'No'),
         },
-        createdByColumn() as LemonTableColumn<PlatformAlertConfigurationApi, any>,
+        createdByColumn() as unknown as LemonTableColumn<PlatformAlertConfigurationApi, any>,
         updatedAtColumn() as LemonTableColumn<PlatformAlertConfigurationApi, any>,
         {
             title: 'Status',
