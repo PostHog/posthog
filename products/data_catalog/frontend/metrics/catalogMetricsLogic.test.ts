@@ -84,11 +84,30 @@ describe('catalogMetricsLogic', () => {
         )
     })
 
-    it('goes back to the first page when the search changes', () => {
-        logic.actions.setPage(2)
-        expect(logic.values.page).toBe(2)
+    it('pages the proposed list and the approved list apart', () => {
+        const approved = Array.from({ length: 7 }, (_, index) => ({
+            ...METRICS[0],
+            id: `metric-approved-${index}`,
+            name: `approved_${index}`,
+        }))
+        metricsLogic.actions.loadMetricsSuccess([METRICS[1], ...approved] as any)
+
+        logic.actions.setPage('approved', 2)
+
+        const { proposed, approved: approvedPage, all } = logic.values.listPages
+        expect(proposed.metrics.map((metric) => metric.id)).toEqual(['metric-proposed'])
+        expect(proposed.currentPage).toBe(1)
+        expect(approvedPage.metrics.map((metric) => metric.id)).toEqual(['metric-approved-5', 'metric-approved-6'])
+        expect(approvedPage.pageCount).toBe(2)
+        expect(all.currentPage).toBe(1)
+    })
+
+    it('goes back to the first page of each list when the search changes', () => {
+        logic.actions.setPage('all', 2)
+        logic.actions.setPage('approved', 3)
+        expect(logic.values.pages).toEqual({ all: 2, proposed: 1, approved: 3 })
 
         metricsLogic.actions.setFilters({ search: 'trial' })
-        expect(logic.values.page).toBe(1)
+        expect(logic.values.pages).toEqual({ all: 1, proposed: 1, approved: 1 })
     })
 })

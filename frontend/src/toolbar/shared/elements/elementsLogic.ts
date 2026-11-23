@@ -11,6 +11,7 @@ import { currentPageLogic } from '~/toolbar/shared/stats/currentPageLogic'
 import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
 import { ActionElementWithMetadata, ActionForm, ElementWithMetadata } from '~/toolbar/shared/types'
+import type { ActionDraftType, CountedHTMLElement } from '~/toolbar/shared/types'
 import { ActionType } from '~/types'
 
 import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForElement } from '../utils'
@@ -189,7 +190,7 @@ export interface elementsLogicMeta {
         ) => boolean
         heatmapEnabled: (heatmapEnabled: boolean) => boolean
         heatmapElements: (
-            countedElements: import('~/toolbar/shared/types').CountedHTMLElement[],
+            countedElements: CountedHTMLElement[],
             rectUpdateCounter: number,
             buttonVisible: boolean
         ) => ElementWithMetadata[]
@@ -225,14 +226,14 @@ export interface elementsLogicMeta {
             actionElements: ElementWithMetadata[],
             inspectElements: ElementWithMetadata[],
             actionsListElements: ActionElementWithMetadata[],
-            selectedAction: ActionType | null | import('~/toolbar/shared/types').ActionDraftType
+            selectedAction: ActionDraftType | ActionType | null
         ) => ElementWithMetadata[]
         elementsToDisplay: (elementsToDisplayRaw: ElementWithMetadata[]) => ElementWithMetadata[]
         labelsToDisplay: (
             displayActionElements: boolean,
             actionElements: ElementWithMetadata[],
             actionsListElements: ActionElementWithMetadata[],
-            selectedAction: ActionType | null | import('~/toolbar/shared/types').ActionDraftType
+            selectedAction: ActionDraftType | ActionType | null
         ) => ElementWithMetadata[]
         selectedElementMeta: (
             selectedElement: HTMLElement | null,

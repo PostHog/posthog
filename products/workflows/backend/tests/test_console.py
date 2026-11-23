@@ -35,27 +35,62 @@ class TestEmailSendingConsolePanel(BaseTest):
 
     @parameterized.expand(
         [
-            ("tier_change", {"tier": "2", "reason": "Raise"}, [("email_sending_tier", 1, 2)]),
-            ("pin_only", {"tier": "1", "pinned": "on", "reason": "Hold"}, [("email_sending_tier_pinned", False, True)]),
-            ("no_change", {"tier": "1", "reason": "Check"}, None),
+            ("tier_change", False, {"tier": "2", "reason": "Raise"}, [("email_sending_tier", 1, 2)], False),
+            (
+                "tier_change_while_pinned",
+                True,
+                {"tier": "2", "pinned": "on", "reason": "Raise"},
+                [("email_sending_tier", 1, 2)],
+                True,
+            ),
+            (
+                "pin_only",
+                False,
+                {"tier": "1", "pinned": "on", "reason": "Hold"},
+                [("email_sending_tier_pinned", False, True)],
+                True,
+            ),
+            (
+                "unpin",
+                True,
+                {"tier": "1", "reason": "Release"},
+                [("email_sending_tier_pinned", True, False)],
+                False,
+            ),
+            ("no_change", False, {"tier": "1", "reason": "Check"}, None, False),
         ]
     )
     def test_set_tier_audits_what_changed(
-        self, _name: str, form: dict[str, str], expected_changes: list[tuple[str, object, object]] | None
+        self,
+        _name: str,
+        pinned_before: bool,
+        form: dict[str, str],
+        expected_changes: list[tuple[str, object, object]] | None,
+        pinned_after: bool,
     ) -> None:
         TeamWorkflowsConfig.objects.update_or_create(
-            team=self.team, defaults={"email_sending_tier": 1, "email_sending_tier_pinned": False}
+            team=self.team, defaults={"email_sending_tier": 1, "email_sending_tier_pinned": pinned_before}
         )
 
-        response = self.client.post(self._operation_url("set-tier"), form)
+        with patch("posthog.event_usage.posthoganalytics.capture") as capture:
+            response = self.client.post(self._operation_url("set-tier"), form)
 
         assert response.status_code == 302
+        tier_events = [
+            call.kwargs["properties"]
+            for call in capture.call_args_list
+            if call.kwargs["event"] == "workflows email sending tier changed"
+        ]
         entries = list(
             ActivityLog.objects.filter(scope="Team", team_id=self.team.id, activity="email_sending_tier_changed")
         )
         if expected_changes is None:
             assert entries == []
+            assert tier_events == []
             return
+        assert [
+            (event["changed_by"], event["reason"], event["pinned"], event["pin_changed"]) for event in tier_events
+        ] == [("staff", "staff_set", pinned_after, pinned_after != pinned_before)]
         assert len(entries) == 1
         assert entries[0].user == self.user
         detail = entries[0].detail or {}
@@ -151,8 +186,9 @@ class TestEmailSendingConsolePanel(BaseTest):
             team=self.team, defaults={"email_sending_tier": 3, "email_sending_tier_pinned": True}
         )
 
-        response = self.client.post(self._operation_url("suspend"), {"reason": "Hard bounce rate above 5%"})
-        repeat = suspend_email_sending(self.team.pk, "second", user_id=self.user.pk)
+        with patch("posthog.event_usage.posthoganalytics.capture") as capture:
+            response = self.client.post(self._operation_url("suspend"), {"reason": "Hard bounce rate above 5%"})
+            repeat = suspend_email_sending(self.team.pk, "second", user_id=self.user.pk)
 
         assert response.status_code == 302
         assert repeat.previously_suspended_at is not None
@@ -165,6 +201,15 @@ class TestEmailSendingConsolePanel(BaseTest):
         assert (suspended.detail or {})["context"] == {"reason": "Hard bounce rate above 5%"}
         tier = ActivityLog.objects.get(scope="Team", team_id=self.team.id, activity="email_sending_tier_changed")
         assert (tier.detail or {})["context"] == {"reason": "staff_suspension"}
+        assert [
+            (
+                call.kwargs["properties"]["new_tier"],
+                call.kwargs["properties"]["pinned"],
+                call.kwargs["properties"]["pin_changed"],
+            )
+            for call in capture.call_args_list
+            if call.kwargs["event"] == "workflows email sending tier changed"
+        ] == [(0, True, False)]
         send_email.delay.assert_called_once()
         assert send_email.delay.call_args.kwargs["reason"] == "Hard bounce rate above 5%"
         create_notification.assert_called_once()

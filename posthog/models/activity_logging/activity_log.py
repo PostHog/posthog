@@ -228,10 +228,13 @@ class ActivityLog(UUIDTModel):
             # key-existence family (`?`, `?|`, `?&`) that no query path uses. It also stores no
             # entry for a JSON structure that holds no scalar, so containment against an empty
             # object or array (`detail @> '{"changes": []}'`) falls back to a full index scan.
+            # Direct updates avoid pending-list merges that make one insert, often a bulk insert,
+            # absorb the batched GIN maintenance of earlier writes.
             GinIndex(
                 name="idx_alog_detail_gin_path_ops",
                 fields=["detail"],
                 opclasses=["jsonb_path_ops"],
+                fastupdate=False,
             ),
             # User-specific filtered queries
             models.Index(
@@ -524,6 +527,8 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "managed_by": "managed by",
         "auto_pause_exempt": "never pause for inactivity",
         "write_scopes": "write access",
+        "report_actions": "report actions",
+        "max_report_actions_per_day": "report actions per day",
         "lifecycle_locked": "owner-only pause, resume, and delete",
         "allowed_mcp_tools": "allowed MCP tools",
         "tool_preset": "tool preset",

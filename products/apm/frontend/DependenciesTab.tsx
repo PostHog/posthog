@@ -9,7 +9,7 @@ import { LemonBanner, LemonButton, LemonSelect, Spinner } from '@posthog/lemon-u
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { applicationObservabilityLogic } from './applicationObservabilityLogic'
-import { FAILING_ERROR_RATE } from './dependencies'
+import { DRAWN_EDGE_CAP, FAILING_ERROR_RATE } from './dependencies'
 import { dependenciesLogic } from './dependenciesLogic'
 import { DependencyNode } from './DependencyNode'
 import { DependencyTable } from './DependencyTable'
@@ -92,12 +92,18 @@ export function DependenciesTab(): JSX.Element {
         dependenciesLoadError,
         dependenciesLoadErrorDetail,
         dependencyLayout,
+        dependencyLayoutKey,
+        dependencyLayoutLoading,
         dependencyService,
+        drawableEdges,
+        drawnEdges,
         edges,
         serviceNames,
+        showAllDependencies,
         split,
     } = useValues(dependenciesLogic)
-    const { setDependencyService, loadDependencies } = useActions(dependenciesLogic)
+    const { setDependencyService, loadDependencies, setShowAllDependencies } = useActions(dependenciesLogic)
+    const canCap = !dependencyService && drawableEdges.length > DRAWN_EDGE_CAP
     const { isDarkModeOn } = useValues(themeLogic)
 
     const flowEdges = useMemo(
@@ -154,13 +160,32 @@ export function DependenciesTab(): JSX.Element {
                     service to see who calls it and what it calls.
                 </span>
             </div>
+            {canCap && (
+                <div className="flex flex-wrap items-center gap-2 text-xs text-secondary">
+                    <span data-attr="apm-dependencies-capped">
+                        {showAllDependencies
+                            ? `Showing all ${drawableEdges.length} calls.`
+                            : `Showing the ${drawnEdges.length} busiest of ${drawableEdges.length} calls. Pick a service to see all of its calls.`}
+                    </span>
+                    <LemonButton
+                        type="secondary"
+                        size="xsmall"
+                        onClick={() => setShowAllDependencies(!showAllDependencies)}
+                        disabledReason={dependencyLayoutLoading ? 'Drawing the map…' : undefined}
+                        data-attr="apm-dependencies-show-all"
+                    >
+                        {showAllDependencies ? `Show the ${DRAWN_EDGE_CAP} busiest` : 'Show all'}
+                    </LemonButton>
+                </div>
+            )}
             <div className="relative h-[480px] rounded border bg-surface-primary" data-attr="apm-dependencies-map">
                 {nodes.length === 0 ? (
                     <div className="flex h-full items-center justify-center p-4 text-center text-secondary">
                         <DependencyMapPlaceholder />
                     </div>
                 ) : (
-                    <ReactFlowProvider>
+                    // Remounting on a new set of nodes or edges fits the view again, since fitView only runs on mount.
+                    <ReactFlowProvider key={dependencyLayoutKey}>
                         <ReactFlow
                             colorMode={isDarkModeOn ? 'dark' : 'light'}
                             nodes={nodes}

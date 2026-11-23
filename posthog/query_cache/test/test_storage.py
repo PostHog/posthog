@@ -1,18 +1,22 @@
 import pickle
 import hashlib
+import threading
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 import zstd
 from parameterized import parameterized
+from redis.crc import key_slot
 
+from posthog.caching.redis_cluster_connection_factory import RedisClusterConnectionFactory
 from posthog.query_cache import (
     QueryCache,
     get_stale_insights,
+    prefetched_entries,
     storage as qc_storage,
 )
 from posthog.query_cache.serialization import encode_split_cached_response
@@ -349,6 +353,43 @@ class TestQueryCacheS3Routing(BaseTest):
         assert entry is not None
         assert entry.as_full_response() == response
 
+    def test_entries_prefetched_together_are_served_from_that_read(self):
+        inline_key, first_pointer_key, second_pointer_key, missing_key = (
+            f"prefetch_{name}_{self.team.pk}" for name in ("inline", "pointer_a", "pointer_b", "missing")
+        )
+        responses = {
+            inline_key: self._small_response(),
+            first_pointer_key: {**self._large_response(), "cache_key": "a"},
+            second_pointer_key: {**self._large_response(), "cache_key": "b"},
+        }
+        with patch("posthog.query_cache.storage.s3_write_mode", return_value="on"):
+            for cache_key, response in responses.items():
+                QueryCache(team_id=self.team.pk, cache_key=cache_key).store_result(response=response, target_age=None)
+        assert self._redis_holds_pointer(first_pointer_key) and self._redis_holds_pointer(second_pointer_key)
+        keys = [missing_key, *responses]
+
+        # Each blob read waits for the other, so the pointers only resolve when they're fetched concurrently.
+        both_blobs_requested = threading.Barrier(2, timeout=5)
+        read_bytes = self.storage.read_bytes
+
+        def read_alongside_the_other_blob(*args, **kwargs):
+            both_blobs_requested.wait()
+            return read_bytes(*args, **kwargs)
+
+        with (
+            patch.object(self.storage, "read_bytes", side_effect=read_alongside_the_other_blob),
+            prefetched_entries(keys, team_id=self.team.pk),
+        ):
+            for cache_key in responses:
+                qc_storage.delete_entry(cache_key)
+            self.storage.objects.clear()
+
+            served = {key: QueryCache(team_id=self.team.pk, cache_key=key).lookup().entry for key in keys}
+            assert served.pop(missing_key) is None
+            assert {key: entry.as_full_response() for key, entry in served.items() if entry} == responses
+
+        assert all(QueryCache(team_id=self.team.pk, cache_key=key).lookup().entry is None for key in keys)
+
     def test_pointer_write_updates_freshness_index(self):
         cache_key = f"s3_freshness_{self.team.pk}"
         cache = QueryCache(team_id=self.team.pk, cache_key=cache_key, insight_id=42)
@@ -357,3 +398,37 @@ class TestQueryCacheS3Routing(BaseTest):
             cache.store_result(response=self._large_response(), target_age=datetime.now(UTC) - timedelta(minutes=5))
 
         assert "42:" in get_stale_insights(team_id=self.team.pk)
+
+
+class TestPrefetchOnRedisCluster(SimpleTestCase):
+    """Runs against the dev stack's single-node valkey-cluster, which rejects a multi-key command across hash slots
+    like production's cluster does."""
+
+    CLUSTER_URL = "redis://127.0.0.1:6390"
+
+    def setUp(self) -> None:
+        super().setUp()
+        RedisClusterConnectionFactory._cluster_clients.clear()
+        try:
+            self.cluster = RedisClusterConnectionFactory(options={}).connect(self.CLUSTER_URL)
+            self.cluster.ping()
+        except Exception:
+            self.skipTest("needs valkey-cluster from docker-compose.dev.yml on 127.0.0.1:6390")
+        self.addCleanup(RedisClusterConnectionFactory._cluster_clients.clear)
+        patcher = patch("posthog.query_cache.storage.query_cache_read_client", return_value=self.cluster)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_prefetch_reads_keys_from_different_slots_in_request_order(self):
+        responses = {f"cluster_prefetch_{i}": {"results": [i], "cache_key": f"k{i}"} for i in range(4)}
+        redis_keys = [entry_redis_key(cache_key) for cache_key in responses]
+        assert len({key_slot(key.encode()) for key in redis_keys}) > 1
+        for redis_key, response in zip(redis_keys, responses.values()):
+            self.cluster.set(redis_key, encode_split_cached_response(response), ex=60)
+        self.addCleanup(self.cluster.delete, *redis_keys)
+
+        with prefetched_entries(list(responses), team_id=1):
+            self.cluster.delete(*redis_keys)
+            served = [QueryCache(team_id=1, cache_key=cache_key).lookup().entry for cache_key in responses]
+
+        assert [entry.as_full_response() if entry else None for entry in served] == list(responses.values())

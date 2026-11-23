@@ -1,6 +1,11 @@
+import re
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
+import pytest
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -10,8 +15,10 @@ from django.test.utils import CaptureQueriesContext
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog import redis
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.constants import AvailableFeature
+from posthog.dataclasses import frozen
 from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -22,6 +29,58 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.event_definitions.backend.models import PropertyDefinition
 
 
+class _CountingClient:
+    def __init__(self, client: Any, counted: frozenset[str]) -> None:
+        self.client = client
+        self.counted = counted
+        self.round_trips = 0
+
+    def __getattr__(self, name: str) -> Any:
+        if name in self.counted:
+            self.round_trips += 1
+        return getattr(self.client, name)
+
+
+@frozen
+class _RedisRoundTrips:
+    cache_reads: _CountingClient
+    read_history_writes: _CountingClient
+
+
+@contextmanager
+def _count_redis_round_trips() -> Iterator[_RedisRoundTrips]:
+    counts = _RedisRoundTrips(
+        cache_reads=_CountingClient(redis.get_client(), frozenset({"get", "mget", "mget_nonatomic"})),
+        read_history_writes=_CountingClient(redis.get_client(), frozenset({"pipeline"})),
+    )
+    with (
+        patch("posthog.query_cache.storage.query_cache_read_client", return_value=counts.cache_reads),
+        patch("posthog.query_cache.read_history.redis.get_client", return_value=counts.read_history_writes),
+    ):
+        yield counts
+
+
+_RUN_ID_KEYS = frozenset({"id", "dashboard_id", "short_id", "uuid", "distinct_id"})
+
+
+def _without_run_ids(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: "<run id>" if key in _RUN_ID_KEYS else _without_run_ids(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_without_run_ids(item) for item in value]
+    if isinstance(value, str):
+        # A cache key hashes the team's ID, which differs on every run.
+        return re.sub(r"^cache_\d+_[0-9a-f]+$", "<cache key>", value)
+    return value
+
+
+def _sql_count_query(event: str) -> dict:
+    return {
+        "kind": "DataVisualizationNode",
+        "source": {"kind": "HogQLQuery", "query": f"select count() from events where event = '{event}'"},
+    }
+
+
 def _event_count_query(event: str) -> dict:
     return {
         "kind": "DataTableNode",
@@ -29,7 +88,10 @@ def _event_count_query(event: str) -> dict:
     }
 
 
+@pytest.mark.usefixtures("unittest_snapshot")
 class TestDashboardCachedTiles(APIBaseTest):
+    snapshot: Any
+
     def setUp(self) -> None:
         super().setUp()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
@@ -43,9 +105,9 @@ class TestDashboardCachedTiles(APIBaseTest):
         groups = kwargs.get("groups") or {}
         return flag == "dashboard-v2" and groups.get("project") == str(self.flag_on_for_project)
 
-    def _add_insight_tile(self, event: str) -> tuple[int, int]:
+    def _add_insight_tile(self, event: str, query: dict | None = None) -> tuple[int, int]:
         insight_id, _ = self.dashboard_api.create_insight(
-            {"name": event, "query": _event_count_query(event), "dashboards": [self.dashboard_id]}
+            {"name": event, "query": query or _event_count_query(event), "dashboards": [self.dashboard_id]}
         )
         tile = DashboardTile.objects.get(dashboard_id=self.dashboard_id, insight_id=insight_id)
         return insight_id, tile.id
@@ -84,7 +146,24 @@ class TestDashboardCachedTiles(APIBaseTest):
         self.assertEqual(warm["status"], "hit")
         self.assertEqual(warm["insight"]["result"], per_tile["result"])
         self.assertEqual(warm["insight"]["last_refresh"], per_tile["last_refresh"])
+        self.assertEqual(warm["insight"]["query_scan"], per_tile["query_scan"])
         self.assertNotIn("hogql", warm["insight"])
+
+    @parameterized.expand([("blocking",), ("force_cache",)])
+    def test_per_tile_insight_endpoint_without_dashboard_v2_is_unchanged(self, _name: str) -> None:
+        self.flag_on_for_project = None
+        with time_machine.travel("2026-06-01T12:00:00Z", tick=False):
+            insight_id, _ = self._add_insight_tile("$pageview")
+            self._per_tile(insight_id, "blocking")
+
+            with _count_redis_round_trips() as redis_calls:
+                payload = self._per_tile(insight_id, _name)
+
+        self.assertEqual(
+            (redis_calls.cache_reads.round_trips, redis_calls.read_history_writes.round_trips),
+            (1, 1),
+        )
+        assert _without_run_ids(payload) == self.snapshot
 
     def test_dashboard_filter_override_reads_its_own_cache_entry(self) -> None:
         insight_id, tile_id = self._add_insight_tile("$pageview")
@@ -220,16 +299,82 @@ class TestDashboardCachedTiles(APIBaseTest):
 
         self.assertEqual(self._statuses([tile_id]), [(tile_id, "hit")])
 
-    def test_postgres_queries_do_not_grow_with_tile_count(self) -> None:
-        tiles = [self._add_insight_tile(event) for event in ("$pageview", "$autocapture", "$identify", "$pageleave")]
+    def test_postgres_queries_and_redis_round_trips_do_not_grow_with_tile_count(self) -> None:
+        # Raw SQL tiles, because their cache keys look up warehouse names in Postgres.
+        tiles = [
+            self._add_insight_tile(event, _sql_count_query(event))
+            for event in ("$pageview", "$autocapture", "$identify", "$pageleave")
+        ]
         for insight_id, _ in tiles:
             self._per_tile(insight_id, "blocking")
         tile_ids = [tile_id for _, tile_id in tiles]
         self._statuses(tile_ids)
 
-        with CaptureQueriesContext(connection) as one_tile:
+        with CaptureQueriesContext(connection) as one_tile, _count_redis_round_trips() as one_tile_redis:
             self.assertEqual(self._statuses(tile_ids[:1]), [(tile_ids[0], "hit")])
-        with CaptureQueriesContext(connection) as four_tiles:
+        with CaptureQueriesContext(connection) as four_tiles, _count_redis_round_trips() as four_tile_redis:
             self.assertEqual(self._statuses(tile_ids), [(tile_id, "hit") for tile_id in tile_ids])
 
         self.assertEqual(len(four_tiles.captured_queries), len(one_tile.captured_queries))
+        self.assertEqual(
+            [
+                (redis.cache_reads.round_trips, redis.read_history_writes.round_trips)
+                for redis in (one_tile_redis, four_tile_redis)
+            ],
+            [(1, 1), (1, 1)],
+        )
+
+    @parameterized.expand(
+        [
+            ("flag_on_with_param_omits_results", True, {"omit_tile_results": "true"}, False),
+            ("flag_on_without_param_keeps_results", True, {}, True),
+            ("flag_off_ignores_param", False, {"omit_tile_results": "true"}, True),
+        ]
+    )
+    def test_dashboard_get_omits_tile_results_only_when_asked_under_the_flag(
+        self, _name: str, flag_on: bool, params: dict[str, str], expect_result: bool
+    ) -> None:
+        insight_id, tile_id = self._add_insight_tile("$pageview")
+        cached = self._per_tile(insight_id, "blocking")
+        if not flag_on:
+            self.flag_on_for_project = self.team.pk + 1
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}/",
+            {"refresh": "force_cache", "filters_override": '{"date_from": "-14d"}', **params},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        (tile,) = response.json()["tiles"]
+        self.assertEqual(tile["id"], tile_id)
+        self.assertEqual(tile["insight"]["name"], "$pageview")
+        self.assertEqual(tile["insight"]["query"], cached["query"])
+        self.assertEqual(tile["insight"]["result"] is not None, expect_result)
+        self.assertEqual(tile["insight"]["is_cached"], expect_result)
+        self.assertEqual(tile["insight"]["last_refresh"] is not None, expect_result)
+        if flag_on:
+            self.assertEqual(self._statuses([tile_id]), [(tile_id, "hit")])
+
+    def test_dashboard_get_without_results_still_masks_restricted_insights(self) -> None:
+        insight_id, _ = self._add_insight_tile("$pageview")
+        self._per_tile(insight_id, "blocking")
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team, resource="insight", resource_id=str(insight_id), access_level="none"
+        )
+        member = self._create_user("member@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        self.client.force_login(member)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}/",
+            {"refresh": "force_cache", "omit_tile_results": "true"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        (tile,) = response.json()["tiles"]
+        self.assertEqual(
+            tile["insight"], {"id": insight_id, "short_id": tile["insight"]["short_id"], "user_access_level": "none"}
+        )

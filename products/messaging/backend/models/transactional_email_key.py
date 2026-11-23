@@ -1,4 +1,4 @@
-from django.db import models
+from django.db import connection, models
 
 from posthog.models.scoping.manager import TeamScopedManager
 from posthog.models.utils import UUIDModel
@@ -26,3 +26,14 @@ class TransactionalEmailKey(UUIDModel):
         constraints = [
             models.UniqueConstraint(fields=["team", "key"], name=TRANSACTIONAL_EMAIL_KEY_CONSTRAINT),
         ]
+
+
+TRANSACTIONAL_EMAIL_KEY_LOCK = "transactional-email-keys"
+
+
+def lock_team_keys(team_id: int) -> None:
+    """Held by a send while it adds a key, and by anything that must not race one, such as a template import."""
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"{TRANSACTIONAL_EMAIL_KEY_LOCK}:{team_id}"]
+        )

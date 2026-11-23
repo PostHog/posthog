@@ -43,6 +43,7 @@ import type {
     ErrorTrackingAIFeatureEnumApi,
     FlagEvaluationsModeEnumApi,
     OrganizationMemberNoticeApi,
+    OrganizationExternalProjectLinkApi,
     OrganizationTeamBasicApi,
     OrganizationNotificationLockApi,
     ProjectApi,
@@ -303,13 +304,14 @@ export enum Region {
     DEV = 'DEV',
 }
 
-export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml' | 'oidc'
+export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'chatgpt' | 'saml' | 'oidc'
 export type LoginMethod = SSOProvider | 'password' | 'passkey' | null
 
 export interface AuthBackends {
     'google-oauth2'?: boolean
     gitlab?: boolean
     github?: boolean
+    chatgpt?: boolean
     saml?: boolean
     oidc?: boolean
 }
@@ -653,6 +655,7 @@ export interface OrganizationType extends OrganizationBasicType {
     enforce_2fa: boolean | null
     enforce_verified_domains: boolean | null
     is_ai_data_processing_approved?: boolean
+    is_ai_data_processing_locked?: boolean
     is_ai_training_opted_in?: boolean
     is_ai_training_locked?: boolean
     is_ai_training_cta_shown?: boolean
@@ -672,6 +675,7 @@ export interface OrganizationType extends OrganizationBasicType {
     default_anonymize_ips?: boolean
     default_role_id?: string | null
     uses_most_specific_access_resolution?: boolean | null
+    external_project_links?: OrganizationExternalProjectLinkApi[]
 }
 
 export interface OrganizationDomainType {
@@ -759,7 +763,7 @@ export interface PropertyUsageType {
     volume: number
 }
 
-export interface ProjectBasicType {
+export interface ProjectBasicType extends Partial<Pick<ProjectApi, 'logo_media_id'>> {
     [key: string]: any
     id: number
     organization_id: string
@@ -772,9 +776,6 @@ export interface TeamBasicType extends WithAccessControl {
     organization: string // Organization ID
     project_id: number
     api_token: string
-    // Null in every response except rotate_secret_token, which returns the newly minted token once. The fields drop with the column retirement (#66179).
-    secret_api_token: string | null
-    secret_api_token_backup: string | null
     name: string
     completed_snippet_onboarding: boolean
     has_completed_onboarding_for?: Record<string, boolean>
@@ -783,7 +784,8 @@ export interface TeamBasicType extends WithAccessControl {
     timezone: string
 }
 
-export interface ProjectType extends ProjectBasicType, Pick<ProjectApi, 'logo_media_id'> {
+export interface ProjectType extends ProjectBasicType {
+    logo_media_id: ProjectApi['logo_media_id']
     created_at: string
     is_pending_deletion: boolean
     deletion_scheduled_at: string | null

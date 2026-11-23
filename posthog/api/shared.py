@@ -114,12 +114,19 @@ class ProjectBasicSerializer(serializers.ModelSerializer):
     Also used for nested serializers.
     """
 
+    logo_media_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="ID of the uploaded image shown as this project's logo. Null when the project has no logo.",
+    )
+
     class Meta:
         model = Project
         fields = (
             "id",
             "organization_id",
             "name",
+            "logo_media_id",
         )
         read_only_fields = fields
 

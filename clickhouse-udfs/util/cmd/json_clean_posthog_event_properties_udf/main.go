@@ -29,6 +29,7 @@ const (
 	personProperties
 	temporaryProperties
 	eventEnvelope
+	eventExportEnvelope
 )
 
 const (
@@ -142,6 +143,9 @@ const (
 	// The escaped text of an object or array that is stored as a string. It orders before kindObject because the
 	// cleaner treats it as a scalar: nothing inside it is cleaned, deduplicated, or checked for nulls.
 	kindRaw
+	// The text of an object or array that export mode writes into the document as JSON. It is a scalar to the
+	// cleaner, like kindRaw.
+	kindJSON
 	kindObject
 	kindArray
 )
@@ -189,6 +193,16 @@ type processor struct {
 	captureNested  bool
 	keepNumberText bool
 	nestedBuf      bytes.Buffer
+	export         bool
+	flagBuf        bytes.Buffer
+	exportKeys     map[string]struct{}
+}
+
+func newProcessor(kind propertiesKind) processor {
+	if kind == eventExportEnvelope {
+		return processor{kind: eventEnvelope, export: true}
+	}
+	return processor{kind: kind}
 }
 
 func processLine(rawLine []byte, buf *bytes.Buffer) error {
@@ -562,12 +576,21 @@ func (p *processor) parseNestedAsString(depth int) (*value, error) {
 	sortKeys(tree)
 	// The text stays in nestedBuf until the row is written, so it is not copied again.
 	start := p.nestedBuf.Len()
-	p.writeValueAt(&p.nestedBuf, tree, true)
+	style, kind := styleEmbedded, kindRaw
+	if p.export {
+		style, kind = styleCanonical, kindJSON
+	}
+	p.writeValueAt(&p.nestedBuf, tree, style)
 	p.recycle(tree)
 	// The stored value is a string, so the output differs from the input and the line cannot be copied through.
 	p.mutated = true
-	v := p.newValue(kindRaw)
-	v.s = borrowedString(p.nestedBuf.Bytes()[start:])
+	text := borrowedString(p.nestedBuf.Bytes()[start:])
+	if p.export && !isValidJSONText(text) {
+		// A read returns this text as a string, because ClickHouse does not accept it as JSON.
+		kind = kindString
+	}
+	v := p.newValue(kind)
+	v.s = text
 	return v, nil
 }
 
@@ -946,9 +969,13 @@ func (p *processor) writeUnparseableProperties(buf *bytes.Buffer, raw []byte) {
 	}
 	buf.Grow(len(raw) + len(unparseablePropertiesKey) + 8)
 	buf.WriteByte('{')
-	writeJSONString(buf, unparseablePropertiesKey)
-	buf.WriteByte(':')
-	writeJSONString(buf, borrowedString(raw))
+	if p.export {
+		writeExportUnparseable(buf, raw)
+	} else {
+		writeJSONString(buf, unparseablePropertiesKey)
+		buf.WriteByte(':')
+		writeJSONString(buf, borrowedString(raw))
+	}
 	buf.WriteByte('}')
 }
 
@@ -1055,20 +1082,39 @@ func (p *processor) resetValue(v *value, kind valueKind) {
 	v.values = v.values[:0]
 }
 
+type stringStyle byte
+
+const (
+	styleDocument stringStyle = iota
+	// A string inside the text of an object or array, where that text is itself written as a JSON string.
+	styleEmbedded
+	// The text that styleEmbedded decodes to. Export mode writes it when the object or array goes into the document
+	// as JSON.
+	styleCanonical
+	// The text ClickHouse prints for an object or array that it has parsed. See writeExportFlags.
+	styleClickHouse
+)
+
 func (p *processor) writeValue(buf *bytes.Buffer, v *value) {
-	p.writeValueAt(buf, v, false)
+	p.writeValueAt(buf, v, styleDocument)
 }
 
-func (p *processor) writeValueAt(buf *bytes.Buffer, v *value, nested bool) {
+func (p *processor) writeValueAt(buf *bytes.Buffer, v *value, style stringStyle) {
 	switch v.kind {
 	case kindString:
-		writeStringAt(buf, v.s, nested)
+		writeStringAt(buf, v.s, style)
 	case kindRaw:
 		buf.WriteByte('"')
 		buf.WriteString(v.s)
 		buf.WriteByte('"')
-	case kindNumber:
+	case kindJSON:
 		buf.WriteString(v.s)
+	case kindNumber:
+		if style == styleClickHouse {
+			buf.Write(appendClickHouseNumber(buf.AvailableBuffer(), v.s))
+		} else {
+			buf.WriteString(v.s)
+		}
 	case kindBool:
 		if v.b {
 			buf.WriteString("true")
@@ -1083,9 +1129,9 @@ func (p *processor) writeValueAt(buf *bytes.Buffer, v *value, nested bool) {
 			if i > 0 {
 				buf.WriteByte(',')
 			}
-			writeStringAt(buf, entry.key, nested)
+			writeStringAt(buf, entry.key, style)
 			buf.WriteByte(':')
-			p.writeValueAt(buf, entry.value, nested)
+			p.writeValueAt(buf, entry.value, style)
 		}
 		buf.WriteByte('}')
 	case kindArray:
@@ -1094,16 +1140,21 @@ func (p *processor) writeValueAt(buf *bytes.Buffer, v *value, nested bool) {
 			if i > 0 {
 				buf.WriteByte(',')
 			}
-			p.writeValueAt(buf, child, nested)
+			p.writeValueAt(buf, child, style)
 		}
 		buf.WriteByte(']')
 	}
 }
 
-func writeStringAt(buf *bytes.Buffer, s string, nested bool) {
-	if nested {
+func writeStringAt(buf *bytes.Buffer, s string, style stringStyle) {
+	switch style {
+	case styleEmbedded:
 		writeNestedString(buf, s)
-	} else {
+	case styleCanonical:
+		writeEscapedString(buf, s, &canonicalEscapes)
+	case styleClickHouse:
+		writeEscapedString(buf, s, &clickHouseEscapes)
+	default:
 		writeJSONString(buf, s)
 	}
 }
@@ -1147,13 +1198,31 @@ func writeJSONString(buf *bytes.Buffer, s string) {
 	buf.WriteByte('"')
 }
 
-var nestedEscapes = func() (escapes [256]string) {
+var canonicalEscapes = func() (escapes [256]string) {
 	for ch := range 0x20 {
-		escapes[ch] = fmt.Sprintf(`\\u%04X`, ch)
+		escapes[ch] = fmt.Sprintf(`\u%04X`, ch)
 	}
-	for ch, escape := range map[byte]string{'"': `\\\"`, '\\': `\\\\`, '\b': `\\b`, '\f': `\\f`, '\n': `\\n`, '\r': `\\r`, '\t': `\\t`} {
+	for ch, escape := range map[byte]string{'"': `\"`, '\\': `\\`, '\b': `\b`, '\f': `\f`, '\n': `\n`, '\r': `\r`, '\t': `\t`} {
 		escapes[ch] = escape
 	}
+	return
+}()
+
+// Each canonical escape, escaped once more because the text sits inside a JSON string. Deriving the table keeps the
+// embedded text equal to the canonical text after one decode, which export mode relies on.
+var nestedEscapes = func() (escapes [256]string) {
+	embed := strings.NewReplacer(`\`, `\\`, `"`, `\"`)
+	for ch, escape := range canonicalEscapes {
+		escapes[ch] = embed.Replace(escape)
+	}
+	return
+}()
+
+// The canonical escapes plus the escaped slash, which ClickHouse writes unless
+// output_format_json_escape_forward_slashes is off. The view that fills the events table leaves it on.
+var clickHouseEscapes = func() (escapes [256]string) {
+	escapes = canonicalEscapes
+	escapes['/'] = `\/`
 	return
 }()
 
@@ -1188,13 +1257,43 @@ func writeNestedString(buf *bytes.Buffer, s string) {
 	buf.WriteString(`\"`)
 }
 
+// writeEscapedString is writeNestedString for text that is not inside a JSON string. Export mode calls it. It is a
+// separate function so that the loop every stored event runs through stays as it is.
+func writeEscapedString(buf *bytes.Buffer, s string, escapes *[256]string) {
+	buf.WriteByte('"')
+	start := 0
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		escape := escapes[ch]
+		width := 1
+		if ch == 0xe2 {
+			switch {
+			case strings.HasPrefix(s[i:], "\u2028"):
+				escape = `\u2028`
+			case strings.HasPrefix(s[i:], "\u2029"):
+				escape = `\u2029`
+			}
+			width = 3
+		}
+		if escape == "" {
+			continue
+		}
+		buf.WriteString(s[start:i])
+		buf.WriteString(escape)
+		i += width - 1
+		start = i + 1
+	}
+	buf.WriteString(s[start:])
+	buf.WriteByte('"')
+}
+
 func isNonEmptyValue(v *value) bool {
 	switch v.kind {
 	case kindNull:
 		return false
 	case kindString:
 		return v.s != ""
-	case kindRaw:
+	case kindRaw, kindJSON:
 		return !isEmptyContainer(v.s)
 	case kindArray:
 		return len(v.values) > 0
@@ -1412,19 +1511,31 @@ func (p *processor) cleanEventDocument(raw []byte) {
 		return
 	}
 	p.docNullKeys[envelopeProperties] = p.finishNullKeys(cleaned, p.docNullKeys[envelopeProperties])
-	p.writeValue(permanent, cleaned)
-	p.recycle(cleaned)
+	if !p.export {
+		p.writeValue(permanent, cleaned)
+		p.recycle(cleaned)
+	}
 
 	p.resetNullKeys()
 	cleanedTemporary, err := p.cleanNode(nil, temporaryObject, 1)
 	if err != nil {
 		// The permanent output already quarantines the raw document; do not duplicate it outside the allowlist.
 		p.recycle(temporaryObject)
+		if p.export {
+			p.writeExportEventDocuments(permanent, temporary, cleaned, nil, raw)
+			p.recycle(cleaned)
+			return
+		}
 		temporary.WriteString("{}")
 		return
 	}
 	p.docNullKeys[envelopeTemporaryProperties] = p.finishNullKeys(cleanedTemporary, p.docNullKeys[envelopeTemporaryProperties])
-	p.writeValue(temporary, cleanedTemporary)
+	if p.export {
+		p.writeExportEventDocuments(permanent, temporary, cleaned, cleanedTemporary, raw)
+		p.recycle(cleaned)
+	} else {
+		p.writeValue(temporary, cleanedTemporary)
+	}
 	p.recycle(cleanedTemporary)
 }
 
@@ -1457,7 +1568,11 @@ func (p *processor) cleanPersonDocument(raw []byte) {
 		return
 	}
 	p.docNullKeys[envelopePersonProperties] = p.finishNullKeys(cleaned, p.docNullKeys[envelopePersonProperties])
-	p.writeValue(out, cleaned)
+	if p.export {
+		p.writeExportPersonDocument(out, cleaned, raw)
+	} else {
+		p.writeValue(out, cleaned)
+	}
 	p.recycle(cleaned)
 }
 
@@ -1604,7 +1719,7 @@ func run(input io.Reader, output io.Writer, kind propertiesKind) error {
 	reader := bufio.NewReaderSize(input, 64*1024)
 	writer := bufio.NewWriterSize(output, 64*1024)
 	buf := bytes.NewBuffer(make([]byte, 0, 64*1024))
-	proc := processor{kind: kind}
+	proc := newProcessor(kind)
 
 	for {
 		line, err := readLine(reader)
@@ -1639,7 +1754,7 @@ func runChunked(input io.Reader, output io.Writer, kind propertiesKind) error {
 	reader := bufio.NewReaderSize(input, 64*1024)
 	writer := bufio.NewWriterSize(output, 64*1024)
 	buf := bytes.NewBuffer(make([]byte, 0, 64*1024))
-	proc := processor{kind: kind}
+	proc := newProcessor(kind)
 
 	for {
 		var rows int
@@ -1677,15 +1792,16 @@ func main() {
 	cleanPersonProperties := flag.Bool("person-properties", false, "clean person properties without event-specific transformations")
 	cleanTemporaryProperties := flag.Bool("temporary-properties", false, "retain only temporary event properties")
 	envelope := flag.Bool("event", false, "read JSONEachRow rows of event and person properties and write a JSONEachRow named tuple with every cleaned output")
+	exportEnvelope := flag.Bool("event-export", false, "like event, but write each document as the JSON value a read of the events table returns")
 	flag.Parse()
 	modes := 0
-	for _, enabled := range []bool{*cleanPersonProperties, *cleanTemporaryProperties, *envelope} {
+	for _, enabled := range []bool{*cleanPersonProperties, *cleanTemporaryProperties, *envelope, *exportEnvelope} {
 		if enabled {
 			modes++
 		}
 	}
 	if modes > 1 {
-		fmt.Fprintln(os.Stderr, "person-properties, temporary-properties and event are mutually exclusive")
+		fmt.Fprintln(os.Stderr, "person-properties, temporary-properties, event and event-export are mutually exclusive")
 		os.Exit(1)
 	}
 
@@ -1719,6 +1835,9 @@ func main() {
 	}
 	if *envelope {
 		kind = eventEnvelope
+	}
+	if *exportEnvelope {
+		kind = eventExportEnvelope
 	}
 	if err := runner(os.Stdin, os.Stdout, kind); err != nil {
 		fmt.Fprintln(os.Stderr, err)

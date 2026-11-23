@@ -10,6 +10,7 @@ import PasswordStrength from 'lib/components/PasswordStrength'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 import passkeyLogo from 'lib/components/SocialLoginButton/passkey.svg'
 import { SocialLoginButton, SSOEnforcedLoginButton } from 'lib/components/SocialLoginButton/SocialLoginButton'
+import { isSocialProviderHeldBack } from 'lib/components/SocialLoginButton/socialProviderRollout'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -19,6 +20,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { loginLogic } from 'scenes/authentication/auth/loginLogic'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
@@ -54,11 +56,14 @@ function InviteAlternativeLogins({
     passkeyRegistering: boolean
 }): JSX.Element | null {
     const { preflight, socialAuthAvailable } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const order = Object.keys(SSO_PROVIDER_NAMES)
     const socialProviders =
         socialAuthAvailable && preflight
-            ? Object.keys(preflight.available_social_auth_providers).sort((a, b) => order.indexOf(a) - order.indexOf(b))
+            ? Object.keys(preflight.available_social_auth_providers)
+                  .filter((provider) => !isSocialProviderHeldBack(provider, featureFlags))
+                  .sort((a, b) => order.indexOf(a) - order.indexOf(b))
             : []
 
     if (!socialProviders.length && !showPasskey) {

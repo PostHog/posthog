@@ -27,7 +27,6 @@ from structlog.types import FilteringBoundLogger
 from products.warehouse_sources.sources.checkout_com.checkout_com import (
     CheckoutComResumeConfig,
     _error_details,
-    _format_timestamp,
     _hosts,
     _make_auth,
 )
@@ -35,6 +34,7 @@ from products.warehouse_sources.sources.sdk import (
     OAuth2Auth,
     ResumableSourceManager,
     SourceResponse,
+    format_datetime,
     make_tracked_session,
 )
 
@@ -478,7 +478,7 @@ def _get_rows(
 
     created_after: Optional[str] = None
     if should_use_incremental_field and db_incremental_field_last_value is not None:
-        created_after = _format_timestamp(db_incremental_field_last_value)
+        created_after = format_datetime(db_incremental_field_last_value)
     completed_report_id: Optional[str] = None
     if resume is not None and resume.report_created_on:
         # The checkpoint is always at or past the incremental watermark, so it wins.

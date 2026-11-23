@@ -21,8 +21,9 @@ top-level `model`. Its parse fails closed too: one invalid arm, or arms that add
 turn every arm off. `config_for_user` gives the config of one person.
 
 The optional `service_tier` and `on_demand_service_tier` keys set the provider service tier of the model call.
-`service_tier` applies to the builds that nobody waits on (`tick` and `first_summary`), and an arm can replace it
-for its people. `on_demand_service_tier` applies to `on_demand` builds. A missing or invalid tier sends no tier.
+`service_tier` applies to the builds that nobody waits on (`tick`, `first_summary` and `inbox_load`), and an arm can
+replace it for its people. `on_demand_service_tier` applies to `on_demand` builds. A missing or invalid tier sends no
+tier.
 The tiers change the queue and the price of a call, not the list, so they are not part of the input hash.
 """
 
@@ -180,7 +181,7 @@ class PersonalRankingConfig:
     focus_max_chars: int = 500
     timeout_seconds: float = 90.0
     max_completion_tokens: int = 16000
-    # The tier of `tick` and `first_summary` builds, and of `on_demand` builds. None sends no tier.
+    # The tier of `tick`, `first_summary` and `inbox_load` builds, and of `on_demand` builds. None sends no tier.
     service_tier: ServiceTier | None = None
     on_demand_service_tier: ServiceTier | None = None
     # The `for_me` endpoint reuses a stored list this many minutes old or newer while its inputs are the same.
