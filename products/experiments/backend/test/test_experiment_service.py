@@ -8412,6 +8412,32 @@ class TestExperimentServiceWarehouseNativeSources(APIBaseTest):
         experiment.refresh_from_db()
         assert experiment.start_date is not None
 
+    @parameterized.expand([("launch_action",), ("patch_start_date",)])
+    def test_refuses_to_launch_when_the_user_lost_access_to_the_connection(self, path: str) -> None:
+        connection_id = str(self.bigquery.id)
+        experiment = self._create(
+            exposure_criteria=_warehouse_exposure(connection_id), metrics=[_warehouse_metric(connection_id)]
+        )
+        # A launched experiment runs its sources without a user, so the launch is the last place to check access.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+            level=OrganizationMembership.Level.MEMBER
+        )
+        AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
+
+        with self.assertRaises(ValidationError) as ctx:
+            if path == "launch_action":
+                self.service.launch_experiment(experiment)
+            else:
+                self.service.update_experiment(experiment, {"start_date": timezone.now()})
+
+        assert "do not have access" in str(ctx.exception)
+        experiment.refresh_from_db()
+        assert experiment.start_date is None
+
     def test_refuses_a_raw_query_when_the_user_cannot_read_every_table_on_the_connection(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},

@@ -2066,6 +2066,20 @@ class ExperimentService:
     # out of an atomic block would roll back the just-created ChangeRequest). The flag
     # is flipped through the gate first, so an ApprovalRequired aborts before any
     # experiment mutation.
+    def _validate_warehouse_native_sources_for_launch(self, experiment: Experiment) -> None:
+        """A launched experiment sends its sources to the customer's warehouse on every recalculation, with no
+        user to check. So the launching user needs the access a save needs, even when the sources are unchanged."""
+        validate_experiment_warehouse_native_sources(
+            exposure_criteria=experiment.exposure_criteria,
+            metrics=[
+                *(experiment.metrics or []),
+                *(experiment.metrics_secondary or []),
+                *self._linked_saved_metric_queries(experiment),
+            ],
+            team=self.team,
+            user=self.user,
+        )
+
     def launch_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
         """Launch a draft experiment: validate readiness, set start_date, activate feature flag.
 
@@ -2074,6 +2088,7 @@ class ExperimentService:
         """
         if not experiment.is_draft:
             raise ValidationError("Experiment has already been launched.")
+        self._validate_warehouse_native_sources_for_launch(experiment)
 
         # Validate feature flag configuration
         feature_flag = experiment.feature_flag
@@ -3825,6 +3840,8 @@ class ExperimentService:
                 team=self.team,
                 user=self.user,
             )
+        elif update_data.get("start_date") is not None and experiment.start_date is None:
+            self._validate_warehouse_native_sources_for_launch(experiment)
         context = serializer_context or self._build_serializer_context()
         feature_flag = experiment.feature_flag
 
