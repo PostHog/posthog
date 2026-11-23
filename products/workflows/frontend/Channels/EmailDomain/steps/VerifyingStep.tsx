@@ -18,7 +18,7 @@ import { emailDomainStatusLogic } from '../emailDomainStatusLogic'
 import { HedgehogHourglass, HedgehogPanic } from '../hoggies'
 
 function Heading(): JSX.Element {
-    const { status, pollingStopped, missingRecords, foundCount, records, allRecordsFound } =
+    const { status, pollingStopped, missingRecords, foundCount, records, allRecordsFound, verifyForbidden } =
         useValues(emailDomainStatusLogic)
     const { hostName } = useValues(emailDomainAutoConfigureLogic)
     const { recordsAdded } = useValues(emailDomainManualSetupLogic)
@@ -29,6 +29,15 @@ function Heading(): JSX.Element {
                 Hoggie={HedgehogPanic}
                 title="Verification stopped"
                 lead="The email provider gave up waiting for the settings. Check them once more, then restart verification."
+            />
+        )
+    }
+    if (verifyForbidden && status?.status === 'verified') {
+        return (
+            <StepHeading
+                Hoggie={HedgehogHourglass}
+                title="Your records are in place"
+                lead="Ask a teammate who can edit email senders to open this page. That turns sending back on."
             />
         )
     }

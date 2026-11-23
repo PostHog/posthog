@@ -192,7 +192,13 @@ export const emailDomainSenderLogic = kea<emailDomainSenderLogicType>([
                     }
                     try {
                         return await integrationsEmailPartialUpdate(String(currentTeamId), integrationId, {
-                            config: { ...senderConfig, setup_method: method },
+                            // Like the name save, it sends no MAIL FROM subdomain, so it can't undo one a verification adopted.
+                            config: {
+                                email: senderConfig.email,
+                                name: senderConfig.name,
+                                provider: senderConfig.provider,
+                                setup_method: method,
+                            },
                         })
                     } catch {
                         return sender

@@ -17,7 +17,6 @@ import { initKeaTests } from '~/test/init'
 
 import { MessagingTabActions } from '../../MessagingTabActions'
 import { SendingDomainRow } from '../../Transactional/sendFromCode/SendingDomainRow'
-import { hogFlowEditorLogic } from '../../Workflows/hogflows/hogFlowEditorLogic'
 import { workflowLogic } from '../../Workflows/workflowLogic'
 import { WorkflowSandboxSenderBanner } from '../../Workflows/WorkflowSandboxSenderBanner'
 import { WorkflowStoppedSenderBanner } from '../../Workflows/WorkflowStoppedSenderBanner'
@@ -217,8 +216,9 @@ describe('email domain setup entry points', () => {
             )
         ).toBeInTheDocument()
         fireEvent.click(element('workflow-stopped-sender-change-sender'))
-        expect(hogFlowEditorLogic({ id: 'flow-2' }).values.selectedNodeId).toEqual('email')
+        await flush()
         expect(router.values.location.pathname).toMatch(/\/workflows\/flow-2\/workflow$/)
+        expect(router.values.searchParams).toMatchObject({ node: 'email', mode: 'build' })
 
         fireEvent.click(element('workflow-stopped-sender-fix-domain'))
         await flush()

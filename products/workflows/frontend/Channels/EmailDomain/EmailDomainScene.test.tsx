@@ -151,7 +151,14 @@ describe('EmailDomainScene', () => {
         await flush()
         expect(screen.getByText('Proves you own the domain')).toBeInTheDocument()
         expect(backend.requestsTo('email_update').map((request) => request.body)).toEqual([
-            { config: expect.objectContaining({ setup_method: 'manual' }) },
+            {
+                config: {
+                    email: 'support@mail.acme.com',
+                    name: 'Support team',
+                    provider: 'ses',
+                    setup_method: 'manual',
+                },
+            },
         ])
         expect(backend.senderConfig(SENDER_ID)?.setup_method).toBe('manual')
 
@@ -497,11 +504,11 @@ describe('EmailDomainScene', () => {
     })
 
     it.each([
-        ['verified', true],
-        ['failed', false],
+        ['verified', true, /^Ask a teammate who can edit email senders/],
+        ['failed', false, /^Verification stopped$/],
     ])(
         'shows a stopped domain the provider reports %s as ready once someone else restores sending, to a member who may not verify',
-        async (_, providerVerified) => {
+        async (_, providerVerified, beforeRepair) => {
             seedSender()
             backend.stopsSending(DOMAIN)
             if (providerVerified) {
@@ -510,7 +517,8 @@ describe('EmailDomainScene', () => {
             backend.fail('email_verify', { status: 403, body: { detail: 'You do not have permission to do this.' } })
             await open(urls.workflowsEmailDomain(SENDER_ID))
             await flush(30_000)
-            expect(screen.queryByText(/You can send from/)).not.toBeInTheDocument()
+            expectStep(beforeRepair)
+            expect(backend.requestsTo('email_verify').length).toBeLessThanOrEqual(1)
 
             backend.verifyDomain(DOMAIN)
             await flush(60_000)

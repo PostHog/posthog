@@ -20,6 +20,13 @@ const SENDERS = [sender(1, 'ok.example.com', false), sender(2, 'a.example.com', 
 const ownStep = (id: string, from: Record<string, unknown>): HogFlowAction =>
     ({ id, type: 'function_email', config: { inputs: { email: { value: { from } } } } }) as unknown as HogFlowAction
 
+const olderEmailStep = (id: string, from: Record<string, unknown>): HogFlowAction =>
+    ({
+        id,
+        type: 'function',
+        config: { template_id: 'template-email', inputs: { email: { value: { from } } } },
+    }) as unknown as HogFlowAction
+
 const sandboxStep = (id: string): HogFlowAction =>
     ({ id, type: 'email_sandbox', config: {} }) as unknown as HogFlowAction
 
@@ -39,6 +46,18 @@ describe('stoppedSenderSteps', () => {
                 { domains: ['a.example.com'], senderId: 2, stepIds: ['s2'] },
             ],
             [
+                'an older email step saved as a function step',
+                workflow(olderEmailStep('s1', { integrationId: 2 })),
+                SENDERS,
+                { domains: ['a.example.com'], senderId: 2, stepIds: ['s1'] },
+            ],
+            [
+                'a step whose rotation list is not a list',
+                workflow(ownStep('s1', { integrationIds: '2' }), ownStep('s2', { integrationId: 3 })),
+                SENDERS,
+                { domains: ['b.example.com'], senderId: 3, stepIds: ['s2'] },
+            ],
+            [
                 'a rotating step with one stopped sender, and two stopped domains',
                 workflow(ownStep('s1', { integrationIds: [1, 3] }), ownStep('s2', { integrationId: 2 })),
                 SENDERS,
@@ -51,7 +70,12 @@ describe('stoppedSenderSteps', () => {
 
     it.each<[number, boolean, boolean, string]>([
         [1, true, true, 'change the sender on that step to another sender'],
-        [2, false, true, 'switch those steps to the PostHog test sender'],
+        [
+            2,
+            false,
+            true,
+            'switch those steps to the PostHog test sender, which reaches only verified members of your organization',
+        ],
         [1, false, false, 'add another sender and switch that step to it'],
     ])('advises %i step(s) with another sender %s and the test sender %s', (count, other, testSender, expected) => {
         expect(changeSenderAdvice(count, other, testSender)).toEqual(expected)
