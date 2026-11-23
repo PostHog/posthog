@@ -461,3 +461,112 @@ def connection_pid() -> int:
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_backend_pid()")
         return cursor.fetchone()[0]
+
+
+class TestBrandEditPass(BaseTest):
+    def _brand(self, domain: str, name: str, **fields: Any) -> AEOBrand:
+        return AEOBrand.objects.for_team(self.team.id).create(
+            team=self.team, name=name, domain=domain, source=BrandSource.MANUAL, **fields
+        )
+
+    def _check(self, answer_text: str, **fields: Any) -> AEOCitationCheck:
+        prompts = AEOPrompt.objects.for_team(self.team.id)
+        prompt = prompts.first() or prompts.create(
+            team=self.team, prompt="best tool?", prompt_hash="h", prompt_source=AEOPrompt.Source.MANUAL
+        )
+        check = AEOCitationCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            prompt=prompt,
+            run_id=uuid.uuid4(),
+            prompt_text=prompt.prompt,
+            prompt_source=prompt.prompt_source,
+            prompt_hash=prompt.prompt_hash,
+            engine="exa-answer",
+            model="exa-answer",
+            answer_text=answer_text,
+            **fields,
+        )
+        write_facts([check])
+        return check
+
+    def _history(self) -> None:
+        self.acme = self._brand("acme.com", "Acme Inc")
+        self._brand("globex.com", "Globex")
+        self._check("Roadrunner leads, then Globex.")
+        self._check("Nothing about anyone.")
+        self._check("See ROADRUNNER.example and acme.com/pricing.")
+        self._check(
+            "Cited only.", cited_urls=["https://other.example/a"], top_cited_domains=["other.example", "docs.acme.com"]
+        )
+        self._check("Retrieved only.", retrieved_urls=["https://www.acme.com/x"])
+        self._check("The \u212aayak app.")
+        self._check("Acme Inc is popular.")
+        self._check("Unrelated filler text.")
+        self._check("Sources only.", cited_urls=["https://docs.roadrunner.example/a"])
+        self._check("Sources only.", retrieved_urls=["https://roadrunner.example/b"])
+        enrich_check_brands(self.team.id)
+
+    def _rows(self) -> set[tuple[Any, ...]]:
+        return {
+            (
+                row.citation_check_id,
+                row.brand_id,
+                row.mentioned,
+                row.cited,
+                row.retrieved,
+                row.first_position,
+                row.citation_position,
+                row.matched_by,
+            )
+            for row in AEOCheckBrand.objects.for_team(self.team.id)
+        }
+
+    def _every_check_matched_again(self) -> set[tuple[Any, ...]]:
+        matcher = BrandMatcher(catalog_identities(self.team.id))
+        return {
+            (
+                check.id,
+                match.brand_id,
+                match.mentioned,
+                match.cited,
+                match.retrieved,
+                match.first_position,
+                match.citation_position,
+                match.matched_by,
+            )
+            for check in AEOCitationCheck.objects.for_team(self.team.id)
+            for match in matcher.match(check)
+        }
+
+    @parameterized.expand(
+        [
+            ("new_alias", {}, {"aliases": ["Roadrunner"]}, 6),
+            ("rename_drops_the_old_name", {}, {"name": "Roadrunner"}, 6),
+            ("removed_alias_drops_its_rows", {"aliases": ["Roadrunner"]}, {"aliases": []}, 6),
+            ("name_outside_ascii_reads_every_check", {}, {"aliases": ["Röadrunner"]}, 10),
+            ("kelvin_sign_folds_to_k", {}, {"aliases": ["kayak"]}, 5),
+        ]
+    )
+    def test_the_edit_pass_writes_what_matching_every_check_again_writes(
+        self, _name: str, before: dict[str, Any], change: dict[str, Any], checks_read: int
+    ) -> None:
+        self._history()
+        for fields in (before, change):
+            self.acme.refresh_from_db()
+            for field, value in fields.items():
+                setattr(self.acme, field, value)
+            self.acme.save()
+            result = resolve_stale_brands(self.team.id)
+
+        assert self._rows() == self._every_check_matched_again()
+        assert result.checks == checks_read
+        assert not has_stale_brands(self.team.id)
+
+    def test_a_brand_new_to_the_catalog_gets_its_history(self) -> None:
+        self._history()
+        self._brand("roadrunner.example", "Roadrunner")
+
+        result = resolve_stale_brands(self.team.id)
+
+        assert self._rows() == self._every_check_matched_again()
+        assert result.checks == 5

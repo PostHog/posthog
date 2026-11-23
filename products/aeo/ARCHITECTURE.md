@@ -47,6 +47,7 @@ The runner writes the rows with the check, against the catalog of that moment.
 
 - After every run, once the brand sync added the domains the run cited, it resolves the brands the sync added over the history, and the run's checks again.
 - About a minute after a person adds a brand or changes a name or alias, it resolves that brand over the history. A brand whose `mentions_key` is not the hash of its identity waits for that pass. Kind and status only label the rows, so a relabel needs no pass.
+  The pass reads only the checks whose text, cited hosts or retrieved URLs hold one of the brand's names or its domain, or that have a row for the brand already. It saves its place after each page, so a pass that its task's time limit stops resumes there.
 - When the refresh finds a check without `brands_resolved_at` or a waiting brand, it starts the task instead of storing results. A backfill first gives every cited domain a catalog row, so each cited brand has an entity. `backfill_aeo_check_brands` does the same on demand.
 
 A row is replaced, never added to, so a pass that runs twice writes the same rows.
