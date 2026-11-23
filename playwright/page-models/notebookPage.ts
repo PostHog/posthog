@@ -131,7 +131,7 @@ export class NotebookPage {
     async selectDateRange(text: string): Promise<void> {
         await this.page.keyboard.press('Escape')
         const dataAttr = `date-filter-${text.toLowerCase().replace(/\s+/g, '-')}`
-        await this.page.getByTestId('date-filter').click()
+        await this.page.getByTestId('insight-filters').getByTestId('date-filter').click()
         await this.page.getByTestId(dataAttr).click()
         await this.waitForInsightLoad()
     }
