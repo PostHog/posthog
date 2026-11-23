@@ -6359,7 +6359,7 @@
         }
     },
     "error-tracking-tag-rules-create": {
-        "description": "Create a tag rule for the current project. Provide a `label` and at least one event property filter in `filters`. When the first event of a new issue matches the filters, the issue gets the tag. Every matching rule applies its own tag. Filters can use event properties only. Rules do not change existing issues. The call fails with \"Issue tags are off for this project.\" when the project does not have issue tags. A project can have at most 100 tag rules.",
+        "description": "Create a tag rule for the current project. Provide a `label` and at least one event property filter in `filters`. When the first event of a new issue matches the filters, the issue gets the tag. Once a day, the rule also tags other issues that had a matching event in the past day, unless its filters use `$exception_list`. The daily check never removes a tag, and never applies a tag that a person removed. Every matching rule applies its own tag. Filters can use event properties only. The call fails with \"Issue tags are off for this project.\" when the project does not have issue tags. A project can have at most 100 tag rules.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "Create error tracking tag rule",
@@ -6407,7 +6407,7 @@
         "feature_flag": "error-tracking-issue-tags"
     },
     "error-tracking-tag-rules-update": {
-        "description": "Update a tag rule by ID. Include `label`, `description`, `filters`, or a combination. Omitted fields keep their existing values. A new `label` shows at once on every issue that has the rule's tag. New filters apply only to issues created after the update. When the new filters read the same event properties, issues that already have the tag keep it. When they read different properties, the rule gets a new `key` and loses its existing tags, so list the rules again to get the new key.",
+        "description": "Update a tag rule by ID. Include `label`, `description`, `filters`, or a combination. Omitted fields keep their existing values. A new `label` shows at once on every issue that has the rule's tag. New filters apply to new issues, and once a day to other issues that had a matching event in the past day. When the new filters read the same event properties, issues that already have the tag keep it. When they read different properties, the rule gets a new `key` and loses its existing tags, so list the rules again to get the new key.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "Update error tracking tag rule",
@@ -7259,7 +7259,7 @@
         "feature_flag": "warehouse-multi-destination"
     },
     "external-data-destinations-create": {
-        "description": "Create a place where warehouse sources write synced rows, from an integration that holds the credentials. Get the integration id with external-data-destinations-connect-link first. Pass type, a name, the integration id and the target config for the type: Postgres takes database and schema; Redshift takes database and schema, plus host and optional port (default 5439) when the integration uses an IAM role or access keys instead of a username and password; Snowflake takes database, schema, warehouse and optional role; BigQuery takes dataset and optional project; Databricks takes http_path, catalog, schema and volume; S3 takes bucket, region and optional prefix and compression, where the prefix may use {year}, {month}, {day}, {hour}, {minute} and {second} (the sync's start, in UTC) and {table}; Azure Blob takes container_name and optional prefix and compression; MotherDuck takes database and optional schema (default main). Every type except Redshift tests the connection on create, and a failed test returns a 400 that names the field to fix. Redshift has no test, so a wrong target only shows up when the first sync fails. The target cannot change after creation, so confirm it with the user first. A new destination receives nothing until a source is attached with external-data-destinations-add-sources.",
+        "description": "Create a place where warehouse sources write synced rows, from an integration that holds the credentials. Get the integration id with external-data-destinations-connect-link first. Pass type, a name, the integration id and the target config for the type: Postgres takes database and schema; Redshift takes database and schema, plus host and optional port (default 5439) when the integration uses an IAM role or access keys instead of a username and password; Snowflake takes database, schema, warehouse and optional role; BigQuery takes dataset and optional project; Databricks takes http_path, catalog, schema and volume; S3 takes bucket, region and optional prefix and compression; Azure Blob takes container_name and optional prefix and compression. For both, the prefix may use {year}, {month}, {day}, {hour}, {minute} and {second} (the sync's start, in UTC) and {table}. MotherDuck takes database and optional schema (default main). Every type except Redshift tests the connection on create, and a failed test returns a 400 that names the field to fix. Redshift has no test, so a wrong target only shows up when the first sync fails. The target cannot change after creation, so confirm it with the user first. A new destination receives nothing until a source is attached with external-data-destinations-add-sources.",
         "category": "Warehouse destinations",
         "feature": "warehouse_sources",
         "summary": "Create a warehouse destination",
@@ -11502,22 +11502,6 @@
             "readOnlyHint": false
         },
         "requires_ai_consent": true
-    },
-    "llma-tagger-list": {
-        "description": "List AI observability taggers for the current project. Supports filtering by enabled status, id__in, search, and ordering. Returns each tagger's name, description, enabled state, type, configuration, conditions, model configuration, creator, and timestamps. Taggers are deprecated and new ones can't be created. To tag or classify generations, create a categorical evaluation with llma-evaluation-create instead.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "List taggers",
-        "title": "List taggers",
-        "required_scopes": ["tagger:read"],
-        "api_operations": ["GET /api/projects/{project_id}/taggers/"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "llm-analytics-tags"
     },
     "llma-trace-review-create": {
         "description": "Save a trace review. Supports an optional comment, an optional scores array, and an optional queue_id to clear a matching pending review-queue item after the review is saved.",

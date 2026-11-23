@@ -298,7 +298,7 @@ class WebAnalyticsDoctorTool(MaxTool):
 
     async def _arun_impl(self) -> tuple[str, dict[str, Any]]:
         await database_sync_to_async(ensure_registry_loaded)()
-        web_kinds = sorted(kind for kind, reg in HEALTH_CHECKS.items() if reg.owner == JobOwners.TEAM_WEB_ANALYTICS)
+        web_kinds = sorted(kind for kind, reg in HEALTH_CHECKS.items() if reg.owner == JobOwners.TEAM_ANALYTICS)
 
         reevaluate_async = database_sync_to_async_pool(_reevaluate_one_check)
 

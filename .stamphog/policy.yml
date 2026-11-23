@@ -24,7 +24,7 @@ deny:
                 - 'deploy\.sh'
     ci_workflows:
         description: 'GitHub Actions and Depot CI workflows.'
-        rationale: 'Owner-only: stamphog approves team-devex changes here and refuses everyone else. team-devex owns the workflows in .github/owners.yaml and edits them daily, so a hard deny sent every routine CI fix to a second devex engineer. infra_cicd also matches the workflows that CODEOWNERS assigns to team-security, and it exempts nobody, so those stay denied for every author.'
+        rationale: 'Owner-only: stamphog approves team-devex changes here and refuses everyone else. team-devex owns the workflows in .github/owners.yaml and edits them daily, so a hard deny sent every routine CI fix to a second devex engineer. infra_cicd also matches the workflows that the master branch ruleset requires team-security to review, and it exempts nobody, so those stay denied for every author.'
         match:
             paths:
                 - '\.github/workflows'
