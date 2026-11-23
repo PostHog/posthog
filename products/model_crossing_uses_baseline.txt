@@ -819,8 +819,6 @@ warehouse_sources.DataWarehouseTable products.data_warehouse.backend.presentatio
 warehouse_sources.DataWarehouseTable products.data_warehouse.backend.presentation.views.table construct 1
 warehouse_sources.DataWarehouseTable products.data_warehouse.backend.presentation.views.table drf-model-serializer 2
 warehouse_sources.DataWarehouseTable products.data_warehouse.backend.presentation.views.table instance-many(all) 1
-warehouse_sources.DataWarehouseTable products.data_warehouse.backend.presentation.views.table instance-many(filter) 1
-warehouse_sources.DataWarehouseTable products.data_warehouse.backend.presentation.views.table write(create) 1
 warehouse_sources.DataWarehouseTable products.demo.backend.logic.products.hedgebox.matrix instance-single 1
 warehouse_sources.DataWarehouseTable products.demo.backend.logic.products.hedgebox.matrix write(create) 1
 warehouse_sources.DataWarehouseTable products.engineering_analytics.backend.management.commands.seed_engineering_analytics instance-single 1
