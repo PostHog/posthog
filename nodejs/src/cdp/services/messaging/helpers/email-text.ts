@@ -44,9 +44,9 @@ const HEADINGS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']
 const EXTRA_BLOCKS = ['address', 'caption', 'center', 'dd', 'details', 'dl', 'dt', 'fieldset', 'figcaption', 'figure']
 
 const VISIBLE_CHARACTER = /[^\s\p{Cf}\p{M}]/u
-// Soft hyphens, zero-width spaces, word joiners and byte order marks can sit inside a code like 482&shy;913
+// Soft hyphens, joiners, zero-width spaces, invisible operators and byte order marks can sit inside a code like 482&shy;913
 // without showing, so a code copied from the text part would differ from the one the html shows.
-const INVISIBLE_SEPARATORS = /[\u00ad\u200b\u2060\ufeff]/g
+const INVISIBLE_SEPARATORS = /[\u00ad\u034f\u200b\u2060-\u2064\ufeff]/g
 
 const LIST_TAGS = new Set(['ul', 'ol'])
 
@@ -72,7 +72,9 @@ const isReadable = (node: DomNode): boolean => {
     if (node.name === 'img') {
         return Boolean(attribs.alt?.trim())
     }
-    return (node.name === 'a' && Boolean(linkTarget(attribs.href ?? ''))) || node.children.some(hasReadableContent)
+    return (
+        (node.name === 'a' && Boolean(linkTarget(attribs.href ?? ''))) || (node.children ?? []).some(hasReadableContent)
+    )
 }
 
 // Nested list items ask about the same descendants, so each node is answered once.

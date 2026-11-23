@@ -72,6 +72,12 @@ describe('plainTextFromHtml', () => {
             '482913',
         ],
         [
+            'a list item that starts with a comment',
+            '<ul><li><!-- note -->Your code: 482913</li></ul><p>Help</p>',
+            '- Your code: 482913\n\nHelp',
+        ],
+        ['a code split by a grapheme joiner', '<p>482&#847;913</p>', '482913'],
+        [
             'a list item that starts with a hidden list',
             '<ul><li><ul style="display:none"><li>Preview</li></ul>Code 482913</li></ul>',
             '- Code 482913',

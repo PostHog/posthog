@@ -3780,19 +3780,19 @@ describe('EmailService', () => {
             [
                 'text only',
                 { html: '', text: 'Hello, this is a plain text email.' },
-                false,
+                'another team',
                 { text: 'Hello, this is a plain text email.', html: undefined, charsets: { text: 'UTF-8' } },
             ],
             [
                 'html only, no text',
                 { html: '<p>Hello</p>', text: undefined },
-                true,
+                'this team',
                 { text: 'Hello', html: expect.any(String), charsets: { text: 'UTF-8' } },
             ],
             [
                 'html only, empty text',
                 { html: '<p>Your code is <b>482913</b></p><a href="https://example.com/help">Help</a>', text: '' },
-                true,
+                'this team',
                 {
                     text: 'Your code is 482913\n\nHelp (https://example.com/help)',
                     html: expect.any(String),
@@ -3802,21 +3802,31 @@ describe('EmailService', () => {
             [
                 'html and text, from a team on the text part list',
                 { html: '<p>Hello</p>', text: 'Your own text' },
-                true,
+                'this team',
                 { text: 'Your own text', html: expect.any(String), charsets: { text: 'UTF-8' } },
             ],
             [
                 'html only, from a team not on the text part list',
                 { html: '<p>Hello</p>', text: undefined },
-                false,
+                'another team',
                 { text: undefined, html: expect.any(String), charsets: { text: undefined } },
             ],
-        ])('sends a part for each kind of content: %s', async (_name, content, teamOnList, expectedParts) => {
+            [
+                'html only, with every team on the text part list',
+                { html: '<p>Hello</p>', text: undefined },
+                'every team',
+                { text: 'Hello', html: expect.any(String), charsets: { text: 'UTF-8' } },
+            ],
+        ])('sends a part for each kind of content: %s', async (_name, content, listed, expectedParts) => {
             invocation.hogFunction.metadata = { message_category_type: 'transactional' }
             invocation.queueParameters = CyclotronInvocationQueueParametersEmailSchema.parse(
                 createEmailParams({ from: { integrationId: 1 }, ...content })
             )
-            const textPartTeams = String(teamOnList ? team.id : team.id + 1)
+            const textPartTeams = {
+                'this team': String(team.id),
+                'another team': String(team.id + 1),
+                'every team': '*',
+            }[listed]
             const result = await createService({ textPartTeams }).executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
             const [sent] = ses.sent
