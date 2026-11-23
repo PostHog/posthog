@@ -1190,7 +1190,7 @@ export const getManagedWarehouseConsoleEstimateCreateUrl = (projectId: string) =
 }
 
 /**
- * Plan the query without running it and report the tables it reads, the most it can scan and the compute cost of that, before the monthly free tier.
+ * Plan the query without running it and report the tables it reads, the most it can scan and the compute cost of that, before the monthly free tier. Callers without access to every project of the organization get the tables with unknown sizes.
  * @summary Estimate a managed warehouse query
  */
 export const managedWarehouseConsoleEstimateCreate = async (

@@ -13,11 +13,13 @@ from rest_framework.response import Response
 
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.accessible_teams import AccessibleTeams, CredentialScopeDenied
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import SessionAuthentication
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.managed_warehouse.backend.facade import console as console_facade
@@ -211,10 +213,7 @@ class QueryHistoryRowSerializer(serializers.Serializer):
         help_text="Bytes billed for the query: the scanned bytes when billable, else 0."
     )
     cpu_seconds = serializers.FloatField(allow_null=True, help_text="CPU seconds the query used.")
-    query = serializers.CharField(
-        allow_null=True,
-        help_text="SQL text of the query. Null when you cannot access the project the query ran for.",
-    )
+    query = serializers.CharField(help_text="SQL text of the query.")
     estimated_cost_usd = serializers.DecimalField(
         max_digits=20,
         decimal_places=6,
@@ -434,6 +433,17 @@ _ERRORS = {
 }
 
 
+WAREHOUSE_WIDE_FORBIDDEN_MESSAGE = "You need access to every project in this organization to see warehouse-wide data."
+
+_WAREHOUSE_WIDE_ERRORS = {
+    status.HTTP_403_FORBIDDEN: OpenApiResponse(
+        response=ConsoleErrorSerializer,
+        description="Only organization admins, or members with access to every project, can see warehouse-wide data.",
+    ),
+    **_ERRORS,
+}
+
+
 def _credential_response(credential: object) -> Response:
     response = Response(WarehouseLoginCredentialSerializer(credential).data)
     # The response carries a password, so no cache or proxy may keep it.
@@ -486,6 +496,25 @@ class ManagedWarehouseConsoleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         ).first()
         return membership is not None and membership.effective_level >= OrganizationMembership.Level.ADMIN
 
+    def _can_view_warehouse_wide_data(self, request: Request) -> bool:
+        # The warehouse serves the whole organization, and the control plane's project attribution is not
+        # reliable enough to filter by project. So both the user and the credential must reach every project.
+        if not request.user.is_authenticated:
+            return False
+        team_ids = list(Team.objects.filter(organization_id=self.team.organization_id).values_list("pk", flat=True))
+        try:
+            AccessibleTeams.for_request(request, team_ids)
+        except CredentialScopeDenied:
+            return False
+        return True
+
+    def _warehouse_wide_gate(self, request: Request) -> Response | None:
+        if (disabled := self._disabled_response()) is not None:
+            return disabled
+        if not self._can_view_warehouse_wide_data(request):
+            return Response({"error": WAREHOUSE_WIDE_FORBIDDEN_MESSAGE}, status=status.HTTP_403_FORBIDDEN)
+        return None
+
     def _login_admin_gate(self, request: Request, *, changes_login: bool = False) -> Response | None:
         if (disabled := self._disabled_response()) is not None:
             return disabled
@@ -512,7 +541,7 @@ class ManagedWarehouseConsoleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             status.HTTP_200_OK: OpenApiResponse(
                 response=UsageSummarySerializer, description="Usage and estimated spend for one month."
             ),
-            **_ERRORS,
+            **_WAREHOUSE_WIDE_ERRORS,
         },
         summary="Get managed warehouse usage",
         description="Compute and storage usage for a UTC calendar month, with estimated spend, a forecast "
@@ -520,8 +549,8 @@ class ManagedWarehouseConsoleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(methods=["GET"], detail=False, required_scopes=["warehouse_view:read"])
     def usage(self, request: Request, **kwargs) -> Response:
-        if (disabled := self._disabled_response()) is not None:
-            return disabled
+        if (gate := self._warehouse_wide_gate(request)) is not None:
+            return gate
         query = cast(dict, request.validated_query_data)  # type: ignore[attr-defined]
         try:
             summary = console_facade.build_usage_summary(
@@ -537,15 +566,15 @@ class ManagedWarehouseConsoleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             status.HTTP_200_OK: OpenApiResponse(
                 response=QueryHistoryResponseSerializer, description="A page of finished queries."
             ),
-            **_ERRORS,
+            **_WAREHOUSE_WIDE_ERRORS,
         },
         summary="List managed warehouse query history",
         description="Finished queries of the organization's warehouse, newest first, each with an estimated cost.",
     )
     @action(methods=["GET"], detail=False, required_scopes=["warehouse_view:read"])
     def queries(self, request: Request, **kwargs) -> Response:
-        if (disabled := self._disabled_response()) is not None:
-            return disabled
+        if (gate := self._warehouse_wide_gate(request)) is not None:
+            return gate
         query = cast(dict, request.validated_query_data)  # type: ignore[attr-defined]
         try:
             page = console_facade.list_query_history(
@@ -558,8 +587,6 @@ class ManagedWarehouseConsoleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 team_id=query.get("team_id"),
                 limit=query.get("limit"),
                 cursor=query.get("cursor"),
-                # Members see every row of the organization, but SQL text only for projects they can access.
-                redact_for_user=None if self._is_organization_admin(request) else cast(User, request.user),
             )
         except Exception as error:
             return _error_response(error)
@@ -616,15 +643,15 @@ class ManagedWarehouseConsoleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             status.HTTP_200_OK: OpenApiResponse(
                 response=StorageResponseSerializer, description="Storage per table and maintenance status."
             ),
-            **_ERRORS,
+            **_WAREHOUSE_WIDE_ERRORS,
         },
         summary="Get managed warehouse storage",
         description="Storage per table from the catalog, and the read-only maintenance status.",
     )
     @action(methods=["GET"], detail=False, required_scopes=["warehouse_view:read"])
     def storage(self, request: Request, **kwargs) -> Response:
-        if (disabled := self._disabled_response()) is not None:
-            return disabled
+        if (gate := self._warehouse_wide_gate(request)) is not None:
+            return gate
         try:
             overview = console_facade.get_storage_overview(self._organization_id)
         except Exception as error:
@@ -644,7 +671,8 @@ class ManagedWarehouseConsoleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         },
         summary="Estimate a managed warehouse query",
         description="Plan the query without running it and report the tables it reads, the most it can scan "
-        "and the compute cost of that, before the monthly free tier.",
+        "and the compute cost of that, before the monthly free tier. Callers without access to every project "
+        "of the organization get the tables with unknown sizes.",
     )
     @action(methods=["POST"], detail=False, required_scopes=["warehouse_view:read"])
     def estimate(self, request: Request, **kwargs) -> Response:
@@ -659,6 +687,8 @@ class ManagedWarehouseConsoleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 send_raw_query=data["send_raw_query"],
                 variables=data.get("variables"),
                 filters=data.get("filters"),
+                user_access_control=self.user_access_control,
+                include_sizes=self._can_view_warehouse_wide_data(request),
             )
         except Exception as error:
             return _error_response(error)
@@ -669,6 +699,7 @@ class ManagedWarehouseConsoleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             status.HTTP_200_OK: OpenApiResponse(
                 response=ConsoleSettingsSerializer, description="Spend settings of the organization."
             ),
+            status.HTTP_403_FORBIDDEN: _WAREHOUSE_WIDE_ERRORS[status.HTTP_403_FORBIDDEN],
             status.HTTP_404_NOT_FOUND: _ERRORS[status.HTTP_404_NOT_FOUND],
         },
         summary="Get managed warehouse spend settings",
@@ -677,8 +708,8 @@ class ManagedWarehouseConsoleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     # No required_scopes here: the PATCH mapping would inherit them. dangerously_get_required_scopes splits them.
     @action(methods=["GET"], detail=False, url_path="settings")
     def console_settings(self, request: Request, **kwargs) -> Response:
-        if (disabled := self._disabled_response()) is not None:
-            return disabled
+        if (gate := self._warehouse_wide_gate(request)) is not None:
+            return gate
         return Response(ConsoleSettingsSerializer(console_facade.get_console_settings(self._organization_id)).data)
 
     @validated_request(

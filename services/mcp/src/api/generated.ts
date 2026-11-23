@@ -106999,11 +106999,8 @@ export namespace Schemas {
          * @nullable
          */
       cpu_seconds: number | null;
-      /**
-         * SQL text of the query. Null when you cannot access the project the query ran for.
-         * @nullable
-         */
-      query: string | null;
+      /** SQL text of the query. */
+      query: string;
       /**
          * Estimated cost of the query at the per-TiB price. The monthly free tier is not applied per query.
          * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$

@@ -104,6 +104,7 @@ def _run(
     raw: bool = True,
     prepared: ManagedTrinoSql | None = None,
     storage_error: Exception | None = None,
+    include_sizes: bool = True,
 ) -> tuple:
     cursor = MagicMock()
     cursor.fetchall.return_value = plan
@@ -113,7 +114,6 @@ def _run(
     user = User(id=9)
     with (
         patch(f"{MODULE}.validate_managed_trino_query"),
-        patch(f"{MODULE}.UserAccessControl"),
         patch(
             f"{MODULE}.prepare_managed_trino_sql",
             return_value=prepared or ManagedTrinoSql(sql="SELECT 1", values=None, hogql=None),
@@ -123,7 +123,14 @@ def _run(
         patch(f"{MODULE}.get_storage_overview", return_value=storage, side_effect=storage_error),
         patch(f"{MODULE}.get_max_scan_bytes_per_query", return_value=cap),
     ):
-        result = estimate_managed_trino_query(team, user, query="SELECT 1", send_raw_query=raw)
+        result = estimate_managed_trino_query(
+            team,
+            user,
+            query="SELECT 1",
+            send_raw_query=raw,
+            user_access_control=MagicMock(),
+            include_sizes=include_sizes,
+        )
     return result, cursor, connect
 
 
@@ -192,7 +199,6 @@ def test_variables_and_filters_reach_the_compile_step() -> None:
     team = Team(id=7, organization_id="00000000-0000-0000-0000-000000000001")
     with (
         patch(f"{MODULE}.validate_managed_trino_query"),
-        patch(f"{MODULE}.UserAccessControl"),
         patch(
             f"{MODULE}.prepare_managed_trino_sql", return_value=ManagedTrinoSql(sql="SELECT 1", values=None, hogql=None)
         ) as prepare,
@@ -208,14 +214,33 @@ def test_variables_and_filters_reach_the_compile_step() -> None:
             send_raw_query=False,
             variables={"v1": {"variableId": "v1", "code_name": "region", "value": "eu"}},
             filters={"dateRange": {"date_from": "-7d"}},
+            user_access_control=MagicMock(),
         )
         query = prepare.call_args.args[0]
         assert query.variables["v1"].code_name == "region"
         assert query.filters.dateRange.date_from == "-7d"
         with pytest.raises(ExposedHogQLError, match="not valid"):
             estimate_managed_trino_query(
-                team, User(id=9), query="SELECT 1", send_raw_query=False, variables={"v1": "bad"}
+                team,
+                User(id=9),
+                query="SELECT 1",
+                send_raw_query=False,
+                variables={"v1": "bad"},
+                user_access_control=MagicMock(),
             )
+
+
+def test_a_caller_without_warehouse_wide_access_gets_the_tables_without_sizes() -> None:
+    result, _, _ = _run(
+        _plan(_table("sales", "orders", constrained=True)),
+        _storage(orders=GIB),
+        include_sizes=False,
+        storage_error=AssertionError("sizes must not be read"),
+    )
+    assert [(t.table, t.size_bytes) for t in result.tables] == [("orders", None)]
+    assert result.complete is False
+    assert result.upper_bound_bytes is None
+    assert "size_unknown" in result.warnings
 
 
 def test_no_sized_table_leaves_the_bound_and_cost_unknown() -> None:
@@ -251,7 +276,6 @@ def test_a_trino_failure_becomes_an_exposed_error() -> None:
     team = Team(id=7, organization_id="00000000-0000-0000-0000-000000000001")
     with (
         patch(f"{MODULE}.validate_managed_trino_query"),
-        patch(f"{MODULE}.UserAccessControl"),
         patch(
             f"{MODULE}.prepare_managed_trino_sql", return_value=ManagedTrinoSql(sql="SELECT 1", values=None, hogql=None)
         ),
@@ -259,4 +283,6 @@ def test_a_trino_failure_becomes_an_exposed_error() -> None:
         patch(f"{MODULE}.bounded_trino_cursor", return_value=nullcontext((cursor, MagicMock()))),
     ):
         with pytest.raises(ExposedHogQLError, match="does not exist"):
-            estimate_managed_trino_query(team, User(id=9), query="SELECT 1", send_raw_query=True)
+            estimate_managed_trino_query(
+                team, User(id=9), query="SELECT 1", send_raw_query=True, user_access_control=MagicMock()
+            )

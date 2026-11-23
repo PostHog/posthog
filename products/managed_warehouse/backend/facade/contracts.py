@@ -720,8 +720,7 @@ class QueryHistoryRow:
     billable: bool
     billable_bytes: int
     cpu_seconds: float | None
-    # None when the viewer cannot access the project the query ran for.
-    query: str | None
+    query: str
     # Marginal price of the row's billable bytes. The monthly free tier is not applied per row.
     estimated_cost_usd: Decimal
 

@@ -17,7 +17,6 @@ from posthog.hogql.trino_parameters import convert_pyformat_placeholders
 
 from posthog.dataclasses import frozen
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.managed_warehouse.backend.facade.contracts import (
     ControlPlaneNotConfiguredError,
     ControlPlaneRejectedError,
@@ -37,6 +36,8 @@ from products.warehouse_sources.backend.facade.source_management import trino_er
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
+
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 LOGGER = structlog.get_logger(__name__)
 _STORAGE_UNAVAILABLE = (
@@ -138,6 +139,8 @@ def estimate_managed_trino_query(
     send_raw_query: bool,
     variables: Mapping[str, Any] | None = None,
     filters: Mapping[str, Any] | None = None,
+    user_access_control: UserAccessControl,
+    include_sizes: bool = True,
 ) -> QueryCostEstimate:
     try:
         hogql_query = HogQLQuery.model_validate(
@@ -156,14 +159,15 @@ def estimate_managed_trino_query(
         hogql_query,
         team=team,
         user=user,
-        user_access_control=UserAccessControl(user=user, team=team),
+        user_access_control=user_access_control,
         limit_context=LimitContext.QUERY,
     )
     sql = ensure_read_only_raw_trino_statement(prepared.sql)
     input_tables = _read_input_tables(_explain_io(team, user, sql, prepared.values))
 
     organization_id = str(team.organization_id)
-    sizes = _table_sizes(organization_id)
+    # Table sizes are warehouse-wide data. Without them the estimate lists the tables with unknown sizes.
+    sizes = _table_sizes(organization_id) if include_sizes else {}
     tables = tuple(
         QueryCostTable(
             catalog=t.catalog,

@@ -12,6 +12,8 @@ from posthog.models.team import Team
 if TYPE_CHECKING:
     from posthog.models.user import User
 
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
+
 from products.managed_warehouse.backend.facade.contracts import (
     ConsoleSettings,
     LoginMode,
@@ -70,7 +72,6 @@ def list_query_history(
     team_id: int | None = None,
     limit: int | None = None,
     cursor: str | None = None,
-    redact_for_user: User | None = None,
 ) -> QueryHistoryPage:
     return console_queries.list_query_history(
         organization_id,
@@ -82,7 +83,6 @@ def list_query_history(
         team_id=team_id,
         limit=limit,
         cursor=cursor,
-        redact_for_user=redact_for_user,
     )
 
 
@@ -150,8 +150,20 @@ def estimate_managed_trino_query(
     send_raw_query: bool,
     variables: Mapping[str, Any] | None = None,
     filters: Mapping[str, Any] | None = None,
+    user_access_control: UserAccessControl,
+    include_sizes: bool = True,
 ) -> QueryCostEstimate:
-    """Upper-bound scan size and cost of a SQL editor query. Raises ``ExposedHogQLError`` for an invalid query."""
+    """Upper-bound scan size and cost of a SQL editor query. Raises ``ExposedHogQLError`` for an invalid query.
+
+    Without ``include_sizes`` the tables the query reads are listed with unknown sizes.
+    """
     return query_estimate.estimate_managed_trino_query(
-        team, user, query=query, send_raw_query=send_raw_query, variables=variables, filters=filters
+        team,
+        user,
+        query=query,
+        send_raw_query=send_raw_query,
+        variables=variables,
+        filters=filters,
+        user_access_control=user_access_control,
+        include_sizes=include_sizes,
     )

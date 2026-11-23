@@ -16,7 +16,10 @@ from structlog.testing import capture_logs
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
+from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.project_access import restrict_project
 
 from products.managed_warehouse.backend.facade.console import get_console_settings
 from products.managed_warehouse.backend.facade.contracts import (
@@ -192,28 +195,74 @@ class TestManagedWarehouseConsoleAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("member", OrganizationMembership.Level.MEMBER, [None, "select 1", None]),
-            ("admin", OrganizationMembership.Level.ADMIN, ["select 1", "select 1", "select 1"]),
+            (f"{read} {who}", path, who, expected)
+            for read, path in (
+                ("usage", "usage/"),
+                ("queries", "queries/"),
+                ("storage", "storage/"),
+                ("settings", "settings/"),
+            )
+            for who, expected in (
+                ("admin", status.HTTP_200_OK),
+                ("member with every project", status.HTTP_200_OK),
+                ("member without one project", status.HTTP_403_FORBIDDEN),
+            )
         ]
     )
-    def test_query_text_only_for_accessible_projects(
-        self, _name: str, level: OrganizationMembership.Level, expected: list[str | None]
+    def test_warehouse_wide_reads_need_admin_or_access_to_every_project(
+        self, _name: str, path: str, who: str, expected: int
+    ) -> None:
+        self._set_level(OrganizationMembership.Level.ADMIN if who == "admin" else OrganizationMembership.Level.MEMBER)
+        if who != "member with every project":
+            # An admin keeps access to a restricted project, so the admin case still passes.
+            restrict_project(
+                Team.objects.create(organization=self.organization, name="Private"),
+                plain_members=[] if who == "admin" else [self.organization_membership],
+            )
+
+        def send(method: str, request_path: str, **kwargs: Any) -> TranslatedResponse:
+            for suffix, body in (("/usage", USAGE_BODY), ("/queries", HISTORY_BODY), ("/tables", STORAGE_BODY)):
+                if request_path.endswith(suffix):
+                    return TranslatedResponse(200, body)
+            return TranslatedResponse(200, {"status": "idle"})
+
+        with patch(_SEND, side_effect=send) as upstream:
+            response = self.client.get(self._url(path))
+
+        assert response.status_code == expected
+        if expected == status.HTTP_403_FORBIDDEN:
+            assert response.json() == {
+                "error": "You need access to every project in this organization to see warehouse-wide data."
+            }
+            upstream.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("admin", OrganizationMembership.Level.ADMIN, True),
+            ("member without one project", OrganizationMembership.Level.MEMBER, False),
+        ]
+    )
+    def test_estimate_sizes_follow_warehouse_wide_access(
+        self, _name: str, level: OrganizationMembership.Level, include_sizes: bool
     ) -> None:
         self._set_level(level)
-        elsewhere = Team.objects.create(organization=Organization.objects.create(name="Other"), name="Elsewhere")
-        template = HISTORY_BODY["queries"][0]
-        body = {
-            "queries": [
-                {**template, "id": 1, "team_id": None},
-                {**template, "id": 2, "team_id": self.team.pk},
-                {**template, "id": 3, "team_id": elsewhere.pk},
-            ],
-            "next_cursor": None,
-        }
-        with self._send(200, body):
-            rows = self.client.get(self._url("queries/")).json()["queries"]
-        assert [r["query"] for r in rows] == expected
-        assert all(r["query_id"] for r in rows)
+        restrict_project(
+            Team.objects.create(organization=self.organization, name="Private"),
+            plain_members=[self.organization_membership] if not include_sizes else [],
+        )
+        estimate = QueryCostEstimate(
+            tables=(),
+            upper_bound_bytes=None,
+            estimated_cost_usd=None,
+            cap_bytes=None,
+            exceeds_cap=False,
+            complete=True,
+            warnings=(),
+        )
+        with self._estimate(return_value=estimate) as run:
+            response = self.client.post(self._url("estimate/"), {"query": "SELECT 1"}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert run.call_args.kwargs["include_sizes"] is include_sizes
 
     def test_upstream_unavailable_is_503(self) -> None:
         with self._send(503, {"error": "x"}):
@@ -287,7 +336,8 @@ class TestManagedWarehouseConsoleAPI(APIBaseTest):
         assert data["upper_bound_bytes"] == 2**40
         assert data["tables"][1]["size_bytes"] is None
         assert data["warnings"] == ["no_filter_on_large_table", "size_unknown"]
-        assert run.call_args.kwargs == {
+        assert run.call_args.kwargs["include_sizes"] is True
+        assert {k: v for k, v in run.call_args.kwargs.items() if k not in ("user_access_control", "include_sizes")} == {
             "query": "SELECT 1",
             "send_raw_query": True,
             "variables": {"v1": {"code_name": "x"}},
@@ -614,3 +664,46 @@ class TestManagedWarehouseConsoleTokenAuth(APIBaseTest):
         with patch(_SEND) as send:
             assert self._call(method, path, key, body).status_code == status.HTTP_403_FORBIDDEN
         send.assert_not_called()
+
+    def _key(self, scoped_teams: list[int] | None) -> str:
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["warehouse_view:read"],
+            scoped_teams=scoped_teams,
+        )
+        return key_value
+
+    @parameterized.expand(
+        [
+            (f"{read} {key}", path, scoped, expected)
+            for read, path in (
+                ("usage", "usage/"),
+                ("queries", "queries/"),
+                ("queries of another project", "queries/?team_id={other}"),
+                ("storage", "storage/"),
+                ("settings", "settings/"),
+            )
+            for key, scoped, expected in (
+                ("scoped key", True, status.HTTP_403_FORBIDDEN),
+                ("unscoped key", False, status.HTTP_200_OK),
+            )
+        ]
+    )
+    def test_warehouse_wide_reads_need_a_key_that_reaches_every_project(
+        self, _name: str, path: str, scoped: bool, expected: int
+    ) -> None:
+        other = Team.objects.create(organization=self.organization, name="Other")
+        key = self._key([self.team.pk] if scoped else None)
+
+        def send(method: str, request_path: str, **kwargs: Any) -> TranslatedResponse:
+            for suffix, body in (("/usage", USAGE_BODY), ("/queries", HISTORY_BODY), ("/tables", STORAGE_BODY)):
+                if request_path.endswith(suffix):
+                    return TranslatedResponse(200, body)
+            return TranslatedResponse(200, {"status": "idle"})
+
+        with patch(_SEND, side_effect=send):
+            response = self._call("get", path.format(other=other.pk), key)
+        assert response.status_code == expected

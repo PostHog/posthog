@@ -4,13 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import structlog
 
-from posthog.models.team import Team
-
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.managed_warehouse.backend.facade.contracts import (
     ControlPlaneRejectedError,
     ControlPlaneUnavailableError,
@@ -34,9 +31,6 @@ from products.managed_warehouse.backend.logic.console_labels import (
 from products.managed_warehouse.backend.logic.console_upstream import call_control_plane, malformed_body_guard
 from products.managed_warehouse.backend.presentation import hogtower
 
-if TYPE_CHECKING:
-    from posthog.models.user import User
-
 logger = structlog.get_logger(__name__)
 
 
@@ -47,11 +41,6 @@ def _opt_int(value: Any) -> int | None:
 def _billable_bytes(row: dict[str, Any]) -> int:
     # hogtower reports only whether the query is billable. A billable query bills every scanned byte.
     return int(row.get("logical_bytes_scanned") or 0) if row.get("billable") else 0
-
-
-def _teams_with_project_access(organization_id: str, user: User, team_ids: set[int]) -> set[int]:
-    teams = Team.objects.filter(organization_id=organization_id, pk__in=team_ids)
-    return {team.pk for team in teams if UserAccessControl(user=user, team=team).has_project_access}
 
 
 def list_query_history(
@@ -65,13 +54,8 @@ def list_query_history(
     team_id: int | None,
     limit: int | None,
     cursor: str | None,
-    redact_for_user: User | None = None,
 ) -> QueryHistoryPage:
-    """A page of finished queries.
-
-    With ``redact_for_user``, the SQL text stays only on queries of projects that user can access.
-    Everything else about a row is visible to the whole organization.
-    """
+    """A page of finished queries of the whole organization."""
     params: dict[str, Any] = {
         "from": date_from.isoformat() if date_from else None,
         "to": date_to.isoformat() if date_to else None,
@@ -92,21 +76,14 @@ def list_query_history(
         principals = [str(r["principal"]) for r in rows]
         member_names = member_display_names(organization_id, sql_editor_user_ids(principals))
         team_names = team_display_names(organization_id, principal_team_ids(principals))
-        visible_teams: set[int] | None = None
-        if redact_for_user is not None:
-            team_ids = {int(r["team_id"]) for r in rows if r.get("team_id") is not None}
-            visible_teams = _teams_with_project_access(organization_id, redact_for_user, team_ids)
         return QueryHistoryPage(
-            queries=tuple(_history_row(r, member_names, team_names, visible_teams) for r in rows),
+            queries=tuple(_history_row(r, member_names, team_names) for r in rows),
             next_cursor=body.get("next_cursor") or None,
         )
 
 
-def _history_row(
-    r: dict[str, Any], member_names: dict[int, str], team_names: dict[int, str], visible_teams: set[int] | None
-) -> QueryHistoryRow:
+def _history_row(r: dict[str, Any], member_names: dict[int, str], team_names: dict[int, str]) -> QueryHistoryRow:
     team_id = _opt_int(r.get("team_id"))
-    show_query = visible_teams is None or (team_id is not None and team_id in visible_teams)
     return QueryHistoryRow(
         id=int(r["id"]),
         query_id=str(r["query_id"]),
@@ -126,7 +103,7 @@ def _history_row(
         billable=bool(r.get("billable")),
         billable_bytes=_billable_bytes(r),
         cpu_seconds=r.get("cpu_seconds"),
-        query=str(r.get("query") or "") if show_query else None,
+        query=str(r.get("query") or ""),
         estimated_cost_usd=Decimal(_billable_bytes(r))
         / Decimal(console_pricing.TIB)
         * console_pricing.COMPUTE_USD_PER_TIB,
