@@ -1245,10 +1245,8 @@ def get_or_set_session_cookie_created_at(request: HttpRequest) -> float:
 
 
 SESSION_EXPIRED_MESSAGE = "Your session has expired. Please log in again."
-# `next` ends up in the `/login` page URL, which analytics and the request log record. A credential must
-# not follow it there. In a query string that is a parameter the request log redacts, or the `code` of an
-# OAuth callback. In a path it is the token of a page that loads no analytics, such as a share link. A page
-# of the app reports its own URL anyway, so a token in its path is not new in `next`.
+# `next` lands in the `/login` URL, which analytics and the request log record, so a URL with a credential gets none.
+# The path prefixes are pages that load no analytics. An app page reports its own URL, so its token is not new there.
 _NO_RETURN_QUERY_PARAMS = CREDENTIAL_QUERY_PARAMS | {"code"}
 _NO_RETURN_PATH_PREFIXES = (
     "/shared/",
@@ -1266,8 +1264,6 @@ def session_expired_login_url(request: HttpRequest) -> str:
     holds_credential = request.path.startswith(_NO_RETURN_PATH_PREFIXES) or any(
         name.lower() in _NO_RETURN_QUERY_PARAMS for name in request.GET
     )
-    # The session is already destroyed, so `next` is the only record of the page the person opened.
-    # A form post is not a page to return to, and login lands on `/` without a `next`.
     if request.method == "GET" and next_url != "/" and not holds_credential:
         params["next"] = next_url
     return settings.LOGIN_URL + "?" + urlencode(params, safe="/", quote_via=quote)

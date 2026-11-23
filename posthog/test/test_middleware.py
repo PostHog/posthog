@@ -2486,7 +2486,7 @@ class TestSessionAgeMiddleware(APIBaseTest):
         # Move forward past total session age (101 seconds)
         mock_time.return_value = 1704110501.0  # 2024-01-01 12:01:41
         response = getattr(self.client, method)(path)
-        # Should redirect to login, and only a page load carries the page to return to
+        # Should redirect to login
         self.assertEqual(response.status_code, 302)
         self.assertEqual(
             response.headers["Location"],
