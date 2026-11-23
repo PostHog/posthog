@@ -491,7 +491,11 @@ class _CallGraph:
             calls_out=other_call or bool(literal_urls),
             only_literal_fetches=not other_call,
             literal_urls=tuple(literal_urls),
-            fans_out=fans_out or bool(repeated & sends) or _has_cycle(sends, edges),
+            # A rewired closure can call back into any function without an edge here, so any request can repeat.
+            fans_out=fans_out
+            or bool(repeated & sends)
+            or _has_cycle(sends, edges)
+            or (rewires and (other_call or bool(literal_urls))),
             uncapped_step=uncapped_step or any(rewires or not _is_dict(target) for target in self.keyed_writes),
         )
 
@@ -713,6 +717,9 @@ class _HogCodeVisitor(TraversingVisitor):
     # A tag calls the local of its name, including compiler temporaries such as `__expr__`, so any tag counts.
     def visit_hogqlx_tag(self, node: ast.HogQLXTag) -> None:
         super().visit_hogqlx_tag(node)
+        if (binding := self._local(node.kind)) is not None:
+            binding.rebound = True
+            binding.escaped = True
         self._sends()
 
     def visit_call(self, node: ast.Call) -> None:

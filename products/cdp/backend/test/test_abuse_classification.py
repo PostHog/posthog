@@ -293,6 +293,17 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 ["normal_integration", "established_account"],
             ),
             (
+                "established_with_only_a_set_aside_score",
+                ESTABLISHED,
+                None,
+                {**LOW_CONTROL_SCORES, "malformed_payload": 0.85, "runtime_escape": 0.1},
+                "fetch('https://slack.com/api/chat.postMessage', {'body': {'text': inputs.text}})",
+                "established",
+                False,
+                False,
+                [],
+            ),
+            (
                 "established_still_alerts_on_a_rule",
                 ESTABLISHED,
                 None,

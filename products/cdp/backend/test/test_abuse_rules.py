@@ -1004,6 +1004,21 @@ class TestAbuseRules(SimpleTestCase):
                 True,
             ),
             (
+                "recursion_through_a_rewired_closure",
+                content(
+                    hog="let holder := 0\nlet getter := () -> holder\n"
+                    "fun send(n) {\n  fetch(inputs.url)\n  if (n > 0) {\n    let f := getter()\n    f(n - 1)\n  }\n}\n"
+                    "let outer := () -> {\n  let inner := () -> send(1)\n  return 0\n}\n"
+                    "getter.upvalues[1] := outer.upvalues[1]\nsend(5)"
+                ),
+                False,
+            ),
+            (
+                "recursion_through_a_tag",
+                content(hog="fun send(a) {\n  fetch(inputs.url)\n  return <send a={1} />\n}\nsend(1)"),
+                False,
+            ),
+            (
                 "request_in_a_for_initializer",
                 content(hog="for (let res := fetch(inputs.url); false; res := null) {\n  print(res)\n}"),
                 True,
