@@ -18,6 +18,7 @@ from posthog.models.comment import Comment
 from products.conversations.backend.cache import get_person_distinct_ids
 from products.conversations.backend.models import (
     EmailChannel,
+    EmailChannelConnectionStatus,
     EmailChannelKind,
     IntercomImportJob,
     PurgedTicketThread,
@@ -254,6 +255,7 @@ class TestIntercomImportBatchActivity(BaseTest):
             (
                 "relayed_from_own_address",
                 EmailChannelKind.SUPPORT,
+                EmailChannelConnectionStatus.ACTIVE,
                 "info@example.com",
                 None,
                 ("intercom:contact-real", "real@example.org", "Real Sender"),
@@ -262,6 +264,7 @@ class TestIntercomImportBatchActivity(BaseTest):
             (
                 "relayed_from_customer_communication_address",
                 EmailChannelKind.CUSTOMER_COMMUNICATION,
+                EmailChannelConnectionStatus.ACTIVE,
                 "info@example.com",
                 None,
                 ("intercom:contact-real", "real@example.org", "Real Sender"),
@@ -270,14 +273,25 @@ class TestIntercomImportBatchActivity(BaseTest):
             (
                 "relayed_sender_wrote_a_reply",
                 EmailChannelKind.SUPPORT,
+                EmailChannelConnectionStatus.ACTIVE,
                 "info@example.com",
                 "contact-third",
                 ("intercom:contact-third", "Third@example.org", "Third"),
                 ["real@example.org"],
             ),
             (
+                "relayed_from_unconfirmed_address",
+                EmailChannelKind.CUSTOMER_COMMUNICATION,
+                EmailChannelConnectionStatus.PENDING_CONFIRMATION,
+                "info@example.com",
+                None,
+                ("intercom:contact-1", "info@example.com", "Jane Customer"),
+                ["real@example.org", "third@example.org"],
+            ),
+            (
                 "customer_with_other_contacts",
                 EmailChannelKind.SUPPORT,
+                EmailChannelConnectionStatus.ACTIVE,
                 "jane@example.com",
                 "contact-third",
                 ("intercom:contact-1", "jane@example.com", "Jane Customer"),
@@ -289,6 +303,7 @@ class TestIntercomImportBatchActivity(BaseTest):
         self,
         _name: str,
         own_address_kind: EmailChannelKind,
+        own_address_status: EmailChannelConnectionStatus,
         author_email: str,
         reply_author_id: str | None,
         expected_requester: tuple[str, str, str],
@@ -297,6 +312,7 @@ class TestIntercomImportBatchActivity(BaseTest):
         EmailChannel.objects.create(
             team=self.team,
             kind=own_address_kind,
+            connection_status=own_address_status,
             owner=self.user if own_address_kind == EmailChannelKind.CUSTOMER_COMMUNICATION else None,
             inbound_token="intercom-own-address-token",
             from_email="info@example.com",

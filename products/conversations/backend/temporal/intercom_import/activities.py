@@ -26,7 +26,13 @@ with workflow.unsafe.imports_passed_through():
     from posthog.sync import database_sync_to_async
     from posthog.temporal.common.heartbeat import Heartbeater
 
-    from products.conversations.backend.models import EmailChannel, IntercomImportJob, PurgedTicketThread, Ticket
+    from products.conversations.backend.models import (
+        EmailChannel,
+        EmailChannelConnectionStatus,
+        IntercomImportJob,
+        PurgedTicketThread,
+        Ticket,
+    )
     from products.conversations.backend.models.constants import Channel
     from products.conversations.backend.models.purged_ticket_thread import ticket_thread_key
     from products.conversations.backend.services.attachments import (
@@ -558,7 +564,9 @@ def _import_conversation_batch_sync(input: ImportBatchInput) -> ImportBatchOutpu
     _, default_email_channel = resolve_email_channels(team.id, input.default_email_channel_id)
     own_addresses = frozenset(
         address.strip().lower()
-        for address in EmailChannel.objects.filter(team_id=team.id).values_list("from_email", flat=True)
+        for address in EmailChannel.objects.filter(
+            team_id=team.id, connection_status=EmailChannelConnectionStatus.ACTIVE
+        ).values_list("from_email", flat=True)
         if address and address.strip()
     )
 
