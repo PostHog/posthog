@@ -78,9 +78,11 @@ tools:
             records only. After approval, read integrations-email-status-retrieve. Before adding any record it lists as
             pending, such as an organization TXT record, confirm at the DNS host that the record is missing, since a
             lookup can lag and a second SPF or DMARC record breaks both. Then poll integrations-email-status-retrieve
-            until its status is verified, and call integrations-email-verify-create once. If the status is failed or
-            not_started, or is not verified after about 15 minutes, follow the setting-up-an-email-domain skill to
-            recover instead of polling. If this tool returns an error, fall back to adding the records from
+            until its status is verified, and call integrations-email-verify-create once. On not_started, call
+            integrations-email-verify-create once, then read the status again to get the records to publish. On failed,
+            fix the records first, then call integrations-email-verify-create. After about 15 minutes without verified,
+            stop polling and tell the person which records are still pending. The setting-up-an-email-domain skill has
+            the details. If this tool returns an error, fall back to adding the records from
             integrations-email-status-retrieve by hand.
         exclude_params:
             - context
