@@ -135,8 +135,10 @@ const exerciseSaveConfirmation = async (canvasElement: HTMLElement, kind: 'view'
     )
     await userEvent.click(canvas.getByRole('button', { name: 'Cancel' }))
     await userEvent.click(canvas.getByRole('button', { name: 'Discard changes' }))
-    await waitFor(() => expect(canvas.queryByText('Edited')).not.toBeInTheDocument())
-    await expect(update()).toHaveAttribute('aria-disabled', 'true')
+    await waitFor(async () => {
+        await expect(canvas.queryByText('Edited')).not.toBeInTheDocument()
+        await expect(update()).toHaveAttribute('aria-disabled', 'true')
+    })
     if (kind === 'view') {
         logic.actions.setSourceQuery({
             ...logic.values.sourceQuery,
