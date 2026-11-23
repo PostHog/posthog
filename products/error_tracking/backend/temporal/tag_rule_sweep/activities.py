@@ -1,15 +1,12 @@
-from django.db import close_old_connections
+import dataclasses
 
 import structlog
 from prometheus_client import Counter, Histogram
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from posthog.exceptions import (
-    ClickHouseClusterMemoryLimitExceeded,
-    ClickHouseQueryMemoryLimitExceeded,
-    ClickHouseQueryTimeOut,
-)
+from posthog.errors import QueryErrorCategory, classify_query_error
+from posthog.temporal.common.utils import close_db_connections
 
 from products.error_tracking.backend.logic.issue_tags.sweep import (
     QUERY_MAX_EXECUTION_SECONDS,
@@ -28,7 +25,8 @@ QUERY_LIMIT_ERROR_TYPE = "ErrorTrackingTagRuleSweepQueryLimit"
 
 ERROR_TRACKING_TAG_RULE_SWEEP_TEAMS = Counter(
     "error_tracking_tag_rule_sweep_teams_total",
-    "Teams that the daily tag rule sweep finished or skipped, by outcome. The workflow counts the teams that failed",
+    "Teams that the daily tag rule sweep finished, skipped, or stopped at a query limit, by outcome. The workflow's "
+    "teams_failed counter also counts the teams stopped at a query limit",
     labelnames=("outcome",),
 )
 ERROR_TRACKING_TAG_RULE_SWEEP_RULES = Counter(
@@ -53,16 +51,16 @@ ERROR_TRACKING_TAG_RULE_SWEEP_QUERY_SECONDS = Histogram(
 
 
 @activity.defn
+@close_db_connections
 def list_tag_rule_teams_activity() -> list[int]:
-    close_old_connections()
     team_ids = teams_with_tag_rules()
     logger.info("error_tracking_tag_rule_sweep_teams_listed", teams=len(team_ids))
     return team_ids
 
 
 @activity.defn
+@close_db_connections
 def sweep_team_tag_rules_activity(inputs: SweepTeamTagRulesInputs) -> SweepTeamTagRulesResult:
-    close_old_connections()
     try:
         sweep = sweep_team_tag_rules(
             inputs.team_id,
@@ -71,9 +69,10 @@ def sweep_team_tag_rules_activity(inputs: SweepTeamTagRulesInputs) -> SweepTeamT
             force_dry_run=inputs.force_dry_run,
             on_progress=activity.heartbeat,
         )
-    except ClickHouseClusterMemoryLimitExceeded:
-        raise
-    except (ClickHouseQueryTimeOut, ClickHouseQueryMemoryLimitExceeded) as error:
+    except Exception as error:
+        # A capacity error, such as a full cluster, is not a limit of this query, so Temporal retries it.
+        if classify_query_error(error) != QueryErrorCategory.QUERY_PERFORMANCE_ERROR:
+            raise
         ERROR_TRACKING_TAG_RULE_SWEEP_TEAMS.labels(outcome="query_limit").inc()
         # A retry reads the same events with the same rules, so it costs as much and stops at the same limit.
         raise ApplicationError(
@@ -87,35 +86,28 @@ def sweep_team_tag_rules_activity(inputs: SweepTeamTagRulesInputs) -> SweepTeamT
         logger.info("error_tracking_tag_rule_sweep_team_skipped", team_id=inputs.team_id, reason=sweep)
         return SweepTeamTagRulesResult(skipped=sweep)
 
-    mode = "dry_run" if sweep.dry_run else "write"
-    labels_to_write = sum(rule.labels_to_write for rule in sweep.rules)
-    labels_written = sum(rule.labels_written for rule in sweep.rules)
+    result = SweepTeamTagRulesResult(
+        dry_run=sweep.dry_run,
+        rules_run=len(sweep.rules),
+        rules_skipped=sweep.rules_skipped,
+        matching_issues=sweep.matching_issues,
+        labels_to_write=sum(rule.labels_to_write for rule in sweep.rules),
+        labels_written=sum(rule.labels_written for rule in sweep.rules),
+        truncated=sweep.truncated,
+    )
+    mode = "dry_run" if result.dry_run else "write"
     ERROR_TRACKING_TAG_RULE_SWEEP_TEAMS.labels(outcome="swept").inc()
-    ERROR_TRACKING_TAG_RULE_SWEEP_RULES.labels(outcome="ran").inc(len(sweep.rules))
-    ERROR_TRACKING_TAG_RULE_SWEEP_RULES.labels(outcome="skipped").inc(sweep.rules_skipped)
-    ERROR_TRACKING_TAG_RULE_SWEEP_MATCHING_ISSUES.inc(sweep.matching_issues)
-    ERROR_TRACKING_TAG_RULE_SWEEP_LABELS.labels(mode=mode, outcome="to_write").inc(labels_to_write)
-    ERROR_TRACKING_TAG_RULE_SWEEP_LABELS.labels(mode=mode, outcome="written").inc(labels_written)
-    if sweep.rules:
+    ERROR_TRACKING_TAG_RULE_SWEEP_RULES.labels(outcome="ran").inc(result.rules_run)
+    ERROR_TRACKING_TAG_RULE_SWEEP_RULES.labels(outcome="skipped").inc(result.rules_skipped)
+    ERROR_TRACKING_TAG_RULE_SWEEP_MATCHING_ISSUES.inc(result.matching_issues)
+    ERROR_TRACKING_TAG_RULE_SWEEP_LABELS.labels(mode=mode, outcome="to_write").inc(result.labels_to_write)
+    ERROR_TRACKING_TAG_RULE_SWEEP_LABELS.labels(mode=mode, outcome="written").inc(result.labels_written)
+    if result.rules_run:
         ERROR_TRACKING_TAG_RULE_SWEEP_QUERY_SECONDS.observe(sweep.query_duration.total_seconds())
     logger.info(
         "error_tracking_tag_rule_sweep_team",
         team_id=inputs.team_id,
-        dry_run=sweep.dry_run,
-        rules_run=len(sweep.rules),
-        rules_skipped=sweep.rules_skipped,
-        matching_issues=sweep.matching_issues,
-        labels_to_write=labels_to_write,
-        labels_written=labels_written,
-        truncated=sweep.truncated,
         query_seconds=sweep.query_duration.total_seconds(),
+        **dataclasses.asdict(result),
     )
-    return SweepTeamTagRulesResult(
-        dry_run=sweep.dry_run,
-        rules_run=len(sweep.rules),
-        rules_skipped=sweep.rules_skipped,
-        matching_issues=sweep.matching_issues,
-        labels_to_write=labels_to_write,
-        labels_written=labels_written,
-        truncated=sweep.truncated,
-    )
+    return result

@@ -2,6 +2,7 @@ import time
 from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
 from enum import StrEnum
+from itertools import batched
 from uuid import UUID
 
 from django.db.models import Q
@@ -20,10 +21,9 @@ from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
-from products.error_tracking.backend.logic.issue_tags.enabled import _active_rules, _rule_definition
+from products.error_tracking.backend.logic.issue_tags.enabled import _active_rules, active_rule_definition
 from products.error_tracking.backend.logic.issue_tags.flag import RULE_SWEEP_WRITES_FLAG
 from products.error_tracking.backend.logic.issue_tags.gate import issue_tags_enabled
-from products.error_tracking.backend.logic.issue_tags.registry import RuleTaggerConfig
 from products.error_tracking.backend.logic.issue_tags.rules import _read_properties
 from products.error_tracking.backend.logic.issue_tags.taggers.base import TagAnswer
 from products.error_tracking.backend.logic.issue_tags.writer import set_issue_tag
@@ -37,10 +37,13 @@ logger = structlog.get_logger(__name__)
 # tagger, which reads one event per issue.
 EXPENSIVE_PROPERTIES = frozenset({"$exception_list"})
 QUERY_MAX_EXECUTION_SECONDS = 300
-# HogQL returns at most this many rows. The rows are ordered by issue id, so a retry cuts the same issues.
+# HogQL returns at most this many rows. Issue ids sort by creation time, so an order by issue id would cut the newest
+# issues on every run. The query orders the rows by a hash of the issue id and the window's start date instead. Each
+# retry of a run then cuts the same issues, and the next day's run cuts different issues.
 MAX_ISSUES = MAX_SELECT_RETURNED_ROWS
 TAG_READ_BATCH_SIZE = 1000
-# The issues each rule log lists, so that a person can check some labels by hand.
+# How many ids of matching issues with no answer for the rule's tag each error_tracking_tag_rule_sweep_rule log line
+# lists, so that a person can check some labels by hand.
 SAMPLE_ISSUES = 10
 
 # One row per issue with an exception in the window that matches at least one rule. `match_counts` holds the number
@@ -54,7 +57,7 @@ _MATCHING_ISSUES = """
       AND isNotNull(issue_id)
     GROUP BY issue_id
     HAVING arrayMax(match_counts) > 0
-    ORDER BY issue_id
+    ORDER BY cityHash64(concat(toString(issue_id), {order_seed}))
     LIMIT {max_issues}
 """
 
@@ -82,13 +85,16 @@ class TeamTagRuleSweep:
     rules_skipped: int
     # Issues that match at least one rule.
     matching_issues: int
-    # The query returned MAX_ISSUES rows, so the issues after the last row got no labels.
-    truncated: bool
     query_duration: timedelta
+
+    @property
+    def truncated(self) -> bool:
+        """Whether the query returned MAX_ISSUES rows, so that some matching issues got no label in this run."""
+        return self.matching_issues >= MAX_ISSUES
 
 
 @frozen
-class _SweptRule:
+class _SweepableRule:
     id: UUID
     key: str
     version: int
@@ -100,8 +106,10 @@ class _Matches:
     # The matching issue ids of each rule, in rule order.
     issue_ids: tuple[tuple[UUID, ...], ...]
     matching_issues: int
-    truncated: bool
     duration: timedelta
+
+
+_NO_MATCHES = _Matches(issue_ids=(), matching_issues=0, duration=timedelta(0))
 
 
 def teams_with_tag_rules() -> list[int]:
@@ -134,17 +142,10 @@ def sweep_team_tag_rules(
         return TagRuleSweepSkipReason.TEAM_MISSING
     dry_run = force_dry_run or not team_flag_enabled(RULE_SWEEP_WRITES_FLAG, team_id)
     rules, rules_skipped = _sweepable_rules(team)
-    if not rules:
-        return TeamTagRuleSweep(
-            dry_run=dry_run,
-            rules=(),
-            rules_skipped=rules_skipped,
-            matching_issues=0,
-            truncated=False,
-            query_duration=timedelta(0),
-        )
-    matches = _matching_issues(team, rules, start=start, end=end)
-    on_progress()
+    matches = _NO_MATCHES
+    if rules:
+        matches = _matching_issues(team, rules, start=start, end=end)
+        on_progress()
     swept = tuple(
         _label_issues(team, rule, issue_ids, dry_run=dry_run, on_progress=on_progress)
         for rule, issue_ids in zip(rules, matches.issue_ids)
@@ -154,14 +155,13 @@ def sweep_team_tag_rules(
         rules=swept,
         rules_skipped=rules_skipped,
         matching_issues=matches.matching_issues,
-        truncated=matches.truncated,
         query_duration=matches.duration,
     )
 
 
-def _sweepable_rules(team: Team) -> tuple[list[_SweptRule], int]:
+def _sweepable_rules(team: Team) -> tuple[list[_SweepableRule], int]:
     """The team's enabled rules as HogQL conditions, and the number of rules skipped."""
-    rules: list[_SweptRule] = []
+    rules: list[_SweepableRule] = []
     skipped = 0
     for rule in _active_rules(team.id).order_by("created_at", "id").only("id", "key", "version", "filters"):
         if _read_properties(rule.filters) & EXPENSIVE_PROPERTIES:
@@ -174,11 +174,11 @@ def _sweepable_rules(team: Team) -> tuple[list[_SweptRule], int]:
             _log_rule_skipped(team, rule, reason="invalid_filters")
             skipped += 1
             continue
-        rules.append(_SweptRule(id=rule.id, key=rule.key, version=rule.version, match=match))
+        rules.append(_SweepableRule(id=rule.id, key=rule.key, version=rule.version, match=match))
     return rules, skipped
 
 
-def _matching_issues(team: Team, rules: Sequence[_SweptRule], *, start: datetime, end: datetime) -> _Matches:
+def _matching_issues(team: Team, rules: Sequence[_SweepableRule], *, start: datetime, end: datetime) -> _Matches:
     started = time.monotonic()
     response = execute_hogql_query(
         query=_MATCHING_ISSUES,
@@ -186,6 +186,7 @@ def _matching_issues(team: Team, rules: Sequence[_SweptRule], *, start: datetime
             "match_counts": ast.Array(exprs=[ast.Call(name="countIf", args=[rule.match]) for rule in rules]),
             "start": ast.Constant(value=start),
             "end": ast.Constant(value=end),
+            "order_seed": ast.Constant(value=start.date().isoformat()),
             "max_issues": ast.Constant(value=MAX_ISSUES),
         },
         team=team,
@@ -199,20 +200,16 @@ def _matching_issues(team: Team, rules: Sequence[_SweptRule], *, start: datetime
     rows = response.results or []
     issue_ids: list[list[UUID]] = [[] for _ in rules]
     for issue_id, match_counts in rows:
+        issue_uuid = UUID(str(issue_id))
         for rule_issue_ids, count in zip(issue_ids, match_counts):
             if count > 0:
-                rule_issue_ids.append(UUID(str(issue_id)))
-    return _Matches(
-        issue_ids=tuple(tuple(ids) for ids in issue_ids),
-        matching_issues=len(rows),
-        truncated=len(rows) >= MAX_ISSUES,
-        duration=duration,
-    )
+                rule_issue_ids.append(issue_uuid)
+    return _Matches(issue_ids=tuple(tuple(ids) for ids in issue_ids), matching_issues=len(rows), duration=duration)
 
 
 def _label_issues(
     team: Team,
-    rule: _SweptRule,
+    rule: _SweepableRule,
     issue_ids: Sequence[UUID],
     *,
     dry_run: bool,
@@ -220,8 +217,7 @@ def _label_issues(
 ) -> RuleSweep:
     tags = ErrorTrackingIssueTag.objects.for_team(team.parent_team_id or team.id, canonical=True).filter(key=rule.key)
     answered: set[UUID] = set()
-    for offset in range(0, len(issue_ids), TAG_READ_BATCH_SIZE):
-        batch = issue_ids[offset : offset + TAG_READ_BATCH_SIZE]
+    for batch in batched(issue_ids, TAG_READ_BATCH_SIZE, strict=False):
         answered.update(tags.filter(issue_id__in=batch).values_list("issue_id", flat=True))
     unanswered = [issue_id for issue_id in issue_ids if issue_id not in answered]
     written = 0 if dry_run or not unanswered else _write_labels(team, rule, unanswered, on_progress)
@@ -240,17 +236,16 @@ def _label_issues(
     )
 
 
-def _write_labels(team: Team, rule: _SweptRule, issue_ids: Sequence[UUID], on_progress: Callable[[], object]) -> int:
+def _write_labels(
+    team: Team, rule: _SweepableRule, issue_ids: Sequence[UUID], on_progress: Callable[[], object]
+) -> int:
     # A person can edit or delete the rule while the query runs. A label from the edited rule would carry an answer to
     # the old filters, and a label from the deleted rule would stay after the delete removed the rule's tags.
-    current = _active_rules(team.id).filter(id=rule.id).first()
-    if current is None or current.version != rule.version or current.key != rule.key:
+    definition = active_rule_definition(team.id, rule.id)
+    if definition is None or definition.question_version != rule.version or definition.key != rule.key:
         logger.info("error_tracking_tag_rule_sweep_rule_changed", team_id=team.id, rule_id=str(rule.id))
         return 0
-    definition = _rule_definition(current, taggers=(RuleTaggerConfig(rule_id=current.id, bytecode=current.bytecode),))
-    answer = TagAnswer(
-        value=True, probability=None, model=str(current.id), question_version=current.version, set_by=None
-    )
+    answer = TagAnswer(value=True, probability=None, model=str(rule.id), question_version=rule.version, set_by=None)
     written = 0
     for issue_id in issue_ids:
         try:

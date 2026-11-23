@@ -635,6 +635,11 @@
     "task_queues": "ERROR_TRACKING_TASK_QUEUE"
   },
   {
+    "temporal_workflow_type": "error-tracking-tag-rule-sweep",
+    "product": "error_tracking",
+    "task_queues": "ERROR_TRACKING_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "error-tracking-weekly-digest",
     "product": "error_tracking",
     "task_queues": "ERROR_TRACKING_TASK_QUEUE"

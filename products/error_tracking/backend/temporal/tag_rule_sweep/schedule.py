@@ -42,6 +42,6 @@ async def create_error_tracking_tag_rule_sweep_schedule(client: Client) -> None:
     )
 
     if await a_schedule_exists(client, SCHEDULE_ID):
-        await a_update_schedule(client, SCHEDULE_ID, tag_rule_sweep_schedule)
+        await a_update_schedule(client, SCHEDULE_ID, tag_rule_sweep_schedule, keep_paused=True)
     else:
         await a_create_schedule(client, SCHEDULE_ID, tag_rule_sweep_schedule, trigger_immediately=False)

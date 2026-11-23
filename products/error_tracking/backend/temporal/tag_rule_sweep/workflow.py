@@ -1,4 +1,5 @@
 import asyncio
+import dataclasses
 from datetime import timedelta
 
 from temporalio import common, workflow
@@ -7,6 +8,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.temporal.common.base import PostHogWorkflow
 
 with workflow.unsafe.imports_passed_through():
+    from products.error_tracking.backend.logic.issue_tags.sweep import QUERY_MAX_EXECUTION_SECONDS
     from products.error_tracking.backend.temporal.tag_rule_sweep.activities import (
         list_tag_rule_teams_activity,
         sweep_team_tag_rules_activity,
@@ -22,16 +24,18 @@ WORKFLOW_NAME = "error-tracking-tag-rule-sweep"
 
 FAILED_TEAMS_ERROR_TYPE = "ErrorTrackingTagRuleSweepTeamsFailed"
 
-# The schedule runs once a day. The window starts an hour before the previous run's window ended, so that an event
-# that arrives late, or a run that starts late, is still read.
+# The schedule runs once a day. The window starts an hour before the previous run's window ended, so that an exception
+# that arrives up to an hour late, or a run that starts up to an hour late, is still read. An exception that arrives
+# later than that can fall between two windows.
 SWEEP_WINDOW = timedelta(hours=25)
 
 LIST_TEAMS_RETRY_POLICY = common.RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=30))
 LIST_TEAMS_TIMEOUT = timedelta(minutes=5)
 
 SWEEP_TEAM_START_TO_CLOSE_TIMEOUT = timedelta(minutes=30)
-# The activity heartbeats after the query and after each label write, so this must be above the query time limit.
-SWEEP_TEAM_HEARTBEAT_TIMEOUT = timedelta(minutes=10)
+# The activity heartbeats after the query and after each label write, so the query can run to its time limit with no
+# heartbeat.
+SWEEP_TEAM_HEARTBEAT_TIMEOUT = timedelta(seconds=QUERY_MAX_EXECUTION_SECONDS * 2)
 # The retry budget must outlast a ClickHouse capacity incident, because every attempt made during one fails the same
 # way. These values give 5s, 20s, 80s, 320s, then 600s per retry, so the 8 attempts spread across about 37 minutes.
 SWEEP_TEAM_RETRY_POLICY = common.RetryPolicy(
@@ -112,14 +116,7 @@ class ErrorTrackingTagRuleSweepWorkflow(PostHogWorkflow):
         workflow.logger.info(
             "error_tracking_tag_rule_sweep_complete",
             extra={
-                "teams": summary.teams,
-                "teams_skipped": summary.teams_skipped,
-                "teams_failed": summary.teams_failed,
-                "rules_run": summary.rules_run,
-                "rules_skipped": summary.rules_skipped,
-                "matching_issues": summary.matching_issues,
-                "labels_to_write": summary.labels_to_write,
-                "labels_written": summary.labels_written,
+                **dataclasses.asdict(summary),
                 "teams_truncated": sum(1 for result in swept if result.truncated),
                 "force_dry_run": inputs.force_dry_run,
             },
