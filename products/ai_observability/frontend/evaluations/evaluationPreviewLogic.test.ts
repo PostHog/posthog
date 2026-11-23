@@ -251,7 +251,7 @@ describe('evaluationPreviewLogic', () => {
             mount(evaluation)
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.samplesError).toBe(true)
+            expect(logic.values.samplesError).toBe('Ensure this value is at most 100.')
             expect(toast).not.toHaveBeenCalled()
             expect(capture.mock.calls.some(([error]) => (error as ApiError).status === 400)).toBe(false)
         } finally {
