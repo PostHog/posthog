@@ -120,6 +120,32 @@ class TestProvisioningResources(ProvisioningTestBase):
         assert second.json()["error"]["code"] == "project_limit_reached"
         assert list(Team.objects.filter(organization=self.organization).values_list("id", flat=True)) == [self.team.id]
 
+    @parameterized.expand(
+        [
+            ("admin", OrganizationMembership.Level.ADMIN, "Partner app"),
+            ("member", OrganizationMembership.Level.MEMBER, "Bootstrap project"),
+        ]
+    )
+    def test_claim_applies_the_requested_name_only_for_project_admins(
+        self, _name: str, level: OrganizationMembership.Level, expected_name: str
+    ) -> None:
+        self.organization_membership.level = level
+        self.organization_membership.save()
+        self.team.name = "Bootstrap project"
+        self.team.save()
+        TeamProvisioningConfig.objects.create(team=self.team, application=self.partner)
+        token = self._get_bearer_token()
+
+        res = self._post_with_bearer(
+            RESOURCES_URL,
+            data={"project_id": "proj_named", "configuration": {"project_name": "Partner app"}},
+            token=token,
+        )
+
+        assert res.status_code == 200, res.content
+        assert res.json()["id"] == str(self.team.id)
+        assert Team.objects.get(id=self.team.id).name == expected_name
+
     def test_new_project_id_resolves_to_a_concurrent_claim_of_the_same_project_id(self) -> None:
         self._set_organization_features([])
         config = TeamProvisioningConfig.objects.create(team=self.team, application=self.partner)
