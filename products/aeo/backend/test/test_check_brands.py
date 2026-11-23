@@ -1,17 +1,24 @@
 import re
 import uuid
 import random
+from concurrent.futures import Future, ThreadPoolExecutor
 from io import StringIO
+from queue import Queue
+from time import monotonic
 from typing import Any
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.core.management import call_command
+from django.db import connection
 from django.test import SimpleTestCase
 
 from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
+
+from posthog.models.team import Team
 
 from products.aeo.backend import check_brands
 from products.aeo.backend.check_brands import (
@@ -384,3 +391,73 @@ class TestResolveCheckBrands(BaseTest):
 
         assert not has_unresolved_checks(self.team.id)
         assert AEOCheckBrand.objects.for_team(self.team.id).count() == 0
+
+
+@pytest.mark.django_db(transaction=True)
+def test_a_newer_pass_takes_a_brand_over_only_between_pages_of_an_older_one(team: Team) -> None:
+    prompt = AEOPrompt.objects.for_team(team.id).create(
+        team=team, prompt="best tool?", prompt_hash="h", prompt_source=AEOPrompt.Source.MANUAL
+    )
+    acme = AEOBrand.objects.for_team(team.id).create(
+        team=team, name="Acme Inc", domain="acme.com", source=BrandSource.MANUAL
+    )
+    for text in ("Roadrunner one.", "Roadrunner two.", "Roadrunner three."):
+        check = AEOCitationCheck.objects.for_team(team.id).create(
+            team=team,
+            prompt=prompt,
+            run_id=uuid.uuid4(),
+            prompt_text=prompt.prompt,
+            prompt_source=prompt.prompt_source,
+            prompt_hash=prompt.prompt_hash,
+            engine="exa-answer",
+            model="exa-answer",
+            answer_text=text,
+        )
+        write_facts([check])
+    enrich_check_brands(team.id)
+    acme.aliases = ["Roadrunner"]
+    acme.save()
+    newer_pid: Queue[int] = Queue()
+
+    def newer_pass() -> None:
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_backend_pid()")
+                newer_pid.put(cursor.fetchone()[0])
+            AEOBrand.objects.for_team(team.id).filter(id=acme.id).update(aliases=["Coyote"])
+            resolve_stale_brands(team.id)
+        finally:
+            connection.close()
+
+    match = check_brands.check_brand_rows
+    started: list[Future[None]] = []
+
+    def start_the_newer_pass_while_matching(*args: Any, **kwargs: Any) -> list[AEOCheckBrand]:
+        if not started:
+            started.append(pool.submit(newer_pass))
+            pid = newer_pid.get(timeout=10)
+            # Let the newer pass run until it finishes or waits on this pass's lock.
+            deadline = monotonic() + 10
+            with connection.cursor() as cursor:
+                while not started[0].done() and monotonic() < deadline:
+                    cursor.execute("SELECT %s = ANY(pg_blocking_pids(%s))", [connection_pid(), pid])
+                    if cursor.fetchone()[0]:
+                        break
+        return match(*args, **kwargs)
+
+    with (
+        ThreadPoolExecutor(max_workers=1) as pool,
+        patch.object(check_brands, "RESOLVE_BATCH_SIZE", 1),
+        patch.object(check_brands, "check_brand_rows", side_effect=start_the_newer_pass_while_matching),
+    ):
+        resolve_stale_brands(team.id)
+        started[0].result(timeout=15)
+
+    assert not AEOCheckBrand.objects.for_team(team.id).filter(brand=acme).exists()
+    assert not has_stale_brands(team.id)
+
+
+def connection_pid() -> int:
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_backend_pid()")
+        return cursor.fetchone()[0]

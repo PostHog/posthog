@@ -491,16 +491,18 @@ def resolve_stale_brands(team_id: int) -> ResolveResult:
             operator.or_, (Q(id=identity.brand_id, mentions_resolving_key=identity.key) for identity in identities)
         )
         for page in _pages(resolved, after=resume):
-            # A pass that outlived its lock may run beside a newer one. Before each page it writes only the
-            # brands still resolving its identity, so it never overwrites rows a newer pass wrote.
-            brand_ids = set(brands.filter(resolving).values_list("id", flat=True))
-            if not brand_ids:
-                break
-            written += write_check_brands(page, matcher, brand_ids=brand_ids)
+            # A pass that outlived its lock may run beside a newer one. Each page writes only the brands
+            # still resolving this pass's identity, and locks them until it commits, so a newer pass takes
+            # a brand over only between pages and its own writes land after this one's.
+            with transaction.atomic():
+                brand_ids = set(brands.filter(resolving).select_for_update().values_list("id", flat=True))
+                if not brand_ids:
+                    break
+                written += write_check_brands(page, matcher, brand_ids=brand_ids)
+                brands.filter(resolving).update(
+                    mentions_resolved_before=page[-1].created_at, mentions_resolved_before_id=page[-1].id
+                )
             read += len(page)
-            brands.filter(resolving).update(
-                mentions_resolved_before=page[-1].created_at, mentions_resolved_before_id=page[-1].id
-            )
         current = {
             brand.id: identity_of(brand).key
             for brand in brands.filter(resolving).only("id", "name", "aliases", "domain")
