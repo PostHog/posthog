@@ -556,8 +556,14 @@ class TestDeliverReport(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("only_target_disables_report", [], "failed", True),
-            ("alongside_working_target", [{"type": "email", "value": "a@x.com"}], "partial_failure", False),
+            ("only_target_disables_report", [{"type": "email", "value": " , "}], "failed", True),
+            ("non_string_value", [{"type": "email", "value": ["a@x.com"]}], "failed", True),
+            (
+                "alongside_working_target",
+                [{"type": "email", "value": " , "}, {"type": "email", "value": "a@x.com"}],
+                "partial_failure",
+                False,
+            ),
         ]
     )
     @patch("posthog.temporal.ai_observability.eval_reports.delivery.disable_undeliverable_report")
@@ -568,7 +574,7 @@ class TestDeliverReport(SimpleTestCase):
     def test_email_target_without_addresses_is_not_delivered(
         self,
         _name,
-        other_targets,
+        targets,
         expected_status,
         expect_disabled,
         mock_report_qs,
@@ -577,7 +583,7 @@ class TestDeliverReport(SimpleTestCase):
         mock_email,
         mock_disable,
     ):
-        report = self._make_report([{"type": "email", "value": " , "}, *other_targets])
+        report = self._make_report(targets)
         run = self._make_report_run()
 
         mock_report_qs.select_related.return_value.get.return_value = report

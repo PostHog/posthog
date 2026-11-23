@@ -311,7 +311,10 @@ def _report_url(project_id: int, evaluation_id: str, report_run_id: str) -> str:
 
 
 def _email_addresses(target: dict) -> list[str]:
-    return [address.strip() for address in target.get("value", "").split(",") if address.strip()]
+    value = target.get("value")
+    if not isinstance(value, str):
+        return []
+    return [address.strip() for address in value.split(",") if address.strip()]
 
 
 def deliver_email_report(
