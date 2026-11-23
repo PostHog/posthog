@@ -30,6 +30,8 @@ from posthog.utils import relative_date_parse
 
 from products.signals.backend.facade import api as signals_facade
 from products.signals.backend.facade.api import (
+    DEFAULT_MAX_ANOMALY_RATE,
+    MIN_CHART_BUCKETS,
     AnomalyDashboardNotFound,
     AnomalyGroupBy,
     AnomalyHistoryFilters,
@@ -119,6 +121,19 @@ class AnomalySearchQuerySerializer(serializers.Serializer):
             "The chart window ends at `date_to` and does not follow `date_from`: 7 days for `hour`, 14 days for "
             "`day`, 26 weeks for `week` and 24 months for `month`. Costs one more query. Has no effect with "
             "`group_by: insight`."
+        ),
+    )
+    max_anomaly_rate = serializers.FloatField(
+        min_value=0,
+        max_value=1,
+        default=DEFAULT_MAX_ANOMALY_RATE,
+        help_text=(
+            "The noise filter: hide flagged series whose anomaly rate over the chart window of their interval is above "
+            "this share, from 0 to 1. The chart window is the one `include_points` describes, not the requested range. "
+            f"A series flagged in many of its buckets is noisy, not unusual. Defaults to {DEFAULT_MAX_ANOMALY_RATE}. "
+            f"Pass 1 to turn the filter off. A series with fewer than {MIN_CHART_BUCKETS} scored buckets in its chart "
+            "window is always shown, because its rate means little. `hidden_series` in the response counts the series "
+            "it hid."
         ),
     )
 
@@ -370,6 +385,14 @@ class AnomalySearchResponseSerializer(serializers.Serializer):
     insights = AnomalyInsightRowSerializer(
         many=True, help_text="One row per insight, in the requested `order`. Empty unless `group_by` is `insight`."
     )
+    max_anomaly_rate = serializers.FloatField(help_text="The applied noise filter limit. 1 means the filter is off.")
+    hidden_series = serializers.IntegerField(
+        help_text=(
+            "Series that match every other filter but that the noise filter hid, because their anomaly rate over the "
+            "chart window is above `max_anomaly_rate`. They are left out of the rows, the insight counts and "
+            "`has_more`. Pass a higher `max_anomaly_rate`, or 1, to see them."
+        )
+    )
     has_more = serializers.BooleanField(
         help_text="True when rows exist after this page. Read them with `offset` set to `offset + limit`."
     )
@@ -548,6 +571,7 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             offset=query["offset"],
             search=query.get("search") or None,
             include_points=query["include_points"],
+            max_anomaly_rate=query["max_anomaly_rate"],
         )
         try:
             result = signals_facade.search_anomalies(team=self.team, user=user, filters=filters, now=now)
@@ -561,6 +585,8 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             offset=filters.offset,
             searched=filters.search is not None,
             include_points=filters.include_points,
+            max_anomaly_rate=filters.max_anomaly_rate,
+            hidden_series=result.hidden_series,
             scoring_enabled=result.scoring_enabled,
             rows=len(result.series) + len(result.insights),
             insights_scored_in_range=result.insights_scored_in_range,
@@ -578,6 +604,8 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "date_to": date_range.date_to,
                     "group_by": filters.group_by,
                     "order": filters.order,
+                    "max_anomaly_rate": filters.max_anomaly_rate,
+                    "hidden_series": result.hidden_series,
                     "series": result.series,
                     "insights": result.insights,
                     "has_more": result.has_more,

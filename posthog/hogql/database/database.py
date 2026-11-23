@@ -3677,7 +3677,8 @@ def _attach_decrypted_credentials(warehouse_tables: Sequence[DataWarehouseTable]
             for credential in DataWarehouseCredential.objects.filter(team_id=team_id, id__in=credential_ids)
         }
     for table in warehouse_tables:
-        table.credential = credentials_by_id.get(table.credential_id) if table.credential_id is not None else None
+        # `table.credential = None` also clears `credential_id`, which marks the table as needing a key.
+        table._state.fields_cache["credential"] = credentials_by_id.get(table.credential_id)
 
 
 def _get_active_external_data_schemas(warehouse_table: DataWarehouseTable) -> list[ExternalDataSchema]:

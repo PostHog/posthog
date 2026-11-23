@@ -13,16 +13,22 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { Button, Text } from '@posthog/quill'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { detailedTime, humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { isNotNil } from 'lib/utils/guards'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import type { OrganizationBasicType } from '~/types'
+
 import { DeleteOrganizationModal } from '../organization/OrganizationDangerZone'
 import { TagList } from './PersonalAPIKeys'
 import { personalAPIKeysLogic } from './personalAPIKeysLogic'
+import { QuillDeleteUserDialog } from './QuillDeleteUserDialog'
 import { ScopeGroupSummary } from './scopes/ScopeGroupSummary'
 import { userDangerZoneLogic } from './userDangerZoneLogic'
 
@@ -46,22 +52,82 @@ export function DeleteUserModal({
         .filter((org) => !deletedOrganizationIds.includes(org.id))
     const { keys } = useValues(personalAPIKeysLogic)
     const { loadKeys } = useActions(personalAPIKeysLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     useEffect(() => {
         loadKeys()
     }, [loadKeys])
 
+    const close = (): void => setIsOpen(false)
+
+    const handleTransferOwnership = (organization: OrganizationBasicType): void => {
+        if (organization.id === user?.organization?.id) {
+            push(urls.settings('organization-members'))
+        } else {
+            updateCurrentOrganization(organization.id, urls.settings('organization-members'))
+        }
+    }
+
+    const handleLeaveOrganization = (organization: OrganizationBasicType): void => {
+        LemonDialog.open({
+            title: `Leave organization ${organization.name}?`,
+            primaryButton: {
+                children: 'Leave',
+                status: 'danger',
+                onClick: () => leaveOrganization(organization.id),
+            },
+            secondaryButton: {
+                children: 'Cancel',
+            },
+        })
+    }
+
+    const handleConfirmationChange = (value: string): void => {
+        setIsUserDeletionConfirmed(value.toLowerCase() === DELETE_CONFIRMATION_TEXT.toLowerCase())
+    }
+
+    const deleteOrganizationModal = (
+        <DeleteOrganizationModal
+            isOpen={organizationToDelete !== null}
+            setIsOpen={() => setOrganizationToDelete(null)}
+            organization={organizationToDelete}
+            redirectPath={urls.settings('user-danger-zone')}
+        />
+    )
+
+    if (todayRailNav) {
+        return (
+            <>
+                <QuillDeleteUserDialog
+                    isOpen={isOpen}
+                    userLoading={userLoading}
+                    organizations={organizations}
+                    keys={keys}
+                    confirmationText={DELETE_CONFIRMATION_TEXT}
+                    isUserDeletionConfirmed={isUserDeletionConfirmed}
+                    onClose={close}
+                    onDelete={() => deleteUser()}
+                    onTransferOwnership={handleTransferOwnership}
+                    onLeaveOrganization={handleLeaveOrganization}
+                    onDeleteOrganization={setOrganizationToDelete}
+                    onConfirmationChange={handleConfirmationChange}
+                />
+                {deleteOrganizationModal}
+            </>
+        )
+    }
+
     return (
         <>
             <LemonModal
                 title="Delete your account"
-                onClose={!userLoading ? () => setIsOpen(false) : undefined}
+                onClose={!userLoading ? close : undefined}
                 footer={
                     <>
                         <LemonButton
                             disabledReason={userLoading && 'Loading...'}
                             type="secondary"
-                            onClick={() => setIsOpen(false)}
+                            onClick={close}
                             data-attr="delete-user-cancel"
                         >
                             Cancel
@@ -106,16 +172,7 @@ export function DeleteUserModal({
                                                         type="secondary"
                                                         size="small"
                                                         status="default"
-                                                        onClick={() => {
-                                                            if (organization.id === user?.organization?.id) {
-                                                                push(urls.settings('organization-members'))
-                                                            } else {
-                                                                updateCurrentOrganization(
-                                                                    organization.id,
-                                                                    urls.settings('organization-members')
-                                                                )
-                                                            }
-                                                        }}
+                                                        onClick={() => handleTransferOwnership(organization)}
                                                     >
                                                         Transfer ownership
                                                     </LemonButton>
@@ -126,19 +183,7 @@ export function DeleteUserModal({
                                                         type="secondary"
                                                         size="small"
                                                         status="default"
-                                                        onClick={() => {
-                                                            LemonDialog.open({
-                                                                title: `Leave organization ${organization.name}?`,
-                                                                primaryButton: {
-                                                                    children: 'Leave',
-                                                                    status: 'danger',
-                                                                    onClick: () => leaveOrganization(organization.id),
-                                                                },
-                                                                secondaryButton: {
-                                                                    children: 'Cancel',
-                                                                },
-                                                            })
-                                                        }}
+                                                        onClick={() => handleLeaveOrganization(organization)}
                                                     >
                                                         Leave organization
                                                     </LemonButton>
@@ -226,23 +271,11 @@ export function DeleteUserModal({
                             Please type <strong className="select-none">{DELETE_CONFIRMATION_TEXT}</strong> to confirm
                             account deletion.
                         </p>
-                        <LemonInput
-                            type="text"
-                            onChange={(value) => {
-                                setIsUserDeletionConfirmed(
-                                    value.toLowerCase() === DELETE_CONFIRMATION_TEXT.toLowerCase()
-                                )
-                            }}
-                        />
+                        <LemonInput type="text" onChange={handleConfirmationChange} />
                     </>
                 )}
             </LemonModal>
-            <DeleteOrganizationModal
-                isOpen={organizationToDelete !== null}
-                setIsOpen={() => setOrganizationToDelete(null)}
-                organization={organizationToDelete}
-                redirectPath={urls.settings('user-danger-zone')}
-            />
+            {deleteOrganizationModal}
         </>
     )
 }
@@ -251,6 +284,46 @@ export function UserDangerZone(): JSX.Element {
     const { user } = useValues(userLogic)
     const { setDeleteUserModalOpen } = useActions(userDangerZoneLogic)
     const { deleteUserModalOpen } = useValues(userDangerZoneLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const openDeleteUserModal = (): void => setDeleteUserModalOpen(true)
+
+    if (todayRailNav) {
+        return (
+            <>
+                <div className="flex flex-col gap-2">
+                    <Text size="xs" variant="destructive" render={<p className="m-0" />}>
+                        This deletes your personal PostHog account. This is <b>irreversible</b>.
+                    </Text>
+                    {user?.organization && (
+                        <Text size="xs" render={<p className="m-0" />}>
+                            To delete an organization instead, go to{' '}
+                            <Button
+                                variant="link"
+                                size="inline"
+                                nativeButton={false}
+                                render={<LinkPrimitive to={urls.settings('organization-danger-zone')} />}
+                            >
+                                Delete organization
+                            </Button>
+                            .
+                        </Text>
+                    )}
+                    <div>
+                        <Button
+                            variant="destructive-outline"
+                            onClick={openDeleteUserModal}
+                            data-attr="delete-user-button"
+                        >
+                            <IconTrash />
+                            Delete my PostHog account
+                        </Button>
+                    </div>
+                </div>
+                <DeleteUserModal isOpen={deleteUserModalOpen} setIsOpen={setDeleteUserModalOpen} />
+            </>
+        )
+    }
 
     return (
         <>
@@ -268,7 +341,7 @@ export function UserDangerZone(): JSX.Element {
                     <LemonButton
                         status="danger"
                         type="secondary"
-                        onClick={() => setDeleteUserModalOpen(true)}
+                        onClick={openDeleteUserModal}
                         data-attr="delete-user-button"
                         icon={<IconTrash />}
                     >
