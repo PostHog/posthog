@@ -2023,9 +2023,8 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # Same reading the reviewer got, from the same stamp, so the handoff can't disagree with what
     # the run was told it was.
     trigger = trigger_for_run(output=output, review_mode=repo_config.review_mode)
-    # The strip runs in ALL mode too, where the label may never have been on the PR, so that the next
-    # label add fires a `labeled` event. No label requested an admitted bot's review, and a label added
-    # to its PR starts none. In ALL mode the same holds for a self-driving PR, which is bot-authored.
+    # No label requested an admitted bot's review, and a label added to its PR starts none. In ALL mode the
+    # same holds for a self-driving PR, which is bot-authored.
     label_requests_review = trigger != ReviewTrigger.BOT_ADMISSION.value and (
         repo_config.review_mode == ReviewMode.LABEL or trigger != ReviewTrigger.SELF_DRIVING.value
     )
@@ -2087,8 +2086,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # Keyed off parsed.verdict, not run.verdict: the gate-blocked branch overrides run.verdict to WAIT,
     # but both the label-strip and the ReviewHog handoff below treat a gate-blocked refusal the same
     # as an engine-refused one.
-    # Action parity: a refused/escalated verdict strips the trigger label, so the author requests the
-    # next review by adding it.
+    # A refusal strips the trigger label in both modes, so the next add fires a `labeled` event.
     # A failure here raises on purpose: the activity retries and the sticky upsert above is idempotent.
     if strips_label:
         client.remove_pr_label(repo, pull_request.pr_number, repo_config.trigger_label)

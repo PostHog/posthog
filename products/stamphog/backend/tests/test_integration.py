@@ -3294,9 +3294,7 @@ def _refused_engine_output() -> str:
 def test_refused_verdict_strips_trigger_label(
     team, stamphog_chain: StamphogChain, handoff: MagicMock, review_mode: ReviewMode
 ) -> None:
-    # Action parity: a refusal removes the trigger label so the author explicitly requests the next
-    # review by adding it. In ALL mode the label may never have been there, and the removal of an
-    # absent label is a 404 that the client ignores.
+    # A refusal removes the trigger label in both modes, so the author requests the next review by adding it.
     repo_config = _repo_config(team.id)
     repo_config.review_mode = review_mode
     repo_config.save()
@@ -3332,7 +3330,6 @@ def test_refused_verdict_strips_trigger_label(
 @pytest.mark.parametrize(
     "review_mode,inbox_review,expect_handoff,expect_strip",
     [
-        # A label on a bot-authored PR starts no review in ALL mode, so the refusal does not ask for one.
         (ReviewMode.ALL, {"trigger": "inbox"}, True, False),
         (ReviewMode.LABEL, {"trigger": "inbox"}, True, True),
         (ReviewMode.ALL, None, False, True),

@@ -102,10 +102,8 @@ STAMPHOG_PR_EVENT_IDEMPOTENCY_TTL_SECONDS = 6 * 60
 STAMPHOG_PR_EVENT_IDEMPOTENCY_KEY_PREFIX = "stamphog:github:pr_event:"
 
 # PR actions worth a (re)review. Anything else (closed, assigned, edited, ...) is dropped.
-# `labeled` passes this filter but only counts when the added label is the repo's own trigger label
-# (_review_mode_skip_reason). In LABEL mode it queues a run under a per-PR cooldown. In ALL mode it
-# reviews the head again only on new evidence, like a manual request, because every label add fires
-# a new delivery id and would otherwise re-run the sandbox + LLM review without a code change.
+# `labeled` counts only for the repo's trigger label (_review_mode_skip_reason). Every add fires a new delivery
+# id, so LABEL mode queues under a cooldown and ALL mode re-reviews only on new evidence.
 RELEVANT_PR_ACTIONS = frozenset({"opened", "synchronize", "ready_for_review", "reopened", "labeled"})
 
 # Actions that (may) move the PR head. When one of these is skipped by the LABEL-mode gate, a prior
@@ -1447,8 +1445,6 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
                 _mark_pr_event_processed(delivery_id)
             return
 
-    # ALL mode already reviews every push, so the trigger label can only ask for another review of the
-    # same head. It goes through the manual request's evidence gate, not the unconditional path below.
     if action == "labeled" and repo_config.review_mode == ReviewMode.ALL and not carved_out:
         try:
             _review_label_request_in_all_mode(repo_config, pr, delivery_id)

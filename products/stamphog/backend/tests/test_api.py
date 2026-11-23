@@ -1016,7 +1016,6 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         self.addCleanup(patcher.stop)
 
     def _add_trigger_label(self) -> dict[str, Any]:
-        # The webhook a label add delivers, answered in the shape the API returns.
         runs = ReviewRun.objects.unscoped().filter(team_id=self.team.id).order_by("-created_at")
         newest_before = runs.first()
         payload = {
@@ -1096,7 +1095,6 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
                     "already reviewing this commit",
                 ),
             ]
-            # In ALL mode the trigger label shares the manual request's evidence gate.
             for via in ("api", "label")
         ]
     )
@@ -1128,7 +1126,6 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             assert body["run"]["id"] == first
         if via == "api":
             return
-        # A label add that starts nothing comes off again, so the next add fires, and the comment says why.
         if notice is None:
             assert (self._label_removals(), self._label_notices()) == ([], [])
         else:

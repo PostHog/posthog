@@ -650,8 +650,7 @@ def test_redelivery_restarts_only_a_still_queued_run(team, repo_config, existing
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_all_mode_label_redelivery_resumes_its_own_run(team, repo_config):
-    # A retry of the label add that queued a run must restart that run, not read it as a covering run
-    # and take the label back off with a "review already running" comment.
+    # A retry of the label add that queued a run must restart it, not reject it as a covering run.
     payload = _pr_payload(action="labeled", labels=["stamphog"], added_label="stamphog")
     _run_task(payload, "delivery-label-retry", team.id)
     cache.delete(f"{STAMPHOG_PR_EVENT_IDEMPOTENCY_KEY_PREFIX}delivery-label-retry")
@@ -1746,7 +1745,6 @@ def test_trigger_label_is_taken_back_off_a_bot_pr(team, repo_config, action, pol
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_rejected_label_request_retries_a_kept_label_and_comments_once(team, repo_config):
-    # A label left on the PR could never be added again, so a failed removal must reach the task's retry.
     pr = _pr_payload(action="labeled", labels=["stamphog"], added_label="stamphog")["pull_request"]
     with patch("products.stamphog.backend.tasks.tasks.StamphogGitHubClient") as client_class:
         client = client_class.return_value
