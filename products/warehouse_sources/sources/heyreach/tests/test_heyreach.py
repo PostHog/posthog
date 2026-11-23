@@ -32,9 +32,17 @@ def _page(items: list[dict[str, Any]], total_count: int) -> ScriptedResponse:
 
 
 class TestTopLevelEndpoints:
-    def test_fresh_run_pages_by_total_count_and_saves_offsets(self) -> None:
+    @pytest.mark.parametrize(
+        ("endpoint", "path"),
+        [
+            ("campaigns", "/api/public/campaign/GetAll"),
+            ("blacklisted_leads", "/api/public/blacklist/GetLeads"),
+            ("blacklisted_companies", "/api/public/blacklist/GetCompanies"),
+        ],
+    )
+    def test_fresh_run_pages_by_total_count_and_saves_offsets(self, endpoint: str, path: str) -> None:
         result = _driver().run(
-            "campaigns",
+            endpoint,
             [
                 _page([{"id": i} for i in range(100)], 150),
                 _page([{"id": i} for i in range(100, 150)], 150),
@@ -42,6 +50,7 @@ class TestTopLevelEndpoints:
         )
 
         assert result.raised is None
+        assert [(request.method, request.path) for request in result.requests] == [("POST", path)] * 2
         assert [request.json().get("offset") for request in result.requests] == [0, 100]
         assert all(request.json().get("limit") == 100 for request in result.requests)
         assert result.saved_states == [HeyReachResumeConfig(offset=100)]
@@ -132,6 +141,63 @@ class TestFanoutEndpoints:
             {"senderId": 7, "profileUrl": "https://www.linkedin.com/in/a"},
             {"senderId": 7, "profileUrl": "https://www.linkedin.com/in/b"},
         ]
+
+
+class TestCampaignSequences:
+    @pytest.mark.parametrize(
+        ("sequence", "expected_rows"),
+        [
+            (
+                {
+                    "nodeType": "CONNECTION_REQUEST",
+                    "actionDelay": 0,
+                    "actionDelayUnit": "DAY",
+                    "payload": {"messages": ["Hello"]},
+                    "conditionalNode": {
+                        "nodeType": "MESSAGE",
+                        "actionDelay": 2,
+                        "actionDelayUnit": "DAY",
+                        "unconditionalNode": {"nodeType": "END", "actionDelay": 3, "actionDelayUnit": "HOUR"},
+                    },
+                    "unconditionalNode": {"nodeType": "END", "actionDelay": 3, "actionDelayUnit": "HOUR"},
+                },
+                [
+                    ("root", None, None, 0, "CONNECTION_REQUEST", {"messages": ["Hello"]}),
+                    ("root.unconditional", "root", "unconditional", 1, "END", None),
+                    ("root.conditional", "root", "conditional", 1, "MESSAGE", None),
+                    ("root.conditional.unconditional", "root.conditional", "unconditional", 2, "END", None),
+                ],
+            ),
+            # A campaign without a sequence answers with an empty 200 body.
+            (None, []),
+            ({}, []),
+        ],
+    )
+    def test_fans_out_per_campaign_and_yields_one_row_per_node(
+        self, sequence: dict[str, Any] | None, expected_rows: list[tuple[Any, ...]]
+    ) -> None:
+        result = _driver().run(
+            "campaign_sequences",
+            [
+                _page([{"id": 1}, {"id": 2}], 2),
+                ScriptedResponse(json=sequence),
+                ScriptedResponse(json=None),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(request.method, request.path) for request in result.requests] == [
+            ("POST", "/api/public/campaign/GetAll"),
+            ("GET", "/api/public/campaign/GetCampaignSequence"),
+            ("GET", "/api/public/campaign/GetCampaignSequence"),
+        ]
+        assert [request.param("campaignId") for request in result.requests[1:]] == ["1", "2"]
+        assert all(row["campaignId"] == 1 for row in result.rows)
+        assert all("conditionalNode" not in row and "unconditionalNode" not in row for row in result.rows)
+        assert [
+            (row["path"], row["parentPath"], row["branch"], row["depth"], row["nodeType"], row.get("payload"))
+            for row in result.rows
+        ] == expected_rows
 
 
 class TestDailyStats:

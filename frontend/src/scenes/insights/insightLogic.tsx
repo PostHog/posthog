@@ -61,6 +61,7 @@ import {
     isTrendsQuery,
 } from '~/queries/schema/node-guards'
 import { DashboardFilter, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
+import type { QuerySchema } from '~/queries/schema/schema-general'
 import { convertDataTableNodeToDataVisualizationNode, isValidQueryForExperiment } from '~/queries/utils'
 import {
     AccessControlLevel,
@@ -91,11 +92,6 @@ import type { ProductIntentProperties } from '../../lib/utils/product-intents'
 import type { Noun } from '../../models/groupsModel'
 import type { QueryStatus, ResolvedDateRangeResponse } from '../../queries/schema/schema-general'
 import type { QueryScanSummary } from '../../queries/schema/schema-general'
-import type {
-    AccessControlFilterWarning,
-    BreakdownNotAppliedWarning,
-    DataWarehouseSyncWarning,
-} from '../../queries/schema/schema-general'
 import type { CohortType, DashboardTileBasicType, TeamPublicType, TeamType, UserBasicType, UserType } from '../../types'
 import { teamLogic } from '../teamLogic'
 import { insightDataLogic, isInsightSceneInstance } from './insightDataLogic'
@@ -285,49 +281,46 @@ export interface insightLogicActions {
     }
     loadInsightSuccess: (
         insight: {
-            _create_in_folder?: string | null | undefined
-            alerts?: AlertType[] | undefined
-            cache_target_age?: string | null | undefined
-            columns?: string[] | null | undefined
+            _create_in_folder?: string | null
+            alerts?: AlertType[]
+            cache_target_age?: string | null
+            columns?: string[] | null
             created_at: string
             created_by: UserBasicType | null
             dashboard_tiles: DashboardTileBasicType[] | null
-            dashboards?: number[] | undefined
+            dashboards?: number[]
             deleted: boolean
-            derived_name?: string | null | undefined
-            description?: string | undefined
-            disable_baseline?: boolean | undefined
-            favorited?: boolean | undefined
-            filter_override_context?: InsightFilterOverrideContextApi | null | undefined
+            derived_name?: string | null
+            description?: string
+            disable_baseline?: boolean
+            favorited?: boolean
+            filter_override_context?: InsightFilterOverrideContextApi | null
             id: number
-            is_cached?: boolean | undefined
+            is_cached?: boolean
             is_sample: boolean
             last_modified_at: string
             last_modified_by: UserBasicType | null
             last_refresh: string | null
-            last_viewed_at?: string | null | undefined
+            last_viewed_at?: string | null
             name: string
-            next?: string | undefined
-            next_allowed_client_refresh?: string | null | undefined
+            next?: string
+            next_allowed_client_refresh?: string | null
             order: number | null
             query: Node<Record<string, any>> | null
-            query_scan?: QueryScanSummary | undefined
-            query_status?: QueryStatus | undefined
-            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
+            query_scan?: QueryScanSummary
+            query_status?: QueryStatus
+            resolved_date_range?: ResolvedDateRangeResponse | null
             result: any
             saved: boolean
             short_id: InsightShortId
-            tags?: string[] | undefined
-            timezone?: string | null | undefined
-            types?: string[][] | null | undefined
+            tags?: string[]
+            timezone?: string | null
+            types?: string[][] | null
             updated_at: string
             user_access_level: AccessControlLevel
-            view_count?: number | undefined
-            viewers?: UserBasicType[] | undefined
-            warnings?:
-                | (AccessControlFilterWarning | BreakdownNotAppliedWarning | DataWarehouseSyncWarning)[]
-                | null
-                | undefined
+            view_count?: number
+            viewers?: UserBasicType[]
+            warnings?: import('~/queries/schema/schema-general').AnalyticsQueryResponseBase['warnings'] | null
         },
         payload?: {
             filtersOverride: DashboardFilter | null | undefined
@@ -337,49 +330,46 @@ export interface insightLogicActions {
         }
     ) => {
         insight: {
-            _create_in_folder?: string | null | undefined
-            alerts?: AlertType[] | undefined
-            cache_target_age?: string | null | undefined
-            columns?: string[] | null | undefined
+            _create_in_folder?: string | null
+            alerts?: AlertType[]
+            cache_target_age?: string | null
+            columns?: string[] | null
             created_at: string
             created_by: UserBasicType | null
             dashboard_tiles: DashboardTileBasicType[] | null
-            dashboards?: number[] | undefined
+            dashboards?: number[]
             deleted: boolean
-            derived_name?: string | null | undefined
-            description?: string | undefined
-            disable_baseline?: boolean | undefined
-            favorited?: boolean | undefined
-            filter_override_context?: InsightFilterOverrideContextApi | null | undefined
+            derived_name?: string | null
+            description?: string
+            disable_baseline?: boolean
+            favorited?: boolean
+            filter_override_context?: InsightFilterOverrideContextApi | null
             id: number
-            is_cached?: boolean | undefined
+            is_cached?: boolean
             is_sample: boolean
             last_modified_at: string
             last_modified_by: UserBasicType | null
             last_refresh: string | null
-            last_viewed_at?: string | null | undefined
+            last_viewed_at?: string | null
             name: string
-            next?: string | undefined
-            next_allowed_client_refresh?: string | null | undefined
+            next?: string
+            next_allowed_client_refresh?: string | null
             order: number | null
             query: Node<Record<string, any>> | null
-            query_scan?: QueryScanSummary | undefined
-            query_status?: QueryStatus | undefined
-            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
+            query_scan?: QueryScanSummary
+            query_status?: QueryStatus
+            resolved_date_range?: ResolvedDateRangeResponse | null
             result: any
             saved: boolean
             short_id: InsightShortId
-            tags?: string[] | undefined
-            timezone?: string | null | undefined
-            types?: string[][] | null | undefined
+            tags?: string[]
+            timezone?: string | null
+            types?: string[][] | null
             updated_at: string
             user_access_level: AccessControlLevel
-            view_count?: number | undefined
-            viewers?: UserBasicType[] | undefined
-            warnings?:
-                | (AccessControlFilterWarning | BreakdownNotAppliedWarning | DataWarehouseSyncWarning)[]
-                | null
-                | undefined
+            view_count?: number
+            viewers?: UserBasicType[]
+            warnings?: import('~/queries/schema/schema-general').AnalyticsQueryResponseBase['warnings'] | null
         }
         payload?: {
             filtersOverride: DashboardFilter | null | undefined
@@ -496,49 +486,46 @@ export interface insightLogicActions {
     }
     setInsightMetadataSuccess: (
         insight: {
-            _create_in_folder?: string | null | undefined
-            alerts?: AlertType[] | undefined
-            cache_target_age?: string | null | undefined
-            columns?: string[] | null | undefined
+            _create_in_folder?: string | null
+            alerts?: AlertType[]
+            cache_target_age?: string | null
+            columns?: string[] | null
             created_at?: string | undefined
             created_by?: UserBasicType | null | undefined
             dashboard_tiles?: DashboardTileBasicType[] | null | undefined
-            dashboards?: number[] | undefined
+            dashboards?: number[]
             deleted?: boolean | undefined
-            derived_name?: string | null | undefined
-            description?: string | undefined
-            disable_baseline?: boolean | undefined
-            favorited?: boolean | undefined
-            filter_override_context?: InsightFilterOverrideContextApi | null | undefined
+            derived_name?: string | null
+            description?: string
+            disable_baseline?: boolean
+            favorited?: boolean
+            filter_override_context?: InsightFilterOverrideContextApi | null
             id?: number | undefined
-            is_cached?: boolean | undefined
+            is_cached?: boolean
             is_sample?: boolean | undefined
             last_modified_at?: string | undefined
             last_modified_by?: UserBasicType | null | undefined
             last_refresh?: string | null | undefined
-            last_viewed_at?: string | null | undefined
+            last_viewed_at?: string | null
             name?: string | undefined
-            next?: string | undefined
-            next_allowed_client_refresh?: string | null | undefined
+            next?: string
+            next_allowed_client_refresh?: string | null
             order?: number | null | undefined
             query?: Node<Record<string, any>> | null | undefined
-            query_scan?: QueryScanSummary | undefined
-            query_status?: QueryStatus | undefined
-            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
+            query_scan?: QueryScanSummary
+            query_status?: QueryStatus
+            resolved_date_range?: ResolvedDateRangeResponse | null
             result?: any
             saved?: boolean | undefined
             short_id?: InsightShortId | undefined
-            tags?: string[] | undefined
-            timezone?: string | null | undefined
-            types?: string[][] | null | undefined
+            tags?: string[]
+            timezone?: string | null
+            types?: string[][] | null
             updated_at?: string | undefined
             user_access_level?: AccessControlLevel | undefined
-            view_count?: number | undefined
-            viewers?: UserBasicType[] | undefined
-            warnings?:
-                | (AccessControlFilterWarning | BreakdownNotAppliedWarning | DataWarehouseSyncWarning)[]
-                | null
-                | undefined
+            view_count?: number
+            viewers?: UserBasicType[]
+            warnings?: import('~/queries/schema/schema-general').AnalyticsQueryResponseBase['warnings'] | null
         },
         payload?: {
             metadataUpdate: Partial<
@@ -547,49 +534,46 @@ export interface insightLogicActions {
         }
     ) => {
         insight: {
-            _create_in_folder?: string | null | undefined
-            alerts?: AlertType[] | undefined
-            cache_target_age?: string | null | undefined
-            columns?: string[] | null | undefined
+            _create_in_folder?: string | null
+            alerts?: AlertType[]
+            cache_target_age?: string | null
+            columns?: string[] | null
             created_at?: string | undefined
             created_by?: UserBasicType | null | undefined
             dashboard_tiles?: DashboardTileBasicType[] | null | undefined
-            dashboards?: number[] | undefined
+            dashboards?: number[]
             deleted?: boolean | undefined
-            derived_name?: string | null | undefined
-            description?: string | undefined
-            disable_baseline?: boolean | undefined
-            favorited?: boolean | undefined
-            filter_override_context?: InsightFilterOverrideContextApi | null | undefined
+            derived_name?: string | null
+            description?: string
+            disable_baseline?: boolean
+            favorited?: boolean
+            filter_override_context?: InsightFilterOverrideContextApi | null
             id?: number | undefined
-            is_cached?: boolean | undefined
+            is_cached?: boolean
             is_sample?: boolean | undefined
             last_modified_at?: string | undefined
             last_modified_by?: UserBasicType | null | undefined
             last_refresh?: string | null | undefined
-            last_viewed_at?: string | null | undefined
+            last_viewed_at?: string | null
             name?: string | undefined
-            next?: string | undefined
-            next_allowed_client_refresh?: string | null | undefined
+            next?: string
+            next_allowed_client_refresh?: string | null
             order?: number | null | undefined
             query?: Node<Record<string, any>> | null | undefined
-            query_scan?: QueryScanSummary | undefined
-            query_status?: QueryStatus | undefined
-            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
+            query_scan?: QueryScanSummary
+            query_status?: QueryStatus
+            resolved_date_range?: ResolvedDateRangeResponse | null
             result?: any
             saved?: boolean | undefined
             short_id?: InsightShortId | undefined
-            tags?: string[] | undefined
-            timezone?: string | null | undefined
-            types?: string[][] | null | undefined
+            tags?: string[]
+            timezone?: string | null
+            types?: string[][] | null
             updated_at?: string | undefined
             user_access_level?: AccessControlLevel | undefined
-            view_count?: number | undefined
-            viewers?: UserBasicType[] | undefined
-            warnings?:
-                | (AccessControlFilterWarning | BreakdownNotAppliedWarning | DataWarehouseSyncWarning)[]
-                | null
-                | undefined
+            view_count?: number
+            viewers?: UserBasicType[]
+            warnings?: import('~/queries/schema/schema-general').AnalyticsQueryResponseBase['warnings'] | null
         }
         payload?: {
             metadataUpdate: Partial<
@@ -647,7 +631,7 @@ export interface insightLogicMeta {
         isInViewMode: (location: { hash: string; pathname: string; search: string }) => boolean
         derivedName: (
             query: Node<Record<string, any>> | null,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun, // groupsModel
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun,
             cohortsById: Partial<Record<number | string, CohortType>>,
             mathDefinitions: Partial<Record<string, MathDefinition>>
         ) => string
@@ -660,7 +644,7 @@ export interface insightLogicMeta {
         ) => boolean
         showPersonsModal: (
             query: Node<Record<string, any>> | null,
-            insightProps: InsightLogicProps<import('~/queries/schema/schema-general').QuerySchema>,
+            insightProps: InsightLogicProps<QuerySchema>,
             featureFlags: FeatureFlagsSet
         ) => boolean
         supportsCreatingExperiment: (

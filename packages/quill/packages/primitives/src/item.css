@@ -250,6 +250,14 @@
         -webkit-box-orient: vertical;
     }
 
+    /* A callout has to show its whole message, so a toned item never clamps its description. */
+    .quill-item[data-tone] .quill-item__description {
+        display: block;
+        overflow: visible;
+        -webkit-line-clamp: unset;
+        line-clamp: none;
+    }
+
     .quill-item__description > a {
         text-decoration: underline;
         text-underline-offset: 4px;

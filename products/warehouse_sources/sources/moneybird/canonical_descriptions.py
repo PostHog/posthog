@@ -23,6 +23,12 @@ _INVOICE_COLUMNS: dict[str, str] = {
     "total_price_incl_tax": "Total amount including tax, in the document currency.",
 }
 
+_AGING_COLUMNS: dict[str, str] = {
+    "contact_id": "ID of the contact.",
+    "amount": "Open balance of the contact.",
+    "aging_buckets": "The open balance split by age, in this order: 0 to 30 days, 30 to 60 days, older, and the total.",
+}
+
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "contacts": {
         "description": "Customers, suppliers and other business relations in the Moneybird administration, including archived contacts.",
@@ -138,6 +144,38 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "state": "Current state of the document.",
         },
     },
+    "typeless_documents": {
+        "description": "Uploaded documents that are not yet typed as a purchase invoice, receipt or other document.",
+        "docs_url": f"{_DOCS}/documents-typeless-documents",
+        "columns": {
+            **_RECORD_COLUMNS,
+            **_VERSION_COLUMN,
+            "contact_id": "ID of the contact the document belongs to.",
+            "date": "Date of the document.",
+            "reference": "Free-text reference of the document.",
+            "state": "Current state of the document, for example `new`, `saved` or `open`.",
+            "origin": "How the document reached Moneybird, for example `upload`, `email` or `api`.",
+            "attachments": "Files attached to the document.",
+        },
+    },
+    "purchase_transactions": {
+        "description": "Outgoing payments prepared in Moneybird to pay purchase invoices and other payables, batched or not.",
+        "docs_url": f"{_DOCS}/purchase-transactions",
+        "columns": {
+            **_RECORD_COLUMNS,
+            "financial_account_id": "ID of the financial account the payment is made from.",
+            "purchase_transaction_batch_id": "ID of the batch the transaction is in, if any.",
+            "state": "Payment state of the transaction, for example `open`, `pending_payment`, `paid` or `cancelled`.",
+            "date": "Date the payment is planned for.",
+            "amount": "Amount of the payment.",
+            "description": "Description sent with the payment.",
+            "sepa_iban": "IBAN the payment goes to.",
+            "sepa_iban_account_name": "Account holder name of the IBAN the payment goes to.",
+            "contact": "The contact that receives the payment.",
+            "payable_type": "Type of the record the transaction pays, for example `Document`.",
+            "payable_id": "ID of the record the transaction pays.",
+        },
+    },
     "financial_accounts": {
         "description": "Active bank accounts, credit cards, payment services and other accounts that hold money. Moneybird does not return archived accounts.",
         "docs_url": f"{_DOCS}/financial-accounts",
@@ -180,6 +218,23 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "account_id": "Account code of the ledger account.",
             "parent_id": "ID of the parent ledger account, if any.",
             "active": "Whether the ledger account is active.",
+        },
+    },
+    "assets": {
+        "description": "Fixed assets of the administration with their purchase value, current value, depreciation plan and value changes, including disposed assets.",
+        "docs_url": f"{_DOCS}/assets",
+        "columns": {
+            "id": "Unique identifier of the asset.",
+            "ledger_account_id": "ID of the ledger account the asset is booked on.",
+            "name": "Name of the asset.",
+            "purchase_date": "Date the asset was bought.",
+            "purchase_value": "Purchase value of the asset.",
+            "calculated_purchase_value": "Purchase value reduced by any reinvestment reserve applied to the asset.",
+            "current_value": "Current book value of the asset.",
+            "value_change_plan": "Depreciation plan of the asset: lifespan in years, residual value and monthly depreciation.",
+            "disposal": "Details of the disposal of the asset, if it was disposed.",
+            "value_changes": "Depreciations and other value changes of the asset.",
+            "sources": "Documents and financial mutations the asset was bought with.",
         },
     },
     "tax_rates": {
@@ -279,5 +334,15 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "name": "Name of the custom field.",
             "source": "Record type the custom field belongs to: `sales_invoice`, `estimate`, `contact` or `identity`.",
         },
+    },
+    "debtors_aging": {
+        "description": "Open receivables per contact with aging buckets, as of the current month. Each sync replaces the table with the current report.",
+        "docs_url": f"{_DOCS}/reports",
+        "columns": _AGING_COLUMNS,
+    },
+    "creditors_aging": {
+        "description": "Open payables per contact with aging buckets, as of the current month. Each sync replaces the table with the current report.",
+        "docs_url": f"{_DOCS}/reports",
+        "columns": _AGING_COLUMNS,
     },
 }

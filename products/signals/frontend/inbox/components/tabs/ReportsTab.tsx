@@ -3,12 +3,15 @@ import { Fragment, JSX, memo, useCallback, useEffect, useRef } from 'react'
 
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import type { PaginatedSignalReportListListApiPersonalRankingStatus } from '../../../generated/api.schemas'
 import { isMergeKeySortField, isRankingSortField } from '../../filterOptions'
 import { captureInboxViewed } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxActivationVisibilityLogic } from '../../logics/inboxActivationVisibilityLogic'
+import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { inboxFiltersLogic, isDefaultStateFilter } from '../../logics/inboxFiltersLogic'
 import type { InboxRankingSortField } from '../../logics/inboxFiltersLogic'
 import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
@@ -266,6 +269,7 @@ export function ReportsTab(): JSX.Element {
     const { showActivationPanel: showActivation } = useValues(inboxActivationVisibilityLogic)
     const { savedState, firstReportProgress } = useValues(inboxSetupLogic)
     const { isStaff } = useValues(inboxSceneLogic)
+    const { selectedReportIds } = useValues(inboxBulkActionsLogic)
     // The row context menus dispatch to this logic and unmount when a menu closes; pinning it here
     // keeps an in-flight create-PR listener alive past the click that closed the menu.
     useMountedLogic(inboxTaskKickoffLogic)
@@ -307,7 +311,11 @@ export function ReportsTab(): JSX.Element {
         InboxReportSectionKey,
         SignalReport[]
     >
-    const rows = mergeReportRows(reportsBySection, selectedSections, activeSortField, activeSortDirection)
+    const linkStrips = useFeatureFlag('INBOX_CARDS_LINK_RELATED_REPORTS')
+    const rows = mergeReportRows(reportsBySection, selectedSections, activeSortField, activeSortDirection, {
+        collapsePlans: linkStrips,
+        selectedReportIds,
+    })
     // Every state's request comes from one flag arm, so any loaded response can say whether to show pills.
     const rankingPill =
         isMergeKeySortField(activeSortField) && selectedSections.some((key) => sections[key].loadedRankingPill)
@@ -316,9 +324,9 @@ export function ReportsTab(): JSX.Element {
         isMergeKeySortField(activeSortField) && selectedSections.some((key) => sections[key].loadedPersonalOrder)
     // Under a model sort the unscored rows trail the scored ones. A divider marks where they start.
     const firstUnscoredIndex = rankingSortField
-        ? rows.findIndex(({ report }) => rankingSortScore(report, rankingSortField) === null)
+        ? rows.findIndex(({ report, slotReport }) => rankingSortScore(slotReport ?? report, rankingSortField) === null)
         : -1
-    useReportImpressions(rows, selectedSections)
+    useReportImpressions(rows, selectedSections, linkStrips)
     // Multi-select ranges over this order, and drops any id the merged list no longer holds.
     useSelectableReportList(rows.map(({ report }) => report.id))
 

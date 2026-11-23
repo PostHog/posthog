@@ -178,9 +178,11 @@ export {
     DrawerContent,
     DrawerHandle,
     DrawerHeader,
+    DrawerBody,
     DrawerFooter,
     DrawerTitle,
     DrawerDescription,
+    createDrawerHandle,
 } from './drawer'
 export {
     DropdownMenu,

@@ -231,3 +231,15 @@ class PrecomputedMetricKind(LabeledStrEnum):
     HISTOGRAM = "histogram", "histogram"
     SUM_OVER_TIME = "sum_over_time", "sum_over_time"
     BUCKET_INCREASE = "bucket_increase", "bucket_increase"
+
+
+class MetricQueryProvenanceMode(StrEnum):
+    """Where a query's buckets came from.
+
+    PRECOMPUTED: every bucket from precomputed metrics. MIXED: stored buckets for the history and raw samples
+    for the rest, such as the newest buckets or a clause that can't be precomputed. RAW: every bucket from raw samples.
+    """
+
+    PRECOMPUTED = "precomputed"
+    MIXED = "mixed"
+    RAW = "raw"

@@ -95,7 +95,6 @@ import {
     MessageBodies,
     MessageBodySizing,
     SendRefusal,
-    countUploadRequest,
 } from './services/messaging/attachment-uploads'
 import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
@@ -103,12 +102,11 @@ import { EmailTrackingService } from './services/messaging/email-tracking.servic
 import { EmailValidationService } from './services/messaging/email-validation.service'
 import { utmTagsFor } from './services/messaging/helpers/email-html'
 import { sesHtmlMaxBytes } from './services/messaging/helpers/ses-html-max-bytes'
-import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { UTM_VALUE_LIMIT_CHARS, utmValueOverLimit } from './services/messaging/helpers/utm'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import {
     SANDBOX_CODE_SEND_REFUSAL_STATUS,
-    refuseSandboxCodeSend,
+    refuseSandboxCodeSends,
     senderOfCodeSend,
 } from './services/messaging/sandbox/sandbox-code-send'
 import { SandboxFeedbackService } from './services/messaging/sandbox/sandbox-feedback.service'
@@ -310,6 +308,47 @@ const TRANSACTIONAL_SEND_REFUSAL_STATUS: Record<TransactionalSendRefusal, number
     ...SANDBOX_CODE_SEND_REFUSAL_STATUS,
 }
 
+type SendReply = { outcome: TransactionalEmailOutcome; status: number; body: Record<string, unknown> }
+
+const sendReplyOf = (result: TransactionalSendResult): SendReply => {
+    if ('invocationId' in result) {
+        return {
+            outcome: result.outcome,
+            status: 202,
+            body: {
+                status: result.scheduledAt ? 'scheduled' : 'queued',
+                invocation_id: result.invocationId,
+                scheduled_at: result.scheduledAt,
+                replayed: result.outcome === 'replayed',
+                ...result.replyFields,
+                ...(result.senderKind ? { sender_kind: result.senderKind } : {}),
+            },
+        }
+    }
+    if ('refused' in result) {
+        return { outcome: result.refused.body.error, status: result.refused.status, body: result.refused.body }
+    }
+    return {
+        outcome: result.outcome,
+        status: TRANSACTIONAL_SEND_REFUSAL_STATUS[result.outcome],
+        body: { error: result.outcome, ...(result.outcome === 'invalid_scheduled_at' && { reason: 'too_far' }) },
+    }
+}
+
+// Signup accepts some addresses this check refuses, and no retry can fix an address.
+const invalidSendReplyOf = (error: z.ZodError, context: Record<string, unknown>): SendReply => {
+    const issues = error.issues
+    if (issues.every(isRecipientFormatIssue)) {
+        return { outcome: 'recipient_unreachable', status: 422, body: { error: 'recipient_unreachable' } }
+    }
+    // Paths and codes only: the values include the recipient's address.
+    logger.warn('⚠️', 'Transactional email request failed validation', {
+        ...context,
+        issues: issues.map((issue) => ({ path: issue.path.join('.'), code: issue.code })),
+    })
+    return { outcome: 'invalid_request', status: 400, body: { error: error.message } }
+}
+
 const sendBodies = (invocation: CyclotronJobInvocationHogFlow): MessageBodies => {
     const sendFields = acceptedSendEmailFields(invocation.state.send)
     return {
@@ -341,7 +380,6 @@ export class CdpApi {
     private hogflowQueue: IdempotentJobQueue
     private emailTrackingService: EmailTrackingService
     private sandboxFeedbackService: SandboxFeedbackService
-    private emailTrackingCodeSigner: EmailTrackingCodeSigner
     private fingerprintSigner: EncryptedFields
     private recipientTokensService: RecipientTokensService
     private batchExportHogFunctionService: BatchExportHogFunctionService
@@ -407,10 +445,6 @@ export class CdpApi {
         // shared keys come last, so a claim signed with them before this change still replays.
         this.fingerprintSigner = new EncryptedFields(
             [config.CDP_SEALED_STATE_KEYS, config.ENCRYPTION_SALT_KEYS].filter(Boolean).join(',')
-        )
-        this.emailTrackingCodeSigner = new EmailTrackingCodeSigner(
-            config.ENCRYPTION_SALT_KEYS,
-            config.CDP_EMAIL_TRACKING_URL
         )
         this.emailTrackingService = services.emailTrackingService
         this.sandboxFeedbackService = new SandboxFeedbackService(
@@ -1457,9 +1491,10 @@ export class CdpApi {
             const verificationDeadline = deadlineAfter(ATTACHMENT_VERIFICATION_DEADLINE_MS)
             const stages = new TransactionalEmailStageTimer()
             const reply = (outcome: TransactionalEmailOutcome, status: number, body: Record<string, unknown>) => {
-                transactionalEmailRequestsTotal.inc({ outcome })
+                transactionalEmailRequestsTotal.inc({ outcome, route: 'single' })
                 return res.status(status).json(body)
             }
+            const replyWith = ({ outcome, status, body }: SendReply) => reply(outcome, status, body)
             try {
                 stages.start('auth')
                 if (!this.transactionalEmailJwt.enabled) {
@@ -1476,24 +1511,15 @@ export class CdpApi {
                         tokenClaims
                     )
                 ) {
-                    transactionalEmailRequestsTotal.inc({ outcome: 'unauthorized' })
+                    transactionalEmailRequestsTotal.inc({ outcome: 'unauthorized', route: 'single' })
                     return
                 }
                 stages.start('validate')
                 const parsed = schema.safeParse(req.body)
                 if (!parsed.success) {
-                    const issues = parsed.error.issues
-                    // Signup accepts some addresses this check refuses, and no retry can fix an address.
-                    if (issues.every(isRecipientFormatIssue)) {
-                        return reply('recipient_unreachable', 422, { error: 'recipient_unreachable' })
-                    }
-                    // Paths and codes only: the values include the recipient's address.
-                    logger.warn('⚠️', 'Transactional email request failed validation', {
-                        team_id: req.params.team_id,
-                        hog_flow_id: req.params.id,
-                        issues: issues.map((issue) => ({ path: issue.path.join('.'), code: issue.code })),
-                    })
-                    return reply('invalid_request', 400, { error: parsed.error.message })
+                    return replyWith(
+                        invalidSendReplyOf(parsed.error, { team_id: req.params.team_id, hog_flow_id: req.params.id })
+                    )
                 }
                 const { send } = parsed.data
                 const senderLookup = send?.from
@@ -1501,25 +1527,7 @@ export class CdpApi {
                     : Promise.resolve(null)
                 // Several answers return before the sender lookup is awaited, so its failure must not go unhandled.
                 senderLookup.catch(() => undefined)
-                const answer = (result: TransactionalSendResult) => {
-                    if ('invocationId' in result) {
-                        return reply(result.outcome, 202, {
-                            status: result.scheduledAt ? 'scheduled' : 'queued',
-                            invocation_id: result.invocationId,
-                            scheduled_at: result.scheduledAt,
-                            replayed: result.outcome === 'replayed',
-                            ...result.replyFields,
-                            ...(result.senderKind ? { sender_kind: result.senderKind } : {}),
-                        })
-                    }
-                    if ('refused' in result) {
-                        return reply(result.refused.body.error, result.refused.status, result.refused.body)
-                    }
-                    return reply(result.outcome, TRANSACTIONAL_SEND_REFUSAL_STATUS[result.outcome], {
-                        error: result.outcome,
-                        ...(result.outcome === 'invalid_scheduled_at' && { reason: 'too_far' }),
-                    })
-                }
+                const answer = (result: TransactionalSendResult) => replyWith(sendReplyOf(result))
                 const sends = this.transactionalSendsForRequest()
                 const recalled = await sends.recall(
                     parseInt(req.params.team_id),
@@ -1681,14 +1689,12 @@ export class CdpApi {
         return sesHtmlMaxBytes(html, {
             utmTags,
             invocation: rendered,
-            signer: this.emailTrackingCodeSigner,
             preheader: typeof preheader === 'string' ? preheader : undefined,
         })
     }
 
     private postAttachmentUploads = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         if (!this.transactionalEmailJwt.enabled) {
-            countUploadRequest('not_configured')
             return res.status(503).json({
                 error: 'Transactional email auth not configured (WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET unset)',
             })
@@ -1702,7 +1708,6 @@ export class CdpApi {
                 ATTACHMENT_UPLOAD_TOKEN_CLAIMS
             )
         ) {
-            countUploadRequest('unauthorized')
             return
         }
         const { status, body } = await this.attachmentUploads.prepare(parseInt(req.params.team_id), req.body)
@@ -1734,11 +1739,11 @@ export class CdpApi {
             emailValidation: this.emailValidationService,
             quotaLimiting: this.deps.quotaLimiting,
             attachmentUploads: this.attachmentUploads,
-            refuseSandboxSend: (teamId, recipient) =>
-                refuseSandboxCodeSend(this.deps.postgres, {
+            refuseSandboxSends: (teamId, recipients) =>
+                refuseSandboxCodeSends(this.deps.postgres, {
                     enabled: this.config.WORKFLOWS_SANDBOX_SENDER_ENABLED,
                     teamId,
-                    recipient,
+                    recipients,
                     tenantName: this.config.SES_SANDBOX_TENANT_NAME,
                 }),
         })
