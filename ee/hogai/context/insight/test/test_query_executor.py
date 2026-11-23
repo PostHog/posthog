@@ -49,6 +49,7 @@ from posthog.hogql.errors import (
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.errors import (
+    USER_CAUSED_NOT_IMPLEMENTED_MESSAGES,
     CHQueryErrorIllegalTypeOfArgument,
     CHQueryErrorS3FileChangedDuringRead,
     ExposedCHQueryError,
@@ -576,11 +577,35 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             ),
             param(
                 "legacy_changed_storage_file",
-                CHQueryErrorS3FileChangedDuringRead.public_message,
+                "A file backing a data warehouse table changed while the query was reading it (example-bucket/report). "
+                "Retry the query.",
                 "incorrect_data",
                 CHQueryErrorS3FileChangedDuringRead.public_message,
                 "s3_file_changed_during_read",
                 expected_error_type="api_5xx",
+            ),
+            param(
+                "rate_limited_server",
+                "The server is overloaded.",
+                "SERVER_OVERLOADED",
+                "The server is overloaded.",
+                "server_overloaded",
+                expected_error_type="rate_limited",
+            ),
+            (
+                "query_resource_limit",
+                "Reduce the number of rows.",
+                "TOO_MANY_ROWS",
+                "Reduce the number of rows.",
+                "too_many_rows",
+            ),
+            param(
+                "unsupported_user_query",
+                USER_CAUSED_NOT_IMPLEMENTED_MESSAGES[0][1],
+                "NOT_IMPLEMENTED",
+                USER_CAUSED_NOT_IMPLEMENTED_MESSAGES[0][1],
+                "not_implemented",
+                expected_error_type="validation",
             ),
             param(
                 "changed_storage_file",
@@ -636,7 +661,9 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         query = AssistantTrendsQuery(series=[])
 
-        expected_class = MaxToolTransientError if expected_error_type == "api_5xx" else MaxToolRetryableError
+        expected_class = (
+            MaxToolTransientError if expected_error_type in {"api_5xx", "rate_limited"} else MaxToolRetryableError
+        )
         with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
             with self.assertRaises(expected_class) as context:
                 await self.query_runner.arun_and_format_query(query)

@@ -110,7 +110,7 @@ class TestMCPToolsAPI(APIBaseTest):
             response.json(),
             {
                 "success": False,
-                "content": "Tool failed: MaxToolRetryableError: Invalid connectionId: no direct-query-capable data source with this id in this team, or you don't have access to it.. You may retry with adjusted inputs.",
+                "content": "Tool failed: MaxToolRetryableError: Invalid connectionId: no direct-query-capable data source with this id in this team, or you don't have access to it. You may retry with adjusted inputs.",
                 "error_type": "internal",
                 "error_code": "hogql_error",
             },
@@ -375,7 +375,7 @@ class TestMCPToolsAPI(APIBaseTest):
                 CHQueryErrorS3FileChangedDuringRead("Warehouse file changed while reading", code=499),
                 "api_5xx",
                 "Tool failed: MaxToolTransientError: Warehouse file changed while reading. You may retry this operation once without changes.",
-                error_code="s3_error",
+                error_code="s3_file_changed_during_read",
             ),
             param(
                 CHQueryErrorS3Error("Storage read failed", code=499),
@@ -468,8 +468,9 @@ class TestMCPToolsAPI(APIBaseTest):
                 None,
                 None,
                 "query_was_cancelled",
-                "Tool failed: MaxToolRetryableError: The query failed because of an internal error. You may retry with adjusted inputs.",
+                "Tool failed: MaxToolTransientError: The query was cancelled before it finished. Run it again if you still need the results. You may retry this operation once without changes.",
                 expected_error_code="query_was_cancelled",
+                expected_error_type="api_5xx",
             ),
             param(
                 "trino_unsupported",
@@ -502,10 +503,11 @@ class TestMCPToolsAPI(APIBaseTest):
                 None,
                 None,
                 "S3_ERROR",
-                "Tool failed: MaxToolRetryableError: PostHog couldn't read from storage while running this query. "
-                "Wait a few minutes, then run the query again. If the problem continues, contact support.. "
-                "You may retry with adjusted inputs.",
+                "Tool failed: MaxToolTransientError: PostHog couldn't read from storage while running this query. "
+                "Wait a few minutes, then run the query again. If the problem continues, contact support. "
+                "You may retry this operation once without changes.",
                 expected_error_code="s3_error",
+                expected_error_type="api_5xx",
             ),
             param(
                 "deferred_compatibility_rejection",

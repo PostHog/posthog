@@ -36,6 +36,9 @@ from posthog.errors import (
     CHQueryErrorUnknownIdentifier,
     CHQueryErrorUnknownTable,
     CHQueryErrorUnsupportedMethod,
+    InternalCHQueryError,
+    clickhouse_error_message,
+    error_code_from_type,
     wrap_clickhouse_query_error,
 )
 from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseAtCapacity
@@ -2540,6 +2543,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             )
 
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        if isinstance(boom, InternalCHQueryError):
+            self.assertEqual(response.json()["detail"], clickhouse_error_message(boom))
+            self.assertEqual(response.json()["code"], error_code_from_type(boom))
         mock_capture.assert_called_once()
         mock_emit.assert_called_once()
         args, kwargs = mock_emit.call_args

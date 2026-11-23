@@ -328,11 +328,18 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
 
     class_name = f"CHQueryError{meta.label}"
     if meta.user_safe is not None:
-        message = (
-            _argument_type_message(raw_message, meta.user_safe)
-            if name == "ILLEGAL_TYPE_OF_ARGUMENT"
-            else meta.user_safe
-        )
+        message = meta.user_safe
+        if name == "ILLEGAL_TYPE_OF_ARGUMENT":
+            message = _argument_type_message(raw_message, message)
+        elif name == "FUNCTION_THROW_IF_VALUE_IS_NON_ZERO":
+            # ClickHouse appends the executing SQL and row values after the explicit throwIf message.
+            match = re.search(
+                r"DB::Exception:\s*([^\r\n]+?)(?::\s*while executing\b|\s*\(FUNCTION_THROW_IF_VALUE_IS_NON_ZERO\))",
+                raw_message,
+                re.IGNORECASE,
+            )
+            if match:
+                message = match[1].strip()
         exposed_type = _EXPOSED_CH_ERROR_TYPES.get(name) or type(class_name, (ExposedCHQueryError,), {})
         return exposed_type(message, code=err.code, code_name=name.lower())
 
@@ -555,10 +562,12 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     7: ErrorCodeMeta(
         "INCORRECT_NUMBER_OF_COLUMNS",
         user_safe="The column count doesn't match. Check the columns on each side of the expression.",
+        category=QueryErrorCategory.ERROR,
     ),
     8: ErrorCodeMeta(
         "THERE_IS_NO_COLUMN",
         user_safe="A referenced column is missing. Check the table schema and the columns returned by each subquery.",
+        category=QueryErrorCategory.ERROR,
     ),
     9: ErrorCodeMeta("SIZES_OF_COLUMNS_DOESNT_MATCH"),
     10: ErrorCodeMeta("NOT_FOUND_COLUMN_IN_BLOCK"),
@@ -571,6 +580,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     16: ErrorCodeMeta(
         "NO_SUCH_COLUMN_IN_TABLE",
         user_safe="A referenced column is missing. Check the column names in the source table.",
+        category=QueryErrorCategory.ERROR,
     ),
     19: ErrorCodeMeta("SIZE_OF_FIXED_STRING_DOESNT_MATCH"),
     20: ErrorCodeMeta(
@@ -1306,6 +1316,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     652: ErrorCodeMeta(
         "ONLY_NULLS_WHILE_READING_SCHEMA",
         user_safe="ClickHouse found only NULL values while inferring the schema. Supply explicit column types or provide a file with representative values.",
+        category=QueryErrorCategory.ERROR,
     ),
     653: ErrorCodeMeta("CANNOT_PARSE_BACKUP_SETTINGS"),
     654: ErrorCodeMeta("WRONG_BACKUP_SETTINGS"),
@@ -1457,6 +1468,7 @@ TRANSIENT_CH_ERROR_NAMES = frozenset(
 # Fixed copy for internal ClickHouse errors. The raw ClickHouse message stays hidden, because it can
 # contain stored data values or server internals.
 INTERNAL_CH_ERROR_USER_MESSAGES: dict[str, str] = {
+    **dict.fromkeys(TRANSIENT_CH_ERROR_NAMES, _TEMPORARY_FAILURE_MESSAGE),
     "TIMEOUT_EXCEEDED": str(ClickHouseQueryTimeOut.default_detail),
     "TOO_SLOW": "The query would take too long to finish. Shorten the date range or filter the rows before joining or aggregating.",
     "MEMORY_LIMIT_EXCEEDED": "The database ran out of memory. Try again once, then narrow the date range or reduce the size of the joins.",
@@ -1513,8 +1525,6 @@ def internal_ch_error_user_message(code_name: str | None) -> str | None:
     else:
         if message := INTERNAL_CH_ERROR_USER_MESSAGES.get(meta.name) or meta.user_safe:
             return message
-        if meta.name in TRANSIENT_CH_ERROR_NAMES:
-            return _TEMPORARY_FAILURE_MESSAGE
         match meta.get_category():
             case QueryErrorCategory.CANCELLED:
                 return "The query was cancelled before it finished. Run it again if you still need the results."

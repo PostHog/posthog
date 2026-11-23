@@ -52,6 +52,16 @@ class TestWrapClickhouseQueryError:
             "`plus` cannot combine DateTime64 and String here. Check the types on both sides of the expression."
         )
 
+    def test_throw_if_preserves_the_message_and_drops_the_executing_expression(self) -> None:
+        raw = ServerException(
+            "DB::Exception: Check the input date: while executing 'FUNCTION throwIf(private_value)'", code=395
+        )
+        assert str(wrap_clickhouse_query_error(raw)) == "Check the input date"
+
+    def test_unrecognized_type_and_function_use_fixed_guidance(self) -> None:
+        raw = ServerException("DB::Exception: Illegal type Secretthing of argument of function privateFn", code=43)
+        assert str(wrap_clickhouse_query_error(raw)) == CLICKHOUSE_ERROR_CODE_LOOKUP[43].user_safe
+
     def test_unknown_code_preserves_only_its_driver_number(self) -> None:
         error = InternalCHQueryError("private diagnostic", code=999999, code_name="caller_supplied")
         assert error_code_from_type(error) == "clickhouse_999999"
@@ -275,6 +285,12 @@ class TestWrapClickhouseQueryError:
                 "type, for example with `toString()` or `toFloat()`.",
             ),
             (
+                "enum_with_labels",
+                "Enum8('private' = 1)",
+                "This query returns a column of type `unsupported`, which PostHog can't send back in results. "
+                "Convert the column to a basic type such as a string, number, or date, or leave it out of the results.",
+            ),
+            (
                 "other_type",
                 "JSON",
                 "This query returns a column of type `JSON`, which PostHog can't send back in results. Convert the "
@@ -293,7 +309,7 @@ class TestWrapClickhouseQueryError:
 
     def test_bad_get_hides_unrecognized_raw_message(self) -> None:
         err = ServerException(
-            "DB::Exception: Bad get: has private-row-value, requested UInt64. While processing private-query-context.",
+            "DB::Exception: Bad get: has privatevalue, requested UInt64. While processing private-query-context.",
             code=170,
         )
 

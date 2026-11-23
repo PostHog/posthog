@@ -2517,7 +2517,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         query = "SELECT convertCurrency('USD', 'EUR', 100, '2024-01-01')"
         with self.assertRaises(InternalCHQueryError) as e:
             execute_hogql_query(query, team=self.team)
-        assert "cannot use an argument of type String here." in str(e.exception)
+        assert e.exception.code in (43, 44)
 
     def test_currency_conversion_with_bogus_currency_from(self):
         query = "SELECT convertCurrency('BOGUS', 'EUR', 100, _toDate('2024-01-01'))"
