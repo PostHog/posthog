@@ -12,6 +12,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, f
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from asgiref.sync import async_to_sync, sync_to_async
+from botocore.exceptions import ClientError
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
@@ -195,22 +196,51 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
             for line in body.decode().splitlines()
         ]
 
-    def test_a_role_that_fails_validation_is_never_assumed(self) -> None:
-        assume = AsyncMock()
-        check = CheckDestinationInput(team_id=self.team.pk, destination=self.destination, run_id="run-1")
+    def _check_destination(
+        self, s3: FakeS3, validation_error: Exception | None = None, assume: AsyncMock | None = None
+    ) -> None:
+        @contextlib.asynccontextmanager
+        async def s3_client(*_: Any, **__: Any) -> AsyncIterator[FakeS3]:
+            yield s3
 
         async def run_check() -> None:
+            check = CheckDestinationInput(team_id=self.team.pk, destination=self.destination, run_id="run-1")
             await ActivityEnvironment().run(check_destination, check)
 
         with (
-            patch(f"{ACTIVITIES}.validate_aws_role_arn", side_effect=IntegrationError("no external id condition")),
-            patch(f"{ACTIVITIES}.get_credentials_using_user_aws_role", assume),
-            pytest.raises(ApplicationError) as raised,
+            patch(f"{ACTIVITIES}.validate_aws_role_arn", side_effect=validation_error),
+            patch(f"{ACTIVITIES}.get_credentials_using_user_aws_role", assume or AsyncMock()),
+            patch(f"{ACTIVITIES}.s3_client", s3_client),
         ):
             async_to_sync(run_check)()
 
+    def test_a_role_that_fails_validation_is_never_assumed(self) -> None:
+        assume = AsyncMock()
+
+        with pytest.raises(ApplicationError) as raised:
+            self._check_destination(FakeS3(), IntegrationError("no external id condition"), assume)
+
         assert raised.value.non_retryable
         assume.assert_not_called()
+
+    def test_the_write_check_leaves_nothing_in_the_bucket(self) -> None:
+        s3 = FakeS3()
+
+        self._check_destination(s3)
+
+        assert (s3.objects, s3.uploads) == ({}, {})
+        assert list(s3.request_args) == [f"customer/exports/{self.team.pk}/run-1/preflight"]
+
+    @parameterized.expand([("denied", 403, True), ("throttled", 503, False)])
+    def test_a_failed_write_check_retries_only_server_errors(self, _: str, status: int, non_retryable: bool) -> None:
+        s3 = FakeS3()
+        response: Any = {"Error": {"Code": "x"}, "ResponseMetadata": {"HTTPStatusCode": status}}
+        error = ClientError(response, "CreateMultipartUpload")
+
+        with patch.object(s3, "create_multipart_upload", side_effect=error), pytest.raises(Exception) as raised:
+            self._check_destination(s3)
+
+        assert isinstance(raised.value, ApplicationError) == non_retryable
 
     def test_exports_listed_sessions_with_a_manifest(self) -> None:
         totals = self._run()

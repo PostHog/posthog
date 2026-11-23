@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, cast
 from django.conf import settings
 
 import structlog
+from botocore.exceptions import ClientError
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
@@ -626,7 +627,7 @@ def count(lines: list[ManifestLine]) -> ExportTotals:
 
 @activity.defn
 async def check_destination(input: CheckDestinationInput) -> None:
-    """Fails the run before any shard starts when the customer's role is unsafe or cannot be assumed."""
+    """Fails the run before any shard starts when the customer's role is unsafe or cannot write to the bucket."""
     team = await Team.objects.aget(id=input.team_id)
     try:
         # Refuses a role that another organization could make us assume, because it lacks the external ID condition.
@@ -636,9 +637,19 @@ async def check_destination(input: CheckDestinationInput) -> None:
             settings.RECORDING_EXPORT_S3_EXTERNAL_ROLE_ARN,
             external_id(team.organization_id),
         )
-        await resolve_s3_credentials(input.team_id, input.destination, input.run_id)
     except NON_RETRYABLE_ERRORS as e:
         raise ApplicationError(str(e), non_retryable=True) from e
+    # Starting and aborting an upload needs s3:PutObject, s3:AbortMultipartUpload and the KMS key, and leaves no object.
+    key = f"{run_prefix(input.destination, input.team_id)}/{input.run_id}/preflight"
+    async with customer_bucket(input.team_id, input.destination, input.run_id) as bucket:
+        try:
+            upload_id = await bucket.create_multipart_upload(key)
+            await bucket.abort_multipart_upload(key, upload_id)
+        except ClientError as e:
+            status = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode", 500)
+            if status < 500 and status != 429:
+                raise ApplicationError(f"The role cannot write to the bucket: {e}", non_retryable=True) from e
+            raise
 
 
 @activity.defn

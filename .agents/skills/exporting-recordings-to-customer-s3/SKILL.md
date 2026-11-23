@@ -97,7 +97,7 @@ python manage.py export_recordings_to_s3 --status <workflow id>
 ```
 
 A large export runs for hours or days.
-A run checks the role before its first shard. A failure there, or any credentials failure, is permanent: the customer must fix the role, then you start a new run from a fresh quote.
+A run checks the role and a test upload (started, then aborted, so nothing is left) before its first shard. A failure there, or any credentials failure, is permanent: the customer must fix the role, then you start a new run from a fresh quote.
 Other shard failures retry on their own and resume from their last checkpoint.
 
 A shard that still fails after its retries does not stop the run. The run writes its summary and then ends as failed, with the failed shards in the error and in `summary.json` under `failed_shards`.
