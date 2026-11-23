@@ -73,6 +73,11 @@ class TestValidateClientName(TestCase):
             ("accented", "P\u00f6stH\u00f6g Wizard"),
             ("cyrillic_o_in_blocked_word", "\u041efficial MCP Client"),
             ("zero_width_space_in_blocked_word", "Acme Veri\u200bfied"),
+            ("trademark_sign_prefix", "\u2122PostHog Wizard"),
+            ("numero_sign_prefix", "\u2116PostHog Wizard"),
+            ("circled_p", "\u24c5ostHog Wizard"),
+            ("p_with_middle_tilde", "\u1d71ostHog Wizard"),
+            ("emoji_circle_for_o", "P\U0001f534stHog Wizard"),
         ]
     )
     def test_rejects_impersonating_names(self, _name, value):
@@ -114,6 +119,11 @@ class TestValidateCimdClientName(TestCase):
             ("coptic_o", "Acme P\u2c9fstHog"),
             ("armenian_ho_and_co", "Acme Post\u0570o\u0581"),
             ("bengali_zero", "Acme P\u09e6stHog"),
+            ("modifier_apostrophe", "Acme Post\u02bcHog"),
+            ("combining_mark_that_casefold_turns_into_iota", "Acme Post\u0345Hog"),
+            ("black_circle_for_o", "Acme P\u2b24stHog"),
+            ("bullet_for_o", "Acme P\u2022stHog"),
+            ("ideographic_full_stop_for_o", "Acme P\u3002stHog"),
             ("blocked_word", "Acme Trusted Client"),
             ("blocked_word_with_cyrillic_o", "Acme \u041efficial Client"),
         ]

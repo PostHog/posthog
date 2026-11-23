@@ -29,16 +29,23 @@ CLIENT_NAME_MAX_LENGTH = 255
 # trailing "&" followed by entity-name characters without a closing ";" is a cut-off entity.
 _DANGLING_ENTITY_RE = re.compile(r"&[a-zA-Z0-9#]*$")
 
+
+POSTHOG_OWNED_DOMAINS = ("posthog.com", "posthog.net", "posthog.dev")
+
+# Where customers control the response body on those domains: CDP webhook hosts, and the
+# `/public/` routes CDP serves, which some environments expose on the app host itself.
+CUSTOMER_CONTENT_HOST_LABELS = ("webhooks", "hooks")
+CUSTOMER_CONTENT_PATH_PREFIXES = ("/public/",)
+
 RESERVED_CLIENT_NAME = "posthog"
 
-# Invisible characters, and the combining marks that NFKD splits off accented letters.
-_IGNORED_CATEGORIES = frozenset({"Cc", "Cf", "Mn", "Me"})
+# Modifier letters (Lm) count as letters, but most of them render as punctuation, such as "ʼ".
+_SKIPPED_CATEGORIES = frozenset({"Cc", "Cf", "Mn", "Me", "Lm"})
 _FORMAT_CATEGORY = "Cf"
 
 # Hangul fillers are letters by Unicode category, but they render as blank space.
 _BLANK_LETTERS = frozenset({"\u115f", "\u1160", "\u3164", "\uffa0"})
 
-# Stored names keep this one format character because emoji sequences need it.
 _ZERO_WIDTH_JOINER = "\u200d"
 
 # Characters that render like a letter of "posthog" and that NFKD and casefold leave alone. Casefold
@@ -58,12 +65,30 @@ _POSTHOG_LOOKALIKES = str.maketrans(
         "〇": "o",
         "○": "o",
         "◯": "o",
+        "●": "o",
+        "⬤": "o",
+        "⭘": "o",
+        "•": "o",
+        "◦": "o",
+        "∘": "o",
+        "°": "o",
+        "。": "o",
+        "⚪": "o",
+        "⚫": "o",
+        "🔴": "o",
+        "🔵": "o",
+        "🟠": "o",
+        "🟡": "o",
+        "🟢": "o",
+        "🟣": "o",
+        "🟤": "o",
         "р": "p",  # Cyrillic
         "ρ": "p",  # Greek
         "ⲣ": "p",  # Coptic
         "ᴘ": "p",
         "ƥ": "p",
         "ᵽ": "p",
+        "ᵱ": "p",
         "Ꮲ": "p",  # Cherokee
         "ꓑ": "p",  # Lisu
         "ᑭ": "p",  # Canadian syllabics
@@ -104,20 +129,27 @@ _POSTHOG_LOOKALIKES = str.maketrans(
 )
 
 
+def _decomposed_without_marks(value: str) -> str:
+    return "".join(
+        char
+        for char in unicodedata.normalize("NFKD", value)
+        if char.isspace() or (unicodedata.category(char) not in _SKIPPED_CATEGORIES and char not in _BLANK_LETTERS)
+    )
+
+
 def _skeleton(value: str) -> str:
     """Fold a client name into the form that the reserved-name checks compare.
 
     NFKD, not NFKC, because accents must stay decomposed so that the combining marks can be dropped.
-    The second NFKD decomposes characters that casefold produces.
+    Marks are dropped before casefold too, because casefold turns some of them into letters (U+0345
+    becomes "ι"). The second pass drops the marks that casefold produces.
     """
-    folded = unicodedata.normalize("NFKD", unicodedata.normalize("NFKD", value).casefold())
+    folded = _decomposed_without_marks(_decomposed_without_marks(value).casefold())
 
     kept: list[str] = []
     for char in folded:
         if char.isspace():
             kept.append(" ")
-        elif unicodedata.category(char) in _IGNORED_CATEGORIES or char in _BLANK_LETTERS:
-            continue
         elif unicodedata.decimal(char, None) is not None:
             kept.append(str(unicodedata.decimal(char)))
         else:
@@ -135,6 +167,19 @@ def _letters_and_digits(value: str) -> str:
     return "".join(char for char in _skeleton(value) if char.isalnum())
 
 
+def _without_leading_symbols(value: str) -> str:
+    """Drop the symbols at the start of a name, so that "™PostHog" starts with "posthog" like "[PostHog]" does.
+
+    NFKD expands some symbols into letters ("™" becomes "tm"), so this runs on the name before the fold.
+    A symbol that folds to one letter, such as "Ⓟ" or "●", reads as that letter and stays.
+    """
+    for index, char in enumerate(value):
+        if char.isalnum() or len(_letters_and_digits(char)) == 1:
+            return value[index:]
+
+    return ""
+
+
 def _reject_blocked_words(value: str) -> None:
     skeleton = _skeleton(value)
     for word in BLOCKED_CLIENT_NAME_WORDS:
@@ -148,20 +193,12 @@ def validate_client_name(value: str) -> None:
     Only the start of the name is reserved, because MCP clients name themselves after the server
     (for example "Claude Code (posthog)").
     """
-    letters_and_digits = _letters_and_digits(value)
+    letters_and_digits = _letters_and_digits(_without_leading_symbols(value))
     for prefix in BLOCKED_CLIENT_NAME_PREFIXES:
         if letters_and_digits.startswith(prefix):
             raise serializers.ValidationError(f"Client name cannot start with '{prefix}'")
 
     _reject_blocked_words(value)
-
-
-POSTHOG_OWNED_DOMAINS = ("posthog.com", "posthog.net", "posthog.dev")
-
-# Where customers control the response body on those domains: CDP webhook hosts, and the
-# `/public/` routes CDP serves, which some environments expose on the app host itself.
-CUSTOMER_CONTENT_HOST_LABELS = ("webhooks", "hooks")
-CUSTOMER_CONTENT_PATH_PREFIXES = ("/public/",)
 
 
 def is_posthog_controlled_url(url: str) -> bool:
@@ -211,7 +248,8 @@ def sanitize_client_name(value: str) -> str:
     a stray fragment.
 
     Format characters other than the zero-width joiner are dropped first, so the stored name
-    renders its letters in the order the reserved-name checks read them.
+    renders its letters in the order the reserved-name checks read them. The joiner stays because
+    emoji sequences need it.
     """
     visible = "".join(
         char for char in value if char == _ZERO_WIDTH_JOINER or unicodedata.category(char) != _FORMAT_CATEGORY
