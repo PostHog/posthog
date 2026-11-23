@@ -434,7 +434,9 @@ def _fetch_contacts(client: ResendClient, context: ImportContext) -> Iterator[Im
     # Each list's cohort fills in one go, so the step reads every contact before it saves, and a retry reads them again.
     contacts = ContactCollector()
     unsubscribed: set[str] = set()
+    read = 0
     for page in client.pages("/contacts"):
+        read += len(page.data)
         _collect(contacts, page.data)
         unsubscribed.update(
             email.lower()
@@ -479,7 +481,7 @@ def _fetch_contacts(client: ResendClient, context: ImportContext) -> Iterator[Im
     # One shared set, so a large opt-out list isn't copied once per segment.
     non_members = frozenset(unsubscribed)
     yield ImportPage(
-        processed=len(everyone),
+        processed=read,
         save=partial(
             save_contact_lists,
             context,

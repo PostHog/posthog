@@ -1045,6 +1045,7 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         assert (Cohort.objects.get(id=plan["cohort_id"]).name, plan["send_events"]) == ("Resend contacts", True)
         assert [(person["distinct_id"], person.get("member", True)) for person in people] == staged
         assert people[-1]["properties"] == {"email": "happy@example.com", "first_name": "Hal", "last_name": "Happy"}
+        assert run.progress["contacts"]["processed"] == 7
         assert run.progress["contacts"]["counts"] == {**counts, "repeats_merged": 2, "invalid_skipped": 1}
         notes = run.progress["contacts"]["items"][0]["notes"]
         assert {
