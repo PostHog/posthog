@@ -101,7 +101,7 @@ class SentimentVerdict:
 
 
 def classify_sentiment(
-    message: str, *, team_id: int, distinct_id: str | None, trace_id: str | None
+    message: str, *, team_id: int, distinct_id: str | None, trace_id: str | None, privacy_mode: bool = False
 ) -> SentimentVerdict | None:
     """Ask the decision model how the person feels about the assistant. ``None`` means no verdict.
 
@@ -120,6 +120,7 @@ def classify_sentiment(
         trace_id=trace_id,
         properties={CLASSIFIER_PROPERTY: "message_sentiment"},
         timeout=SENTIMENT_TIMEOUT_SECONDS,
+        privacy_mode=privacy_mode,
     )
     result = client.decide(
         state={"message": text},
@@ -138,10 +139,14 @@ def classify_sentiment(
     )
 
 
-def is_unhappy(message: str, *, team_id: int, distinct_id: str | None, trace_id: str | None) -> bool:
+def is_unhappy(
+    message: str, *, team_id: int, distinct_id: str | None, trace_id: str | None, privacy_mode: bool = False
+) -> bool:
     """Whether the message reads as unhappy. Any failure reads as no, because a missed prompt costs little."""
     try:
-        verdict = classify_sentiment(message, team_id=team_id, distinct_id=distinct_id, trace_id=trace_id)
+        verdict = classify_sentiment(
+            message, team_id=team_id, distinct_id=distinct_id, trace_id=trace_id, privacy_mode=privacy_mode
+        )
     except Exception:
         logger.warning("slack_app_sentiment_classifier_failed", exc_info=True)
         return False
@@ -149,6 +154,8 @@ def is_unhappy(message: str, *, team_id: int, distinct_id: str | None, trace_id:
 
 
 UNHAPPY_REACTION = "bow"
+# Optional Slack calls under the relay's deadline. The client also drops slack_sdk's connection retries.
+SLACK_CALL_TIMEOUT_SECONDS = 5
 GIF_ALT_TEXT = "A calming GIF"
 # Used when the GIF flag is on but its payload names no GIFs.
 DEFAULT_FRUSTRATION_GIF_URLS: tuple[str, ...] = (
@@ -157,6 +164,12 @@ DEFAULT_FRUSTRATION_GIF_URLS: tuple[str, ...] = (
     "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExN3psNG16cnlvbWtieDhlZjhlbTJjeHB2MnFlMDB6NG45OTQ3eXM1ZiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/ijfxMxbdvLhM8PwHQF/giphy.gif",
     "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExZnozMjJ4MzRiZjNtaTNvb3NoMTVlODFpaHZrZHM4MnExZms0Mm5xYiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/7OfNbBQHgxYVG/giphy.gif",
 )
+
+
+@frozen
+class SentimentResult:
+    # None when the model call failed or gave no choice, so a later step reads it as calm and does not call again.
+    sentiment: Sentiment | None
 
 
 @frozen
@@ -172,22 +185,28 @@ class SentimentResponseRequest:
     trace_id: str | None
 
 
-def respond_to_sentiment(request: SentimentResponseRequest) -> Sentiment | None:
-    """React to how the person feels. ``None`` means no verdict: the flag is off, there is no message, or
-    the model call failed."""
+def respond_to_sentiment(request: SentimentResponseRequest) -> SentimentResult | None:
+    """React to how the person feels. ``None`` means no attempt, because the flag is off or there is no message."""
+    # Deferred like the other ee imports in this product, so ee stays off the import path of every caller.
+    from ee.hogai.utils.feature_flags import is_privacy_mode_enabled  # noqa: PLC0415
+
     integration = request.integration
     distinct_id = request.posthog_user.distinct_id if request.posthog_user is not None else None
     if not request.person_message or not is_slack_app_frustration_response_enabled(integration, distinct_id):
         return None
     try:
         verdict = classify_sentiment(
-            request.person_message, team_id=integration.team_id, distinct_id=distinct_id, trace_id=request.trace_id
+            request.person_message,
+            team_id=integration.team_id,
+            distinct_id=distinct_id,
+            trace_id=request.trace_id,
+            privacy_mode=is_privacy_mode_enabled(integration.team),
         )
     except Exception:
         logger.warning("slack_app_sentiment_classifier_failed", exc_info=True)
-        return None
+        return SentimentResult(sentiment=None)
     if verdict is None:
-        return None
+        return SentimentResult(sentiment=None)
     sentiment = verdict.sentiment
     capture_slack_event(
         integration,
@@ -201,9 +220,9 @@ def respond_to_sentiment(request: SentimentResponseRequest) -> Sentiment | None:
         ai_trace_id=request.trace_id,
     )
     if sentiment not in UNHAPPY_SENTIMENTS:
-        return sentiment
+        return SentimentResult(sentiment=sentiment)
 
-    client = SlackIntegration(integration).client
+    client = SlackIntegration(integration, timeout_seconds=SLACK_CALL_TIMEOUT_SECONDS).client
     if request.person_message_ts:
         try:
             client.reactions_add(channel=request.channel, timestamp=request.person_message_ts, name=UNHAPPY_REACTION)
@@ -211,7 +230,7 @@ def respond_to_sentiment(request: SentimentResponseRequest) -> Sentiment | None:
             logger.warning("slack_app_sentiment_reaction_failed", exc_info=True)
     if sentiment == Sentiment.FRUSTRATED:
         _send_gif(request, client, distinct_id)
-    return sentiment
+    return SentimentResult(sentiment=sentiment)
 
 
 def _send_gif(request: SentimentResponseRequest, client: WebClient, distinct_id: str | None) -> None:

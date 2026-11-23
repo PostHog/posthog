@@ -138,6 +138,9 @@ def offer_frustration_invite(request: FrustrationInviteRequest) -> bool:
     )
     if thread_count < MIN_INTERACTIONS:
         return False
+    # Deferred like the other ee imports in this product, so ee stays off the import path of every caller.
+    from ee.hogai.utils.feature_flags import is_privacy_mode_enabled  # noqa: PLC0415
+
     if request.signal == "message" and not (
         request.unhappy
         if request.unhappy is not None
@@ -146,6 +149,7 @@ def offer_frustration_invite(request: FrustrationInviteRequest) -> bool:
             team_id=integration.team_id,
             distinct_id=request.posthog_user.distinct_id if request.posthog_user is not None else None,
             trace_id=request.trace_id,
+            privacy_mode=is_privacy_mode_enabled(integration.team),
         )
     ):
         return False

@@ -22,8 +22,8 @@ from products.slack_app.backend.logic.feature_tips.offer import TipRequest, offe
 from products.slack_app.backend.logic.interview_recruitment import FrustrationInviteRequest, offer_frustration_invite
 from products.slack_app.backend.logic.message_sentiment import (
     UNHAPPY_SENTIMENTS,
-    Sentiment,
     SentimentResponseRequest,
+    SentimentResult,
     respond_to_sentiment,
 )
 from products.slack_app.backend.logic.reply_suggestions import (
@@ -1197,9 +1197,9 @@ class SlackThreadHandler:
         if the reader is unhappy, else a tip."""
         if not self.actor_slack_user_id:
             return
-        sentiment: Sentiment | None = None
+        result: SentimentResult | None = None
         try:
-            sentiment = respond_to_sentiment(
+            result = respond_to_sentiment(
                 SentimentResponseRequest(
                     integration=self._get_integration(),
                     slack_user_id=self.actor_slack_user_id,
@@ -1225,7 +1225,7 @@ class SlackThreadHandler:
                     signal="message",
                     person_message=self.turn_person_message,
                     trace_id=self.turn_trace_id,
-                    unhappy=sentiment in UNHAPPY_SENTIMENTS if sentiment is not None else None,
+                    unhappy=result.sentiment in UNHAPPY_SENTIMENTS if result is not None else None,
                 )
             ):
                 return
