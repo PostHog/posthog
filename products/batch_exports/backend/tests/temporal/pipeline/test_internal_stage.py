@@ -166,7 +166,17 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
         destination_default_fields=None,
     )
 
-    with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_native_schema):
+    batch_exports_url = "http://batch-exports.example.com:8123/"
+    with (
+        override_settings(
+            CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_native_schema,
+            CLICKHOUSE_BATCH_EXPORTS_HTTP_URL=batch_exports_url,
+        ),
+        patch(
+            "products.batch_exports.backend.temporal.pipeline.internal_stage.get_client",
+            return_value=mock_clickhouse_client.mock_client_cm,
+        ) as get_client,
+    ):
         await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
     mock_clickhouse_client.expect_select_from_table(expected_table)
     mock_clickhouse_client.expect_properties_in_log_comment(
@@ -176,6 +186,9 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
             "product": "batch_export",
         },
     )
+    reads_recent_table = expected_table in ("events_recent", "distributed_events_recent", "events_json_recent")
+    connected_url = get_client.call_args.kwargs["clickhouse_url"]
+    assert (connected_url == batch_exports_url) == reads_recent_table
 
 
 @pytest.mark.parametrize(
