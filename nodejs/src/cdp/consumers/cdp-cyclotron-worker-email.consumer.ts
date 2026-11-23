@@ -30,7 +30,9 @@ const ATTACHMENT_WAIT_EXPIRED = 'attachment_wait_expired'
 const WAITED_TOO_LONG_MESSAGE = `${ATTACHMENT_WAIT_EXPIRED}: this email waited ${LONGEST_WAIT_FOR_ROOM_MS / DAY_MS} days for an email worker with room for its files, so it was not sent before its files could expire. Send it again.`
 const waitedTooLongForRoom = new WeakSet<CyclotronJobInvocation>()
 const CALLS_SETTLE_BEFORE_WRITE_MS = CONSUMER_STOP_DEADLINE_MS - ATTACHMENT_SEND_DEADLINE_MS - RESULT_WRITE_MARGIN_MS
-const LONGEST_SLOT_HOLD_MS = ATTACHMENT_SEND_DEADLINE_MS + CALLS_SETTLE_BEFORE_WRITE_MS + RESULT_WRITE_MARGIN_MS
+// A slot also covers the workflow lookups, the job write and the monitoring flush, which have no deadline of their own,
+// so this bound sits far past the send deadline. Every slot held this long means calls that never settle.
+const SLOTS_STALLED_AFTER_MS = 5 * 60_000
 
 export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
     protected override name = 'CdpCyclotronWorkerEmail'
@@ -182,7 +184,7 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
             ...options,
             sendsWithFiles: {
                 room: () => this.sendsWithFiles.room(),
-                stalled: () => this.sendsWithFiles.fullForMs() > LONGEST_SLOT_HOLD_MS,
+                stalled: () => this.sendsWithFiles.fullForMs() > SLOTS_STALLED_AFTER_MS,
             },
         }
     }

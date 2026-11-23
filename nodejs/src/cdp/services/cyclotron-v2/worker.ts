@@ -429,18 +429,16 @@ export class CyclotronV2Worker {
     }
 
     protected async countFilesWork(limit: number): Promise<number> {
-        const result = await this.pool.query<{ n: number }>(
-            this.boundedPolls ? this.filesPollSql.countWork : this.filesPollSql.legacyCountWork,
-            [this.config.queueName, limit]
-        )
+        const result = await this.pool.query<{ n: number }>(this.filesPollSql.countWork, [this.config.queueName, limit])
         return result.rows[0].n
     }
 
     private async dequeueFiles(limit: number): Promise<RawJobRow[]> {
-        const result = await this.pool.query<RawJobRow>(
-            this.boundedFairDequeue ? this.filesPollSql.fairDequeueJobs : this.filesPollSql.legacyFairDequeueJobs,
-            [this.config.queueName, limit, uuidv7()]
-        )
+        const result = await this.pool.query<RawJobRow>(this.filesPollSql.fairDequeueJobs, [
+            this.config.queueName,
+            limit,
+            uuidv7(),
+        ])
         return result.rows
     }
 

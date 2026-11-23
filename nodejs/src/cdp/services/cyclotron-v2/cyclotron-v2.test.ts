@@ -3337,21 +3337,24 @@ describe('Cyclotron V2', () => {
             return rows[0].n
         }
 
-        async function seed(queue: string, dueJobs: number, backlogJobs: number): Promise<void> {
+        type SeededRows = 'plain' | 'with files'
+
+        async function seed(queue: string, rows: SeededRows, dueJobs: number, backlogJobs: number): Promise<void> {
             const applicationName = 'polling-cost-seed'
             const client = new Client({ connectionString: sessionUrl(applicationName, 'custom') })
             await client.connect()
             try {
                 await client.query('TRUNCATE cyclotron_jobs')
                 await client.query(
-                    `INSERT INTO cyclotron_jobs (id, team_id, queue_name, status, priority, scheduled, created, last_transition, dequeue_seq)
+                    `INSERT INTO cyclotron_jobs (id, team_id, queue_name, status, priority, scheduled, created, last_transition, dequeue_seq, file_bytes)
                      SELECT gen_random_uuid(), 1, $1, 'available', (g % 3)::smallint,
                             CASE WHEN g <= $3 THEN NOW() - interval '1 minute'
                                  ELSE NOW() + interval '1 hour' + g * interval '1 minute' END,
                             NOW(), NOW(),
-                            CASE WHEN g <= $3 THEN $2::int + g ELSE g - $3::int END AS future_rows_take_the_lowest_dequeue_seq
+                            CASE WHEN g <= $3 THEN $2::int + g ELSE g - $3::int END AS future_rows_take_the_lowest_dequeue_seq,
+                            $4::bigint
                      FROM generate_series(1, $2::int + $3::int) g`,
-                    [queue, backlogJobs, dueJobs]
+                    [queue, backlogJobs, dueJobs, rows === 'with files' ? 1024 : null]
                 )
                 await client.query('VACUUM ANALYZE cyclotron_jobs')
             } finally {
@@ -3401,86 +3404,115 @@ describe('Cyclotron V2', () => {
 
         const PARAMETERIZED_SQL_PLANS: PlanMode[] = ['custom', 'generic']
         const PLAIN_SQL_PLANS: PlanMode[] = ['custom']
-        const operations: [string, string, number, number, PlanMode[], (dbUrl: string) => Promise<void>][] = [
+        const operations: [string, string, SeededRows, number, number, PlanMode[], (dbUrl: string) => Promise<void>][] =
             [
-                'the worker dequeue',
-                BACKLOG_QUEUE,
-                0,
-                BACKLOG_BUFFER_BUDGET,
-                PARAMETERIZED_SQL_PLANS,
-                async (dbUrl) => {
-                    const { polled, markPolled } = pollSignal()
-                    await pollOnce(createWorker(BACKLOG_QUEUE, { pool: { dbUrl } }), polled, () =>
-                        Promise.resolve(markPolled())
-                    )
-                },
-            ],
-            [
-                'the email fair dequeue',
-                'email',
-                1,
-                BACKLOG_BUFFER_BUDGET_WITH_CLAIM_INDEX_WRITES,
-                PARAMETERIZED_SQL_PLANS,
-                async (dbUrl) => {
-                    const { polled, markPolled } = pollSignal()
-                    await pollOnce(createWorker('email', { pool: { dbUrl } }), polled, () =>
-                        Promise.resolve(markPolled())
-                    )
-                },
-            ],
-            [
-                'the rate-limited worker count',
-                BACKLOG_QUEUE,
-                1,
-                BACKLOG_BUFFER_BUDGET,
-                PARAMETERIZED_SQL_PLANS,
-                async (dbUrl) => {
-                    const { polled, markPolled } = pollSignal()
-                    const worker = new CyclotronV2RateLimitedWorker(
-                        { pool: { dbUrl }, queueName: BACKLOG_QUEUE, pollDelayMs: 10, boundedPolls: true },
-                        () => {
-                            markPolled()
-                            return Promise.resolve({ limit: 0 })
-                        }
-                    )
-                    await pollOnce(worker, polled)
-                },
-            ],
-            [
-                'the manager depth check',
-                BACKLOG_QUEUE,
-                0,
-                BACKLOG_BUFFER_BUDGET,
-                PLAIN_SQL_PLANS,
-                async (dbUrl) => {
-                    const depthChecked = createManager({ pool: { dbUrl }, depthLimit: 0 })
-                    try {
-                        await expect(depthChecked.createJob({ teamId: 1, queueName: BACKLOG_QUEUE })).rejects.toThrow(
-                            'queue is full'
+                [
+                    'the worker dequeue',
+                    BACKLOG_QUEUE,
+                    'plain',
+                    0,
+                    BACKLOG_BUFFER_BUDGET,
+                    PARAMETERIZED_SQL_PLANS,
+                    async (dbUrl) => {
+                        const { polled, markPolled } = pollSignal()
+                        await pollOnce(createWorker(BACKLOG_QUEUE, { pool: { dbUrl } }), polled, () =>
+                            Promise.resolve(markPolled())
                         )
-                    } finally {
-                        await depthChecked.disconnect()
-                    }
-                },
-            ],
-            [
-                'the janitor depth gauges',
-                BACKLOG_QUEUE,
-                0,
-                BACKLOG_BUFFER_BUDGET,
-                PLAIN_SQL_PLANS,
-                async (dbUrl) => {
-                    const janitor = createJanitor({ pool: { dbUrl } })
-                    try {
-                        await janitor.measureQueueDepths()
-                    } finally {
-                        await janitor.stop()
-                    }
-                },
-            ],
-        ]
-        const cases = operations.flatMap(([label, queue, dueJobs, budget, modes, operation]) =>
-            modes.map((mode) => [label, mode, queue, dueJobs, budget, operation] as const)
+                    },
+                ],
+                [
+                    'the email fair dequeue',
+                    'email',
+                    'plain',
+                    1,
+                    BACKLOG_BUFFER_BUDGET_WITH_CLAIM_INDEX_WRITES,
+                    PARAMETERIZED_SQL_PLANS,
+                    async (dbUrl) => {
+                        const { polled, markPolled } = pollSignal()
+                        await pollOnce(createWorker('email', { pool: { dbUrl } }), polled, () =>
+                            Promise.resolve(markPolled())
+                        )
+                    },
+                ],
+                [
+                    'the rate-limited worker count',
+                    BACKLOG_QUEUE,
+                    'plain',
+                    1,
+                    BACKLOG_BUFFER_BUDGET,
+                    PARAMETERIZED_SQL_PLANS,
+                    async (dbUrl) => {
+                        const { polled, markPolled } = pollSignal()
+                        const worker = new CyclotronV2RateLimitedWorker(
+                            { pool: { dbUrl }, queueName: BACKLOG_QUEUE, pollDelayMs: 10, boundedPolls: true },
+                            () => {
+                                markPolled()
+                                return Promise.resolve({ limit: 0 })
+                            }
+                        )
+                        await pollOnce(worker, polled)
+                    },
+                ],
+                [
+                    'the rate-limited poll for sends with files',
+                    'email',
+                    'with files',
+                    1,
+                    BACKLOG_BUFFER_BUDGET_WITH_CLAIM_INDEX_WRITES,
+                    PARAMETERIZED_SQL_PLANS,
+                    async (dbUrl) => {
+                        const { polled, markPolled } = pollSignal()
+                        const worker = new CyclotronV2RateLimitedWorker(
+                            {
+                                pool: { dbUrl },
+                                queueName: 'email',
+                                pollDelayMs: 20_000,
+                                boundedPolls: true,
+                                boundedFairDequeue: true,
+                                sendsWithFiles: { room: () => 1, stalled: () => false },
+                            },
+                            (requested) => Promise.resolve({ limit: requested })
+                        )
+                        await pollOnce(worker, polled, () => Promise.resolve(markPolled()))
+                    },
+                ],
+                [
+                    'the manager depth check',
+                    BACKLOG_QUEUE,
+                    'plain',
+                    0,
+                    BACKLOG_BUFFER_BUDGET,
+                    PLAIN_SQL_PLANS,
+                    async (dbUrl) => {
+                        const depthChecked = createManager({ pool: { dbUrl }, depthLimit: 0 })
+                        try {
+                            await expect(
+                                depthChecked.createJob({ teamId: 1, queueName: BACKLOG_QUEUE })
+                            ).rejects.toThrow('queue is full')
+                        } finally {
+                            await depthChecked.disconnect()
+                        }
+                    },
+                ],
+                [
+                    'the janitor depth gauges',
+                    BACKLOG_QUEUE,
+                    'plain',
+                    0,
+                    BACKLOG_BUFFER_BUDGET,
+                    PLAIN_SQL_PLANS,
+                    async (dbUrl) => {
+                        const janitor = createJanitor({ pool: { dbUrl } })
+                        try {
+                            await janitor.measureQueueDepths()
+                        } finally {
+                            await janitor.stop()
+                        }
+                    },
+                ],
+            ]
+        const cases = operations.flatMap(([label, queue, rows, dueJobs, budget, modes, operation]) =>
+            modes.map((mode) => [label, mode, queue, rows, dueJobs, budget, operation] as const)
         )
 
         async function buffersReadBy(operation: (dbUrl: string) => Promise<void>, mode: PlanMode): Promise<number> {
@@ -3493,10 +3525,10 @@ describe('Cyclotron V2', () => {
 
         it.each(cases)(
             '%s does not read through a backlog scheduled for later under a %s plan',
-            async (_label, mode, queue, dueJobs, budget, operation) => {
-                await seed(queue, dueJobs, 0)
+            async (_label, mode, queue, rows, dueJobs, budget, operation) => {
+                await seed(queue, rows, dueJobs, 0)
                 const withoutBacklog = await buffersReadBy(operation, mode)
-                await seed(queue, dueJobs, BACKLOG_ROWS)
+                await seed(queue, rows, dueJobs, BACKLOG_ROWS)
                 const withBacklog = await buffersReadBy(operation, mode)
 
                 expect(withBacklog - withoutBacklog).toBeLessThan(budget)
