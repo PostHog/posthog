@@ -70,6 +70,7 @@ from products.warehouse_sources.backend.facade.models import (
     discovered_schema_finder,
     is_pinned_schema,
     mark_schema_running_unless_halted,
+    request_manual_run,
     resolve_destinations,
     resolve_sync_type,
     self_managed_table_ref,
@@ -3137,6 +3138,12 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     search_fields = ["name"]
     ordering = "-created_at"
 
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        # `destinations` reads on GET and writes on PATCH; the action lists can only pick one.
+        if self.action == "destinations" and request.method == "GET":
+            return ["external_data_source:read"]
+        return None
+
     def check_object_permissions(self, request: Request, obj: Any) -> None:
         super().check_object_permissions(request, obj)
         if request.method not in ("GET", "HEAD", "OPTIONS") and isinstance(obj, ExternalDataSchema):
@@ -3357,6 +3364,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
             )
 
+        request_manual_run(instance.id, instance.team_id)
         try:
             _trigger_schema_sync(instance)
         except temporalio.service.RPCError as e:

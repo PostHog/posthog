@@ -146,6 +146,7 @@ class TestAcquireV3PipelineLockActivityDeferral:
             ("long_streak_past_capped_gap", {}, 30, timedelta(minutes=61), False),
             ("streak_below_threshold", {}, 4, timedelta(seconds=1), False),
             ("reset_pipeline_runs_anyway", {"reset_pipeline": True}, 8, timedelta(minutes=1), False),
+            ("manual_sync_runs_anyway", {"manual_run_requested": True}, 8, timedelta(minutes=1), False),
         ],
     )
     @patch(f"{MODULE}.write_v3_pipeline_lock_meta")
@@ -166,7 +167,11 @@ class TestAcquireV3PipelineLockActivityDeferral:
     ) -> None:
         mock_activity.info.return_value.workflow_run_id = WORKFLOW_RUN_ID
         mock_activity.info.return_value.workflow_id = "wf-abc-123"
-        schema = _schema_with_config({**config_extra, "failure_streak": _streak(runs, failed_ago)})
+        # A manual sync marks the streak itself, not the top of the config.
+        streak_keys = {"manual_run_requested"}
+        streak = {**_streak(runs, failed_ago), **{k: v for k, v in config_extra.items() if k in streak_keys}}
+        config = {k: v for k, v in config_extra.items() if k not in streak_keys}
+        schema = _schema_with_config({**config, "failure_streak": streak})
 
         result = acquire_v3_pipeline_lock_activity(
             AcquireV3LockActivityInputs(team_id=schema.team_id, schema_id=schema.id)

@@ -57,6 +57,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
     PendingSourceCredential,
     get_or_create_warehouse_destination,
+    request_manual_run,
     sync_frequency_to_sync_frequency_interval,
     sync_old_schemas_with_new_schemas,
 )
@@ -2514,11 +2515,12 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
         # Syncs every enabled schema, so it needs editor on each - a table locked below the source
         # would otherwise be refreshed here, and for a full refresh that drops and reloads it.
-        self._assert_can_write_schemas(
+        schemas = list(
             ExternalDataSchema.objects.filter(team_id=self.team_id, source_id=instance.id, should_sync=True)
             .exclude(deleted=True)
             .select_related("source", "table")
         )
+        self._assert_can_write_schemas(schemas)
 
         if is_any_external_data_schema_paused(self.team_id):
             return setup_error_response(
@@ -2526,6 +2528,8 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 "Monthly sync limit reached. Please increase your billing limit to resume syncing.",
             )
 
+        for schema in schemas:
+            request_manual_run(schema.id, self.team_id)
         try:
             base.trigger_external_data_source_workflow(instance)
 
