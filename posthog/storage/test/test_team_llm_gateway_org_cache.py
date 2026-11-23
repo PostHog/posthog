@@ -28,8 +28,10 @@ class TestLLMGatewayOrgEntry(BaseTest):
         super().setUp()
         self.organization.usage = {
             "period": PERIOD,
-            "ai_low_balance_threshold_usd": "5.00",
+            "ai_settings_version": 42,
+            "ai_low_balance_threshold_usd": "5.50",
             "ai_automatic_reload_enabled": True,
+            "ai_start_day": "2026-12-01",
         }
         self.organization.customer_trust_scores = {"ai_credits": 10}
         self.organization.save()
@@ -39,10 +41,13 @@ class TestLLMGatewayOrgEntry(BaseTest):
             "version": 1,
             "team_id": team.id,
             "organization_id": str(self.organization.id),
+            "settings_version": 42,
             "billing_period": {"start": PERIOD[0], "end": PERIOD[1]},
-            "ai_low_balance_threshold_usd": "5.00",
+            "ai_low_balance_threshold_micros": 5_500_000,
             "ai_automatic_reload_enabled": True,
             "customer_trust_scores": {"ai_credits": 10},
+            "ai_start_day": "2026-12-01",
+            "ai_end_day": None,
         }
 
     def test_the_entry_carries_the_organization_and_its_settings(self):
@@ -64,10 +69,13 @@ class TestLLMGatewayOrgEntry(BaseTest):
             "version": 1,
             "team_id": self.team.id,
             "organization_id": str(self.organization.id),
+            "settings_version": None,
             "billing_period": None,
-            "ai_low_balance_threshold_usd": None,
+            "ai_low_balance_threshold_micros": None,
             "ai_automatic_reload_enabled": False,
             "customer_trust_scores": {},
+            "ai_start_day": None,
+            "ai_end_day": None,
         }
 
     def test_an_organization_update_rewrites_every_team(self):

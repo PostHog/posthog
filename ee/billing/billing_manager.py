@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from enum import Enum, StrEnum
 from http.cookiejar import DefaultCookiePolicy
-from typing import Any, Literal, Optional, cast
+from typing import Any, Literal, Optional, TypeGuard, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -140,6 +140,48 @@ AI_CREDIT_SETTING_KEYS: tuple[Literal["ai_low_balance_threshold_usd"], ...] = ("
 
 # Present, and true, only while automatic reload is on.
 AI_AUTOMATIC_RELOAD_KEY: Literal["ai_automatic_reload_enabled"] = "ai_automatic_reload_enabled"
+
+
+AI_SETTINGS_VERSION_KEY: Literal["ai_settings_version"] = "ai_settings_version"
+
+
+# The UTC days, such as "2026-12-01", from which and up to which the AI gateway decides AI usage.
+AI_DAY_KEYS: tuple[Literal["ai_start_day", "ai_end_day"], ...] = ("ai_start_day", "ai_end_day")
+
+
+def _is_integer(value: object) -> TypeGuard[int]:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _held_ai_settings_version(organization: Organization) -> int | None:
+    version = (organization.usage or {}).get(AI_SETTINGS_VERSION_KEY)
+    return version if _is_integer(version) else None
+
+
+def _ai_settings_status(organization: Organization, data: Mapping[str, object]) -> Mapping[str, object]:
+    """The status whose AI credit values PostHog keeps, or nothing, so that PostHog keeps what it holds.
+
+    PostHog keeps the AI credit values of a status only when its settings version is higher than the one
+    PostHog holds. The queue doesn't keep billing's statuses in order, so an older status can arrive after a
+    newer one. A status without a version keeps what PostHog holds.
+    """
+    version = data.get(AI_SETTINGS_VERSION_KEY)
+    held = _held_ai_settings_version(organization)
+    if not _is_integer(version) or (held is not None and version <= held):
+        return {}
+    return data
+
+
+def _ai_settings_version(organization: Organization, ai_status: Mapping[str, object]) -> int | None:
+    version = ai_status.get(AI_SETTINGS_VERSION_KEY)
+    return version if _is_integer(version) else _held_ai_settings_version(organization)
+
+
+def _ai_day(organization: Organization, data: Mapping[str, object], key: str) -> str | None:
+    if key not in data:
+        return (organization.usage or {}).get(key)
+    value = data[key]
+    return value if isinstance(value, str) else None
 
 
 def _ai_credit_setting(organization: Organization, data: Mapping[str, object], key: str) -> str | None:
@@ -883,10 +925,16 @@ class BillingManager:
                     data["billing_period"]["current_period_end"],
                 ],
             )
+            ai_status = _ai_settings_status(organization, data)
+            if (ai_settings_version := _ai_settings_version(organization, ai_status)) is not None:
+                usage_info[AI_SETTINGS_VERSION_KEY] = ai_settings_version
             for setting_key in AI_CREDIT_SETTING_KEYS:
-                if (setting := _ai_credit_setting(organization, data, setting_key)) is not None:
+                if (setting := _ai_credit_setting(organization, ai_status, setting_key)) is not None:
                     usage_info[setting_key] = setting
-            if _ai_automatic_reload_enabled(organization, data):
+            for day_key in AI_DAY_KEYS:
+                if (day := _ai_day(organization, ai_status, day_key)) is not None:
+                    usage_info[day_key] = day
+            if _ai_automatic_reload_enabled(organization, ai_status):
                 usage_info[AI_AUTOMATIC_RELOAD_KEY] = True
 
             had_quota_limiting_markers = _has_quota_limiting_markers(organization.usage)

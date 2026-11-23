@@ -8,25 +8,32 @@ Shape:
             "version": 1,
             "team_id": 123,
             "organization_id": "0190...",
+            "settings_version": 42 | null,
             "billing_period": {"start": "2026-10-01T00:00:00Z", "end": "2026-11-01T00:00:00Z"} | null,
-            "ai_low_balance_threshold_usd": "5.00" | null,
+            "ai_low_balance_threshold_micros": 5000000 | null,
             "ai_automatic_reload_enabled": true | false,
-            "customer_trust_scores": {"ai_credits": 10}
+            "customer_trust_scores": {"ai_credits": 10},
+            "ai_start_day": "2026-12-01" | null,
+            "ai_end_day": "2027-01-01" | null
         }
 
-Every team of an organization carries the same organization values. Admission reads the billed team's
-entry, so one read gives the gateway the organization and its settings. The values come from billing's
-status, which `BillingManager.update_org_details` keeps on the organization. A change there rewrites
-every team of the organization, a new team gets its entry when PostHog creates it, and the hourly
-refresh rewrites entries before they expire. A project moved to another organization gets its new
-organization's entry when PostHog saves the move.
+`version` is the entry's schema. The entry isn't signed. Every team of an organization carries the same
+organization values. Admission reads the billed team's entry, so one read gives the gateway the organization
+and its settings. The values come from billing's status, which `BillingManager.update_org_details` keeps on the
+organization. PostHog keeps a status's AI credit values only when its settings version is higher than the one
+PostHog holds. `settings_version` names the values in the entry. The threshold comes from billing's dollars, in
+whole micro-dollars. A change there rewrites every team of the organization. A new team gets its entry when
+PostHog creates it, and the hourly refresh rewrites entries before they expire. A project moved to another
+organization gets its new organization's entry when PostHog saves the move.
 
-The gateway asks PostHog's reload route once when the balance drops below the threshold, and PostHog calls
-billing. The gateway closes that request when PostHog relays billing's `ai_reload_outcome`. When
-`ai_automatic_reload_enabled` turns on, it asks again.
+The gateway decides the AI usage of the calls it admits from 00:00 UTC on `ai_start_day` up to 00:00 UTC on
+`ai_end_day`. Each debit records the entry's `settings_version`. At the threshold the gateway posts a signed
+reload request to PostHog's reload route, and PostHog passes it to billing. Billing's signed
+`ai_reload_outcome` comes back on its queue, and PostHog relays it to the gateway.
 """
 
 import os
+from decimal import Decimal
 from typing import Any
 
 from django.conf import settings
@@ -55,6 +62,7 @@ LLM_GATEWAY_ORG_CACHE_MISS_TTL = int(os.environ.get("LLM_GATEWAY_ORG_CACHE_MISS_
 LLM_GATEWAY_ORG_CACHE_EXPIRY_SORTED_SET = "llm_gateway_org_cache_expiry"
 
 LLM_GATEWAY_ORG_FIELDS = ("id", "usage", "customer_trust_scores")
+MICROS_PER_USD = 1_000_000
 
 
 def llm_gateway_org_values(organization: Organization) -> dict[str, Any]:
@@ -63,11 +71,18 @@ def llm_gateway_org_values(organization: Organization) -> dict[str, Any]:
     period = usage.get("period")
     return {
         "organization_id": str(organization.id),
+        "settings_version": usage.get("ai_settings_version"),
         "billing_period": {"start": period[0], "end": period[1]} if period and len(period) == 2 else None,
-        "ai_low_balance_threshold_usd": usage.get("ai_low_balance_threshold_usd"),
+        "ai_low_balance_threshold_micros": _micros(usage.get("ai_low_balance_threshold_usd")),
         "ai_automatic_reload_enabled": usage.get("ai_automatic_reload_enabled") is True,
         "customer_trust_scores": organization.customer_trust_scores or {},
+        "ai_start_day": usage.get("ai_start_day"),
+        "ai_end_day": usage.get("ai_end_day"),
     }
+
+
+def _micros(usd: str | None) -> int | None:
+    return None if usd is None else int(Decimal(usd) * MICROS_PER_USD)
 
 
 def _entry(team_id: int, organization: Organization) -> dict[str, Any]:

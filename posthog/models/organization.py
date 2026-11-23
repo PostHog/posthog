@@ -79,9 +79,13 @@ class OrganizationUsageInfo(TypedDict):
     period: list[str] | None
     billing_status_computed_at: NotRequired[str]
     billing_latest_usage_report_date: NotRequired[str | None]
-    # Billing's AI credit settings in USD, such as "250.00". The AI gateway reads them from llm_gateway_org.json.
+    # Billing's AI credit settings, with amounts in USD such as "250.00", and the settings version that billing
+    # gave them. The AI gateway reads them from llm_gateway_org.json.
+    ai_settings_version: NotRequired[int]
     ai_low_balance_threshold_usd: NotRequired[str | None]
     ai_automatic_reload_enabled: NotRequired[bool]
+    ai_start_day: NotRequired[str]
+    ai_end_day: NotRequired[str]
 
 
 @frozen
