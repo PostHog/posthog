@@ -58,6 +58,49 @@ def test_insert_with_http_client():
         sync_execute("DROP TABLE IF EXISTS _test_http_insert")
 
 
+@pytest.mark.django_db
+@pytest.mark.parametrize("use_http", [pytest.param(True, id="http"), pytest.param(False, id="native")])
+@pytest.mark.parametrize(
+    "data,expected",
+    [
+        pytest.param(
+            [
+                {"name": "events", "note": None, "count": 3, "ratio": None, "flag": True},
+                {"name": 'it\'s "quoted"\n', "note": "ünïcødé ✓", "count": -1, "ratio": 0.5, "flag": False},
+            ],
+            [("events", None, 3, None, 1), ('it\'s "quoted"\n', "ünïcødé ✓", -1, 0.5, 0)],
+            id="mixed-values",
+        ),
+        pytest.param([], [], id="empty-table"),
+    ],
+)
+def test_sync_execute_sends_external_tables_on_either_transport(settings, use_http, data, expected):
+    settings.CLICKHOUSE_USE_HTTP = use_http
+    external_tables = [
+        {
+            "name": "_test_external",
+            "structure": [
+                ("name", "String"),
+                ("note", "Nullable(String)"),
+                ("count", "Int64"),
+                ("ratio", "Nullable(Float64)"),
+                ("flag", "UInt8"),
+            ],
+            "data": data,
+        },
+        {"name": "_test_external_other", "structure": [("id", "Int64")], "data": [{"id": 7}]},
+    ]
+
+    rows = sync_execute(
+        "SELECT name, note, count, ratio, flag FROM _test_external ORDER BY count DESC",
+        external_tables=external_tables,
+    )
+    other = sync_execute("SELECT id FROM _test_external_other", external_tables=external_tables)
+
+    assert [tuple(row) for row in rows] == expected
+    assert [tuple(row) for row in other] == [(7,)]
+
+
 def test_connection_pool_creation_without_offline_cluster(settings):
     settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST = None
 

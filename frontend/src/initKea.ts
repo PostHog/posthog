@@ -158,6 +158,7 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     // The trace view's Summary mode shows the error
     loadSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
     requestSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
+    loadDistributedTraceId: 'products.ai_observability.frontend.redesign.trace.traceDistributedTraceLogic', // The trace header shows no link when the read fails
     loadTracePullRequest: 'products.ai_observability.frontend.redesign.trace.traceGitPullRequestLogic', // The trace view's git chip stays plain when the read fails
     loadTracesPage: 'products.ai_observability.frontend.redesign.traces.tracesListLogic', // The traces list shows the error, or toasts its own when rows stay on screen
     loadTraceStepItem: 'scenes.ai-observability.saveToDatasetButtonLogic', // The add to dataset dropdown shows the error with a retry
@@ -240,9 +241,9 @@ const FIELD_ERROR_SELF_HANDLED: Record<string, Set<string>> = {
 const HAS_DEPENDENTS_SELF_HANDLED = new Set(['deleteDataWarehouseSavedQuery'])
 
 /*
-Write actions whose owning logic toasts the server message of a validation 400. The 400 is a
-response to user input, such as a malformed CSV, so it is not reported as an exception.
-Every other failure on these actions still toasts and reports.
+Actions whose owning logic shows the server message of a validation 400, in a toast or inline. The
+400 is a response to user input, such as a malformed CSV, so it is not reported as an exception.
+Every other failure on these actions goes through the generic handling below.
 */
 const VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     updateTable: 'products.dataWarehouse.selfManagedSourceLogic',
@@ -252,6 +253,9 @@ const VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     updateProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
     loadMatrix: 'products.customer_analytics.accountDotMatrixTileLogic', // Shows SQL mistakes in the tile, so only 5xx are reported
     startImport: 'products.workflows.providerImportLogic', // Shows the refusal inside the import window
+    // The evaluation preview shows why the server rejected the sampling, Hog code or judge setting
+    loadSamples: 'products.ai_observability.frontend.evaluations.evaluationPreviewLogic',
+    testRows: 'products.ai_observability.frontend.evaluations.evaluationPreviewLogic',
 }
 
 /*

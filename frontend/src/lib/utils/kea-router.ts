@@ -166,8 +166,9 @@ const REDIRECT_TO_PROJECT_ROOT_PATHS = ['products', 'onboarding']
 export function getProjectSwitchTargetUrl(
     currentPath: string,
     newTeamId: number,
-    currentProjectId?: number | null,
-    newProjectId?: number | null
+    currentProjectId: number | null | undefined,
+    newProjectId: number | null | undefined,
+    sectionTabPaths: ReadonlySet<string>
 ): string {
     // Remove project ID and flag ID from the path
     let route = removeProjectIdIfPresent(currentPath)
@@ -192,6 +193,15 @@ export function getProjectSwitchTargetUrl(
         // If switching between teams in the same project, keep the resource ID
         if (currentProjectId && newProjectId && currentProjectId === newProjectId) {
             return `/project/${newTeamId}${route}`
+        }
+        // A section tab has no ID in it, so it exists in every project. Keep the longest one, so
+        // /data-management/sources is kept and does not fall back to the section root, which
+        // redirects to that section's default tab.
+        for (let length = pathParts.length; length > 2; length--) {
+            const prefix = pathParts.slice(0, length).join('/')
+            if (sectionTabPaths.has(prefix)) {
+                return `/project/${newTeamId}${prefix}`
+            }
         }
         // Otherwise, go to the parent resource
         return `/project/${newTeamId}/${pathParts[1]}`

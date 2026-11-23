@@ -36,6 +36,7 @@ const TODAY_TOUR_STEPS: TodayTourStep[] = [
     introStep('people', 'People'),
     introStep('release', 'Release'),
     introStep('monitor', 'Monitor'),
+    introStep('data', 'Data'),
     {
         kind: 'pane',
         pane: 'products',

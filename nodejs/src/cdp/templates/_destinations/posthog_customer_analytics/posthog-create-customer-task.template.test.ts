@@ -38,6 +38,7 @@ describe('posthog create customer task template', () => {
             account_id: '0198c9f1-0000-0000-0000-000000000002',
             assigned_to_id: '42',
             due_at: '2030-01-15T17:00:00Z',
+            tags: ['renewal', 'urgent'],
         },
         { name: 'Follow up', description: '', account_id: '', due_at: '' },
     ])('calls the trusted internal API with task fields and workflow claims: %j', async (inputs) => {

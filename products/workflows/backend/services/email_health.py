@@ -1,26 +1,30 @@
-"""The email reputation page: sending rates, the AWS SES tenant verdict, the per-ISP breakdown and
-the sending allowance."""
+"""The email reputation page: sending rates, the AWS SES tenant verdict, the per-ISP breakdown, the
+sending allowance and the shared infrastructure's health."""
 
 import hashlib
 from collections.abc import Collection, Mapping
 from datetime import datetime, timedelta
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from typing import Any
 
 from django.core.cache import cache
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 
 from posthog.api.app_metrics2 import fetch_app_metric_totals_by_source, fetch_app_metric_totals_by_team_and_source
 from posthog.integrations import CrossTeamFilter, IntegrationManager
+from posthog.models.team.team import Team
 
 from products.workflows.backend.facade.contracts import (
     EMAIL_HEALTH_METRIC_NAMES,
+    EmailInfrastructureHealth,
     EmailSendingAllowance,
     FlowEmailTotals,
 )
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
-from products.workflows.backend.providers.ses import SESProvider
+from products.workflows.backend.providers.ses import IspSendingMetrics, SESProvider
 from products.workflows.backend.services.email_sending_attribution import fold_email_totals_by_flow
 from products.workflows.backend.utils.batch_trigger_limit import resolve_batch_audience_limit
 from products.workflows.backend.utils.email_sending_tiers import max_email_sending_tier, resolve_team_email_sending_tier
@@ -209,6 +213,86 @@ def fetch_isp_metrics(team_id: int, window_days: int, domains: list[str]) -> lis
     ]
     cache.set(cache_key, {"value": value}, ISP_METRICS_CACHE_SECONDS)
     return value
+
+
+INFRASTRUCTURE_HEALTH_FLAG = "workflows-email-infrastructure-health"
+
+
+def email_infrastructure_health_enabled(team: Team) -> bool:
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                INFRASTRUCTURE_HEALTH_FLAG,
+                str(team.uuid),
+                groups={"organization": str(team.organization_id), "project": str(team.id)},
+                group_properties={
+                    "organization": {"id": str(team.organization_id)},
+                    "project": {"id": str(team.id)},
+                },
+                send_feature_flag_events=False,
+                # The reputation request must not wait on a remote flag call.
+                only_evaluate_locally=True,
+            )
+        )
+    except Exception:
+        return False
+
+
+# VDM counts whole days, so the numbers move once a day; refreshing every few hours is plenty.
+INFRASTRUCTURE_HEALTH_CACHE_SECONDS = 6 * 60 * 60
+INFRASTRUCTURE_HEALTH_ERROR_CACHE_SECONDS = 60
+INFRASTRUCTURE_HEALTH_REFRESH_LOCK_SECONDS = 30
+
+
+def fetch_email_infrastructure_health(window_days: int) -> EmailInfrastructureHealth | None:
+    """
+    Delivery health across every project sending through this region's SES account, shown to every
+    project so its members can judge the shared infrastructure, not just their own sending. One key
+    serves every project, and a cold key admits one SES call rather than one per request.
+    """
+    cache_key = f"workflows_ses_infrastructure_health_v1_{window_days}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached["value"]
+    if not cache.add(f"{cache_key}_refreshing", True, INFRASTRUCTURE_HEALTH_REFRESH_LOCK_SECONDS):
+        return None
+
+    try:
+        metrics = SESProvider().get_account_sending_metrics(window_days)
+    except Exception:
+        logger.exception("Failed to fetch SES account sending metrics")
+        cache.set(cache_key, {"value": None}, INFRASTRUCTURE_HEALTH_ERROR_CACHE_SECONDS)
+        return None
+
+    value = _rounded_infrastructure_health(metrics) if metrics is not None else None
+    # SES reports a failed query as a missing rate rather than an exception, so retry it soon.
+    lifetime = INFRASTRUCTURE_HEALTH_CACHE_SECONDS if value is not None else INFRASTRUCTURE_HEALTH_ERROR_CACHE_SECONDS
+    cache.set(cache_key, {"value": value}, lifetime)
+    return value
+
+
+def _rounded_infrastructure_health(metrics: IspSendingMetrics) -> EmailInfrastructureHealth | None:
+    """
+    The exact send volume stays private, so it is cut to a lower bound. Each rate rounds towards
+    the worse reading, so rounding never flatters the infrastructure.
+    """
+    if metrics.delivery_rate is None or metrics.bounce_rate is None or metrics.complaint_rate is None:
+        return None
+    return EmailInfrastructureHealth(
+        emails_sent_at_least=_floor_to_one_significant_figure(metrics.emails_sent),
+        delivery_rate=_round_rate(metrics.delivery_rate, "0.001", ROUND_FLOOR),
+        bounce_rate=_round_rate(metrics.bounce_rate, "0.0001", ROUND_CEILING),
+        complaint_rate=_round_rate(metrics.complaint_rate, "0.0001", ROUND_CEILING),
+    )
+
+
+def _floor_to_one_significant_figure(count: int) -> int:
+    magnitude = 10 ** (len(str(count)) - 1)
+    return count // magnitude * magnitude
+
+
+def _round_rate(rate: float, step: str, rounding: str) -> float:
+    return float(Decimal(str(rate)).quantize(Decimal(step), rounding=rounding))
 
 
 def verified_email_domains(*, team_id: int) -> list[str]:

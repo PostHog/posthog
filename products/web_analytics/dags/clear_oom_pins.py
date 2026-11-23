@@ -57,7 +57,7 @@ def clear_precompute_oom_pins_op(context: dagster.OpExecutionContext, config: Cl
         "dry run that lists pinned teams; set `team_id` to clear one pin or "
         "`clear_all: true` to clear every pin."
     ),
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_ANALYTICS.value},
 )
 def web_analytics_clear_precompute_oom_pins_job() -> None:
     clear_precompute_oom_pins_op()
