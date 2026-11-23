@@ -232,7 +232,7 @@ BUILDKITE_ENDPOINTS: dict[str, BuildkiteEndpointConfig] = {
         incremental_fields=[],
         should_sync_default=False,
         description=(
-            "Needs the Enterprise plan and the read_audit_events scope. "
+            "Needs the Enterprise plan, an organization administrator's token and the read_audit_events scope. "
             "Disabled by default because other plans can't read it"
         ),
     ),

@@ -1,4 +1,5 @@
-from datetime import UTC, date, datetime
+from collections.abc import Callable
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional, cast
 
 from dateutil.relativedelta import relativedelta
@@ -19,6 +20,7 @@ from products.warehouse_sources.sources.sdk import (
     coerce_date,
     frozen,
     make_tracked_session,
+    parse_datetime_or_epoch,
     rename_parent_fields,
     rest_api_resources,
     validate_via_probe,
@@ -48,6 +50,12 @@ ENVELOPE_ENDPOINTS = ("jobs", "audit_events")
 
 # Buildkite only serves usage from today minus three calendar months on.
 USAGE_LOOKBACK = relativedelta(months=3)
+
+# Test Engine keeps adding results to a build until it finishes, so an incremental sync of these
+# children also walks back over builds created this long before the watermark. Of those, it
+# fetches again only the builds that were not finished at the watermark.
+UNFINISHED_BUILD_RESCAN_ENDPOINTS = ("build_tests",)
+UNFINISHED_BUILD_RESCAN = timedelta(days=1)
 
 # Without `scope=all` the annotations listing returns only build-scoped annotations and drops the
 # job-scoped ones.
@@ -202,10 +210,16 @@ def _list_endpoint_resource(endpoint: str, organization: str, params: dict[str, 
     return {"name": endpoint, "endpoint": endpoint_config}
 
 
+@frozen
+class UsageWindow:
+    start: date
+    end: date
+
+
 class BuildkiteUsagePaginator(BasePaginator):
     """Requests the usage summary once per calendar month window."""
 
-    def __init__(self, windows: list[tuple[date, date]]) -> None:
+    def __init__(self, windows: list[UsageWindow]) -> None:
         super().__init__()
         self.windows = windows
         self.index = 0
@@ -221,22 +235,23 @@ class BuildkiteUsagePaginator(BasePaginator):
     def update_request(self, request: Request) -> None:
         if self.index >= len(self.windows):
             return
-        window_from, window_to = self.windows[self.index]
+        window = self.windows[self.index]
         if request.params is None:
             request.params = {}
-        request.params["from"] = window_from.isoformat()
-        request.params["to"] = window_to.isoformat()
+        request.params["from"] = window.start.isoformat()
+        request.params["to"] = window.end.isoformat()
 
 
 def _today() -> date:
     return datetime.now(UTC).date()
 
 
-def _usage_windows(today: date, last_value: Any = None) -> list[tuple[date, date]]:
-    """Whole calendar months the API still serves, from the watermark's month to the current one.
+def _usage_windows(today: date, last_value: Any = None) -> list[UsageWindow]:
+    """Whole calendar months the API still serves, from the month before the watermark's on.
 
     A month the lookback limit cuts in half is left out, because its row would cover only part of
-    the month and key on a date other than the month start.
+    the month and key on a date other than the month start. The month before the watermark's is
+    read again, because the first sync after a month ends can see a cached or incomplete total.
     """
     earliest = today - USAGE_LOOKBACK
     month = earliest.replace(day=1)
@@ -245,12 +260,12 @@ def _usage_windows(today: date, last_value: Any = None) -> list[tuple[date, date
 
     watermark = coerce_date(last_value)
     if watermark is not None:
-        month = max(month, watermark.replace(day=1))
+        month = max(month, watermark.replace(day=1) - relativedelta(months=1))
 
-    windows: list[tuple[date, date]] = []
+    windows: list[UsageWindow] = []
     while month <= today:
         month_end = month + relativedelta(months=1, days=-1)
-        windows.append((month, min(month_end, today)))
+        windows.append(UsageWindow(start=month, end=min(month_end, today)))
         month += relativedelta(months=1)
     return windows
 
@@ -263,7 +278,7 @@ def _flatten_reporting_period(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
-def _usage_resource(organization: str, windows: list[tuple[date, date]]) -> EndpointResource:
+def _usage_resource(organization: str, windows: list[UsageWindow]) -> EndpointResource:
     return {
         "name": "organization_usage",
         "endpoint": {
@@ -345,12 +360,31 @@ def _flatten_pipeline_slug(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
-def _builds_parent_resource(organization: str, created_from: str | None) -> EndpointResource:
-    params: dict[str, Any] = {"per_page": PAGE_SIZE}
+def _skip_builds_finished_before(watermark: datetime) -> Callable[[dict[str, Any]], list[dict[str, Any]]]:
+    # A build created before the watermark is in the window only because of the rescan. Its
+    # children are complete if it had finished by then, so only an unfinished build is fetched again.
+    def keep(row: dict[str, Any]) -> list[dict[str, Any]]:
+        row = _flatten_pipeline_slug(row)
+        created_at = parse_datetime_or_epoch(row.get("created_at"))
+        finished_at = parse_datetime_or_epoch(row.get("finished_at"))
+        if created_at is not None and created_at < watermark and finished_at is not None and finished_at < watermark:
+            return []
+        return [row]
+
+    return keep
+
+
+def _builds_parent_resource(
+    organization: str, created_from: str | None, rescan_watermark: datetime | None = None
+) -> EndpointResource:
+    # The children read only the build metadata, so the embedded jobs are left out of the listing.
+    params: dict[str, Any] = {"per_page": PAGE_SIZE, "exclude_jobs": "true"}
     if created_from is not None:
         params["created_from"] = created_from
     resource = _list_endpoint_resource("builds", organization, params)
-    resource["data_map"] = _flatten_pipeline_slug
+    resource["data_map"] = (
+        _flatten_pipeline_slug if rescan_watermark is None else _skip_builds_finished_before(rescan_watermark)
+    )
     return resource
 
 
@@ -499,8 +533,15 @@ def buildkite_source(
         ]
     elif endpoint in BUILD_CHILD_ENDPOINTS:
         created_from = _build_created_from(should_use_incremental_field, db_incremental_field_last_value)
+        rescan_watermark = (
+            parse_datetime_or_epoch(db_incremental_field_last_value)
+            if created_from is not None and endpoint in UNFINISHED_BUILD_RESCAN_ENDPOINTS
+            else None
+        )
+        if rescan_watermark is not None:
+            created_from = _format_incremental_value(rescan_watermark - UNFINISHED_BUILD_RESCAN)
         resources = [
-            _builds_parent_resource(organization, created_from),
+            _builds_parent_resource(organization, created_from, rescan_watermark),
             _build_child_resource(endpoint, organization),
         ]
         # Resume is deliberately off here: the framework rewrites the full set of completed child

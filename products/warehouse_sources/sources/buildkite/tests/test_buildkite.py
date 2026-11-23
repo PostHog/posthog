@@ -342,21 +342,43 @@ class TestJobsFanout:
         assert result.raised is None
         assert result.requests[0].param("created_from") == "2026-03-04T02:58:14+00:00"
         assert result.requests[0].param("per_page") == "100"
+        assert result.requests[0].param("exclude_jobs") == "true"
         assert result.requests[1].param("created_from") is None
+
+
+def _build(build_id: str, created_at: str, finished_at: str | None) -> dict[str, Any]:
+    return {
+        "id": build_id,
+        "number": 1,
+        "pipeline": {"slug": "web"},
+        "created_at": created_at,
+        "finished_at": finished_at,
+    }
 
 
 class TestBuildChildFanout:
     @parameterized.expand(
         [
-            ("artifacts", f"{ORG_URL}/pipelines/web/builds/42/artifacts", {}),
+            ("artifacts", f"{ORG_URL}/pipelines/web/builds/42/artifacts", {}, "2026-03-04T02:58:14+00:00"),
             # Without scope=all the listing drops every job-scoped annotation.
-            ("annotations", f"{ORG_URL}/pipelines/web/builds/42/annotations", {"scope": ("all",)}),
-            # Test Engine addresses a build by its id, not by pipeline and number.
-            ("build_tests", "https://api.buildkite.com/v2/analytics/organizations/my-org/builds/b1/tests", {}),
+            (
+                "annotations",
+                f"{ORG_URL}/pipelines/web/builds/42/annotations",
+                {"scope": ("all",)},
+                "2026-03-04T02:58:14+00:00",
+            ),
+            # Test Engine addresses a build by its id, not by pipeline and number, and its window
+            # starts a day early to revisit unfinished builds.
+            (
+                "build_tests",
+                "https://api.buildkite.com/v2/analytics/organizations/my-org/builds/b1/tests",
+                {},
+                "2026-03-03T02:58:14+00:00",
+            ),
         ]
     )
     def test_walks_every_page_of_each_build_inside_the_incremental_window(
-        self, endpoint: str, child_base: str, extra_query: dict[str, tuple[str, ...]]
+        self, endpoint: str, child_base: str, extra_query: dict[str, tuple[str, ...]], created_from: str
     ) -> None:
         page2 = f"{child_base}?page=2&per_page=100"
         result = _driver().run(
@@ -375,7 +397,7 @@ class TestBuildChildFanout:
         )
 
         assert result.raised is None
-        assert result.requests[0].param("created_from") == "2026-03-04T02:58:14+00:00"
+        assert result.requests[0].param("created_from") == created_from
         assert result.urls[1].split("?")[0] == child_base
         assert result.queries[1] == {"per_page": ("100",), **extra_query}
         assert result.urls[2] == page2
@@ -386,6 +408,35 @@ class TestBuildChildFanout:
         ] == [
             ("x1", "b1", 42, "web", "2026-03-04T02:58:14Z"),
             ("x2", "b1", 42, "web", "2026-03-04T02:58:14Z"),
+        ]
+
+    def test_build_tests_revisits_only_builds_unfinished_at_the_watermark(self) -> None:
+        result = _driver().run(
+            "build_tests",
+            [
+                _response(
+                    [
+                        _build("new", "2026-03-04T03:00:00Z", None),
+                        _build("running", "2026-03-04T01:00:00Z", None),
+                        _build("finished_later", "2026-03-04T01:00:00Z", "2026-03-04T04:00:00Z"),
+                        _build("finished_before", "2026-03-04T01:00:00Z", "2026-03-04T02:00:00Z"),
+                    ]
+                ),
+                _response([{"id": "t1"}]),
+                _response([{"id": "t2"}]),
+                _response([{"id": "t3"}]),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-03-04T02:58:14Z",
+            incremental_field="build_created_at",
+        )
+
+        assert result.raised is None
+        assert [url.split("?")[0].split("/")[-2] for url in result.urls[1:]] == ["new", "running", "finished_later"]
+        assert [(row["id"], row["build_id"]) for row in result.rows] == [
+            ("t1", "new"),
+            ("t2", "running"),
+            ("t3", "finished_later"),
         ]
 
 
@@ -443,16 +494,21 @@ class TestUsageWindows:
                 ],
             ),
             (
-                "watermark_restarts_at_its_month",
+                "watermark_rereads_the_month_before_its_own",
                 date(2026, 11, 21),
                 "2026-10-01",
-                [(date(2026, 10, 1), date(2026, 10, 31)), (date(2026, 11, 1), date(2026, 11, 21))],
+                [
+                    (date(2026, 9, 1), date(2026, 9, 30)),
+                    (date(2026, 10, 1), date(2026, 10, 31)),
+                    (date(2026, 11, 1), date(2026, 11, 21)),
+                ],
             ),
             (
-                "watermark_as_date",
-                date(2026, 11, 21),
+                # The sync after the first one of a new month still refreshes the closed month.
+                "second_sync_after_month_rollover",
+                date(2026, 11, 2),
                 date(2026, 11, 1),
-                [(date(2026, 11, 1), date(2026, 11, 21))],
+                [(date(2026, 10, 1), date(2026, 10, 31)), (date(2026, 11, 1), date(2026, 11, 2))],
             ),
             (
                 "watermark_older_than_the_lookback",
@@ -467,7 +523,7 @@ class TestUsageWindows:
         ]
     )
     def test_usage_windows(self, _name: str, today: date, last_value: Any, expected: list[tuple[date, date]]) -> None:
-        assert _usage_windows(today, last_value) == expected
+        assert [(window.start, window.end) for window in _usage_windows(today, last_value)] == expected
 
 
 class TestOrganizationUsage:
@@ -483,7 +539,7 @@ class TestOrganizationUsage:
                 None,
                 [("2026-09-01", "2026-09-30"), ("2026-10-01", "2026-10-31"), ("2026-11-01", "2026-11-21")],
             ),
-            ("incremental", True, "2026-10-01", [("2026-10-01", "2026-10-31"), ("2026-11-01", "2026-11-21")]),
+            ("incremental", True, "2026-11-01", [("2026-10-01", "2026-10-31"), ("2026-11-01", "2026-11-21")]),
         ]
     )
     @mock.patch("products.warehouse_sources.sources.buildkite.buildkite._today", return_value=date(2026, 11, 21))

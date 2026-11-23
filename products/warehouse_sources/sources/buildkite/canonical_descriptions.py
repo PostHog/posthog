@@ -333,7 +333,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "audit_events": {
-        "description": "A record of an activity in the organization, such as a setting change. Enterprise plan only.",
+        "description": "A record of an activity in the organization, such as a setting change. Enterprise plan only, and only organization administrators can read it.",
         "docs_url": "https://buildkite.com/docs/apis/rest-api/organizations/audit-events",
         "columns": {
             "uuid": "Unique identifier for the audit event.",
