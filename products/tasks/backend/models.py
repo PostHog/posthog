@@ -187,8 +187,22 @@ def stamp_pending_user_message_id(state: dict[str, Any], *, refresh: bool = Fals
     state["pending_user_message_id"] = str(uuid.uuid4())
 
 
+def _parse_entry_timestamp(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else None
+
+
 PENDING_FOLLOWUP_MESSAGES_STATE_KEY = "pending_followup_messages"
 MAX_PENDING_FOLLOWUP_MESSAGES = 20
+MEMORY_READ_METHOD = "_posthog/memory_read"
+MAX_MEMORY_READ_FIELD_CHARS = 200
+MAX_MEMORY_READS_PER_APPEND = 50
+MAX_MEMORY_READ_CLOCK_SKEW = timedelta(minutes=5)
 MAX_PENDING_FOLLOWUP_CONTENT_CHARS = 10_000
 MAX_PENDING_FOLLOWUP_MESSAGE_ID_CHARS = 128
 
@@ -3382,6 +3396,7 @@ class TaskRun(models.Model):
         *,
         lock_attempts: int = 3,
         batch_id: str | None = None,
+        sent_by_run_sandbox: bool = False,
     ):
         """Append log entries to S3 storage.
 
@@ -3395,6 +3410,7 @@ class TaskRun(models.Model):
         append_jsonl_object(self.log_url, entries, lock_attempts=lock_attempts, batch_id=batch_id)
 
         self._mirror_logs_to_posthog_logs(entries)
+        self._capture_memory_reads(entries, sent_by_run_sandbox)
 
     @property
     def has_pending_followup_messages(self) -> bool:
@@ -3445,6 +3461,50 @@ class TaskRun(models.Model):
                 state.pop(PENDING_FOLLOWUP_MESSAGES_STATE_KEY, None)
 
         self.state = TaskRun.mutate_state_atomic(self.id, _mutator)
+
+    def _capture_memory_reads(self, entries: list[dict], sent_by_run_sandbox: bool) -> None:
+        if not sent_by_run_sandbox:
+            return
+        try:
+            latest_timestamp = django_timezone.now() + MAX_MEMORY_READ_CLOCK_SKEW
+            reads: dict[tuple[str, str, str], tuple[dict[str, Any], datetime | None]] = {}
+            for entry in entries:
+                notification = entry.get("notification")
+                if not isinstance(notification, dict) or notification.get("method") != MEMORY_READ_METHOD:
+                    continue
+                params = notification.get("params")
+                if not isinstance(params, dict):
+                    continue
+                slug, file, tool, tool_call_id = (params.get(key) for key in ("slug", "file", "tool", "toolCallId"))
+                if not (
+                    isinstance(slug, str)
+                    and isinstance(file, str)
+                    and isinstance(tool, str)
+                    and isinstance(tool_call_id, str)
+                ):
+                    continue
+                agent_id = params.get("agentId")
+                properties = {
+                    "slug": slug[:MAX_MEMORY_READ_FIELD_CHARS],
+                    "file": file[:MAX_MEMORY_READ_FIELD_CHARS],
+                    "tool": tool[:MAX_MEMORY_READ_FIELD_CHARS],
+                    "agent_id": agent_id[:MAX_MEMORY_READ_FIELD_CHARS] if isinstance(agent_id, str) else None,
+                }
+                timestamp = _parse_entry_timestamp(entry.get("timestamp"))
+                if timestamp is not None and not self.created_at <= timestamp <= latest_timestamp:
+                    timestamp = None
+                reads.setdefault((tool_call_id, slug, file), (properties, timestamp))
+                if len(reads) >= MAX_MEMORY_READS_PER_APPEND:
+                    break
+            for (tool_call_id, slug, file), (properties, timestamp) in reads.items():
+                self.capture_event(
+                    "agent_memory_read",
+                    properties,
+                    event_uuid=str(uuid.uuid5(self.id, f"{tool_call_id}:{slug}:{file}")),
+                    timestamp=timestamp,
+                )
+        except Exception as e:
+            logger.warning("task_run.capture_memory_reads_failed", task_run_id=str(self.id), error=str(e))
 
     def _mirror_logs_to_posthog_logs(self, entries: list[dict]) -> None:
         """Mirror persisted entries into the PostHog Logs product via stdout (dogfooding).
@@ -3607,6 +3667,7 @@ class TaskRun(models.Model):
         properties: dict | None = None,
         event_uuid: str | None = None,
         distinct_id_override: str | None = None,
+        timestamp: datetime | None = None,
     ) -> bool:
         """Capture an analytics event for this run. Returns False when it never reached capture.
 
@@ -3636,10 +3697,12 @@ class TaskRun(models.Model):
                 "event": event,
                 "properties": all_properties,
                 "groups": groups(team=self.team),
-                "send_feature_flags": event != "task_run_created",
+                "send_feature_flags": event not in {"task_run_created", "agent_memory_read"},
             }
             if event_uuid:
                 capture_kwargs["uuid"] = event_uuid
+            if timestamp:
+                capture_kwargs["timestamp"] = timestamp
             posthoganalytics.capture(**capture_kwargs)
         except Exception as e:
             logger.warning("task_run.capture_event_failed", analytics_event=event, error=str(e))
