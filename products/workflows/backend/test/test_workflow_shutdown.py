@@ -15,8 +15,13 @@ class TestMoveWorkflowToDraft(BaseTest):
             create_workflow_for_test(team_id=team.pk, status="active").id for team in (self.team, other_team)
         )
 
+        published: list[tuple[str, object]] = []
+
         with (
-            mock.patch("posthog.plugins.plugin_server_api.publish_message") as publish,
+            mock.patch(
+                "posthog.plugins.plugin_server_api.publish_message",
+                side_effect=lambda channel, payload: published.append((channel, payload)),
+            ),
             self.captureOnCommitCallbacks(execute=True),
         ):
             assert move_workflow_to_draft(mine, team_id=self.team.pk) is True
@@ -25,4 +30,4 @@ class TestMoveWorkflowToDraft(BaseTest):
 
         assert active_workflow_ids([self.team.pk, other_team.pk]) == [theirs]
         assert HogFlow.objects.get(id=mine).disabled_from_active is True
-        publish.assert_called_once_with("reload-hog-flows", {"teamId": self.team.pk, "hogFlowIds": [mine]})
+        assert published == [("reload-hog-flows", {"teamId": self.team.pk, "hogFlowIds": [mine]})]

@@ -14,6 +14,7 @@ from structlog.testing import capture_logs
 from posthog.admin.console.organization_shutdown import AUDIT_EVENT, PAUSE_NOTE, find_background_work
 from posthog.admin.console.organization_tools import BulkDeactivateOrganizationsForm
 from posthog.models import Organization, Team, User
+from posthog.test.temporal_schedules import RecordingTemporal
 
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.batch_exports.backend.facade.testing import create_batch_export
@@ -93,30 +94,8 @@ COMPLIANCE_REVIEW = Organization.DeactivationReason.COMPLIANCE_REVIEW.value
 SECURITY_VIOLATION = Organization.DeactivationReason.TERMS_OF_SERVICE_VIOLATION_SECURITY.value
 
 
-class FakeTemporal:
-    """Stands in for the Temporal client and records each schedule it was asked to pause."""
-
-    def __init__(self, failing: frozenset[str] = frozenset()) -> None:
-        self.paused: list[tuple[str, str | None]] = []
-        self.failing = failing
-
-    def get_schedule_handle(self, schedule_id: str) -> "FakeScheduleHandle":
-        return FakeScheduleHandle(self, schedule_id)
-
-
-class FakeScheduleHandle:
-    def __init__(self, temporal: FakeTemporal, schedule_id: str) -> None:
-        self.temporal = temporal
-        self.schedule_id = schedule_id
-
-    async def pause(self, note: str | None = None) -> None:
-        if self.schedule_id in self.temporal.failing:
-            raise RuntimeError("Temporal is unavailable")
-        self.temporal.paused.append((self.schedule_id, note))
-
-
 @contextmanager
-def temporal_boundary(temporal: FakeTemporal) -> Iterator[None]:
+def temporal_boundary(temporal: RecordingTemporal) -> Iterator[None]:
     with (
         patch("products.batch_exports.backend.logic.exports.sync_connect", return_value=temporal),
         patch("products.data_warehouse.backend.logic.data_load.service.sync_connect", return_value=temporal),
@@ -188,7 +167,7 @@ class TestBulkDeactivateOrganizationsTool(BaseTest):
         token = self._confirm_token(self._preview(organization_ids, reason, custom_reason, stop_background_work))
         return self.client.post(TOOL_URL, {"confirm_token": token})
 
-    def _shut_down(self, organization_ids: str, temporal: FakeTemporal) -> str:
+    def _shut_down(self, organization_ids: str, temporal: RecordingTemporal) -> str:
         token = self._confirm_token(self._preview(organization_ids, SECURITY_VIOLATION, stop_background_work=True))
         with temporal_boundary(temporal):
             response = self.client.post(TOOL_URL, {"confirm_token": token})
@@ -218,7 +197,7 @@ class TestBulkDeactivateOrganizationsTool(BaseTest):
         other_team = Team.objects.create(organization=other_organization, name="Legitimate team")
         start_background_work(other_team, self.user)
         other_running = running_work(other_team)
-        temporal = FakeTemporal()
+        temporal = RecordingTemporal()
 
         with capture_logs() as logs:
             result = self._shut_down(str(self.organization.id), temporal)
@@ -242,7 +221,9 @@ class TestBulkDeactivateOrganizationsTool(BaseTest):
     def test_a_failure_is_reported_and_the_rest_still_stop(self, _name: str, failing_kind: str) -> None:
         stopped = start_background_work(self.team, self.user)
         failing_id = stopped[failing_kind]
-        temporal = FakeTemporal(failing=frozenset({failing_id}) if failing_kind == "Batch exports" else frozenset())
+        temporal = RecordingTemporal(
+            failing=frozenset({failing_id}) if failing_kind == "Batch exports" else frozenset()
+        )
 
         listing_fails = (
             patch.object(subscriptions_facade, "enabled_subscription_ids", side_effect=RuntimeError("Database down"))
@@ -265,7 +246,7 @@ class TestBulkDeactivateOrganizationsTool(BaseTest):
         )
         start_background_work(self.team, self.user)
 
-        self._shut_down(str(self.organization.id), FakeTemporal())
+        self._shut_down(str(self.organization.id), RecordingTemporal())
 
         self.organization.refresh_from_db()
         assert self.organization.is_not_active_reason == COMPLIANCE_REVIEW
@@ -354,7 +335,7 @@ class TestShutDownOrganizationOperation(BaseTest):
         assert "Destinations: 1" in preview.content.decode()
         token = re.search(r'name="confirm_token" value="([^"]+)"', preview.content.decode())
         assert token is not None
-        temporal = FakeTemporal()
+        temporal = RecordingTemporal()
 
         with temporal_boundary(temporal):
             response = self.client.post(url, {"confirm_token": token.group(1)})

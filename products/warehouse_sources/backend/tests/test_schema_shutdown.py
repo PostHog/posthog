@@ -3,6 +3,7 @@ from posthog.test.base import BaseTest
 from unittest import mock
 
 from posthog.models import Team
+from posthog.test.temporal_schedules import RecordingTemporal
 
 from products.warehouse_sources.backend.facade.staff import stop_schema_syncing_for_staff, syncing_schema_ids_for_staff
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -26,27 +27,25 @@ class TestStopSchemaSyncing(BaseTest):
         ExternalDataJob.objects.create(
             team_id=self.team.pk, pipeline=schema.source, schema=schema, status=ExternalDataJob.Status.RUNNING
         )
-        temporal = mock.MagicMock()
-        temporal.get_schedule_handle.return_value.pause = mock.AsyncMock()
+        temporal = RecordingTemporal()
+        torn_down: list[str] = []
 
         with (
             mock.patch(TEMPORAL_CLIENT, return_value=temporal),
-            mock.patch(TEARDOWN) as teardown,
+            mock.patch(TEARDOWN, side_effect=lambda **task: torn_down.append(task["schema_id"])),
             self.captureOnCommitCallbacks(execute=True),
         ):
             assert stop_schema_syncing_for_staff(mine, team_id=self.team.pk) is True
             assert stop_schema_syncing_for_staff(mine, team_id=self.team.pk) is False
             assert stop_schema_syncing_for_staff(theirs, team_id=self.team.pk) is False
 
-        temporal.get_schedule_handle.assert_called_once_with(mine)
-        temporal.get_schedule_handle.return_value.pause.assert_awaited_once()
+        assert temporal.paused == [(mine, None)]
         assert syncing_schema_ids_for_staff([self.team.pk, other_team.pk]) == [theirs]
-        assert [call.kwargs["schema_id"] for call in teardown.call_args_list] == [mine]
+        assert torn_down == [mine]
 
     def test_a_schedule_temporal_cannot_pause_keeps_syncing(self) -> None:
         schema_id = self._schema(self.team)
-        temporal = mock.MagicMock()
-        temporal.get_schedule_handle.return_value.pause = mock.AsyncMock(side_effect=RuntimeError("unavailable"))
+        temporal = RecordingTemporal(failing=frozenset({schema_id}))
 
         with mock.patch(TEMPORAL_CLIENT, return_value=temporal), pytest.raises(RuntimeError):
             stop_schema_syncing_for_staff(schema_id, team_id=self.team.pk)

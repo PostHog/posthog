@@ -19,6 +19,7 @@ from posthog.integrations import IntegrationNotFound
 from posthog.models import Integration, Organization, Team, User
 from posthog.paging import CursorPageRequest
 from posthog.temporal.common.client import sync_connect
+from posthog.test.temporal_schedules import RecordingTemporal
 
 from products.batch_exports.backend.custom_events_schema import build_events_query_schema
 from products.batch_exports.backend.facade import api, contracts, testing
@@ -427,16 +428,14 @@ def test_pause_unpause_and_delete_refuse_another_teams_or_a_deleted_export(team,
 def test_pausing_an_export_of_the_teams_pauses_its_temporal_schedule(team, organization):
     export_id = str(_create_export(team))
     other_team_id = create_team(organization=organization).pk
-    temporal = mock.MagicMock()
-    temporal.get_schedule_handle.return_value.pause = mock.AsyncMock()
+    temporal = RecordingTemporal()
 
     with mock.patch("products.batch_exports.backend.logic.exports.sync_connect", return_value=temporal):
         assert api.pause_running_batch_export(export_id, team_id=other_team_id, note="Paused") is False
         assert api.pause_running_batch_export(export_id, team_id=team.pk, note="Paused") is True
         assert api.pause_running_batch_export(export_id, team_id=team.pk, note="Paused") is False
 
-    temporal.get_schedule_handle.assert_called_once_with(export_id)
-    temporal.get_schedule_handle.return_value.pause.assert_awaited_once_with(note="Paused")
+    assert temporal.paused == [(export_id, "Paused")]
     assert api.unpaused_batch_export_ids([team.pk]) == []
 
 
