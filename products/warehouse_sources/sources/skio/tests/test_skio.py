@@ -198,37 +198,48 @@ class TestSkioNestedTransport:
         monkeypatch.setattr("products.warehouse_sources.sources.skio.skio.SKIO_PAGE_SIZE", 2)
         monkeypatch.setattr("products.warehouse_sources.sources.skio.skio.SKIO_PARENT_PAGE_SIZE", 2)
 
-    def test_walks_parent_pages_and_reads_on_a_parent_past_its_row_cap(self) -> None:
+    @parameterized.expand(
+        [
+            ("subscription_parent", "audit_logs", "AuditLogs", "Subscriptions"),
+            ("customer_parent", "reward_credit_histories", "RewardCreditHistories", "StorefrontUsers"),
+        ]
+    )
+    def test_walks_parent_pages_and_reads_on_a_parent_past_its_row_cap(
+        self, _name: str, endpoint: str, relationship: str, parent_query: str
+    ) -> None:
+        def parents(rows: list[tuple[str, list[dict[str, Any]]]]) -> ScriptedResponse:
+            return _parents(rows, relationship=relationship, parent_query=parent_query)
+
         result = _run(
             [
-                _parents([("sub-1", [_child("log-1"), _child("log-2")]), ("sub-2", [_child("log-3")])]),
-                _parents([("sub-1", [_child("log-4")])]),
-                _parents([("sub-3", [_child("log-5")])]),
+                parents([("parent-1", [_child("row-1"), _child("row-2")]), ("parent-2", [_child("row-3")])]),
+                parents([("parent-1", [_child("row-4")])]),
+                parents([("parent-3", [_child("row-5")])]),
             ],
-            endpoint="audit_logs",
+            endpoint=endpoint,
         )
 
         assert result.raised is None
-        assert [row["id"] for row in result.rows] == ["log-1", "log-2", "log-4", "log-3", "log-5"]
+        assert [row["id"] for row in result.rows] == ["row-1", "row-2", "row-4", "row-3", "row-5"]
+        has_rows = {relationship: {"id": {"_is_null": False}}}
         variables = [request.json()["variables"] for request in result.requests]
         assert [v["parentWhere"] for v in variables] == [
-            HAS_AUDIT_LOGS,
-            {"id": {"_eq": "sub-1"}},
-            {"_and": [{"id": {"_gt": "sub-2"}}, HAS_AUDIT_LOGS]},
+            has_rows,
+            {"id": {"_eq": "parent-1"}},
+            {"_and": [{"id": {"_gt": "parent-2"}}, has_rows]},
         ]
-        assert [v.get("where") for v in variables] == [None, {"id": {"_gt": "log-2"}}, None]
+        assert [v.get("where") for v in variables] == [None, {"id": {"_gt": "row-2"}}, None]
         assert result.saved_states == [
-            SkioResumeConfig(last_id="log-2", parent_id="sub-1"),
-            SkioResumeConfig(parent_id="sub-1"),
-            SkioResumeConfig(parent_id="sub-2"),
-            SkioResumeConfig(parent_id="sub-3"),
+            SkioResumeConfig(last_id="row-2", parent_id="parent-1"),
+            SkioResumeConfig(parent_id="parent-1"),
+            SkioResumeConfig(parent_id="parent-2"),
+            SkioResumeConfig(parent_id="parent-3"),
         ]
         assert result.response is not None and result.response.sort_mode is None
 
     @parameterized.expand(
         [
             ("snake_case_cursor", "cancel_flow_v2_sessions", "CancelFlowV2Sessions", "Subscriptions", "updated_at"),
-            ("customer_parent", "reward_credit_histories", "RewardCreditHistories", "StorefrontUsers", "createdAt"),
             ("subscription_parent", "discounts", "Discounts", "Subscriptions", "updatedAt"),
         ]
     )

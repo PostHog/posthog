@@ -40,7 +40,8 @@ class SkioEndpointConfig:
     description: str
     parent: SkioParentConfig | None = None
     created_field: str = "createdAt"
-    # None for a type with no update timestamp; its rows can then only sync on `created_field`.
+    # None for a type with no update timestamp. Its rows still change after creation, so the
+    # endpoint syncs by full refresh only.
     updated_field: str | None = "updatedAt"
 
     @property
@@ -500,9 +501,9 @@ ENDPOINTS: dict[str, SkioEndpointConfig] = {
     ),
 }
 
-# Every collection carries non-null created/updated timestamptz columns (RewardCreditHistory has
-# only `createdAt`) with server-side comparison filters in its Hasura bool_exp, so each is a
-# genuine incremental cursor.
+# Every collection with an update timestamp carries non-null created/updated timestamptz columns
+# with server-side comparison filters in its Hasura bool_exp, so both are genuine incremental
+# cursors.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: [
         {
@@ -512,7 +513,8 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
             "field_type": IncrementalFieldType.DateTime,
         }
         for field in (config.updated_field, config.created_field)
-        if field is not None
     ]
+    if config.updated_field is not None
+    else []
     for name, config in ENDPOINTS.items()
 }
