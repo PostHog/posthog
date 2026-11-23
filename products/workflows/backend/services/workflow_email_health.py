@@ -236,12 +236,14 @@ def sends_only_transactional_email(actions: object) -> bool:
 _TRANSACTIONAL_LOOKUP_BATCH_SIZE = 200
 
 
-def _transactional_by_flow(*, team_ids: list[int], flow_ids: list[str]) -> dict[str, bool]:
+def _transactional_by_flow(team_by_flow: dict[str, int]) -> dict[str, bool]:
     # Batched because `actions` holds each email step's full HTML, and the sweep's database
     # connection goes through pgbouncer, where Django cannot stream rows with a server-side cursor.
+    flow_ids = list(team_by_flow)
     transactional: dict[str, bool] = {}
     for start in range(0, len(flow_ids), _TRANSACTIONAL_LOOKUP_BATCH_SIZE):
         batch = flow_ids[start : start + _TRANSACTIONAL_LOOKUP_BATCH_SIZE]
+        team_ids = {team_by_flow[flow_id] for flow_id in batch}
         # nosemgrep: idor-lookup-without-team (internal sweep across teams; ids come from the team-scoped candidate query)
         rows = HogFlow.objects.filter(team_id__in=team_ids, id__in=batch).values_list("id", "actions")
         transactional.update({str(flow_id): sends_only_transactional_email(actions) for flow_id, actions in rows})
@@ -548,13 +550,12 @@ def find_workflow_email_decisions(*, now: datetime | None = None) -> DetectorDec
         )
         transactional_by_flow.update(
             _transactional_by_flow(
-                team_ids=sorted(counts_by_team),
-                flow_ids=[
-                    flow_id
-                    for counts_by_flow, _ in counts_by_team.values()
+                {
+                    flow_id: team_id
+                    for team_id, (counts_by_flow, _) in counts_by_team.items()
                     for flow_id in counts_by_flow
                     if flow_id in flows_by_id and flow_id not in transactional_by_flow
-                ],
+                }
             )
         )
         for team_id, (counts_by_flow, names_by_flow_id) in counts_by_team.items():
@@ -641,8 +642,8 @@ def pause_workflow_email_sending(
 
     Returns False if it was already paused, which is how two overlapping sweeps stay down to one
     notification. The row is locked for the read-compare-write so the loser sees the pause.
-    `unless_transactional` also returns False when the workflow now sends only transactional email,
-    so a republish after the sweep classified it never leaves it paused.
+    `unless_transactional` also returns False when the workflow sends only transactional email by
+    the time the lock is taken, so a republish between the sweep's read and its pause is not paused.
     """
     now = now or timezone.now()
     with transaction.atomic():
@@ -772,23 +773,25 @@ def sweep_workflow_email_health(*, now: datetime | None = None) -> list[PauseDec
             )
             continue
         if decision.transactional:
-            workflow_email_auto_pause_total.labels(
-                signal=decision.threshold.signal,
-                window=decision.threshold.window_label,
-                mode="transactional",
-                scope=_scope(decision),
-            ).inc()
-            logger.warning("would_pause_workflow_email_sending", mode="transactional", **_decision_log_fields(decision))
-            failed += _warn(decision, now=now)
+            failed += _warn_transactional(decision, now=now)
             continue
         try:
             # One writer's Redis, database or broker error must not drop every later pause and
             # warning in this sweep. Isolate it so the remaining workflows are still processed; the
             # next hourly run retries the ones left at risk.
             paused = apply_pause(decision, now=now)
+            # The pause re-reads the steps under its row lock and skips a workflow republished as
+            # transactional since the decision. Its breach still needs the warning and the staff
+            # log line, or it ages out of the window unreported.
+            republished_as_transactional = not paused and _transactional_by_flow(
+                {decision.hog_flow_id: decision.team_id}
+            ).get(decision.hog_flow_id, False)
         except Exception:
             failed += 1
             logger.exception("pause_workflow_email_sending_failed", **_decision_log_fields(decision))
+            continue
+        if republished_as_transactional:
+            failed += _warn_transactional(replace(decision, transactional=True), now=now)
             continue
         if not paused:
             continue
@@ -816,6 +819,17 @@ def sweep_workflow_email_health(*, now: datetime | None = None) -> list[PauseDec
     if failed:
         logger.warning("workflow_email_health_sweep_partial_failure", failed=failed)
     return applied
+
+
+def _warn_transactional(decision: PauseDecision, *, now: datetime) -> int:
+    workflow_email_auto_pause_total.labels(
+        signal=decision.threshold.signal,
+        window=decision.threshold.window_label,
+        mode="transactional",
+        scope=_scope(decision),
+    ).inc()
+    logger.warning("would_pause_workflow_email_sending", mode="transactional", **_decision_log_fields(decision))
+    return _warn(decision, now=now)
 
 
 def _warn(decision: PauseDecision, *, now: datetime) -> int:

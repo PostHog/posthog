@@ -30,7 +30,6 @@ from products.workflows.backend.services.transactional_email_workflows import (
 from products.workflows.backend.services.workflow_email_health import (
     PAUSED_BY_STAFF,
     StaffPausedError,
-    apply_pause,
     find_workflow_email_decisions,
     find_workflow_email_pauses,
     pause_workflow_email_sending,
@@ -271,32 +270,57 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         assert self.flow.email_sending_paused_reason == "Earlier pause"
         assert paused_email.call_count == 0
 
-    def test_a_workflow_republished_as_transactional_after_the_decision_is_not_auto_paused(self):
+    def test_a_workflow_republished_as_transactional_during_the_sweep_is_warned_instead_of_paused(self):
         self._seed(sent=400, complaints=8)
         self.flow.actions = [{"id": "e1", "type": "function_email", "config": {"message_category_type": "marketing"}}]
         self.flow.save()
-        [decision] = find_workflow_email_decisions(now=self.now).pauses
+
+        def decide_then_republish(*, now):
+            decisions = find_workflow_email_decisions(now=now)
+            self.flow.actions = [
+                {"id": "e1", "type": "function_email", "config": {"message_category_type": "transactional"}}
+            ]
+            self.flow.save()
+            return decisions
+
+        with patch(
+            "products.workflows.backend.services.workflow_email_health.find_workflow_email_decisions",
+            side_effect=decide_then_republish,
+        ):
+            applied, paused_email = self._sweep()
+
+        assert applied == []
+        assert paused_email.call_count == 0
+        self.flow.refresh_from_db()
+        assert self.flow.email_sending_paused_at is None
+        assert self.flow.email_sending_warned_at == self.now
+        assert self.warning_email.call_args.kwargs["transactional"] is True
+
+    def test_a_staff_pause_pauses_a_workflow_that_sends_only_transactional_email(self):
         self.flow.actions = [
             {"id": "e1", "type": "function_email", "config": {"message_category_type": "transactional"}}
         ]
         self.flow.save()
 
-        with self.captureOnCommitCallbacks(execute=True):
-            assert apply_pause(decision, now=self.now) is False
-        self.flow.refresh_from_db()
-        assert self.flow.email_sending_paused_at is None
-
-        with patch("products.workflows.backend.services.workflow_email_health.send_workflow_email_sending_paused"):
+        with (
+            patch(
+                "products.workflows.backend.services.workflow_email_health.send_workflow_email_sending_paused"
+            ) as paused_email,
+            patch("products.workflows.backend.services.workflow_email_health.reload_hog_flows_on_workers"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
             assert pause_workflow_email_sending(
                 team_id=self.team.pk,
                 hog_flow_id=str(self.flow.id),
-                hog_flow_name="Weekly blast",
+                hog_flow_name="Password reset",
                 reason="Paused by staff",
                 paused_by=PAUSED_BY_STAFF,
                 now=self.now,
             )
+
         self.flow.refresh_from_db()
         assert self.flow.email_sending_paused_by == PAUSED_BY_STAFF
+        assert paused_email.delay.call_args.kwargs["staff_pause"] is True
 
     def test_warn_band_warns_without_pausing(self):
         # 0.2% complaints over 24h: above the 0.15% warn rate, below the 0.3% pause rate.
