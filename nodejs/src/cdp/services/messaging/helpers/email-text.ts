@@ -1,19 +1,8 @@
 import { DomNode, compile } from 'html-to-text'
 
-const SKIPPED_SELECTORS = [
-    'head',
-    'script',
-    'style',
-    'title',
-    'noscript',
-    'template',
-    '[hidden]',
-    '[style*="display:none" i]',
-]
+const SKIPPED_SELECTORS = ['head', 'script', 'style', 'title', 'noscript', 'template', '[hidden]']
 
-// Selectors match style text literally, so every spacing CSS allows around the colon is written as one first.
-const STYLE_ATTRIBUTE = /\bstyle\s*=\s*(?:"[^"]*"|'[^']*')/gi
-const HIDDEN_DISPLAY = /display\s*:\s*none/gi
+const HIDDEN_DISPLAY = /(?:^|;)\s*display\s*:\s*none(?![\w-])/i
 
 // Bounds the work per send. Longer html goes out without a text part, as html-only emails always did.
 const MAX_HTML_CHARACTERS = 1 << 20
@@ -33,7 +22,11 @@ const SCRIPT_URL = /^javascript:/i
 
 const linkTarget = (path: string): string => {
     const target = path.trim()
-    return SCRIPT_URL.test(target) || target.startsWith('#') ? '' : target
+    if (SCRIPT_URL.test(target) || target.startsWith('#')) {
+        return ''
+    }
+    // Encoded as a browser would send them, so the cleanup of the text leaves the link intact.
+    return target.replace(INVISIBLE_SEPARATORS, encodeURIComponent)
 }
 
 const hasReadableContent = (node: DomNode): boolean =>
@@ -53,6 +46,7 @@ const toText = compile({
     limits: { maxInputLength: MAX_HTML_CHARACTERS },
     selectors: [
         ...SKIPPED_SELECTORS.map((selector) => ({ selector, format: 'skip' })),
+        { selector: '[style]', format: 'styled' },
         ...HEADINGS.map((selector) => ({ selector, options: { uppercase: false } })),
         ...EXTRA_BLOCKS.map((selector) => ({
             selector,
@@ -76,6 +70,16 @@ const toText = compile({
         { selector: 'th', format: 'block', options: { leadingLineBreaks: 1, trailingLineBreaks: 1 } },
     ],
     formatters: {
+        // Selectors match style text literally, so hidden styles are read from the parsed, decoded attribute here.
+        // A visible element loses its style and is walked again, which renders it with its own formatter.
+        styled: (elem, walk, builder) => {
+            const { style, ...attribs } = elem.attribs
+            if (HIDDEN_DISPLAY.test(style)) {
+                return
+            }
+            elem.attribs = attribs
+            walk([elem], builder)
+        },
         listItem: (elem, walk, builder) => {
             const first = elem.children.find(hasReadableContent)
             if (!first) {
@@ -104,10 +108,7 @@ export const plainTextFromHtml = (html: string): string => {
     }
     let text: string
     try {
-        const plainStyles = html.replace(STYLE_ATTRIBUTE, (attribute) =>
-            attribute.replace(HIDDEN_DISPLAY, 'display:none')
-        )
-        text = toText(plainStyles).replace(INVISIBLE_SEPARATORS, '').trim()
+        text = toText(html).replace(INVISIBLE_SEPARATORS, '').trim()
     } catch {
         // html-to-text recurses once per element, so deeply nested html overflows the stack.
         // The email then goes out without a text part, as html-only emails always did.

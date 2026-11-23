@@ -55,10 +55,21 @@ describe('plainTextFromHtml', () => {
         ['a hidden void element', '<img src="pixel.gif" alt="pixel" style="DISPLAY:NONE"><p>Hello</p>', 'Hello'],
         ['an element with the hidden attribute', '<div hidden>Preview</div><p>Hello</p>', 'Hello'],
         [
-            'hidden styles with any spacing around the colon',
-            '<div title="1 > 0" style="display : none">Old code 123456</div>' +
-                '<div style=\'font-family:"Arial"; DISPLAY:\tNONE\'>Older</div><p>Current code 482913</p>',
+            'hidden styles with any spacing or encoding',
+            '<div title="1 > 0" style="display : none">Old code 123456</div><div style="display:&#32;none">Old</div>' +
+                '<div style=\'font-family:"Arial"; DISPLAY:\tNONE !important\'>Older</div><p>Current code 482913</p>',
             'Current code 482913',
+        ],
+        [
+            'styled elements that stay visible',
+            '<p style="margin:0;text-decoration:none">Reset</p><a style="color:red" href="https://example.com/r">here</a>',
+            'Reset\n\nhere (https://example.com/r)',
+        ],
+        ['style text shown as text', '<pre>Use style="display: none"</pre>', 'Use style="display: none"'],
+        [
+            'a link token with a soft hyphen',
+            '<a href="https://example.com/reset?token=ab&#xAD;cd">Reset</a>',
+            'Reset (https://example.com/reset?token=ab%C2%ADcd)',
         ],
         [
             'neighbouring center blocks',
