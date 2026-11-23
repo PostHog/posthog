@@ -589,6 +589,12 @@ class FileUploadResponseSerializer(serializers.Serializer):
 class UploadedFileSerializer(serializers.Serializer):
     upload_id = serializers.UUIDField(help_text="Id returned by upload_file for the stored file.")
     filename = serializers.CharField(help_text="Sanitized filename returned by upload_file.")
+    notebook_cell = serializers.RegexField(
+        r"^[A-Za-z0-9_-]{1,12}/[^\r\n]{1,128}$",
+        required=False,
+        help_text="Notebook short ID and cell ID separated by a slash. On create, associates the new table with "
+        "that cell. On replace, requires the table to have been created for that cell.",
+    )
     file_format = serializers.ChoiceField(
         choices=UploadedFileFormat.choices, help_text="How the uploaded file is read: 'csv', 'json', or 'parquet'."
     )
@@ -1076,7 +1082,9 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         table.save()
         log_table_activity(table, "created")
         # The table reads the file in place until the source's first sync imports it.
-        create_file_upload_source(self.team_id, table.pk, upload, read_settings)
+        create_file_upload_source(
+            self.team_id, table.pk, upload, read_settings, notebook_cell=serializer.validated_data.get("notebook_cell")
+        )
 
         validate_data_warehouse_table_columns.delay(self.team_id, str(table.id))
 
@@ -1123,10 +1131,17 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         missing = _missing_upload_response(self.team_id, upload)
         if missing is not None:
             return missing
-        return self._replace_file_with_upload(table, upload, status.HTTP_202_ACCEPTED)
+        return self._replace_file_with_upload(
+            table, upload, status.HTTP_202_ACCEPTED, notebook_cell=serializer.validated_data.get("notebook_cell")
+        )
 
     def _replace_file_with_upload(
-        self, table: DataWarehouseTable, upload: UploadedFileRef, success_status: int
+        self,
+        table: DataWarehouseTable,
+        upload: UploadedFileRef,
+        success_status: int,
+        *,
+        notebook_cell: str | None = None,
     ) -> response.Response:
         # Read the new file in place first, so a file the import can't read never replaces a working one.
         try:
@@ -1137,7 +1152,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
 
         try:
-            replace_file_upload(self.team_id, table.pk, upload, read_settings)
+            replace_file_upload(self.team_id, table.pk, upload, read_settings, notebook_cell=notebook_cell)
         except FileUploadSourceError as e:
             return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
 

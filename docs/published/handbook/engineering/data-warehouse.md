@@ -105,6 +105,8 @@ Views and insights can be saved or updated before running the SQL. Save and upda
 
 Choose **Save as cohort** after running a single query against PostHog. Return a column named `person_id`, `actor_id`, or `distinct_id`. A query on the `persons` table can also return `id`. Give the cohort a name to save a static snapshot with the query's filters and variables.
 
+In a Markdown notebook, open the SQL cell’s **⋯** menu after running it. **Save as warehouse table** saves the returned rows under a new name. To refresh a table created by that cell, choose **Update from this run** and confirm **Replace rows**. **Manage table** opens the table in the warehouse, where you can delete it. **Save as cohort** saves a static cohort when the result includes a `person_id`, `actor_id`, or `distinct_id` column. Direct SQL runs keep up to 300 rows.
+
 On an empty dashboard, **Write SQL** opens the SQL editor with that dashboard selected. **Save & add to dashboard** saves the insight, adds it to the dashboard, and returns to it. This shortcut requires permission to edit the dashboard.
 The insight picker keeps names readable at narrow widths. Scroll the table horizontally to reach additional columns and the add/remove controls.
 

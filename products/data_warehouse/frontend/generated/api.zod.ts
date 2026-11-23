@@ -1588,9 +1588,20 @@ export const WarehouseTablesPartialUpdateBody = /* @__PURE__ */ zod
  * Point a table made from an uploaded file at a new upload, then import it with one full refresh. Upload the new file with upload_file first. The table keeps its id and its name, and its rows are replaced when the sync finishes. The old file is deleted only after that sync succeeds. The sync bills its rows like any other import.
  * @summary Replace the file of a table made from an uploaded file
  */
+export const warehouseTablesReplaceFileCreateBodyNotebookCellRegExp = new RegExp(
+    '^[A-Za-z0-9_-]{1,12}\/[^\\r\\n]{1,128}$'
+)
+
 export const WarehouseTablesReplaceFileCreateBody = /* @__PURE__ */ zod.object({
     upload_id: zod.uuid().describe('Id returned by upload_file for the stored file.'),
     filename: zod.string().describe('Sanitized filename returned by upload_file.'),
+    notebook_cell: zod
+        .string()
+        .regex(warehouseTablesReplaceFileCreateBodyNotebookCellRegExp)
+        .optional()
+        .describe(
+            'Notebook short ID and cell ID separated by a slash. On create, associates the new table with that cell. On replace, requires the table to have been created for that cell.'
+        ),
     file_format: zod
         .enum(['csv', 'json', 'parquet'])
         .describe('\* `csv` - csv\n\* `json` - json\n\* `parquet` - parquet')
@@ -1717,9 +1728,20 @@ export const WarehouseTablesUpdateSchemaCreateBody = /* @__PURE__ */ zod
  * sync imports the file and turns the same table row into a managed table.
  * @summary Create a warehouse table and FileUpload source from an uploaded file
  */
+export const warehouseTablesCreateFromUploadCreateBodyNotebookCellRegExp = new RegExp(
+    '^[A-Za-z0-9_-]{1,12}\/[^\\r\\n]{1,128}$'
+)
+
 export const WarehouseTablesCreateFromUploadCreateBody = /* @__PURE__ */ zod.object({
     upload_id: zod.uuid().describe('Id returned by upload_file for the stored file.'),
     filename: zod.string().describe('Sanitized filename returned by upload_file.'),
+    notebook_cell: zod
+        .string()
+        .regex(warehouseTablesCreateFromUploadCreateBodyNotebookCellRegExp)
+        .optional()
+        .describe(
+            'Notebook short ID and cell ID separated by a slash. On create, associates the new table with that cell. On replace, requires the table to have been created for that cell.'
+        ),
     file_format: zod
         .enum(['csv', 'json', 'parquet'])
         .describe('\* `csv` - csv\n\* `json` - json\n\* `parquet` - parquet')
