@@ -6,10 +6,13 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { aeoPromptsMovers } from 'products/web_analytics/frontend/generated/api'
 import type { AEOPromptSetMoversApi } from 'products/web_analytics/frontend/generated/api.schemas'
+import type { BrandedSegmentEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { type AiVisibilityFilters, filtersToQueryParams } from './aiVisibilityFilters'
+import type { AiVisibilityFilterTab } from './aiVisibilityFilters'
 import { contentAutopilotFiltersLogic } from './contentAutopilotFiltersLogic'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
+import type { ContentAutopilotWorkspaceTab } from './contentAutopilotLogic'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import { ContentAutopilotPromptsError, promptsErrorFrom } from './contentAutopilotPromptsLogic'
 
@@ -28,37 +31,37 @@ export interface contentAutopilotMoversLogicActions {
         filters: Partial<AiVisibilityFilters>
     } // contentAutopilotFiltersLogic
     setBrandedSegment: (
-        brandedSegment: import('products/web_analytics/frontend/generated/api.schemas').BrandedSegmentEnumApi,
-        tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
+        brandedSegment: BrandedSegmentEnumApi,
+        tab: AiVisibilityFilterTab
     ) => {
-        brandedSegment: import('products/web_analytics/frontend/generated/api.schemas').BrandedSegmentEnumApi
-        tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
+        brandedSegment: BrandedSegmentEnumApi
+        tab: AiVisibilityFilterTab
     } // contentAutopilotFiltersLogic
     setDates: (
         dateFrom: string,
         dateTo: string | null,
-        tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
+        tab: AiVisibilityFilterTab
     ) => {
         dateFrom: string
         dateTo: string | null
-        tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
+        tab: AiVisibilityFilterTab
     } // contentAutopilotFiltersLogic
     setEngine: (
         engine: string | null,
-        tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
+        tab: AiVisibilityFilterTab
     ) => {
         engine: string | null
-        tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
+        tab: AiVisibilityFilterTab
     } // contentAutopilotFiltersLogic
     setTopic: (
         topic: string | null,
-        tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
+        tab: AiVisibilityFilterTab
     ) => {
-        tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
+        tab: AiVisibilityFilterTab
         topic: string | null
     } // contentAutopilotFiltersLogic
-    setWorkspaceTab: (workspaceTab: import('./contentAutopilotLogic').ContentAutopilotWorkspaceTab) => {
-        workspaceTab: import('./contentAutopilotLogic').ContentAutopilotWorkspaceTab
+    setWorkspaceTab: (workspaceTab: ContentAutopilotWorkspaceTab) => {
+        workspaceTab: ContentAutopilotWorkspaceTab
     } // contentAutopilotLogic
     openPromptDetail: (promptId: string) => {
         promptId: string
