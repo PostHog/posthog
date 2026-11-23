@@ -1,31 +1,47 @@
 import re
 import hashlib
 from datetime import datetime
-from typing import Literal
+from functools import partial
+from typing import Any, Literal
+from urllib.parse import urlparse
+from uuid import UUID
 
+from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+import structlog
 import posthoganalytics
+from asgiref.sync import async_to_sync
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from posthog.dataclasses import frozen
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
+from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.integrations import IntegrationManager
 from posthog.models import Team, User
-from posthog.models.github_integration_base import GitHubIntegrationError
+from posthog.models.github_integration_base import (
+    GitHubIntegrationBase,
+    GitHubIntegrationError,
+    _is_safe_github_repo_path,
+)
 from posthog.models.integration import GitHubIntegration
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.artefact_schemas import (
     CheckAuthoringStatus,
     NoteArtefact,
     SuggestedReviewerEntry,
     SuggestedReviewers,
 )
+from products.signals.backend.github_actor import GITHUB_LOGIN_PATTERN
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
-from products.signals.backend.pull_requests import apply_report_completion, link_pull_request, update_pull_request_state
-from products.signals.backend.report_assignments import PullRequestDetails, create_claim
+from products.signals.backend.pull_requests import apply_report_completion, link_pull_request
+from products.signals.backend.quota import self_driving_quota_gate
+from products.signals.backend.report_access import may_read_reports
+from products.signals.backend.report_assignments import MAX_PR_NUMBER, PullRequestDetails, create_claim
 from products.signals.backend.report_check_authoring import create_checks_from_specs
 from products.signals.backend.report_checks import (
     MAX_CHECK_HORIZON,
@@ -35,9 +51,18 @@ from products.signals.backend.report_checks import (
     validate_metric_check_for_write,
 )
 from products.signals.backend.report_claims import get_active_claim
-from products.signals.backend.report_content_gates import team_report_metrics_enabled, team_report_monitoring_enabled
+from products.signals.backend.report_content_gates import (
+    team_pr_monitoring_enabled,
+    team_report_metrics_enabled,
+    team_report_monitoring_enabled,
+)
+from products.signals.backend.report_lifecycle import effective_report_status
 from products.signals.backend.report_metrics import ReportMetric
+from products.signals.backend.report_urls import build_bare_report_url
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
+
+logger = structlog.get_logger(__name__)
+RECENT_PR_LIMIT = 50
 
 
 @frozen
@@ -47,7 +72,65 @@ class MonitorPRInput:
     user_id: int
     pr_url: str
     note: str = ""
-    poll_only: bool = False
+
+
+@frozen
+class PRMonitoringRequestResult:
+    report_id: UUID
+    report_url: str
+    status: str
+    idempotent_replay: bool
+
+
+@frozen
+class PRReport:
+    id: str
+    status: str
+
+
+@frozen
+class BrowserPR:
+    url: str
+    repository: str
+    number: int
+    title: str
+    state: str
+    draft: bool
+    author: str
+    created_at: str
+    updated_at: str
+    report: PRReport | None
+
+
+@frozen
+class PRPage:
+    results: list[BrowserPR]
+    github_login: str | None
+    has_integration: bool
+
+
+class PRMonitoringLimitExceeded(Exception):
+    def __init__(self, message: str, *, retry_after: int | None = None):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+class PRMonitoringUnavailable(Exception):
+    def __init__(self, message: str, *, report_id: UUID | None = None):
+        super().__init__(message)
+        self.report_id = report_id
+
+
+class InvalidPullRequest(ValueError):
+    pass
+
+
+@frozen
+class _RegisteredGitHubInstallation:
+    id: int
+    github: GitHubIntegration
+    owner: str | None
+    repositories: set[str]
 
 
 @frozen
@@ -72,21 +155,42 @@ class MonitoredPullRequest:
         )
 
 
-class InvalidPullRequest(ValueError):
-    pass
-
-
 def pr_identity(pr_url: str) -> tuple[str, int]:
-    match = re.fullmatch(r"https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([1-9][0-9]*)/?", pr_url)
-    if match is None or ".." in match[1] or len(match[1]) > 200 or int(match[2]) > 2**63 - 1:
+    parsed_url = urlparse(pr_url)
+    ref = GitHubIntegrationBase.parse_pull_request_url(pr_url)
+    path_parts = [part for part in parsed_url.path.split("/") if part]
+    if (
+        parsed_url.scheme != "https"
+        or parsed_url.netloc != "github.com"
+        or len(path_parts) != 4
+        or parsed_url.query
+        or parsed_url.fragment
+        or ref is None
+        or not _is_safe_github_repo_path(ref.repository)
+        or len(ref.repository) > 200
+        or not 0 < ref.number <= MAX_PR_NUMBER
+    ):
         raise InvalidPullRequest("Use a GitHub pull request URL, such as https://github.com/owner/repo/pull/123.")
-    return match[1].lower(), int(match[2])
+    return ref.repository.lower(), ref.number
 
 
-def registered_github_for_repository(
-    team_id: int, repository: str, *, source: str, priority: Priority = Priority.NORMAL
-) -> GitHubIntegration | None:
-    target = repository.lower()
+def monitor_key(user_id: int, pr_url: str) -> str:
+    repository, number = pr_identity(pr_url)
+    digest = hashlib.sha256(f"{repository}:{number}".encode()).hexdigest()
+    return f"monitor-pr:{user_id}:{digest}"
+
+
+def _installation_owner(github: GitHubIntegration) -> str | None:
+    account = github.integration.config.get("account")
+    name = account.get("name") if isinstance(account, dict) else github.integration.config.get("organization")
+    return name if isinstance(name, str) and GITHUB_LOGIN_PATTERN.fullmatch(name) else None
+
+
+def _registered_installations(
+    team_id: int, *, source: str, priority: Priority = Priority.NORMAL
+) -> list[_RegisteredGitHubInstallation]:
+    result: list[_RegisteredGitHubInstallation] = []
+    seen: set[str] = set()
     for integration in sorted(IntegrationManager.github.oauth.list(team_id), key=lambda row: row.id):
         github = GitHubIntegration(integration, source=source, priority=priority)
         repositories = {
@@ -94,12 +198,19 @@ def registered_github_for_repository(
             for repo in github.list_all_cached_repositories()
             if isinstance(repo, dict) and repo.get("full_name")
         }
-        if target in repositories:
-            return github
-    return None
+        result.append(
+            _RegisteredGitHubInstallation(
+                id=integration.id,
+                github=github,
+                owner=_installation_owner(github),
+                repositories=repositories - seen,
+            )
+        )
+        seen.update(repositories)
+    return result
 
 
-def _pull_request_state_and_merge_time(result: dict[str, object], *, allow_closed: bool) -> tuple[str, datetime | None]:
+def _pull_request_state_and_merge_time(result: dict[str, object]) -> tuple[str, datetime | None]:
     raw_state = result.get("state")
     if result.get("merged"):
         state = "merged"
@@ -109,7 +220,7 @@ def _pull_request_state_and_merge_time(result: dict[str, object], *, allow_close
         state = raw_state
     else:
         state = ""
-    if state not in ({"open", "draft", "merged", "closed"} if allow_closed else {"open", "draft", "merged"}):
+    if state not in {"open", "draft", "merged"}:
         raise InvalidPullRequest("This pull request was closed without merging.")
     raw_merged_at = result.get("merged_at")
     merged_at = parse_datetime(raw_merged_at) if isinstance(raw_merged_at, str) and raw_merged_at else None
@@ -117,18 +228,23 @@ def _pull_request_state_and_merge_time(result: dict[str, object], *, allow_close
         now = timezone.now()
         if merged_at is None or timezone.is_naive(merged_at) or merged_at > now:
             raise InvalidPullRequest("GitHub did not return a valid merge timestamp. Try again shortly.")
-        if not allow_closed and merged_at <= now - MAX_CHECK_HORIZON:
+        if merged_at <= now - MAX_CHECK_HORIZON:
             raise InvalidPullRequest(
                 f"This pull request merged more than {MAX_CHECK_HORIZON.days} days ago and is outside the monitoring window."
             )
     return state, merged_at
 
 
-def load_pull_request(
-    team_id: int, pr_url: str, *, priority: Priority = Priority.NORMAL, allow_closed: bool = False
-) -> MonitoredPullRequest:
+def load_pull_request(team_id: int, pr_url: str, *, priority: Priority = Priority.NORMAL) -> MonitoredPullRequest:
     repository, number = pr_identity(pr_url)
-    github = registered_github_for_repository(team_id, repository, source="signals_monitor_pr", priority=priority)
+    github = next(
+        (
+            item.github
+            for item in _registered_installations(team_id, source="signals_monitor_pr", priority=priority)
+            if repository in item.repositories
+        ),
+        None,
+    )
     if github is None:
         raise InvalidPullRequest("Connect a GitHub integration that includes this repository.")
     result = github.get_pull_request(repository, number)
@@ -144,7 +260,7 @@ def load_pull_request(
         raise InvalidPullRequest(
             "Only pull requests from branches in this project's connected repositories can be monitored."
         )
-    state, merged_at = _pull_request_state_and_merge_time(result, allow_closed=allow_closed)
+    state, merged_at = _pull_request_state_and_merge_time(result)
     head_sha = result.get("head_sha") or ""
     if not re.fullmatch(r"[a-fA-F0-9]{40,64}", head_sha):
         raise InvalidPullRequest("GitHub did not return a valid pull request commit.")
@@ -160,10 +276,105 @@ def load_pull_request(
     )
 
 
-def monitor_key(user_id: int, pr_url: str) -> str:
-    repository, number = pr_identity(pr_url)
-    digest = hashlib.sha256(f"{repository}:{number}".encode()).hexdigest()
-    return f"monitor-pr:{user_id}:{digest}"
+def _fetch_recent_items(
+    *, team_id: int, integration: _RegisteredGitHubInstallation, login: str
+) -> list[dict[str, Any]]:
+    assert integration.owner is not None
+    query = f"is:pr author:{login} user:{integration.owner}"
+    key = f"signals:pr-browser:{team_id}:{integration.id}:{hashlib.sha256(query.encode()).hexdigest()}"
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    response = integration.github.api_request(
+        "GET",
+        "/search/issues",
+        params={"q": query, "sort": "created", "order": "desc", "per_page": 100, "page": 1},
+    )
+    if not response.ok:
+        raise GitHubIntegrationError("Could not list pull requests from GitHub.")
+    try:
+        items = response.json().get("items", [])
+    except ValueError as error:
+        raise GitHubIntegrationError("Could not list pull requests from GitHub.") from error
+    cache.set(key, items, timeout=60)
+    return items
+
+
+def _browser_pr_from_search_item(
+    *,
+    item: dict[str, Any],
+    integration: _RegisteredGitHubInstallation,
+    user_id: int,
+    reports: dict[str, PRReport],
+) -> BrowserPR | None:
+    try:
+        repository, number = pr_identity(item["html_url"])
+    except (KeyError, TypeError, InvalidPullRequest):
+        return None
+    if repository not in integration.repositories:
+        return None
+    return BrowserPR(
+        url=f"https://github.com/{repository}/pull/{number}",
+        repository=repository,
+        number=number,
+        title=item["title"],
+        state="merged" if item.get("pull_request", {}).get("merged_at") else item["state"],
+        draft=bool(item.get("draft")),
+        author=item["user"]["login"],
+        created_at=item["created_at"],
+        updated_at=item["updated_at"],
+        report=reports.get(monitor_key(user_id, item["html_url"])),
+    )
+
+
+def list_authored_prs(*, team: Team, user: User) -> PRPage:
+    team = team.parent_team or team
+    if not team_pr_monitoring_enabled(team.id):
+        raise PermissionError("PR monitoring is not enabled for this project.")
+    if not may_read_reports(team=team, user=user):
+        raise PermissionError("You need permission to view tasks in this project.")
+    login = user.get_github_login(include_team_fallback=False)
+    integrations = _registered_installations(team.id, source="signals_pr_browser")
+    if not login or not GITHUB_LOGIN_PATTERN.fullmatch(login):
+        return PRPage(results=[], github_login=None, has_integration=bool(integrations))
+
+    monitoring_enabled = team_report_monitoring_enabled(team.id)
+    reports = {
+        key: PRReport(
+            id=str(report_id),
+            status=effective_report_status(status, team_id=team.id, monitoring_enabled=monitoring_enabled),
+        )
+        for key, report_id, status in SignalReport.objects.filter(
+            team_id=team.id, created_by_id=user.id, scout_idempotency_key__startswith=f"monitor-pr:{user.id}:"
+        )
+        .exclude(status=SignalReport.Status.DELETED)
+        .values_list("scout_idempotency_key", "id", "status")
+        if key is not None
+    }
+    results: list[BrowserPR] = []
+    for integration in integrations:
+        if not integration.repositories or not integration.owner:
+            continue
+        for item in _fetch_recent_items(team_id=team.id, integration=integration, login=login):
+            if pr := _browser_pr_from_search_item(item=item, integration=integration, user_id=user.id, reports=reports):
+                results.append(pr)
+    results.sort(key=lambda pr: (pr.created_at, pr.url), reverse=True)
+    return PRPage(results=results[:RECENT_PR_LIMIT], github_login=login, has_integration=bool(integrations))
+
+
+def _ensure_pr_monitoring_permitted(team: Team, user: User) -> None:
+    if (
+        not team_pr_monitoring_enabled(team.id)
+        or not team_report_monitoring_enabled(team.id)
+        or not team_report_metrics_enabled(team.id)
+    ):
+        raise PermissionError("PR monitoring is not enabled for this project.")
+    if not team.organization.is_ai_data_processing_approved:
+        raise PermissionError("Enable AI data processing for this organization to monitor a PR.")
+    if not UserAccessControl(
+        user=user, team=team, organization_id=str(team.organization_id)
+    ).check_access_level_for_resource("task", "editor"):
+        raise PermissionError("You need permission to start tasks in this project.")
 
 
 def prepare_monitoring(*, team: Team, user: User, pr: MonitoredPullRequest, note: str) -> tuple[SignalReport, bool]:
@@ -252,6 +463,65 @@ def prepare_monitoring(*, team: Team, user: User, pr: MonitoredPullRequest, note
     return report, True
 
 
+def request_pr_monitoring(*, team: Team, user: User, pr_url: str, note: str = "") -> PRMonitoringRequestResult:
+    from products.signals.backend.scout_harness.tools.report_author import (  # noqa: PLC0415 -- scout_harness imports temporal, which imports monitor_pr
+        UserReportAuthor,
+        user_report_limit_resets_at,
+    )
+    from products.signals.backend.temporal.monitor_pr import (
+        start_pr_monitoring,  # noqa: PLC0415 -- keeps Temporal client off model import path
+    )
+
+    team = team.parent_team or team
+    _ensure_pr_monitoring_permitted(team, user)
+
+    key = monitor_key(user.id, pr_url)
+    report = (
+        SignalReport.objects.filter(team_id=team.id, scout_idempotency_key=key)
+        .exclude(status=SignalReport.Status.DELETED)
+        .first()
+    )
+    started = False
+    if report is None or report.status == SignalReport.Status.FAILED:
+        if report is None:
+            author = UserReportAuthor(
+                user_id=user.id,
+                user_distinct_id=user.distinct_id or str(user.uuid),
+                request_attribution=ArtefactAttribution.from_user(user.id),
+            )
+            if author.preflight_skip_reason(team):
+                raise PRMonitoringLimitExceeded(
+                    "You've reached today's limit for reports.",
+                    retry_after=max(1, int((user_report_limit_resets_at(team) - timezone.now()).total_seconds())),
+                )
+        gate = self_driving_quota_gate(team)
+        if gate.limited and gate.enforced:
+            raise PRMonitoringLimitExceeded("This project has reached its self-driving usage limit.")
+        try:
+            pr = load_pull_request(team.id, pr_url)
+        except (GitHubRateLimitError, EgressBudgetExhausted, GitHubIntegrationError) as error:
+            raise PRMonitoringUnavailable("GitHub is temporarily unavailable. Try again shortly.") from error
+        report, started = prepare_monitoring(team=team, user=user, pr=pr, note=note)
+
+    if report.status == SignalReport.Status.IN_PROGRESS:
+        inputs = MonitorPRInput(
+            team_id=team.id, report_id=str(report.id), user_id=user.id, pr_url=pr_url, note=report.summary or ""
+        )
+        try:
+            async_to_sync(start_pr_monitoring)(inputs)
+        except Exception as error:
+            logger.exception("signals_monitor_pr_dispatch_failed", team_id=team.id, report_id=str(report.id))
+            raise PRMonitoringUnavailable(
+                "Could not start PR research. Retry this request; the report has been saved.", report_id=report.id
+            ) from error
+    return PRMonitoringRequestResult(
+        report_id=report.id,
+        report_url=build_bare_report_url(team.id, report.id),
+        status=report.status,
+        idempotent_replay=not started,
+    )
+
+
 class PRMonitoringCheck(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -306,6 +576,10 @@ class PRMonitoringOutput(BaseModel):
 
 
 def finish_monitoring_research(inputs: MonitorPRInput, output: PRMonitoringOutput, pr: MonitoredPullRequest) -> None:
+    from products.signals.backend.tasks import (
+        refresh_linked_pull_request_state,  # noqa: PLC0415 -- keeps Celery task module off import path
+    )
+
     if output.inspected_commit != pr.head_sha:
         raise ValueError("The research did not inspect the requested pull request commit")
     with transaction.atomic():
@@ -343,18 +617,11 @@ def finish_monitoring_research(inputs: MonitorPRInput, output: PRMonitoringOutpu
             attribution=actor,
         )
         apply_report_completion(report)
-
-
-def refresh_monitored_pr(inputs: MonitorPRInput) -> bool:
-    if not SignalReport.objects.filter(
-        team_id=inputs.team_id, id=inputs.report_id, status=SignalReport.Status.READY
-    ).exists():
-        return False
-    pr = load_pull_request(inputs.team_id, inputs.pr_url, priority=Priority.BATCH, allow_closed=True)
-    update_pull_request_state(
-        team_id=inputs.team_id, repository=pr.repository, number=pr.number, state=pr.state, merged_at=pr.merged_at
-    )
-    return pr.state in {"open", "draft"}
+        if pr.state != "merged":
+            transaction.on_commit(
+                partial(refresh_linked_pull_request_state.delay, report.team_id, pr.url),
+                robust=True,
+            )
 
 
 def fail_monitoring_research(inputs: MonitorPRInput) -> None:

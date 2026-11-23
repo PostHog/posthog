@@ -5,9 +5,8 @@ from products.signals.backend.presentation.activity_summary import ActivitySumma
 from products.signals.backend.presentation.anomalies import AnomalyViewSet
 from products.signals.backend.presentation.inbox_status import InboxStatusViewSet
 from products.signals.backend.presentation.inbox_summary import InboxSummaryViewSet
-from products.signals.backend.presentation.monitor_pr import MonitorPRViewSet
+from products.signals.backend.presentation.monitor_pr import MonitorPRViewSet, PRBrowserViewSet
 from products.signals.backend.presentation.onboarding import InboxOnboardingViewSet
-from products.signals.backend.presentation.pr_browser import PRBrowserViewSet
 from products.signals.backend.presentation.reviewer_exclusions import SignalReviewerExclusionViewSet
 from products.signals.backend.presentation.scout_rubrics import SignalScoutRubricViewSet
 from products.signals.backend.presentation.spend import (

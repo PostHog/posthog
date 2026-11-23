@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Any, cast
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema_serializer
 from rest_framework import exceptions, serializers, status, viewsets
@@ -6,10 +6,13 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
 
-from posthog.api.mixins import validated_request
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.models import User
+from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.oauth_provenance import is_sandbox_origin_request
 from posthog.permissions import APIScopePermission
 
@@ -18,6 +21,8 @@ from products.signals.backend.facade.monitor_pr import (
     InvalidPullRequest,
     PRMonitoringLimitExceeded,
     PRMonitoringUnavailable,
+    PRState,
+    list_authored_prs,
     request_pr_monitoring,
 )
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
@@ -55,21 +60,70 @@ class MonitorPRResponseSerializer(serializers.Serializer):
     )
 
 
-class MonitorPRUnavailableSerializer(serializers.Serializer):
-    detail = serializers.CharField(help_text="Why PR research could not start and whether to retry.")
-    report_id = serializers.UUIDField(
-        required=False, help_text="The saved report, if creation succeeded before dispatch failed."
+class PRBrowserReportSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Monitoring report assigned to the caller.")
+    status = serializers.ChoiceField(
+        choices=REPORT_STATUS_CHOICES, help_text="Current report status, including research and waiting for merge."
     )
 
 
-class MonitorPRViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    serializer_class = MonitorPRResponseSerializer
+class PRBrowserItemSerializer(serializers.Serializer):
+    url = serializers.URLField(help_text="GitHub URL.")
+    repository = serializers.CharField(help_text="Repository registered with this project, in owner/name format.")
+    number = serializers.IntegerField(help_text="GitHub pull request number.")
+    title = serializers.CharField(help_text="Pull request title.")
+    state = serializers.ChoiceField(choices=PRState.choices, help_text="Current GitHub pull request state.")
+    draft = serializers.BooleanField(help_text="Whether this is a draft pull request.")
+    author = serializers.CharField(help_text="GitHub login of the author.")
+    created_at = serializers.DateTimeField(help_text="When the PR was opened.")
+    updated_at = serializers.DateTimeField(help_text="When GitHub last updated the PR.")
+    report = PRBrowserReportSerializer(
+        allow_null=True, help_text="The caller’s monitoring report, or null when not requested."
+    )
+
+
+@extend_schema_serializer(many=False)
+class PRBrowserPageSerializer(serializers.Serializer):
+    results = PRBrowserItemSerializer(
+        many=True, help_text="Recent authored pull requests ordered by creation time, newest first."
+    )
+    github_login = serializers.CharField(
+        allow_null=True, help_text="The caller’s connected GitHub identity, or null if not connected."
+    )
+    has_integration = serializers.BooleanField(help_text="Whether the project has a GitHub installation.")
+
+
+class _BasePRViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
     scope_object = "inbox"
-    required_scopes = ["inbox:write", "task:write", "query:read", "event_definition:read"]
     requires_resource_level_access = True
     pagination_class = None
+
+    def initial(self, request: Any, *args: Any, **kwargs: Any) -> None:
+        super().initial(request, *args, **kwargs)
+        if is_sandbox_origin_request(request):
+            raise exceptions.PermissionDenied("Use a person’s session or API credential for pull request monitoring.")
+
+    def handle_exception(self, exc: Exception) -> Response:
+        if isinstance(exc, PermissionError):
+            exc = exceptions.PermissionDenied(str(exc))
+        elif isinstance(exc, PRMonitoringLimitExceeded):
+            exc = exceptions.Throttled(detail=str(exc), wait=exc.retry_after)
+        elif isinstance(exc, PRMonitoringUnavailable):
+            payload = {"detail": str(exc), **({"report_id": str(exc.report_id)} if exc.report_id else {})}
+            return Response(payload, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        elif isinstance(exc, (GitHubIntegrationError, GitHubRateLimitError, EgressBudgetExhausted)):
+            return Response(
+                {"detail": "GitHub is temporarily unavailable. Try again shortly."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return super().handle_exception(exc)
+
+
+class MonitorPRViewSet(_BasePRViewSet):
+    serializer_class = MonitorPRResponseSerializer
+    required_scopes = ["inbox:write", "task:write", "query:read", "event_definition:read"]
     throttle_classes = [MonitorPRBurstThrottle]
 
     @validated_request(
@@ -77,35 +131,32 @@ class MonitorPRViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             200: OpenApiResponse(response=MonitorPRResponseSerializer, description="Existing monitoring request"),
             202: OpenApiResponse(response=MonitorPRResponseSerializer, description="PR research accepted"),
-            503: OpenApiResponse(
-                response=MonitorPRUnavailableSerializer, description="PR research temporarily unavailable"
-            ),
         },
         summary="Monitor a pull request",
     )
-    def create(self, request, **kwargs):
-        user = cast(User, request.user)
-        if is_sandbox_origin_request(request):
-            raise exceptions.PermissionDenied("Start PR monitoring from a person’s session or API credential.")
+    def create(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         try:
             result = request_pr_monitoring(
                 team=self.team,
-                user=user,
+                user=cast(User, request.user),
                 pr_url=request.validated_data["pr_url"],
                 note=request.validated_data["note"],
             )
         except InvalidPullRequest as error:
             raise exceptions.ValidationError({"pr_url": str(error)}) from error
-        except PermissionError as error:
-            raise exceptions.PermissionDenied(str(error)) from error
-        except PRMonitoringLimitExceeded as error:
-            raise exceptions.Throttled(detail=str(error), wait=error.retry_after) from error
-        except PRMonitoringUnavailable as error:
-            return Response(
-                {"detail": str(error), **({"report_id": str(error.report_id)} if error.report_id else {})},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
         return Response(
             MonitorPRResponseSerializer(result).data,
             status=status.HTTP_200_OK if result.idempotent_replay else status.HTTP_202_ACCEPTED,
         )
+
+
+class PRBrowserViewSet(_BasePRViewSet):
+    serializer_class = PRBrowserPageSerializer
+
+    @validated_request(
+        responses={200: PRBrowserPageSerializer},
+        summary="List recent authored pull requests",
+    )
+    def list(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        page = list_authored_prs(team=self.team, user=cast(User, request.user))
+        return Response(PRBrowserPageSerializer(page).data)

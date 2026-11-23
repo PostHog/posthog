@@ -6,18 +6,15 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import type { PRBrowserOverviewApi, PRBrowserPageApi } from 'products/signals/frontend/generated/api.schemas'
+import type { PRBrowserPageApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { MONITORING_MOCK_NOW, monitoringRows } from '../../__mocks__/monitoringMocks'
 import { monitoringTabLogic } from '../../logics/monitoringTabLogic'
-import { pullRequestsLogic } from '../../logics/pullRequestsLogic'
 import { MonitoringTab } from './MonitoringTab'
 
 const prPage: PRBrowserPageApi = {
     github_login: 'alex-dev',
     has_integration: true,
-    incomplete: false,
-    next_cursor: null,
     results: [
         {
             url: 'https://github.com/example/app/pull/5120',
@@ -58,22 +55,6 @@ const prPage: PRBrowserPageApi = {
     ],
 }
 
-const prOverview: PRBrowserOverviewApi = {
-    pull_request: prPage.results[0],
-    body: 'Preloads the address autocomplete bundle when the shipping step mounts so returning shoppers do not wait on a cold chunk.',
-    head_branch: 'feat/preload-address-autocomplete',
-    base_branch: 'main',
-    additions: 64,
-    deletions: 18,
-    changed_files: 4,
-    checks_available: true,
-    has_conflicts: false,
-    checks: [
-        { name: 'Unit tests', status: 'completed', conclusion: 'success', url: null },
-        { name: 'Playwright checkout', status: 'completed', conclusion: 'success', url: null },
-    ],
-}
-
 const meta: Meta = {
     title: 'Scenes-App/Inbox/Monitoring',
     parameters: {
@@ -91,7 +72,6 @@ const meta: Meta = {
                     { results: monitoringRows, count: monitoringRows.length, next: null, previous: null },
                 ],
                 '/api/projects/:id/signals/pull_requests': () => [200, prPage],
-                '/api/projects/:id/signals/pull_requests/overview': () => [200, prOverview],
             },
         }),
     ],
@@ -112,15 +92,6 @@ function WithOpenRows(): JSX.Element {
             }
         }
     }, [reports, expandedReportIds.length, toggleExpanded])
-    return <MonitoringTab />
-}
-
-function WithSelectedPullRequest(): JSX.Element {
-    const { selectPR, setPanelOpen } = useActions(pullRequestsLogic)
-    useEffect(() => {
-        setPanelOpen(true)
-        selectPR(prPage.results[0].url)
-    }, [selectPR, setPanelOpen])
     return <MonitoringTab />
 }
 
@@ -147,17 +118,6 @@ export const TimelineWithPullRequestsPanel: Story = {
     render: () => (
         <div className="flex h-screen flex-col bg-primary">
             <MonitoringTab />
-        </div>
-    ),
-}
-
-export const TimelineWithSelectedPullRequest: Story = {
-    parameters: {
-        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING, FEATURE_FLAGS.SIGNALS_MONITOR_PR],
-    },
-    render: () => (
-        <div className="flex h-screen flex-col bg-primary">
-            <WithSelectedPullRequest />
         </div>
     ),
 }

@@ -118,7 +118,6 @@ from products.signals.backend.temporal.inbox_notification import (
 from products.signals.backend.temporal.monitor_pr import (
     MonitorPRWorkflow,
     fail_monitored_pr_activity,
-    refresh_monitored_pr_activity,
     research_monitored_pr_activity,
 )
 from products.signals.backend.temporal.monitoring_assessment import (
@@ -207,7 +206,6 @@ WORKFLOWS = [
 ACTIVITIES: list[ActivityDefinition] = [
     research_monitored_pr_activity,
     fail_monitored_pr_activity,
-    refresh_monitored_pr_activity,
     assigned_signal_ids_activity,
     delete_expired_grouping_records_activity,
     delete_expired_spend_activity,

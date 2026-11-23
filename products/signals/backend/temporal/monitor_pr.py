@@ -1,5 +1,4 @@
 import asyncio
-from dataclasses import replace
 from datetime import timedelta
 
 from django.conf import settings
@@ -12,7 +11,7 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.heartbeat import Heartbeater
 
-from products.signals.backend.monitor_pr import MonitorPRInput, fail_monitoring_research, refresh_monitored_pr
+from products.signals.backend.monitor_pr import MonitorPRInput, fail_monitoring_research
 
 
 @activity.defn
@@ -30,42 +29,23 @@ async def fail_monitored_pr_activity(inputs: MonitorPRInput) -> None:
     await database_sync_to_async_pool(fail_monitoring_research)(inputs)
 
 
-@activity.defn
-async def refresh_monitored_pr_activity(inputs: MonitorPRInput) -> bool:
-    return await database_sync_to_async_pool(refresh_monitored_pr)(inputs)
-
-
 @workflow.defn
 class MonitorPRWorkflow:
     @workflow.run
     async def run(self, inputs: MonitorPRInput) -> None:
-        if not inputs.poll_only:
-            try:
-                await workflow.execute_activity(
-                    research_monitored_pr_activity,
-                    inputs,
-                    start_to_close_timeout=timedelta(minutes=40),
-                    heartbeat_timeout=timedelta(minutes=2),
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                )
-            except ActivityError:
-                await workflow.execute_activity(
-                    fail_monitored_pr_activity, inputs, start_to_close_timeout=timedelta(minutes=1)
-                )
-                raise
-        while await workflow.execute_activity(
-            refresh_monitored_pr_activity,
-            inputs,
-            start_to_close_timeout=timedelta(minutes=2),
-            retry_policy=RetryPolicy(
-                initial_interval=timedelta(minutes=1),
-                maximum_interval=timedelta(minutes=30),
-                non_retryable_error_types=["InvalidPullRequest"],
-            ),
-        ):
-            await workflow.sleep(timedelta(minutes=30))
-            if workflow.info().is_continue_as_new_suggested():
-                workflow.continue_as_new(replace(inputs, poll_only=True))
+        try:
+            await workflow.execute_activity(
+                research_monitored_pr_activity,
+                inputs,
+                start_to_close_timeout=timedelta(minutes=40),
+                heartbeat_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except ActivityError:
+            await workflow.execute_activity(
+                fail_monitored_pr_activity, inputs, start_to_close_timeout=timedelta(minutes=1)
+            )
+            raise
 
 
 async def start_pr_monitoring(inputs: MonitorPRInput) -> None:

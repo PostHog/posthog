@@ -1217,13 +1217,6 @@ export interface MonitorPRResponseApi {
     idempotent_replay: boolean
 }
 
-export interface MonitorPRUnavailableApi {
-    /** Why PR research could not start and whether to retry. */
-    detail: string
-    /** The saved report, if creation succeeded before dispatch failed. */
-    report_id?: string
-}
-
 export interface FirstReportStateApi {
     /** Scout run ID for inspecting the investigation through the scout API. */
     scout_run_id?: string
@@ -2132,13 +2125,8 @@ export interface PRBrowserItemApi {
 }
 
 export interface PRBrowserPageApi {
-    /** Authored pull requests ordered by creation time, newest first. */
+    /** Recent authored pull requests ordered by creation time, newest first. */
     results: PRBrowserItemApi[]
-    /**
-     * Opaque continuation cursor, or null at the end of the available history.
-     * @nullable
-     */
-    next_cursor: string | null
     /**
      * The caller’s connected GitHub identity, or null if not connected.
      * @nullable
@@ -2146,53 +2134,6 @@ export interface PRBrowserPageApi {
     github_login: string | null
     /** Whether the project has a GitHub installation. */
     has_integration: boolean
-    /** Whether GitHub returned incomplete results or its search history limit was reached. */
-    incomplete: boolean
-}
-
-export interface PRBrowserUnavailableApi {
-    /** Why the GitHub request could not complete. */
-    detail: string
-}
-
-export interface PRBrowserCheckApi {
-    /** GitHub check name. */
-    name: string
-    /** Current GitHub check status, such as queued, in_progress or completed. */
-    status: string
-    /**
-     * Check conclusion when finished, otherwise null.
-     * @nullable
-     */
-    conclusion: string | null
-    /**
-     * GitHub URL.
-     * @nullable
-     */
-    url: string | null
-}
-
-export interface PRBrowserOverviewApi {
-    /** Current PR metadata and the caller’s monitoring report. */
-    pull_request: PRBrowserItemApi
-    /** Pull request description in Markdown. */
-    body: string
-    /** Source branch. */
-    head_branch: string
-    /** Target branch. */
-    base_branch: string
-    /** Lines added. */
-    additions: number
-    /** Lines deleted. */
-    deletions: number
-    /** Number of changed files. */
-    changed_files: number
-    /** Checks and commit statuses for the PR head. */
-    checks: PRBrowserCheckApi[]
-    /** False when CI checks could not be read through this installation. */
-    checks_available: boolean
-    /** Whether GitHub reports merge conflicts. */
-    has_conflicts: boolean
 }
 
 /**
@@ -14061,42 +14002,6 @@ export type SignalsProcessingListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
-}
-
-export type SignalsPullRequestsListParams = {
-    /**
-     * Continuation cursor from the previous page, bound to this user, project and filter.
-     * @minLength 1
-     * @maxLength 8000
-     */
-    cursor?: string
-    /**
-     * Filter by whether the caller has requested monitoring, including research and waiting for merge.
-     *
-     * * `all` - All
-     * * `monitored` - Monitored
-     * * `unmonitored` - Unmonitored
-     * @minLength 1
-     */
-    monitoring?: SignalsPullRequestsListMonitoring
-}
-
-export type SignalsPullRequestsListMonitoring =
-    (typeof SignalsPullRequestsListMonitoring)[keyof typeof SignalsPullRequestsListMonitoring]
-
-export const SignalsPullRequestsListMonitoring = {
-    All: 'all',
-    Monitored: 'monitored',
-    Unmonitored: 'unmonitored',
-} as const
-
-export type SignalsPullRequestsOverviewRetrieveParams = {
-    /**
-     * URL of a pull request in a repository registered with the project.
-     * @minLength 1
-     * @maxLength 500
-     */
-    pr_url: string
 }
 
 export type SignalsReportsListParams = {
