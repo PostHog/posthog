@@ -56,7 +56,6 @@ from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedul
 from posthog.temporal.entitlement_reactions.schedule import create_entitlement_repair_schedule
 from posthog.temporal.health_checks.schedule import create_health_check_schedules
 from posthog.temporal.ingestion_acceptance_test.schedule import create_ingestion_acceptance_test_schedule
-from posthog.temporal.logs_alerting.schedule import create_logs_alert_check_schedule
 from posthog.temporal.mcp_analytics.intent_clustering.schedule import create_intent_clustering_coordinator_schedule
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
 from posthog.temporal.salesforce_enrichment.conversations_slack_workflow import ConversationsSlackEnrichmentInputs
@@ -100,6 +99,10 @@ async def cleanup_retired_replay_vision_schedules(client: Client):
     await _delete_retired_schedules(
         client, ["replay-vision-search-suggestions-refresher-schedule", "replay-vision-jev-watch-rank-schedule"]
     )
+
+
+async def cleanup_retired_logs_alert_check_schedule(client: Client):
+    await _delete_retired_schedules(client, ["logs-alert-check-schedule"])
 
 
 async def create_run_quota_limiting_schedule(client: Client):
@@ -888,7 +891,7 @@ schedules = [
     create_health_check_schedules,
     create_wa_weekly_digest_schedule,
     create_wa_digest_notification_schedule,
-    create_logs_alert_check_schedule,
+    cleanup_retired_logs_alert_check_schedule,
     create_schedule_due_alert_checks_schedule,
     create_run_investigation_safety_net_schedule,
     create_cleanup_alert_checks_schedule,

@@ -507,7 +507,6 @@ export-shape	products.logs.backend.presentation.views.retention_api.LogsRetentio
 export-shape	products.logs.backend.presentation.views.retention_api.LogsRetentionRuleViewSet	products.logs.backend.facade.retention_views	export-shape(class)	1
 export-shape	products.logs.backend.temporal.alert_evaluate.PLATFORM_SIGNAL_WORKFLOWS	products.logs.backend.facade.temporal	export-unknown	1
 export-shape	products.logs.backend.temporal.alert_evaluate.SOURCE_EVALUATION_WORKFLOWS	products.logs.backend.facade.temporal	export-unknown	1
-export-shape	products.logs.backend.temporal.metrics.LogsAlertingMetricsInterceptor	products.logs.backend.facade.temporal	export-shape(class)	1
 export-shape	products.managed_warehouse.backend.common.DUCKGRES_BUCKET_REGION	products.managed_warehouse.backend.facade.api	export-unknown	1
 export-shape	products.managed_warehouse.backend.common.EARLIEST_BACKFILL_DATE	products.managed_warehouse.backend.facade.api	export-unknown	1
 export-shape	products.managed_warehouse.backend.facade.contracts.DuckLakeQueryResult	products.managed_warehouse.backend.facade.client	export-shape(class)	1
@@ -3355,8 +3354,6 @@ temporal-placement	exports	posthog.temporal.exports.activities	1
 temporal-placement	exports	posthog.temporal.exports.retry_policy	1
 temporal-placement	exports	posthog.temporal.exports.types	1
 temporal-placement	exports	posthog.temporal.exports.workflows	1
-temporal-placement	logs_alerting	posthog.temporal.logs_alerting	1
-temporal-placement	logs_alerting	posthog.temporal.logs_alerting.schedule	1
 temporal-placement	mcp_analytics	posthog.temporal.mcp_analytics.intent_clustering	1
 temporal-placement	mcp_analytics	posthog.temporal.mcp_analytics.intent_clustering.activities	1
 temporal-placement	mcp_analytics	posthog.temporal.mcp_analytics.intent_clustering.constants	1

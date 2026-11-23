@@ -900,11 +900,6 @@
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,LLMA_TASK_QUEUE"
   },
   {
-    "temporal_workflow_type": "logs-alert-check",
-    "product": "logs",
-    "task_queues": "LOGS_ALERTING_TASK_QUEUE"
-  },
-  {
     "temporal_workflow_type": "logs-alert-evaluate",
     "product": "logs",
     "task_queues": "ALERTS_PLATFORM_EVALUATION_TASK_QUEUE"
