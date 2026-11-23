@@ -1056,11 +1056,18 @@ export interface dashboardLogicActions {
     abortAnyRunningQuery: () => {
         value: true
     }
-    abortQuery: (payload: { deferred?: boolean; queryId: string; queryStartTime: number; shortId: InsightShortId }) => {
+    abortQuery: (payload: {
         deferred?: boolean
         queryId: string
         queryStartTime: number
         shortId: InsightShortId
+        skipCancel?: boolean
+    }) => {
+        deferred?: boolean
+        queryId: string
+        queryStartTime: number
+        shortId: InsightShortId
+        skipCancel?: boolean
     }
     addTileGroup: (title?: string) => {
         title: string
@@ -2491,6 +2498,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             queryStartTime: number
             shortId: InsightShortId
             deferred?: boolean
+            /** Another abortQuery already cancelled this queryId, so this one only updates the tile's state. */
+            skipCancel?: boolean
         }) => payload,
         abortAnyRunningQuery: true,
         cancelDashboardRefresh: true,
@@ -6184,16 +6193,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 boardStream?.settledTileIds.forEach((tileId) => streamedTiles.add(tileId))
                 if (boardStream?.stopped) {
                     // A tab switch stopped the stream, so the tiles it had not delivered wait for their tab to show again.
-                    for (const tile of boardStream.leftTiles) {
+                    // Every left tile shares the stream's queryId, so only the first one cancels it on the server.
+                    boardStream.leftTiles.forEach((tile, index) => {
                         streamedTiles.add(tile.id)
                         actions.abortQuery({
                             queryId: boardStream.queryId,
                             queryStartTime: boardStream.startedAt,
                             shortId: tile.insight.short_id,
                             deferred: true,
+                            skipCancel: index > 0,
                         })
                         settleTile(tile, 'deferred')
-                    }
+                    })
                 }
                 if (
                     !boardStream &&
@@ -7177,7 +7188,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             cache.disposables.dispose('stoppedTileLoadsReload')
             cache.stoppedTileLoadsSettled = undefined
         },
-        abortQuery: async ({ queryId, queryStartTime }) => {
+        abortQuery: async ({ queryId, queryStartTime, skipCancel }) => {
+            if (skipCancel) {
+                return
+            }
             const { currentTeamId, dashboardLoadData } = values
             try {
                 await api.insights.cancelQuery(queryId, currentTeamId ?? undefined)

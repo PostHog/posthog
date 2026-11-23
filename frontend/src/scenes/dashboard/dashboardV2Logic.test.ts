@@ -446,6 +446,7 @@ describe('dashboardV2Logic', () => {
             featureFlagLogic.actions.setFeatureFlags(flags, Object.fromEntries(flags.map((flag) => [flag, true])))
             const leftTiles = tiles.slice(0, 6).map((tile) => ({ ...tile, group_key: null }))
             const targetTile = { ...tiles[6], group_key: 'target' }
+            const cancelledQueryIds: string[] = []
             useMocks({
                 get: {
                     '/api/environments/:team_id/dashboards/21/': () => [
@@ -455,6 +456,12 @@ describe('dashboardV2Logic', () => {
                             customization: { groups: { target: { collapsed: false } }, group_display: 'tabs' },
                         },
                     ],
+                },
+                post: {
+                    '/api/environments/:team_id/insights/cancel/': async ({ request }) => {
+                        cancelledQueryIds.push(((await request.json()) as { client_query_id: string }).client_query_id)
+                        return [201]
+                    },
                 },
             })
             const streamSignals: AbortSignal[] = []
@@ -490,6 +497,7 @@ describe('dashboardV2Logic', () => {
             await expectLogic(logic, () => logic.actions.selectTileGroupTab('group-target')).toFinishAllListeners()
 
             expect(streamSignals[0].aborted).toBe(true)
+            expect(cancelledQueryIds).toHaveLength(1)
             expect(logic.values.waitingTileRefresh?.tileIds).toEqual(
                 expect.arrayContaining(leftTiles.map((tile) => tile.id))
             )

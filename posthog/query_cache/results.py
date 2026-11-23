@@ -1,7 +1,7 @@
 import threading
 from collections import Counter
 from collections.abc import Iterator, Sequence
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Optional
@@ -87,11 +87,36 @@ def _read_values(cache_keys: Sequence[str], *, team_id: int) -> dict[str, list[O
     pointers = [(key, value) for key, value in values.items() if value is not None and is_s3_pointer(value)]
     if pointers:
         # A resolved blob is the decompressed payload, which decode_stored_value returns as it is on lookup.
-        payloads = _get_prefetch_executor().map(
-            lambda pointer: decode_stored_value(pointer[1], team_id=team_id, cache_key=pointer[0]), pointers
-        )
-        values.update(zip((key for key, _ in pointers), payloads))
+        values.update(_read_blobs(pointers, team_id=team_id))
     return {key: [value] * lookups[key] for key, value in values.items()}
+
+
+def _read_blobs(pointers: Sequence[tuple[str, bytes]], *, team_id: int) -> dict[str, Optional[bytes]]:
+    # A request keeps at most one pool's worth of reads queued, so a board with many blobs takes turns with the
+    # requests that arrive after it instead of making them wait for every one of its reads.
+    executor = _get_prefetch_executor()
+    waiting = iter(pointers)
+    in_flight: dict[Future[Optional[bytes]], str] = {}
+    resolved: dict[str, Optional[bytes]] = {}
+
+    def submit_next() -> None:
+        pointer = next(waiting, None)
+        if pointer is not None:
+            key, value = pointer
+            in_flight[executor.submit(decode_stored_value, value, team_id=team_id, cache_key=key)] = key
+
+    try:
+        for _ in range(_PREFETCH_S3_CONCURRENCY):
+            submit_next()
+        while in_flight:
+            done, _ = wait(in_flight, return_when=FIRST_COMPLETED)
+            for future in done:
+                resolved[in_flight.pop(future)] = future.result()
+                submit_next()
+    finally:
+        for future in in_flight:
+            future.cancel()
+    return resolved
 
 
 def fetch_entry(cache_key: str, team_id: int) -> Optional[CachedEntry]:
