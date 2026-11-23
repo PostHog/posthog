@@ -5303,6 +5303,7 @@ describe('CDP API', () => {
                 Object.fromEntries(
                     records.map((value) => {
                         const { job } = parseJSON(value.toString())
+                        expect(job.state.sealed).toEqual(expect.any(String))
                         const opener = new EncryptedFields(api['config'].CDP_SEALED_STATE_KEYS)
                         const row = { id: job.id, teamId: team.id, state: Buffer.from(JSON.stringify(job.state)) }
                         return [job.id, decodeJobState(row, opener).state?.variables]
@@ -5641,12 +5642,18 @@ describe('CDP API', () => {
             })
 
             it.each([
-                ['off', 'off', true],
-                ['shadow', 'shadow', true],
-                ['async on a pod that does not seal', 'async', false],
+                ['in intake mode off', 'off', true, 409, 'batch_unavailable'],
+                ['in intake mode shadow', 'shadow', true, 409, 'batch_unavailable'],
+                [
+                    'in intake mode async, on a pod that does not seal',
+                    'async',
+                    false,
+                    503,
+                    expect.stringContaining('sealing not configured'),
+                ],
             ])(
-                'refuses a batch with 409 for a team in intake mode %s, and sends nothing',
-                async (_name, mode, sealing) => {
+                'refuses a whole batch for a team %s, and sends nothing',
+                async (_name, mode, sealing, status, error) => {
                     setIntakeModes({ [mode]: String(team.id), sealing })
 
                     const res = await sendBatch(TEMPLATE, {
@@ -5654,8 +5661,8 @@ describe('CDP API', () => {
                         recipients: [recipient('ada@example.com')],
                     })
 
-                    expect(res.status).toEqual(409)
-                    expect(res.body).toEqual({ error: 'batch_unavailable' })
+                    expect(res.status).toEqual(status)
+                    expect(res.body).toEqual({ error })
                     expect(intakeRecords()).toEqual([])
                     expect(await storedRuns()).toEqual([])
                 }
