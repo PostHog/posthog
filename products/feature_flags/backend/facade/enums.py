@@ -32,6 +32,10 @@ class FlagEvaluationsMode(LabeledIntEnum):
     #   together. FLAG_EVALUATIONS_UNION_DISABLED makes those queries read events only.
     # - The cohorts API also refuses a new flag-call criterion on a realtime cohort.
     # - Flags keep no `last_called_at` unless FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE is "flag_evaluations".
+    # With `keep_writing_flag_calls_to_events` on the organization's row, ingestion keeps writing every flag call to
+    # events. Every HogQL read still behaves as above, so the mode can be validated while events stays a complete copy.
+    # The facts above that depend on events lacking the calls do not hold then, and
+    # FLAG_EVALUATIONS_READS_FORCE_EVENTS moves the organization back to events.
     FLAG_EVALUATIONS_ONLY = 2, "Flag evaluations only"
 
 

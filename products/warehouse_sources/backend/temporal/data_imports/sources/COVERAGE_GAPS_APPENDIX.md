@@ -12033,10 +12033,10 @@ Diffed against: <https://docs.tryprofound.com/rest-api/changelog>
 
 Re-audited 2026-11-19 against: <https://api.tryprofound.com/openapi.json>
 
-- [ ] `Category topics (GET /v1/org/categories/{category_id}/topics)` — Topic lookup that resolves topic IDs used to filter prompts and reports per category (high)
-- [ ] `Category tags (GET /v1/org/categories/{category_id}/tags)` — Tag lookup for prompts and reports per category (high)
-- [ ] `Category prompts (GET /v1/org/categories/{category_id}/prompts)` — The tracked prompts per category, with topic, tag, region and persona; cursor paged (high)
-- [ ] `Domain segments (GET /v2/domain-segments)` — Domain grouping lookup for citation and visibility analysis; needs organization_id (medium)
+- [x] `Category topics (GET /v1/org/categories/{category_id}/topics)` — Topic lookup that resolves topic IDs used to filter prompts and reports per category (high)
+- [x] `Category tags (GET /v1/org/categories/{category_id}/tags)` — Tag lookup for prompts and reports per category (high)
+- [x] `Category prompts (GET /v1/org/categories/{category_id}/prompts)` — The tracked prompts per category, with topic, tag, region and persona; cursor paged (high)
+- [ ] `Domain segments (GET /v2/domain-segments)` — Domain grouping lookup for citation and visibility analysis; needs organization_id (medium) Skipped: only resolves `view_id` values for agent analytics reports, which this source does not sync.
 - [ ] `Category regions, assets and personas (GET /v1/org/categories/{category_id}/regions; GET /v1/org/categories/{category_id}/assets; GET /v1/org/categories/{category_id}/personas)` — Per-category membership of regions, assets and personas that join to the org-level tables we sync (medium)
 - [ ] `Organization activity logs (GET /v1/organizations/{organization_id}/activity-logs)` — Audit trail of changes in the workspace; cursor paged with date filters (low)
 
