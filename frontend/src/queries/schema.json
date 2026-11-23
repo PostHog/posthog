@@ -40579,6 +40579,17 @@
                 "currency": {
                     "type": ["string", "null"]
                 },
+                "detectedChange": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/MarketingAnalyticsRecommendationDetectedChange"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The change in Google Ads that applied this recommendation, when the synced data shows one. A detected recommendation counts as applied, so it follows the same rules as a resolved one."
+                },
                 "identity": {
                     "$ref": "#/definitions/MarketingAnalyticsRecommendationIdentity"
                 },
@@ -40682,6 +40693,11 @@
         "MarketingAnalyticsRecommendationCpaBenchmarkSource": {
             "description": "The benchmark a recommendation compares a CPA with, in this order of preference:\n- `target_cpa`: the campaign's target CPA in Google Ads, when the campaign bids to one.\n- `campaign`: the campaign's own non-brand CPA, when it has enough conversions to be stable. Only search terms use   it, since a campaign is never compared with itself.\n- `account`: the non-brand CPA of the ad account. Brand searches convert cheaply, so they stay out of it.",
             "enum": ["target_cpa", "campaign", "account"],
+            "type": "string"
+        },
+        "MarketingAnalyticsRecommendationDetectedChange": {
+            "description": "`negative_keyword`: the search is now excluded by a negative keyword. `brand_negative`: the brand searches of the campaigns are now excluded by negative keywords. `keyword_added`: the search is now a keyword in an active Search campaign.",
+            "enum": ["negative_keyword", "brand_negative", "keyword_added"],
             "type": "string"
         },
         "MarketingAnalyticsRecommendationIdentity": {
@@ -40966,6 +40982,10 @@
                 },
                 "customerTable": {
                     "description": "Google Ads customer table, used for the account currency.",
+                    "type": "string"
+                },
+                "keywordTable": {
+                    "description": "Google Ads keyword table, used to tell which searches are already keywords.",
                     "type": "string"
                 },
                 "performanceMaxSearchTermTable": {

@@ -235,6 +235,16 @@ The requester's own GitHub access is not checked; the `code_review_approval:writ
 The run is stamped `manual_review` provenance and the `manual` trigger, and it enters the workflow through `dismiss_stale_approvals` like every other run.
 A refusal writes nothing to GitHub and creates no run, so it cannot leave or remove an approval.
 
+A request for a head whose covering run is a completed refusal or escalation reviews that head again only on new evidence (`logic/rerun_evidence.py`).
+A gate denial is stored as a GATED WAIT, so it is never re-run this way.
+The evidence is the title, the body, and what people with a trusted association wrote in reviews, the discussion and unresolved threads, plus resolving or reopening a thread, a bot's finding included.
+Bots never count otherwise, stamphog's own verdicts and machine users included, so a verdict posted after the context read, or a new bot finding, cannot unlock a re-run.
+Unlike `decision_fingerprint`, the hash leaves out the engine and the policy, so a deploy never re-rolls a refusal.
+A field that goes into the hash must be one a person changes, or the cap is the only thing between a noisy bot and repeated LLM runs.
+Evidence that a finished review of the head already saw re-runs nothing, and a head gets at most `_EVIDENCE_RERUNS_PER_HEAD` evidence re-runs that did not fail or get superseded, so nobody can re-roll the reviewer by switching between two descriptions.
+Every other case, a failed evidence read included, returns the covering run with `created: false`, as before.
+The workflow reads the context again, so evidence that someone restores between the request and that read is reviewed once more. The cap bounds that, and a pushed commit buys a new review anyway, so the workflow does not check the evidence a second time.
+
 ## The silent trigger (a clean external review)
 
 `facade/tasks.py::queue_silent_review` lets ReviewHog start a review of one head after a clean review of it.
