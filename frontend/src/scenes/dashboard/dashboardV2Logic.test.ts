@@ -437,6 +437,80 @@ describe('dashboardV2Logic', () => {
             expect(refreshInsight).not.toHaveBeenCalled()
         })
 
+        it('a tab switch stops the stream loading the tab left behind, and its tiles load when it shows again', async () => {
+            const flags = [
+                FEATURE_FLAGS.DASHBOARD_V2,
+                FEATURE_FLAGS.DASHBOARD_V2_USERS,
+                FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS,
+            ]
+            featureFlagLogic.actions.setFeatureFlags(flags, Object.fromEntries(flags.map((flag) => [flag, true])))
+            const leftTiles = tiles.slice(0, 6).map((tile) => ({ ...tile, group_key: null }))
+            const targetTile = { ...tiles[6], group_key: 'target' }
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/dashboards/21/': () => [
+                        200,
+                        {
+                            ...dashboardResult(21, [...leftTiles, targetTile]),
+                            customization: { groups: { target: { collapsed: false } }, group_display: 'tabs' },
+                        },
+                    ],
+                },
+            })
+            const streamSignals: AbortSignal[] = []
+            boardStream.mockImplementation(async (url, options) => {
+                const tileIds = new URL(url, 'http://localhost').searchParams.get('tile_ids')
+                if (!tileIds) {
+                    throw new Error('stream unavailable')
+                }
+                const ids = tileIds.split(',').map(Number)
+                const signal = options.signal!
+                streamSignals.push(signal)
+                options.onMessage({
+                    id: '',
+                    event: '',
+                    data: JSON.stringify({ type: 'cached', tiles: [], pending: ids }),
+                })
+                if (ids.includes(leftTiles[0].id) && streamSignals.length === 1) {
+                    await new Promise<void>((_, reject) =>
+                        signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+                    )
+                }
+                for (const id of ids) {
+                    const tile = [...leftTiles, targetTile].find((candidate) => candidate.id === id)!
+                    options.onMessage({ id: '', event: '', data: JSON.stringify(computedTile(tile)) })
+                }
+            })
+            router.actions.push(urls.dashboard(21), { tab: 'tiles-ungrouped' })
+
+            logic = dashboardLogic({ id: 21 })
+            logic.mount()
+            await waitFor(() => expect(streamSignals).toHaveLength(1))
+
+            await expectLogic(logic, () => logic.actions.selectTileGroupTab('group-target')).toFinishAllListeners()
+
+            expect(streamSignals[0].aborted).toBe(true)
+            expect(logic.values.waitingTileRefresh?.tileIds).toEqual(
+                expect.arrayContaining(leftTiles.map((tile) => tile.id))
+            )
+            expect(loadedShortIds()).toEqual([targetTile.insight!.short_id])
+            expect(leftTiles.filter((tile) => logic.values.refreshStatus[tile.insight!.short_id]?.loading)).toEqual([])
+
+            await expectLogic(logic, () => logic.actions.selectTileGroupTab('tiles-ungrouped'))
+                .toDispatchActions(['refreshOpenTileGroupsWaiting'])
+                .toFinishAllListeners()
+
+            const reloadedShortIds = [
+                ...boardStream.mock.calls
+                    .slice(2)
+                    .flatMap(([url]) => new URL(url, 'http://localhost').searchParams.get('tile_ids')?.split(',') ?? [])
+                    .map((id) => leftTiles.find((tile) => tile.id === Number(id))?.insight!.short_id),
+                ...loadedShortIds(),
+            ]
+            expect(reloadedShortIds).toEqual(expect.arrayContaining(leftTiles.map((tile) => tile.insight!.short_id)))
+            expect(logic.values.waitingTileRefresh).toBeNull()
+        })
+
         it('leaves a tile the organization had no capacity for to the per-tile path', async () => {
             setDashboardV2(true)
             streamBoard(async (send) => {

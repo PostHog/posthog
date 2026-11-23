@@ -323,7 +323,7 @@ const EDITABLE_PLACEMENTS = [DashboardPlacement.Dashboard, DashboardPlacement.Bu
 type InsightTileRefreshOutcome = 'refreshed' | 'cached' | 'errored' | 'aborted' | 'deferred'
 
 /** How a load ran, so a tile whose load a tab switch stops can load the same way later. */
-interface TileLoadRefresh {
+export interface TileLoadRefresh {
     forceRefresh: boolean
     settings: DashboardSettings
 }
@@ -6182,6 +6182,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return
                 }
                 boardStream?.settledTileIds.forEach((tileId) => streamedTiles.add(tileId))
+                if (boardStream?.stopped) {
+                    // A tab switch stopped the stream, so the tiles it had not delivered wait for their tab to show again.
+                    for (const tile of boardStream.leftTiles) {
+                        streamedTiles.add(tile.id)
+                        actions.abortQuery({
+                            queryId: boardStream.queryId,
+                            queryStartTime: boardStream.startedAt,
+                            shortId: tile.insight.short_id,
+                            deferred: true,
+                        })
+                        settleTile(tile, 'deferred')
+                    }
+                }
                 if (
                     !boardStream &&
                     values.featureFlags[FEATURE_FLAGS.HOGQL_QUERY_SHARING] === true &&
