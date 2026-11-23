@@ -8,6 +8,7 @@ from products.slack_app.backend.logic.progress_phases import (
     done_plan_title,
     intent_from_narrative,
     phase_for_tool_call,
+    phase_line_title,
     tool_call_from_acp_update,
 )
 
@@ -90,6 +91,8 @@ class TestPhaseForToolCall:
         phase = phase_for_tool_call(tool_call)
 
         assert (phase.key if phase else None) == expected
+        if phase:
+            assert phase_line_title(phase, 5) == "Working on it"
 
     @parameterized.expand(
         [

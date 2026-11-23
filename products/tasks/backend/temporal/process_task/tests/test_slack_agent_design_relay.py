@@ -9,6 +9,7 @@ from temporalio.client import WorkflowFailureError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from products.slack_app.backend.facade.api import phase_for_key
 from products.tasks.backend.temporal.process_task.activities.slack_agent_design import (
     AppendSlackAgentDesignStepsInput,
     SlackAgentDesignStream,
@@ -129,6 +130,18 @@ async def _run_relay(
 
 
 class TestSlackAgentDesignRelay:
+    async def test_tool_phase_lines_are_generic(self) -> None:
+        relay = SlackAgentDesignRelayWorkflow()
+        phase = phase_for_key("reading_code")
+        assert phase is not None
+        relay._line_ids[phase.key] = "line-1"
+        relay._phases[phase.key] = phase
+        relay._counts[phase.key] = 4
+
+        chunk = relay._line_chunk(phase.key, "in_progress")
+
+        assert (chunk.title, chunk.details, chunk.status) == ("Working on it", None, "in_progress")
+
     @pytest.mark.parametrize("setup_title", [None, "Starting sandbox"])
     @pytest.mark.timeout(60, func_only=True)
     async def test_untargeted_reply_keeps_collecting_the_final_answer(self, setup_title: str | None) -> None:
@@ -157,12 +170,10 @@ class TestSlackAgentDesignRelay:
             ]
         )
 
-        # Each call's description stays under its line. With no description, the agent's own last
-        # sentence says what the call is for. Slack appends details, so a resent one shows twice.
         assert sorted(calls.final_lines().values()) == [
-            ("Execute SQL query (3 calls)", "Look at the data\nLook into this", "complete"),
-            ("Making changes", None, "complete"),
-            ("Reading the code", "Search for callers", "complete"),
+            ("Working on it", None, "complete"),
+            ("Working on it", None, "complete"),
+            ("Working on it", None, "complete"),
         ]
         assert calls.answer() == "Signups grew."
         assert [(s.plan_title or "").startswith("Done in ") for s in calls.stops] == [True]
@@ -235,7 +246,7 @@ class TestSlackAgentDesignRelay:
         [
             (
                 [("agent_status_update", {"phase": "posthog:Execute SQL query"})],
-                [("Execute SQL query", None, "complete")],
+                [("Working on it", None, "complete")],
             ),
             ([("agent_text_delta", "Hi! What should I look at?")], []),
         ],
@@ -271,8 +282,8 @@ class TestSlackAgentDesignRelay:
         [
             (
                 [("agent_status_update", {"phase": "posthog:Execute SQL query", "activity": "Count weekly signups"})],
-                ("Execute SQL query", "Count weekly signups", "complete"),
-                "Count weekly signups",
+                ("Working on it", None, "complete"),
+                "Working on it",
             ),
             (
                 [("agent_text_delta", "Hi! What should I look at?")],
@@ -353,7 +364,7 @@ class TestSlackAgentDesignRelay:
 
         titles = [title for title, _details, _status in calls.final_lines().values()]
         assert len(titles) == 7
-        assert "Other work (3 steps)" in titles
+        assert titles.count("Working on it") == 7
 
     @pytest.mark.parametrize(
         "cancel, expected_status, expected_title",
