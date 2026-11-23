@@ -200,7 +200,6 @@ export function createRecordingApiAuthMiddleware(options: RecordingApiAuthOption
                 team_id: staffClaims.team_id,
                 actor: staffClaims.actor,
                 reason: staffClaims.reason,
-                pod: staffClaims.pod,
                 path: req.path,
             })
             // getBlock then checks the key belongs to this session, since the path names the team but the key does not.
