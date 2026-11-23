@@ -200,10 +200,16 @@ class TestMailchimpImport(BaseTest):
         assert retried[0] == ("unsubscribed", "0")
         assert {"Left.Person@example.com", "jürgen.müller@example.com"} <= set(self._opt_outs())
 
-    def test_a_contact_leaving_the_list_mid_import_skips_no_one(self) -> None:
-        self._patch(f"{CLIENT}.PAGE_SIZE", 10)
+    @parameterized.expand(
+        [
+            ("within_the_overlap", ["Left.Person@example.com"]),
+            ("beyond_the_overlap", [f"person{number:02}@example.com" for number in range(5)]),
+        ]
+    )
+    def test_contacts_leaving_the_list_mid_import_skip_no_one(self, _name: str, resubscribed: list[str]) -> None:
+        self._patch(f"{CLIENT}.PAGE_SIZE", 20)
         members = self.mailchimp.data["lists"][0]["members"]
-        added = [f"person{number:02}@example.com" for number in range(15)]
+        added = [f"person{number:02}@example.com" for number in range(25)]
         members.extend({"email_address": email, "status": "unsubscribed"} for email in added)
         handle = self.mailchimp.handle
 
@@ -216,7 +222,9 @@ class TestMailchimpImport(BaseTest):
                 and query.get("offset") == "0"
                 and path.endswith("a1b2c3d4e5/members")
             ):
-                members[3]["status"] = "subscribed"
+                for member in members:
+                    if member["email_address"] in resubscribed:
+                        member["status"] = "subscribed"
             return answer
 
         with patch.object(self.mailchimp, "handle", resubscribe_after_first_page):
