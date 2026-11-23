@@ -8,7 +8,7 @@ import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { logger } from '~/common/utils/logger'
 
 import { IntakeMode, IntakeProduceOutcome, IntakeProducer, IntakeRun, PublishSettlement } from './intake-producer'
-import { RunKind } from './message'
+import { RunKind, claimFingerprint } from './message'
 
 export type Run = {
     kind: RunKind
@@ -173,8 +173,14 @@ export class RunIntake {
 
     private async insert(runs: Run[]): Promise<CyclotronV2IdempotentClaim[]> {
         const claims: CyclotronV2IdempotentClaim[] = runs.map(() => ({ outcome: 'created' }))
-        const keyed = runs.flatMap((run, i) => (run.claim ? [{ i, ...run.claim }] : []))
-        const keyless = runs.filter((run) => !run.claim).map((run) => run.invocation)
+        // A run that can reach the intake topic claims a row even without a key, so the consumer replays its copy.
+        const claimOf = (run: Run): Run['claim'] =>
+            run.claim ?? (this.onIntake(run) ? { fingerprint: claimFingerprint(run.invocation.id) } : undefined)
+        const keyed = runs.flatMap((run, i) => {
+            const claim = claimOf(run)
+            return claim ? [{ i, ...claim }] : []
+        })
+        const keyless = runs.filter((run) => !claimOf(run)).map((run) => run.invocation)
         if (keyless.length > 0) {
             await this.deps.hogflowQueue.queueInvocations(keyless)
         }
@@ -185,5 +191,9 @@ export class RunIntake {
             keyed.forEach(({ i }, k) => (claims[i] = claimed[k]))
         }
         return claims
+    }
+
+    private onIntake(run: Run): boolean {
+        return (this.deps.intake?.modeOf(run.invocation.teamId) ?? 'off') !== 'off'
     }
 }
