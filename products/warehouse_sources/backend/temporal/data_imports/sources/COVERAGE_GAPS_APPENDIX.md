@@ -1506,10 +1506,10 @@ Today (13): `account_attributes`, `account_limits`, `configuration_sets`, `keywo
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/pinpoint-sms-voice-v2/2022-03-31/service-2.json>
 
-- [ ] `Pool origination identities (ListPoolOriginationIdentities, POST /)` — join table of which phone numbers and sender IDs belong to each synced pool (high)
-- [ ] `Registration associations (ListRegistrationAssociations, POST /)` — join table that links registrations to the phone numbers and sender IDs they cover (high)
-- [ ] `Registration versions (DescribeRegistrationVersions, POST /)` — gives submission, review and approval history for each registration, with denial reasons (medium)
-- [ ] `Registration field values (DescribeRegistrationFieldValues, POST /)` — gives the submitted company and use case details of each registration (medium)
+- [x] `Pool origination identities (ListPoolOriginationIdentities, POST /)` — join table of which phone numbers and sender IDs belong to each synced pool (high) → `pool_origination_identities` (full refresh, fan-out over `pools`)
+- [x] `Registration associations (ListRegistrationAssociations, POST /)` — join table that links registrations to the phone numbers and sender IDs they cover (high) → `registration_associations` (full refresh, fan-out over `registrations`)
+- [x] `Registration versions (DescribeRegistrationVersions, POST /)` — gives submission, review and approval history for each registration, with denial reasons (medium) → `registration_versions` (full refresh, fan-out over `registrations`)
+- [x] `Registration field values (DescribeRegistrationFieldValues, POST /)` — gives the submitted company and use case details of each registration (medium) → `registration_field_values` (full refresh, fan-out over `registrations`)
 - [ ] `Registration attachments (DescribeRegistrationAttachments, POST /)` — lists documents attached to registrations with upload status (low)
 - [ ] `Registration type definitions (DescribeRegistrationTypeDefinitions, POST /)` — lookup for registration types and their supported countries (low)
 - [ ] `RCS agents (DescribeRcsAgents, POST /)` — lists RCS sender agents with their status and registration (low)
@@ -1918,7 +1918,7 @@ Re-audited 2026-11-19 against <https://getbeamer-api.pages.dev/>: no new gaps wo
 
 ## Beehiiv — gaps
 
-Today (15): `Authors`, `Automations`, `ComplimentaryAccess`, `ConditionSets`, `CustomFields`, `NewsletterLists`, `Podcasts`, `Polls`, `PostTemplates`, `Posts`, `Publications`, `ReferralProgramMilestones`, `Segments`, `Subscriptions`, `Tiers`
+Today (19): `AutomationJourneys`, `Authors`, `Automations`, `ComplimentaryAccess`, `ConditionSets`, `CustomFields`, `NewsletterLists`, `PodcastEpisodes`, `Podcasts`, `PollResponses`, `Polls`, `PostTemplates`, `Posts`, `Publications`, `ReferralProgramMilestones`, `SegmentMembers`, `Segments`, `Subscriptions`, `Tiers`
 
 Diffed against: <https://developers.beehiiv.com/api-reference>
 
@@ -1926,11 +1926,11 @@ Diffed against: <https://developers.beehiiv.com/api-reference>
 
 Re-audited 2026-11-19 against: <https://developers.beehiiv.com/llms.txt>
 
-- [ ] `Podcast episodes (GET /publications/{publication_id}/podcasts/{podcast_id}/episodes)` — analyze episodes per podcast we already sync (high)
-- [ ] `Poll responses (GET /publications/{publication_id}/polls/{poll_id}/responses)` — analyze subscriber answers to the polls we sync (high)
-- [ ] `Automation journeys (GET /publications/{publication_id}/automations/{automation_id}/journeys)` — measure subscriber progress and completion through the automations we sync (medium)
+- [x] `Podcast episodes (GET /publications/{publication_id}/podcasts/{podcast_id}/episodes)` — analyze episodes per podcast we already sync (high)
+- [x] `Poll responses (GET /publications/{publication_id}/polls/{poll_id}/responses)` — analyze subscriber answers to the polls we sync (high)
+- [x] `Automation journeys (GET /publications/{publication_id}/automations/{automation_id}/journeys)` — measure subscriber progress and completion through the automations we sync (medium)
 - [ ] `Publication tags (GET /publication_tags)` — list the tag names used on subscriptions (medium)
-- [ ] `Segment members (GET /publications/{publication_id}/segments/{segment_id}/members)` — link subscribers to the segments we sync (medium)
+- [x] `Segment members (GET /publications/{publication_id}/segments/{segment_id}/members)` — link subscribers to the segments we sync (medium)
 - [ ] `Automation emails (GET /publications/{publication_id}/automations/{automation_id}/emails)` — see the emails inside each automation (low)
 - [ ] `Newsletter list subscriptions (GET /publications/{publication_id}/newsletter_lists/{newsletter_list_id}/subscriptions)` — link subscribers to the newsletter lists we sync (low)
 - [ ] `Paid recommendations offers and partnerships (GET /publications/{publication_id}/paid_recommendations/offers; GET /publications/{publication_id}/paid_recommendations/partnerships)` — analyze paid recommendation growth deals (low)
@@ -1989,15 +1989,15 @@ Note: The docs are HTML-only with no downloadable OpenAPI; I enumerated the API 
 
 ## Bexio — gaps
 
-Today (24): `account_groups`, `accounts`, `bank_accounts`, `bills`, `business_years`, `contact_groups`, `contact_relations`, `contacts`, `currencies`, `deliveries`, `expenses`, `invoices`, `items`, `journal_entries`, `manual_entries`, `notes`, `orders`, `projects`, `purchase_orders`, `quotes`, `tasks`, `taxes`, `timesheets`, `users`
+Today (31): `account_groups`, `accounts`, `bank_accounts`, `bills`, `business_years`, `client_services`, `contact_groups`, `contact_relations`, `contacts`, `currencies`, `deliveries`, `expenses`, `invoice_item_positions`, `invoices`, `items`, `journal_entries`, `manual_entries`, `notes`, `order_item_positions`, `orders`, `outgoing_payments`, `project_states`, `project_types`, `projects`, `purchase_orders`, `quote_item_positions`, `quotes`, `tasks`, `taxes`, `timesheets`, `users`
 
 Diffed against: <https://docs.bexio.com/>
 
 - [ ] `Invoice payments (GET /2.0/kb_invoice/{invoice_id}/payment)` — track payments received per invoice we sync, for cash collection and open items (high)
-- [ ] `Document positions (GET /2.0/{kb_document_type}/{document_id}/kb_position_article)` — line items on invoices, quotes and orders, for revenue by product (high)
-- [ ] `Outgoing payments (GET /4.0/purchase/outgoing-payments)` — payments made against the bills we sync (high)
-- [ ] `Client services (GET /2.0/client_service)` — resolve the service id on timesheets we sync (high)
-- [ ] `Project states and types (GET /2.0/pr_project_state; GET /2.0/pr_project_type)` — resolve state and type ids on projects we sync (high)
+- [x] `Document positions (GET /2.0/{kb_document_type}/{document_id}/kb_position_article)` — line items on invoices, quotes and orders, for revenue by product (high)
+- [x] `Outgoing payments (GET /4.0/purchase/outgoing-payments)` — payments made against the bills we sync (high)
+- [x] `Client services (GET /2.0/client_service)` — resolve the service id on timesheets we sync (high)
+- [x] `Project states and types (GET /2.0/pr_project_state; GET /2.0/pr_project_type)` — resolve state and type ids on projects we sync (high)
 - [ ] `Payroll employees (GET /4.0/payroll/employees)` — employee roster for HR and labor cost analysis (medium)
 - [ ] `Invoice reminders (GET /2.0/kb_invoice/{invoice_id}/kb_reminder)` — dunning history for overdue invoices (medium)
 - [ ] `Bank payments (GET /4.0/banking/payments)` — payments sent from the bank accounts we sync (medium)
@@ -2027,7 +2027,7 @@ Note: The official api-specs repository supplies the order, customer, channel, m
 
 ## Bigeye — gaps
 
-Today (12): `Collections`, `Deltas`, `Issues`, `LineageGraph`, `MetricRevisions`, `MetricRuns`, `MetricScorecard`, `Metrics`, `SchemaChanges`, `Sources`, `Tables`, `Workspaces`
+Today (16): `Collections`, `Columns`, `CustomRules`, `Deltas`, `Groups`, `Issues`, `LineageGraph`, `MetricRevisions`, `MetricRuns`, `MetricScorecard`, `Metrics`, `SchemaChanges`, `Sources`, `Tables`, `Users`, `Workspaces`
 
 Diffed against: <https://docs.bigeye.com/llms.txt>
 
@@ -2042,10 +2042,10 @@ Note: The official index links supplied OpenAPI definitions for every listed gap
 
 Re-audited 2026-11-19 against: <https://docs.bigeye.com/llms.txt>
 
-- [ ] `Users (GET /api/v1/users)` — resolve owner and assignee IDs on the issues and metrics we sync (high)
-- [ ] `Columns (POST /api/v1/columns/fetch)` — column catalog that metric configuration points at, for coverage by column (high)
-- [ ] `Custom rules (POST /api/v1/custom-rules/fetch)` — user-defined SQL data quality rules and their status (medium)
-- [ ] `Groups (GET /api/v1/groups)` — user groups for resolving team ownership and access (medium)
+- [x] `Users (GET /api/v1/users)` — resolve owner and assignee IDs on the issues and metrics we sync (high)
+- [x] `Columns (POST /api/v1/columns/fetch)` — column catalog that metric configuration points at, for coverage by column (high)
+- [x] `Custom rules (POST /api/v1/custom-rules/fetch)` — user-defined SQL data quality rules and their status (medium)
+- [x] `Groups (GET /api/v1/groups)` — user groups for resolving team ownership and access (medium)
 - [ ] `Dimensions (GET /api/v1/dimensions)` — data quality dimension lookup (freshness, volume, and so on) for grouping metrics (low)
 - [ ] `Named schedules (GET /api/v1/schedules)` — schedule lookup that explains metric run timing (low)
 - [ ] `Virtual tables (GET /api/v1/virtual-tables)` — SQL-defined virtual tables monitored alongside real tables (low)
@@ -2207,17 +2207,17 @@ Note: Source directory has no dynamic table discovery — bland_ai.py exposes a 
 
 Re-audited 2026-11-19 against: <https://docs.bland.ai/llms.txt>
 
-- [ ] `Contacts (GET /v1/contacts)` — CRM contacts with per-agent memories, the people behind the calls and SMS threads we sync (high)
-- [ ] `Outcomes (GET /v1/dispositions)` — outcome definitions that classify call results, for reporting call outcomes (medium)
-- [ ] `Triage issues (GET /v1/triage/issues)` — flagged call issues from the Triage monitor, a quality and incident view over calls (medium)
-- [ ] `Alarm events (GET /v1/alarms/history; GET /v1/alarms)` — alarm configurations and the events they fired, for monitoring agent health (medium)
+- [x] `Contacts (GET /v1/contacts)` — CRM contacts with per-agent memories, the people behind the calls and SMS threads we sync (high)
+- [x] `Outcomes (GET /v1/dispositions)` — outcome definitions that classify call results, for reporting call outcomes (medium)
+- [x] `Triage issues (GET /v1/triage/issues)` — flagged call issues from the Triage monitor, a quality and incident view over calls (medium)
+- [x] `Alarm events (GET /v1/alarms/history; GET /v1/alarms)` — alarm configurations and the events they fired, for monitoring agent health (medium)
 - [ ] `Organization members (GET /v1/orgs/{org_id}/members)` — team member lookup for audit logs and ownership (low)
 - [ ] `Custom tools (GET /v1/tools)` — tool inventory that agents and pathways call (low)
 - [ ] `Guard rails (GET /v1/guard_rails)` — guard rail rules applied to agent conversations (low)
 - [ ] `Block rules (GET /v1/blocked_numbers)` — blocked caller rules on inbound numbers (low)
 - [ ] `Prompts (GET /v1/prompts)` — saved prompt library (low)
 
-Note (2026-11-19): Listed the GET pages in llms.txt, then read each candidate page as .md for params and the HTML page for the exact path (the .md omits it). Contacts uses page paging, dispositions use page and limit, triage issues use keyset paging. The v2 agents API (api-v2) was not diffed. SIP, voice cloning, memory and vectors, evals templates and billing were left out as config or private data.
+Note (2026-11-19): Listed the GET pages in llms.txt, then read each candidate page as .md for params and the HTML page for the exact path (the .md omits it). Contacts uses offset and limit, dispositions use page and limit, triage issues use keyset paging. The v2 agents API (api-v2) was not diffed. SIP, voice cloning, memory and vectors, evals templates and billing were left out as config or private data.
 
 ## Blogger — adequate
 
@@ -2335,12 +2335,12 @@ Today (9): `agents`, `brands`, `contact_groups`, `contacts`, `groups`, `satisfac
 
 Diffed against: <https://storage.googleapis.com/cdn-bolddesk/api-docs/v1.0/openapi.v238.json>
 
-- [ ] `Ticket statuses (GET /api/v1/ticket_collections/statuses); priorities (GET /api/v1/ticket_collections/priorities); sources (GET /api/v1/ticket_collections/sources)` — lookups that resolve the status, priority and source IDs on the tickets we sync (high)
-- [ ] `Ticket metrics (GET /api/v1/tickets/ticket_metrics)` — first response and resolution times per ticket, the headline support metrics (high)
+- [x] `Ticket statuses (GET /api/v1/ticket_collections/statuses); priorities (GET /api/v1/ticket_collections/priorities); sources (GET /api/v1/ticket_collections/sources)` — lookups that resolve the status, priority and source IDs on the tickets we sync (high)
+- [x] `Ticket metrics (GET /api/v1/tickets/ticket_metrics)` — first response and resolution times per ticket, the headline support metrics (high)
 - [ ] `Ticket fields (GET /api/v1/ticket_fields)` — custom field definitions that explain custom values on tickets (medium)
 - [ ] `Ticket histories (GET /api/v1/tickets/histories)` — status, assignee and field change history across tickets (medium)
-- [ ] `SLAs (GET /api/v1/slas)` — SLA policy lookup for breach and compliance analysis (medium)
-- [ ] `Knowledge base articles (GET /api/v1/kb/articles); categories (GET /api/v1/kb/categories); sections (GET /api/v1/kb/sections)` — help center content for deflection and article usage analysis (medium)
+- [x] `SLAs (GET /api/v1/slas)` — SLA policy lookup for breach and compliance analysis (medium)
+- [x] `Knowledge base articles (GET /api/v1/kb/articles); categories (GET /api/v1/kb/categories); sections (GET /api/v1/kb/sections)` — help center content for deflection and article usage analysis (medium)
 - [ ] `Chat conversations (GET /api/v1/chat/conversations)` — the live chat channel, next to tickets (medium)
 - [ ] `Roles (GET /api/v1/roles)` — agent role lookup for the agents we sync (low)
 - [ ] `Canned responses (GET /api/v1/canned_responses)` — saved reply library (low)
@@ -2957,7 +2957,7 @@ Note: Parsed the OpenAPI YAML served at /docs/openapi.en.yaml (Scalar page). The
 
 ## Chargebee — gaps
 
-Today (13): `CreditUnits`, `Customers`, `Disputes`, `Einvoices`, `Events`, `Invoices`, `ItemPrices`, `Items`, `Meters`, `Orders`, `PaymentSchedules`, `Subscriptions`, `Transactions`
+Today (17): `Coupons`, `CreditNotes`, `CreditUnits`, `Customers`, `Disputes`, `Einvoices`, `Events`, `Invoices`, `ItemPrices`, `Items`, `Meters`, `Orders`, `PaymentSchedules`, `PaymentSources`, `Subscriptions`, `Transactions`, `Usages`
 
 Diffed against: <https://raw.githubusercontent.com/chargebee/openapi/main/spec/chargebee_api_v2_pc_v2_spec.json>
 
@@ -2971,18 +2971,20 @@ Note: `metered_features` has only write endpoints (create, archive, reactivate, 
 
 Re-audited 2026-11-19 against: <https://raw.githubusercontent.com/chargebee/openapi/main/spec/chargebee_api_v2_pc_v2_spec.json>
 
-- [ ] `Credit notes (GET /credit_notes)` — refunds and credits issued against invoices, needed with invoices to get net revenue (high)
-- [ ] `Coupons (GET /coupons)` — discount definitions that invoices and subscriptions reference (medium)
+- [x] `Credit notes (GET /credit_notes)` — refunds and credits issued against invoices, needed with invoices to get net revenue (high)
+- [x] `Coupons (GET /coupons)` — discount definitions that invoices and subscriptions reference (medium)
 - [ ] `Coupon codes (GET /coupon_codes)` — individual redeemable codes under each coupon set (low)
 - [ ] `Item families (GET /item_families)` — lookup resolving the item_family_id carried on items (medium)
 - [ ] `Promotional credits (GET /promotional_credits)` — credit grants and deductions on customer accounts (medium)
-- [ ] `Payment sources (GET /payment_sources)` — customer payment methods with type and status, resolves payment_source_id on subscriptions and transactions (medium)
+- [x] `Payment sources (GET /payment_sources)` — customer payment methods with type and status, resolves payment_source_id on subscriptions and transactions (medium)
 - [ ] `Quotes (GET /quotes)` — sales quotes and their status for quote-to-subscription analysis (low)
-- [ ] `Usages (GET /usages)` — metered usage records on subscriptions for classic usage billing (medium)
+- [x] `Usages (GET /usages)` — metered usage records on subscriptions for classic usage billing (medium)
 - [ ] `Features (GET /features)` — feature catalog behind entitlements (low)
 - [ ] `Unbilled charges (GET /unbilled_charges)` — charges queued for the next invoice (low)
 
 Note (2026-11-19): Listed all GET routes in the pc_v2 OpenAPI spec and removed the ones we sync or that need a parent id (ledger_operations, grant_blocks, ramps, addresses). The list routes above need no required filter. Usages may need a filter such as subscription id in practice, so check before building. Existing appendix skips (email_logs, ledger_entries, metered_features) are not repeated. Gateway logs, hosted pages and webhook endpoints were excluded as plumbing.
+
+Note (2026-11-22): Credit notes, coupons, payment sources and usages were built. The pc_v2 spec gives `GET /usages` no required filter, so it is a site-wide list. A usage is read through `/subscriptions/{id}/usages`, so the table keys on `subscription_id` and `id`. Coupons sync as full refresh only, because a coupon's `updated_at` does not change when its `redemptions` count changes.
 
 ## Chargedesk — adequate
 
@@ -3202,13 +3204,13 @@ Today (21): `brands`, `carriers`, `chart_of_accounts`, `customers`, `locations`,
 
 Diffed against: <https://jsapi.apiary.io/apis/dearinventory.apib>
 
-- [ ] `Transactions (GET /transactions)` — account ledger transactions by date range, the accounting detail behind sales and purchases (high)
-- [ ] `Journals (GET /journal)` — manual and system journal list with status (medium)
-- [ ] `Customer credits (GET /ref/customer/credits)` — open credits per customer, ties to sales credit notes (medium)
+- [x] `Transactions (GET /transactions)` — account ledger transactions by date range, the accounting detail behind sales and purchases (high)
+- [x] `Journals (GET /journal)` — manual and system journal list with status (medium)
+- [x] `Customer credits (GET /ref/customer/credits)` — open credits per customer, ties to sales credit notes (medium)
 - [ ] `Supplier deposits (GET /ref/supplier/deposits)` — deposits paid to suppliers and their used state (medium)
 - [ ] `CRM leads (GET /crm/lead)` — lead records with modified-since filter (medium)
 - [ ] `CRM opportunities (GET /crm/opportunity)` — sales pipeline opportunities (medium)
-- [ ] `Production order list (GET /production/orderList)` — manufacturing orders with status and dates (medium)
+- [x] `Production order list (GET /production/orderList)` — manufacturing orders with status and dates (medium)
 - [ ] `Inventory write-off list (GET /inventoryWriteOffList)` — stock write-offs, a stock movement type not in adjustments (medium)
 - [ ] `Product discounts (GET /reference/discount)` — discount definitions applied to sales (low)
 - [ ] `Bank accounts (GET /ref/account/bank)` — bank account lookup for payments (low)
@@ -3357,7 +3359,7 @@ Re-audited 2026-11-19 against <https://developer.clari.com/default/documentation
 
 ## Clarifai — gaps
 
-Today (14): `annotations`, `collaborators`, `concept_relations`, `concepts`, `dataset_inputs`, `dataset_versions`, `datasets`, `evaluations`, `inputs`, `model_versions`, `models`, `tasks`, `workflow_versions`, `workflows`
+Today (18): `annotations`, `apps`, `collaborators`, `concept_relations`, `concepts`, `dataset_inputs`, `dataset_versions`, `datasets`, `evaluations`, `inputs`, `model_versions`, `models`, `pipeline_version_runs`, `pipeline_versions`, `pipelines`, `tasks`, `workflow_versions`, `workflows`
 
 Diffed against: <https://raw.githubusercontent.com/Clarifai/clarifai-python-grpc/master/clarifai_grpc/grpc/api/service_pb2.py>
 
@@ -3376,10 +3378,10 @@ Note: Vendor Swagger and documentation hosts failed DNS resolution, so the offic
 
 Re-audited 2026-11-19 against: <https://raw.githubusercontent.com/Clarifai/clarifai-python-grpc/master/clarifai_grpc/grpc/api/service_pb2.py>
 
-- [ ] `Apps (ListApps, GET /v2/users/{user_id}/apps)` — Inventory of apps for the user; the source is pinned to one app_id today, so this is the parent list for all app-level tables (high)
-- [ ] `Pipelines (ListPipelines, GET /v2/users/{user_id}/apps/{app_id}/pipelines)` — Pipeline definitions in the app, the newer orchestration object next to workflows (medium)
-- [ ] `Pipeline versions (ListPipelineVersions, GET /v2/users/{user_id}/apps/{app_id}/pipelines/{pipeline_id}/versions)` — Version history per pipeline, fan-out under pipelines (medium)
-- [ ] `Pipeline version runs (ListPipelineVersionRuns, GET /v2/users/{user_id}/apps/{app_id}/pipelines/{pipeline_id}/versions/{pipeline_version_id}/runs)` — Run history and status of pipeline executions, to measure failures and volume (medium)
+- [x] `Apps (ListApps, GET /v2/users/{user_id}/apps)` — Inventory of apps for the user; the source is pinned to one app_id today, so this is the parent list for all app-level tables (high)
+- [x] `Pipelines (ListPipelines, GET /v2/users/{user_id}/apps/{app_id}/pipelines)` — Pipeline definitions in the app, the newer orchestration object next to workflows (medium)
+- [x] `Pipeline versions (ListPipelineVersions, GET /v2/users/{user_id}/apps/{app_id}/pipelines/{pipeline_id}/versions)` — Version history per pipeline, fan-out under pipelines (medium)
+- [x] `Pipeline version runs (ListPipelineVersionRuns, GET /v2/users/{user_id}/apps/{app_id}/pipelines/{pipeline_id}/versions/{pipeline_version_id}/runs)` — Run history and status of pipeline executions, to measure failures and volume (medium)
 - [ ] `Deployments (ListDeployments, GET /v2/users/{user_id}/deployments)` — Model deployments on compute, to see what is serving and where (medium)
 - [ ] `Compute clusters (ListComputeClusters, GET /v2/users/{user_id}/compute_clusters)` — Compute infrastructure the user owns, parent for nodepools and deployments (low)
 - [ ] `Nodepools (ListNodepools, GET /v2/users/{user_id}/compute_clusters/{compute_cluster_id}/nodepools)` — Nodepool capacity and config per cluster, fan-out under compute clusters (low)
@@ -4184,7 +4186,7 @@ Note: Coupa Core API is very large (several hundred documented resources across 
 
 ## Courier — gaps
 
-Today (19): `AudienceMembers`, `Audiences`, `AuditEvents`, `Automations`, `Brands`, `DigestInstances`, `JourneyVersions`, `Journeys`, `ListSubscriptions`, `Lists`, `MessageHistory`, `Messages`, `NotificationTemplateVersions`, `NotificationTemplates`, `PreferenceChanges`, `PreferenceSections`, `PreferenceTopics`, `TenantUsers`, `Tenants`
+Today (23): `AudienceMembers`, `Audiences`, `AuditEvents`, `AutomationRuns`, `Automations`, `Brands`, `Broadcasts`, `DigestInstances`, `JourneyRuns`, `JourneyVersions`, `Journeys`, `ListSubscriptions`, `Lists`, `MessageHistory`, `Messages`, `NotificationTemplateVersions`, `NotificationTemplates`, `PreferenceChanges`, `PreferenceSections`, `PreferenceTopics`, `TenantTemplates`, `TenantUsers`, `Tenants`
 
 Diffed against: <https://www.courier.com/docs/llms.txt>
 
@@ -4205,10 +4207,10 @@ Note: The payload's docs URLs (www.courier.com/docs/reference/...) now 404; the 
 
 Re-audited 2026-11-19 against: <https://www.courier.com/docs/_llms/api-reference.txt>
 
-- [ ] `Journey runs (GET /journeys/runs)` — Execution history of journeys, newest first, with status filters, for flow success and failure rates (high)
-- [ ] `Automation runs (GET /automations/runs)` — Run history of the automations we already sync (medium)
-- [ ] `Broadcasts (GET /broadcasts)` — Broadcast sends to lists or audiences, with cursor paging (medium)
-- [ ] `Templates in a tenant (GET /tenants/{tenant_id}/templates)` — Tenant-specific template overrides for tenants we already sync (low)
+- [x] `Journey runs (GET /journeys/runs)` — Execution history of journeys, newest first, with status filters, for flow success and failure rates (high) — added as `JourneyRuns`
+- [x] `Automation runs (GET /automations/runs)` — Run history of the automations we already sync (medium) — added as `AutomationRuns`
+- [x] `Broadcasts (GET /broadcasts)` — Broadcast sends to lists or audiences, with cursor paging (medium) — added as `Broadcasts`
+- [x] `Templates in a tenant (GET /tenants/{tenant_id}/templates)` — Tenant-specific template overrides for tenants we already sync (low) — added as `TenantTemplates`
 
 Note (2026-11-19): Used the API reference index and the per-page OpenAPI snippets to confirm each path. Journey and automation runs also have step lists per run (fan-out) that were left out. Providers and routing strategies stay excluded as configuration, as in the earlier audit.
 
@@ -4245,10 +4247,10 @@ Today (12): `AffiliateInvites`, `Affiliates`, `CreditAccounts`, `Customers`, `Di
 
 Diffed against: <https://docs.creem.io/api-reference/openapi.json>
 
-- [ ] `Affiliate commissions (GET /v1/affiliates/{id}/commissions)` — Commission rows per affiliate, for payout and attribution analysis (high)
-- [ ] `Credit account entries (GET /v1/customer-credits/accounts/{id}/entries)` — Ledger of credit movements for the CreditAccounts we already sync (medium)
-- [ ] `Product groups (GET /v1/product-groups)` — Lookup that groups products we already sync (medium)
-- [ ] `Product price versions (GET /v1/products/{id}/prices)` — Price history per product (low)
+- [x] `Affiliate commissions (GET /v1/affiliates/{id}/commissions)` — Commission rows per affiliate, for payout and attribution analysis (high)
+- [x] `Credit account entries (GET /v1/customer-credits/accounts/{id}/entries)` — Ledger of credit movements for the CreditAccounts we already sync (medium)
+- [x] `Product groups (GET /v1/product-groups)` — Lookup that groups products we already sync (medium)
+- [x] `Product price versions (GET /v1/products/{id}/prices)` — Price history per product (low)
 - [ ] `Customer orders (GET /v1/customers/{id}/orders)` — Per-customer orders, may overlap Transactions (low)
 
 Note: Parsed the OpenAPI file and compared every GET path with the synced tables. Affiliate commissions, credit entries and product prices need a request per parent. Excluded webhooks, single-record GETs, stats/summary (aggregate), and consumed-units lookups.
@@ -4259,10 +4261,10 @@ Today (8): `conversations`, `helpdesk_articles`, `helpdesk_locales`, `messages`,
 
 Diffed against: <https://docs.crisp.chat/references/rest-api/v1/>
 
-- [ ] `Teams (GET /v1/website/{website_id}/teams/list/{page_number})` — Operator teams, a lookup for team assignment on conversations and operators we sync (high)
-- [ ] `Website inboxes (GET /v1/website/{website_id}/inboxes/list/{page_number})` — Inbox definitions, a lookup for the inbox a conversation belongs to (medium)
-- [ ] `Conversation events (GET /v1/website/{website_id}/conversation/{session_id}/events/{page_number})` — Stacked events inside each conversation, such as state and routing changes (medium)
-- [ ] `Helpdesk locale feedbacks (GET /v1/website/{website_id}/helpdesk/feedback/list/{locale}/{type}/{page_number})` — Reader ratings on helpdesk articles we already sync (medium)
+- [x] `Teams (GET /v1/website/{website_id}/teams/list/{page_number})` — Operator teams, a lookup for team assignment on conversations and operators we sync (high) → `teams` (full refresh)
+- [x] `Website inboxes (GET /v1/website/{website_id}/inboxes/list/{page_number})` — Inbox definitions, a lookup for the inbox a conversation belongs to (medium) → `inboxes` (full refresh)
+- [x] `Conversation events (GET /v1/website/{website_id}/conversation/{session_id}/events/{page_number})` — Stacked events inside each conversation, such as state and routing changes (medium) → `conversation_events` (full refresh, fan-out over `conversations`)
+- [x] `Helpdesk locale feedbacks (GET /v1/website/{website_id}/helpdesk/feedback/list/{locale}/{type}/{page_number})` — Reader ratings on helpdesk articles we already sync (medium) → `helpdesk_feedbacks` (full refresh, fan-out over `helpdesk_locales`, `articles` type only)
 - [ ] `Campaign templates (GET /v1/website/{website_id}/campaigns/templates/{page_number})` — Campaign template catalog for the website (low)
 - [ ] `Conversation files (GET /v1/website/{website_id}/conversation/{session_id}/files/{page_number})` — File attachment metadata per conversation (low)
 
@@ -4391,14 +4393,14 @@ Note: Pulled the raw Postman collection JSON behind the published documenter lin
 
 ## Cyberimpact — gaps
 
-Today (13): `archived_mailings`, `bounced_members`, `custom_fields`, `group_members`, `groups`, `mailing_clicks`, `mailing_opens`, `mailing_stats`, `members`, `scheduled_mailings`, `sent_mailings`, `templates`, `unsubscribed_members`
+Today (18): `archived_mailings`, `bounced_members`, `custom_fields`, `group_members`, `groups`, `mailing_clicks`, `mailing_deliveries`, `mailing_hard_bounces`, `mailing_opens`, `mailing_soft_bounces`, `mailing_stats`, `mailing_stopped_recipients`, `mailing_unsubscribes`, `members`, `scheduled_mailings`, `sent_mailings`, `templates`, `unsubscribed_members`
 
 Diffed against: <https://api.cyberimpact.com/docs/openapi.yaml>
 
-- [ ] `Mailing delivered recipients (GET /mailings/{id}/recipients/delivered)` — who actually received each mailing, the base for delivery rate against opens and clicks (high)
-- [ ] `Mailing hard and soft bounces (GET /mailings/{id}/recipients/hard-bounced; GET /mailings/{id}/recipients/soft-bounced)` — per-mailing bounce lists to find which campaigns hurt list quality (medium)
-- [ ] `Mailing unsubscribes (GET /mailings/{id}/recipients/unsubscribed)` — which mailing caused each unsubscribe (medium)
-- [ ] `Mailing stopped recipients (GET /mailings/{id}/recipients/stopped)` — recipients skipped because the send was stopped (low)
+- [x] `Mailing delivered recipients (GET /mailings/{id}/recipients/delivered)` — who actually received each mailing, the base for delivery rate against opens and clicks (high) → `mailing_deliveries` (full refresh, fan-out over `sent_mailings`)
+- [x] `Mailing hard and soft bounces (GET /mailings/{id}/recipients/hard-bounced; GET /mailings/{id}/recipients/soft-bounced)` — per-mailing bounce lists to find which campaigns hurt list quality (medium) → `mailing_hard_bounces`, `mailing_soft_bounces` (full refresh, fan-out over `sent_mailings`)
+- [x] `Mailing unsubscribes (GET /mailings/{id}/recipients/unsubscribed)` — which mailing caused each unsubscribe (medium) → `mailing_unsubscribes` (full refresh, fan-out over `sent_mailings`)
+- [x] `Mailing stopped recipients (GET /mailings/{id}/recipients/stopped)` — recipients skipped because the send was stopped (low) → `mailing_stopped_recipients` (full refresh, fan-out over `sent_mailings`)
 - [ ] `Member consent (GET /members/{key}/consent)` — consent details per member for compliance reporting; needs fan-out over members (low)
 
 Note: Parsed the OpenAPI spec (34 paths). Existing tables cover members, groups, group members, custom fields, mailing lists, stats, opens, clicks and templates. The missing routes are the other per-mailing recipient lists, which follow the same fan-out as mailing_opens and mailing_clicks. /members/{key}/mailings is a per-member view of data already available per mailing, so it was excluded. Writes, batches, tokens and ping were excluded.
