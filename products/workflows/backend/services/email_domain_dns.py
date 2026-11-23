@@ -174,7 +174,7 @@ def _resolve(resolver: dns.resolver.Resolver, lookup: _Lookup) -> list[str] | No
 
 def _normalized_answer(rdata: dns.rdata.Rdata) -> str | None:
     if isinstance(rdata, TXT):
-        return b"".join(rdata.strings).decode("utf-8", errors="replace").strip().strip('"')
+        return b"".join(rdata.strings).decode("utf-8", errors="replace").strip()
     if isinstance(rdata, CNAME):
         return _normalized_hostname(rdata.target.to_text())
     if isinstance(rdata, MX):
@@ -187,9 +187,10 @@ def _normalized_hostname(hostname: str) -> str:
 
 
 def _is_published(record: EmailDomainStatusRecord, answers: list[str]) -> bool:
+    if record.kind == Kind.DMARC:
+        return len(_dmarc_policies(answers)) == 1
+    answers = [answer.strip('"') for answer in answers]
     match record.kind, record.type:
-        case Kind.DMARC, _:
-            return len(_dmarc_policies(answers)) == 1
         case Kind.SPF | Kind.MAIL_FROM_SPF, _:
             # A second SPF record at the same name makes SPF fail for all mail from it (RFC 7208, 4.5).
             spf_records = [answer for answer in answers if _is_spf(answer)]

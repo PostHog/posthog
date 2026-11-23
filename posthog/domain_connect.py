@@ -37,7 +37,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.security.oob_domains import matched_oob_domain
 
 logger = logging.getLogger(__name__)
-_DMARC_VERSION = re.compile(r"v\s*=\s*dmarc1", re.IGNORECASE)
+_DMARC_VERSION = re.compile(r"v\s*=\s*dmarc1\s*(;|$)", re.IGNORECASE)
 
 # Maps _domainconnect TXT record values (provider endpoints) to display names.
 # Display names must match DomainConnectProviderName in schema-general.ts — run
@@ -410,8 +410,8 @@ def _dmarc_absence_confirmed(domain: str) -> bool:
         logger.info("security.oob_domain_seen domain=%s guard=domain_connect", oob_domain)
         # Same answer as a lookup that failed: absence is not confirmed, so no caller claims it.
         return False
-    organizational_domain = extract_root_domain_and_host(domain, include_private_suffixes=True).root_domain
-    return all(_no_dmarc_record_at(name) for name in dict.fromkeys((domain, organizational_domain)))
+    organizational_domain = tldextract.extract(domain, include_psl_private_domains=True).top_domain_under_public_suffix
+    return all(_no_dmarc_record_at(name) for name in dict.fromkeys((domain, organizational_domain or domain)))
 
 
 def _no_dmarc_record_at(domain: str) -> bool:

@@ -163,6 +163,14 @@ class TestOneClickEmailDomainSetup(EmailDomainConnectTestCase):
         }
         assert self.status_body(sender)["status"] == "verified"
 
+    def test_approved_setup_publishes_dmarc_beneath_a_parent_record_receivers_ignore(self) -> None:
+        self.world.dns.publish_txt(f"_dmarc.{ROOT_DOMAIN}", "v=DMARC10; p=reject")
+        sender = self.create_sender(f"hello@{DOMAIN}")
+
+        self.world.domain_connect.apply(self.apply_url(sender).json()["url"])
+
+        assert self.status_body(sender)["status"] == "verified"
+
     @parameterized.expand(
         [
             ("dmarc_lookup_times_out", lambda world: world.faults.inject(DMARC_LOOKUP, DnsFault.TIMEOUT)),

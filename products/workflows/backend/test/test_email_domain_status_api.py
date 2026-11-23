@@ -673,6 +673,7 @@ class TestEmailDomainDnsLookups(EmailDomainApiTestCase):
         [
             ("two_policies_at_the_organizational_domain", [], ["v=DMARC1; p=reject", "v=DMARC1; p=none"]),
             ("version_tag_other_than_dmarc1", [], ["v=DMARC10; p=reject"]),
+            ("policy_wrapped_in_literal_quotes", [], ['\\"v=DMARC1; p=reject\\"']),
             ("two_policies_at_the_subdomain", ["v=DMARC1; p=none", "v=DMARC1; p=quarantine"], ["v=DMARC1; p=reject"]),
         ]
     )
