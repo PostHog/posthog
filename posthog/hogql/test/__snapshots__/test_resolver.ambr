@@ -4034,7 +4034,6 @@
             table_type: {
               alias: "e"
               table_type: {
-                moved_filter_values: []
                 table: {
                   description: "Aggregated metadata for session recordings (counts, URLs, console/activity stats); one row per session. Holds metadata only, not the recording snapshots. Join to events/persons via `session_id`/`distinct_id`.",
                   fields: {
@@ -4642,7 +4641,6 @@
                   table_type: {
                     alias: "s"
                     table_type: {
-                      moved_filter_values: []
                       table: {
                         description: "Aggregated user sessions (one row per session), with entry/exit URLs, attribution, and duration. Join from events via `events.$session_id = sessions.session_id`.",
                         fields: {
@@ -13570,7 +13568,6 @@
               table_type: {
                 alias: "p"
                 table_type: {
-                  moved_filter_values: []
                   table: {
                     description: "Deduplicated people in the project, with their latest properties. One row per person.",
                     fields: {
@@ -16859,7 +16856,6 @@
           type: {
             name: "distinct_id"
             table_type: {
-              moved_filter_values: []
               table: {
                 description: "Maps client-side distinct IDs to resolved person IDs. One row per distinct_id; join to `persons` via the `person` field or `person_id`.",
                 fields: {
