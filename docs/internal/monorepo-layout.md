@@ -103,6 +103,8 @@ For pnpm packages, location doesn't gate who can import them (pnpm resolves by n
 - Promote nested → root only when a second consumer actually depends on it — on real usage, not intent. It's a path rename with a stable package name (no import churn), so don't pay the "shared" cost before it's true.
 
 `pnpm-workspace.yaml` globs are explicit (`products/*`, `packages/quill`, …) and don't yet match nested `products/<product>/packages/*` or a new top-level `packages/<name>/` — so register the package's path there when you add it, or `workspace:*` deps, filters, and scripts won't resolve.
+pnpm includes the root package automatically.
+Leave `'.'` out of the package list to prevent Turbo from discovering the root package twice and producing inconsistent cache keys.
 
 #### Python packages
 
