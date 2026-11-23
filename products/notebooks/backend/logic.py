@@ -26,7 +26,11 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 
 from . import markdown_collab
 from .facade.contracts import WAREHOUSE_SCOPE_REQUIRED, NotebookContentEditNotAllowed
-from .markdown_conversion import get_markdown_notebook_markdown, is_markdown_notebook_content
+from .markdown_conversion import (
+    get_markdown_notebook_markdown,
+    is_markdown_notebook_content,
+    normalize_notebook_content_for_edit,
+)
 from .markdown_migration import to_markdown_notebook_content
 from .models import Notebook, ResourceNotebook
 from .sql_v2_state import extract_cells, validate_cell_count
@@ -39,16 +43,14 @@ if TYPE_CHECKING:
 def authorize_notebook_table_edit(
     team_id: int,
     user_id: int | None,
-    previous: TipTapNode | TipTapContent | None,
-    submitted: TipTapNode | TipTapContent | None,
+    previous: TipTapNode | TipTapContent | str | None,
+    submitted: TipTapNode | TipTapContent | str | None,
     *,
     can_write_warehouse_tables: bool = False,
     variables_changed: bool = False,
 ) -> None:
-    if isinstance(submitted, list):
-        submitted = {"type": "doc", "content": submitted}
-    if isinstance(previous, list):
-        previous = {"type": "doc", "content": previous}
+    previous = normalize_notebook_content_for_edit(previous)
+    submitted = normalize_notebook_content_for_edit(submitted)
     if markdown_collab.get_markdown_notebook_markdown(submitted) is not None:
         cells = extract_cells(submitted, for_edit_authorization=True)
         targets = {cell.warehouse_table_name for cell in cells if cell.warehouse_table_name}
@@ -76,6 +78,20 @@ def authorize_notebook_table_edit(
             get_notebook_table_writer().validate_notebook_table_name(team_id, name, user_id)
     except NotebookTableError as error:
         raise NotebookContentEditNotAllowed(str(error)) from error
+
+
+def validate_notebook_content_write(
+    team_id: int,
+    user_id: int | None,
+    previous: TipTapNode | TipTapContent | str | None,
+    submitted: TipTapNode | TipTapContent | str | None,
+    *,
+    can_write_warehouse_tables: bool = False,
+) -> None:
+    validate_cell_count(previous, submitted)
+    authorize_notebook_table_edit(
+        team_id, user_id, previous, submitted, can_write_warehouse_tables=can_write_warehouse_tables
+    )
 
 
 def _validate_shared_notebook_edit(user: "User", notebook: Notebook, content: dict[str, Any]) -> None:
@@ -146,8 +162,7 @@ def aupdate_notebook_content(
     notebook = Notebook.objects.select_for_update().filter(team_id=team_id, short_id=short_id).first()
     if notebook is None:
         return None
-    validate_cell_count(notebook.content, content)
-    authorize_notebook_table_edit(team_id, user.id, notebook.content, content)
+    validate_notebook_content_write(team_id, user.id, notebook.content, content)
     _validate_shared_notebook_edit(user, notebook, content)
     Notebook.objects.filter(pk=notebook.pk).update(
         content=content,
@@ -174,8 +189,7 @@ def aupsert_notebook(
     text_content: str | None = None,
 ) -> tuple[Notebook, bool]:
     def initial_content() -> dict[str, Any]:
-        validate_cell_count(None, content)
-        authorize_notebook_table_edit(team_id, user.id, None, content)
+        validate_notebook_content_write(team_id, user.id, None, content)
         return content
 
     notebook, created = Notebook.objects.select_for_update().get_or_create(
@@ -190,8 +204,7 @@ def aupsert_notebook(
         },
     )
     if not created:
-        validate_cell_count(notebook.content, content)
-        authorize_notebook_table_edit(team_id, user.id, notebook.content, content)
+        validate_notebook_content_write(team_id, user.id, notebook.content, content)
         _validate_shared_notebook_edit(user, notebook, content)
         notebook.content = content
         notebook.title = title
@@ -228,7 +241,7 @@ def create_notebook(
     last_modified_by_id: int | None = None,
     visibility: str = Notebook.Visibility.DEFAULT,
 ) -> Notebook:
-    authorize_notebook_table_edit(team_id, created_by_id, None, content)
+    validate_notebook_content_write(team_id, created_by_id, None, content)
     return Notebook.objects.create(
         team_id=team_id,
         title=title,
@@ -276,8 +289,7 @@ def create_account_notebook(
         organization_id = Team.objects.values_list("organization_id", flat=True).get(id=team_id)
         content = to_markdown_notebook_content(content, organization_id=organization_id)
     # A converted or synthesized document can hold more cells than the editor allows, so count it before saving.
-    validate_cell_count(None, content)
-    authorize_notebook_table_edit(
+    validate_notebook_content_write(
         team_id, created_by_id, None, content, can_write_warehouse_tables=can_write_warehouse_tables
     )
     # Search reads text_content, so it mirrors the stored markdown.

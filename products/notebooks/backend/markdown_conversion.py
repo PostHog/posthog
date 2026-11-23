@@ -150,6 +150,11 @@ def _normalize_notebook_content_for_markdown_conversion(content: Any) -> JSONCon
     return None
 
 
+def normalize_notebook_content_for_edit(content: Any) -> JSONContent | None:
+    document = _normalize_notebook_content_for_markdown_conversion(content)
+    return build_markdown_notebook_content(document) if isinstance(document, str) else document
+
+
 def _parse_json_encoded_notebook_content(content: str) -> JSONContent | str | None:
     trimmed_content = content.strip()
     if not trimmed_content or trimmed_content[0] not in ("{", "[", '"'):

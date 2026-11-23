@@ -645,6 +645,8 @@ class TestNotebookMarkdownSaveAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("patch", 'nodeId="cell" saveToWarehouse={true}'),
+            ("patch_text", 'nodeId="cell" saveToWarehouse={true}'),
+            ("patch_encoded", 'nodeId="cell" saveToWarehouse={true}'),
             ("collab", "saveToWarehouse={true}"),
             ("create", 'saveToWarehouse="true"'),
         ]
@@ -665,9 +667,12 @@ class TestNotebookMarkdownSaveAPI(APIBaseTest):
                 f"/api/projects/{self.team.pk}/notebooks/", data={"content": _markdown_doc(markdown)}, format="json"
             )
         else:
+            payload = {"patch_text": markdown, "patch_encoded": json.dumps(_markdown_doc(markdown))}.get(
+                route, _markdown_doc(markdown)
+            )
             result = self.client.patch(
                 f"/api/projects/{self.team.pk}/notebooks/{notebook['short_id']}/",
-                data={"version": notebook["version"], "content": _markdown_doc(markdown)},
+                data={"version": notebook["version"], "content": payload},
                 format="json",
             )
         assert result.status_code == status.HTTP_403_FORBIDDEN

@@ -74,6 +74,19 @@ class TestUpsertAccountNotebookTool(BaseTest):
         assert notebook.content == build_markdown_notebook_content("")
 
     @pytest.mark.asyncio
+    async def test_tool_rejects_growing_an_account_note_past_the_cell_limit(self):
+        account = await Account.objects.unscoped().acreate(team=self.team, name="Example")
+        short_id = await self._create_note(account, content="Original")
+        markdown = "\n\n".join(f'<SQLV2 nodeId="cell{i}" code="select 1" />' for i in range(51))
+        _, result = await self._tool()._arun_impl(
+            action=UpdateAccountNotebookAction(notebook_short_id=short_id, content=markdown)
+        )
+        assert result["error"] == "cell_limit_exceeded"
+        saved = await Notebook.objects.aget(team=self.team, short_id=short_id)
+        assert saved.text_content == "Original"
+        assert saved.version == 0
+
+    @pytest.mark.asyncio
     async def test_tool_requires_publication_authority_for_account_note_content(self):
         account = await Account.objects.unscoped().acreate(team=self.team, name="Example")
         body = '<PythonV2 nodeId="daily" saveToWarehouse={true} warehouseTableName="daily" />'

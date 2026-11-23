@@ -21,6 +21,7 @@ from posthog.hogql.parser import parse_select
 from posthog.dataclasses import frozen
 
 from products.notebooks.backend.facade.contracts import NotebookCellLimitExceeded
+from products.notebooks.backend.markdown_conversion import normalize_notebook_content_for_edit
 from products.notebooks.backend.models import NotebookNodeRun
 from products.notebooks.backend.python_analysis import analyze_python_globals
 from products.notebooks.backend.sql_v2_references import _TableReferenceCollector, resolve_sql_v2_references
@@ -220,10 +221,12 @@ def validate_cell_count(previous_content: Any, next_content: Any) -> None:
     of finding every save rejected. A save that leaves the count unchanged always passes.
     """
     next_count = sum(
-        cell.cell_type != "saved_insight" or bool(cell.code.strip()) for cell in extract_cells(next_content)
+        cell.cell_type != "saved_insight" or bool(cell.code.strip())
+        for cell in extract_cells(normalize_notebook_content_for_edit(next_content))
     )
     previous_count = sum(
-        cell.cell_type != "saved_insight" or bool(cell.code.strip()) for cell in extract_cells(previous_content)
+        cell.cell_type != "saved_insight" or bool(cell.code.strip())
+        for cell in extract_cells(normalize_notebook_content_for_edit(previous_content))
     )
     if next_count <= MAX_NOTEBOOK_CELLS or next_count <= previous_count:
         return

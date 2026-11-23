@@ -628,14 +628,14 @@ class NotebookSerializer(NotebookMinimalSerializer):
         return updated_notebook
 
     def validate_content(self, value: Any) -> Any:
-        if not isinstance(value, dict):
-            return value
         # self.instance is set on update and None on create, so a new notebook is measured
         # against an empty document and an edit against what it currently holds.
         try:
             validate_cell_count(self.instance.content if self.instance else None, value)
         except NotebookCellLimitExceeded as err:
             raise serializers.ValidationError(str(err))
+        if not isinstance(value, dict):
+            return value
         try:
             return normalize_notebook_query_nodes(value)
         except InvalidNotebookQueryError as err:

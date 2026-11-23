@@ -25,7 +25,10 @@ from .. import logic, markdown_migration
 # NotebookCreationSource is re-exported here so cross-product callers can label their create
 # source (e.g. notebooks.NotebookCreationSource.TEMPORAL_AGENT) without importing internals.
 from ..analytics import NotebookCreationSource, capture_notebook_created, notebook_node_count
-from ..logic import authorize_notebook_table_edit as authorize_notebook_table_edit
+from ..logic import (
+    authorize_notebook_table_edit as authorize_notebook_table_edit,
+    validate_notebook_content_write as validate_notebook_content_write,
+)
 from ..models import Notebook, ResourceNotebook
 from . import contracts
 

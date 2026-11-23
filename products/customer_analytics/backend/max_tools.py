@@ -24,7 +24,11 @@ from products.customer_analytics.backend.logic import relationships as relations
 from products.customer_analytics.backend.models import Account, AccountRelationshipDefinition
 from products.notebooks.backend.facade import api as notebooks
 from products.notebooks.backend.facade.content import build_markdown_notebook_content, is_markdown_notebook_content
-from products.notebooks.backend.facade.contracts import NotebookContentEditNotAllowed, NotebookData
+from products.notebooks.backend.facade.contracts import (
+    NotebookCellLimitExceeded,
+    NotebookContentEditNotAllowed,
+    NotebookData,
+)
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 
 from ee.hogai.tool import MaxTool
@@ -442,6 +446,8 @@ class UpsertAccountNotebookTool(MaxTool):
 
         try:
             notebook = await self._create_notebook(account, action)
+        except NotebookCellLimitExceeded as error:
+            return str(error), {"error": "cell_limit_exceeded"}
         except NotebookContentEditNotAllowed as error:
             return str(error), {"error": "permission_denied"}
         except Exception as e:
@@ -463,6 +469,8 @@ class UpsertAccountNotebookTool(MaxTool):
 
         try:
             notebook = await self._update_notebook(notebook, action)
+        except NotebookCellLimitExceeded as error:
+            return str(error), {"error": "cell_limit_exceeded"}
         except NotebookContentEditNotAllowed as error:
             return str(error), {"error": "permission_denied"}
         except Exception as e:
@@ -526,7 +534,7 @@ class UpsertAccountNotebookTool(MaxTool):
                 update_fields.append("title")
             if action.content is not None:
                 content = _updated_note_content(locked.content, action.content)
-                notebooks.authorize_notebook_table_edit(self._team.id, self._user.id, locked.content, content)
+                notebooks.validate_notebook_content_write(self._team.id, self._user.id, locked.content, content)
                 locked.content = content
                 locked.text_content = action.content
                 locked.version = locked.version + 1
