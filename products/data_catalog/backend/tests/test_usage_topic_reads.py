@@ -2,22 +2,28 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import BaseTest, ClickhouseTestMixin, NonAtomicBaseTest, _create_event, flush_persons_and_events
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from products.cohorts.backend.models.cohort import Cohort
 from products.data_catalog.backend.logic.agent_sessions import SessionText
 from products.data_catalog.backend.logic.usage_topic_reads import (
     READ_CHARS,
+    CohortDefinition,
     ReadCall,
     ReadSources,
     SavedDefinition,
+    SavedFilters,
+    cohort_reads,
+    fetch_cohorts,
     session_tables,
     topic_tables,
     trace_session_tables,
 )
+from products.data_tools.backend.facade.models import DataWarehouseJoin
 from products.product_analytics.backend.facade.models import Insight
 
 _CALL_AT = datetime(2026, 10, 10, tzinfo=UTC)
@@ -53,7 +59,13 @@ _SOURCES = ReadSources(
         "edited": _saved(_trends(_EVENTS_NODE), _EDITED),
     },
     insight_queries={"abc123": _saved(_HOGQL_INSIGHT), "edited": _saved(_trends(_EVENTS_NODE), _EDITED)},
+    saved_filters=SavedFilters(cohorts={7: True, 8: False}, test_account_tables=frozenset({"crm_users"})),
+    joins={"stripe": frozenset({"stripe_customers"})},
 )
+
+
+def _in_cohort(cohort_id: int) -> dict[str, Any]:
+    return {"type": "cohort", "key": "id", "value": cohort_id}
 
 
 class TestSessionTables(SimpleTestCase):
@@ -101,6 +113,46 @@ class TestSessionTables(SimpleTestCase):
                 {"stripe_charges"},
             ),
             ("query_over_an_action", [_call("query-trends", _trends({"kind": "ActionsNode", "id": 1}))], None),
+            (
+                "sql_through_a_warehouse_join",
+                [_sql("SELECT person.stripe.email FROM events")],
+                {"events", "stripe_customers"},
+            ),
+            ("sql_in_a_cohort", [_sql("SELECT count() FROM events WHERE person_id IN COHORT 7")], None),
+            ("sql_matching_an_action", [_sql("SELECT count() FROM events WHERE matchesAction('Signed up')")], None),
+            (
+                "cohort_over_posthog_tables",
+                [_call("query-trends", _trends(_EVENTS_NODE, properties=[_in_cohort(7)]))],
+                set(),
+            ),
+            (
+                "cohort_that_can_read_any_table",
+                [_call("query-trends", _trends(_EVENTS_NODE, properties=[_in_cohort(8)]))],
+                None,
+            ),
+            (
+                "cohort_the_scan_cannot_find",
+                [_call("query-trends", _trends(_EVENTS_NODE, properties=[_in_cohort(9)]))],
+                None,
+            ),
+            (
+                "cohort_breakdown",
+                [
+                    _call(
+                        "query-trends",
+                        {
+                            **_trends(_EVENTS_NODE),
+                            "breakdownFilter": {"breakdown_type": "cohort", "breakdown": [8, "all"]},
+                        },
+                    )
+                ],
+                None,
+            ),
+            (
+                "test_account_filters",
+                [_call("query-trends", {**_trends(_EVENTS_NODE), "filterTestAccounts": True})],
+                {"crm_users"},
+            ),
             ("cut_typed_input", [_call("query-trends", '{"kind": "TrendsQuery", "ser')], None),
             ("hogql_metric_run", [_call("data-catalog-metric-run", {"name": "mrr"})], {"billing"}),
             ("markdown_metric_run", [_call("data-catalog-metric-run", {"name": "steps"})], set()),
@@ -131,8 +183,47 @@ class TestSessionTables(SimpleTestCase):
 
         assert found == (None if expected is None else frozenset(expected))
 
-    def test_a_data_tool_with_no_call_found_makes_the_session_unknown(self) -> None:
-        assert session_tables([_sql("SELECT 1 FROM billing")], {"execute-sql", "query-trends"}, _SOURCES) is None
+    @parameterized.expand(
+        [
+            ("a_data_tool_with_no_read_logged", {"execute-sql", "query-trends"}, {}, None),
+            ("a_call_whose_read_the_server_left_out", {"execute-sql"}, {"execute-sql": 2}, None),
+            ("a_metadata_search_logs_twice_for_one_call", {"execute-sql"}, {"execute-sql": 1}, {"billing"}),
+        ]
+    )
+    def test_fewer_logged_reads_than_calls_makes_the_session_unknown(
+        self, _name: str, tools: set[str], call_counts: dict[str, int], expected: set[str] | None
+    ) -> None:
+        sql = "SELECT 1 FROM billing"
+        calls = [_sql(sql), _call("execute-sql", {"query": sql})]
+
+        found = session_tables(calls, tools, _SOURCES, call_counts)
+
+        assert found == (None if expected is None else frozenset(expected))
+
+    def test_a_cohort_reads_only_posthog_tables_unless_its_filters_can_read_any_table(self) -> None:
+        def cohort(
+            cohort_id: int, *values: dict[str, Any], is_static: bool = False, query: Any = None
+        ) -> CohortDefinition:
+            filters = {"properties": {"type": "AND", "values": list(values)}}
+            return CohortDefinition(id=cohort_id, is_static=is_static, filters=filters, query=query)
+
+        person = {"type": "person", "key": "email", "value": "a@example.com"}
+        cohorts = [
+            cohort(1, _HOGQL_FILTER, is_static=True),
+            cohort(2, person),
+            cohort(3, person, query={"kind": "HogQLQuery", "query": "SELECT 1"}),
+            cohort(4, {"type": "behavioral", "value": "performed_event", "event_filters": [_HOGQL_FILTER]}),
+            cohort(5, {"type": "behavioral", "value": "performed_event", "event_type": "actions", "key": 3}),
+            cohort(6, _in_cohort(2)),
+            cohort(7, _in_cohort(3)),
+            cohort(8, _in_cohort(9)),
+            cohort(9, _in_cohort(8)),
+            cohort(10, _in_cohort(99)),
+        ]
+
+        reads = cohort_reads({definition.id: definition for definition in cohorts})
+
+        assert {cohort_id for cohort_id, only_posthog in reads.items() if only_posthog} == {1, 2, 6}
 
     def test_one_unknown_session_makes_the_topic_unknown(self) -> None:
         tables = {"a": frozenset({"billing"}), "b": frozenset({"plans"}), "c": None}
@@ -158,11 +249,30 @@ class TestTraceSessionTables(ClickhouseTestMixin, BaseTest):
             },
         )
 
+    def _tool_call(self, piece: str, at: datetime, tool: str) -> None:
+        _create_event(
+            team=self.team,
+            event="$mcp_tool_call",
+            distinct_id="d1",
+            timestamp=at,
+            properties={"$session_id": piece, "$mcp_project_uuid": str(self.team.uuid), "$mcp_tool_name": tool},
+        )
+
     def test_a_conversation_reads_what_its_pieces_read(self) -> None:
         end = datetime(2026, 10, 20, 12, 0, tzinfo=UTC)
         at = end - timedelta(hours=3)
         Insight.objects.create(
             team=self.team, short_id="abc123", query=_HOGQL_INSIGHT, last_modified_at=at - timedelta(days=1)
+        )
+        self.team.test_account_filters = [{"type": "person", "key": "email", "value": "x", "operator": "not_icontains"}]
+        self.team.save()
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="events",
+            source_table_key="distinct_id",
+            joining_table_name="stripe_customers",
+            joining_table_key="id",
+            field_name="stripe",
         )
         self._span(
             "p1",
@@ -180,6 +290,24 @@ class TestTraceSessionTables(ClickhouseTestMixin, BaseTest):
             "$ai_generation",
             **{"$ai_output_choices": [{"role": "assistant", "content": "SELECT 1 FROM t WHERE " + "x" * READ_CHARS}]},
         )
+        test_accounts_query = {**_trends(_EVENTS_NODE, properties=[{"type": "event", "key": "stripe.plan"}])}
+        self._span(
+            "p4",
+            at,
+            "query-trends",
+            "$ai_span",
+            **{"$ai_input_state": json.dumps({**test_accounts_query, "filterTestAccounts": True})},
+        )
+        self._tool_call("p4", at, "query-trends")
+        self._span(
+            "p5",
+            at,
+            "execute-sql",
+            "$ai_generation",
+            **{"$ai_output_choices": [{"role": "assistant", "content": "SELECT 1 FROM plans"}]},
+        )
+        self._tool_call("p5", at, "execute-sql")
+        self._tool_call("p5", at + timedelta(minutes=1), "execute-sql")
         flush_persons_and_events()
         sessions = [
             SessionText(
@@ -189,6 +317,8 @@ class TestTraceSessionTables(ClickhouseTestMixin, BaseTest):
                 tools=frozenset({"execute-sql", "query-trends", "insight-query"}),
             ),
             SessionText(session_id="p3", person="p", notes=("q",), tools=frozenset({"execute-sql"})),
+            SessionText(session_id="p4", person="p", notes=("q",), tools=frozenset({"query-trends"})),
+            SessionText(session_id="p5", person="p", notes=("q",), tools=frozenset({"execute-sql"})),
         ]
 
         tables = trace_session_tables(
@@ -200,4 +330,30 @@ class TestTraceSessionTables(ClickhouseTestMixin, BaseTest):
             members={"c1": ("p1", "p2")},
         )
 
-        assert tables == {"c1": frozenset({"plans", "stripe_charges", "billing"}), "p3": None}
+        assert tables == {
+            "c1": frozenset({"plans", "stripe_charges", "billing"}),
+            "p3": None,
+            "p4": frozenset({"stripe_customers"}),
+            "p5": None,
+        }
+
+
+class TestFetchCohorts(NonAtomicBaseTest):
+    # ClickHouse reads `system.cohorts` from Postgres over its own connection, so the rows must be committed.
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_reads_what_each_cohort_can_run(self) -> None:
+        def filters(*values: dict[str, Any]) -> dict[str, Any]:
+            return {"properties": {"type": "AND", "values": list(values)}}
+
+        person = Cohort.objects.create(
+            team=self.team, filters=filters({"type": "person", "key": "email", "value": "x"})
+        )
+        hogql = Cohort.objects.create(team=self.team, filters=filters(_HOGQL_FILTER))
+        from_query = Cohort.objects.create(team=self.team, query={"kind": "HogQLQuery", "query": "SELECT 1"})
+        static = Cohort.objects.create(team=self.team, is_static=True, filters=filters(_HOGQL_FILTER))
+
+        cohorts = fetch_cohorts(self.team, [person.id, hogql.id, from_query.id, static.id])
+
+        reads = cohort_reads({cohort.id: cohort for cohort in cohorts})
+        assert reads == {person.id: True, hogql.id: False, from_query.id: False, static.id: True}

@@ -7,7 +7,8 @@ its topic are unknown, and a reader with any denied table does not see that topi
 """
 
 import re
-from collections import defaultdict
+import json
+from collections import Counter, defaultdict
 from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from datetime import datetime
 from typing import Any
@@ -15,10 +16,15 @@ from typing import Any
 from rest_framework.exceptions import ValidationError
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
+from products.data_tools.backend.facade.models import DataWarehouseJoin
 from products.product_analytics.backend.facade.models import Insight
 
 from ..facade.enums import MARKDOWN_DEFINITION_KIND
@@ -43,6 +49,11 @@ READ_CHARS = 20000
 _PIECE_BATCH = 1000
 # A key or a value with this marker holds a HogQL expression, which can read a table that the query does not name.
 _EXPRESSION = re.compile("hogql", re.IGNORECASE)
+# These run a stored cohort or action by name or id, so SQL that uses them can read a table that it does not name.
+_SAVED_FILTER_SQL = re.compile(r"\bin\s+cohort\b|\b(?:inCohort|matchesAction)\s*\(", re.IGNORECASE)
+_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_$]*")
+# A cohort can filter on other cohorts. The scan follows that many levels, and a deeper cohort counts as unknown.
+_COHORT_DEPTH = 5
 
 # `ai_events` is ordered by trace, so trace ids come from `events`, which is ordered by time.
 _READS_QUERY = """
@@ -75,6 +86,27 @@ LIMIT {row_limit}
 """
 
 
+# The scan reads cohorts through HogQL, because an import of the cohorts product would close a product cycle.
+_COHORTS_QUERY = """
+SELECT id, is_static, filters, query FROM system.cohorts WHERE id IN {ids} LIMIT {row_limit}
+"""
+_COHORT_BATCH = 1000
+
+# `$mcp_tool_call` records every call, also a call whose span the MCP server leaves out of telemetry.
+_CALL_COUNTS_QUERY = """
+SELECT toString(properties.$session_id) AS session, toString(properties.$mcp_tool_name) AS tool, count() AS calls
+FROM events
+WHERE event = '$mcp_tool_call'
+    AND timestamp >= {start}
+    AND timestamp < {end}
+    AND toString(properties.$mcp_project_uuid) = {project}
+    AND toString(properties.$session_id) IN {sessions}
+    AND (toString(properties.$mcp_tool_name) IN {tools} OR startsWith(toString(properties.$mcp_tool_name), {tool_prefix}))
+GROUP BY session, tool
+LIMIT {row_limit}
+"""
+
+
 @frozen
 class ReadCall:
     """One data tool call of a session piece, with its input decoded."""
@@ -97,18 +129,60 @@ class SavedDefinition:
 
 
 @frozen
+class CohortDefinition:
+    """What a query that uses the cohort can run: HogQL can inline a dynamic cohort's filters into the query."""
+
+    id: int
+    is_static: bool
+    filters: Any
+    query: Any
+
+
+@frozen
+class SavedFilters:
+    """What the team's saved filters read, which a query runs without naming their tables.
+
+    ``cohorts`` says for each cohort id whether the cohort reads only PostHog's own tables.
+    ``test_account_tables`` holds the tables that the test account filters read, or None when the scan
+    cannot tell."""
+
+    cohorts: Mapping[int, bool]
+    test_account_tables: frozenset[str] | None
+
+
+NO_SAVED_FILTERS = SavedFilters(cohorts={}, test_account_tables=frozenset())
+
+
+@frozen
 class ReadSources:
-    """The saved definitions that calls read by reference: metrics by name, insights by short id."""
+    """The saved definitions that calls read by reference: metrics by name, insights by short id.
+
+    ``joins`` maps the field name of each warehouse join to the tables that the join reads."""
 
     metric_definitions: Mapping[str, SavedDefinition]
     insight_queries: Mapping[str, SavedDefinition]
+    saved_filters: SavedFilters = NO_SAVED_FILTERS
+    joins: Mapping[str, frozenset[str]] | None = None
 
     def as_of(self, at: datetime) -> "ReadSources":
         """Only a definition that did not change after a call still says what that call read."""
         return ReadSources(
             metric_definitions=_unchanged(self.metric_definitions, at),
             insight_queries=_unchanged(self.insight_queries, at),
+            saved_filters=self.saved_filters,
+            joins=self.joins,
         )
+
+    def joined_tables(self, bodies: Iterable[object]) -> frozenset[str]:
+        """A field that names a join reads the joined table, so a join field anywhere in a call counts.
+
+        The match is by name only, so a field with the same name as a join can add a table that the call
+        did not read. That hides a topic that a reader could see, and never shows one that it must not."""
+        if not self.joins:
+            return frozenset()
+        text = "\n".join(body if isinstance(body, str) else json.dumps(body, default=str) for body in bodies if body)
+        fields = set(_IDENTIFIER.findall(text)) & self.joins.keys()
+        return frozenset(table for field in fields for table in self.joins[field])
 
 
 def _unchanged[K](saved: Mapping[K, SavedDefinition], at: datetime) -> dict[K, SavedDefinition]:
@@ -116,7 +190,9 @@ def _unchanged[K](saved: Mapping[K, SavedDefinition], at: datetime) -> dict[K, S
 
 
 def sql_tables(sql: str) -> frozenset[str] | None:
-    """The tables a HogQL query names, or None when it does not parse."""
+    """The tables a HogQL query names, or None when it does not parse or runs a saved cohort or action."""
+    if _SAVED_FILTER_SQL.search(sql):
+        return None
     try:
         return frozenset(table_names_as_written({"query": sql}, keep_table_functions=True))
     except ValidationError:
@@ -143,14 +219,41 @@ def _reads_hidden_tables(node: dict[str, Any]) -> bool:
 
 
 def _refers_to_action(node: dict[str, Any]) -> bool:
-    return node.get("kind") == "ActionsNode" or node.get("type") == "actions" or "actionId" in node
+    """A query runs the stored steps of an action that it refers to, and their filters can read any table."""
+    return (
+        node.get("kind") == "ActionsNode"
+        or "actions" in (node.get("type"), node.get("event_type"), node.get("seq_event_type"))
+        or "actionId" in node
+    )
 
 
-def query_tables(query: object) -> frozenset[str] | None:
+def _cohort_ids(node: dict[str, Any]) -> list[int] | None:
+    """The cohorts that a filter or a breakdown refers to, or None when one reference is not an id."""
+    references = []
+    if node.get("type") == "cohort":
+        references.append(node.get("value"))
+    if node.get("breakdown_type") == "cohort":
+        references.append(node.get("breakdown"))
+    ids = []
+    for reference in references:
+        for raw in reference if isinstance(reference, list) else [reference]:
+            # A cohort breakdown names the bucket of all users "all", which is no cohort.
+            if raw == "all":
+                continue
+            if isinstance(raw, bool) or not isinstance(raw, int | str):
+                return None
+            try:
+                ids.append(int(raw))
+            except ValueError:
+                return None
+    return ids
+
+
+def query_tables(query: object, saved_filters: SavedFilters = NO_SAVED_FILTERS) -> frozenset[str] | None:
     """The tables that a query object reads past PostHog's own tables, or None when the scan cannot tell.
 
-    A HogQL query names its tables, and a warehouse node names its table. A query runs the stored steps of an
-    action that it refers to, and their filters can read any table, so the scan cannot tell. Every other node
+    A HogQL query names its tables, and a warehouse node names its table. An action or a cohort that the
+    query uses, and the test account filters, run filters that the query does not hold. Every other node
     reads PostHog's own tables, which access control does not deny one by one."""
     if not isinstance(query, dict):
         return None
@@ -170,24 +273,73 @@ def query_tables(query: object) -> frozenset[str] | None:
             tables.add(str(node["table_name"]))
         if _refers_to_action(node) or _reads_hidden_tables(node):
             return None
+        cohort_ids = _cohort_ids(node)
+        if cohort_ids is None or not all(saved_filters.cohorts.get(cohort_id, False) for cohort_id in cohort_ids):
+            return None
+        if node.get("filterTestAccounts") is True:
+            if saved_filters.test_account_tables is None:
+                return None
+            tables |= saved_filters.test_account_tables
     return frozenset(tables)
 
 
-def metric_tables(definition: dict[str, Any] | None) -> frozenset[str] | None:
+def cohort_reads(cohorts: Mapping[int, CohortDefinition]) -> dict[int, bool]:
+    """Whether each cohort reads only PostHog's own tables when a query inlines it.
+
+    A static cohort runs no filters. A cohort built from a query, a cohort with a HogQL or warehouse filter,
+    and a cohort that uses an action can read any table. A cohort that uses another cohort reads what that
+    cohort reads, and a missing, circular or too deep reference counts as unknown."""
+    verdicts: dict[int, bool] = {}
+
+    def reads_only_posthog(cohort_id: int, path: tuple[int, ...]) -> bool:
+        if cohort_id in verdicts:
+            return verdicts[cohort_id]
+        cohort = cohorts.get(cohort_id)
+        if cohort is None or cohort_id in path or len(path) >= _COHORT_DEPTH:
+            return False
+        if cohort.is_static:
+            verdict = True
+        elif cohort.query is not None:
+            verdict = False
+        else:
+            verdict = True
+            for node in _dicts(cohort.filters):
+                nested = _cohort_ids(node)
+                if (
+                    _refers_to_action(node)
+                    or _reads_hidden_tables(node)
+                    or nested is None
+                    or not all(reads_only_posthog(other, (*path, cohort_id)) for other in nested)
+                ):
+                    verdict = False
+                    break
+        verdicts[cohort_id] = verdict
+        return verdict
+
+    for cohort_id in cohorts:
+        reads_only_posthog(cohort_id, ())
+    return verdicts
+
+
+def metric_tables(
+    definition: dict[str, Any] | None, saved_filters: SavedFilters = NO_SAVED_FILTERS
+) -> frozenset[str] | None:
     """A stub runs no query, and a markdown metric only returns steps that the agent then runs as queries."""
     if definition is None or definition.get("kind") == MARKDOWN_DEFINITION_KIND:
         return frozenset()
-    return query_tables(definition)
+    return query_tables(definition, saved_filters)
 
 
-def insight_tables(saved: SavedDefinition | None, filters_override: object) -> frozenset[str] | None:
+def insight_tables(
+    saved: SavedDefinition | None, filters_override: object, saved_filters: SavedFilters = NO_SAVED_FILTERS
+) -> frozenset[str] | None:
     """An insight run merges its filter override into the saved query, so the override's filters count too.
 
     A variable override only sets values, so it reads no table."""
     if saved is None:
         return None
-    query = query_tables(saved.body)
-    override = frozenset() if filters_override is None else query_tables(filters_override)
+    query = query_tables(saved.body, saved_filters)
+    override = frozenset() if filters_override is None else query_tables(filters_override, saved_filters)
     return None if query is None or override is None else query | override
 
 
@@ -196,42 +348,65 @@ def _payload_field(call: ReadCall, field: str) -> str:
     return str(value) if value else ""
 
 
-def call_tables(call: ReadCall, sources: ReadSources) -> frozenset[str] | None:
-    """The tables that one call read, or None when the scan cannot tell."""
-    if call.cut:
-        return None
+def _direct_tables(call: ReadCall, current: ReadSources) -> frozenset[str] | None:
     if call.tool == SQL_TOOL:
         # A metadata search logs as a span with its query in the input, and every other query as a generation.
         sql = call.sql if call.event == "$ai_generation" else _payload_field(call, "query")
         return sql_tables(sql) if sql else None
-    current = sources.as_of(call.at)
     if call.tool == RUN_TOOL:
         metric = current.metric_definitions.get(_payload_field(call, "name"))
-        return metric_tables(metric.body) if metric is not None else None
+        return metric_tables(metric.body, current.saved_filters) if metric is not None else None
     if call.tool == INSIGHT_TOOL:
         overrides = call.payload.get("filters_override") if isinstance(call.payload, dict) else None
         insight = current.insight_queries.get(_payload_field(call, "insightId"))
-        return insight_tables(insight, overrides)
+        return insight_tables(insight, overrides, current.saved_filters)
     if call.tool.startswith(DATA_TOOL_PREFIX):
-        return query_tables(call.payload)
+        return query_tables(call.payload, current.saved_filters)
     # A dashboard run reads the insights on the dashboard as it is now, which can differ from the run.
     return None
 
 
-def session_tables(calls: Iterable[ReadCall], tools: Collection[str], sources: ReadSources) -> frozenset[str] | None:
+def _call_bodies(call: ReadCall, current: ReadSources) -> list[object]:
+    """Every text that a call ran: its own input, and the saved definition that it ran by name."""
+    metric = current.metric_definitions.get(_payload_field(call, "name")) if call.tool == RUN_TOOL else None
+    insight = current.insight_queries.get(_payload_field(call, "insightId")) if call.tool == INSIGHT_TOOL else None
+    return [call.payload, call.sql, *(saved.body for saved in (metric, insight) if saved is not None)]
+
+
+def call_tables(call: ReadCall, sources: ReadSources) -> frozenset[str] | None:
+    """The tables that one call read, or None when the scan cannot tell."""
+    if call.cut:
+        return None
+    current = sources.as_of(call.at)
+    found = _direct_tables(call, current)
+    return None if found is None else found | current.joined_tables(_call_bodies(call, current))
+
+
+def session_tables(
+    calls: Iterable[ReadCall],
+    tools: Collection[str],
+    sources: ReadSources,
+    call_counts: Mapping[str, int] | None = None,
+) -> frozenset[str] | None:
     """The tables that one session read, or None when the scan cannot tell for one of its calls.
 
-    Telemetry can lose a call, so a data tool that the session used with no call found also makes the answer
-    unknown."""
+    Telemetry can lose a call, and the MCP server leaves some calls out of it, so a data tool with fewer
+    logged reads than ``call_counts`` says, or with no logged read at all, also makes the answer unknown."""
     tables: set[str] = set()
-    traced: set[str] = set()
+    by_event: Counter[tuple[str, str]] = Counter()
     for call in calls:
         found = call_tables(call, sources)
         if found is None:
             return None
         tables |= found
-        traced.add(call.tool)
-    if any(is_data_tool(tool) and tool not in traced for tool in tools):
+        by_event[(call.tool, call.event)] += 1
+    # A metadata search logs both a span and a generation, so the larger count is the number of reads.
+    logged: Counter[str] = Counter()
+    for (tool, _event), count in by_event.items():
+        logged[tool] = max(logged[tool], count)
+    expected = Counter({tool: 1 for tool in tools if is_data_tool(tool)})
+    expected |= Counter({tool: count for tool, count in (call_counts or {}).items() if is_data_tool(tool)})
+    if any(logged[tool] < count for tool, count in expected.items()):
         return None
     return frozenset(tables)
 
@@ -249,6 +424,15 @@ def topic_tables(
     return sorted(tables)
 
 
+def _placeholders(piece_ids: Sequence[str]) -> dict[str, ast.Expr]:
+    return {
+        "tools": ast.Tuple(exprs=[ast.Constant(value=tool) for tool in DATA_TOOLS]),
+        "tool_prefix": ast.Constant(value=DATA_TOOL_PREFIX),
+        "sessions": ast.Tuple(exprs=[ast.Constant(value=piece) for piece in piece_ids]),
+        "max_chars": ast.Constant(value=READ_CHARS),
+    }
+
+
 def _fetch_calls(
     *, team: Team, telemetry_team: Team, window_start: datetime, window_end: datetime, piece_ids: Sequence[str]
 ) -> list[ReadCall]:
@@ -259,12 +443,7 @@ def _fetch_calls(
         window_start,
         window_end,
         "DataCatalogUsageTopicReads",
-        placeholders={
-            "tools": ast.Tuple(exprs=[ast.Constant(value=tool) for tool in DATA_TOOLS]),
-            "tool_prefix": ast.Constant(value=DATA_TOOL_PREFIX),
-            "sessions": ast.Tuple(exprs=[ast.Constant(value=piece) for piece in piece_ids]),
-            "max_chars": ast.Constant(value=READ_CHARS),
-        },
+        placeholders=_placeholders(piece_ids),
     )
     return [
         ReadCall(
@@ -278,6 +457,98 @@ def _fetch_calls(
         )
         for session, tool, event, at, raw, sql, cut in rows
     ]
+
+
+def _fetch_call_counts(
+    *, team: Team, telemetry_team: Team, window_start: datetime, window_end: datetime, piece_ids: Sequence[str]
+) -> dict[str, Counter[str]]:
+    counts: dict[str, Counter[str]] = defaultdict(Counter)
+    # The rows come one time page at a time, so a piece that spans pages adds up its counts.
+    for session, tool, calls in paged_rows(
+        _CALL_COUNTS_QUERY,
+        team,
+        telemetry_team,
+        window_start,
+        window_end,
+        "DataCatalogUsageTopicCallCounts",
+        placeholders=_placeholders(piece_ids),
+    ):
+        counts[session][tool] += calls
+    return counts
+
+
+def _stored_json(value: object) -> Any:
+    if not isinstance(value, str):
+        return value
+    try:
+        return json.loads(value) if value else None
+    except json.JSONDecodeError:
+        return value
+
+
+def fetch_cohorts(team: Team, cohort_ids: Sequence[int]) -> list[CohortDefinition]:
+    """The team's cohorts among `cohort_ids`. A missing id is left out, so the cohort counts as unknown."""
+    cohorts = []
+    for start in range(0, len(cohort_ids), _COHORT_BATCH):
+        batch = cohort_ids[start : start + _COHORT_BATCH]
+        with tags_context(product=Product.DATA_CATALOG, feature=Feature.ENRICHMENT, team_id=team.id):
+            response = execute_hogql_query(
+                query=parse_select(_COHORTS_QUERY),
+                team=team,
+                placeholders={
+                    "ids": ast.Tuple(exprs=[ast.Constant(value=cohort_id) for cohort_id in batch]),
+                    "row_limit": ast.Constant(value=len(batch)),
+                },
+                query_type="DataCatalogUsageTopicCohorts",
+                workload=Workload.OFFLINE,
+            )
+        for cohort_id, is_static, filters, query in response.results or []:
+            stored_query = _stored_json(query)
+            cohorts.append(
+                CohortDefinition(
+                    id=int(cohort_id),
+                    is_static=bool(is_static),
+                    filters=_stored_json(filters),
+                    query=stored_query or None,
+                )
+            )
+    return cohorts
+
+
+def _cohort_definitions(team: Team, bodies: Sequence[object]) -> dict[int, CohortDefinition]:
+    """The cohorts that the bodies use, and the cohorts that those cohorts use, as deep as the scan follows."""
+    found: dict[int, CohortDefinition] = {}
+    wanted = {cohort_id for body in bodies for node in _dicts(body) for cohort_id in _cohort_ids(node) or []}
+    for _ in range(_COHORT_DEPTH):
+        wanted -= found.keys()
+        if not wanted:
+            break
+        loaded = fetch_cohorts(team, sorted(wanted))
+        found.update((cohort.id, cohort) for cohort in loaded)
+        wanted = {
+            cohort_id for cohort in loaded for node in _dicts(cohort.filters) for cohort_id in _cohort_ids(node) or []
+        }
+    return found
+
+
+def _load_saved_filters(team: Team, bodies: Sequence[object]) -> SavedFilters:
+    test_account_filters = list(team.test_account_filters or [])
+    cohorts = cohort_reads(_cohort_definitions(team, [*bodies, test_account_filters]))
+    test_account_tables = query_tables(
+        {"properties": test_account_filters}, SavedFilters(cohorts=cohorts, test_account_tables=frozenset())
+    )
+    return SavedFilters(cohorts=cohorts, test_account_tables=test_account_tables)
+
+
+def _load_joins(team: Team) -> dict[str, frozenset[str]]:
+    # A deleted join can still have run before the scan, and an extra table only hides more.
+    joins: dict[str, set[str]] = defaultdict(set)
+    for field_name, joining_table in DataWarehouseJoin.objects.filter(team_id=team.id).values_list(
+        "field_name", "joining_table_name"
+    ):
+        if field_name and joining_table:
+            joins[field_name].add(joining_table)
+    return {field_name: frozenset(tables) for field_name, tables in joins.items()}
 
 
 def _load_sources(team: Team, calls: Sequence[ReadCall]) -> ReadSources:
@@ -310,7 +581,17 @@ def _load_sources(team: Team, calls: Sequence[ReadCall]) -> ReadSources:
         for short_id, query, changed_at in rows
         if isinstance(query, dict)
     }
-    return ReadSources(metric_definitions=definitions, insight_queries=queries)
+    bodies = [
+        *(call.payload for call in calls),
+        *(saved.body for saved in definitions.values()),
+        *(saved.body for saved in queries.values()),
+    ]
+    return ReadSources(
+        metric_definitions=definitions,
+        insight_queries=queries,
+        saved_filters=_load_saved_filters(team, bodies),
+        joins=_load_joins(team),
+    )
 
 
 def trace_session_tables(
@@ -325,17 +606,28 @@ def trace_session_tables(
     """The tables that each session read, keyed by session id. A joined conversation reads what its pieces read."""
     pieces_of = {session.session_id: members.get(session.session_id, (session.session_id,)) for session in sessions}
     piece_ids = [piece for pieces in pieces_of.values() for piece in pieces]
-    calls = [
-        call
-        for start in range(0, len(piece_ids), _PIECE_BATCH)
-        for call in _fetch_calls(
-            team=team,
-            telemetry_team=telemetry_team,
-            window_start=window_start,
-            window_end=window_end,
-            piece_ids=piece_ids[start : start + _PIECE_BATCH],
+    batches = [piece_ids[start : start + _PIECE_BATCH] for start in range(0, len(piece_ids), _PIECE_BATCH)]
+    calls: list[ReadCall] = []
+    counts_by_piece: dict[str, Counter[str]] = {}
+    for batch in batches:
+        calls.extend(
+            _fetch_calls(
+                team=team,
+                telemetry_team=telemetry_team,
+                window_start=window_start,
+                window_end=window_end,
+                piece_ids=batch,
+            )
         )
-    ]
+        counts_by_piece.update(
+            _fetch_call_counts(
+                team=team,
+                telemetry_team=telemetry_team,
+                window_start=window_start,
+                window_end=window_end,
+                piece_ids=batch,
+            )
+        )
     sources = _load_sources(team, calls)
     calls_by_piece: dict[str, list[ReadCall]] = defaultdict(list)
     for call in calls:
@@ -345,6 +637,7 @@ def trace_session_tables(
             (call for piece in pieces_of[session.session_id] for call in calls_by_piece.get(piece, ())),
             session.tools,
             sources,
+            sum((counts_by_piece.get(piece, Counter()) for piece in pieces_of[session.session_id]), Counter()),
         )
         for session in sessions
     }
