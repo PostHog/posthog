@@ -146,6 +146,8 @@ class TestProviderImportsAPI(APIBaseTest):
         person_access: str,
         expected: int,
     ) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
