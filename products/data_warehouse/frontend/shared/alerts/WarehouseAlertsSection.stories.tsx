@@ -65,7 +65,7 @@ const PER_TABLE_ALERT: PlatformAlertConfigurationApi = {
     name: 'Stripe tables',
     source_config: { source_ids: [STRIPE_SOURCE_ID], group_by: 'schema', email_project_members: false },
     grouping: { ...DEFAULT_ALERT.grouping, keys: ['schema_id'] },
-    destination_types: ['webhook'],
+    destination_types: ['webhook', 'slack', 'pagerduty', 'email'],
     alerts: [],
 }
 

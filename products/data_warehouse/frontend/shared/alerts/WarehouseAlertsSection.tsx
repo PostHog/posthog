@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { IconMessage, IconPlusSmall } from '@posthog/icons'
@@ -11,6 +12,7 @@ import {
     LemonTableColumns,
     LemonTag,
     Link,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -45,11 +47,21 @@ const DESTINATION_ICON_SRC: Partial<Record<DestinationTypeEnumApi, string>> = {
     [DestinationTypeEnumApi.IncidentIo]: '/static/services/incident_io.png',
 }
 
-function AlertDestinationIcon({ alert }: { alert: PlatformAlertConfigurationApi }): JSX.Element | null {
-    const type = alert.destination_types[0]
-    if (!type) {
-        return null
-    }
+const DESTINATION_LABEL: Record<DestinationTypeEnumApi, string> = {
+    [DestinationTypeEnumApi.Slack]: 'Slack',
+    [DestinationTypeEnumApi.Teams]: 'Microsoft Teams',
+    [DestinationTypeEnumApi.Discord]: 'Discord',
+    [DestinationTypeEnumApi.Pagerduty]: 'PagerDuty',
+    [DestinationTypeEnumApi.Webhook]: 'Webhook',
+    [DestinationTypeEnumApi.IncidentIo]: 'incident.io',
+    [DestinationTypeEnumApi.Email]: 'Email',
+    [DestinationTypeEnumApi.InApp]: 'In-app notification',
+}
+
+// Past this many logos the row grows too wide, so the rest collapse into a "+N" chip.
+const MAX_STACKED_ICONS = 3
+
+function DestinationTypeIcon({ type }: { type: DestinationTypeEnumApi }): JSX.Element {
     const src = DESTINATION_ICON_SRC[type]
     // Email and in-app notifications have no logo, so they share one generic icon.
     return src ? (
@@ -58,6 +70,40 @@ function AlertDestinationIcon({ alert }: { alert: PlatformAlertConfigurationApi 
         <span className="flex items-center justify-center w-[30px] h-[30px] text-2xl text-secondary">
             <IconMessage />
         </span>
+    )
+}
+
+function AlertDestinationIcons({ alert }: { alert: PlatformAlertConfigurationApi }): JSX.Element | null {
+    const types = Array.from(new Set(alert.destination_types))
+    if (types.length === 0) {
+        return null
+    }
+    const shown = types.slice(0, MAX_STACKED_ICONS)
+    const hidden = types.length - shown.length
+    return (
+        <Tooltip title={types.map((type) => DESTINATION_LABEL[type] ?? type).join(', ')}>
+            <span className="flex items-center gap-1">
+                {/* Reversed so the first destination comes last in the DOM and paints on top of the others. */}
+                <span className="flex flex-row-reverse items-center">
+                    {[...shown].reverse().map((type, index) => (
+                        <span
+                            key={type}
+                            className={clsx(
+                                'relative rounded bg-surface-primary ring-2 ring-surface-primary',
+                                index < shown.length - 1 && '-ml-4'
+                            )}
+                        >
+                            <DestinationTypeIcon type={type} />
+                        </span>
+                    ))}
+                </span>
+                {hidden > 0 ? (
+                    <span className="flex items-center justify-center min-w-6 h-6 px-1 rounded-full bg-fill-highlight-100 text-xs font-semibold">
+                        +{hidden}
+                    </span>
+                ) : null}
+            </span>
+        </Tooltip>
     )
 }
 
@@ -101,7 +147,7 @@ export function WarehouseAlertsSection({ entry, ...logicProps }: WarehouseAlerts
         {
             title: '',
             width: 0,
-            render: (_, alert) => <AlertDestinationIcon alert={alert} />,
+            render: (_, alert) => <AlertDestinationIcons alert={alert} />,
         },
         {
             title: 'Name',
