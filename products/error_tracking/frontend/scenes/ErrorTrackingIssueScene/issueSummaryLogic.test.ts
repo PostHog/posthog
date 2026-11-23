@@ -34,6 +34,11 @@ const AI_NOT_APPROVED: ErrorTrackingIssueSummaryResponseApi = {
     reason: 'ai_not_approved',
 }
 const RESTRICTED: ErrorTrackingIssueSummaryResponseApi = { status: 'unavailable', summary: null, reason: 'restricted' }
+const SETTING_OFF: ErrorTrackingIssueSummaryResponseApi = {
+    status: 'unavailable',
+    summary: null,
+    reason: 'setting_off',
+}
 
 function refusal(status: number, code: string): ApiError {
     return new ApiError('Request failed', status, undefined, { code, detail: 'No summary was written.' })
@@ -68,6 +73,7 @@ describe('issueSummaryLogic', () => {
         ['summaries are off for the project', UNAVAILABLE, null, 'hidden'],
         ['the organization has not approved AI', AI_NOT_APPROVED, null, 'ai_not_approved'],
         ['the person cannot read the summary sources', RESTRICTED, null, 'restricted'],
+        ['the project has not turned summaries on', SETTING_OFF, null, 'setting_off'],
     ])(
         'shows nothing before the answer, then reads once and never polls when %s',
         async (_name, response, firstSeen, view) => {

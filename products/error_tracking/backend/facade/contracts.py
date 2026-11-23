@@ -564,6 +564,7 @@ class IssueSummaryUnavailableReason(LabeledStrEnum):
     RESTRICTED = "restricted"
     DISABLED = "disabled"
     AI_NOT_APPROVED = "ai_not_approved"
+    SETTING_OFF = "setting_off"
 
 
 @dataclass(frozen=True)

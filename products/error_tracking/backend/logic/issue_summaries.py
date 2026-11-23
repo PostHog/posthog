@@ -63,6 +63,7 @@ from products.error_tracking.backend.logic.ai_features import (
     AIFeatureBlock,
     ai_feature_blocked,
     ai_feature_flag_enabled,
+    ai_feature_setting_on,
 )
 from products.error_tracking.backend.logic.issue_summary_config import (
     ISSUE_SUMMARY_FLAG,
@@ -281,6 +282,12 @@ def read_issue_summary(team_id: int, issue_id: UUID | str, user: User) -> IssueS
     stored = get_issue_summary(team_id, issue_id)
     if stored is not None:
         return IssueSummaryState(status=IssueSummaryStatus.READY, summary=stored)
+    # A stored summary stays visible after the setting is turned off, because reading it costs nothing. Only the
+    # request to write one needs the setting.
+    if not ai_feature_setting_on(ISSUE_SUMMARIES, team_id):
+        return IssueSummaryState(
+            status=IssueSummaryStatus.UNAVAILABLE, reason=IssueSummaryUnavailableReason.SETTING_OFF
+        )
     return IssueSummaryState(status=IssueSummaryStatus.NOT_GENERATED)
 
 
@@ -333,7 +340,9 @@ def generate_issue_summary_on_demand(team_id: int, issue_id: UUID | str, user: U
     """Generate the summary of an issue that has none, because `user` asked for it.
 
     Each generation uses the organization's AI credits, so only a person's explicit request may call this, never a
-    read. The flag check comes first because it reads no database. A team outside the flag records no outcome.
+    read. The flag check comes first because it reads no database. A team outside the flag records no outcome. A
+    person who may not read the summary's sources records none either, because that refusal is about their access,
+    not about the feature.
     """
     trigger = IssueSummaryTrigger.ON_DEMAND
     if not issue_summaries_enabled(team_id):

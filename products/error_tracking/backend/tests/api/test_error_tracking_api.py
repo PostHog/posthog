@@ -975,13 +975,16 @@ class TestErrorTracking(APIBaseTest):
         flag: bool,
         readable: bool,
         approved: bool,
+        setting: bool,
         stored: bool,
         expected_status: str,
         expected_reason: str | None,
     ) -> None:
         issue = self.create_issue()
 
-        with summary_state(self, issue.id, flag=flag, readable=readable, approved=approved, stored=stored):
+        with summary_state(
+            self, issue.id, flag=flag, readable=readable, approved=approved, setting=setting, stored=stored
+        ):
             response = self.client.get(f"/api/projects/{self.team.id}/error_tracking/issues/{issue.id}/summary")
 
         assert response.status_code == 200

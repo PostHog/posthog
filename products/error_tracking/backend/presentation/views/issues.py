@@ -335,7 +335,8 @@ class ErrorTrackingIssueSummaryResponseSerializer(serializers.Serializer):
         help_text=(
             "Why the status is unavailable, else null. restricted: the user may not read a property that the summary "
             "is written from. disabled: summaries are off for the project. ai_not_approved: the organization has not "
-            "approved AI data processing."
+            "approved AI data processing. setting_off: the project has not turned summaries on, and no summary is "
+            "stored."
         ),
     )
 

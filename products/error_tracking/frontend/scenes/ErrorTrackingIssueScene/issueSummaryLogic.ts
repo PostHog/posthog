@@ -237,7 +237,11 @@ export const issueSummaryLogic = kea<issueSummaryLogicType>([
                         dayjs().diff(dayjs(firstSeen), 'minute', true) < SUMMARY_WRITE_WINDOW_MINUTES
                     return isNew ? 'writing' : 'not_generated'
                 }
-                if (summaryResponse?.reason === 'ai_not_approved' || summaryResponse?.reason === 'restricted') {
+                if (
+                    summaryResponse?.reason === 'ai_not_approved' ||
+                    summaryResponse?.reason === 'restricted' ||
+                    summaryResponse?.reason === 'setting_off'
+                ) {
                     return summaryResponse.reason
                 }
                 // Before the first answer, and when summaries are off for the project, which is most teams. A

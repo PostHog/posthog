@@ -21,23 +21,33 @@ STORED_CONTENT = {
     "suggested_next_step": "Guard the line item lookup in the cart total.",
 }
 
-# name, flag on, sources readable, AI approved, summary stored, expected status, expected reason
-SUMMARY_STATES: list[tuple[str, bool, bool, bool, bool, str, str | None]] = [
-    ("ready", True, True, True, True, "ready", None),
-    ("not_generated", True, True, True, False, "not_generated", None),
-    ("disabled_hides_stored", False, True, True, True, "unavailable", "disabled"),
-    ("restricted_hides_stored", True, False, True, True, "unavailable", "restricted"),
-    ("ai_not_approved_hides_stored", True, True, False, True, "unavailable", "ai_not_approved"),
-    ("ai_not_approved", True, True, False, False, "unavailable", "ai_not_approved"),
+# name, flag on, sources readable, AI approved, setting on, summary stored, expected status, expected reason
+SUMMARY_STATES: list[tuple[str, bool, bool, bool, bool, bool, str, str | None]] = [
+    ("ready", True, True, True, True, True, "ready", None),
+    ("not_generated", True, True, True, True, False, "not_generated", None),
+    ("setting_off", True, True, True, False, False, "unavailable", "setting_off"),
+    ("setting_off_keeps_stored", True, True, True, False, True, "ready", None),
+    ("disabled_hides_stored", False, True, True, True, True, "unavailable", "disabled"),
+    ("restricted_hides_stored", True, False, True, True, True, "unavailable", "restricted"),
+    ("ai_not_approved_hides_stored", True, True, False, True, True, "unavailable", "ai_not_approved"),
+    ("ai_not_approved", True, True, False, True, False, "unavailable", "ai_not_approved"),
 ]
 
 
 @contextmanager
 def summary_state(
-    test: APIBaseTest, issue_id: UUID | str, *, flag: bool, readable: bool, approved: bool, stored: bool
+    test: APIBaseTest,
+    issue_id: UUID | str,
+    *,
+    flag: bool,
+    readable: bool,
+    approved: bool,
+    setting: bool,
+    stored: bool,
 ) -> Iterator[None]:
     test.organization.is_ai_data_processing_approved = approved
     test.organization.save()
+    ErrorTrackingSettings.objects.update_or_create(team=test.team, defaults={"ai_issue_summaries_enabled": setting})
     if stored:
         ErrorTrackingIssueSummary.objects.for_team(test.team.id).create(
             team=test.team,

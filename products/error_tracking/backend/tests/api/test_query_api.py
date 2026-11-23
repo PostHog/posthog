@@ -1081,6 +1081,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         flag: bool,
         readable: bool,
         approved: bool,
+        setting: bool,
         stored: bool,
         expected_status: str,
         expected_reason: str | None,
@@ -1090,7 +1091,9 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         with (
-            summary_state(self, self.issue_id, flag=flag, readable=readable, approved=approved, stored=stored),
+            summary_state(
+                self, self.issue_id, flag=flag, readable=readable, approved=approved, setting=setting, stored=stored
+            ),
             patch("posthog.event_usage.posthoganalytics.capture") as mock_capture,
         ):
             response = self.client.post(
