@@ -152,6 +152,15 @@ class TrinoPhysicalFieldLowerer(CloningVisitor):
                     return alias
         return None
 
+    def _backing_column_chain(
+        self, node: ast.Field, source_type: ast.TableOrSelectType | None, column: str
+    ) -> list[str | int]:
+        qualifier = node.chain[:-1]
+        if not qualifier and source_type is not None:
+            source_alias = self._source_alias(source_type)
+            qualifier = [source_alias] if source_alias is not None else []
+        return [*qualifier, column]
+
     def visit_field(self, node: ast.Field) -> ast.Expr:
         field_type = node.type
         while isinstance(field_type, ast.FieldAliasType):
@@ -172,12 +181,12 @@ class TrinoPhysicalFieldLowerer(CloningVisitor):
             return ast.PropertyAccess(
                 start=node.start,
                 end=node.end,
-                expr=ast.Field(chain=[*node.chain[:-1], "properties"]),
+                expr=ast.Field(chain=self._backing_column_chain(node, source_type, "properties")),
                 keys=[field_type.name],
                 type=ast.StringType(nullable=True),
             )
         if isinstance(field_type, ast.FieldType) and is_events_field:
-            source = ast.Field(chain=[*node.chain[:-1], "elements_chain"])
+            source = ast.Field(chain=self._backing_column_chain(node, source_type, "elements_chain"))
             if field_type.name == "elements_chain_href":
                 return ast.Call(
                     name="ifNull",

@@ -1286,22 +1286,31 @@ def test_lowers_event_element_materializations_to_the_physical_chain() -> None:
 
 @pytest.mark.parametrize(
     "right_column, backing_column",
-    [("elements_chain_href", "elements_chain"), ("$session_id", "properties")],
+    [
+        ("r.elements_chain_href", "elements_chain"),
+        ("r.$session_id", "properties"),
+        ("elements_chain_href", "elements_chain"),
+        ("$session_id", "properties"),
+    ],
 )
 def test_any_join_keeps_the_backing_column_of_a_lowered_event_field(right_column: str, backing_column: str) -> None:
+    database = Database(include_posthog_tables=True)
+    assert (trino_database := _context_with_trino_table().database) is not None
+    database.tables.add_child(trino_database.tables.children["users"])
     context = HogQLContext(
-        database=Database(include_posthog_tables=True),
+        database=database,
         modifiers=_trino_modifiers(),
         enable_select_queries=True,
         trino_table_locators={"events": ("tenant", "posthog", "events")},
     )
 
     sql, _ = prepare_and_print_ast(
-        parse_select(f"SELECT r.{right_column} FROM events l LEFT ANY JOIN events r ON l.uuid = r.uuid"),
+        parse_select(f"SELECT {right_column} FROM users l LEFT ANY JOIN events r ON l.user_id = r.distinct_id"),
         context,
         "trino",
     )
 
+    assert f'"r"."{backing_column}"' in sql
     assert f'"__hogql_any_ranked_0"."{backing_column}"' in sql
 
 
