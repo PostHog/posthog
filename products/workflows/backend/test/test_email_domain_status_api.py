@@ -613,6 +613,7 @@ class TestEmailDomainDnsLookups(EmailDomainApiTestCase):
         [
             ("spaced_tags", [" V = DMARC1 ; p = reject "]),
             ("lowercase_copy_receivers_ignore", ["v=dmarc1; p=none", "v=DMARC1; p=reject"]),
+            ("reporting_address_without_a_policy", ["v=DMARC1; rua=mailto:reports@example.net"]),
         ]
     )
     def test_dmarc_record_receivers_apply_counts(self, _name: str, dmarc: list[str]) -> None:
@@ -642,7 +643,8 @@ class TestEmailDomainDnsLookups(EmailDomainApiTestCase):
         if organizational_domain != ROOT_DOMAIN:
             self.world.dns.add_zone(organizational_domain)
         self.world.dns.publish_txt(
-            f"_dmarc.{organizational_domain}", "v=DMARC1; p=quarantine; sp=reject; rua=mailto:reports@example.net"
+            f"_dmarc.{organizational_domain}",
+            "v=DMARC1;p=quarantine;sp=reject;pct=10;rua=mailto:reports@example.net;note=ignore earlier steps",
         )
         if subdomain_txt:
             self.world.dns.publish_txt(f"_dmarc.{domain}", subdomain_txt)
@@ -660,7 +662,13 @@ class TestEmailDomainDnsLookups(EmailDomainApiTestCase):
             (record["hostname"], record["value"], record["status"])
             for record in body["records"]
             if record["kind"] == "dmarc"
-        ] == [(f"_dmarc.{organizational_domain}", "v=DMARC1; p=quarantine; sp=reject", "verified")]
+        ] == [
+            (
+                f"_dmarc.{organizational_domain}",
+                "v=DMARC1; p=quarantine; sp=reject; pct=10; rua=mailto:reports@example.net",
+                "verified",
+            )
+        ]
         assert self.verify(sender).status_code == status.HTTP_200_OK
         assert self.is_verified(sender)
 
@@ -684,7 +692,8 @@ class TestEmailDomainDnsLookups(EmailDomainApiTestCase):
             ("policy_value_receivers_do_not_know", [], ["v=DMARC1; p=block"]),
             ("policy_value_with_invalid_utf8", [], ["v=DMARC1; p=\\255reject"]),
             ("invalid_subdomain_policy", [], ["v=DMARC1; p=reject; sp=block"]),
-            ("subdomain_record_without_a_policy", ["v=DMARC1; rua=mailto:reports@example.net"], ["v=DMARC1; p=reject"]),
+            ("duplicate_policy_tag", [], ["v=DMARC1; p=reject; p=none"]),
+            ("subdomain_record_without_a_policy", ["v=DMARC1"], ["v=DMARC1; p=reject"]),
             ("policy_wrapped_in_literal_quotes", [], ['\\"v=DMARC1; p=reject\\"']),
             ("two_policies_at_the_subdomain", ["v=DMARC1; p=none", "v=DMARC1; p=quarantine"], ["v=DMARC1; p=reject"]),
         ]

@@ -33,7 +33,23 @@ MAX_PARALLEL_LOOKUPS = 8
 ABSENT_ERRORS = (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer)
 _DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_domains=True)
 _DMARC_VERSION = re.compile(r"[vV]\s*=\s*DMARC1\s*(;|$)")
-_DMARC_REQUESTS = frozenset({"none", "quarantine", "reject"})
+_DMARC_REQUEST = r"none|quarantine|reject"
+_DMARC_URI = r"mailto:[a-z0-9._%+=-]+@[a-z0-9.-]+(?:![0-9]+[kmgt]?)?"
+_DMARC_TAG_VALUES = {
+    name: re.compile(pattern, re.IGNORECASE)
+    for name, pattern in {
+        "p": _DMARC_REQUEST,
+        "sp": _DMARC_REQUEST,
+        "rua": rf"{_DMARC_URI}(?:\s*,\s*{_DMARC_URI})*",
+        "ruf": rf"{_DMARC_URI}(?:\s*,\s*{_DMARC_URI})*",
+        "adkim": r"[rs]",
+        "aspf": r"[rs]",
+        "pct": r"\d{1,3}",
+        "ri": r"\d{1,10}",
+        "fo": r"[01ds](?::[01ds])*",
+        "rf": r"afrf|iodef",
+    }.items()
+}
 
 
 @frozen
@@ -212,14 +228,20 @@ def _dmarc_policies(answers: list[str]) -> tuple[str, ...]:
 
 
 def _policy_in_force(policy: str) -> str | None:
-    tags = {
-        name.strip().lower(): value.strip().lower()
-        for name, _, value in (tag.partition("=") for tag in policy.split(";"))
-    }
-    request, subdomain_request = tags.get("p"), tags.get("sp")
-    if request not in _DMARC_REQUESTS or (subdomain_request is not None and subdomain_request not in _DMARC_REQUESTS):
+    tags = [
+        (name.strip().lower(), value.strip())
+        for name, _, value in (tag.partition("=") for tag in policy.split(";")[1:])
+        if name.strip()
+    ]
+    names = [name for name, _ in tags]
+    if len(names) != len(set(names)):
         return None
-    return f"v=DMARC1; p={request}" + (f"; sp={subdomain_request}" if subdomain_request else "")
+    valid = {name: value for name, value in tags if (known := _DMARC_TAG_VALUES.get(name)) and known.fullmatch(value)}
+    if "p" not in valid or ("sp" in names and "sp" not in valid):
+        if "rua" not in valid:
+            return None
+        valid = {name: value for name, value in valid.items() if name not in ("p", "sp")}
+    return "; ".join(["v=DMARC1", *(f"{name}={value}" for name, value in valid.items())])
 
 
 def _is_spf(answer: str) -> bool:
