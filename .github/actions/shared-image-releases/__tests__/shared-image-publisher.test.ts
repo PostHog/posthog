@@ -827,6 +827,32 @@ describe('shared-image publication', () => {
     expect(external.mock.calls.filter(([executable, args]) => executable === 'git' && args.includes('--name-status') && args.includes(`${frontier}..${options.revision}`))).toHaveLength(1)
   })
 
+  test.each([
+    ['equals', 10000],
+    ['comes before', 6000]
+  ])('an action total that %s the allowance blocks the running channel and the channel after it by name', async (_mode, totalMs) => {
+    put('worker/run.py', 'changed'); put('other/file.py', 'changed'); commit(); build()
+    Object.assign(options.budgets, {concurrency: 1, channelMs: 10000, totalMs})
+    const comparisonStarted = latch()
+    external.mockImplementation(async (executable, args, configuration) => {
+      if (executable === 'git' && args.includes('--name-status')) {
+        comparisonStarted.release()
+        await hold('git', configuration, new Promise(() => undefined))
+      }
+      return invoke(executable, args, configuration)
+    })
+    controlTime()
+    const actionDeadline = Date.now() + totalMs
+    const run = publishChannels(options)
+    await Promise.race([comparisonStarted.done, run])
+    await jest.advanceTimersByTimeAsync(actionDeadline - Date.now())
+    expect(await run).toEqual([
+      {channel: 'posthog-cloud/worker', decision: 'blocked', reason: 'posthog-cloud/worker: Error: posthog-cloud/worker: action total reached'},
+      {channel: 'posthog-cloud/other', decision: 'blocked', reason: 'posthog-cloud/other: Error: posthog-cloud/other: action total reached'}
+    ])
+    expect(external.mock.calls.filter(([executable, args]) => executable !== 'git' && args.includes('workers/other'))).toEqual([])
+  })
+
   test.each(['destination', 'alias', 'digest'])('%s errors fail before any channel copy', async mode => {
     put('unrelated.txt', mode); commit(); build()
     if (mode === 'destination') { put(POLICY_PATH, policy(['worker/**'], {repository: 'posthog-cloud'})); commit(); build() }

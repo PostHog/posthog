@@ -109,13 +109,13 @@ interface ChannelContext {
   history: SourceHistory
 }
 
-async function bootstrapChannel(selected: ResolvedChannel, seed: Bootstrap, context: ChannelContext, registry: ReleaseRegistry, deadline: number): Promise<ChannelResult> {
+async function bootstrapChannel(selected: ResolvedChannel, seed: Bootstrap, context: ChannelContext, registry: ReleaseRegistry): Promise<ChannelResult> {
   const {image, name, key, channel, destination, source} = selected
   const {options, policy, history} = context
   const inventory = await registry.list(destination)
-  const tag = await history.alias(seed.revision, deadline)
-  if (await history.relation(seed.revision, options.revision, deadline) === 'older') throw new Error(`${key}: seed is newer than the executing revision`)
-  const seedPolicy = await history.policyAt(seed.revision, deadline)
+  const tag = await history.alias(seed.revision)
+  if (await history.relation(seed.revision, options.revision) === 'older') throw new Error(`${key}: seed is newer than the executing revision`)
+  const seedPolicy = await history.policyAt(seed.revision)
   const seedPolicyDigest = selectedPolicy(seedPolicy, image, name, channel)
   const existing = inventory.nonempty ? await registry.read(destination, tag, seed.digest) : undefined
   if (existing && existing.outcome !== 'present-at-expected-digest') {
@@ -143,7 +143,7 @@ function writeReceipt(selected: ResolvedChannel, seed: Bootstrap, tag: string, c
   writeFileSync(file, JSON.stringify(receipt, null, 2) + '\n')
 }
 
-async function advanceChannel(selected: ResolvedChannel, force: string[], context: ChannelContext, registry: ReleaseRegistry, deadline: number): Promise<ChannelResult> {
+async function advanceChannel(selected: ResolvedChannel, force: string[], context: ChannelContext, registry: ReleaseRegistry): Promise<ChannelResult> {
   const {image, name, key, channel, destination, source} = selected
   const {options, policy, history} = context
   const inventory = await registry.list(destination)
@@ -154,8 +154,8 @@ async function advanceChannel(selected: ResolvedChannel, force: string[], contex
   const digest = readback.digest
   if (!digest) throw new Error(`${key}: frontier disappeared during readback`)
   const identity = await registry.identity(destination.registry, destination.repository, digest)
-  if (await history.alias(identity.revision, deadline) !== frontier) throw new Error(`${key}: frontier ordinal mismatch`)
-  const relation = await history.relation(identity.revision, options.revision, deadline)
+  if (await history.alias(identity.revision) !== frontier) throw new Error(`${key}: frontier ordinal mismatch`)
+  const relation = await history.relation(identity.revision, options.revision)
   if (relation === 'older') return {channel: key, decision: 'older-revision'}
   if (relation === 'equal') {
     return publication(key, readback, frontier, options.digest, true)
@@ -199,14 +199,14 @@ export async function publishChannels(options: PublisherOptions): Promise<Channe
   const worker = async (): Promise<void> => {
     while (next < selected.length) {
       const channel = selected[next++]
-      const channelDeadline = Math.min(deadline, Date.now() + budgets.channelMs)
+      const bound = channelBound(deadline, budgets.channelMs)
       const seed = seeds.get(channel.key)
       let result: ChannelResult
       try {
-        const registry = new ReleaseRegistry(options.cwd, options.regctl, options.helper, budgets, channelDeadline)
-        result = await untilDeadline(channel.key, channelDeadline, seed
-          ? bootstrapChannel(channel, seed, context, registry, channelDeadline)
-          : advanceChannel(channel, requests.force, context, registry, channelDeadline))
+        const registry = new ReleaseRegistry(options.cwd, options.regctl, options.helper, budgets, bound.deadline)
+        result = await untilDeadline(channel.key, bound, () => seed
+          ? bootstrapChannel(channel, seed, context, registry)
+          : advanceChannel(channel, requests.force, context, registry))
         if (seed && result.outcome === 'present-at-expected-digest' && result.tag) writeReceipt(channel, seed, result.tag, context)
       } catch (error) {
         result = {channel: channel.key, decision: 'blocked', reason: `${channel.key}: ${String(error)}`}
@@ -221,13 +221,27 @@ export async function publishChannels(options: PublisherOptions): Promise<Channe
   return results
 }
 
-async function untilDeadline(key: string, deadline: number, work: Promise<ChannelResult>): Promise<ChannelResult> {
+interface ChannelBound {
+  deadline: number
+  reached: string
+}
+
+function channelBound(actionDeadline: number, channelMs: number): ChannelBound {
+  const allowance = Date.now() + channelMs
+  return allowance < actionDeadline
+    ? {deadline: allowance, reached: 'channel deadline reached'}
+    : {deadline: actionDeadline, reached: 'action total reached'}
+}
+
+async function untilDeadline(key: string, bound: ChannelBound, work: () => Promise<ChannelResult>): Promise<ChannelResult> {
+  const reached = new Error(`${key}: ${bound.reached}`)
+  if (Date.now() >= bound.deadline) throw reached
   let timer: NodeJS.Timeout | undefined
   const expired = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${key}: channel deadline reached`)), deadline - Date.now())
+    timer = setTimeout(() => reject(reached), bound.deadline - Date.now())
   })
   try {
-    return await Promise.race([work, expired])
+    return await Promise.race([work(), expired])
   } finally {
     clearTimeout(timer)
   }
