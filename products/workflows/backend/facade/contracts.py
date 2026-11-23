@@ -229,6 +229,15 @@ class AccountAudienceCustomPropertyFilter:
 
 AccountAssignmentStatus = Literal["all", "assigned", "unassigned"]
 
+SuggestionsScoutRunReason = Literal[
+    "first_run",
+    "backstop",
+    "opted_in",
+    "published",
+    "suggestion_resolved",
+    "sends_matured",
+]
+
 
 @frozen
 class AccountAudienceFilters:
@@ -342,6 +351,12 @@ class ProviderContactsResult:
 class ContactsCaptureFailed(Exception):
     """Capture didn't acknowledge every event of a part. Sending the part again is safe."""
 
+    def __init__(self, message: str, *, acknowledged: int = 0, new_people: int = 0) -> None:
+        super().__init__(message)
+        # The part's people whose events capture did take, and how many of them are new.
+        self.acknowledged = acknowledged
+        self.new_people = new_people
+
 
 class ContactsImportAccessLost(Exception):
     """The person who started the import can't edit persons in the project anymore. Another try finds the same."""
@@ -362,6 +377,8 @@ class ContactChunkOutcome:
     people: int
     # Of them, the people PostHog had once ingestion caught up.
     found: int
+    # Of them, the people PostHog didn't have when the list was stored.
+    new_people: int = 0
 
 
 @frozen
@@ -419,6 +436,16 @@ class EmailSendingSuspensionChange:
     changed_at: datetime | None
     previously_suspended_at: datetime | None = None
     notification_failed: bool = False
+
+
+@frozen
+class EmailInfrastructureHealth:
+    """How the email every project in this region sends through PostHog fared, rounded for display."""
+
+    emails_sent_at_least: int
+    delivery_rate: float
+    bounce_rate: float
+    complaint_rate: float
 
 
 @frozen
@@ -1422,3 +1449,10 @@ class SandboxSenderStatus:
     display_name: str
     organization_blocked: bool
     adoption_enabled: bool
+
+
+@frozen
+class ConversionGoalBackfill:
+    workflows_read: int
+    revisions_read: int
+    goals_found: int
