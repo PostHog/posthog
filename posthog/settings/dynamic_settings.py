@@ -488,6 +488,13 @@ CONSTANCE_CONFIG = {
         "address is always in or always out of the sample, so Radar gets every login of a sampled account.",
         int,
     ),
+    "TEAM_DELETE_PERSONS_MAX_CONCURRENT_BATCHES": (
+        get_from_env("TEAM_DELETE_PERSONS_MAX_CONCURRENT_BATCHES", 2, type_cast=int),
+        "Persons batches that project and organization deletions run at once across every worker in the region. "
+        "Each batch adds storage read load on the persons writer, which slows down ingestion. "
+        "0 pauses the persons phase of every deletion. A change takes effect within a minute.",
+        int,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -565,6 +572,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "REALTIME_COHORT_JOIN_OPEN",
     "WORKOS_RADAR_LOGIN_MODE",
     "WORKOS_RADAR_LOGIN_SAMPLE_PERCENT",
+    "TEAM_DELETE_PERSONS_MAX_CONCURRENT_BATCHES",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)
