@@ -1660,6 +1660,7 @@ filters:
         - posthog/sync.py
         - posthog/schema.py
         - posthog/enums.py
+        - posthog/errors.py
         - posthog/event_usage.py
         - posthog/token_bucket.py
         - posthog/helpers/tiktoken_encoding.py
@@ -2074,7 +2075,7 @@ images:
             error-tracking-lifecycle:
                 repository: posthog-temporal-workers/error-tracking-lifecycle
                 filter: errorTrackingLifecycleWorker
-                bootstrapPolicyDigest: c56717a8f05bfb0400a522fb0d5fb0f40b3f3f8806391d2abc58d66bf22d137a
+                bootstrapPolicyDigest: 157e72a64fd1c56ba6ccb71ff206cbd0fa1971e55158ded6d7711411d8266d27
             self-driving:
                 repository: posthog-temporal-workers/self-driving
                 filter: selfDrivingWorker
