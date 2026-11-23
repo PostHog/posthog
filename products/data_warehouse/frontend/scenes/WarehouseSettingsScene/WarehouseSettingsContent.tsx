@@ -10,7 +10,6 @@ import { warehouseConsoleLogic } from '../WarehouseConsole/warehouseConsoleLogic
 import { WarehousePasswordRevealDialog } from '../WarehouseConsole/WarehousePasswordRevealDialog'
 import { WarehouseResourceError } from '../WarehouseConsole/WarehouseResourceError'
 import { WarehouseDeprovisionSection } from './WarehouseDeprovisionSection'
-import { WarehouseDirectCredentials } from './WarehouseDirectCredentials'
 import { WarehouseOnboardSection } from './WarehouseOnboardSection'
 import { WarehouseProvisionSection } from './WarehouseProvisionSection'
 import { WarehouseSettingsStatus } from './WarehouseSettingsStatus'
@@ -81,7 +80,6 @@ export function WarehouseSettingsContent(): JSX.Element {
                     </Text>
                 )
             ) : null}
-            {view === 'ready' && <WarehouseDirectCredentials />}
             {view === 'ready' && isAdmin && <WarehouseDeprovisionSection />}
         </>
     )
