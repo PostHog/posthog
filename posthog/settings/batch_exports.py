@@ -116,9 +116,8 @@ def _parse_utc_datetime(value: str) -> dt.datetime:
     return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=dt.UTC)
 
 
-# The first time from which `events_json_recent` holds every event inserted in this region. A recent export run of a
-# team on the new events schema reads that table only when its range starts at or after this time, because an earlier
-# range would find rows missing. When unset, no run reads it and those runs read the legacy recent tables.
+# The first time from which `events_json_recent` holds every event inserted in this region. A recent run reads that
+# table only when its range starts at or after this time, because an earlier range would find rows missing.
 BATCH_EXPORTS_EVENTS_JSON_RECENT_SINCE: dt.datetime | None = get_from_env(
     "BATCH_EXPORTS_EVENTS_JSON_RECENT_SINCE", optional=True, type_cast=_parse_utc_datetime
 )
