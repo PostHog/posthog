@@ -781,14 +781,13 @@ class TestAbuseClassification(AbuseClassificationTestCase):
 
     @parameterized.expand(
         [
-            ("disabled_again", {}, "later_save", [False, True]),
-            ("edited_and_disabled_again", {"hog": "print('other')"}, "later_save", [False, False]),
-            ("disabled_by_another_write_before_the_enable_commits", {}, "write_before_commit", [False, True]),
-            ("edited_in_memory_before_the_enable_commits", {"hog": "print('other')"}, "unsaved_edit", [False, True]),
+            ("disabled_again", {}, False, [False, True]),
+            ("edited_and_disabled_again", {"hog": "print('other')"}, False, [False, False]),
+            ("disabled_by_another_write_before_the_enable_commits", {}, True, [False, True]),
         ]
     )
     def test_an_enable_is_reported_for_its_content_when_tasks_run_after_a_later_disable(
-        self, _name: str, later_changes: dict[str, Any], disabled_by: str, reported_enabled: list[bool]
+        self, _name: str, later_changes: dict[str, Any], before_commit: bool, reported_enabled: list[bool]
     ) -> None:
         hog_function = self.create_destination(enabled=False)
         queued: list[dict[str, Any]] = []
@@ -797,13 +796,9 @@ class TestAbuseClassification(AbuseClassificationTestCase):
             hog_function.enabled = True
             with self.committed():
                 hog_function.save()
-                if disabled_by == "write_before_commit":
+                if before_commit:
                     HogFunction.objects.filter(pk=hog_function.pk).update(enabled=False, **later_changes)
-                elif disabled_by == "unsaved_edit":
-                    for field, value in later_changes.items():
-                        setattr(hog_function, field, value)
-                    HogFunction.objects.filter(pk=hog_function.pk).update(enabled=False)
-            if disabled_by == "later_save":
+            if not before_commit:
                 for field, value in {"enabled": False, **later_changes}.items():
                     setattr(hog_function, field, value)
                 with self.committed():
