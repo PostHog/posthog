@@ -112357,6 +112357,8 @@ export namespace Schemas {
       implementation: SpendAmount;
       /** Full usage of scout runs that authored this report. Shared with all other output of those runs. */
       shared_scout_runs: SpendAmount;
+      /** Whether a scout run authored this report directly. Such a report has no generation usage of its own. */
+      scout_authored: boolean;
     }
 
     /**
