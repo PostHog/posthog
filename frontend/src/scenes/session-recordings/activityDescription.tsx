@@ -53,55 +53,59 @@ function describeRecordingExport(logItem: ActivityLogItem): HumanizedChange {
     }
 }
 
+function describeBulkDelete(logItem: ActivityLogItem): HumanizedChange {
+    return {
+        summary: activityLogSummary(
+            logItem,
+            'Bulk deleted session recordings',
+            logItem.detail?.name || 'Session recordings'
+        ),
+        description: (
+            <>
+                <ActivityLogUserName logItem={logItem} /> bulk deleted{' '}
+                <b>{logItem.detail?.name || 'session recordings'}</b>
+            </>
+        ),
+    }
+}
+
+function describeFailedReplayAuthentication(logItem: ActivityLogItem): HumanizedChange {
+    const afterData = logItem.detail.changes?.[0]?.after as any
+    const clientIp = afterData?.client_ip || 'unknown IP'
+
+    return {
+        summary: activityLogSummary(
+            logItem,
+            'Failed to authenticate to the shared recording',
+            logItem.detail?.name || 'Session recording',
+            `From ${clientIp}`,
+            <strong>Anonymous user</strong>
+        ),
+        description: (
+            <>
+                <strong>Anonymous user</strong> failed to authenticate to shared session recording{' '}
+                <b>{logItem.detail?.name || 'session recording'}</b> from {clientIp}
+            </>
+        ),
+    }
+}
+
+const REPLAY_DESCRIBERS: Record<string, (logItem: ActivityLogItem) => HumanizedChange> = {
+    bulk_deleted: describeBulkDelete,
+    exported: describeRecordingExport,
+    share_login_success: describeReplayAuthentication,
+    share_login_failed: describeFailedReplayAuthentication,
+}
+
 export function replayActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope !== ActivityScope.REPLAY) {
         console.error('replay describer received a non-replay activity')
         return { description: null }
     }
 
-    if (logItem.activity === 'bulk_deleted') {
-        return {
-            summary: activityLogSummary(
-                logItem,
-                'Bulk deleted session recordings',
-                logItem.detail?.name || 'Session recordings'
-            ),
-            description: (
-                <>
-                    <ActivityLogUserName logItem={logItem} /> bulk deleted{' '}
-                    <b>{logItem.detail?.name || 'session recordings'}</b>
-                </>
-            ),
-        }
-    }
-
-    if (logItem.activity === 'share_login_success') {
-        return describeReplayAuthentication(logItem)
-    }
-
-    if (logItem.activity === 'exported') {
-        return describeRecordingExport(logItem)
-    }
-
-    if (logItem.activity === 'share_login_failed') {
-        const afterData = logItem.detail.changes?.[0]?.after as any
-        const clientIp = afterData?.client_ip || 'unknown IP'
-
-        return {
-            summary: activityLogSummary(
-                logItem,
-                'Failed to authenticate to the shared recording',
-                logItem.detail?.name || 'Session recording',
-                `From ${clientIp}`,
-                <strong>Anonymous user</strong>
-            ),
-            description: (
-                <>
-                    <strong>Anonymous user</strong> failed to authenticate to shared session recording{' '}
-                    <b>{logItem.detail?.name || 'session recording'}</b> from {clientIp}
-                </>
-            ),
-        }
+    const describe = REPLAY_DESCRIBERS[logItem.activity]
+    if (describe) {
+        return describe(logItem)
     }
 
     // Fall back to default describer for other activities like 'deleted', 'created', etc.
