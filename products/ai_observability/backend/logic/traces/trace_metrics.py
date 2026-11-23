@@ -167,6 +167,16 @@ def has_too_many_buckets(window: TraceWindow, size: BucketSize) -> bool:
     return (window.end.astimezone(UTC) - window.start.astimezone(UTC)) / length > MAX_BUCKETS
 
 
+def has_no_previous_window(window: TraceWindow) -> bool:
+    """Whether the period before the window would start before the first representable date, as for a window starting
+    in year 1."""
+    try:
+        previous_window(window)
+    except OverflowError:
+        return True
+    return False
+
+
 def bucket_floor(moment: datetime, size: BucketSize) -> datetime:
     if size == BucketSize.HOUR:
         return moment.replace(minute=0, second=0, microsecond=0)

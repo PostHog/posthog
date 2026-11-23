@@ -8,6 +8,8 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 
+from parameterized import parameterized
+
 from posthog.models import User
 
 from products.ai_observability.backend.facade import api, contracts
@@ -80,8 +82,16 @@ class TestLoadTraceMetrics(BaseTest):
 
         assert read.call_count == 1
 
-    def test_load_trace_metrics_refuses_a_range_with_too_many_buckets_without_reading(self) -> None:
-        selection = selection_between(datetime(5000, 1, 1, tzinfo=UTC), datetime(8000, 1, 1, tzinfo=UTC))
+    @parameterized.expand(
+        [
+            ("too_many_buckets", datetime(5000, 1, 1, tzinfo=UTC), datetime(8000, 1, 1, tzinfo=UTC)),
+            ("previous_period_before_year_one", datetime(1, 6, 1, tzinfo=UTC), datetime(1, 12, 1, tzinfo=UTC)),
+        ]
+    )
+    def test_load_trace_metrics_refuses_an_uncomputable_range_without_reading(
+        self, _name: str, start: datetime, end: datetime
+    ) -> None:
+        selection = selection_between(start, end)
 
         with patch(READ) as read, pytest.raises(TraceMetricsTooHeavyError):
             api.load_trace_metrics(self.team, self.user, selection)
