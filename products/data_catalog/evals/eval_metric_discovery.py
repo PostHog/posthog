@@ -12,6 +12,7 @@ from products.data_catalog.evals.catalog_seeders import (
     seed_catalog_with_account_engagement,
     seed_catalog_with_files_page_actions,
     seed_catalog_with_mrr,
+    seed_catalog_with_pageviews_by_page,
     seed_catalog_with_power_downloaders,
     seed_catalog_with_proposed_download_adoption,
 )
@@ -20,6 +21,7 @@ from products.data_catalog.evals.catalog_synthesizer import (
     FILES_PAGE_ACTIONS_METRIC,
     MRR_METRIC,
     NEW_USER_DOWNLOAD_ADOPTION_METRIC,
+    PAGEVIEWS_BY_PAGE_METRIC,
     POWER_DOWNLOADERS_METRIC,
 )
 from products.data_catalog.evals.offline_config import offline_suite
@@ -166,6 +168,24 @@ async def eval_metric_discovery(ctx: EvalContext) -> None:
                 },
             },
             setup=seed_catalog_with_power_downloaders,
+        ),
+        SandboxedEvalCase(
+            name="search_metric_for_top_page",
+            prompt="What's the most visited page this week?",
+            expected={
+                "metric_found": {"metric_name": PAGEVIEWS_BY_PAGE_METRIC.name},
+                "metrics_catalog_before_data_discovery": {},
+                "canonical_metric_run": {"metric_name": PAGEVIEWS_BY_PAGE_METRIC.name, "outcome": "succeeded"},
+                "semantic_layer_answer": {
+                    "expected_behavior": (
+                        f"Find {PAGEVIEWS_BY_PAGE_METRIC.name} in the catalog before exploring the schema, run it, "
+                        "and report that the home page (/) is the most visited page over the last 7 days, followed "
+                        "by /files/, with the pageview count for each. Do not use a total page view metric, because "
+                        "it does not rank pages."
+                    )
+                },
+            },
+            setup=seed_catalog_with_pageviews_by_page,
         ),
     ]
 

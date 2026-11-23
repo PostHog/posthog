@@ -8,7 +8,7 @@
             "type": "string"
         },
         "filters": {
-            "description": "Property-group filters on event properties, evaluated against the first event of each new issue. At least one filter is required. Person, cohort, HogQL and other filter types are rejected.",
+            "description": "Property-group filters on event properties. They are checked against the first event of each new issue, and once a day against the events of the past day. A rule that filters on `$exception_list` is checked against the first event only. At least one filter is required. Person, cohort, HogQL and other filter types are rejected.",
             "properties": {
                 "type": {
                     "enum": ["AND", "OR"],
@@ -257,7 +257,7 @@
             "type": "object"
         },
         "label": {
-            "description": "Display name of the tag the rule applies to each new issue whose first event matches the filters.",
+            "description": "Display name of the tag the rule applies to matching issues.",
             "maxLength": 128,
             "type": "string"
         },
