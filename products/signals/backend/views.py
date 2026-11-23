@@ -300,7 +300,7 @@ from products.signals.backend.report_task_actions import (
 from products.signals.backend.reviewer_correction_notes import ReviewerCorrection, forward_reviewer_correction_note
 from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
 from products.signals.backend.reviewer_rules import ReviewerRules, ReviewerWriteError, StaleReviewerProposal
-from products.signals.backend.scout_authorship import inbox_hidden_report_filter
+from products.signals.backend.scout_authorship import inbox_hidden_report_exists, inbox_hidden_report_filter
 from products.signals.backend.scout_harness.serializers import (
     TRIGRAM_INDEXABLE_TEXT,
     EmitReportRequestSerializer,
@@ -2745,6 +2745,10 @@ class SignalReportViewSet(
             or self._plan_step_order is not None
         ):
             return queryset
+        # Section counts narrow the report candidates first, so indexed run probes stay bounded.
+        # The broad list expands hidden ids once to avoid probing every report in the team.
+        if self.action == "section_counts":
+            return queryset.exclude(inbox_hidden_report_exists(self.team_id))
         return queryset.filter(inbox_hidden_report_filter(self.team_id))
 
     @cached_property
