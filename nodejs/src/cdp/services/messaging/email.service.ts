@@ -259,10 +259,22 @@ const sesRefused = (response: unknown): boolean => {
     return statusCode !== undefined && (statusCode < 200 || statusCode >= 300)
 }
 
-function trackAttemptsSesMayHaveAccepted(command: SendEmailCommand): () => boolean {
+class SesMayHaveSentError extends Error {
+    constructor() {
+        super('The connection to SES dropped before SES answered. It may have sent the email, so it is not sent again.')
+        this.name = 'SesMayHaveSentError'
+    }
+}
+
+function trackAttemptsSesMayHaveAccepted(command: SendEmailCommand, retryOnlyRefusedAttempts: boolean): () => boolean {
     let attemptsSesMayHaveAccepted = 0
     command.middlewareStack.add(
         (next) => async (args) => {
+            // The SDK retries a dropped connection on its own. SES can take an attempt whose connection then drops,
+            // so a retry after it can deliver a second copy.
+            if (retryOnlyRefusedAttempts && attemptsSesMayHaveAccepted > 0) {
+                throw new SesMayHaveSentError()
+            }
             attemptsSesMayHaveAccepted++
             const httpAnswer = await next(args)
             if (sesRefused(httpAnswer.response)) {
@@ -1813,7 +1825,7 @@ export class EmailService {
         }
 
         const command = new SendEmailCommand(sendEmailParams)
-        const anAttemptSesMayHaveAccepted = trackAttemptsSesMayHaveAccepted(command)
+        const anAttemptSesMayHaveAccepted = trackAttemptsSesMayHaveAccepted(command, deadline !== undefined)
         const sendStartedAt = performance.now()
         try {
             const response = deadline

@@ -2840,27 +2840,49 @@ describe('EmailService', () => {
 
             it.each([
                 [
-                    'SES receives the request and does not answer',
+                    'SES receives the request and does not answer past the deadline',
                     () => {
                         ses.failWith('no-answer')
                     },
+                    0,
                 ],
                 [
-                    'SES answers 200 and its body stalls',
+                    'SES answers 200 and its body stalls past the deadline',
                     () => {
                         ses.failWith('stalled-body')
                     },
+                    0,
                 ],
                 [
-                    'the connection drops after the request went out and the SDK is still backing off',
+                    'the connection drops after the request went out and the SDK is still backing off past the deadline',
                     (emailService: EmailService) => {
                         ses.failWith('drop-connection')
                         emailService.sesV2Client = sesClientFor(ses, { retryStrategy: oneRetryAfter(2_000) })
                     },
+                    0,
+                ],
+                [
+                    'SES takes the email and the connection drops before its answer arrives',
+                    (emailService: EmailService) => {
+                        const transport = sesClientFor(ses).config.requestHandler
+                        let attempts = 0
+                        emailService.sesV2Client = sesClientFor(ses, {
+                            requestHandler: {
+                                handle: async (request: any, options: any) => {
+                                    const answer = await transport.handle(request, options)
+                                    if (++attempts === 1) {
+                                        throw Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' })
+                                    }
+                                    return answer
+                                },
+                            },
+                        })
+                    },
+                    1,
                 ],
             ])(
-                'when %s past the deadline, fails the send without a retry, because SES may have sent it',
-                async (_name, fault) => {
+                'when %s, fails the send without a retry, because SES may have sent it',
+                async (_name, fault, deliveries) => {
                     const emailService = sender({ attachmentSendDeadlineMs: 1000 })
                     fault(emailService)
 
@@ -2870,12 +2892,12 @@ describe('EmailService', () => {
                         finished: result.finished,
                         error: result.error,
                         failed: result.metrics.some((metric) => metric.metric_name === 'email_failed'),
-                        delivered: deliveredTo(ses, recipient),
+                        delivered: deliveredTo(ses, recipient).length,
                     }).toEqual({
                         finished: true,
                         error: expect.stringMatching(/^Failed to send email via SES: /),
                         failed: true,
-                        delivered: [],
+                        delivered: deliveries,
                     })
                 }
             )
