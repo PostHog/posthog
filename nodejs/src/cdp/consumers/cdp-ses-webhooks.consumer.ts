@@ -84,7 +84,6 @@ export class CdpSesWebhooksConsumer extends CdpConsumerBase {
             logger.error('[CdpSesWebhooksConsumer] Failed to flush a failed batch', { error: serializeError(error) })
             throw errors[0]
         }
-        // Mark only after the flush succeeds, so a batch whose flush failed records again on redelivery.
         await this.markRecorded(marks.recorded)
         if (errors.length > 0) {
             throw errors[0]
@@ -134,8 +133,7 @@ export class CdpSesWebhooksConsumer extends CdpConsumerBase {
             return new Set()
         }
         const results = await this.recordedMarksPipeline('read', (pipeline) => {
-            // One command per key, because a multi-key command fails with CROSSSLOT across cluster slots. GETEX, not
-            // GET, so a mark outlives a batch that reads it and keeps failing and redelivering for longer than the TTL.
+            // One command per key, because a multi-key command fails with CROSSSLOT across cluster slots.
             for (const id of ids) {
                 pipeline.getex(sesNotificationRecordedKey(id), 'EX', SES_NOTIFICATION_RECORDED_TTL_SECONDS)
             }
