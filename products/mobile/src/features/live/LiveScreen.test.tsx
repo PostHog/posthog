@@ -7,7 +7,6 @@ import { EMPTY_LIVE_SNAPSHOT } from '@/model/live'
 import { DEFAULT_LIVE_TRAFFIC_FILTERS } from '@/model/liveTrafficFilters'
 
 import type { LiveFeed } from './hooks'
-import { LiveAudienceControl } from './LiveAudienceControl'
 import { LiveScreen } from './LiveScreen'
 import { useLivePreference } from './livePreference'
 import { clearLiveWorldShare, useLiveWorldShare } from './liveWorldStore'
@@ -17,7 +16,14 @@ jest.mock('react-native-keyboard-controller', () => require('react-native-keyboa
 jest.mock('react-native-worklets', () => require('react-native-worklets/src/mock'))
 jest.mock('expo-router', () => ({
     Stack: {
-        Toolbar: { Menu: () => null, Icon: () => null, Label: () => null, MenuAction: () => null, Button: () => null },
+        Toolbar: {
+            Menu: () => null,
+            Icon: () => null,
+            Badge: () => null,
+            Label: () => null,
+            MenuAction: () => null,
+            Button: () => null,
+        },
     },
     useRouter: () => ({ canGoBack: () => true, back: jest.fn(), push: jest.fn() }),
     useFocusEffect: jest.fn(),
@@ -72,19 +78,114 @@ function screen(chrome: 'tab' | 'stack' = 'tab'): ReactElement {
 }
 
 describe('LiveScreen', () => {
-    test('offers All, Web and Mobile and defaults to All', () => {
-        const view = render(
-            <SafeAreaProvider initialMetrics={insets}>
-                <LiveAudienceControl />
-            </SafeAreaProvider>
-        )
-        expect(view.getByText('All')).toBeTruthy()
-        fireEvent.press(view.getByTestId('live-audience-control'))
-        expect(view.getByTestId('live-audience-menu-all')).toBeTruthy()
-        expect(view.getByTestId('live-audience-menu-web')).toBeTruthy()
-        expect(view.getByTestId('live-audience-menu-mobile')).toBeTruthy()
-        expect(view.queryByText('Auto')).toBeNull()
-        expect(view.queryByText('Both')).toBeNull()
+    test('edits platform and traffic filters together, cancels edits and clears from an empty result', () => {
+        mockFeed = { ...feed(), state: 'quiet' }
+        const view = render(screen())
+        const open = (): void => act(() => useTabHeaderStore.getState().slots.live?.filter?.onPress())
+        expect(useTabHeaderStore.getState().slots.live?.filter?.count).toBe(0)
+        open()
+        expect(view.getByRole('radio', { name: 'All', selected: true })).toBeTruthy()
+        fireEvent.press(view.getByRole('radio', { name: 'Web' }))
+        fireEvent(view.getByTestId('live-filter-bots'), 'valueChange', true)
+        const edit = (field: string): void => fireEvent.press(view.getByTestId(`live-filter-edit-${field}`))
+        const save = (): void => fireEvent.press(view.getByTestId('live-filter-save'))
+        edit('hostname')
+        fireEvent.changeText(view.getByTestId('live-filter-hostname'), 'https://app.example.com')
+        expect(view.getByTestId('live-filter-save')).toBeDisabled()
+        fireEvent.changeText(view.getByTestId('live-filter-hostname'), ' APP.EXAMPLE.COM ')
+        save()
+        edit('pathPrefix')
+        expect(view.getByRole('radio', { name: 'Is exactly', selected: true })).toBeTruthy()
+        fireEvent.press(view.getByTestId('live-filter-path-prefix'))
+        fireEvent.changeText(view.getByTestId('live-filter-path'), 'docs/')
+        save()
+        edit('referringDomain')
+        fireEvent.press(view.getByTestId('live-filter-direct'))
+        save()
+        edit('channelType')
+        fireEvent.changeText(view.getByTestId('live-filter-search'), 'organic')
+        fireEvent.press(view.getByTestId('live-filter-option-Organic Search'))
+        edit('countryCode')
+        fireEvent.changeText(view.getByTestId('live-filter-search'), 'United States')
+        fireEvent.press(view.getByTestId('live-filter-option-US'))
+        edit('deviceType')
+        fireEvent.press(view.getByTestId('live-filter-option-Desktop'))
+        expect(useTabHeaderStore.getState().slots.live?.filter?.count).toBe(0)
+        fireEvent.press(view.getByTestId('live-filters-apply'))
+        expect(view.queryByTestId('live-filter-sheet')).toBeNull()
+        expect(useTabHeaderStore.getState().slots.live?.filter?.count).toBe(8)
+        expect(
+            view.getByLabelText(
+                'Edit Live filters. Web · app.example.com · Paths starting with /docs/ · Organic Search · Direct entry · United States · Desktop devices · Bots excluded'
+            )
+        ).toBeTruthy()
+        expect(view.getByText('No matching traffic')).toBeTruthy()
+        fireEvent.press(view.getByText('Edit filters'))
+        expect(view.getByText('app.example.com')).toBeTruthy()
+        expect(view.getByText('Paths starting with /docs/')).toBeTruthy()
+        expect(view.getByRole('radio', { name: 'Web', selected: true })).toBeTruthy()
+        fireEvent.press(view.getByTestId('live-filters-clear'))
+        fireEvent.press(view.getByText('Cancel'))
+        expect(useTabHeaderStore.getState().slots.live?.filter?.count).toBe(8)
+        open()
+        fireEvent.press(view.getByTestId('live-filters-clear'))
+        fireEvent.press(view.getByTestId('live-filters-apply'))
+        expect(useTabHeaderStore.getState().slots.live?.filter?.count).toBe(0)
+        expect(view.queryByTestId('live-filter-summary')).toBeNull()
+        expect(view.getByText('Quiet right now')).toBeTruthy()
+        view.unmount()
+    })
+
+    test('distinguishes the Mobile platform and Mobile device type in the applied summary', () => {
+        mockFeed = feed()
+        const view = render(screen())
+        const open = (): void => act(() => useTabHeaderStore.getState().slots.live?.filter?.onPress())
+        open()
+        fireEvent.press(view.getByRole('radio', { name: 'Mobile' }))
+        fireEvent.press(view.getByTestId('live-filter-edit-deviceType'))
+        fireEvent.press(view.getByTestId('live-filter-option-Mobile'))
+        fireEvent.press(view.getByTestId('live-filters-apply'))
+        expect(view.getByText('Mobile · Mobile devices')).toBeTruthy()
+        expect(view.getByLabelText('Edit Live filters. Mobile · Mobile devices')).toBeTruthy()
+        open()
+        fireEvent.press(view.getByTestId('live-filters-clear'))
+        fireEvent.press(view.getByTestId('live-filters-apply'))
+        view.unmount()
+    })
+
+    test('edits individual filter values and preserves custom channels and exact paths', () => {
+        mockFeed = feed()
+        const view = render(screen())
+        const open = (): void => act(() => useTabHeaderStore.getState().slots.live?.filter?.onPress())
+        const edit = (field: string): void => fireEvent.press(view.getByTestId(`live-filter-edit-${field}`))
+        open()
+        edit('pathPrefix')
+        fireEvent.changeText(view.getByTestId('live-filter-path'), '/pricing')
+        fireEvent.press(view.getByTestId('live-filter-save'))
+        edit('referringDomain')
+        fireEvent.changeText(view.getByTestId('live-filter-referringDomain'), 'Search.Example.com')
+        fireEvent.press(view.getByTestId('live-filter-save'))
+        edit('channelType')
+        fireEvent.changeText(view.getByTestId('live-filter-search'), 'Partner webinars')
+        fireEvent.press(view.getByTestId('live-filter-option-Partner webinars'))
+        fireEvent.press(view.getByTestId('live-filters-apply'))
+        expect(
+            view.getByLabelText(
+                'Edit Live filters. Path is /pricing · Partner webinars · Entry from search.example.com'
+            )
+        ).toBeTruthy()
+        open()
+        edit('channelType')
+        fireEvent.press(view.getByTestId('live-filters-clear'))
+        edit('pathPrefix')
+        fireEvent.changeText(view.getByTestId('live-filter-path'), '/different')
+        fireEvent.press(view.getByTestId('live-filter-back'))
+        expect(view.getByText('Path is /pricing')).toBeTruthy()
+        fireEvent.press(view.getByTestId('live-filters-apply'))
+        expect(useTabHeaderStore.getState().slots.live?.filter?.count).toBe(2)
+        open()
+        fireEvent.press(view.getByTestId('live-filters-clear'))
+        fireEvent.press(view.getByTestId('live-filters-apply'))
         view.unmount()
     })
 
@@ -272,12 +373,12 @@ describe('LiveScreen', () => {
         revisited.unmount()
     })
 
-    test('publishes the audience selector instead of Pause to the shared header', () => {
+    test('publishes Live filters to the shared header', () => {
         mockFeed = feed()
         const view = render(screen())
-        expect(useTabHeaderStore.getState().slots.live?.liveAudience).toBe(true)
+        expect(useTabHeaderStore.getState().slots.live?.filter?.count).toBe(0)
         expect(view.queryByTestId('live-pause')).toBeNull()
-        expect(view.queryByTestId('live-audience-control')).toBeNull()
+        expect(view.queryByTestId('live-filter-button')).toBeNull()
         expect(
             view.queryByText('Users online covers the whole project. Other metrics show mobile activity.')
         ).toBeNull()
