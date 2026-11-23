@@ -7,7 +7,7 @@
             "type": "string"
         },
         "filters": {
-            "description": "Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags.",
+            "description": "Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply to new issues, and once a day to other issues that had a matching event in the past day. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags.",
             "properties": {
                 "type": {
                     "enum": ["AND", "OR"],

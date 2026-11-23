@@ -19,7 +19,9 @@
                 "backend/models.py",
                 "backend/migrations/**",
                 "backend/scopes.py",
-                "backend/apps.py"
+                "backend/apps.py",
+                "backend/platform_alerts/registration.py",
+                "backend/platform_alerts/wording.py"
             ],
             "outputs": [],
             "cache": true
