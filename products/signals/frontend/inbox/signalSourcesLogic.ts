@@ -41,7 +41,6 @@ import { signalsOnboardingList, signalsSourceConfigsCreate, signalsSourceConfigs
 import type {
     InboxOnboardingStateApi,
     PatchedSignalSourceConfigApi,
-    SignalSourceTypeApi,
     SignalSourceConfigSourceTypeEnumApi,
 } from '../generated/api.schemas'
 import {
@@ -580,7 +579,7 @@ export interface signalSourcesLogicActions {
         value: true
     }
     toggleErrorTrackingType: (sourceType: SignalSourceType) => {
-        sourceType: SignalSourceTypeApi
+        sourceType: SignalSourceType
     }
     toggleEvalReports: () => {
         value: true

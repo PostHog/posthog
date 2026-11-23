@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from products.warehouse_sources.sources.sdk import IncrementalField, SortMode
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, SortMode
 
 PUBLICATION_PATH_PLACEHOLDER = "{publication_id}"
 
@@ -17,7 +17,7 @@ class BeehiivEndpointConfig:
     name: str
     path: str
     pagination: PaginationStyle
-    primary_key: str = "id"
+    primary_keys: list[str] = field(default_factory=lambda: ["id"])
     # Only creation timestamps are used because beehiiv rows are partitioned by when they were made,
     # never by a column that moves after the fact.
     partition_key: str | None = None
@@ -25,9 +25,28 @@ class BeehiivEndpointConfig:
     # assumes an order the API doesn't promise.
     sort_mode: SortMode | None = None
     params: dict[str, Any] = field(default_factory=dict)
+    # Set for tables beehiiv only exposes per parent row (episodes per podcast, responses per poll).
+    fanout: DependentEndpointConfig | None = None
+    # Read by the fan-out helper. Every table here is full refresh, so neither builds a request.
+    incremental_fields: list[IncrementalField] = field(default_factory=list)
+    default_incremental_field: str | None = None
+    page_size: int = PAGE_SIZE
 
 
-ENDPOINTS: dict[str, BeehiivEndpointConfig] = {
+def _fanout(parent_name: str, parent_id_column: str) -> DependentEndpointConfig:
+    return DependentEndpointConfig(
+        parent_name=parent_name,
+        resolve_param=parent_id_column,
+        resolve_field="id",
+        include_from_parent=["id"],
+        parent_field_renames={"id": parent_id_column},
+        parent_params=_TOP_LEVEL_ENDPOINTS[parent_name].params,
+        # A parent deleted between the parent listing and its child fetch must not fail the table.
+        child_response_actions=[{"status_code": 404, "action": "ignore"}],
+    )
+
+
+_TOP_LEVEL_ENDPOINTS: dict[str, BeehiivEndpointConfig] = {
     "Authors": BeehiivEndpointConfig(
         name="Authors",
         path=f"/publications/{PUBLICATION_PATH_PLACEHOLDER}/authors",
@@ -131,6 +150,48 @@ ENDPOINTS: dict[str, BeehiivEndpointConfig] = {
         params={"direction": "asc"},
     ),
 }
+
+_FANOUT_ENDPOINTS: dict[str, BeehiivEndpointConfig] = {
+    "PodcastEpisodes": BeehiivEndpointConfig(
+        name="PodcastEpisodes",
+        path=f"/publications/{PUBLICATION_PATH_PLACEHOLDER}/podcasts/{{podcast_id}}/episodes",
+        pagination="cursor",
+        primary_keys=["podcast_id", "id"],
+        partition_key="created",
+        params={"order_by": "created", "direction": "asc"},
+        fanout=_fanout("Podcasts", "podcast_id"),
+    ),
+    "PollResponses": BeehiivEndpointConfig(
+        name="PollResponses",
+        path=f"/publications/{PUBLICATION_PATH_PLACEHOLDER}/polls/{{poll_id}}/responses",
+        pagination="cursor",
+        primary_keys=["poll_id", "id"],
+        partition_key="created_at",
+        # `expand[]=post` adds the post_id of the post each response was collected on.
+        params={"order_by": "created", "direction": "asc", "expand[]": ["post"]},
+        fanout=_fanout("Polls", "poll_id"),
+    ),
+    "SegmentMembers": BeehiivEndpointConfig(
+        name="SegmentMembers",
+        # Only offset pagination is offered here, so each segment stops at beehiiv's 100-page cap.
+        path=f"/publications/{PUBLICATION_PATH_PLACEHOLDER}/segments/{{segment_id}}/members",
+        pagination="page",
+        primary_keys=["segment_id", "id"],
+        partition_key="created",
+        fanout=_fanout("Segments", "segment_id"),
+    ),
+    "AutomationJourneys": BeehiivEndpointConfig(
+        name="AutomationJourneys",
+        # Journeys carry no creation timestamp, and started_at is optional, so the table is not partitioned.
+        path=f"/publications/{PUBLICATION_PATH_PLACEHOLDER}/automations/{{automation_id}}/journeys",
+        pagination="cursor",
+        primary_keys=["automation_id", "id"],
+        params={"status": "all"},
+        fanout=_fanout("Automations", "automation_id"),
+    ),
+}
+
+ENDPOINTS: dict[str, BeehiivEndpointConfig] = {**_TOP_LEVEL_ENDPOINTS, **_FANOUT_ENDPOINTS}
 
 # beehiiv exposes no updated-since or created-after filter on any list endpoint. The one date
 # filter (`creation_date` on subscriptions) matches a single day rather than a lower bound, so

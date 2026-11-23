@@ -788,11 +788,24 @@ export function captureInboxReportDecisionChanged(params: {
     })
 }
 
+/** A deep-link or a step from the report page has no list row, so it carries no ranking. */
+export interface TodayReportRanking {
+    rankerId: string | null
+    personalTier: string | null
+    personalReasonShown: boolean
+}
+
+export const NO_TODAY_REPORT_RANKING: TodayReportRanking = {
+    rankerId: null,
+    personalTier: null,
+    personalReasonShown: false,
+}
+
 /**
  * What the Today home knows about a report it shows. A briefing item carries less than the Inbox's
  * `SignalReport`, so the fields it cannot fill stay null on the event.
  */
-export interface TodayReportSnapshot {
+export interface TodayReportSnapshot extends TodayReportRanking {
     reportId: string
     priority: string | null
     hasPr: boolean
@@ -814,6 +827,9 @@ function todayReportProperties(report: TodayReportSnapshot): Record<string, unkn
         has_pr: report.hasPr,
         signal_count: report.signalCount,
         source_products: report.sourceProducts,
+        ranker_id: report.rankerId,
+        personal_tier: report.personalTier,
+        personal_reason_shown: report.personalReasonShown,
     }
 }
 

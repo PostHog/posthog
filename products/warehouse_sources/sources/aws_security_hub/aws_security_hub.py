@@ -28,6 +28,7 @@ from products.warehouse_sources.sources.sdk import (
     BoundedRetry,
     SourceResponse,
     camel_to_snake,
+    format_datetime,
     frozen,
     make_tracked_session,
 )
@@ -177,7 +178,28 @@ def _prepare(endpoint: str, item: dict[str, Any]) -> dict[str, Any]:
             "created_time": info.get("created_time_dt"),
             "modified_time": info.get("modified_time_dt"),
         }
+    if endpoint == "software_v2":
+        # PackageVersion is optional and part of the primary key, so a missing version becomes an empty string.
+        return {**item, "PackageVersion": item.get("PackageVersion") or ""}
+    if ENDPOINTS[endpoint].trend_window_days:
+        values = item.get("TrendsValues") or {}
+        counts = values.get("SeverityTrends") or values.get("ResourcesCount") or {}
+        row = {**{key: value for key, value in item.items() if key != "TrendsValues"}, **counts}
+        if isinstance(row.get("Timestamp"), str):
+            row["Timestamp"] = dt.datetime.fromisoformat(row["Timestamp"].replace("Z", "+00:00"))
+        return row
     return item
+
+
+@frozen
+class TrendWindow:
+    start: str
+    end: str
+
+
+def _trend_window(days: int) -> TrendWindow:
+    end = dt.datetime.now(dt.UTC)
+    return TrendWindow(start=format_datetime(end - dt.timedelta(days=days), "iso_z"), end=format_datetime(end, "iso_z"))
 
 
 def get_rows(
@@ -204,6 +226,10 @@ def get_rows(
         # A row that changes mid-run sits below the run's highest value, so the next run would skip it.
         # An upper bound keeps every change after the cutoff for the next run.
         cutoff = dt.datetime.now(dt.UTC).isoformat()
+    if endpoint_config.trend_window_days:
+        # The resume state keeps the window, because a NextToken is only valid for the request that issued it.
+        trend_window = _trend_window(endpoint_config.trend_window_days)
+        updated_after, cutoff = trend_window.start, trend_window.end
     if state:
         updated_after = state.updated_after
         cutoff = state.cutoff
@@ -221,6 +247,8 @@ def get_rows(
             window = {"End": cutoff, **({"Start": updated_after} if updated_after else {})}
             date_filter = {"FieldName": "finding_info.modified_time_dt", "Filter": window}
             filters["Filters"] = {"CompositeFilters": [{"DateFilters": [date_filter]}]}
+        if endpoint_config.trend_window_days:
+            filters["StartTime"], filters["EndTime"] = updated_after, cutoff
         parent_ids: list[str | None] = [None]
         parent_field = None
         if endpoint_config.parent:
@@ -237,6 +265,8 @@ def get_rows(
             path_params = {parent_field: parent_id} if parent_field else {}
             next_parent = parent_ids[index + 1] if index + 1 < len(parent_ids) else None
             pages = _pages(client, endpoint_config, start_token, {**filters, **path_params})
+            if start_token and endpoint_config.token_expires:
+                pages = _clear_state_on_rejected_token(pages, manager)
             start_token = None
             for items, token in pages:
                 rows = [normalize_row(_prepare(endpoint, {**path_params, **item})) for item in items]
@@ -336,7 +366,27 @@ def _items(endpoint: SecurityHubEndpoint, result: dict[str, Any]) -> list[dict[s
         # GetInsightResults returns one object with the grouped counts nested inside it.
         group_by = items.get("GroupByAttribute")
         return [{"GroupByAttribute": group_by, **value} for value in items.get("ResultValues") or []]
+    if endpoint.trend_window_days:
+        return [{"Granularity": result.get("Granularity"), **item} for item in items]
     return items
+
+
+def _clear_state_on_rejected_token(
+    pages: Iterator[tuple[list[dict[str, Any]], str | None]],
+    manager: ResumableSourceManager[AwsSecurityHubResumeConfig],
+) -> Iterator[tuple[list[dict[str, Any]], str | None]]:
+    try:
+        first = next(pages)
+    except StopIteration:
+        return
+    except AwsSecurityHubError as error:
+        if error.code == "ValidationException":
+            # A resumed full refresh appends to the table, so it cannot start again in this attempt.
+            # Without saved state, the retry starts from the first page and overwrites the table.
+            manager.clear_state()
+        raise
+    yield first
+    yield from pages
 
 
 def _pages(
@@ -369,6 +419,9 @@ def _probe(client: AwsSecurityHubClient, endpoint: SecurityHubEndpoint) -> None:
         if not items:
             return
         path_params[parent_field] = items[0][parent_field]
+    if endpoint.trend_window_days:
+        window = _trend_window(1)
+        path_params["StartTime"], path_params["EndTime"] = window.start, window.end
     client.request(endpoint.operation, {**({"MaxResults": 1} if endpoint.page_size else {}), **path_params})
 
 

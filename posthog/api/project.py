@@ -21,7 +21,6 @@ from posthog.schema import ProductKey
 
 from posthog import cloud_utils
 from posthog.api import project_tags
-from posthog.api.project_secret_api_key import _enforce_caller_holds_scopes
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import ProjectScopedPrimaryKeyRelatedField, TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
@@ -45,14 +44,12 @@ from posthog.api.team.integration_config import (
     handle_experiments_config,
     handle_logs_config,
     handle_tracing_config,
-    validate_secret_token_generation,
 )
 from posthog.api.team.live_events import _default_data_color_theme_id, live_events_token_for_request
 from posthog.api.team.marketing_config import TeamMarketingAnalyticsConfigSerializer
 from posthog.api.team.settings_validation import (
     _format_serializer_errors,
     heatmaps_screenshot_secret_for_reader,
-    hide_secret_api_tokens,
     validate_team_attrs,
     validate_team_workflows_config,
 )
@@ -109,7 +106,6 @@ from posthog.models.product_intent.product_intent import (
     enqueue_product_activation_calc_debounced,
 )
 from posthog.models.project import Project
-from posthog.models.project_secret_api_key import MIRRORED_LEGACY_TOKEN_SCOPES
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, Team
@@ -123,7 +119,6 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
-    TimeSensitiveActionPermission,
     UserCanCreateProjectPermission,
     get_authenticator_scoped_organization_ids,
     get_organization_from_view,
@@ -828,8 +823,6 @@ class ProjectBackwardCompatSerializer(
             "heatmaps_opt_in",  # Compat with TeamSerializer
             "product_intents",  # Compat with TeamSerializer
             "flags_persistence_default",  # Compat with TeamSerializer
-            "secret_api_token",  # Compat with TeamSerializer
-            "secret_api_token_backup",  # Compat with TeamSerializer
             "heatmaps_screenshot_secret",  # Compat with TeamSerializer
             "receive_org_level_activity_logs",  # Compat with TeamSerializer
             "business_model",  # Compat with TeamSerializer
@@ -882,8 +875,6 @@ class ProjectBackwardCompatSerializer(
             "default_modifiers",
             "person_on_events_querying_enabled",
             "product_intents",
-            "secret_api_token",
-            "secret_api_token_backup",
             "heatmaps_screenshot_secret",
             "available_setup_task_ids",
             "project_id",
@@ -947,8 +938,6 @@ class ProjectBackwardCompatSerializer(
             "surveys_opt_in",
             "heatmaps_opt_in",
             "flags_persistence_default",
-            "secret_api_token",
-            "secret_api_token_backup",
             "receive_org_level_activity_logs",
             "business_model",
             "conversations_enabled",
@@ -1056,7 +1045,6 @@ class ProjectBackwardCompatSerializer(
         # Mirror TeamSerializer: fall back to the global default data theme when the color feature isn't available
         if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
             representation["default_data_theme"] = _default_data_color_theme_id()
-        hide_secret_api_tokens(representation)
         return hide_team_secrets_from_workload_tokens(representation, self.context.get("request"))
 
     def get_user_access_level(self, obj: Model | ObjectAccessRef) -> Optional[str]:
@@ -2021,27 +2009,6 @@ class ProjectViewSet(
         )
         return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
 
-    @action(
-        methods=["PATCH"],
-        detail=True,
-        # Only ADMIN or higher users are allowed to access this project
-        # Minting a durable credential needs a fresh session, like PSAK creation does.
-        permission_classes=[TimeSensitiveActionPermission, TeamMemberStrictManagementPermission],
-    )
-    def rotate_secret_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
-        project = self.get_object()
-        validate_secret_token_generation(project.passthrough_team)
-        # Rotation mints a PSAK mirror row, so the caller must hold the scopes it grants.
-        _enforce_caller_holds_scopes(request, MIRRORED_LEGACY_TOKEN_SCOPES)
-        project.passthrough_team.rotate_secret_token_and_save(
-            user=request.user, is_impersonated_session=is_impersonated(request)
-        )
-        data = ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data
-        # Show-once: this response is the only read of the token this request minted; every other
-        # response nulls it. The demoted backup stays hidden because rotation often answers a leak.
-        data["secret_api_token"] = project.passthrough_team.secret_api_token
-        return response.Response(data)
-
     @extend_schema(request=None, responses=ProjectBackwardCompatSerializer)
     @action(
         methods=["PATCH"],
@@ -2052,19 +2019,6 @@ class ProjectViewSet(
     def rotate_heatmaps_screenshot_secret(self, request: request.Request, id: str, **kwargs) -> response.Response:
         project = self.get_object()
         project.passthrough_team.rotate_heatmaps_screenshot_secret_and_save(
-            user=request.user, is_impersonated_session=is_impersonated(request)
-        )
-        return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
-
-    @action(
-        methods=["PATCH"],
-        detail=True,
-        # Only ADMIN or higher users are allowed to access this project
-        permission_classes=[TeamMemberStrictManagementPermission],
-    )
-    def delete_secret_token_backup(self, request: request.Request, id: str, **kwargs) -> response.Response:
-        project = self.get_object()
-        project.passthrough_team.delete_secret_token_backup_and_save(
             user=request.user, is_impersonated_session=is_impersonated(request)
         )
         return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
