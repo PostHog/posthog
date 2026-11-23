@@ -348,7 +348,7 @@ export class FakeEmailDomainBackend {
         this.oneOffFailures.delete(endpoint)
     }
 
-    /** Delays every response from the endpoint until the returned function is called. */
+    /** Keeps every response from the endpoint pending until the returned function is called. */
     hold(endpoint: FakeEndpoint): () => void {
         const hold = createHold()
         this.holds.set(endpoint, hold)
@@ -446,8 +446,8 @@ export class FakeEmailDomainBackend {
             patch: {
                 '/api/environments/:team_id/integrations/:id/email/': this.serve('email_update', ({ params }, body) => {
                     const config = (body as { config: Partial<EmailSenderConfig> }).config
-                    // Like the server's serializer, an update must carry the email, the name and the provider.
-                    if (!config.email || !config.name || !config.provider) {
+                    // Like the server's serializer, an update must name the email and the provider.
+                    if (!config.email || !config.provider) {
                         return [400, { detail: 'This field is required.' }]
                     }
                     return this.withSender(Number(params.id), (sender) => this.updateSender(sender, config))
@@ -463,13 +463,12 @@ export class FakeEmailDomainBackend {
         return async (info) => {
             const body = await readBody(info.request)
             this.requests.push({ endpoint, method: info.request.method, url: info.request.url, body })
-            // Like a real server, the answer reflects the state when the request arrived. A hold delays only its delivery.
-            const failure = this.failureFor(endpoint)
-            const response: FakeResponse = failure
-                ? [failure.status, failure.body ?? { detail: 'The fake backend refused this request' }]
-                : respond(info, body)
             await this.holds.get(endpoint)?.promise
-            return response
+            const failure = this.failureFor(endpoint)
+            if (failure) {
+                return [failure.status, failure.body ?? { detail: 'The fake backend refused this request' }]
+            }
+            return respond(info, body)
         }
     }
 
