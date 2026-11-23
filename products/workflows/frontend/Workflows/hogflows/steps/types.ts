@@ -390,7 +390,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             tracking_enabled: z.boolean().optional(),
             // When true, links get the UTM tags they don't already carry. Keep in sync with nodejs/src/cdp/schema/hogflow.ts.
             utm_tags_enabled: z.boolean().optional(),
-            // Set from a transactional template marked sensitive. Keep in sync with nodejs/src/cdp/schema/hogflow.ts.
+            // When true, PostHog stores a placeholder for the body and keeps no subject or variables. Keep in sync with nodejs/src/cdp/schema/hogflow.ts.
             sensitive: z.boolean().optional(),
             // When true, a marketing send ignores the team's frequency cap. Keep in sync with nodejs/src/cdp/schema/hogflow.ts.
             skip_frequency_cap: z.boolean().optional(),

@@ -74,6 +74,26 @@ describe('workflowEmailPrefill', () => {
             '{{ variables.link | default: &quot;/variables.html&quot; }}',
             '{{ event.properties.link | default: &quot;/variables.html&quot; }}',
         ],
+        [
+            'a raw block, which prints its text as written',
+            '{% raw %}{{ variables.name }}{% endraw %} {{ variables.name }}',
+            '{% raw %}{{ variables.name }}{% endraw %} {{ event.properties.name }}',
+        ],
+        [
+            'a comment block',
+            '{%- comment -%}{{ variables.name }}{%- endcomment -%}{{ variables.name }}',
+            '{%- comment -%}{{ variables.name }}{%- endcomment -%}{{ event.properties.name }}',
+        ],
+        [
+            'its own assignment of variables, as the name then reads that value',
+            '{% assign variables = person.properties %}{{ variables.name }}',
+            '{% assign variables = person.properties %}{{ variables.name }}',
+        ],
+        [
+            'its own capture of variables',
+            '{% capture variables %}Hi{% endcapture %}{{ variables }}',
+            '{% capture variables %}Hi{% endcapture %}{{ variables }}',
+        ],
     ])('copies a template email with %s', (_, html, expected) => {
         const workflow = templatePrefilledWorkflow(NEW_WORKFLOW, EVENT_TRIGGER, {
             name: 'Receipt',

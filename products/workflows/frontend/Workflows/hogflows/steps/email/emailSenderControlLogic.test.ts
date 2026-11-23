@@ -135,13 +135,6 @@ describe('emailSenderControlLogic', () => {
         ['a sandbox step when adoption is off', SANDBOX_STEP, { ...STATUS, adoption_enabled: false }, true, {}],
         ['an own step in a workflow another product owns', ownStep(), STATUS, false, { origin_product: 'broadcasts' }],
         ['an own step whose id the sandbox sender rejects', { ...ownStep(), id: 'welcome.email' }, STATUS, false, {}],
-        [
-            'a sensitive own step, which the sandbox sender would make not sensitive',
-            { ...ownStep(), config: { ...ownStep().config, sensitive: true } } as HogFlowAction,
-            STATUS,
-            false,
-            {},
-        ],
     ])('offers the sandbox sender for %s', async (_, step, status, expected, workflowInfo) => {
         const capture = jest.spyOn(posthog, 'capture')
 
@@ -151,5 +144,11 @@ describe('emailSenderControlLogic', () => {
         expect(capture.mock.calls.filter(([event]) => event === 'workflows sandbox sender offered')).toEqual(
             expected ? [['workflows sandbox sender offered', { step_type: step.type }]] : []
         )
+    })
+
+    it('does not offer the sandbox sender for a sensitive own step, which the sandbox sender would make not sensitive', async () => {
+        await setUp({ ...ownStep(), config: { ...ownStep().config, sensitive: true } } as HogFlowAction, STATUS, {})
+
+        expect(logic.values.showSandboxOption).toBe(false)
     })
 })

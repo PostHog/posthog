@@ -45,7 +45,10 @@ export function templatePrefilledWorkflow(
     trigger: WorkflowTriggerConfig,
     template: Pick<MessageTemplateApi, 'name' | 'sensitive' | 'content'>
 ): HogFlow {
-    const { from, ...content } = withEventPropertiesForVariables(template.content?.email ?? {})
+    const email = template.content?.email ?? {}
+    const { from, ...content } = someString(email, (text) => OWN_VARIABLES.test(text))
+        ? email
+        : withEventPropertiesForVariables(email)
     const emailAction = emailStep(
         TEMPLATE_EMAIL_ACTION_ID,
         template.name,
@@ -61,6 +64,11 @@ const API_VARIABLE = /(^|[^\w.-]|\.\.|[{%]-|%20)variables(?![\w-])/g
 // A quoted string is a value, such as a key or a fallback link, so it keeps its text. The email editor saves quotes
 // in its HTML as entities.
 const QUOTED = /('[^']*'|"[^"]*"|&quot;[\s\S]*?&quot;|&#x27;[\s\S]*?&#x27;|&#39;[\s\S]*?&#39;)/
+// Liquid prints a raw block as written and skips a comment block, so their tags are text, not expressions.
+const UNRENDERED_BLOCK =
+    /(\{%-?\s*raw\s*-?%\}[\s\S]*?\{%-?\s*endraw\s*-?%\}|\{%-?\s*comment\s*-?%\}[\s\S]*?\{%-?\s*endcomment\s*-?%\})/
+// An email that sets `variables` itself reads its own value under that name, so it keeps its text.
+const OWN_VARIABLES = /\{%-?\s*(?:assign|capture|for)\s+variables(?![\w-])/
 
 function withEventPropertiesInTag(tag: string): string {
     return tag
@@ -72,7 +80,10 @@ function withEventPropertiesInTag(tag: string): string {
 /** An event run gets no send API `variables`, so the copied email reads the same names from the event's properties. */
 function withEventPropertiesForVariables<T>(value: T): T {
     if (typeof value === 'string') {
-        return value.replace(LIQUID_EXPRESSION, withEventPropertiesInTag) as T
+        return value
+            .split(UNRENDERED_BLOCK)
+            .map((part, index) => (index % 2 ? part : part.replace(LIQUID_EXPRESSION, withEventPropertiesInTag)))
+            .join('') as T
     }
     if (Array.isArray(value)) {
         return value.map(withEventPropertiesForVariables) as T
@@ -83,6 +94,16 @@ function withEventPropertiesForVariables<T>(value: T): T {
         ) as T
     }
     return value
+}
+
+function someString(value: unknown, predicate: (text: string) => boolean): boolean {
+    if (typeof value === 'string') {
+        return predicate(value)
+    }
+    if (value && typeof value === 'object') {
+        return Object.values(value).some((nested) => someString(nested, predicate))
+    }
+    return false
 }
 
 function withTriggerConfigOnly(base: HogFlow, trigger: WorkflowTriggerConfig): HogFlow {

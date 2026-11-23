@@ -285,25 +285,36 @@ describe('workflowLogic pages opened from a link or a template', () => {
         })
     })
 
-    it.each([
-        ['the template no longer exists', () => [404, { detail: 'Not found.' }]],
+    it.each<[string, WorkflowTriggerConfig, () => [number, Record<string, unknown>]]>([
+        ['the template no longer exists', EVENT_TRIGGER_WITH_NO_EVENT, () => [404, { detail: 'Not found.' }]],
         [
             'the template is sensitive, as its values would come from a stored event',
+            EVENT_TRIGGER_WITH_NO_EVENT,
             () => [200, { ...transactionalTemplate, sensitive: true }],
         ],
-    ])('opens the event workflow without an email step when %s', async (_, respond) => {
+        [
+            'the template is not transactional, as the step would send past marketing opt-outs',
+            EVENT_TRIGGER_WITH_NO_EVENT,
+            () => [200, { ...transactionalTemplate, transactional_hog_flow_id: null }],
+        ],
+        [
+            'the link names an internal event trigger, which has no person to send to',
+            linkedInternalEventTrigger,
+            () => [200, transactionalTemplate],
+        ],
+    ])('opens the linked workflow without an email step when %s', async (_, trigger, respond) => {
         useMocks({
             get: { '/api/projects/:team_id/messaging_templates/:id/': respond },
         })
         const logic = workflowLogic({
             id: 'new',
-            triggerPrefill: JSON.stringify(EVENT_TRIGGER_WITH_NO_EVENT),
-            messageTemplateId: 'deleted-template',
+            triggerPrefill: JSON.stringify(trigger),
+            messageTemplateId: transactionalTemplate.id,
         })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
 
         expect(logic.values.workflow.actions.map((action) => action.type)).toEqual(['trigger', 'exit'])
-        expect(logic.values.workflow.actions[0].config).toEqual(EVENT_TRIGGER_WITH_NO_EVENT)
+        expect(logic.values.workflow.actions[0].config).toEqual(trigger)
     })
 })

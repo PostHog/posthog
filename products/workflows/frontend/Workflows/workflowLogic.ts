@@ -249,7 +249,8 @@ async function loadEmailTemplate(templateId: string | undefined): Promise<Messag
             lemonToast.warning(`The workflow opens without the email. ${SENSITIVE_REASON}`)
             return null
         }
-        return template.content?.email ? template : null
+        // Only a transactional template may become a step that sends past marketing opt-outs.
+        return template.transactional_hog_flow_id && template.content?.email ? template : null
     } catch {
         lemonToast.warning("Couldn't load the email template. Add an email step to the workflow yourself.")
         return null
@@ -3929,7 +3930,9 @@ export const workflowLogic = kea<workflowLogicType>([
                             return (await withDefaultEmailSender(templated)) as typeof newWorkflow
                         }
                         const triggerConfig = parseWorkflowTriggerPrefill(props.triggerPrefill)
-                        const messageTemplate = triggerConfig ? await loadEmailTemplate(props.messageTemplateId) : null
+                        // The card links an event trigger only. The copied email reads the event's properties and sends to its person.
+                        const messageTemplate =
+                            triggerConfig?.type === 'event' ? await loadEmailTemplate(props.messageTemplateId) : null
                         if (triggerConfig && messageTemplate) {
                             return await withDefaultEmailSender(
                                 templatePrefilledWorkflow(NEW_WORKFLOW, triggerConfig, messageTemplate)
