@@ -14,7 +14,11 @@ from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_TYPE_KEY
 
-from products.data_modeling.backend.facade.contracts import UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError
+from products.data_modeling.backend.facade.contracts import (
+    PlanFloorClamp,
+    UnsatisfiableFrequencyError,
+    UnsupportedFrequencyTargetError,
+)
 from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule_id
 from products.data_modeling.backend.logic.node_frequency import (
     get_declared_anchor,
@@ -598,7 +602,7 @@ class TestMaybeReconcileDag(BaseTest):
         node = _saved_query_node(self.team, dag, "mv", NodeType.MAT_VIEW)
         set_declared_target(node, M15)
 
-        clamped_at = []
+        clamps: list[PlanFloorClamp] = []
         for plan_minutes in (360, 1440):
             _grant_refresh_interval(self.organization, plan_minutes)
             with (
@@ -611,15 +615,17 @@ class TestMaybeReconcileDag(BaseTest):
             node.refresh_from_db()
             clamp = get_plan_floor_clamp(node.properties)
             assert clamp is not None
-            clamped_at.append(clamp.at)
+            clamps.append(clamp)
 
-        self.assertEqual((clamp.previous_target, clamp.plan_floor, get_declared_target(node)), (M15, DAY, DAY))
-        self.assertGreater(clamped_at[1], clamped_at[0])
+        self.assertEqual(
+            (clamps[-1].previous_target, clamps[-1].plan_floor, get_declared_target(node)), (M15, DAY, DAY)
+        )
+        self.assertGreater(clamps[1].at, clamps[0].at)
         rows = ActivityLog.objects.filter(
             scope="DataWarehouseSavedQuery", activity="sync_frequency_plan_floor"
         ).order_by("created_at")
         self.assertEqual(
-            [(row.detail["changes"][0]["before"], row.detail["changes"][0]["after"]) for row in rows],
+            [((row.detail or {})["changes"][0]["before"], (row.detail or {})["changes"][0]["after"]) for row in rows],
             [("0:15:00", "6:00:00"), ("6:00:00", "1 day, 0:00:00")],
         )
 
