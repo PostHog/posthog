@@ -5,6 +5,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flu
 from django.test import override_settings
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.redis import get_client as get_redis_client
 
@@ -97,6 +98,26 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
         assert snapshot == [_uuid(1), _uuid(3)]
         assert preview.affected == 2
         assert preview.skipped_test_account_filters == ["$host"]
+
+    @parameterized.expand(
+        [
+            ("invalid_regex", {"key": "email", "type": "person", "value": "(@internal", "operator": "not_regex"}),
+            ("missing_cohort", {"key": "id", "type": "cohort", "value": 999999999, "operator": "not_in"}),
+        ]
+    )
+    def test_a_person_test_account_filter_that_cannot_be_evaluated_fails_the_run(self, _name, test_filter):
+        self.team.test_account_filters = [test_filter]
+        self.team.save()
+        self._create_audience(["a@example.com"])
+
+        with self.assertRaises(ValidationError):
+            get_batch_audience_person_ids_snapshot(
+                self.team,
+                {**FILTERS, "filter_test_accounts": True},
+                dedupe_key=None,
+                limit=10,
+                settings=bounded_memory_settings(),
+            )
 
     def test_audience_without_dedupe_matches_legacy_query(self):
         self._create_audience(["a@x.com", "a@x.com", "b@x.com", None])

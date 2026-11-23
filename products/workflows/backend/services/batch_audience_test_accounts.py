@@ -1,14 +1,12 @@
 from typing import Any
 
-from posthog.hogql.errors import (
-    NotImplementedError as HogQLNotImplementedError,
-    QueryError,
-)
-from posthog.hogql.property import property_to_expr
-
 from posthog.dataclasses import frozen
 from posthog.models.property.parse import parse_property_group_data
 from posthog.models.team.team import Team
+
+# Every other type stays in the audience. A person or cohort filter that can't be evaluated must fail the run, because
+# leaving it out would message the people it excludes.
+_EVENT_ONLY_FILTER_TYPES = {"event", "event_metadata", "element", "feature", "group", "session"}
 
 
 def _wants_test_account_filters(filters: object) -> bool:
@@ -26,12 +24,8 @@ def _split_test_account_filters(team: Team) -> _SplitTestAccountFilters:
     applicable: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     for test_filter in team.test_account_filters or []:
-        try:
-            property_to_expr(test_filter, team, scope="person")
-        except (QueryError, HogQLNotImplementedError):
-            skipped.append(test_filter)
-        else:
-            applicable.append(test_filter)
+        event_only = (test_filter.get("type") or "event") in _EVENT_ONLY_FILTER_TYPES
+        (skipped if event_only else applicable).append(test_filter)
     return _SplitTestAccountFilters(applicable=applicable, skipped=skipped)
 
 

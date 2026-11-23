@@ -22,7 +22,7 @@ export function SkippedTestAccountFiltersNotice({
             {skipped.length === 1 ? 'test account filter only applies' : 'test account filters only apply'} to events,
             not people, so this audience leaves {skipped.length === 1 ? 'it' : 'them'} out:{' '}
             {skipped.map((key, index) => (
-                <span key={key}>
+                <span key={index}>
                     {index > 0 && ', '}
                     <code>{key}</code>
                 </span>
