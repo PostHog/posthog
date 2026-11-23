@@ -137,6 +137,41 @@ Cleanup stops the relay and removes its guest capability file when Modal is reac
 
 Observation failures stop that probe and are logged. They do not change the agent's network path. This tests lifecycle integration; it does not enforce agent egress, remove guest credentials or remove agentsh. Named-VM recovery applies to standalone probes, not to ordinary Tasks VM creation. Production certificates, credential adapters and enforced routing remain separate work.
 
+### Enroll selected normal runs
+
+`tasks-agent-egress-enrollment` selects a bounded enrollment canary through the normal Tasks workflow. It is off by default and also requires `AGENT_EGRESS_ENROLLMENT_CONFIG` on the worker. The shared JSON file lives under `AGENT_EGRESS_PROBE_CONFIG_DIR`:
+
+```json
+{
+  "endpoint_domain": "egress.example.com",
+  "region": "test-us",
+  "relay_image_id": "im-example",
+  "server_ca_file": "/run/egress/server-ca.pem",
+  "client_ca_file": "/run/egress/client-ca.pem",
+  "client_ca_key_file": "/run/egress/client-ca-key.pem",
+  "duration_seconds": 360
+}
+```
+
+The region must match `AGENT_EGRESS_REGION`. Use separate regional material and a certificate covering `*.egress.example.com`. The worker derives `run-<run UUID without hyphens>.egress.example.com` and binds it to the run's team, actor, execution and provisioned sandbox. No per-run configuration file is needed. Keys stay in worker mounts and the isolated relay; workflow history carries IDs, the configuration path and the enrollment mode.
+
+```text
+Selected TaskRun -> ordinary VM provision and agent launch
+  attach relay -> register execution -> publish bounded capability
+  renew lease and capability while synthetic requests run
+  parent ends / replaces VM / continues as new -> revoke and close relay
+```
+
+Enrollment uses the existing probe lifecycle and authorizes only `/v1/probe`. It requires a fresh, noninteractive Modal VM with full network access. It skips snapshots and reserves 1 GiB for the sidecar. Existing agent routing, credentials and agentsh behavior remain unchanged.
+
+Deploy the matching proxy image before enabling enrollment. Each proxy replica limits a relay's authenticated TLS key to 32 requests/second with a burst of 512, including requests with missing or invalid capabilities. This covers the configured 256-request probe rounds with room for startup. Changing tokens, connections or identity headers does not create another budget; certificate renewal with the same key and verifier reload preserve it. Budgets are replica-local and reset on process restart, so capacity scales with the replica count. The budget table is bounded by `cache_entries`; new keys are refused when all entries are live.
+
+Excess requests receive 429 before registry lookup or normal audit reservation. Every refusal increments `egress_requests_total{outcome="rate_limited"}`. Audit records include the authenticated relay-key fingerprint; rate-limit records are coalesced to one admission/completion pair per key per ten seconds, subject to audit availability. The metric counts all refusals, while the audit marker identifies affected relay keys without letting rejected traffic fill the shared queue.
+
+The feature flag selects new enrollments; turning it off does not revoke running ones. Each activity rereads worker configuration and the run binding. Removing or changing configuration stops renewal; cleanup can revoke and remove its relay even if the configuration file is gone. An unavailable worker leaves authority bounded by the 30-second lease. Delayed cleanup cannot close a replacement relay or the agent VM.
+
+This canary lasts at most 600 seconds and does not restart after sandbox replacement or workflow continuation. Its relay lifetime includes a three-minute provisioning allowance, and its client certificate lasts at most 15 minutes. Provision a client CA that remains valid for the whole window. Full-run enrollment needs certificate renewal and longer-lived relay management before removing these limits. A normal run may outlive its canary; enrollment failure is logged and does not fail the agent run.
+
 ## Run the processes
 
 ### Container images

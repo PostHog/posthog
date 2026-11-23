@@ -6,6 +6,7 @@ import { CyclotronJobInputIntegrationMulti } from 'lib/components/CyclotronJob/i
 
 import { CyclotronJobInputSchemaType } from '~/types'
 
+import { PushChannelsSetupWarning } from './PushChannelsSetupWarning'
 import { transactionalPushLogic } from './transactionalPushLogic'
 import { TransactionalPushPreview } from './TransactionalPushPreview'
 import { TransactionalPushTestSend } from './TransactionalPushTestSend'
@@ -34,6 +35,7 @@ export function TransactionalPushEditor({ id }: { id: string }): JSX.Element {
                         value={draft.channels}
                         onChange={(channels) => setDraft({ channels })}
                     />
+                    <PushChannelsSetupWarning channels={draft.channels} />
                 </div>
                 <div className="flex flex-col gap-1">
                     <LemonLabel
