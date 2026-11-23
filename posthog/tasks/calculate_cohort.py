@@ -265,6 +265,7 @@ def get_stuck_static_cohort_candidates_queryset() -> QuerySet:
         )
         .filter(Q(last_error_at__isnull=True) | Q(last_error_at__lte=one_hour_ago))
         .filter(HAS_STATIC_POPULATION_SOURCE)
+        .exclude(team__organization__is_active=False)
     )
 
 

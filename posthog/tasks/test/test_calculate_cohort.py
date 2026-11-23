@@ -1754,18 +1754,20 @@ class TestCohortCalculationTasks(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("query_errored_within_the_hour", {"query": PERSONS_HOGQL_QUERY}, relativedelta(minutes=10), False),
-            ("query_errored_over_an_hour_ago", {"query": PERSONS_HOGQL_QUERY}, relativedelta(hours=2), True),
-            ("filters_errored_over_an_hour_ago", {"filters": PERSON_EMAIL_FILTERS}, relativedelta(hours=2), True),
+            ("query_errored_within_the_hour", {"query": PERSONS_HOGQL_QUERY}, relativedelta(minutes=10), True, False),
+            ("query_errored_over_an_hour_ago", {"query": PERSONS_HOGQL_QUERY}, relativedelta(hours=2), True, True),
+            ("filters_errored_over_an_hour_ago", {"filters": PERSON_EMAIL_FILTERS}, relativedelta(hours=2), True, True),
+            ("organization_deactivated", {"query": PERSONS_HOGQL_QUERY}, relativedelta(hours=2), False, False),
         ]
     )
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_filters")
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query")
-    def test_reset_stuck_static_cohorts_honors_a_recent_error(
+    def test_reset_stuck_static_cohorts_skips_ineligible_cohorts(
         self,
         _name: str,
         source_fields: dict,
         error_age: relativedelta,
+        organization_is_active: bool,
         expect_reset: bool,
         mock_insert_cohort_from_query: MagicMock,
         mock_insert_cohort_from_filters: MagicMock,
@@ -1775,6 +1777,8 @@ class TestCohortCalculationTasks(APIBaseTest):
         mock_population_task = (
             mock_insert_cohort_from_query if "query" in source_fields else mock_insert_cohort_from_filters
         )
+        self.organization.is_active = organization_is_active
+        self.organization.save()
         now = timezone.now()
         cohort = Cohort.objects.create(
             team=self.team,
