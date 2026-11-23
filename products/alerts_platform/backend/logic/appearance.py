@@ -12,6 +12,7 @@ nothing and keeps its window, so the first check after them announces what appea
 """
 
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Any, Final
 
@@ -46,6 +47,7 @@ from products.alerts_platform.backend.facade.grouping import (
 from products.alerts_platform.backend.facade.lifecycle import (
     NOTIFICATION_EVENT_KINDS,
     PLATFORM_DEFAULT_ALERT_POLICY,
+    AlertPolicy,
     AlertSnapshot,
     AlertState,
     CheckInput,
@@ -70,6 +72,11 @@ MAX_DETAIL_BYTES: Final = 4096
 _UNEXPECTED_ERROR: Final = "Alert check failed unexpectedly. PostHog has been notified."
 _INVALID_CONFIG: Final = "The alert's configuration is no longer valid. Edit the alert to fix it."
 _REGISTRY_STALLED: Final = "New occurrences are not being recorded for this project. PostHog has been notified."
+# A stalled registry is PostHog's outage, not the alert's. It errors the alert and announces that
+# once, and never breaks it, because a broken alert stays silent until its owner resets it.
+_STALLED_POLICY: Final = replace(
+    PLATFORM_DEFAULT_ALERT_POLICY, max_consecutive_failures=None, errors_set_errored_state=True
+)
 
 Decision = tuple[PlatformAlertOutcome, AlertDeliveryRequest | None]
 
@@ -111,7 +118,12 @@ def evaluate_appearance_batch(source: SourceKind, team_id: int, slot: str, cutof
         reader = _Reader(store, team_id, cutoff)
     except occurrences.RegistrarStalled as stalled:
         logger.warning("Occurrence registry stalled", source=source.value, team_id=team_id, reason=str(stalled))
-        return _collect([_failed(source, check, _REGISTRY_STALLED, transient=True, now=cutoff) for check in checks])
+        return _collect(
+            [
+                _failed(source, check, _REGISTRY_STALLED, transient=False, now=cutoff, policy=_STALLED_POLICY)
+                for check in checks
+            ]
+        )
     except Exception:
         logger.exception("Failed to read an occurrence store", source=source.value, team_id=team_id)
         return _collect([_failed(source, check, _UNEXPECTED_ERROR, transient=True, now=cutoff) for check in checks])
@@ -215,7 +227,13 @@ def _bounded_detail(detail: dict[str, Any]) -> dict[str, Any]:
 
 
 def _failed(
-    source: SourceKind, check: PlatformAlertCheckInput, message: str, *, transient: bool, now: datetime
+    source: SourceKind,
+    check: PlatformAlertCheckInput,
+    message: str,
+    *,
+    transient: bool,
+    now: datetime,
+    policy: AlertPolicy = PLATFORM_DEFAULT_ALERT_POLICY,
 ) -> Decision:
     """A check that read nothing. Its window stays where it was, so the next check reads it."""
     instance = check.instance()
@@ -231,7 +249,7 @@ def _failed(
         snapshot,
         CheckInput(threshold_breached=False, error_message=message, is_transient_error=transient, muted=muted),
         now,
-        policy=PLATFORM_DEFAULT_ALERT_POLICY,
+        policy=policy,
     )
     outcome = PlatformAlertOutcome.ungrouped(
         configuration_id=check.id,
@@ -241,7 +259,7 @@ def _failed(
         new_state=result.new_state.value,
         notified=result.update_last_notified_at,
         failed=True,
-        firing_episode=decide_firing_episode(snapshot, result, now, policy=PLATFORM_DEFAULT_ALERT_POLICY),
+        firing_episode=decide_firing_episode(snapshot, result, now, policy=policy),
         muted_notification=muted_value(result),
         error_message=result.error_message,
         disable=result.disable,
@@ -253,7 +271,7 @@ def _request(
     source: SourceKind, check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome
 ) -> AlertDeliveryRequest | None:
     announced = any(group.notified for group in outcome.groups) or (
-        outcome.failure is not None and outcome.failure.notified
+        outcome.failure is not None and outcome.failure.kind != AlertEventKind.CHECK
     )
     if not announced:
         return None
