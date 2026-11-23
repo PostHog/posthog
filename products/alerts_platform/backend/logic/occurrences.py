@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from typing import Any, Final
 
 from django.db import IntegrityError, connection, transaction
+from django.db.models import Max
 from django.utils import timezone
 
 from products.alerts_platform.backend.facade.contracts import (
@@ -101,21 +102,16 @@ class RegistryStore:
             .values_list("advanced_at", flat=True)
             .first()
         )
-        if advanced_at is None:
-            # No cursor yet: stalled only once an alert has waited longer than a run takes to make one.
-            waited = (
-                PlatformAlertConfiguration.objects.for_team(team_id)
-                .filter(
-                    source_kind=self.source.value,
-                    alert_kind=PlatformAlertKind.APPEARANCE,
-                    enabled=True,
-                    created_at__lt=stalled_before,
-                )
-                .exists()
-            )
-            if not waited:
-                return
-        elif advanced_at >= stalled_before:
+        if advanced_at is not None and advanced_at >= stalled_before:
+            return
+        # The registrar serves a project only while it has an enabled alert, so a cursor stops while
+        # none is. An alert created or enabled since then gives the registrar a full allowance.
+        changed_at = (
+            PlatformAlertConfiguration.objects.for_team(team_id)
+            .filter(source_kind=self.source.value, alert_kind=PlatformAlertKind.APPEARANCE, enabled=True)
+            .aggregate(latest=Max("updated_at"))["latest"]
+        )
+        if changed_at is None or changed_at >= stalled_before:
             return
         raise RegistrarStalled(f"The {self.source.value} registry has not advanced since {advanced_at}.")
 
