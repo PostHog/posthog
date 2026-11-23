@@ -10,6 +10,7 @@ Run them with `rust/bin/migrate-cyclotron-node`.
 
 Single table `cyclotron_jobs` with a single `state` BYTEA column
 for all job payload data (mirrors how the Kafka backend serializes everything into one blob).
+`file_bytes` holds the total size of an email job's attachment files, or NULL without files, so the email worker can dequeue sends with files apart from plain sends.
 
 ## Keep rows small: no file or blob storage
 
