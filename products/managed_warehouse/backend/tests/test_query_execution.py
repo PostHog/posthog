@@ -269,7 +269,7 @@ def test_live_query_binds_values_and_uses_hosted_service_credentials(
         response = execute_managed_trino_query(
             HogQLQuery(
                 query="SELECT {value} AS value" + limit_clause,
-                values={"value": "quoted ' value"},
+                values={"value": "quoted '\0 value"},
                 executionTarget="managed_trino",
                 offset=offset,
             ),
@@ -284,7 +284,7 @@ def test_live_query_binds_values_and_uses_hosted_service_credentials(
         str(team.organization_id), principal=f"posthog:sql-editor:team:{team.pk}:user:{user.pk}", canary=False
     )
     cursor.execute.assert_called_once_with(
-        f'SELECT ? AS "value" OFFSET {offset or 0} ROWS LIMIT {expected_limit + 1}', ["quoted ' value"]
+        f'SELECT ? AS "value" OFFSET {offset or 0} ROWS LIMIT {expected_limit + 1}', ["quoted '\0 value"]
     )
     cursor.close.assert_called_once()
     assert response.results == [("quoted ' value",)] * min(row_count, expected_limit)

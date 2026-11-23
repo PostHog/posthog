@@ -105,6 +105,7 @@ def create_batch_export_run(
     batch_export_id: UUID | None = None,
     on_demand_id: UUID | None = None,
     records_completed: int | None = None,
+    bytes_exported: int | None = None,
     finished_at: dt.datetime | None = None,
 ) -> UUID:
     """Create a run of a scheduled or an on-demand export, and return its id.
@@ -121,6 +122,7 @@ def create_batch_export_run(
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
         records_completed=records_completed,
+        bytes_exported=bytes_exported,
         finished_at=finished_at,
     ).id
 

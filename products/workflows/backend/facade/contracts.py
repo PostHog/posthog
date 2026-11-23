@@ -229,6 +229,15 @@ class AccountAudienceCustomPropertyFilter:
 
 AccountAssignmentStatus = Literal["all", "assigned", "unassigned"]
 
+SuggestionsScoutRunReason = Literal[
+    "first_run",
+    "backstop",
+    "opted_in",
+    "published",
+    "suggestion_resolved",
+    "sends_matured",
+]
+
 
 @frozen
 class AccountAudienceFilters:
@@ -1440,3 +1449,10 @@ class SandboxSenderStatus:
     display_name: str
     organization_blocked: bool
     adoption_enabled: bool
+
+
+@frozen
+class ConversionGoalBackfill:
+    workflows_read: int
+    revisions_read: int
+    goals_found: int
