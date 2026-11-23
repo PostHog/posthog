@@ -60,6 +60,7 @@ export function validateRequests(policy: Policy, force: unknown, bootstrap: unkn
   seeds.forEach((value, index) => {
     const seed = value as Bootstrap
     if (!seed || typeof seed !== 'object' || Object.keys(seed).sort().join(',') !== 'channel,digest,revision' ||
+        typeof seed.channel !== 'string' || typeof seed.revision !== 'string' || typeof seed.digest !== 'string' ||
         !keys.includes(seed.channel) || !REVISION.test(seed.revision) || !DIGEST.test(seed.digest)) {
       throw new Error(`Bootstrap requires one configured channel, full seed revision and digest in seed ${index}${typeof seed?.channel === 'string' ? ` (${seed.channel})` : ''}`)
     }
@@ -200,13 +201,16 @@ export async function publishChannels(options: PublisherOptions): Promise<Channe
       const channel = selected[next++]
       const channelDeadline = Math.min(deadline, Date.now() + budgets.channelMs)
       const seed = seeds.get(channel.key)
-      const result = await untilDeadline(channel.key, channelDeadline, expiry => {
-        const registry = new ReleaseRegistry(options.cwd, options.regctl, options.helper, budgets, channelDeadline, expiry)
-        return seed
+      let result: ChannelResult
+      try {
+        const registry = new ReleaseRegistry(options.cwd, options.regctl, options.helper, budgets, channelDeadline)
+        result = await untilDeadline(channel.key, channelDeadline, seed
           ? bootstrapChannel(channel, seed, context, registry, channelDeadline)
-          : advanceChannel(channel, requests.force, context, registry, channelDeadline)
-      })
-      if (seed && result.outcome === 'present-at-expected-digest' && result.tag) writeReceipt(channel, seed, result.tag, context)
+          : advanceChannel(channel, requests.force, context, registry, channelDeadline))
+        if (seed && result.outcome === 'present-at-expected-digest' && result.tag) writeReceipt(channel, seed, result.tag, context)
+      } catch (error) {
+        result = {channel: channel.key, decision: 'blocked', reason: `${channel.key}: ${String(error)}`}
+      }
       results.push(result)
       process.stdout.write(JSON.stringify(result) + '\n')
     }
@@ -217,14 +221,13 @@ export async function publishChannels(options: PublisherOptions): Promise<Channe
   return results
 }
 
-async function untilDeadline(key: string, deadline: number, work: (expiry: AbortSignal) => Promise<ChannelResult>): Promise<ChannelResult> {
-  const expiry = new AbortController()
-  const expired = new Promise<never>((_, reject) => expiry.signal.addEventListener('abort', () => reject(expiry.signal.reason)))
-  const timer = setTimeout(() => expiry.abort(new Error(`${key}: channel deadline reached`)), deadline - Date.now())
+async function untilDeadline(key: string, deadline: number, work: Promise<ChannelResult>): Promise<ChannelResult> {
+  let timer: NodeJS.Timeout | undefined
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${key}: channel deadline reached`)), deadline - Date.now())
+  })
   try {
-    return await Promise.race([work(expiry.signal), expired])
-  } catch (error) {
-    return {channel: key, decision: 'blocked', reason: `${key}: ${String(error)}`}
+    return await Promise.race([work, expired])
   } finally {
     clearTimeout(timer)
   }

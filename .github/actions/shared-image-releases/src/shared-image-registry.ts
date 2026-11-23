@@ -32,13 +32,12 @@ export class ReleaseRegistry {
   constructor(
     private readonly cwd: string, private readonly regctl: string,
     private readonly helper: string, private readonly budgets: RegistryBudgets,
-    private readonly deadline: number, private readonly expiry?: AbortSignal
+    private readonly deadline: number
   ) {
     this.regctl = configureCopyClient(regctl)
   }
 
   private options(timeoutMs = this.budgets.registryMs): CommandOptions {
-    this.expiry?.throwIfAborted()
     return {cwd: this.cwd, maxBuffer: this.budgets.maxBuffer, timeoutMs: Math.min(timeoutMs, this.deadline - Date.now())}
   }
 
