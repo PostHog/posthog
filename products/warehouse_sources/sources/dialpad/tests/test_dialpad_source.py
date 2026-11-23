@@ -47,6 +47,13 @@ def _no_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
             (False, "Your API key can't read this table. It needs a company API key with the `calls:list` scope."),
         ),
         (
+            "fan_out_table_probes_its_parent_list",
+            "call_center_operators",
+            ScriptedResponse(json={"items": []}),
+            "/api/v2/callcenters",
+            (True, None),
+        ),
+        (
             "server_error",
             "users",
             ScriptedResponse(status=500, json={}),

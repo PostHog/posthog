@@ -48,12 +48,12 @@ from posthog.temporal.ai_observability.evaluation_backfill import (
     report_backfill_finished,
     settle_horizon,
 )
-from posthog.temporal.ai_observability.run_session_evaluation import AI_EVENTS_RETENTION_DAYS
 from posthog.temporal.common.client import async_connect
 
 from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 from products.ai_observability.backend.api.evaluations import EvaluationConditionSerializer
 from products.ai_observability.backend.backfill_candidates import BackfillScope, count_backfill_candidates
+from products.ai_observability.backend.logic.ai_events_retention import ai_events_retention_days
 from products.ai_observability.backend.logic.evaluations.settle import INGESTION_LAG_MARGIN_SECONDS
 from products.ai_observability.backend.models.evaluation_backfill import ACTIVE_BACKFILL_STATUSES, EvaluationBackfill
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationTarget
@@ -132,14 +132,11 @@ def clamp_backfill_window(
                 "backfill has to end before that. Try a range that ends earlier."
             )
     # ai_events expires at toDate(timestamp) + retention_days, so exclude the whole expired day.
-    retention_start = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(
-        days=AI_EVENTS_RETENTION_DAYS - 1
-    )
+    retention_days = ai_events_retention_days(team.pk)
+    retention_start = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=retention_days - 1)
     window_start = max(window_start, retention_start)
     if window_start >= window_end:
-        raise ValidationError(
-            f"The range must end in the past and start within the last {AI_EVENTS_RETENTION_DAYS} days."
-        )
+        raise ValidationError(f"The range must end in the past and start within the last {retention_days} days.")
     # A backfilled verdict is stamped at its unit's own timestamp, so ingestion applies the
     # team's drop threshold to it like any other late event. Reaching further back would run
     # the evaluations, pay for them, and have every verdict dropped before it lands.

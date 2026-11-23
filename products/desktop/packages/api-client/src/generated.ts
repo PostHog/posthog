@@ -8891,6 +8891,10 @@ export namespace Schemas {
          */
         key: string;
     };
+    export type ErrorTrackingIssueTagsFilter = Partial<{
+        has: Array<string> | null;
+        hasNot: Array<string> | null;
+    }>;
     export type OrderDirection2 = "ASC" | "DESC";
     export type ErrorTrackingPendingFingerprintIssueStateUpdate = {
         assigned_role_id?: (string | null) | undefined;
@@ -8952,6 +8956,7 @@ export namespace Schemas {
         groupTypeIndex?: (number | null) | undefined;
         issueId?: (string | null) | undefined;
         issueTag?: (ErrorTrackingIssueTagFilter | null) | undefined;
+        issueTags?: (ErrorTrackingIssueTagsFilter | null) | undefined;
         kind?: string | undefined;
         limit?: (number | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
@@ -9456,7 +9461,7 @@ export namespace Schemas {
         | "critical";
     export type ErrorTrackingIssueTagRead = {
         /**
-         * Key of the tag. Pass it as `issueTag.key` to filter the issue list.
+         * Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, or in `issueTags.hasNot` to keep the issues that do not.
          */
         key: string;
         /**
@@ -10741,6 +10746,7 @@ export namespace Schemas {
      * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
      * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
      * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
+     * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters
      */
     export type ExperimentHealthValueKeyEnum =
         | "exposed_count"
@@ -10800,7 +10806,8 @@ export namespace Schemas {
         | "baseline_variant"
         | "other_running_experiment_count"
         | "assigned_outside_count"
-        | "other_draft_experiment_count";
+        | "other_draft_experiment_count"
+        | "filters_test_accounts";
     /**
      * * `above` - Finding above the threshold
      * * `below` - Finding below the threshold
@@ -10872,6 +10879,7 @@ export namespace Schemas {
          * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
          * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
          * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
+         * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters
          */
         value: ExperimentHealthValueKeyEnum;
         /**
@@ -10941,6 +10949,7 @@ export namespace Schemas {
          * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
          * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
          * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
+         * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters
          */
         value: ExperimentHealthValueKeyEnum;
         /**
@@ -11055,6 +11064,28 @@ export namespace Schemas {
          * The group type the condition set assigns variants by: its own, or the flag's when it sets none. Null when it assigns them by user.
          */
         aggregation_group_type_index: number | null;
+        /**
+         * The key of the variant that the condition set serves to every user it matches, its variant override. Null when the flag's split picks the variant, or when the override names no variant of the flag, which the flag service ignores.
+         */
+        variant: string | null;
+        /**
+         * Whether the condition set can serve anyone. False when its rollout is 0%, or when an earlier set without filters ends the flag's evaluation before it, so its rollout and variant override apply to nobody. Null when the flag buckets by device ID, because a request without a device ID skips the earlier sets that need the bucketing hash and can reach this set anyway.
+         */
+        reachable: boolean | null;
+    };
+    export type ExperimentHealthExposureSetup = {
+        /**
+         * The event that the exposure criteria count. Null when they count the flag's calls or an action.
+         */
+        event: string | null;
+        /**
+         * The name of the action that the exposure criteria count. Null when they count an event.
+         */
+        action: string | null;
+        /**
+         * The event, or the name of the action, that has to follow a user's flag call before the user counts as exposed. Null without one.
+         */
+        activation: string | null;
     };
     export type ExperimentHealthSetup = {
         /**
@@ -11092,6 +11123,10 @@ export namespace Schemas {
          * The flag's 'Persist flag across authentication steps' setting.
          */
         ensure_experience_continuity: boolean;
+        /**
+         * What the exposure criteria count as an exposure. Null when they can't be read, or when the exposures come from a data warehouse table.
+         */
+        exposure: ExperimentHealthExposureSetup | null;
     };
     export type ExperimentHealth = {
         /**

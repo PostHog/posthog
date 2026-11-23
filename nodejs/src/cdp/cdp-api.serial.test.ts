@@ -2878,7 +2878,7 @@ describe('CDP API', () => {
         describe('with its team in intake shadow mode', () => {
             const intakeMessages = (): { key: unknown; value: Buffer }[] =>
                 produceOutput.mock.calls
-                    .filter(([output]) => output === 'cdp_intake_transactional_email')
+                    .filter(([output]) => output === 'cdp_intake_msk_transactional_email')
                     .map(([, message]) => message)
 
             beforeEach(() => {
@@ -2919,7 +2919,7 @@ describe('CDP API', () => {
 
             it('keeps its answer when the broker refuses the run', async () => {
                 produceOutput.mockImplementation((output: string) =>
-                    output === 'cdp_intake_transactional_email'
+                    output === 'cdp_intake_msk_transactional_email'
                         ? Promise.reject(new Error('Broker: Not enough in-sync replicas'))
                         : Promise.resolve()
                 )
@@ -2954,7 +2954,7 @@ describe('CDP API', () => {
 
                 expect(res.status).toEqual(202)
                 expect(res.body).toMatchObject({ status: 'queued', replayed: false })
-                expect(producedTo('cdp_intake_transactional_email')).toEqual([
+                expect(producedTo('cdp_intake_msk_transactional_email')).toEqual([
                     expect.objectContaining({ key: res.body.invocation_id }),
                 ])
                 expect(mockQueueInvocations).not.toHaveBeenCalled()
@@ -2965,7 +2965,7 @@ describe('CDP API', () => {
 
             it('answers 503 intake_unavailable when the broker refuses the run', async () => {
                 produceOutput.mockImplementation((output: string) =>
-                    output === 'cdp_intake_transactional_email'
+                    output === 'cdp_intake_msk_transactional_email'
                         ? Promise.reject(new Error('Broker: Not enough in-sync replicas'))
                         : Promise.resolve()
                 )
@@ -3014,7 +3014,7 @@ describe('CDP API', () => {
                 })
 
                 expect(res.status).toEqual(202)
-                expect(producedTo('cdp_intake_transactional_email')).toHaveLength(produced)
+                expect(producedTo('cdp_intake_msk_transactional_email')).toHaveLength(produced)
             })
 
             it('produces a keyed send when its claim lookup does not answer in time', async () => {
@@ -3026,7 +3026,7 @@ describe('CDP API', () => {
                 })
 
                 expect(res.status).toEqual(202)
-                expect(producedTo('cdp_intake_transactional_email')).toHaveLength(1)
+                expect(producedTo('cdp_intake_msk_transactional_email')).toHaveLength(1)
             })
 
             it('produces a send when its refusal checks do not answer in time', async () => {
@@ -3037,7 +3037,7 @@ describe('CDP API', () => {
                 const res = await send(hogFlow.id, authorized())
 
                 expect(res.status).toEqual(202)
-                expect(producedTo('cdp_intake_transactional_email')).toHaveLength(1)
+                expect(producedTo('cdp_intake_msk_transactional_email')).toHaveLength(1)
             })
 
             it('still refuses a marketing send over quota when its other refusal checks do not answer in time', async () => {
@@ -3052,7 +3052,7 @@ describe('CDP API', () => {
                 })
 
                 expect(res.status).toEqual(429)
-                expect(producedTo('cdp_intake_transactional_email')).toEqual([])
+                expect(producedTo('cdp_intake_msk_transactional_email')).toEqual([])
             })
         })
 
