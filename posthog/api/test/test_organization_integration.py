@@ -183,7 +183,6 @@ class TestOrganizationIntegrationViewSet(APIBaseTest):
         self.assertEqual(response.status_code, expected_status)
         self.assertEqual(response.json()["detail"], expected_detail)
         mock_delete_installation.assert_called_once_with(self.integration_vercel.integration_id)
-        # Open invoices are an expected billing condition, so only an unexpected failure is reported as a crash.
         self.assertEqual(mock_capture.called, expect_captured)
         # The local integration must survive so the UI disconnect can't sidestep the billing guard.
         self.assertTrue(OrganizationIntegration.objects.filter(id=self.integration_vercel.id).exists())

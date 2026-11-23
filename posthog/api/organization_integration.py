@@ -111,8 +111,7 @@ class OrganizationIntegrationViewSet(
     def perform_destroy(self, instance: OrganizationIntegration) -> None:
         is_marketplace = instance.config.get("type") != "connectable"
 
-        # Only cloud deployments have a billing service that holds a Vercel subscription to end.
-        # A license is not enough to tell, because local development creates one when DEBUG is on.
+        # Gate on cloud, not on a license: local development creates a license when DEBUG is on.
         if is_marketplace and instance.integration_id and is_cloud():
             from ee.billing.billing_manager import BillingServiceOpenInvoicesError
             from ee.vercel.integration import VercelIntegration
@@ -144,8 +143,6 @@ class OrganizationIntegrationViewSet(
                     integration_id=instance.integration_id,
                     error=str(e),
                 )
-                # Keep the integration: without it the owner has no way to retry, and billing
-                # stays on Vercel, which blocks deleting the organization.
                 raise BillingDeauthorizationError()
 
         team_integrations_deleted = 0
