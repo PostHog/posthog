@@ -390,6 +390,8 @@ The device approval page `/device` follows the same path. A visitor without a se
 
 Approving OAuth consent, approving a device login, and authorizing the legacy CLI each create a credential that outlives the browser session. They need a session that signed in or re-authenticated within `SESSION_SENSITIVE_ACTIONS_AGE` (2 hours by default), and that a risk check has not flagged for a step-up. An older session gets the same `403 sensitive_action_required_reauth` that creating a personal API key returns. The app answers it with the re-authentication modal and sends the request again after the person signs in, so they do not start over. Declining consent, and looking up or denying a device code, need no recent sign-in.
 
+First-party apps, the toolbar among them, and automatic approval issue a code without a consent screen. On an older session, `/oauth/authorize/` renders the authorize page with `oauth_reauthentication_required` instead of redirecting with a code. The page opens the re-authentication modal and loads the same URL again after the person signs in, so every parameter of the request survives. A SAML re-authentication leaves the page and returns to the same URL through `next`. The CLI and device pages keep the typed code in their URL for the same reason. The toolbar's signed state expires after `TOOLBAR_OAUTH_STATE_TTL_SECONDS`, and a sign-in that takes longer ends on a page that says to open the toolbar again.
+
 ## Endpoints
 
 - **Authorization**: `/oauth/authorize/`
