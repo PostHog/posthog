@@ -4391,14 +4391,14 @@ Note: Pulled the raw Postman collection JSON behind the published documenter lin
 
 ## Cyberimpact — gaps
 
-Today (13): `archived_mailings`, `bounced_members`, `custom_fields`, `group_members`, `groups`, `mailing_clicks`, `mailing_opens`, `mailing_stats`, `members`, `scheduled_mailings`, `sent_mailings`, `templates`, `unsubscribed_members`
+Today (18): `archived_mailings`, `bounced_members`, `custom_fields`, `group_members`, `groups`, `mailing_clicks`, `mailing_deliveries`, `mailing_hard_bounces`, `mailing_opens`, `mailing_soft_bounces`, `mailing_stats`, `mailing_stopped_recipients`, `mailing_unsubscribes`, `members`, `scheduled_mailings`, `sent_mailings`, `templates`, `unsubscribed_members`
 
 Diffed against: <https://api.cyberimpact.com/docs/openapi.yaml>
 
-- [ ] `Mailing delivered recipients (GET /mailings/{id}/recipients/delivered)` — who actually received each mailing, the base for delivery rate against opens and clicks (high)
-- [ ] `Mailing hard and soft bounces (GET /mailings/{id}/recipients/hard-bounced; GET /mailings/{id}/recipients/soft-bounced)` — per-mailing bounce lists to find which campaigns hurt list quality (medium)
-- [ ] `Mailing unsubscribes (GET /mailings/{id}/recipients/unsubscribed)` — which mailing caused each unsubscribe (medium)
-- [ ] `Mailing stopped recipients (GET /mailings/{id}/recipients/stopped)` — recipients skipped because the send was stopped (low)
+- [x] `Mailing delivered recipients (GET /mailings/{id}/recipients/delivered)` — who actually received each mailing, the base for delivery rate against opens and clicks (high) → `mailing_deliveries` (full refresh, fan-out over `sent_mailings`)
+- [x] `Mailing hard and soft bounces (GET /mailings/{id}/recipients/hard-bounced; GET /mailings/{id}/recipients/soft-bounced)` — per-mailing bounce lists to find which campaigns hurt list quality (medium) → `mailing_hard_bounces`, `mailing_soft_bounces` (full refresh, fan-out over `sent_mailings`)
+- [x] `Mailing unsubscribes (GET /mailings/{id}/recipients/unsubscribed)` — which mailing caused each unsubscribe (medium) → `mailing_unsubscribes` (full refresh, fan-out over `sent_mailings`)
+- [x] `Mailing stopped recipients (GET /mailings/{id}/recipients/stopped)` — recipients skipped because the send was stopped (low) → `mailing_stopped_recipients` (full refresh, fan-out over `sent_mailings`)
 - [ ] `Member consent (GET /members/{key}/consent)` — consent details per member for compliance reporting; needs fan-out over members (low)
 
 Note: Parsed the OpenAPI spec (34 paths). Existing tables cover members, groups, group members, custom fields, mailing lists, stats, opens, clicks and templates. The missing routes are the other per-mailing recipient lists, which follow the same fan-out as mailing_opens and mailing_clicks. /members/{key}/mailings is a per-member view of data already available per mailing, so it was excluded. Writes, batches, tokens and ping were excluded.
