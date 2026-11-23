@@ -38,6 +38,7 @@ from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.flag_called_warnings import count_flag_calls_read_from_events
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property import get_property_type
@@ -807,18 +808,20 @@ FLAG_CALL_READS_COMPILE_ERRORS = (BaseHogQLError, ValidationError, ValueError)
 class FlagCallReads:
     only_in_flag_evaluations: bool
     reads_from_events: int
+    reads_json: bool
 
 
 def batch_reads_flag_calls_from_events_only(team: Team) -> bool:
     """Whether the batch calculation reads every flag call from events for the team's organization, whatever the
     cohort. It reads the same mode, events table and table gate as the catalog build, so it answers without compiling
     a cohort."""
-    return not reads_flag_calls_from_flag_evaluations(team)
+    # The batch query reads a project's own choice of the native events table from its default modifiers.
+    return not reads_flag_calls_from_flag_evaluations(team, create_default_modifiers_for_team(team))
 
 
 def batch_flag_call_reads(cohort: Cohort, team: Team) -> FlagCallReads:
-    """Whether the organization's flag calls are only in flag_evaluations, and how many flag-call reads the batch query
-    for this cohort leaves on events.
+    """Whether the organization's flag calls are only in flag_evaluations, how many flag-call reads the batch query
+    for this cohort leaves on events, and whether it reads flag_evaluations_json in place of flag_evaluations.
 
     It compiles the cohort the way the batch calculation does, so it follows the rewrite's rules and its fallback to
     events when a field doesn't resolve on flag_evaluations. It raises whatever the compile raises.
@@ -829,4 +832,5 @@ def batch_flag_call_reads(cohort: Cohort, team: Team) -> FlagCallReads:
     return FlagCallReads(
         only_in_flag_evaluations=context.flag_calls_only_in_flag_evaluations(),
         reads_from_events=count_flag_calls_read_from_events(prepared) if prepared is not None else 0,
+        reads_json=context.reads_flag_evaluations_json(),
     )

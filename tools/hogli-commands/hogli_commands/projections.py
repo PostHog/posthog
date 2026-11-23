@@ -161,6 +161,21 @@ PROJECTIONS: tuple[Projection, ...] = (
         outputs=("frontend/src/queries/schema/latest-versions.json",),
     ),
     Projection(
+        name="cohort-seeder-flag-evaluations-json-documents",
+        renderer="products/cohorts/backend/backfill/flag_evaluations_json_documents_projection.py",
+        inputs=(
+            "posthog/hogql/printer/events_json_document.py",
+            "posthog/hogql/constants.py",
+            "posthog/hogql/escape_sql.py",
+            "posthog/clickhouse/events_json.py",
+        ),
+        outputs=("rust/cohort-seeder/src/clickhouse/flag_evaluations_json_documents.generated.json",),
+        # The renderer loads the project settings through the HogQL printer package. Setting Django up
+        # first loads them with TEST set. With TEST set, the app ready() hooks do not connect to Postgres.
+        django=True,
+        tier=Tier.CI,
+    ),
+    Projection(
         name="warehouse-source-fields",
         renderer="products/warehouse_sources/backend/temporal/data_imports/sources/common/fields_projection.py",
         inputs=(

@@ -74,6 +74,7 @@ pub enum ScanTable {
     #[default]
     Events,
     FlagEvaluations,
+    FlagEvaluationsJson,
 }
 
 impl TryFrom<Value> for ScanTable {
@@ -84,6 +85,7 @@ impl TryFrom<Value> for ScanTable {
         match value.as_str() {
             Some("events") => Ok(Self::Events),
             Some("flag_evaluations") => Ok(Self::FlagEvaluations),
+            Some("flag_evaluations_json") => Ok(Self::FlagEvaluationsJson),
             _ => Err(format!("unknown flag_calls_table {value}")),
         }
     }
@@ -95,6 +97,7 @@ impl ScanTable {
         match self {
             Self::Events => "events",
             Self::FlagEvaluations => "flag_evaluations",
+            Self::FlagEvaluationsJson => "flag_evaluations_json",
         }
     }
 
@@ -106,7 +109,7 @@ impl ScanTable {
     pub fn past_retention(self, domain: &SeedDomain, now_ms: i64) -> bool {
         match self {
             Self::Events => false,
-            Self::FlagEvaluations => {
+            Self::FlagEvaluations | Self::FlagEvaluationsJson => {
                 day_idx_in_tz(domain.utc_range().start().as_i64(), UTC) + FLAG_EVALUATIONS_TTL_DAYS
                     <= day_idx_in_tz(now_ms, UTC)
             }
@@ -989,6 +992,10 @@ mod tests {
             (None, ScanTable::Events),
             (Some("events"), ScanTable::Events),
             (Some("flag_evaluations"), ScanTable::FlagEvaluations),
+            (
+                Some("flag_evaluations_json"),
+                ScanTable::FlagEvaluationsJson,
+            ),
         ] {
             let validated =
                 PinnedRun::validate(pinned_with_flag_calls_table(value.map(Value::from)))
@@ -1030,11 +1037,13 @@ mod tests {
         ] {
             let domain = SeedDomain::new(1, tz, SChunkMs(200_000_000)).unwrap();
             for (now_ms, expired) in [(expires_ms - 1, false), (expires_ms, true)] {
-                assert_eq!(
-                    ScanTable::FlagEvaluations.past_retention(&domain, now_ms),
-                    expired,
-                    "{tz} at {now_ms}"
-                );
+                for table in [ScanTable::FlagEvaluations, ScanTable::FlagEvaluationsJson] {
+                    assert_eq!(
+                        table.past_retention(&domain, now_ms),
+                        expired,
+                        "{table:?} in {tz} at {now_ms}"
+                    );
+                }
                 assert!(
                     !ScanTable::Events.past_retention(&domain, now_ms),
                     "{tz} at {now_ms}"

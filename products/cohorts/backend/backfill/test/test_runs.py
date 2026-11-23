@@ -17,8 +17,10 @@ from posthog.exceptions import (
     ClickHouseQueryTimeOut,
 )
 from posthog.hogql_queries.hogql_cohort_query import FlagCallReads
+from posthog.models.event.new_events_schema import EVENTS_TABLE_SELF_SERVE_FLAG
+from posthog.models.instance_setting import override_instance_config
 
-from products.cohorts.backend.backfill.flag_calls_table import FlagCallsTable
+from products.cohorts.backend.backfill.flag_calls_table import FlagCallsTable, FlagCallsTableChanged
 from products.cohorts.backend.backfill.pinning import PersonPinningCapExceeded
 from products.cohorts.backend.backfill.runs import (
     BackfillRefusalReason,
@@ -594,19 +596,64 @@ class TestBackfillRunFlagCallsTable(BaseTest):
         self.assertEqual(run.pinned["flag_calls_table"], expected)
         self.assertEqual(run.pinned["schema_version"], 1)
 
-    @parameterized.expand([("events", FlagEvaluationsMode.EVENTS), ("read", FlagEvaluationsMode.READ_FLAG_EVALUATIONS)])
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-    def test_run_pins_flag_evaluations_when_the_batch_calculation_reads_the_native_json_events_table(
-        self, _name: str, mode: FlagEvaluationsMode
+    @parameterized.expand(
+        [
+            ("events_instance_setting", FlagEvaluationsMode.EVENTS, "instance_setting", False, "flag_evaluations"),
+            ("events_project_opt_in", FlagEvaluationsMode.EVENTS, "project_opt_in", True, "flag_evaluations_json"),
+            (
+                "read_instance_setting",
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                "instance_setting",
+                True,
+                "flag_evaluations_json",
+            ),
+            (
+                "read_project_opt_in",
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                "project_opt_in",
+                False,
+                "flag_evaluations",
+            ),
+        ]
+    )
+    def test_run_pins_the_flag_calls_table_the_batch_calculation_reads_on_the_native_json_events_table(
+        self, _name: str, mode: FlagEvaluationsMode, route: str, reads_json: bool, expected: str
     ) -> None:
         self._set_flag_evaluations_mode(mode)
         cohort = self._cohort(_FLAG_CALL_LEAF)
+        # An opt-in reaches the batch query through the team's stored modifiers, which raw SQL helpers never read.
+        if route == "project_opt_in":
+            self.team.modifiers = {"useNewEventsSchema": True}
+            self.team.save()
 
-        with self.is_cloud(True):
+        with (
+            self.is_cloud(True),
+            override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=route == "instance_setting"),
+            override_instance_config("FLAG_EVALUATIONS_READS_JSON", reads_json),
+            mock.patch(
+                "posthog.models.event.new_events_schema.posthoganalytics.feature_enabled",
+                side_effect=lambda flag, *args, **kwargs: flag == EVENTS_TABLE_SELF_SERVE_FLAG,
+            ),
+        ):
             run = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
 
         assert run is not None
-        self.assertEqual(run.pinned["flag_calls_table"], "flag_evaluations")
+        self.assertEqual(run.pinned["flag_calls_table"], expected)
+
+    def test_a_team_run_whose_cohorts_read_different_flag_calls_tables_is_refused_for_a_retry(self) -> None:
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+        self._cohort(_FLAG_CALL_LEAF)
+        self._cohort({**_FLAG_CALL_LEAF, "conditionHash": "othercohort00001"})
+        reads = [
+            FlagCallReads(only_in_flag_evaluations=False, reads_from_events=0, reads_json=reads_json)
+            for reads_json in (False, True)
+        ]
+
+        with mock.patch("posthog.hogql_queries.hogql_cohort_query.batch_flag_call_reads", side_effect=reads):
+            with self.assertRaises(FlagCallsTableChanged):
+                create_team_backfill_run(self.team.id, "team_enablement")
+
+        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 0)
 
     @parameterized.expand(
         [
@@ -664,7 +711,7 @@ class TestBackfillRunFlagCallsTable(BaseTest):
 
         with mock.patch(
             "posthog.hogql_queries.hogql_cohort_query.batch_flag_call_reads",
-            return_value=FlagCallReads(only_in_flag_evaluations=True, reads_from_events=1),
+            return_value=FlagCallReads(only_in_flag_evaluations=True, reads_from_events=1, reads_json=False),
         ):
             attempt = attempt_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
 

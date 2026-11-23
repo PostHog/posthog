@@ -17,7 +17,7 @@ from posthog.exceptions import (
 )
 from posthog.models.team.team import Team
 
-from products.cohorts.backend.backfill.flag_calls_table import FlagCallsTableUnresolved
+from products.cohorts.backend.backfill.flag_calls_table import FlagCallsTableChanged, FlagCallsTableUnresolved
 from products.cohorts.backend.backfill.pinning import (
     PersonPinningCapExceeded,
     pin_behavioral_run,
@@ -278,7 +278,7 @@ class Command(BaseCommand):
     def _pin(self, team_id: int, cohorts: list[Cohort]) -> dict[str, Any]:
         try:
             return pin_behavioral_run(cohorts, Team.objects.get(id=team_id))
-        except (Team.DoesNotExist, FlagCallsTableUnresolved) as error:
+        except (Team.DoesNotExist, FlagCallsTableUnresolved, FlagCallsTableChanged) as error:
             raise CommandError(str(error)) from error
 
     def _scan_estimate(self, team_id: int, pinned: dict[str, Any], max_events_per_day: int) -> BehavioralScanEstimate:

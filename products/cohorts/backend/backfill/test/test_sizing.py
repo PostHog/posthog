@@ -142,6 +142,11 @@ class TestBehavioralScanEstimate(SimpleTestCase):
                 FlagCallsTable.FLAG_EVALUATIONS,
                 {"events": ["$pageview"], "flag_evaluations": ["$feature_flag_called"]},
             ),
+            (
+                "flag_evaluations_json",
+                FlagCallsTable.FLAG_EVALUATIONS_JSON,
+                {"events": ["$pageview"], "flag_evaluations_json": ["$feature_flag_called"]},
+            ),
         ]
     )
     @time_machine.travel(datetime(2026, 9, 29, 15, 30, tzinfo=UTC), tick=False)
@@ -151,9 +156,9 @@ class TestBehavioralScanEstimate(SimpleTestCase):
         reads: dict[str, list[str]] = {}
 
         def execute(query: str, params: dict, **kwargs: object) -> list[tuple]:
-            table = "flag_evaluations" if "FROM flag_evaluations" in query else "events"
+            table = query.split("FROM ", 1)[1].split()[0]
             reads[table] = sorted(params.get("event_names", ["$feature_flag_called"]))
-            if table == "flag_evaluations" or "$feature_flag_called" in params["event_names"]:
+            if table != "events" or "$feature_flag_called" in params["event_names"]:
                 return [(date(2026, 9, 28), "$feature_flag_called", 70)]
             return [(date(2026, 9, 28), "$pageview", 30)]
 
