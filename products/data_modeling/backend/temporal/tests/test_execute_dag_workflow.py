@@ -1202,7 +1202,7 @@ class TestTrinoShadowRun:
         info = MagicMock()
         info.workflow_id = workflow_id
         info.parent = None
-        info.start_time = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+        info.workflow_start_time = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
         start_child_mock = AsyncMock(side_effect=start_child)
         execute_activity_mock = AsyncMock(side_effect=execute_activity)
         with (
@@ -1279,18 +1279,30 @@ class TestTrinoShadowRun:
             {"trigger": "unknown", "engine": expected_engine, "status": "completed"}
         ]
 
-    async def test_a_run_that_raises_records_its_time_since_the_request_as_failed(self) -> None:
+    @pytest.mark.parametrize(
+        "error,expected_seconds",
+        [
+            pytest.param(temporalio.exceptions.ApplicationError("no worker took it"), [60.0], id="ends_the_run"),
+            pytest.param(RuntimeError("a bug in the workflow"), [], id="fails_a_workflow_task_that_temporal_retries"),
+        ],
+    )
+    async def test_only_an_error_that_ends_the_run_records_its_time_since_the_request(
+        self, error: Exception, expected_seconds: list[float]
+    ) -> None:
         info = MagicMock(workflow_id="execute-dag-ad-hoc")
         info.parent = None
         with (
-            patch.object(
-                temporal_workflow, "execute_activity", new=AsyncMock(side_effect=RuntimeError("no worker took it"))
-            ),
+            patch.object(temporal_workflow, "execute_activity", new=AsyncMock(side_effect=error)),
             patch.object(temporal_workflow, "info", return_value=info),
             patch.object(temporal_workflow, "now", return_value=dt.datetime(2026, 1, 1, 0, 1, tzinfo=dt.UTC)),
+            patch.object(
+                temporal_workflow,
+                "is_failure_exception",
+                side_effect=lambda raised: isinstance(raised, temporalio.exceptions.FailureError),
+            ),
             patch.object(temporal_workflow, "logger"),
             recorded_workflow_metrics() as metrics,
-            pytest.raises(RuntimeError),
+            pytest.raises(type(error)),
         ):
             await ExecuteDAGWorkflow().run(
                 ExecuteDAGInputs(team_id=7, dag_id="dag", trigger="manual", requested_at="2026-01-01T00:00:00+00:00")
@@ -1300,8 +1312,9 @@ class TestTrinoShadowRun:
             RecordedMetric(
                 name=REQUEST_TO_FINISH_METRIC,
                 attributes={"trigger": "manual", "engine": "clickhouse", "status": "failed"},
-                value=60.0,
+                value=seconds,
             )
+            for seconds in expected_seconds
         ]
 
     @pytest.mark.parametrize(

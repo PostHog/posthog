@@ -18,6 +18,7 @@ from products.data_modeling.backend.temporal.tests.recorded_metrics import (
 )
 
 WORKFLOW_STARTED_AT = dt.datetime(2026, 1, 1, 0, 1, 0, tzinfo=dt.UTC)
+FIRST_WORKFLOW_TASK_STARTED_AT = dt.datetime(2026, 1, 1, 0, 1, 20, tzinfo=dt.UTC)
 WORKFLOW_FINISHED_AT = dt.datetime(2026, 1, 1, 0, 1, 30, tzinfo=dt.UTC)
 
 
@@ -81,7 +82,7 @@ def test_run_trigger(workflow_id: str, requested_trigger: str, expected: str) ->
 def test_record_request_to_finish(
     _name: str, requested_at: str | None, parent: MagicMock | None, expected_seconds: list[float]
 ) -> None:
-    info = MagicMock(start_time=WORKFLOW_STARTED_AT)
+    info = MagicMock(workflow_start_time=WORKFLOW_STARTED_AT, start_time=FIRST_WORKFLOW_TASK_STARTED_AT)
     info.parent = parent
 
     with (

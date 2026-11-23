@@ -32,7 +32,6 @@ from products.data_modeling.backend.temporal.activities import (
 )
 from products.data_modeling.backend.temporal.activities.utils import strip_hostname_from_error
 from products.data_modeling.backend.temporal.metrics import (
-    CANCELLED_STATUS,
     COMPLETED_STATUS,
     FAILED_STATUS,
     get_dag_duration_metric,
@@ -49,6 +48,7 @@ from products.data_modeling.backend.temporal.workflows.materialize_view import (
     MaterializeViewWorkflowInputs,
     MaterializeViewWorkflowResult,
     _is_cancellation,
+    _status_of_run_ended_by,
 )
 from products.data_quality.backend.facade.contracts import CHECK_SUITE_WORKFLOW_NAME, MATERIALIZATION_GATE_ACTIVITY_NAME
 from products.data_quality.backend.facade.enums import SuiteRunTrigger
@@ -383,12 +383,9 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         try:
             result = await self._preempt_and_execute_dag(inputs)
         except (Exception, asyncio.CancelledError) as error:
-            record_request_to_finish(
-                inputs.trigger,
-                inputs.requested_at,
-                engine=engine,
-                status=CANCELLED_STATUS if _is_cancellation(error) else FAILED_STATUS,
-            )
+            ended_status = _status_of_run_ended_by(error)
+            if ended_status is not None:
+                record_request_to_finish(inputs.trigger, inputs.requested_at, engine=engine, status=ended_status)
             raise
         record_request_to_finish(
             inputs.trigger,

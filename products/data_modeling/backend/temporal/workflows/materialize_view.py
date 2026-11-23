@@ -105,6 +105,14 @@ def _is_cancellation(error: BaseException) -> bool:
     ) and isinstance(error.cause, temporalio.exceptions.CancelledError)
 
 
+def _status_of_run_ended_by(error: BaseException) -> str | None:
+    if _is_cancellation(error):
+        return CANCELLED_STATUS
+    if temporalio.workflow.is_failure_exception(error):
+        return FAILED_STATUS
+    return None
+
+
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class MaterializeViewWorkflowInputs:
     """Inputs for the MaterializeViewWorkflow.
@@ -236,12 +244,9 @@ class MaterializeViewWorkflow(PostHogWorkflow):
         try:
             result = await self._materialize(inputs)
         except (Exception, asyncio.CancelledError) as error:
-            record_request_to_finish(
-                inputs.trigger,
-                inputs.requested_at,
-                engine=engine,
-                status=CANCELLED_STATUS if _is_cancellation(error) else FAILED_STATUS,
-            )
+            ended_status = _status_of_run_ended_by(error)
+            if ended_status is not None:
+                record_request_to_finish(inputs.trigger, inputs.requested_at, engine=engine, status=ended_status)
             raise
         record_request_to_finish(
             inputs.trigger,

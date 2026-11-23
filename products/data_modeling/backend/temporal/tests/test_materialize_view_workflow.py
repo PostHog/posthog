@@ -45,6 +45,10 @@ def _inputs() -> MaterializeViewWorkflowInputs:
     return MaterializeViewWorkflowInputs(team_id=7, dag_id="dag-1", node_id="node-1")
 
 
+def _fails_the_workflow(error: BaseException) -> bool:
+    return isinstance(error, temporalio.exceptions.FailureError)
+
+
 def _materialize_result(quality_audit: QualityAuditMode) -> MaterializeViewResult:
     return MaterializeViewResult(
         node_id="node-1",
@@ -101,7 +105,7 @@ class TestQualityGateBranching:
         )
         info = MagicMock()
         info.parent = None
-        info.start_time = WORKFLOW_FINISHED_AT
+        info.workflow_start_time = WORKFLOW_FINISHED_AT
         with ExitStack() as stack:
             self.recorded = stack.enter_context(recorded_workflow_metrics())
             stack.enter_context(patch.object(temporalio.workflow, "execute_activity", new=execute_activity))
@@ -111,6 +115,9 @@ class TestQualityGateBranching:
             )
             stack.enter_context(patch.object(temporalio.workflow, "info", return_value=info))
             stack.enter_context(patch.object(temporalio.workflow, "now", return_value=WORKFLOW_FINISHED_AT))
+            stack.enter_context(
+                patch.object(temporalio.workflow, "is_failure_exception", side_effect=_fails_the_workflow)
+            )
             stack.enter_context(patch.object(temporalio.workflow, "logger"))
             stack.enter_context(patch(f"{WORKFLOW_MODULE}.capture_exception"))
             for metric in (
@@ -148,22 +155,24 @@ class TestQualityGateBranching:
                 skipped=skipped,
             )
         )
+        trino_inputs = dataclasses.replace(
+            _inputs(), managed_warehouse_only=True, trigger="manual", requested_at="2026-07-31T23:59:00+00:00"
+        )
         with patch.object(temporalio.workflow, "start_activity", return_value=shadow):
             if shadow_error:
                 with pytest.raises(temporalio.exceptions.ApplicationError, match=re.escape(shadow_error)):
-                    await self._run(
-                        [True, "shadow-job"], {}, inputs=dataclasses.replace(_inputs(), managed_warehouse_only=True)
-                    )
+                    await self._run([True, "shadow-job"], {}, inputs=trino_inputs)
             else:
-                result, _ = await self._run(
-                    [True, "shadow-job"], {}, inputs=dataclasses.replace(_inputs(), managed_warehouse_only=True)
-                )
+                result, _ = await self._run([True, "shadow-job"], {}, inputs=trino_inputs)
                 assert result.trino_materialized is True
                 assert result.job_id == "shadow-job"
 
         finished = self.metrics["get_node_finished_metric"]
         assert finished.call_args.args == (expected_status, "managed_warehouse")
-        assert [labels["engine"] for labels in self._request_to_finish_labels()] == ["managed_warehouse"]
+        assert self._request_to_finish_labels() == [
+            {"trigger": "manual", "engine": "managed_warehouse", "status": "failed" if shadow_error else "completed"}
+        ]
+        assert [record.value for record in request_to_finish_records(self.recorded)] == [60.0]
         assert finished.call_args.kwargs.get("error_class", "none") == expected_error_class
         assert finished.call_args.kwargs["run_mode"] == "incremental"
         assert self.metrics["get_node_duration_metric"].called is (shadow_error is None)
@@ -205,18 +214,12 @@ class TestQualityGateBranching:
             return {"create_data_modeling_job_activity": "job-1"}.get(activity.__name__)
 
         with pytest.raises(RuntimeError):
-            await self._run(
-                [],
-                {},
-                execute_activity=AsyncMock(side_effect=execute_activity),
-                inputs=dataclasses.replace(_inputs(), trigger="manual", requested_at="2026-07-31T23:59:00+00:00"),
-            )
+            await self._run([], {}, execute_activity=AsyncMock(side_effect=execute_activity))
 
         finished = self.metrics["get_node_finished_metric"]
         assert finished.call_args.args == ("failed", "clickhouse")
         assert finished.call_args.kwargs["run_mode"] == expected
-        assert self._request_to_finish_labels() == [{"trigger": "manual", "engine": "clickhouse", "status": "failed"}]
-        assert [record.value for record in request_to_finish_records(self.recorded)] == [60.0]
+        assert self._request_to_finish_labels() == []
 
     async def test_blocking_failures_stop_the_publish(self):
         activity_results = [

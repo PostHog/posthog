@@ -107,7 +107,7 @@ def tag_run_request_on_workflow_span(trigger: str, requested_at: str | None) -> 
 
 
 def _requested_time(requested_at: str | None) -> dt.datetime:
-    workflow_started_at = workflow.info().start_time
+    workflow_started_at = workflow.info().workflow_start_time
     if not requested_at:
         return workflow_started_at
     try:
