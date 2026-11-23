@@ -1,6 +1,10 @@
 from posthog.hogql import ast
 
-from products.ai_observability.backend.logic.traces.trace_expression_queries import TraceColumns, event_identified
+from products.ai_observability.backend.logic.traces.trace_expression_queries import (
+    Aggregate,
+    TraceColumns,
+    event_identified,
+)
 
 
 def event_declines_session(columns: TraceColumns) -> ast.Expr:
@@ -29,4 +33,23 @@ def sdk_generation_identified(columns: TraceColumns) -> ast.Expr:
             ),
             event_identified(columns),
         ]
+    )
+
+
+def identified_generation_person(columns: TraceColumns, aggregate: Aggregate) -> ast.Expr:
+    """The person a trace counts as a user: the earliest identified generation's (`sdk_generation_identified`), and the
+    smallest distinct id among generations at the same time. NULL when no generation names a user. A root `$ai_trace`
+    event can stay anonymous while its generations name the user, so unlike `trace_person_id` the root never decides."""
+    identified = sdk_generation_identified(columns)
+    return ast.Call(
+        name="if",
+        args=[
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Gt, left=aggregate("countIf", [identified]), right=ast.Constant(value=0)
+            ),
+            aggregate(
+                "argMinIf", [columns.person, ast.Tuple(exprs=[columns.timestamp, columns.distinct_id]), identified]
+            ),
+            ast.Constant(value=None),
+        ],
     )

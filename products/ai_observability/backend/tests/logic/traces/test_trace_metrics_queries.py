@@ -42,6 +42,7 @@ from .test_trace_selection_queries import CASES, seed, to_selection
 PERSON_A = "00000000-0000-4000-8000-0000000000a1"
 PERSON_B = "00000000-0000-4000-8000-0000000000b2"
 PERSON_ANONYMOUS = "00000000-0000-4000-8000-0000000000c3"
+PERSON_ANONYMOUS_ROOT = "00000000-0000-4000-8000-0000000000d4"
 
 
 def _per_query_memory_limit() -> ClickHouseQueryMemoryLimitExceeded:
@@ -125,6 +126,21 @@ class TestTraceMetricsQueries(ClickhouseTestMixin, BaseTest):
                 },
                 # Feedback carries a real user id, which identifies neither the trace nor the project's users.
                 {"event": "$ai_feedback", "trace_id": "anonymous", "minutes": 41, "distinct_id": "user-c"},
+                # An anonymous root over a generation that names user-b counts user-b, not the root's person.
+                {
+                    "event": "$ai_trace",
+                    "trace_id": "anonymous-root",
+                    "minutes": 50,
+                    "distinct_id": "anonymous-root",
+                    "person_id": PERSON_ANONYMOUS_ROOT,
+                },
+                {
+                    "event": "$ai_generation",
+                    "trace_id": "anonymous-root",
+                    "minutes": 51,
+                    "distinct_id": "user-b",
+                    "person_id": PERSON_B,
+                },
             ],
         )
 
@@ -133,7 +149,7 @@ class TestTraceMetricsQueries(ClickhouseTestMixin, BaseTest):
         declines = 0 if use_new_events_schema(self.team.pk) else 1
         assert self._load().current == replace(
             NO_TRACES,
-            traces=4,
+            traces=5,
             errored=1,
             cost=1.75,
             sessions=1,
@@ -141,8 +157,8 @@ class TestTraceMetricsQueries(ClickhouseTestMixin, BaseTest):
             traces_with_cost=2,
             traces_with_session=2,
             session_declines=declines,
-            identified_generations=3,
-            non_otel_generations=4,
+            identified_generations=4,
+            non_otel_generations=5,
         )
 
     def test_metrics_p95_uses_trace_latency(self) -> None:
