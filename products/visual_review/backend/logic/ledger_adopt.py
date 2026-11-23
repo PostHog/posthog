@@ -21,7 +21,7 @@ from ..db import WRITER_DB
 from ..facade.contracts import BaselineLedgerAdoption, BaselineLedgerAdoptionItem
 from ..facade.enums import BaselineApprovalState, BaselineEntrySource, BaselineMode, RunPurpose, RunStatus
 from ..models import BaselineApproval, BaselineCommit, BaselineEntry, Repo, Run, RunSnapshot
-from . import errors, github_api, ledger
+from . import commit_status, errors, github_api, ledger, ledger_advance
 
 
 @frozen
@@ -142,16 +142,17 @@ def _open_approvals(repo: Repo, run_type: str, identifiers: tuple[str, ...]) -> 
 def _plan(repo: Repo, run_type: str, checked: _CheckedRun) -> BaselineLedgerAdoption:
     """Compare the ledger at the cursor with the render, for each identifier.
 
-    An identifier whose ledger hash changed between the run's position and the cursor stops the
-    plan, unless the ledger already holds the render. The run is older than the newest decision
-    about that identifier, so its picture can be the one that decision replaced.
+    An identifier with any ledger entry above the run's position stops the plan, unless the ledger
+    already holds the render. The run is older than the newest decision about that identifier, so
+    its picture can be the one that decision replaced. Entries are checked and not hashes, because
+    a change that was changed back (A to B to A) leaves the same hash at both positions.
     """
     identifiers = checked.identifiers
     cursor = _newest_resolved_commit(repo)
     run_position = _run_position(repo, checked.run)
     renders = _renders(checked.run, identifiers)
     at_cursor = ledger.hashes_at(repo.id, run_type, identifiers, cursor.position)
-    at_run = ledger.hashes_at(repo.id, run_type, identifiers, run_position)
+    decided_after_run = ledger.identifiers_with_newer_entries(repo.id, run_type, identifiers, run_position)
     approvals = _open_approvals(repo, run_type, identifiers)
 
     items: list[BaselineLedgerAdoptionItem] = []
@@ -163,7 +164,7 @@ def _plan(repo: Repo, run_type: str, checked: _CheckedRun) -> BaselineLedgerAdop
             render_hash=renders[identifier],
             open_approvals=approvals.get(identifier, 0),
         )
-        if not item.already_matches and item.ledger_hash != at_run.get(identifier, ""):
+        if not item.already_matches and identifier in decided_after_run:
             changed_after_run.append(identifier)
         items.append(item)
     if changed_after_run:
@@ -215,18 +216,54 @@ def _write(repo: Repo, plan: BaselineLedgerAdoption) -> None:
     )
 
 
+def _lock_run(run: Run) -> None:
+    """Lock the source run until the entries commit.
+
+    Retention locks a run row before it deletes the run, so while this lock is held the run and its
+    snapshots stay, and their hashes keep the rendered artifacts from the artifact sweep. After the
+    commit the new entries keep those artifacts. Taken after the ledger lock, as `lock_ledger` asks.
+    """
+    locked = list(
+        Run.objects.using(WRITER_DB)
+        .select_for_update()
+        .filter(id=run.id, team_id=run.team_id)
+        .values_list("id", flat=True)
+    )
+    if not locked:
+        raise errors.BaselineAdoptionError(
+            f"Run {run.id} was deleted while the adoption was planned. Nothing was written."
+        )
+
+
+def _publish_for_adopted(repo: Repo, changed: dict[str, set[str]]) -> None:
+    """Publish again for the pull requests whose open approvals the adoption made stale. Runs after the commit."""
+    if not commit_status.guards_stale_approvals(repo):
+        return
+    open_approvals = list(
+        BaselineApproval.objects.using(WRITER_DB).filter(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type__in=list(changed),
+            state=BaselineApprovalState.OPEN,
+        )
+    )
+    ledger_advance.publish_for_changed_identifiers(repo, changed, open_approvals)
+
+
 def adopt_renders(repo: Repo, run_type: str, run_id: UUID, identifiers: Iterable[str]) -> BaselineLedgerAdoption:
     """Append the planned entries at the cursor and return the plan that was written.
 
     GitHub is read before the lock, so a slow GitHub never holds it. Under the lock the plan is
     made again from the ledger as it is then. The cursor can have moved on, and the plan is checked
     again against the new cursor. When the planned items differ, an approval landed in between,
-    and nothing is written.
+    and nothing is written. Approvals are not changed, but after the commit the gate statuses
+    that rest on an open approval of an adopted identifier are published again.
     """
     checked = _check_run(repo, run_type, run_id, identifiers)
     shown = _plan(repo, run_type, checked)
     with transaction.atomic(using=WRITER_DB):
         ledger.lock_ledger(repo.id)
+        _lock_run(checked.run)
         repo.refresh_from_db(using=WRITER_DB, fields=["baseline_mode"])
         _require_ledger_mode(repo)
         plan = _plan(repo, run_type, checked)
@@ -236,4 +273,7 @@ def adopt_renders(repo: Repo, run_type: str, run_id: UUID, identifiers: Iterable
                 "Nothing was written. Run adopt-renders again."
             )
         _write(repo, plan)
+        if plan.to_append:
+            changed = {run_type: {item.identifier for item in plan.to_append}}
+            transaction.on_commit(lambda: _publish_for_adopted(repo, changed), using=WRITER_DB, robust=True)
     return plan
