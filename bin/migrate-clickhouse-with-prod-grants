@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+#
+# Applies ClickHouse migrations for local dev and CI. A migration that is new relative to the base
+# commit runs as the `migrations` user, which has the prod migrations user's roles
+# (docker/clickhouse/users-dev.xml), so a statement prod refuses fails here first. Older migrations
+# run as the default user: prod applied some of them before its current revokes existed.
+#
+# CLICKHOUSE_MIGRATIONS_BASE sets the base commit. It defaults to the merge base with origin/master.
+
+set -euo pipefail
+
+BASE="${CLICKHOUSE_MIGRATIONS_BASE:-$(git merge-base HEAD origin/master)}"
+LAST_BASE_MIGRATION=$(git ls-tree --name-only "$BASE" posthog/clickhouse/migrations/ |
+    sed -nE 's#^posthog/clickhouse/migrations/([0-9]{4})_.*\.py$#\1#p' | sort -n | tail -1)
+if [ -z "$LAST_BASE_MIGRATION" ]; then
+    echo "No ClickHouse migrations found at $BASE. Fetch origin/master or set CLICKHOUSE_MIGRATIONS_BASE." >&2
+    exit 1
+fi
+
+echo "Applying ClickHouse migrations up to $LAST_BASE_MIGRATION (in $BASE) as the default user…"
+python manage.py migrate_clickhouse --upto "$((10#$LAST_BASE_MIGRATION))"
+
+echo "Applying newer ClickHouse migrations as the migrations user…"
+CLICKHOUSE_MIGRATIONS_USER=migrations CLICKHOUSE_MIGRATIONS_PASSWORD=migrationspass python manage.py migrate_clickhouse

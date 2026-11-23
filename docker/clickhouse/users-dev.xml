@@ -98,6 +98,91 @@
         </signals>
     </profiles>
 
+    <!-- Roles of the prod `migrations` user. The sync-clickhouse-versions workflow in
+         posthog-cloud-infra copies them from prod, so change them there, not here. -->
+    <!-- BEGIN synced-migrations-roles: generated, do not edit -->
+    <roles>
+        <base>
+            <grants>
+                <query>GRANT ALL ON *.*</query>
+                <query>REVOKE displaySecretsInShowAndSelect ON *.*</query>
+                <query>REVOKE OPTIMIZE ON *.*</query>
+                <query>REVOKE DROP DATABASE ON posthog</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.cohortpeople</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.groups</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.person</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.person_distinct_id</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.person_distinct_id2</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.person_distinct_id_backup</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.person_static_cohort</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.posthog_document_embeddings</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.property_definitions</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.sharded_events</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.sharded_events_recent</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.sharded_heatmaps</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.sharded_log_entries</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.sharded_posthog_document_embeddings_text_embedding_3_large_3072</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.sharded_precalculated_events</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.sharded_precalculated_person_properties</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.sharded_raw_sessions</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.sharded_raw_sessions_v3</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.sharded_session_replay_events</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.sharded_sessions</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.swap_person_distinct_id</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.web_pre_aggregated_bounces</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.web_pre_aggregated_stats</query>
+                <query>REVOKE WRITE ON *</query>
+                <query>REVOKE TABLE ENGINE ON *</query>
+                <query>GRANT TABLE ENGINE ON MergeTree</query>
+                <query>GRANT TABLE ENGINE ON ReplacingMergeTree</query>
+                <query>GRANT TABLE ENGINE ON SummingMergeTree</query>
+                <query>GRANT TABLE ENGINE ON AggregatingMergeTree</query>
+                <query>GRANT TABLE ENGINE ON CollapsingMergeTree</query>
+                <query>GRANT TABLE ENGINE ON VersionedCollapsingMergeTree</query>
+                <query>GRANT TABLE ENGINE ON CoalescingMergeTree</query>
+                <query>GRANT TABLE ENGINE ON GraphiteMergeTree</query>
+                <query>GRANT TABLE ENGINE ON ReplicatedMergeTree</query>
+                <query>GRANT TABLE ENGINE ON ReplicatedReplacingMergeTree</query>
+                <query>GRANT TABLE ENGINE ON ReplicatedSummingMergeTree</query>
+                <query>GRANT TABLE ENGINE ON ReplicatedAggregatingMergeTree</query>
+                <query>GRANT TABLE ENGINE ON ReplicatedCollapsingMergeTree</query>
+                <query>GRANT TABLE ENGINE ON ReplicatedVersionedCollapsingMergeTree</query>
+                <query>GRANT TABLE ENGINE ON ReplicatedCoalescingMergeTree</query>
+                <query>GRANT TABLE ENGINE ON ReplicatedGraphiteMergeTree</query>
+                <query>GRANT TABLE ENGINE ON Distributed</query>
+                <query>GRANT TABLE ENGINE ON View</query>
+                <query>GRANT TABLE ENGINE ON MaterializedView</query>
+                <query>GRANT TABLE ENGINE ON Dictionary</query>
+                <query>GRANT TABLE ENGINE ON Join</query>
+                <query>GRANT TABLE ENGINE ON Set</query>
+                <query>GRANT TABLE ENGINE ON Memory</query>
+                <query>GRANT TABLE ENGINE ON Null</query>
+                <query>GRANT TABLE ENGINE ON Buffer</query>
+                <query>GRANT TABLE ENGINE ON Merge</query>
+                <query>GRANT TABLE ENGINE ON EmbeddedRocksDB</query>
+                <query>GRANT TABLE ENGINE ON TimeSeries</query>
+                <query>GRANT TABLE ENGINE ON Alias</query>
+                <query>REVOKE ACCESS MANAGEMENT ON *.*</query>
+                <query>REVOKE CREATE NAMED COLLECTION, ALTER NAMED COLLECTION, DROP NAMED COLLECTION ON *</query>
+                <query>REVOKE SET DEFINER ON *</query>
+                <query>REVOKE INSERT, TRUNCATE, DROP TABLE, DROP VIEW, ALTER, SYSTEM ON system.query_log*</query>
+                <query>REVOKE INSERT, TRUNCATE, DROP TABLE, DROP VIEW, ALTER, SYSTEM ON posthog.sharded_query_log_archive_v3</query>
+                <query>REVOKE INSERT, TRUNCATE, DROP TABLE, DROP VIEW, ALTER, SYSTEM ON posthog.query_log_archive_v3_buffer</query>
+                <query>REVOKE INSERT, TRUNCATE, DROP TABLE, DROP VIEW, ALTER, SYSTEM ON posthog.writable_query_log_archive_v3</query>
+                <query>REVOKE INSERT, TRUNCATE, DROP TABLE, DROP VIEW, ALTER, SYSTEM ON posthog.ops_query_log_archive_v3_mv</query>
+                <query>REVOKE INSERT, TRUNCATE, DROP TABLE, DROP VIEW, ALTER, SYSTEM ON posthog.query_log_archive</query>
+                <query>REVOKE SYSTEM SHUTDOWN ON *.*</query>
+                <query>REVOKE INSERT, ALTER ON system.zookeeper</query>
+            </grants>
+        </base>
+        <kafka_ddl>
+            <grants>
+                <query>GRANT TABLE ENGINE ON Kafka</query>
+            </grants>
+        </kafka_ddl>
+    </roles>
+    <!-- END synced-migrations-roles -->
+
     <!-- Users and ACL. -->
     <users>
         <!-- If user name was not specified, 'default' user is used. -->
@@ -326,6 +411,20 @@
             <profile>signals</profile>
             <quota>default</quota>
         </signals>
+        <!-- Local and CI ClickHouse migrations run as this user, so a statement prod refuses
+             (e.g. DROP TABLE on a protected table) fails here first. -->
+        <migrations>
+            <password>migrationspass</password>
+            <networks><ip>::/0</ip></networks>
+            <profile>default</profile>
+            <quota>default</quota>
+            <!-- BEGIN synced-migrations-grants: generated, do not edit -->
+            <grants>
+                <query>GRANT base</query>
+                <query>GRANT kafka_ddl</query>
+            </grants>
+            <!-- END synced-migrations-grants -->
+        </migrations>
     </users>
 
     <!-- Quotas. -->

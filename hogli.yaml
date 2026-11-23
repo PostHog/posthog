@@ -1392,3 +1392,7 @@ environment:
         bin_script: devbox-worktree-hook
         description: 'Start or stop the devbox of this worktree from an app create or remove hook'
         hidden: true
+    migrate:clickhouse:with:prod:grants:
+        bin_script: migrate-clickhouse-with-prod-grants
+        description: 'Apply ClickHouse migrations, running new ones with the prod migrations user grants'
+        hidden: true
