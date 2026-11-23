@@ -16,6 +16,7 @@
                 "backend/models/**",
                 "backend/migrations/**",
                 "backend/scopes.py",
+                "backend/activity_log_config.py",
                 "backend/activity_logging.py",
                 "backend/apps.py",
                 "backend/logic/account_property_projection.py",

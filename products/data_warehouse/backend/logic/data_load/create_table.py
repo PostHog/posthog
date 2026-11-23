@@ -1,13 +1,14 @@
 import uuid
+import asyncio
 import functools
 import dataclasses
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from typing import TypeVar
 
 from django.conf import settings
 from django.db import transaction
 
-from asgiref.sync import sync_to_async
 from clickhouse_driver.errors import ServerException
 from opentelemetry import trace
 from structlog.contextvars import bind_contextvars
@@ -30,6 +31,11 @@ LOGGER = get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 _R = TypeVar("_R")
+
+MAX_CONCURRENT_DESCRIBE_AND_COUNT = 2
+_describe_and_count_executor = ThreadPoolExecutor(
+    max_workers=MAX_CONCURRENT_DESCRIBE_AND_COUNT, thread_name_prefix="describe-and-count"
+)
 
 
 def _in_span(name: str, call: Callable[[], _R]) -> Callable[[], _R]:
@@ -89,7 +95,7 @@ async def calculate_table_size(saved_query: DataWarehouseSavedQuery, team_id: in
     folder_name = saved_query.folder_path
     s3_folder = f"{settings.BUCKET_URL}/{folder_name}/{queryable_folder}"
 
-    total_mib = get_size_of_folder(s3_folder)
+    total_mib = await asyncio.to_thread(get_size_of_folder, s3_folder)
 
     await logger.adebug(f"Total size in MiB = {total_mib:.2f}")
 
@@ -101,6 +107,7 @@ async def create_table_from_saved_query(
     saved_query_id: str,
     team_id: int,
     queryable_folder: str,
+    row_count: int | None = None,
 ) -> CreateTableResult:
     """
     Create a table from a saved query if it doesn't exist.
@@ -142,14 +149,18 @@ async def create_table_from_saved_query(
         # materialized backing tables) alongside `columns`, since jsonb loses key order.
         published_columns = (table_created.columns, table_created.column_order)
         with tracer.start_as_current_span("create_table_from_saved_query.describe_columns"):
-            columns = await sync_to_async(
-                _in_span("create_table_from_saved_query.describe_columns.run", table_created.get_columns)
+            columns = await database_sync_to_async_pool(
+                _in_span("create_table_from_saved_query.describe_columns.run", table_created.get_columns),
+                executor=_describe_and_count_executor,
             )()
         table_created.set_columns(columns)
-        with tracer.start_as_current_span("create_table_from_saved_query.count_rows"):
-            table_created.row_count = await database_sync_to_async(
-                _in_span("create_table_from_saved_query.count_rows.run", table_created.get_count)
-            )()
+        if row_count is None:
+            with tracer.start_as_current_span("create_table_from_saved_query.count_rows"):
+                row_count = await database_sync_to_async_pool(
+                    _in_span("create_table_from_saved_query.count_rows.run", table_created.get_count),
+                    executor=_describe_and_count_executor,
+                )()
+        table_created.row_count = row_count
 
         refreshed_saved_query = await aget_saved_query_by_id(saved_query_id=saved_query_id_converted, team_id=team_id)
 
