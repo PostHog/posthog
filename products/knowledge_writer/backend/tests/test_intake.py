@@ -1522,7 +1522,7 @@ NAV_HEAD_TEXT = """export const docsMenu = [
 
 CREDENTIALED_ORIGIN_URL = "https://x-access-token:ghs_example@github.com/acme/docs.git"
 FAKE_UVX = """#!/bin/sh
-[ -z "$GH_TOKEN" ] && [ -z "$BASH_ENV" ] && [ "$PIP_ONLY_BINARY" = ":all:" ] || exit 3
+[ -z "$GH_TOKEN" ] && [ -z "$BASH_ENV" ] && [ -z "$AWS_ACCESS_KEY_ID" ] && [ "$PIP_ONLY_BINARY" = ":all:" ] || exit 3
 git remote get-url origin | grep -q ghs_ && exit 3
 case "$*" in *install-hooks*) exit 0 ;; esac
 [ -f .git/fake-uvx-ran ] && exit 0
@@ -1609,6 +1609,7 @@ def test_the_sandbox_change_check_runs_without_posthog_on_the_path(
         "HOME": str(tmp_path),
         "GH_TOKEN": "ghs_example",
         "BASH_ENV": str(tmp_path / "bash-env.sh"),
+        "AWS_ACCESS_KEY_ID": "AKIAEXAMPLE",
         "PATH": f"{_fake_uvx_folder(tmp_path_factory)}{os.pathsep}{os.environ['PATH']}",
         **{
             f"GIT_{role}_{field}": value

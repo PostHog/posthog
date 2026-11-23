@@ -33,7 +33,32 @@ COREPACK_VERSION = "0.34.0"
 LINT_STAGED_RUN = ("node_modules/.bin/lint-staged", "--no-stash")
 MISSING_TOOL_PATTERN = re.compile(r"Executable `[^`]+` not found|\bENOENT\b|command not found")
 ENFORCER_SECRET_NAME_PATTERN = re.compile(r"TOKEN|SECRET|PASSWORD|API_KEY|PRIVATE_KEY|CREDENTIAL", re.IGNORECASE)
-ENFORCER_SHELL_STARTUP_NAMES = frozenset({"BASH_ENV", "ENV", "PROMPT_COMMAND"})
+ENFORCER_INHERITED_NAMES = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "SHELL",
+        "TERM",
+        "LANG",
+        "TZ",
+        "TMPDIR",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "NO_PROXY",
+        "ALL_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "no_proxy",
+        "all_proxy",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "NODE_EXTRA_CA_CERTS",
+        "REQUESTS_CA_BUNDLE",
+    }
+)
+ENFORCER_INHERITED_PREFIXES = ("LC_", "XDG_", "npm_config_", "NPM_CONFIG_", "COREPACK_", "PNPM_", "UV_", "PIP_")
 LOCKFILE_BY_PACKAGE_MANAGER = {"pnpm": "pnpm-lock.yaml", "yarn": "yarn.lock", "npm": "package-lock.json"}
 MAX_COMPANION_PATCH_CHARACTERS = 16_384
 PAGE_CHANGING_STATUSES = frozenset({"added", "removed"})
@@ -1200,7 +1225,7 @@ def enforcer_environment() -> dict[str, str]:
     inherited = {
         name: value
         for name, value in os.environ.items()
-        if not ENFORCER_SECRET_NAME_PATTERN.search(name) and name not in ENFORCER_SHELL_STARTUP_NAMES
+        if is_enforcer_inherited_name(name) and not ENFORCER_SECRET_NAME_PATTERN.search(name)
     }
     return {
         **inherited,
@@ -1209,6 +1234,10 @@ def enforcer_environment() -> dict[str, str]:
         "PIP_ONLY_BINARY": ":all:",
         "UV_NO_BUILD": "1",
     }
+
+
+def is_enforcer_inherited_name(name: str) -> bool:
+    return name in ENFORCER_INHERITED_NAMES or name.startswith(ENFORCER_INHERITED_PREFIXES)
 
 
 def paths_changed_since(base_sha: str) -> frozenset[str]:
