@@ -35,8 +35,8 @@ from products.data_modeling.backend.facade.models import (
     NodeType,
 )
 from products.data_modeling.backend.logic.managed_warehouse_shadow import (
-    _is_managed_warehouse_shadow_flag_enabled,
     is_managed_warehouse_shadow_enabled,
+    is_managed_warehouse_shadow_flag_enabled,
 )
 from products.endpoints.backend.facade.temporal import prepare_executable_query
 from products.managed_warehouse.backend.facade.api import (
@@ -188,7 +188,7 @@ def _check_managed_warehouse_shadow_eligibility(inputs: ManagedWarehouseShadowEl
 async def _check_managed_warehouse_shadow_enabled_activity(team_id: int) -> bool:
     """Check the legacy team-level shadow prerequisites."""
     team = await database_sync_to_async_pool(Team.objects.get)(id=team_id)
-    return await database_sync_to_async_pool(_is_managed_warehouse_shadow_flag_enabled)(team)
+    return await database_sync_to_async_pool(is_managed_warehouse_shadow_flag_enabled)(team)
 
 
 @activity.defn

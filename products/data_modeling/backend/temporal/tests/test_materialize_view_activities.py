@@ -181,7 +181,7 @@ class TestMaterializeViewManagedWarehouseActivity:
         )
         with (
             unittest.mock.patch(
-                "products.data_modeling.backend.logic.managed_warehouse_shadow._is_managed_warehouse_shadow_flag_enabled",
+                "products.data_modeling.backend.logic.managed_warehouse_shadow.is_managed_warehouse_shadow_flag_enabled",
                 return_value=flag_enabled,
             ),
             unittest.mock.patch(

@@ -20,7 +20,7 @@ from products.managed_warehouse.backend.facade.feature_flags import DATA_MODELIN
 FEATURE_FLAG = DATA_MODELING_SHADOW_FLAG
 
 
-def _is_managed_warehouse_shadow_flag_enabled(team: Team) -> bool:
+def is_managed_warehouse_shadow_flag_enabled(team: Team) -> bool:
     if is_dev_mode():
         return os.environ.get("MANAGED_WAREHOUSE_SHADOW_ENABLED", "").lower() in ("1", "true")
 
@@ -47,7 +47,7 @@ def _is_managed_warehouse_shadow_flag_enabled(team: Team) -> bool:
 
 
 def is_managed_warehouse_shadow_enabled(team: Team) -> bool:
-    if not _is_managed_warehouse_shadow_flag_enabled(team):
+    if not is_managed_warehouse_shadow_flag_enabled(team):
         return False
 
     return is_data_modeling_shadow_ready(
