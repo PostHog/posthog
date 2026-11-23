@@ -822,7 +822,7 @@ def _fetch_campaigns(
         {
             "fields": (
                 "campaigns.id,campaigns.type,campaigns.status,campaigns.create_time,campaigns.send_time,"
-                "campaigns.settings,campaigns.recipients.list_id,total_items"
+                "campaigns.settings,campaigns.variate_settings.subject_lines,campaigns.recipients.list_id,total_items"
             ),
             "sort_field": "create_time",
             "sort_dir": "ASC",
@@ -858,12 +858,27 @@ def _read_campaign(
     body = _clean(content.get("html"))
     text = _clean(content.get("plain_text"))
     variants = [_as_dict(variant) for variant in content.get("variate_contents") or []]
-    extra_notes: tuple[str, ...] = ()
+    extra_notes: list[str] = []
+    subject_lines = [
+        line
+        for line in (_clean(line) for line in _as_dict(campaign.get("variate_settings")).get("subject_lines") or [])
+        if line
+    ]
+    if not subject and subject_lines:
+        # A subject line A/B test keeps its subjects here and leaves the campaign's own subject empty.
+        subject = subject_lines[0]
+        if len(subject_lines) > 1:
+            extra_notes.append(
+                f"This campaign tests {len(subject_lines)} subject lines in Mailchimp. PostHog used the first one."
+            )
     if not body.strip() and not text.strip() and variants:
         # An A/B test keeps its content per variation, and a template holds one email.
         body, text = _clean(variants[0].get("html")), _clean(variants[0].get("plain_text"))
-        label_text = _clean(variants[0].get("content_label")) or "the first one"
-        extra_notes = (f"This campaign is an A/B test with {len(variants)} variations. PostHog imported {label_text}.",)
+        if len(variants) > 1:
+            label_text = _clean(variants[0].get("content_label")) or "the first one"
+            extra_notes.append(
+                f"This campaign is an A/B test with {len(variants)} variations. PostHog imported {label_text}."
+            )
     if not body.strip() and text.strip():
         # A plain-text campaign has no HTML, so the text becomes a simple HTML body the editor can open.
         body = html.escape(text).replace("\n", "<br>\n")

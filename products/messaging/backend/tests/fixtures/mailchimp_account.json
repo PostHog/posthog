@@ -311,6 +311,9 @@
                 "from_name": "Example Co",
                 "reply_to": "news@example.com"
             },
+            "variate_settings": {
+                "subject_lines": ["Short *|FNAME|*", "A longer subject line"]
+            },
             "content": {
                 "html": "",
                 "plain_text": "",

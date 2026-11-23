@@ -132,7 +132,10 @@ class TestMailchimpImport(BaseTest):
         assert "{{ unsubscribe_url }}" in plain
         ab_test = templates["mailchimp-campaign-camp005"]
         assert ab_test.content["email"]["html"] == "<p>Short {{ person.properties.first_name | escape | raw }}</p>"
+        assert ab_test.content["email"]["subject"] == "Short {{ person.properties.first_name }}"
+        assert "tests 2 subject lines in Mailchimp. PostHog used the first one." in ab_test.description
         assert "A/B test with 2 variations. PostHog imported Short subject." in ab_test.description
+        assert "no subject" not in ab_test.description
 
     def test_importing_again_adds_nothing(self) -> None:
         self._run()
