@@ -98,7 +98,7 @@ import type {
 } from '../../queries/schema/schema-general'
 import type { CohortType, DashboardTileBasicType, TeamPublicType, TeamType, UserBasicType, UserType } from '../../types'
 import { teamLogic } from '../teamLogic'
-import { insightDataLogic, isInsightSceneInstance, withStoredDashboardFilteredFields } from './insightDataLogic'
+import { insightDataLogic, isInsightSceneInstance } from './insightDataLogic'
 import { insightsApi } from './utils/api'
 
 function reportInsightSaved(
@@ -689,20 +689,6 @@ export function insightOverridesPresent(
         (isObject(variablesOverride) && !isEmptyObject(variablesOverride)) ||
         !isDashboardFilterOverrideEmpty(tileFiltersOverride)
     )
-}
-
-// In a dashboard context the editor shares the tile's query, which carries the dashboard's filters.
-// Restore the stored fields the user did not change, so a save does not bake those filters in.
-async function withoutDashboardFilters(
-    query: Node | null,
-    savedInsight: Partial<InsightModel>,
-    props: InsightLogicProps
-): Promise<Node | null> {
-    if (props.dashboardId == null || !savedInsight.short_id || !query) {
-        return query
-    }
-    const storedInsight = await insightsApi.getByShortId(savedInsight.short_id, true)
-    return withStoredDashboardFilteredFields(query, savedInsight.query, storedInsight?.query)
 }
 
 export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType>([
@@ -1307,7 +1293,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     derived_name: values.derivedName,
                     description,
                     favorited,
-                    query: await withoutDashboardFilters(values.query, values.savedInsight, props),
+                    query: values.query,
                     deleted,
                     saved: true,
                     tags,
@@ -1465,7 +1451,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         saveAsConfirmation: async ({ name, redirectToViewMode, persist, folder }) => {
             const insight = await insightsApi.create({
                 name,
-                query: await withoutDashboardFilters(values.query, values.savedInsight, props),
+                query: values.query,
                 saved: true,
                 _create_in_folder: folder ?? getLastNewFolder(),
             })
