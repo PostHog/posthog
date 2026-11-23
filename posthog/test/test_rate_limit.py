@@ -1139,35 +1139,13 @@ class TestReserveUnits(BaseTest):
             return response.headers["Retry-After"]
         return None
 
-    def _caches_with_own_history_keyspace(self) -> dict[str, Any]:
-        default = {"BACKEND": "django_redis.cache.RedisCache", "LOCATION": settings.REDIS_URL}
-        return {
-            "default": {**default, "KEY_PREFIX": self.cache_prefix},
-            "throttle_history": {**default, "KEY_PREFIX": f"{self.cache_prefix}-history"},
-        }
-
-    @parameterized.expand(
-        [
-            ("per_key", _PSAKThrottleForTest, "shared"),
-            ("per_team", _PSAKTeamThrottleForTest, "shared"),
-            ("per_key_own_history_keyspace", _PSAKThrottleForTest, "own"),
-            ("per_team_own_history_keyspace", _PSAKTeamThrottleForTest, "own"),
-        ]
-    )
-    def test_units_and_single_requests_spend_one_budget(self, _name, throttle_class, history_keyspace):
-        configured = self._caches_with_own_history_keyspace() if history_keyspace == "own" else settings.CACHES
-        with override_settings(CACHES=configured), patch.object(throttle_class, "rate", "5/minute"):
-            try:
-                self._reserve([throttle_class], 3)
-                self.assertEqual(self._singles_allowed(throttle_class, 3), [True, True, False])
-                with self.assertRaises(exceptions.Throttled):
-                    self._reserve([throttle_class], 1)
-            finally:
-                if history_keyspace == "own":
-                    for alias in ("default", "throttle_history"):
-                        redis_cache = caches[alias]
-                        assert isinstance(redis_cache, RedisCache)
-                        redis_cache.delete_pattern("*")
+    @parameterized.expand([("per_key", _PSAKThrottleForTest), ("per_team", _PSAKTeamThrottleForTest)])
+    def test_units_and_single_requests_spend_one_budget(self, _name, throttle_class):
+        with patch.object(throttle_class, "rate", "5/minute"):
+            self._reserve([throttle_class], 3)
+            self.assertEqual(self._singles_allowed(throttle_class, 3), [True, True, False])
+            with self.assertRaises(exceptions.Throttled):
+                self._reserve([throttle_class], 1)
 
     def test_a_refused_reservation_charges_none_of_the_throttles(self):
         with (
@@ -1244,6 +1222,21 @@ class TestReserveUnits(BaseTest):
                 caches["throttle_history"].delete(key)
 
         self.assertEqual(outcome, retry_after)
+
+    def test_a_reservation_counts_the_units_a_lagging_reader_has_not_seen(self):
+        with (
+            override_settings(CACHES=self._lagging_reader_caches()),
+            patch.object(_PSAKThrottleForTest, "rate", "5/minute"),
+        ):
+            try:
+                self._reserve([_PSAKThrottleForTest], 3)
+                with self.assertRaises(exceptions.Throttled):
+                    self._reserve([_PSAKThrottleForTest], 3)
+            finally:
+                for alias in ("default", "throttle_history"):
+                    redis_cache = caches[alias]
+                    assert isinstance(redis_cache, RedisCache)
+                    redis_cache.delete_pattern("*")
 
     def test_a_refusal_is_counted(self):
         route = rate_limit.get_route_from_path("/api/messaging/send/email_batch/")
