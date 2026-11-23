@@ -403,7 +403,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: 'hog',
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
         CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
-        CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: false,
+        // Local dev seals with the dev key below, so sensitive sends never sit on its Kafka in plaintext.
+        CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: isDevEnv(),
         CDP_SEALED_STATE_KEYS: isDevEnv() || isTestEnv() ? '00feed0000feed0000feed0000feed00' : '',
 
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',

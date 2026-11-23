@@ -13,6 +13,7 @@ func TestDedicatedSecretsAreGeneratedAndKept(t *testing.T) {
 		"RECORDING_API_JWT_SECRET",
 		"OBJECT_STORAGE_ACCESS_KEY_ID",
 		"OBJECT_STORAGE_SECRET_ACCESS_KEY",
+		"CDP_SEALED_STATE_KEYS",
 	} {
 		cases := []struct {
 			name      string
@@ -55,6 +56,10 @@ func TestDedicatedSecretsAreGeneratedAndKept(t *testing.T) {
 				}
 				if value == "" || value == ReadEnvValue("POSTHOG_SECRET") {
 					t.Fatalf("%s = %q, want a value of its own", key, value)
+				}
+				// The node service builds a Fernet key from it, which takes exactly 32 characters.
+				if key == "CDP_SEALED_STATE_KEYS" && tc.wantValue == "" && len(value) != 32 {
+					t.Fatalf("%s = %q, want 32 characters", key, value)
 				}
 			})
 		}

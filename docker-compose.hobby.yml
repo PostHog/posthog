@@ -312,6 +312,9 @@ services:
             CDP_VALKEY_HOST: valkey
             CDP_VALKEY_PORT: 6379
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+            # Seals login codes and reset links on the intake topic. An install upgraded without the key stays unsealed.
+            CDP_SEALED_STATE_KEYS: ${CDP_SEALED_STATE_KEYS:-}
+            CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: ${CDP_SEALED_STATE_KEYS:+true}
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             OTEL_EXPORTER_OTLP_ENDPOINT: ''
