@@ -514,14 +514,17 @@ Same shell as Dialog (shared `quill-dialog__*` styles) but `role="alertdialog"`,
       <DrawerTitle>Title</DrawerTitle>
       <DrawerDescription>Description</DrawerDescription>
     </DrawerHeader>
-    {/* content */}
+    <DrawerBody>{/* content */}</DrawerBody>
     <DrawerFooter>
-      <Button>Submit</Button>
       <DrawerClose render={<Button variant="outline" />}>Cancel</DrawerClose>
+      <Button variant="primary">Submit</Button>
     </DrawerFooter>
   </DrawerContent>
 </Drawer>
 ```
+
+`DrawerBody` works like `DialogBody`: a `ScrollArea` that takes the height the header and footer leave, with `viewportClassName` and `render`.
+`DrawerFooter` stacks its buttons in reverse, so write Cancel first and the main action last, as in a `DialogFooter`. The main action shows on top.
 
 ### Dropdown Menu
 

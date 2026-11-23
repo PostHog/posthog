@@ -156,6 +156,33 @@
         text-align: start;
     }
 
+    /*
+     * The drawer has no fixed height, only a max-height, so the body takes
+     * the space the header and footer leave and scrolls inside it.
+     */
+    .quill-drawer__body {
+        display: flex;
+        flex: 1 1 auto;
+        flex-direction: column;
+        min-height: 0;
+        padding-inline: 1rem;
+    }
+
+    .quill-drawer__body:not([data-component='scroll-area']) {
+        overflow: auto;
+    }
+
+    /* Padding moves onto the viewport so the scrollbar sits flush with the body edge. */
+    .quill-drawer__body[data-component='scroll-area'] {
+        padding-inline: 0;
+    }
+
+    .quill-drawer__body[data-component='scroll-area'] > [data-slot='scroll-area-viewport'] {
+        flex: 1 1 auto;
+        min-height: 0;
+        padding-inline: 1rem;
+    }
+
     .quill-drawer__title {
         font-size: var(--text-sm, 0.875rem);
         font-weight: 700;
