@@ -520,8 +520,9 @@ def _window_request_params(
     start_param, end_param = config.date_param_names
     if config.exclusive_end:
         window_end += 1
+    params: dict[str, Any]
     if config.date_param_format == "iso_date":
-        params: dict[str, Any] = {start_param: _to_iso_date(window_start), end_param: _to_iso_date(window_end)}
+        params = {start_param: _to_iso_date(window_start), end_param: _to_iso_date(window_end)}
     elif config.date_param_format == "iso_datetime":
         # Both bounds truncate to the second, so the end of one window stays equal to the start of
         # the next and no row falls between them.
@@ -616,6 +617,12 @@ def _paginate_window(
         next_cursor = _next_page_cursor(data) if config.pagination == "cursor" else None
         if config.pagination == "cursor":
             has_next = config.paginated and next_cursor is not None
+            pagination = data.get("pagination")
+            if next_cursor is None and isinstance(pagination, dict) and pagination.get("hasMore"):
+                logger.warning(
+                    f"Cursor: {config.name} reported more pages without a usable nextCursor, "
+                    f"ending window {window_start}-{window_end} early"
+                )
         else:
             has_next = config.paginated and _has_next_page(data, page, page_items, config.page_size)
         window_done = not page_items or not has_next
@@ -733,5 +740,5 @@ def cursor_source(
         partition_keys=[config.partition_key] if config.partition_key else None,
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
-        sort_mode="asc",
+        sort_mode="asc" if config.rows_ascending else None,
     )

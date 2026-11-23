@@ -56,6 +56,8 @@ class CursorEndpointConfig:
     # `page` sends a 1-based page number; `cursor` passes `pagination.nextCursor` back as `cursor`.
     pagination: Literal["page", "cursor"] = "page"
     page_size: int = 100
+    # Rows of an incremental run arrive in ascending order of the incremental field.
+    rows_ascending: bool = True
     partition_key: Optional[str] = None  # Stable datetime field to partition by
     description: Optional[str] = None
     should_sync_default: bool = True
@@ -424,6 +426,8 @@ CURSOR_ENDPOINTS: dict[str, CursorEndpointConfig] = {
         windowed=True,
         pagination="cursor",
         page_size=500,
+        # Each window lists newest first, so the run as a whole is not ascending.
+        rows_ascending=False,
         partition_key="eventTime",
         incremental_fields=[_datetime_field("eventTime")],
         should_sync_default=False,

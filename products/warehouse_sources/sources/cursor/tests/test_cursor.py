@@ -236,13 +236,16 @@ class TestCursorTransport:
 
     @parameterized.expand(
         [
-            ("members", ["id"], None),
-            ("daily_usage", ["date", "userId"], ["date"]),
-            ("usage_events", ["id"], ["timestamp"]),
-            ("spend", ["userId"], None),
+            ("members", ["id"], None, "asc"),
+            ("daily_usage", ["date", "userId"], ["date"], "asc"),
+            ("usage_events", ["id"], ["timestamp"], "asc"),
+            ("spend", ["userId"], None, "asc"),
+            ("ask_mode", ["event_date", "model"], ["event_date"], "asc"),
+            # Each window lists newest first, so an "asc" promise would lose rows on a resumed run.
+            ("billing_items", ["billingItemId"], ["eventTime"], None),
         ]
     )
-    def test_source_response_shape(self, endpoint, primary_keys, partition_keys):
+    def test_source_response_shape(self, endpoint, primary_keys, partition_keys, sort_mode):
         result = _driver().run(
             endpoint,
             always(ScriptedResponse(json={})),
@@ -256,7 +259,7 @@ class TestCursorTransport:
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         assert response.partition_keys == partition_keys
-        assert response.sort_mode == "asc"
+        assert response.sort_mode == sort_mode
 
     def test_members_yields_single_batch_via_get(self):
         result = _driver().run(
@@ -566,23 +569,32 @@ class TestCursorTransport:
 
     @parameterized.expand(
         [
-            # hasMore without a cursor cannot be followed, so the window ends instead of looping.
-            ("has_more_without_cursor", {"hasMore": True}),
-            ("no_more_pages", {"hasMore": False, "nextCursor": "stale"}),
+            # hasMore without a cursor cannot be followed, so the window ends with a warning instead of looping.
+            ("has_more_without_cursor", {"hasMore": True}, True),
+            ("has_more_with_empty_cursor", {"hasMore": True, "nextCursor": ""}, True),
+            ("has_more_with_non_string_cursor", {"hasMore": True, "nextCursor": 7}, True),
+            ("no_more_pages", {"hasMore": False, "nextCursor": "stale"}, False),
+            ("no_pagination_block", None, False),
         ]
     )
-    def test_billing_items_window_ends_when_there_is_no_cursor_to_follow(self, _name, pagination):
+    def test_billing_items_window_ends_when_there_is_no_cursor_to_follow(self, _name, pagination, warns):
         now_ms = 1_700_000_000_000
+        logger = mock.MagicMock()
+        body: dict = {"data": [{"billingItemId": "item-1"}]}
+        if pagination is not None:
+            body["pagination"] = pagination
         with mock.patch.object(cursor, "_now_ms", return_value=now_ms):
             result = _driver().run(
                 "billing_items",
-                [ScriptedResponse(json={"data": [{"billingItemId": "item-1"}], "pagination": pagination})],
+                [ScriptedResponse(json=body)],
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=datetime.fromtimestamp((now_ms - DAY_MS) / 1000, tz=UTC),
+                logger=logger,
             )
 
         assert result.raised is None
         assert len(result.requests) == 1
+        assert logger.warning.called is warns
 
     def test_billing_items_resume_reuses_the_range_of_the_saved_cursor(self):
         now_ms = 1_700_000_000_000  # 2023-11-14T22:13:20Z
