@@ -105,9 +105,10 @@ run_persons_migrations() {
 # run builds it again. This step rebuilds each INVALID index that a migration in $2 builds concurrently, and
 # drops the INVALID copies (<name>_ccnew, <name>_ccold) that an interrupted REINDEX CONCURRENTLY leaves.
 # A failed step fails the run, and the next run repeats it.
-# One psql session holds an advisory lock from the catalog read to the last repair, so a second migrate run
-# waits and then reads the catalog that the first left. \gexec runs each repair as its own statement,
-# because the CONCURRENTLY forms cannot run in a transaction block.
+# One psql session holds an advisory lock from the catalog read to the last repair. A second migrate run that
+# finds the lock taken fails at once instead of waiting: a waiting statement holds a snapshot, and
+# REINDEX CONCURRENTLY in the first run waits for that snapshot, so the two runs would deadlock.
+# \gexec runs each repair as its own statement, because the CONCURRENTLY forms cannot run in a transaction block.
 rebuild_invalid_concurrent_indexes() {
     local database_url="$1"
     local source="$2"
@@ -120,7 +121,11 @@ rebuild_invalid_concurrent_indexes() {
 
     log_json "info" "Repairing invalid indexes" "running" "$db_type"
     psql "$database_url" -X -q -e -v ON_ERROR_STOP=1 -v names="{$names}" <<'SQL'
-SELECT pg_advisory_lock(hashtext('migrate-entry rebuild_invalid_concurrent_indexes')) AS locked \gset
+SELECT pg_try_advisory_lock(hashtext('migrate-entry rebuild_invalid_concurrent_indexes')) AS locked \gset
+\if :locked
+\else
+DO $$ BEGIN RAISE EXCEPTION 'another migrate run is repairing invalid indexes; the next run repeats the repair'; END $$;
+\endif
 SELECT CASE WHEN c.relname = ANY (:'names'::text[])
             THEN format('REINDEX INDEX CONCURRENTLY %I.%I', n.nspname, c.relname)
             ELSE format('DROP INDEX CONCURRENTLY IF EXISTS %I.%I', n.nspname, c.relname)
