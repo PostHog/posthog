@@ -420,7 +420,6 @@ export class CyclotronV2Worker {
         }
     }
 
-    // How many sends with files the next files poll dequeues, given room for that many.
     protected filesBatchLimit(room: number): Promise<CyclotronV2BatchLimit> {
         return Promise.resolve({ limit: room })
     }

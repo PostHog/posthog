@@ -44,8 +44,6 @@ const priorityClassesCte = (queueName: string): string => `priority_classes AS (
 
 const PRIORITY_CLASSES_CTE = priorityClassesCte('$1')
 
-// Each poll query selects due rows with one extra filter, so the email worker can leave sends with files
-// to the poll that takes only them.
 type RowFilter = (alias: string) => string
 
 const anyRow: RowFilter = () => ''
@@ -224,8 +222,7 @@ const pollSql = (only: RowFilter): PollSql => ({
 export const ANY_ROW_POLL_SQL = pollSql(anyRow)
 export const plainRowPollSql = (queueName: string): PollSql => pollSql(plainRow(queueName))
 
-// The poll for sends with files, in the fair order of the main poll. It reads
-// idx_cyclotron_jobs_email_files_fair_dequeue.
+// Must match the predicate of idx_cyclotron_jobs_email_files_fair_dequeue, or the files poll scans the table.
 const FILES_DUE = `status = 'available' AND queue_name = $1 AND file_bytes IS NOT NULL AND scheduled <= NOW()`
 
 export const COUNT_FILES_WORK_SQL = `SELECT COUNT(*)::int AS n FROM (
