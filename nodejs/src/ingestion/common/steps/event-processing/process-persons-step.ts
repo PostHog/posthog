@@ -81,8 +81,6 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
             if (!(error instanceof PersonhogUnprocessablePersonError)) {
                 throw error
             }
-            // A replay from the DLQ reads the same stored row and fails the same way, so the event is dropped.
-            // The leader sends the team an ingestion warning for each person it cannot read.
             logger.warn('🤔', 'stored person properties cannot be parsed; the event is dropped', {
                 team_id: error.teamId,
                 person_id: error.personId,

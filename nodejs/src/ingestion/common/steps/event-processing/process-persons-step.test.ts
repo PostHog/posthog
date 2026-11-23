@@ -81,7 +81,6 @@ describe('createProcessPersonsStep with the personhog store', () => {
         jest.useRealTimers()
     })
 
-    // The person services back off between attempts, so the clock moves past every backoff.
     const settle = async <T>(pending: Promise<T>): Promise<T> => {
         await jest.advanceTimersByTimeAsync(60_000)
         return await pending
@@ -130,7 +129,6 @@ describe('createProcessPersonsStep with the personhog store', () => {
             repository.fetchPersonById.mockRejectedValue(
                 new PersonhogUnprocessablePersonError(refusal, TEAM_ID, PERSON_ID)
             )
-            // Identity returns the leader's refusal of a merge with its status unchanged.
             repository.mergePersons.mockRejectedValue(new ConnectError(refusal, Code.DataLoss))
 
             const result = await settle(runStep(event, { prefetch }))
