@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from parameterized import parameterized
@@ -119,6 +119,20 @@ def test_series_follow_the_bucket_starts_with_gaps_as_no_traces() -> None:
 
     assert tile(tiles, MetricKey.TRACES).series == [0, 4, 0]
     assert tile(tiles, MetricKey.ERROR_RATE).series == [None, 0.25, None]
+
+
+def test_series_find_both_buckets_of_the_hour_the_clock_goes_back() -> None:
+    zone = ZoneInfo("Europe/Madrid")
+    window = TraceWindow(
+        start=datetime(2026, 10, 25, 1, 30, tzinfo=zone), end=datetime(2026, 10, 25, 3, 30, tzinfo=zone)
+    )
+    starts = bucket_starts(window, BucketSize.HOUR)
+    # A cached read keys its buckets with fixed offsets, as JSON carries them.
+    first, second = (start.astimezone(timezone(start.utcoffset() or timedelta())) for start in starts[1:3])
+
+    tiles = tiles_of(FULL, None, {first: replace(FULL, traces=2), second: replace(FULL, traces=3)}, starts, window)
+
+    assert tile(tiles, MetricKey.TRACES).series == [0, 2, 3, 0]
 
 
 @parameterized.expand(

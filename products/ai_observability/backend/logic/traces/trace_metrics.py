@@ -14,6 +14,9 @@ from products.ai_observability.backend.logic.instrumentation.signals import (
 from products.ai_observability.backend.logic.traces.trace_selection import TraceWindow, shift
 
 HOURLY_BUCKET_MAX_SPAN = timedelta(days=2)
+# The bucket list is built in memory before ClickHouse runs, where no query timeout bounds it, so a range with more
+# buckets than this is refused as too long. That is over a century of days, far past any range a person reads.
+MAX_BUCKETS = 40_000
 
 
 class MetricKey(StrEnum):
@@ -159,6 +162,11 @@ def bucket_size_for(window: TraceWindow) -> BucketSize:
     )
 
 
+def has_too_many_buckets(window: TraceWindow, size: BucketSize) -> bool:
+    length = timedelta(hours=1) if size == BucketSize.HOUR else timedelta(days=1)
+    return (window.end.astimezone(UTC) - window.start.astimezone(UTC)) / length > MAX_BUCKETS
+
+
 def bucket_floor(moment: datetime, size: BucketSize) -> datetime:
     if size == BucketSize.HOUR:
         return moment.replace(minute=0, second=0, microsecond=0)
@@ -287,8 +295,10 @@ def tiles_of(
     starts: Sequence[datetime],
     window: TraceWindow,
 ) -> list[Tile]:
-    """One tile per metric over `window`, with its series over `starts`. A start with no bucket had no traces."""
-    aligned = [buckets.get(start, NO_TRACES) for start in starts]
+    """One tile per metric over `window`, with its series over `starts`. `buckets` is keyed by each bucket's start in
+    UTC, and a start with no bucket had no traces."""
+    # Python never finds two datetimes equal across zones in the hour a clock goes back, so both sides meet in UTC.
+    aligned = [buckets.get(start.astimezone(UTC), NO_TRACES) for start in starts]
     tiles = []
     for key, spec in _METRICS.items():
         value = metric_value(current, key)

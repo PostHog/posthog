@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from posthog.hogql import ast
@@ -38,8 +38,8 @@ from .trace_expression_queries import (
     trace_session_id,
 )
 from .trace_metrics import NO_TRACES, BucketSize, MetricKey, PeriodTotals, bucket_starts, previous_window
-from .trace_selection import TraceSelection
-from .trace_selection_queries import grouped_traces
+from .trace_selection import TraceSelection, TraceWindow, shift
+from .trace_selection_queries import grouped_traces, selection_database
 
 METRICS_QUERY_NAME = "ai_trace_metrics"
 _METRICS_QUERY_SECONDS = 30
@@ -135,11 +135,22 @@ def _period_traces(team: Team, selection: TraceSelection) -> ast.SelectQuery:
     )
 
 
-def _bucket(size: BucketSize, period_start: ast.Expr) -> ast.Expr:
+def _last_moment(window: TraceWindow) -> ast.Constant:
+    return ast.Constant(value=shift(window.end, -timedelta(microseconds=1)))
+
+
+def _bucket(size: BucketSize, period_start: ast.Expr, period_last_moment: ast.Expr) -> ast.Expr:
     # A trace starting before its period lands in the period's first bucket, which bucket_starts floors the same way.
+    # The period includes its end, and bucket_starts has no bucket starting there, so a trace starting exactly at the
+    # end lands in the last bucket.
     return ast.Call(
         name=_BUCKET_FUNCTIONS[size],
-        args=[ast.Call(name="greatest", args=[ast.Field(chain=["first_timestamp"]), period_start])],
+        args=[
+            parse_expr(
+                "least(greatest(first_timestamp, {start}), {last_moment})",
+                placeholders={"start": period_start, "last_moment": period_last_moment},
+            )
+        ],
     )
 
 
@@ -152,6 +163,10 @@ def _metrics_query(team: Team, selection: TraceSelection, size: BucketSize) -> a
             "current_start": ast.Constant(value=current.start),
             "previous_start": ast.Constant(value=previous.start),
         },
+    )
+    period_last_moment = parse_expr(
+        "if(in_current, {current_last}, {previous_last})",
+        placeholders={"current_last": _last_moment(current), "previous_last": _last_moment(previous)},
     )
     # Each period yields one row per bucket and one total row, the one `grouping(bucket)` marks. p95, sessions and
     # users do not add up across buckets, so the totals come from that row.
@@ -166,7 +181,7 @@ def _metrics_query(team: Team, selection: TraceSelection, size: BucketSize) -> a
         LIMIT {most_rows}
         """,
         placeholders={
-            "bucket": _bucket(size, period_start),
+            "bucket": _bucket(size, period_start, period_last_moment),
             "most_rows": ast.Constant(value=most_rows),
             "traces": _period_traces(team, selection),
         },
@@ -192,7 +207,7 @@ def _series_query(team: Team, selection: TraceSelection, size: BucketSize, key: 
         LIMIT {buckets}
         """,
         placeholders={
-            "bucket": _bucket(size, ast.Constant(value=window.start)),
+            "bucket": _bucket(size, ast.Constant(value=window.start), _last_moment(window)),
             "value": parse_expr(_SERIES[key]),
             "traces": grouped_traces(team, selection, _per_trace_values()),
             "first_bucket": ast.Call(name=floor, args=[ast.Constant(value=window.start)]),
@@ -222,7 +237,7 @@ class _OverriddenPropertyTypes(CloningVisitor):
 def metrics_insight_queries(team: Team, selection: TraceSelection, size: BucketSize) -> dict[MetricKey, str]:
     """Each tile's series as HogQL to run as an SQL insight. Reads the team's schema from Postgres but runs no
     ClickHouse query."""
-    database = Database.create_for(team=team)
+    database = selection_database(team, selection) or Database.create_for(team=team)
     return {
         key: to_printed_hogql(
             _OverriddenPropertyTypes().visit(_series_query(team, selection, size, key)), team, database=database
@@ -231,7 +246,7 @@ def metrics_insight_queries(team: Team, selection: TraceSelection, size: BucketS
     }
 
 
-def _execute(team: Team, user: User | None, query: ast.SelectQuery) -> list[dict[str, Any]]:
+def _execute(team: Team, user: User | None, selection: TraceSelection, query: ast.SelectQuery) -> list[dict[str, Any]]:
     try:
         with tags_context(product=Product.LLM_ANALYTICS):
             tag_queries(name=METRICS_QUERY_NAME)
@@ -242,7 +257,10 @@ def _execute(team: Team, user: User | None, query: ast.SelectQuery) -> list[dict
                 query_type=METRICS_QUERY_NAME,
                 workload=Workload.ONLINE,
                 context=HogQLContext(
-                    team_id=team.pk, user=user, property_type_overrides=EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES
+                    team_id=team.pk,
+                    user=user,
+                    database=selection_database(team, selection),
+                    property_type_overrides=EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES,
                 ),
                 settings=HogQLGlobalSettings(max_execution_time=_METRICS_QUERY_SECONDS, timeout_overflow_mode="throw"),
             )
@@ -260,12 +278,17 @@ def _totals(row: dict[str, Any]) -> PeriodTotals:
 
 
 def load_trace_metrics(team: Team, user: User | None, selection: TraceSelection, size: BucketSize) -> TraceMetricsRows:
-    """Bucket starts come back in the project's zone, which ClickHouse floors in, so the selection's window must be in
-    that zone too for `bucket_starts` to match them."""
-    rows = _execute(team, user, _metrics_query(team, selection, size))
+    """ClickHouse floors buckets in the project's zone, so the selection's window must be in that zone too for
+    `bucket_starts` to match them. The buckets are keyed by their start in UTC."""
+    rows = _execute(team, user, selection, _metrics_query(team, selection, size))
     periods = {bool(row["in_current"]): _totals(row) for row in rows if row["is_period_total"]}
     return TraceMetricsRows(
         current=periods.get(True, NO_TRACES),
         previous=periods.get(False, NO_TRACES),
-        buckets={row["bucket"]: _totals(row) for row in rows if row["in_current"] and not row["is_period_total"]},
+        # In the project's zone, the two buckets of the hour a clock goes back would collapse into one key.
+        buckets={
+            row["bucket"].astimezone(UTC): _totals(row)
+            for row in rows
+            if row["in_current"] and not row["is_period_total"]
+        },
     )

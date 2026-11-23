@@ -1,5 +1,6 @@
 import json
 from dataclasses import replace
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -164,7 +165,8 @@ class TestTraceMetricsQueries(ClickhouseTestMixin, BaseTest):
         current = self._load().current
 
         assert (current.p50_latency_s, current.traces_with_latency, current.traces) == (2, 3, 4)
-        assert (current.p95_latency_s, current.p99_latency_s) == (pytest.approx(9.2), pytest.approx(9.84))
+        assert current.p95_latency_s == pytest.approx(9.2)
+        assert current.p99_latency_s == pytest.approx(9.84)
 
     def test_metrics_split_current_and_previous(self) -> None:
         seed(
@@ -202,12 +204,13 @@ class TestTraceMetricsQueries(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            # The window starts at 16:00:00.123 in Kolkata, and the spanning trace starts at 15:50 there.
-            ("hourly", BucketSize.HOUR, [1, 2]),
-            ("daily", BucketSize.DAY, [3]),
+            # The window runs from 16:00:00.123 to 18:00 exactly in Kolkata. The spanning trace starts at 15:50 there,
+            # and the last trace starts on the window's end.
+            ("hourly", BucketSize.HOUR, [1, 3]),
+            ("daily", BucketSize.DAY, [4]),
         ]
     )
-    def test_metrics_bucket_by_first_timestamp_clamped_to_window_start(
+    def test_metrics_bucket_by_first_timestamp_clamped_to_the_window(
         self, _name: str, size: BucketSize, expected_traces: list[int]
     ) -> None:
         seed(
@@ -218,9 +221,12 @@ class TestTraceMetricsQueries(ClickhouseTestMixin, BaseTest):
                 {"event": "$ai_generation", "trace_id": "spanning", "minutes": 35},
                 {"event": "$ai_generation", "trace_id": "later", "minutes": 100},
                 {"event": "$ai_generation", "trace_id": "later-too", "minutes": 110},
+                {"event": "$ai_generation", "trace_id": "on-the-end", "minutes": 150, "microseconds": -123456},
             ],
         )
         selection = self._selection(date_from=30, date_to=150)
+        window = selection.window
+        selection = replace(selection, window=replace(window, end=window.end - timedelta(microseconds=123456)))
 
         metrics = self._load(selection, size)
 
