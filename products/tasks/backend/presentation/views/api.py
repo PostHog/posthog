@@ -140,9 +140,7 @@ from products.tasks.backend.facade.streams import (
     run_uses_dedicated_stream,
     session_update_type,
 )
-from products.tasks.backend.logic.services.prompt_model_switch import (
-    apply_to_run_selection as apply_prompt_model_switch,
-)
+from products.tasks.backend.logic.services.prompt_model_switch import with_prompt_model_switch
 from products.tasks.backend.presentation import run_context
 from products.tasks.backend.presentation.serializers import (
     ConnectionTokenResponseSerializer,
@@ -1063,7 +1061,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     and validated_data.get("runtime") != tasks_facade.TaskRuntime.PI
                 ):
                     # Before warm matching, so a sandbox booted on the picked model is not reused for another.
-                    apply_prompt_model_switch(validated_data, team=self.team, user=cast(User, request.user))
+                    validated_data = with_prompt_model_switch(
+                        validated_data, team=self.team, user=cast(User, request.user)
+                    )
                 task = tasks_facade.create_task(
                     self.team_id,
                     self._user_id(),
@@ -1789,13 +1789,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ReportTaskCapExceeded,
         )
 
-        validated_data = dict(request.validated_data)
+        validated_data = request.validated_data
         if validated_data.get("pending_user_message") and (
             (visible := tasks_facade.task_control_runtime_and_origin(pk, self.team_id, self._user_id())) is not None
             and visible.origin_product == tasks_facade.TaskOriginProduct.POSTHOG_AI
             and visible.runtime != tasks_facade.TaskRuntime.PI
         ):
-            apply_prompt_model_switch(validated_data, team=self.team, user=cast(User, request.user))
+            validated_data = with_prompt_model_switch(validated_data, team=self.team, user=cast(User, request.user))
 
         run_started = False
         try:

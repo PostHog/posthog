@@ -123,8 +123,8 @@ def requested_model_switch(
     return override
 
 
-def apply_to_run_selection(data: dict[str, Any], *, team: Team, user: User) -> None:
-    """Point a new run's model selection at the model its first message asks for.
+def with_prompt_model_switch(data: Mapping[str, Any], *, team: Team, user: User) -> dict[str, Any]:
+    """A copy of a new run's data, pointed at the model its first message asks for.
 
     The message wins over the picker, because it is the later instruction. The harness follows
     the model, so the permission mode is clamped to what the new harness offers.
@@ -133,23 +133,27 @@ def apply_to_run_selection(data: dict[str, Any], *, team: Team, user: User) -> N
         clamp_initial_permission_mode,
     )
 
-    message = data.get("pending_user_message")
+    updated = dict(data)
+    message = updated.get("pending_user_message")
     if not isinstance(message, str):
-        return
+        return updated
     override = requested_model_switch(message, team=team, user=user)
     if override is None:
-        return
+        return updated
     if override.model:
         runtime_adapter = runtime_adapter_for(override.model)
-        data["runtime_adapter"] = runtime_adapter
-        data["model"] = override.model
-        data["reasoning_effort"] = filter_unsupported_effort(
-            runtime_adapter, override.model, override.reasoning_effort or data.get("reasoning_effort")
+        updated["runtime_adapter"] = runtime_adapter
+        updated["model"] = override.model
+        updated["reasoning_effort"] = filter_unsupported_effort(
+            runtime_adapter, override.model, override.reasoning_effort or updated.get("reasoning_effort")
         )
-        if data.get("initial_permission_mode"):
-            data["initial_permission_mode"] = clamp_initial_permission_mode(
-                runtime_adapter, data["initial_permission_mode"]
+        if updated.get("initial_permission_mode"):
+            updated["initial_permission_mode"] = clamp_initial_permission_mode(
+                runtime_adapter, updated["initial_permission_mode"]
             )
     elif override.reasoning_effort:
-        data["reasoning_effort"] = override.reasoning_effort
-    logger.info("prompt_model_switch_applied", model=data.get("model"), reasoning_effort=data.get("reasoning_effort"))
+        updated["reasoning_effort"] = override.reasoning_effort
+    logger.info(
+        "prompt_model_switch_applied", model=updated.get("model"), reasoning_effort=updated.get("reasoning_effort")
+    )
+    return updated

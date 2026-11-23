@@ -8,7 +8,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.tasks.backend.logic.services.model_catalogue import ModelChoice
-from products.tasks.backend.logic.services.prompt_model_switch import apply_to_run_selection
+from products.tasks.backend.logic.services.prompt_model_switch import with_prompt_model_switch
 
 MODULE = "products.tasks.backend.logic.services.prompt_model_switch"
 CATALOGUE = (
@@ -20,13 +20,13 @@ CATALOGUE = (
 CODEX_SELECTION = {"runtime_adapter": "codex", "model": "gpt-5.5", "initial_permission_mode": "full-access"}
 
 
-class TestApplyToRunSelection(SimpleTestCase):
+class TestWithPromptModelSwitch(SimpleTestCase):
     def setUp(self) -> None:
         # A fresh team per test keeps the cached answers of one test away from the next.
         self.team = MagicMock(id=uuid4().int)
         self.user = MagicMock(id=1, distinct_id="person-1")
 
-    def _apply(self, data: dict, *, reply: dict, flag: bool = True) -> MagicMock:
+    def _apply(self, data: dict, *, reply: dict, flag: bool = True) -> tuple[dict, MagicMock]:
         completion = MagicMock()
         completion.choices = [MagicMock(message=MagicMock(content=json.dumps(reply)))]
         with (
@@ -37,14 +37,17 @@ class TestApplyToRunSelection(SimpleTestCase):
             patch("products.tasks.backend.logic.model_override.build_ai_gateway_openai_client") as build,
         ):
             build.return_value.with_options.return_value.chat.completions.create.return_value = completion
-            apply_to_run_selection(data, team=self.team, user=self.user)
-        return build
+            updated = with_prompt_model_switch(data, team=self.team, user=self.user)
+        return updated, build
 
     def test_a_new_run_moves_to_a_model_on_another_harness(self) -> None:
         data = {**CODEX_SELECTION, "pending_user_message": "use opus for this"}
 
-        self._apply(data, reply={"model": "claude-opus-4-8", "reasoning_effort": "high"})
+        updated, _build = self._apply(data, reply={"model": "claude-opus-4-8", "reasoning_effort": "high"})
 
+        # The request's own data stays as it arrived. Its caller reads the switch from the copy.
+        assert data == {**CODEX_SELECTION, "pending_user_message": "use opus for this"}
+        data = updated
         assert data["runtime_adapter"] == "claude"
         assert data["model"] == "claude-opus-4-8"
         assert data["reasoning_effort"] == "high"
@@ -56,12 +59,12 @@ class TestApplyToRunSelection(SimpleTestCase):
         first = {**CODEX_SELECTION, "pending_user_message": "use opus for this"}
         second = {**CODEX_SELECTION, "pending_user_message": "use opus for this"}
 
-        first_build = self._apply(first, reply=reply)
-        second_build = self._apply(second, reply=reply)
+        _first, first_build = self._apply(first, reply=reply)
+        second_updated, second_build = self._apply(second, reply=reply)
 
         assert first_build.call_count == 1
         second_build.assert_not_called()
-        assert second["model"] == "claude-opus-4-8"
+        assert second_updated["model"] == "claude-opus-4-8"
 
     @parameterized.expand(
         [
@@ -77,7 +80,7 @@ class TestApplyToRunSelection(SimpleTestCase):
     def test_leaves_the_selection_alone_without_a_chance_of_a_request(self, _name, message, flag) -> None:
         data = {**CODEX_SELECTION, "pending_user_message": message}
 
-        build = self._apply(data, reply={"model": "claude-opus-4-8", "reasoning_effort": None}, flag=flag)
+        updated, build = self._apply(data, reply={"model": "claude-opus-4-8", "reasoning_effort": None}, flag=flag)
 
-        assert data == {**CODEX_SELECTION, "pending_user_message": message}
+        assert updated == {**CODEX_SELECTION, "pending_user_message": message}
         build.assert_not_called()
