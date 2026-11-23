@@ -29,7 +29,7 @@ from products.aeo.backend.facade.contracts import (
     BrandSyncResult,
     CompetitorCandidate,
 )
-from products.aeo.backend.models import AEOBrand, AEOCitationCheck
+from products.aeo.backend.models import AEOBrand, AEOCheckCitation, AEOCitationCheck
 from products.aeo.backend.rankings import word_pattern
 from products.aeo.backend.stored_results import bump_data_version_on_commit
 
@@ -253,6 +253,24 @@ def sync_brands_from_run(team_id: int, run_id: str) -> BrandSyncResult:
         for url in cited_urls or []
         if isinstance(url, str) and (domain := registrable_domain(url))
     }
+    return _add_brands(team_id, domains)
+
+
+def sync_brands_from_citations(team_id: int) -> BrandSyncResult:
+    """Add every domain any stored answer of the team cited that the catalog does not have yet, so every
+    cited brand has a catalog row for its mentions to resolve to. The run sync covers new runs; this
+    covers the checks recorded before it, read from the narrow citation rows."""
+    team_id = resolve_effective_team_id(team_id)
+    hosts = (
+        AEOCheckCitation.objects.for_team(team_id, canonical=True)
+        .exclude(host="")
+        .values_list("host", flat=True)
+        .distinct()
+    )
+    return _add_brands(team_id, {domain for host in hosts if (domain := registrable_domain(f"//{host}"))})
+
+
+def _add_brands(team_id: int, domains: set[str]) -> BrandSyncResult:
     known = set(
         AEOBrand.objects.for_team(team_id, canonical=True).filter(domain__in=domains).values_list("domain", flat=True)
     )
