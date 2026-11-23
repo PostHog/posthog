@@ -760,11 +760,15 @@ class TestProvisioningResourceRemove(ProvisioningTestBase):
             access_token=sibling_at,
             scoped_teams=[self.team.id, 99999],
         )
-        assert maybe_create_provisioned_pat(sibling_user, self.team, access_token.application, "query:read")
-        assert maybe_create_provisioned_pat(sibling_user, self.team, access_token.application, "query:read")
-        unrestricted_key = PersonalAPIKey.objects.filter(provisioned_by=access_token.application).first()
-        assert unrestricted_key is not None
+        for _ in range(3):
+            assert maybe_create_provisioned_pat(sibling_user, self.team, access_token.application, "query:read")
+        unrestricted_key, other_organization_key = PersonalAPIKey.objects.filter(
+            provisioned_by=access_token.application
+        )[:2]
         PersonalAPIKey.objects.filter(id=unrestricted_key.id).update(scoped_teams=[])
+        PersonalAPIKey.objects.filter(id=other_organization_key.id).update(
+            scoped_teams=[], scoped_organizations=[str(Organization.objects.create(name="Other org").id)]
+        )
         own_key = mint_personal_api_key(
             sibling_user,
             label=self.team.name,
@@ -784,8 +788,8 @@ class TestProvisioningResourceRemove(ProvisioningTestBase):
         sibling_rt.refresh_from_db()
         assert self.team.id not in (sibling_at.scoped_teams or [])
         assert self.team.id not in (sibling_rt.scoped_teams or [])
-        assert not PersonalAPIKey.objects.filter(provisioned_by=access_token.application).exists()
-        assert PersonalAPIKey.objects.filter(id=own_key.id).exists()
+        surviving_ids = set(PersonalAPIKey.objects.filter(user=sibling_user).values_list("id", flat=True))
+        assert surviving_ids == {own_key.id, other_organization_key.id}
 
     def test_remove_does_not_delete_other_partners_config(self):
         # The base team is in the caller's scope, but its config belongs to a
@@ -855,10 +859,17 @@ class TestCreateProvisionedPat(ProvisioningTestBase):
         assert len(pat.label) == 40
         assert pat.label.startswith("LongPartnerName - ")
 
-    def test_no_pat_when_bearer_token_is_gone(self):
+    @parameterized.expand([("token_deleted", None), ("team_out_of_scope", [])])
+    def test_no_pat_when_bearer_token_no_longer_covers_the_team(
+        self, _name: str, remaining_scoped_teams: list[int] | None
+    ) -> None:
         token = self._get_bearer_token()
         access_token = OAuthAccessToken.objects.get(token=token)
-        OAuthAccessToken.objects.filter(pk=access_token.pk).delete()
+        tokens = OAuthAccessToken.objects.filter(pk=access_token.pk)
+        if remaining_scoped_teams is None:
+            tokens.delete()
+        else:
+            tokens.update(scoped_teams=remaining_scoped_teams)
 
         api_key = maybe_create_provisioned_pat(
             self.user, self.team, self._minting_app(), "query:read", access_token=access_token

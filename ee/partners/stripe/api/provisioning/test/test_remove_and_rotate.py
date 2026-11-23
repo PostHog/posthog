@@ -1,3 +1,5 @@
+from parameterized import parameterized
+
 from posthog.accessible_teams import AccessibleTeams
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -46,9 +48,16 @@ class TestRemoveAndRotate(StripeProvisioningTestBase):
         assert rotated_pat.label.startswith("Rotated - ")
         assert PersonalAPIKey.objects.filter(id=own_key.id).exists()
 
-    def test_mint_skips_a_bearer_token_that_is_gone(self):
+    @parameterized.expand([("token_deleted", None), ("team_out_of_scope", [])])
+    def test_mint_skips_a_bearer_token_that_no_longer_covers_the_team(
+        self, _name: str, remaining_scoped_teams: list[int] | None
+    ) -> None:
         access_token = OAuthAccessToken.objects.get(token=self._get_bearer_token())
-        OAuthAccessToken.objects.filter(pk=access_token.pk).delete()
+        tokens = OAuthAccessToken.objects.filter(pk=access_token.pk)
+        if remaining_scoped_teams is None:
+            tokens.delete()
+        else:
+            tokens.update(scoped_teams=remaining_scoped_teams)
 
         api_key = maybe_create_provisioned_pat(
             self.user, self.team, self.stripe_app, "query:read", access_token=access_token

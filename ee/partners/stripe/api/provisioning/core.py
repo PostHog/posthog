@@ -679,16 +679,21 @@ def validate_label_prefix(raw: Any) -> str | None:
 def delete_provisioned_pats(app: OAuthApplication, *, team_id: int, user: User | None = None) -> int:
     """Delete the personal API keys ``app`` minted for ``team_id``, for one user or for all of them.
 
-    Keys ``app`` minted that no longer carry any project restriction count as minted for
-    every project.
+    A key ``app`` minted whose owner removed its project restriction still reaches the
+    project, so it is deleted too when its organization restriction covers the project's
+    organization.
 
     Deletes key by key so the activity log records each deletion. Keys the user created
     themselves carry no ``provisioned_by``, so they are never matched.
     """
-    # A key whose owner removed its project restriction still reaches the project, so it goes too.
-    keys = PersonalAPIKey.objects.filter(provisioned_by=app).filter(
-        Q(scoped_teams__contains=[team_id]) | Q(scoped_teams=[]) | Q(scoped_teams__isnull=True)
-    )
+    in_scope = Q(scoped_teams__contains=[team_id])
+    organization_id = Team.objects.filter(pk=team_id).values_list("organization_id", flat=True).first()
+    if organization_id is not None:
+        in_scope |= (Q(scoped_teams=[]) | Q(scoped_teams__isnull=True)) & Q(
+            scoped_organizations__contains=[str(organization_id)]
+        )
+
+    keys = PersonalAPIKey.objects.filter(provisioned_by=app).filter(in_scope)
     if user is not None:
         keys = keys.filter(user=user)
 
@@ -730,9 +735,10 @@ def maybe_create_provisioned_pat(
     ``None`` (or any falsy value) to label the key with just the team name.
 
     ``access_token`` is the bearer token of the request. The mint locks its row and mints
-    nothing when the row is gone, so a mint that races a session revocation cannot leave a
-    working key behind. Both revoke functions in ``posthog/models/oauth.py`` delete the
-    token rows before the keys, so the two sides take their row locks in the same order.
+    nothing when the row is gone or no longer has the team in scope, so a mint that races a
+    session revocation or a resource removal cannot leave a working key behind. Those paths
+    change the token rows before they delete the keys, so both sides take their row locks
+    in the same order.
 
     ``replace_existing`` first deletes the keys ``app`` minted earlier for this user and
     team, in the same transaction as the mint. It deletes them even when no new key is
@@ -742,7 +748,7 @@ def maybe_create_provisioned_pat(
         return None
 
     with transaction.atomic():
-        if access_token is not None and not _lock_live_access_token(access_token):
+        if access_token is not None and not _lock_access_token_for_team(access_token, team.id):
             return None
 
         if replace_existing:
@@ -755,9 +761,9 @@ def maybe_create_provisioned_pat(
         return _mint_provisioned_pat(user, team, app, pat_scopes, label_prefix)
 
 
-def _lock_live_access_token(access_token: OAuthAccessToken) -> bool:
-    locked = OAuthAccessToken.objects.select_for_update().filter(pk=access_token.pk).values_list("pk", flat=True)
-    return locked.first() is not None
+def _lock_access_token_for_team(access_token: OAuthAccessToken, team_id: int) -> bool:
+    locked = OAuthAccessToken.objects.select_for_update().filter(pk=access_token.pk, scoped_teams__contains=[team_id])
+    return locked.values_list("pk", flat=True).first() is not None
 
 
 def _provisioned_pat_scopes(team: Team, app: OAuthApplication, granted_scope: str | None) -> list[str] | None:
