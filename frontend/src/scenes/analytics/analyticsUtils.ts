@@ -11,6 +11,8 @@ import { fileSystemTypes } from '~/products'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 import type { UserBasicType } from '~/types'
 
+import { ANALYTICS_BACK_NAME } from './analyticsBackLink'
+
 // pinned: these values are the `type` property of the `views new picked` and `views list filtered` events.
 export type AnalyticsType = 'canvas' | 'notebook' | 'dashboard' | 'insight'
 
@@ -98,8 +100,6 @@ export function analyticsItemTarget(
 ): Pick<AnalyticsItem, 'type' | 'name' | 'href' | 'tags'> & { ref: string } {
     return { type: item.type, ref: item.id, name: item.name, href: item.href, tags: item.tags }
 }
-
-export const ANALYTICS_BACK_NAME = 'Analytics'
 
 /** The item's page, told where the person came from so its back control returns there rather than to the type's own list. */
 export function analyticsOpenHref(item: Pick<AnalyticsItem, 'href'>, backUrl: string): string {
