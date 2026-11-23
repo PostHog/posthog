@@ -266,6 +266,15 @@ function judgedOf(judged: Verdict): { status: Status; statusReason: string } {
         : { ...ramped, statusReason: [ramped.statusReason, ...notJudged].join('; ') }
 }
 
+const notConvergedOf = ({ converged, unfinishedJobs, unrecorded, unread }: Convergence): string[] =>
+    converged
+        ? []
+        : unread === undefined
+          ? [`not converged: ${unfinishedJobs} unfinished jobs, ${unrecorded.length} units without a delivery record`]
+          : unfinishedJobs
+            ? [`not converged: ${unfinishedJobs} unfinished jobs`]
+            : []
+
 function unrampedStatusOf({
     admissions,
     minOffered,
@@ -318,11 +327,7 @@ function unrampedStatusOf({
         ...(convergence.unread === undefined ? [] : [unreadReasonOf(convergence.unread)]),
     ]
     const failures = [
-        ...(convergence.converged || (convergence.unread !== undefined && convergence.unfinishedJobs === null)
-            ? []
-            : [
-                  `not converged: ${convergence.unfinishedJobs ?? 'an unread number of'} unfinished jobs, ${convergence.unrecorded.length} units without a delivery record`,
-              ]),
+        ...notConvergedOf(convergence),
         ...invariants
             .filter(({ passed }) => !passed)
             .map(({ name, violation }) => `${name} failed${violation ? `: ${violation}` : ''}`),

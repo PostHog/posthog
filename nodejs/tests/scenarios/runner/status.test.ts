@@ -329,7 +329,22 @@ describe('statusOf', () => {
                 },
             },
             'failed',
-            'the judge could not read the final state: The operation was aborted due to timeout; not converged: 5 unfinished jobs, 0 units without a delivery record',
+            'the judge could not read the final state: The operation was aborted due to timeout; not converged: 5 unfinished jobs',
+        ],
+        [
+            'a run whose queue drained but whose judge could not read every delivery',
+            {
+                convergence: {
+                    converged: false,
+                    unfinishedJobs: 0,
+                    unrecorded: ['run-1'],
+                    tookMs: 120_000,
+                    unread: 'The operation was aborted due to timeout',
+                },
+                invariants: [BROKEN],
+            },
+            'invalid',
+            'the judge could not read the final state: The operation was aborted due to timeout',
         ],
         [
             'a ramp that held but whose judge could not read whether its deliveries arrived',
