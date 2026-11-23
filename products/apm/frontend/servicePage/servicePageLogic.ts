@@ -7,12 +7,13 @@ import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
-    pivotLatencyHeatmap,
-    type LatencyHeatmapRow,
-    type TracingLatencyHeatmapData,
-} from 'products/tracing/frontend/durationBuckets'
-import { tracingSpansAttributeBreakdownCreate } from 'products/tracing/frontend/generated/api'
-import type { _TracingAttributeBreakdownRowApi } from 'products/tracing/frontend/generated/api.schemas'
+    tracingSpansAttributeBreakdownCreate,
+    tracingSpansLatencyPercentilesCreate,
+} from 'products/tracing/frontend/generated/api'
+import type {
+    _TracingAttributeBreakdownRowApi,
+    _TracingLatencyPercentilesRowApi,
+} from 'products/tracing/frontend/generated/api.schemas'
 import type { Span } from 'products/tracing/frontend/types'
 
 import { TIME_RANGE_LABELS, TIME_RANGE_MS, TimeRange } from '../applicationObservabilityLogic'
@@ -129,12 +130,11 @@ export interface servicePageLogicValues {
     errorSpansFailed: boolean
     errorSpansLoading: boolean
     latestVersions: DeploymentVersionApi[]
-    latencyHeatmapData: TracingLatencyHeatmapData
     latencyPercentiles: LatencyPercentiles
+    latencyRows: _TracingLatencyPercentilesRowApi[]
+    latencyRowsFailed: boolean
+    latencyRowsLoading: boolean
     operationNames: string[]
-    rawLatencyHeatmap: LatencyHeatmapRow[]
-    rawLatencyHeatmapFailed: boolean
-    rawLatencyHeatmapLoading: boolean
     requestsSeries: RequestsSeries | null
     requestsSeriesFailed: boolean
     requestsSeriesLoading: boolean
@@ -216,27 +216,19 @@ export interface servicePageLogicActions {
         errorSpans: Span[]
         payload?: void
     }
-    fetchLatencyHeatmap: (_: void) => void
-    fetchLatencyHeatmapFailure: (
+    fetchLatencyPercentiles: (_: void) => void
+    fetchLatencyPercentilesFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     }
-    fetchLatencyHeatmapSuccess: (
-        rawLatencyHeatmap: {
-            bucket_ns: number
-            count: number
-            time: string
-        }[],
+    fetchLatencyPercentilesSuccess: (
+        latencyRows: _TracingLatencyPercentilesRowApi[],
         payload?: void
     ) => {
-        rawLatencyHeatmap: {
-            bucket_ns: number
-            count: number
-            time: string
-        }[]
+        latencyRows: _TracingLatencyPercentilesRowApi[]
         payload?: void
     }
     fetchRequestsSeries: (_: void) => void
@@ -343,8 +335,7 @@ export interface servicePageLogicMeta {
         environments: (servicesHealth: ServicesHealthResponseApi | null) => (string | null)[]
         endpoints: (endpointsHealth: EndpointsHealthResponseApi | null, arg: any) => EndpointHealthApi[]
         operationNames: (endpoints: EndpointHealthApi[]) => string[]
-        latencyHeatmapData: (rawLatencyHeatmap: LatencyHeatmapRow[]) => TracingLatencyHeatmapData
-        latencyPercentiles: (latencyHeatmapData: TracingLatencyHeatmapData) => LatencyPercentiles
+        latencyPercentiles: (latencyRows: _TracingLatencyPercentilesRowApi[]) => LatencyPercentiles
         topErrors: (errorSpans: Span[]) => TopError[]
         dependencySplit: (dependencies: DependenciesResponseApi | null, arg: any) => DependencySplit
         latestVersions: (deployments: DeploymentsResponseApi | null) => DeploymentVersionApi[]
@@ -568,22 +559,23 @@ export const servicePageLogic = kea<servicePageLogicType>([
                 },
             },
         ],
-        rawLatencyHeatmap: [
-            [] as LatencyHeatmapRow[],
+        latencyRows: [
+            [] as _TracingLatencyPercentilesRowApi[],
             {
-                fetchLatencyHeatmap: async (_: void, breakpoint) => {
+                fetchLatencyPercentiles: async (_: void, breakpoint) => {
                     await breakpoint(10)
-                    const signal = replaceRequest(cache, 'latencyHeatmap')
+                    const signal = replaceRequest(cache, 'latencyPercentiles')
                     const response = await unlessSuperseded(
-                        api.tracing.latencyHeatmap(
+                        tracingSpansLatencyPercentilesCreate(
+                            String(values.currentTeamId),
                             {
-                                dateRange: values.dateRange,
-                                serviceNames: [props.serviceName],
-                                filterGroup: toPropertyGroupFilter(values.scopeFilters),
-                                // Every span, matching the requests chart.
-                                rootSpans: false,
+                                query: {
+                                    dateRange: values.dateRange,
+                                    serviceNames: [props.serviceName],
+                                    filterGroup: values.scopeFilters,
+                                },
                             },
-                            signal
+                            { signal }
                         ),
                         signal,
                         breakpoint
@@ -721,12 +713,12 @@ export const servicePageLogic = kea<servicePageLogicType>([
                 fetchRequestsSeriesFailure: () => true,
             },
         ],
-        rawLatencyHeatmapFailed: [
+        latencyRowsFailed: [
             false,
             {
-                fetchLatencyHeatmap: () => false,
-                fetchLatencyHeatmapSuccess: () => false,
-                fetchLatencyHeatmapFailure: () => true,
+                fetchLatencyPercentiles: () => false,
+                fetchLatencyPercentilesSuccess: () => false,
+                fetchLatencyPercentilesFailure: () => true,
             },
         ],
     }),
@@ -766,13 +758,9 @@ export const servicePageLogic = kea<servicePageLogicType>([
             (s) => [s.endpoints],
             (rows: EndpointHealthApi[]): string[] => [...new Set(rows.map((row) => row.endpoint))].sort(),
         ],
-        latencyHeatmapData: [
-            (s) => [s.rawLatencyHeatmap],
-            (rows: LatencyHeatmapRow[]): TracingLatencyHeatmapData => pivotLatencyHeatmap(rows),
-        ],
         latencyPercentiles: [
-            (s) => [s.latencyHeatmapData],
-            (data: TracingLatencyHeatmapData): LatencyPercentiles => latencyPercentileSeries(data),
+            (s) => [s.latencyRows],
+            (rows: _TracingLatencyPercentilesRowApi[]): LatencyPercentiles => latencyPercentileSeries(rows),
         ],
         topErrors: [(s) => [s.errorSpans], (spans: Span[]): TopError[] => topErrorGroups(spans)],
         dependencySplit: [
@@ -801,7 +789,7 @@ export const servicePageLogic = kea<servicePageLogicType>([
         },
         loadSpanData: () => {
             actions.fetchRequestsSeries()
-            actions.fetchLatencyHeatmap()
+            actions.fetchLatencyPercentiles()
             actions.fetchStatusCodeErrors()
             actions.fetchErrorSpans()
         },

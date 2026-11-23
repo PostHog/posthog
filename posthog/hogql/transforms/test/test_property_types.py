@@ -34,6 +34,7 @@ from parameterized import parameterized
 from posthog.schema import HogQLQueryModifiers, MaterializationMode
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.escape_sql import escape_hogql_string
@@ -115,6 +116,7 @@ class _NewEventsSchemaArraySubcolumnsHelpers:
         restricted_properties: set[RestrictedProperty] | None = None,
         property_groups_mode: PropertyGroupsMode | None = None,
         event_properties: dict[str, dict[str, str | None]] | None = None,
+        settings: HogQLGlobalSettings | None = None,
     ) -> str:
         expr = parse_select(select)
         context = self._context(use_new_events_schema, event_properties)
@@ -127,6 +129,7 @@ class _NewEventsSchemaArraySubcolumnsHelpers:
                 expr,
                 context,
                 "clickhouse",
+                settings=settings,
             )
         return pretty_print_in_tests(query, 1)
 
@@ -444,11 +447,22 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
             (
                 "restricted_map",
                 "SELECT properties.$active_feature_flags, properties.`$feature/checkout`, "
-                "toJSONString(properties.$feature_flags), JSONHas(properties, '$active_feature_flags') FROM events",
+                "toJSONString(properties.$feature_flags), JSONHas(properties, '$active_feature_flags') FROM events "
+                "WHERE properties.`$feature/checkout` = 'true'",
                 True,
                 {RestrictedProperty(name="$feature_flags", property_type=PropertyDefinition.Type.EVENT)},
                 None,
                 ("SELECT NULL AS `$active_feature_flags`, NULL AS `$feature/checkout`, NULL, 0 ",),
+                ("events.properties.`$feature_flags`",),
+            ),
+            (
+                "restricted_flag_filter",
+                "SELECT count() FROM events WHERE properties.$feature_flags.secret = 'on' "
+                "OR properties.`$feature/secret` NOT IN ('off')",
+                True,
+                {RestrictedProperty(name="$feature/secret", property_type=PropertyDefinition.Type.EVENT)},
+                None,
+                ("ifNull(equals(NULL, %(hogql_val_0)s), 0)", "ifNull(notIn(NULL, %(hogql_val_1)s), 1)"),
                 ("events.properties.`$feature_flags`",),
             ),
             (
@@ -521,19 +535,44 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
 
     @parameterized.expand(
         [
-            ("direct", "SELECT count() FROM events WHERE properties.$active_feature_flags = 'checkout'"),
+            ("active_direct", "properties.$active_feature_flags = 'checkout'", {".key_checkout"}),
+            ("active_alias", "flags = 'checkout'", {".key_checkout"}),
             (
-                "alias",
-                "SELECT properties.$active_feature_flags AS flags, count() FROM events WHERE flags = 'checkout'",
+                "compare",
+                "properties.`$feature/checkout` = 'a' AND properties.`$feature/checkout` != 'true'",
+                {".key_checkout"},
+            ),
+            (
+                "compare_set",
+                "properties.`$feature/checkout` IN ('a', 'b') AND properties.$feature_flags.checkout NOT IN ('c')",
+                {".key_checkout"},
+            ),
+            ("compare_empty", "properties.`$feature/checkout` = ''", {".keys", ".key_checkout"}),
+            ("value", "properties.`$feature/checkout` IS NOT NULL", {".keys", ".key_checkout"}),
+            ("json_text", "JSONExtractRaw(properties, '$feature/checkout') = 'true'", {".keys", ".key_checkout"}),
+            ("presence", "JSONHas(properties, '$feature/checkout')", {".keys"}),
+            ("nested_presence", "JSONHas(properties, '$feature_flags', 'checkout', 'a')", {".key_checkout"}),
+            # Without HogQL's settings the query may run with transform_null_in off, where `IN` keeps NULL.
+            (
+                "set_without_hogql_settings",
+                "properties.`$feature/checkout` IN ('a', 'b')",
+                {".keys", ".key_checkout"},
+                False,
             ),
         ]
     )
-    def test_active_feature_flag_comparison_uses_direct_map_lookup(self, _name: str, select: str) -> None:
-        printed = self._print_select(select, use_new_events_schema=True)
+    def test_one_flag_filter_reads_only_its_map_subcolumns(
+        self, _name: str, where_clause: str, subcolumns: set[str], hogql_settings: bool = True
+    ) -> None:
+        printed = self._print_select(
+            f"SELECT properties.$active_feature_flags AS flags, count() FROM events WHERE {where_clause}",
+            use_new_events_schema=True,
+            settings=HogQLGlobalSettings() if hogql_settings else None,
+        )
         where = printed.split("WHERE", 1)[1]
 
-        assert "notIn(events.properties.`$feature_flags`[" in where, printed
-        assert "mapFilter(" not in where, printed
+        # An empty match is the whole map, which a function reads for every flag of every row.
+        assert set(re.findall(r"`\$feature_flags`(\.\w+)?", where)) == subcolumns, printed
 
     @parameterized.expand(
         [
@@ -844,8 +883,9 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                     [native_stored_document(document) for document in documents] if reader == "native" else documents
                 )
                 if expected is None:
-                    with pytest.raises(ServerException, match="not under aggregate function and not in GROUP BY"):
+                    with pytest.raises(ServerException) as failure:
                         sync_execute(sql, {**context.values, "documents": stored})
+                    assert failure.value.code == 215
                 else:
                     rows = sync_execute(sql, {**context.values, "documents": stored})
                     assert rows == expected
@@ -2523,6 +2563,23 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
                 "$active_feature_flags": ["checkout", "variant", "named-false", "named-true"],
             },
         )
+        flag_uuid = _create_event(
+            team=self.team,
+            distinct_id="flag-reads",
+            event="schema-parity",
+            properties={
+                "$feature/checkout": True,
+                "$feature/disabled": False,
+                "$feature/variant": "control",
+                "$feature/named-true": "true",
+                "$feature/empty": "",
+                "$feature/a.b": "dotted",
+                "$feature/a%2Eb": "escaped",
+                "$feature/it`s": "tick",
+            },
+        )
+        for properties in ({"$feature/variant": ""}, {}):
+            _create_event(team=self.team, distinct_id="flag-reads", event="schema-parity", properties=properties)
         flush_persons_and_events()
 
         query = (
@@ -2589,6 +2646,83 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
             active_flags,
         )
         assert native[3] == [(flag,) for flag in active_flags]
+
+        def read_flags(
+            query: str, use_new_events_schema: bool, restricted: set[str] | None = None
+        ) -> tuple[list[Any], list[str]]:
+            context = HogQLContext(
+                team_id=self.team.pk,
+                enable_select_queries=True,
+                use_new_events_schema=use_new_events_schema,
+                restricted_properties={
+                    RestrictedProperty(name=name, property_type=PropertyDefinition.Type.EVENT)
+                    for name in restricted or ()
+                },
+            )
+            response = execute_hogql_query(
+                query,
+                team=self.team,
+                context=context,
+                modifiers=HogQLQueryModifiers(
+                    materializationMode=MaterializationMode.DISABLED, propertyGroupsMode=PropertyGroupsMode.DISABLED
+                ),
+            )
+            assert response.results is not None and response.types is not None
+            return response.results, [column[1] for column in response.types]
+
+        flag_reads = (
+            "SELECT properties.`$feature/variant`, properties.`$feature/named-true`, properties.`$feature/checkout`, "
+            "properties.`$feature/empty`, properties.`$feature/missing`, properties.`$feature/a.b`, "
+            "JSONExtractString(properties, '$feature/a%2Eb'), properties.`$feature/it``s`, "
+            "properties.`$feature/variant` = 'control', properties.`$feature/named-true` = 'true', "
+            "properties.`$feature/checkout` IN ('true', 'other'), properties.`$feature/disabled` != 'false', "
+            "properties.`$feature/variant` NOT IN ('test'), properties.`$feature/empty` != 'x', "
+            "properties.`$feature/missing` != 'x', properties.`$feature/missing` NOT IN ('x'), "
+            "properties.`$feature/a.b` = 'dotted', properties.`$feature/it``s` = 'tick', "
+            "JSONHas(properties, '$feature/empty'), JSONHas(properties, '$feature/missing') "
+            f"FROM events WHERE uuid = '{flag_uuid}'"
+        )
+        native_flags = read_flags(flag_reads, use_new_events_schema=True)
+        assert native_flags == read_flags(flag_reads, use_new_events_schema=False)
+        assert native_flags[0] == [
+            ("control", "true", "true", "", None, "dotted", "escaped", "tick", 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0)
+        ]
+
+        breakdown = (
+            "SELECT properties.`$feature/variant` AS variant, count() FROM events "
+            "WHERE distinct_id = 'flag-reads' GROUP BY variant ORDER BY variant"
+        )
+        native_breakdown = read_flags(breakdown, use_new_events_schema=True)
+        assert native_breakdown == read_flags(breakdown, use_new_events_schema=False)
+        assert native_breakdown[0] == [("", 1), ("control", 1), (None, 1)]
+
+        missing_flag = (
+            f"SELECT count() FROM events WHERE uuid = '{flag_uuid}' AND properties.`$feature/$ai_trace_id` != ''"
+        )
+        for use_new_events_schema in (True, False):
+            assert read_flags(missing_flag, use_new_events_schema)[0] == [(1,)]
+
+        # A join constraint keeps the NULL of a missing flag, so `!=` drops the row there.
+        join_on_flag = (
+            "SELECT f.event FROM events e JOIN events f ON e.uuid = f.uuid AND e.properties.`$feature/{flag}` != 'x' "
+            f"WHERE e.uuid = '{flag_uuid}'"
+        )
+        for use_new_events_schema in (True, False):
+            assert [
+                read_flags(join_on_flag.format(flag=flag), use_new_events_schema)[0] for flag in ("variant", "missing")
+            ] == [[("schema-parity",)], []], use_new_events_schema
+
+        restricted_reads = (
+            "SELECT properties.`$feature/variant`, properties.`$feature/variant` = 'control', "
+            "properties.`$feature/variant` != 'control', properties.`$feature/a.b`, properties.`$feature/a.b` = 'dotted' "
+            f"FROM events WHERE uuid = '{flag_uuid}'"
+        )
+        restricted = {"$feature/variant", "$feature/a"}
+        native_restricted = read_flags(restricted_reads, use_new_events_schema=True, restricted=restricted)[0][0]
+        legacy_restricted = read_flags(restricted_reads, use_new_events_schema=False, restricted=restricted)[0][0]
+        assert native_restricted[:3] == legacy_restricted[:3] == (None, 0, 1)
+        # A comparison of `$feature/a.b` sees the flag exactly when its read does.
+        assert native_restricted[4] == (native_restricted[3] == "dotted")
 
     def test_moved_mutation_properties_read_the_same_on_both_schemas(self) -> None:
         event_uuid = _create_event(

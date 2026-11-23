@@ -32,17 +32,19 @@ from posthog.hogql.constants import (
     FEATURE_FLAG_PROPERTY_PREFIX,
     FEATURE_FLAG_VARIANT_SENTINELS,
     INACTIVE_FEATURE_FLAG_VALUES,
+    HogQLGlobalSettings,
     is_virtual_feature_flag_key,
 )
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, MapStringDatabaseField, StringJSONDatabaseField
+from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_PROPERTY_COLUMNS, FlagEvaluationsTable
 from posthog.hogql.database.schema.util.json_text import is_json_container_text
 from posthog.hogql.database.schema.util.null_sentinels import MAT_COL_NULL_SENTINELS, null_if_sentinels
 from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.clickhouse.json import JSON_KEY_PATH_FUNCTIONS, JSON_TYPED_PATH_FUNCTIONS
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.printer.base import resolve_field_type
-from posthog.hogql.printer.clickhouse import AI_BLOOM_FILTER_PROPERTIES, COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
+from posthog.hogql.printer.clickhouse import AI_BLOOM_FILTER_COLUMNS, AI_BLOOM_FILTER_PROPERTIES
 from posthog.hogql.restricted_properties import (
     key_read_overlaps_restriction,
     mirrored_properties_for_column,
@@ -83,10 +85,6 @@ from posthog.clickhouse.workload import Workload
 from posthog.schema_enums import MaterializationMode, PropertyGroupsMode
 
 MAX_MATERIALIZED_LIKE_PATTERN_LENGTH = 16 * 1024
-
-# Leave the legacy $ai_* bloom-filter columns to the printer: its comparison code already keeps them index-eligible
-# (`COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING`, imported above so the two lists stay in sync). The value-read side skips
-# their nullIf scrubbing for the same reason, via `AI_BLOOM_FILTER_PROPERTIES` (the same columns, named as properties).
 
 _RANGE_OP_TO_CH_NAME: dict[ast.CompareOperationOp, str] = {
     ast.CompareOperationOp.Lt: "less",
@@ -170,6 +168,11 @@ def resolve_materialized_property_source(
 
     if context.modifiers.materializationMode == "disabled":
         return None
+
+    # The flag_evaluations typed columns are fixed DDL, so they are declared on the table, not read from the registry.
+    if isinstance(table_type.table, FlagEvaluationsTable) and field_name == "properties":
+        if typed_column := FLAG_EVALUATIONS_PROPERTY_COLUMNS.get(property_name):
+            return MaterializedPropertySource(kind="materialized_column", column=typed_column, is_nullable=False)
 
     # 1) static materialized column (mat_* / pmat_*)
     materialized_column = (
@@ -421,7 +424,7 @@ def _materialized_head_expr(
 
 def _json_subcolumn_access(
     field_type: ast.FieldType, key: str, *, source: MaterializedPropertySource, is_nullable: bool
-) -> ast.Expr:
+) -> ast.JsonSubcolumnAccess:
     """The path of one property in its native JSON column. The cleaner stores no path below a property."""
     json_field = (
         ast.Field(chain=[field_type.name], type=field_type)
@@ -514,7 +517,7 @@ def _json_property_presence_expr(
     field_type: ast.FieldType, key: str, *, source: MaterializedPropertySource, present: bool = True
 ) -> ast.Expr:
     """Whether the property is set (`present`) or missing, from the path alone, without building its text."""
-    path = _json_subcolumn_access(field_type, key, source=source, is_nullable=True)
+    path: ast.Expr = _json_subcolumn_access(field_type, key, source=source, is_nullable=True)
     if _declared_json_path_type(field_type, key, source) in _DECLARED_STRING_TYPES:
         path = _call("nullIf", [_call("toString", [path]), _sentinel("")])
     return _call("isNotNull" if present else "isNull", [path])
@@ -569,31 +572,59 @@ def feature_flag_variant_read(value: ast.Expr) -> ast.Expr:
     return _call("multiIf", [*branches, value])
 
 
-def _feature_flag_value_read(feature_flags: ast.Expr, key: str) -> ast.Expr:
+def _feature_flag_map_subcolumn(
+    feature_flags: ast.JsonSubcolumnAccess, subcolumn: str, subcolumn_type: ast.ConstantType
+) -> ast.JsonSubcolumnAccess:
+    """A subcolumn of the flags map, for a read of one flag.
+
+    A function over the map, such as `has(map, key)` or `map[key]`, reads every flag of every row. ClickHouse
+    rewrites such a function to a subcolumn read only for a query on a MergeTree table, and every HogQL query reads
+    the Distributed table, where neither the initiator nor the shards run that rewrite. Only a subcolumn named in the
+    SQL keeps the read to one flag.
+    """
+    return ast.JsonSubcolumnAccess(
+        expr=clone_expr(feature_flags.expr),
+        keys=list(feature_flags.keys),
+        map_subcolumn=subcolumn,
+        type=subcolumn_type,
+    )
+
+
+def _feature_flag_present(feature_flags: ast.JsonSubcolumnAccess, key: str) -> ast.Call:
+    names = _feature_flag_map_subcolumn(feature_flags, "keys", ast.ArrayType(item_type=ast.StringType(nullable=False)))
+    return _call("has", [names, _const(key)])
+
+
+def _stored_feature_flag(feature_flags: ast.JsonSubcolumnAccess, key: str) -> ast.Call:
+    """The value the flags map stores for `key`, or '' when the map has no such flag."""
+    value = _feature_flag_map_subcolumn(feature_flags, f"key_{key}", ast.StringType(nullable=False))
+    # The subcolumn is LowCardinality(String), so the cast keeps the String of `map[key]` and UInt8 comparisons.
+    return ast.Call(name="accurateCast", args=[value, _sentinel("String")], type=ast.StringType(nullable=False))
+
+
+def _feature_flag_value_read(feature_flags: ast.JsonSubcolumnAccess, key: str) -> ast.Expr:
     """`has(map, key) ? map[key] : null`, with the cleaner sentinels mapped back to their variant names."""
     return ast.Call(
         name="if",
         args=[
-            ast.Call(name="has", args=[clone_expr(feature_flags), ast.Constant(value=key)]),
-            feature_flag_variant_read(
-                ast.ArrayAccess(array=clone_expr(feature_flags), property=ast.Constant(value=key))
-            ),
+            _feature_flag_present(feature_flags, key),
+            feature_flag_variant_read(_stored_feature_flag(feature_flags, key)),
             ast.Constant(value=None),
         ],
     )
 
 
-def _feature_flag_json_read(feature_flags: ast.Expr, key: str) -> ast.Expr:
+def _feature_flag_json_read(feature_flags: ast.JsonSubcolumnAccess, key: str) -> ast.Expr:
     """The JSON text the legacy document holds for `$feature/<key>`, or NULL when the map has no such flag.
 
     SDKs send a boolean flag as JSON `true`/`false` and a variant as a JSON string. The map stores the booleans as 'true'
     and 'false' and a variant named "false" or "true" under its sentinel, so only the sentinels serialize back to strings.
     """
-    value = ast.ArrayAccess(array=clone_expr(feature_flags), property=_const(key))
+    value = _stored_feature_flag(feature_flags, key)
     return _call(
         "if",
         [
-            _call("has", [clone_expr(feature_flags), _const(key)]),
+            _feature_flag_present(feature_flags, key),
             _call(
                 "if",
                 [
@@ -692,7 +723,7 @@ def _json_path_first_member(path: str) -> str | None:
     return next(member for member in match.groups() if member is not None)
 
 
-def _feature_flags_map(field_type: ast.FieldType, context: HogQLContext) -> ast.Expr | None:
+def _feature_flags_map(field_type: ast.FieldType, context: HogQLContext) -> ast.JsonSubcolumnAccess | None:
     source = resolve_json_subcolumn_source(
         field_type, DISTRIBUTED_EVENTS_JSON_TABLE, "properties", "$feature_flags", context
     )
@@ -859,6 +890,32 @@ def _feature_flag_compatibility_read(
         value = _feature_flag_value_read(feature_flags, map_key)
         return ast.PropertyAccess(expr=value, keys=deeper_keys[1:]) if len(deeper_keys) > 1 else value
     return _nonempty_container_json(_compact_feature_flags_map(feature_flags, restricted_keys), "{}")
+
+
+def _single_feature_flag(
+    field_type: ast.FieldType, keys: Sequence[str | int], context: HogQLContext
+) -> tuple[ast.JsonSubcolumnAccess, str] | None:
+    """The flags map and flag name when `_substitute_value_read` reads `keys` as `_feature_flag_value_read` of one flag.
+
+    None for every other read, a restricted one included, because `_substitute_value_read` reads that as NULL.
+    """
+    if len(keys) == 1 and str(keys[0]).startswith(FEATURE_FLAG_PROPERTY_PREFIX):
+        flag_key = str(keys[0]).removeprefix(FEATURE_FLAG_PROPERTY_PREFIX)
+    elif len(keys) == 2 and keys[0] == "$feature_flags":
+        flag_key = str(keys[1])
+    else:
+        return None
+    if not context.uses_new_events_schema() or not _is_events_properties(field_type, context):
+        return None
+    restricted_properties = restricted_property_keys_for_table_type(field_type.table_type, context)
+    if (
+        restricted_key_path(keys, restricted_properties) is not None
+        or "$feature_flags" in restricted_properties
+        or flag_key in restricted_feature_flag_names(restricted_properties)
+    ):
+        return None
+    feature_flags = _feature_flags_map(field_type, context)
+    return None if feature_flags is None else (feature_flags, flag_key)
 
 
 def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> ast.Expr | None:
@@ -1121,10 +1178,11 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
     `PropertyAccess` and prints as the raw JSON extract.
     """
 
-    def __init__(self, context: HogQLContext) -> None:
+    def __init__(self, context: HogQLContext, *, transform_null_in: bool = False) -> None:
         # The AST is printed directly after this pass, so keep resolved types rather than clearing them.
         super().__init__(clear_types=False)
         self.context = context
+        self._transform_null_in = transform_null_in
         # Identity set of the table types in scope for the SELECT currently being visited (its FROM/JOIN chain,
         # including the layers behind alias/virtual wrappers). Guards the comparison rewrites: a rewrite reads a real
         # table column, which is only printable when that table is in the current FROM. A property read that an earlier
@@ -1133,6 +1191,8 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         # Depth of `indexHint(...)` calls above the node being visited. A hint is an optimizer directive only, so a
         # comparison inside one must not grow a second, nested hint.
         self._index_hint_depth = 0
+        # Depth of join constraints above the node being visited. The printer leaves NULL in a comparison there.
+        self._join_constraint_depth = 0
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         scope: set[int] = set()
@@ -1155,6 +1215,13 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
             return result
         finally:
             self._tables_in_scope.pop()
+
+    def visit_join_constraint(self, node: ast.JoinConstraint) -> ast.JoinConstraint:
+        self._join_constraint_depth += 1
+        try:
+            return super().visit_join_constraint(node)
+        finally:
+            self._join_constraint_depth -= 1
 
     def _property_table_in_scope(self, field_type: ast.FieldType) -> bool:
         """True if the property's source table is in the current SELECT's FROM/JOIN chain (by object identity)."""
@@ -1706,7 +1773,7 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
                 return ast.Call(
                     name="JSONHas",
                     args=[
-                        ast.Call(name="ifNull", args=[_map_value_read(feature_flags, value_key), _sentinel("")]),
+                        _stored_feature_flag(feature_flags, value_key),
                         *[self.visit(arg) for arg in node.args[2:]],
                     ],
                 )
@@ -1730,7 +1797,7 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
                 return ast.Call(
                     name="JSONHas",
                     args=[
-                        ast.Call(name="ifNull", args=[_map_value_read(feature_flags, value_key), _sentinel("")]),
+                        _stored_feature_flag(feature_flags, value_key),
                         *[self.visit(arg) for arg in node.args[3:]],
                     ],
                 )
@@ -1739,7 +1806,7 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         if value_key is not None:
             if value_key in restricted_keys:
                 return ast.Constant(value=False, type=ast.BooleanType(nullable=False))
-            return ast.Call(name="has", args=[feature_flags, ast.Constant(value=value_key)])
+            return _feature_flag_present(feature_flags, value_key)
         if first_key == "$active_feature_flags":
             if len(node.args) > 2:
                 return ast.Call(
@@ -1942,6 +2009,7 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
             or self._optimize_active_feature_flags_compare(node)
             or self._optimize_active_feature_flags_ilike(node)
             or self._optimize_active_feature_flags_multisearch(node)
+            or self._optimize_feature_flag_compare(node)
             or self._optimize_native_json_string_compare(node)
             or self._optimize_materialized_equals(node)
             or self._optimize_materialized_range(node)
@@ -2148,7 +2216,7 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
 
     def _active_feature_flags_operand(
         self, expr: ast.Expr, *, allow_to_string: bool = False
-    ) -> tuple[ast.Expr, list[str]] | None:
+    ) -> tuple[ast.JsonSubcolumnAccess, list[str]] | None:
         unwrapped = expr.expr if isinstance(expr, ast.Alias) else expr
         if (
             allow_to_string
@@ -2197,10 +2265,7 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
 
     @staticmethod
     def _is_ai_column(source: MaterializedPropertySource) -> bool:
-        return (
-            source.kind != "json_subcolumn"
-            and source.column.strip("`\"'") in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
-        )
+        return source.kind == "materialized_column" and source.column in AI_BLOOM_FILTER_COLUMNS
 
     # --- property-group optimizers ---
 
@@ -2322,7 +2387,7 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
     def _optimize_active_feature_flags_compare(self, node: ast.CompareOperation) -> ast.Expr | None:
         if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
             constant_expr: ast.Constant | None = None
-            active_feature_flags: tuple[ast.Expr, list[str]] | None = None
+            active_feature_flags: tuple[ast.JsonSubcolumnAccess, list[str]] | None = None
             if (value := self._active_feature_flags_operand(node.left)) is not None and isinstance(
                 node.right, ast.Constant
             ):
@@ -2343,12 +2408,8 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
             map_key = constant_expr.value
             if map_key in restricted_keys:
                 return _const(node.op == ast.CompareOperationOp.NotEq)
-            map_value = ast.ArrayAccess(
-                array=feature_flags,
-                property=_const(map_key),
-                type=ast.StringType(nullable=False),
-            )
-            contains = _call("notIn", [map_value, ast.Tuple(exprs=[_const(""), _const("false")])])
+            stored = _stored_feature_flag(feature_flags, map_key)
+            contains = _call("notIn", [stored, ast.Tuple(exprs=[_const(""), _const("false")])])
             return contains if node.op == ast.CompareOperationOp.Eq else _call("not", [contains])
 
         if node.op not in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn):
@@ -2403,6 +2464,48 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
             feature_flags, restricted_keys, _call("greater", [key_search, _const(0)])
         )
         return contains if node.op == ast.CompareOperationOp.Gt else _call("not", [contains])
+
+    def _optimize_feature_flag_compare(self, node: ast.CompareOperation) -> ast.Expr | None:
+        """A flag compared with text, as a test of the value the flags map stores for it, with no presence check.
+
+        A missing flag stores '', which matches no text here. Outside a join constraint the printer turns the NULL that
+        the value read gives a missing flag into false for `=` and true for `!=` and `NOT IN`, which is what the stored
+        value gives. A join constraint keeps that NULL, so a comparison there keeps the value read.
+        """
+        if self._join_constraint_depth:
+            return None
+        if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
+            operand, constant = node.left, _string_pattern_constant(node.right)
+            if constant is None:
+                operand, constant = node.right, _string_pattern_constant(node.left)
+            values = [constant.value] if constant is not None else None
+        # The printer leaves `IN` unwrapped, so a missing flag's NULL compares as false only under transform_null_in.
+        elif node.op == ast.CompareOperationOp.NotIn or (
+            node.op == ast.CompareOperationOp.In and self._transform_null_in
+        ):
+            operand, values = node.left, self._extract_string_constants(node.right)
+        else:
+            return None
+        # A present flag can store '' too, and the value read never returns a sentinel.
+        if not values or not all(values) or any(value in FEATURE_FLAG_VARIANT_SENTINELS for value in values):
+            return None
+        access = self._lowered_property_operand(operand)
+        if access is None:
+            return None
+        field_type = _blob_field_type_of(access)
+        assert field_type is not None
+        flag = _single_feature_flag(field_type, access.keys, self.context)
+        if flag is None:
+            return None
+        feature_flags, key = flag
+        sentinels = {variant: sentinel for sentinel, variant in FEATURE_FLAG_VARIANT_SENTINELS.items()}
+        stored_values = [*values, *(sentinels[value] for value in values if value in sentinels)]
+        _record_property_usage(self.context, "json_subcolumn")
+        op_name = "in" if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.In) else "notIn"
+        return _call(
+            op_name,
+            [_stored_feature_flag(feature_flags, key), ast.Tuple(exprs=[_const(value) for value in stored_values])],
+        )
 
     def _optimize_native_json_string_compare(self, node: ast.CompareOperation) -> ast.Expr | None:
         op_name = {
@@ -2795,10 +2898,15 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         return None
 
 
-def clickhouse_property_resolution(node: _T_AST, context: HogQLContext) -> _T_AST:
+def clickhouse_property_resolution(
+    node: _T_AST, context: HogQLContext, settings: HogQLGlobalSettings | None = None
+) -> _T_AST:
     """Rewrite every backed lowered `PropertyAccess` (and comparison over it) to read its backing column.
 
     ClickHouse only. Expects a resolved, swapped, lowered AST, and runs right after `lower_property_access` in the
-    ClickHouse print pipeline (see `prepare_ast_for_printing`).
+    ClickHouse print pipeline (see `prepare_ast_for_printing`). `settings` are the ones the printed query runs with,
+    or None when the caller runs the SQL with settings of its own, as batch exports do with a filter clause.
     """
-    return cast(_T_AST, ClickHousePropertyResolver(context).visit(node))
+    # Batch exports pass a `HogQLQuerySettings` subclass, which has no field for this setting.
+    transform_null_in = isinstance(settings, HogQLGlobalSettings) and bool(settings.transform_null_in)
+    return cast(_T_AST, ClickHousePropertyResolver(context, transform_null_in=transform_null_in).visit(node))

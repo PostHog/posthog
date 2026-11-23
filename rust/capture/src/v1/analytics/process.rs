@@ -139,7 +139,7 @@ async fn run_pipeline(
     batch: Batch,
 ) -> Result<Vec<WrappedEvent>, Error> {
     let processing_start = Instant::now();
-    crate::ctx_log!(Level::INFO, context, "process_batch called");
+    crate::ctx_log!(Level::DEBUG, context, "process_batch called");
 
     let batch_len = batch.batch.len();
     if let Err(err) = validate_batch(&batch) {

@@ -26,6 +26,7 @@ from products.data_modeling.backend.logic.node_frequency import (
     saved_query_target_bounds,
     seed_targets,
     set_declared_anchor,
+    set_declared_pin,
     set_declared_target,
 )
 from products.data_modeling.backend.logic.node_suspension import mark_node_suspended
@@ -228,6 +229,33 @@ class TestBuildFrequencyGraph(BaseTest):
         floor = resolved.bounds.floor
         expected = None if expected_floor is None else (expected_floor, str(chain[blocker_index].id))
         self.assertEqual((floor.value, floor.blocker) if floor else None, expected)
+
+    @parameterized.expand(
+        [
+            ("a_pinned_upstream_view_sets_it", None, True, True),
+            ("a_slow_source_sets_it", H6, False, False),
+        ]
+    )
+    def test_floor_pinned_tells_a_pinned_view_from_a_slow_source(self, _name, source_interval, pin_upstream, expected):
+        dag = DAG.get_or_create_default(self.team)
+        source = (
+            _warehouse_source_node(self.team, dag, sync_frequency_interval=source_interval)
+            if source_interval
+            else _table_node(self.team, dag, "events", {"origin": "posthog"})
+        )
+        upstream = _saved_query_node(self.team, dag, "upstream", NodeType.MAT_VIEW)
+        reader = _saved_query_node(self.team, dag, "reader", NodeType.MAT_VIEW)
+        for parent, child in itertools.pairwise([source, upstream, reader]):
+            Edge.objects.create(team=self.team, dag=dag, source=parent, target=child)
+        if pin_upstream:
+            set_declared_target(upstream, H6)
+            set_declared_pin(upstream, True)
+
+        assert reader.saved_query_id is not None
+        resolved = saved_query_target_bounds(self.team.id, reader.saved_query_id)
+
+        assert resolved is not None and resolved.bounds.floor is not None
+        self.assertEqual((resolved.bounds.floor.value, resolved.floor_pinned), (H6, expected))
 
     def test_imported_source_floor_makes_a_tighter_descendant_unsatisfiable(self):
         dag = DAG.get_or_create_default(self.team)

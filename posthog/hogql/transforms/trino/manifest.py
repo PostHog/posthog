@@ -30,7 +30,7 @@ from posthog.hogql.database.models import (
     UnknownDatabaseField,
     VirtualTable,
 )
-from posthog.hogql.database.trino_locator import TrinoTableLocator
+from posthog.hogql.database.trino_locator import TRINO_EXPORTED_POSTHOG_TABLES, TrinoTableLocator
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.placeholders import find_placeholders
 from posthog.hogql.printer.trino_hogql import TrinoHogQLPrinter
@@ -115,7 +115,7 @@ class PreparedTrinoCatalog:
         )
 
 
-_CORE_TABLES = frozenset({"events", "persons", "groups", "raw_groups"})
+_CORE_TABLES = TRINO_EXPORTED_POSTHOG_TABLES
 _SUPPORTED_PURE_MODIFIERS = frozenset({"personsOnEventsMode", "convertToProjectTimezone"})
 _FIELD_TYPES: dict[DatabaseSerializedFieldType, type[DatabaseField]] = {
     DatabaseSerializedFieldType.INTEGER: IntegerDatabaseField,
