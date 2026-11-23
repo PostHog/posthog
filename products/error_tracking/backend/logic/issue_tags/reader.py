@@ -29,7 +29,11 @@ def group_issue_tags(
         definition = definitions_by_key[key]
         result.setdefault(str(issue_id), []).append(
             contracts.ErrorTrackingIssueTag(
-                key=key, label=definition.label, description=definition.description, source=source
+                key=key,
+                label=definition.label,
+                description=definition.description,
+                color=contracts.IssueTagColor(definition.color) if definition.color else None,
+                source=source,
             )
         )
     return result

@@ -123,6 +123,7 @@ from posthog.schema_enums import (
     EntityType as EntityType,
     ErrorTrackingIssueAssigneeType as ErrorTrackingIssueAssigneeType,
     ErrorTrackingIssueStatus as ErrorTrackingIssueStatus,
+    ErrorTrackingIssueTagColor as ErrorTrackingIssueTagColor,
     ErrorTrackingOrderBy as ErrorTrackingOrderBy,
     ErrorTrackingQueryIssueSeverity as ErrorTrackingQueryIssueSeverity,
     ErrorTrackingReleasesOrderBy as ErrorTrackingReleasesOrderBy,
@@ -1748,22 +1749,6 @@ class ErrorTrackingIssueImpactToolOutput(BaseModel):
         extra="forbid",
     )
     events: list[str]
-
-
-class ErrorTrackingIssueTag(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str = Field(..., description="What the tag means, for a tooltip.")
-    key: str = Field(..., description="Key of the tag definition.")
-    label: str = Field(..., description="Short name of the tag.")
-    source: str | None = Field(
-        default=None,
-        description=(
-            "The tagger that applied the tag: `jev` for AI, `manual` for a person."
-            " Issue detail sets it, list results send null."
-        ),
-    )
 
 
 class ErrorTrackingIssueTagFilter(BaseModel):
@@ -5986,6 +5971,26 @@ class ErrorTrackingIssueRelease(BaseModel):
     namespace: str | None = None
     total: int
     version: str | None = None
+
+
+class ErrorTrackingIssueTag(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    color: ErrorTrackingIssueTagColor | None = Field(
+        default=None,
+        description="Named color of the tag, or null for the default color.",
+    )
+    description: str = Field(..., description="What the tag means, for a tooltip.")
+    key: str = Field(..., description="Key of the tag definition.")
+    label: str = Field(..., description="Short name of the tag.")
+    source: str | None = Field(
+        default=None,
+        description=(
+            "The tagger that applied the tag: `jev` for AI, `manual` for a person."
+            " Issue detail sets it, list results send null."
+        ),
+    )
 
 
 class ErrorTrackingPendingFingerprintIssueStateUpdate(BaseModel):

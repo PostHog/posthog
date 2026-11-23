@@ -1387,6 +1387,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                 "key": definition.key,
                 "label": definition.label,
                 "description": definition.description,
+                "color": None,
                 "source": None,
             }
 

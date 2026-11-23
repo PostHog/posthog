@@ -6359,7 +6359,7 @@
         }
     },
     "error-tracking-tag-rules-create": {
-        "description": "Create a tag rule for the current project. Provide a `label` and at least one event property filter in `filters`. When the first event of a new issue matches the filters, the issue gets the tag. Every matching rule applies its own tag. Filters can use event properties only. Rules do not change existing issues. The call fails with \"Issue tags are off for this project.\" when the project does not have issue tags. A project can have at most 100 tag rules.",
+        "description": "Create a tag rule for the current project. Provide a `label` and at least one event property filter in `filters`. Set `color` to one of the named colors to color the tag, or omit it for the default color. When the first event of a new issue matches the filters, the issue gets the tag. Every matching rule applies its own tag. Filters can use event properties only. Rules do not change existing issues. The call fails with \"Issue tags are off for this project.\" when the project does not have issue tags. A project can have at most 100 tag rules.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "Create error tracking tag rule",
@@ -6391,7 +6391,7 @@
         "feature_flag": "error-tracking-issue-tags"
     },
     "error-tracking-tag-rules-list": {
-        "description": "List the tag rules of the current project, with the label, filters, key, version and disabled state of each. Use a rule's `key` with `error-tracking-issues-tag-partial-update` to apply or remove its tag on one issue. The call fails with \"Issue tags are off for this project.\" when the project does not have issue tags.",
+        "description": "List the tag rules of the current project, with the label, color, filters, key, version and disabled state of each. Use a rule's `key` with `error-tracking-issues-tag-partial-update` to apply or remove its tag on one issue. The call fails with \"Issue tags are off for this project.\" when the project does not have issue tags.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "List error tracking tag rules",
@@ -6407,7 +6407,7 @@
         "feature_flag": "error-tracking-issue-tags"
     },
     "error-tracking-tag-rules-update": {
-        "description": "Update a tag rule by ID. Include `label`, `description`, `filters`, or a combination. Omitted fields keep their existing values. A new `label` shows at once on every issue that has the rule's tag. New filters apply only to issues created after the update. When the new filters read the same event properties, issues that already have the tag keep it. When they read different properties, the rule gets a new `key` and loses its existing tags, so list the rules again to get the new key.",
+        "description": "Update a tag rule by ID. Include `label`, `description`, `color`, `filters`, or a combination. Omitted fields keep their existing values. Set `color` to null for the default color. A new `label` or `color` shows at once on every issue that has the rule's tag. New filters apply only to issues created after the update. When the new filters read the same event properties, issues that already have the tag keep it. When they read different properties, the rule gets a new `key` and loses its existing tags, so list the rules again to get the new key.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "Update error tracking tag rule",

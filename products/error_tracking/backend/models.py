@@ -584,6 +584,8 @@ class ErrorTrackingIssueTagRule(TeamScopedRootMixin, UUIDModel):
     key = models.CharField(max_length=64, default=_issue_tag_rule_key)
     label = models.CharField(max_length=128)
     description = models.TextField(blank=True, default="")
+    # A name from contracts.IssueTagColor, which the API validates. Null shows the tag in the default look.
+    color = models.CharField(max_length=16, null=True, blank=True)
     filters = models.JSONField(null=False, blank=False)
     bytecode = models.JSONField(null=False, blank=False)
     # Stored on each answer as question_version, so an edit can tell old answers from new ones.

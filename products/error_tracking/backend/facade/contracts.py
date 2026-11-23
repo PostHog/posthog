@@ -166,11 +166,24 @@ class ErrorTrackingIssuePreview:
     assignee: ErrorTrackingIssueAssignee | None
 
 
+class IssueTagColor(LabeledStrEnum):
+    # Hue names, not status names such as danger or success, so a team's tag does not read as an alert state.
+    BLUE = "blue"
+    TEAL = "teal"
+    GREEN = "green"
+    YELLOW = "yellow"
+    ORANGE = "orange"
+    RED = "red"
+    PINK = "pink"
+    PURPLE = "purple"
+
+
 @dataclass(frozen=True)
 class ErrorTrackingIssueTagDefinition:
     key: str
     label: str
     description: str
+    color: IssueTagColor | None
 
 
 @dataclass(frozen=True)
@@ -178,6 +191,7 @@ class ErrorTrackingIssueTag:
     key: str
     label: str
     description: str
+    color: IssueTagColor | None
     # The tagger that applied the tag. Postgres stores it, the ClickHouse copy of the tags does not.
     source: str | None = None
 
@@ -349,6 +363,7 @@ class ErrorTrackingIssueTagRule:
     key: str
     label: str
     description: str
+    color: IssueTagColor | None
     filters: dict
     version: int
     order_key: int

@@ -27386,6 +27386,17 @@
         "ErrorTrackingIssueTag": {
             "additionalProperties": false,
             "properties": {
+                "color": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ErrorTrackingIssueTagColor"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Named color of the tag, or null for the default color."
+                },
                 "description": {
                     "description": "What the tag means, for a tooltip.",
                     "type": "string"
@@ -27405,6 +27416,11 @@
             },
             "required": ["key", "label", "description"],
             "type": "object"
+        },
+        "ErrorTrackingIssueTagColor": {
+            "enum": ["blue", "teal", "green", "yellow", "orange", "red", "pink", "purple"],
+            "title": "ErrorTrackingIssueTagColor",
+            "type": "string"
         },
         "ErrorTrackingIssueTagFilter": {
             "additionalProperties": false,

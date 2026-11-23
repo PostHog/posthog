@@ -73,6 +73,11 @@ class ErrorTrackingIssueTagDefinitionSerializer(serializers.Serializer):
     key = serializers.CharField(help_text="Key of the tag. Pass it as `issueTag.key` to filter the issue list.")
     label = serializers.CharField(help_text="Short name of the tag.")  # type: ignore[assignment]  # shadows DRF Field.label
     description = serializers.CharField(help_text="What the tag means, for a tooltip.")
+    color = serializers.ChoiceField(
+        choices=contracts.IssueTagColor.choices,
+        allow_null=True,
+        help_text="Color of the tag, from a fixed set of named colors. Null means the default color.",
+    )
 
 
 class ErrorTrackingIssueTagReadSerializer(ErrorTrackingIssueTagDefinitionSerializer):

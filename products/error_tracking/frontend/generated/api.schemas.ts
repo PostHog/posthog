@@ -955,6 +955,29 @@ export interface ErrorTrackingIssueCohortReadApi {
     name: string
 }
 
+/**
+ * * `blue` - Blue
+ * * `teal` - Teal
+ * * `green` - Green
+ * * `yellow` - Yellow
+ * * `orange` - Orange
+ * * `red` - Red
+ * * `pink` - Pink
+ * * `purple` - Purple
+ */
+export type IssueTagColorEnumApi = (typeof IssueTagColorEnumApi)[keyof typeof IssueTagColorEnumApi]
+
+export const IssueTagColorEnumApi = {
+    Blue: 'blue',
+    Teal: 'teal',
+    Green: 'green',
+    Yellow: 'yellow',
+    Orange: 'orange',
+    Red: 'red',
+    Pink: 'pink',
+    Purple: 'purple',
+} as const
+
 export interface ErrorTrackingIssueTagReadApi {
     /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
     key: string
@@ -962,6 +985,17 @@ export interface ErrorTrackingIssueTagReadApi {
     label: string
     /** What the tag means, for a tooltip. */
     description: string
+    /** Color of the tag, from a fixed set of named colors. Null means the default color.
+     *
+     * * `blue` - Blue
+     * * `teal` - Teal
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     * * `pink` - Pink
+     * * `purple` - Purple */
+    color: IssueTagColorEnumApi | null
     /** The tagger that applied the tag: `jev` for AI, `manual` for a person. */
     source: string
 }
@@ -1198,6 +1232,17 @@ export interface ErrorTrackingIssueTagCorrectionApi {
     label: string
     /** What the tag means, for a tooltip. */
     description: string
+    /** Color of the tag, from a fixed set of named colors. Null means the default color.
+     *
+     * * `blue` - Blue
+     * * `teal` - Teal
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     * * `pink` - Pink
+     * * `purple` - Purple */
+    color: IssueTagColorEnumApi | null
     /** The tagger that applied the tag: `jev` for AI, `manual` for a person. */
     source: string
     /** Whether the tag is applied to the issue after the change. */
@@ -1246,6 +1291,17 @@ export interface ErrorTrackingIssueTagDefinitionApi {
     label: string
     /** What the tag means, for a tooltip. */
     description: string
+    /** Color of the tag, from a fixed set of named colors. Null means the default color.
+     *
+     * * `blue` - Blue
+     * * `teal` - Teal
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     * * `pink` - Pink
+     * * `purple` - Purple */
+    color: IssueTagColorEnumApi | null
 }
 
 export interface ErrorTrackingIssueTagDefinitionsResponseApi {
@@ -2773,6 +2829,17 @@ export interface ErrorTrackingIssueTagRuleApi {
     label: string
     /** What the tag means. Shown with the tag. */
     description: string
+    /** Color of the tag, from a fixed set of named colors. Null shows the tag in the default color.
+     *
+     * * `blue` - Blue
+     * * `teal` - Teal
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     * * `pink` - Pink
+     * * `purple` - Purple */
+    color: IssueTagColorEnumApi | null
     /** Property-group filters on event properties, evaluated against the first event of each new issue. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
     filters: ErrorTrackingIssueTagRuleFiltersApi
     /** Starts at 1, and goes up by one each time the filters change. */
@@ -2806,6 +2873,17 @@ export interface ErrorTrackingIssueTagRuleCreateRequestApi {
      * @maxLength 1000
      */
     description?: string
+    /** Color of the tag, from a fixed set of named colors. Null shows the tag in the default color. Defaults to null.
+     *
+     * * `blue` - Blue
+     * * `teal` - Teal
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     * * `pink` - Pink
+     * * `purple` - Purple */
+    color?: IssueTagColorEnumApi | null
     /** Property-group filters on event properties, evaluated against the first event of each new issue. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
     filters: ErrorTrackingIssueTagRuleFiltersApi
     /**
@@ -2827,6 +2905,17 @@ export interface ErrorTrackingIssueTagRuleUpdateRequestApi {
      * @maxLength 1000
      */
     description?: string
+    /** Replacement color. Null sets the default color. Omit to keep the existing color.
+     *
+     * * `blue` - Blue
+     * * `teal` - Teal
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     * * `pink` - Pink
+     * * `purple` - Purple */
+    color?: IssueTagColorEnumApi | null
     /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
     filters?: ErrorTrackingIssueTagRuleFiltersApi
 }
@@ -2842,6 +2931,17 @@ export interface PatchedErrorTrackingIssueTagRuleUpdateRequestApi {
      * @maxLength 1000
      */
     description?: string
+    /** Replacement color. Null sets the default color. Omit to keep the existing color.
+     *
+     * * `blue` - Blue
+     * * `teal` - Teal
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     * * `pink` - Pink
+     * * `purple` - Purple */
+    color?: IssueTagColorEnumApi | null
     /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
     filters?: ErrorTrackingIssueTagRuleFiltersApi
 }

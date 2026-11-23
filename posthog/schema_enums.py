@@ -1381,6 +1381,17 @@ class ErrorTrackingIssueStatus(StrEnum):
     SUPPRESSED = "suppressed"
 
 
+class ErrorTrackingIssueTagColor(StrEnum):
+    BLUE = "blue"
+    TEAL = "teal"
+    GREEN = "green"
+    YELLOW = "yellow"
+    ORANGE = "orange"
+    RED = "red"
+    PINK = "pink"
+    PURPLE = "purple"
+
+
 class ErrorTrackingOrderBy(StrEnum):
     LAST_SEEN = "last_seen"
     FIRST_SEEN = "first_seen"

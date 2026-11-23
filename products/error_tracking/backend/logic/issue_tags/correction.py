@@ -45,7 +45,11 @@ def correct_issue_tag(
 
     return contracts.ErrorTrackingIssueTagCorrection(
         tag=contracts.ErrorTrackingIssueTag(
-            key=key, label=definition.label, description=definition.description, source=source
+            key=key,
+            label=definition.label,
+            description=definition.description,
+            color=contracts.IssueTagColor(definition.color) if definition.color else None,
+            source=source,
         ),
         previous_source=previous_source,
         previous_applied=previous_value is True,
