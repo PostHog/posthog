@@ -83,6 +83,7 @@ export const WithALink: Story = {
             Mentioned
             <Infotip {...args} label="About mentioned">
                 The answer names your brand, with or without a link.{' '}
+                {/* eslint-disable-next-line react/forbid-elements -- plain link in a storybook demo */}
                 <a href="https://posthog.com/docs" className="underline">
                     Read the docs
                 </a>

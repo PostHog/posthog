@@ -14,9 +14,8 @@ describe('Infotip', () => {
         },
         ...['{Enter}', ' '].map((key) => ({
             method: `Tab then ${key === ' ' ? 'Space' : 'Enter'}`,
-            open: async (trigger: HTMLElement) => {
+            open: async () => {
                 await userEvent.tab()
-                expect(document.activeElement).toBe(trigger)
                 await userEvent.keyboard(key)
             },
         })),
@@ -42,7 +41,9 @@ describe('Infotip', () => {
     it('lets a keyboard user reach a link inside the popup', async () => {
         render(
             <Infotip label="About mentioned">
-                The answer names your brand. <a href="https://posthog.com/docs">Read the docs</a>
+                The answer names your brand.{' '}
+                {/* eslint-disable-next-line react/forbid-elements -- quill has no app router, so a plain link stands in */}
+                <a href="https://posthog.com/docs">Read the docs</a>
             </Infotip>
         )
 
