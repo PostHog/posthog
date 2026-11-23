@@ -80,7 +80,7 @@ async def plan_eval_suggestions_activity() -> CoordinatorPlan:
 
 
 @activity.defn(name="llma-eval-suggestions-start-run")
-async def start_eval_suggestions_run_activity(inputs: StartRunInputs) -> str | None:
+async def start_eval_suggestions_run_activity(inputs: StartRunInputs) -> bool:
     return await on_asyncify_pool(api.start_eval_suggestions_run)(
         inputs.run.team_id, inputs.run.trigger, inputs.run.batch_id, inputs.run_id
     )
@@ -150,7 +150,7 @@ class EvalSuggestionsTeamWorkflow(PostHogWorkflow):
                 StartRunInputs(run=inputs, run_id=run_id),
                 **_options(START_RUN, heartbeat=False),
             )
-            if started is None:
+            if not started:
                 # The team was deleted after it was queued, so there is no run to work on or to fail.
                 workflow.logger.info("eval_suggestions_team_deleted", extra={"team_id": inputs.team_id})
                 return 0

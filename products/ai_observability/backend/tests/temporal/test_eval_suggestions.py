@@ -36,7 +36,7 @@ async def test_a_start_that_never_returns_still_fails_its_run() -> None:
     failed: list[str] = []
 
     @temporalio.activity.defn(name="llma-eval-suggestions-start-run")
-    async def start(inputs: StartRunInputs) -> str:
+    async def start(inputs: StartRunInputs) -> bool:
         # The row exists, but the worker gives up before Temporal records the result.
         started.append(inputs.run_id)
         raise ApplicationError("worker lost", non_retryable=True)
@@ -69,8 +69,8 @@ async def test_a_deleted_team_ends_its_run_without_stages_or_failure() -> None:
     calls: list[str] = []
 
     @temporalio.activity.defn(name="llma-eval-suggestions-start-run")
-    async def start(inputs: StartRunInputs) -> str | None:
-        return None
+    async def start(inputs: StartRunInputs) -> bool:
+        return False
 
     @temporalio.activity.defn(name="llma-eval-suggestions-measure")
     async def measure(inputs: StageInputs) -> int:
@@ -107,8 +107,8 @@ async def test_a_failed_paid_stage_still_publishes_the_free_cards(caplog: pytest
     calls: list[str] = []
 
     @temporalio.activity.defn(name="llma-eval-suggestions-start-run")
-    async def start(inputs: StartRunInputs) -> str:
-        return inputs.run_id
+    async def start(inputs: StartRunInputs) -> bool:
+        return True
 
     def stage(name: str, result: int = 0, error: bool = False):
         @temporalio.activity.defn(name=f"llma-eval-suggestions-{name}")
