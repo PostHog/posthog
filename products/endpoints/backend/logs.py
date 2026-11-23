@@ -4,6 +4,7 @@ from typing import Optional
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.internal_logs import send_internal_log
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 
@@ -81,6 +82,7 @@ def log_endpoint_execution(
     Best-effort: a produce failure must never break or slow down an endpoint run, so failures are
     swallowed (debug-logged). We don't flush — `produce()` polls non-blocking.
     """
+    now = datetime.now(tz=UTC)
     try:
         producer = get_producer(topic=KAFKA_LOG_ENTRIES)
         producer.produce(
@@ -90,10 +92,22 @@ def log_endpoint_execution(
                 "log_source": ENDPOINTS_LOG_SOURCE,
                 "log_source_id": str(endpoint_id),
                 "instance_id": instance_id,
-                "timestamp": datetime.now(tz=UTC).strftime(_TIMESTAMP_FORMAT),
+                "timestamp": now.strftime(_TIMESTAMP_FORMAT),
                 "level": level,
                 "message": message,
             },
         )
     except Exception:
         logger.debug("Failed to emit endpoint execution log entry", exc_info=True)
+    try:
+        send_internal_log(
+            ENDPOINTS_LOG_SOURCE,
+            team_id=team_id,
+            log_source_id=str(endpoint_id),
+            instance_id=instance_id,
+            timestamp=now,
+            level=level,
+            message=message,
+        )
+    except Exception:
+        logger.debug("Failed to send endpoint execution log entry to the logs product", exc_info=True)

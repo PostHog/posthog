@@ -1,9 +1,13 @@
+import json
+import threading
+
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest import mock
 
 from django.test import SimpleTestCase
 
+from aioresponses import CallbackResult, aioresponses
 from parameterized import parameterized
 from rest_framework import status
 
@@ -82,11 +86,14 @@ class TestBuildExecutionMessage(SimpleTestCase):
     def test_build_execution_message(self, _name, kwargs, expected):
         self.assertEqual(build_execution_message(**kwargs), expected)
 
-    def test_produce_failure_is_swallowed(self):
-        with mock.patch(
-            "products.endpoints.backend.logs.get_producer",
-            side_effect=Exception("kafka down"),
-        ):
+    @parameterized.expand(
+        [
+            ("kafka_down", "products.endpoints.backend.logs.get_producer"),
+            ("logs_product_down", "products.endpoints.backend.logs.send_internal_log"),
+        ]
+    )
+    def test_send_failure_is_swallowed(self, _name, target):
+        with mock.patch(target, side_effect=Exception("down")):
             # Must not raise — emitting a log line is best-effort.
             log_endpoint_execution(
                 team_id=1,
@@ -95,6 +102,68 @@ class TestBuildExecutionMessage(SimpleTestCase):
                 level="INFO",
                 message="Endpoint executed",
             )
+
+    @parameterized.expand([("logs_product_up", None), ("logs_product_down", Exception("down"))])
+    def test_row_goes_to_kafka_and_to_the_logs_product(self, _name, send_error):
+        with (
+            mock.patch("products.endpoints.backend.logs.get_producer") as get_producer,
+            mock.patch("products.endpoints.backend.logs.send_internal_log", side_effect=send_error) as send,
+        ):
+            log_endpoint_execution(
+                team_id=1,
+                endpoint_id="abc",
+                instance_id="exec-1",
+                level="ERROR",
+                message="Endpoint execution failed",
+            )
+
+        row = get_producer.return_value.produce.call_args.kwargs["data"]
+        self.assertEqual((row["log_source"], row["level"]), (ENDPOINTS_LOG_SOURCE, "ERROR"))
+        sent = send.call_args.kwargs
+        self.assertEqual(send.call_args.args, (ENDPOINTS_LOG_SOURCE,))
+        self.assertEqual(
+            (sent["team_id"], sent["log_source_id"], sent["instance_id"], sent["level"], sent["message"]),
+            (1, "abc", "exec-1", "ERROR", "Endpoint execution failed"),
+        )
+        self.assertEqual(sent["timestamp"].strftime("%Y-%m-%d %H:%M:%S.%f"), row["timestamp"])
+
+    def test_row_reaches_capture_logs_for_an_allowed_team(self):
+        url = "http://capture-logs.test/i/v1/logs"
+        bodies: list[dict] = []
+        arrived = threading.Event()
+
+        def record(_url, **kwargs):
+            bodies.append(json.loads(kwargs["data"]))
+            arrived.set()
+            return CallbackResult(status=200)
+
+        sender = "products.logs.backend.internal_logs_thread"
+        with (
+            self.settings(
+                LOGS_INTERNAL_PRODUCER_URL=url,
+                LOGS_INTERNAL_INGESTION_SIGNING_KEYS="k1",
+                LOGS_INTERNAL_PRODUCER_TEAMS="1",
+            ),
+            mock.patch(f"{sender}._producer", None),
+            mock.patch(f"{sender}._loop", None),
+            mock.patch(f"{sender}._read_api_token", return_value="phc_test_token"),
+            mock.patch("products.endpoints.backend.logs.get_producer"),
+            aioresponses() as capture_logs,
+        ):
+            capture_logs.post(url, callback=record)
+            log_endpoint_execution(
+                team_id=1,
+                endpoint_id="abc",
+                instance_id="exec-1",
+                level="ERROR",
+                message="Endpoint execution failed",
+            )
+            self.assertTrue(arrived.wait(10))
+
+        scope_logs = bodies[0]["resourceLogs"][0]["scopeLogs"][0]
+        (sent,) = scope_logs["logRecords"]
+        self.assertEqual(scope_logs["scope"]["name"], ENDPOINTS_LOG_SOURCE)
+        self.assertEqual((sent["body"]["stringValue"], sent["severityNumber"]), ("Endpoint execution failed", 17))
 
 
 class TestEndpointExecutionLogs(ClickhouseTestMixin, APIBaseTest):
