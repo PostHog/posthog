@@ -285,6 +285,36 @@ class TestQueryAiEventsPersonJoin(ClickhouseTestMixin, BaseTest):
 
 class TestQueryAiEventsTypedProperties(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
+        [
+            (table, predicate)
+            for table in ("events", "posthog.ai_events")
+            for predicate in ("value = 'kept'", "value != 'excluded'")
+        ]
+    )
+    def test_string_cte_comparisons_exclude_missing_properties(self, table: str, predicate: str) -> None:
+        PropertyDefinition.objects.create(team=self.team, name="example_text", property_type="String")
+        events = [
+            {
+                "event": "$ai_generation",
+                "team": self.team,
+                "distinct_id": "example-user",
+                "properties": properties,
+            }
+            for properties in ({"example_text": "kept"}, {"example_text": "excluded"}, {})
+        ]
+        if table == "events":
+            for event in events:
+                _create_event(**event)
+        else:
+            bulk_create_ai_events(events)
+
+        source = f"SELECT properties.example_text AS value FROM {table}"
+        query = f"WITH texts AS ({source}) SELECT value FROM texts WHERE {predicate}"
+        result = execute_hogql_query(query, team=self.team, workload=Workload.ONLINE)
+
+        assert result.results == [("kept",)]
+
+    @parameterized.expand(
         [(table, projection) for table in ("events", "posthog.ai_events") for projection in ("cte", "subquery")]
     )
     def test_duration_property_through_projection(self, table: str, projection: str) -> None:

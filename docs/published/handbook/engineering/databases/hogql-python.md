@@ -318,6 +318,7 @@ Custom properties on `posthog.ai_events` use their event property definitions fo
 Properties mapped to native String AI columns stay strings even when property detection reports another type.
 Subqueries and CTEs expose the types of the expressions they return, including reads kept as strings for parsing.
 Unconverted Duration projections keep their stored string type.
+CTE columns projected from unconverted String properties preserve the source field's null-comparison semantics.
 `toFloatOrZero` and `toIntOrZero` stringify non-String projections before parsing them.
 `toFloatOrDefault` and `toIntOrDefault` keep native numeric inputs, including decimal truncation for integer conversions.
 

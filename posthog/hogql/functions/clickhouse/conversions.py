@@ -15,8 +15,6 @@ from posthog.hogql.base import UnknownType
 
 from ..core import HogQLFunctionMeta
 
-STRING_INPUT_CONVERSIONS = frozenset({"toFloatOrZero", "toIntOrZero", "toFloatOrDefault", "toIntOrDefault"})
-
 # type conversions
 # Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {

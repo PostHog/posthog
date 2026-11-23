@@ -23,7 +23,6 @@ from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPerson
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.escape_sql import escape_hogql_identifier
-from posthog.hogql.functions.clickhouse.conversions import STRING_INPUT_CONVERSIONS
 from posthog.hogql.functions.clickhouse.json import JSON_FUNCTIONS, JSON_KEY_PATH_FUNCTIONS, JSON_TYPED_PATH_FUNCTIONS
 from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.property_metadata import load_property_metadata
@@ -148,6 +147,9 @@ class ToTimeZoneParts:
 
 
 _PERSON_PROPERTIES_TABLES = (*EVENTS_TABLE_TYPES, EventsWithFlagCallsTable)
+
+# Explicit parsers must receive stored strings before property metadata applies a conversion.
+STRING_INPUT_CONVERSIONS = frozenset({"toFloatOrZero", "toIntOrZero", "toFloatOrDefault", "toIntOrDefault"})
 
 # These functions return one of their arguments unchanged, so the call around them receives the property itself.
 # A property that the outer call needs as its stored string must stay unconverted through them, as in
@@ -290,7 +292,10 @@ class PropertySwapper(CloningVisitor):
                 constant_type = dataclasses.replace(
                     value_type.field_type.resolve_constant_type(self.context), nullable=True
                 )
-                if constant_type == value_type.resolve_constant_type(self.context):
+                detected_type = value_type.resolve_constant_type(self.context)
+                if constant_type == detected_type or (
+                    isinstance(constant_type, ast.StringType) and isinstance(detected_type, ast.StringType)
+                ):
                     # Rebuilding an unchanged CTE field would lose its existing property null-comparison semantics.
                     return result
             else:
@@ -298,7 +303,7 @@ class PropertySwapper(CloningVisitor):
             if result.type.constant_type != constant_type:
                 result.type.constant_type = constant_type
                 # CTE fields cache alias types before property conversion; the updated expression may have another type.
-                self.context.cte_database_table_cache = {}
+                self.context.cte_database_table_cache.clear()
         return result
 
     def _visit_json_function_call(self, node: ast.Call) -> ast.Call:
@@ -891,9 +896,7 @@ class PropertySwapper(CloningVisitor):
         # Add notice about the property type and materialization status
         self._add_property_notice(node, property_type, field_type, prop_info.get("dmat"))
 
-        # The user is parsing this property as a string (toFloatOrZero/toIntOrZero/
-        # toFloatOrDefault). Those ClickHouse functions require a String argument, so
-        # leave the raw materialized-column/JSON value in place rather than casting it.
+        # An explicit parser must receive the stored value rather than a conversion chosen from property metadata.
         if self._suppress_numeric_conversion:
             return node
 
