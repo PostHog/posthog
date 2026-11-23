@@ -118,16 +118,9 @@ class DeletionTarget:
     # Read uuids from this table when queueing a deferred deletion. False where the rows duplicate
     # another target's uuids, which would queue each one twice.
     queue_uuid_candidates: bool = True
-    # The events storage table that holds a copy of each row here, with the same uuid, while ingestion
-    # still writes the event there. None where rows have no such copy. The copy must sit on the same
-    # shard as the row, because the check for rows without a copy reads both tables shard-locally.
-    # A deferred event removal with a HogQL predicate deletes rows here through the uuids of their copies.
-    copied_from: str | None = None
-    # The HogQL table that a request's predicate compiles against for the rows here that have no copy
-    # in copied_from. None where those rows cannot take a predicate. A row with a copy never takes it.
-    # The drain deletes a queued uuid from every target, so a predicate that matched a row here and
-    # not its copy would delete the copy too.
-    uncopied_rows_hogql_table: str | None = None
+    # The HogQL table that an event removal compiles its predicate against for this table. Set it on a
+    # table that is not an events table, which hogql_schema describes. Property removal does not use it.
+    own_hogql_table: str | None = None
     # The event names this table can hold, None meaning unconstrained. Lets a request naming other
     # events skip this table without querying it.
     stored_events: frozenset[str] | None = None
@@ -221,13 +214,11 @@ EVENTS_JSON = DeletionTarget(
 
 # Flag-evaluation telemetry carries the same person_id and group payload as events, so team and
 # queued-uuid sweeps must reach it, and a person sweep matches on person_id like every other
-# events-shaped table. Property removal rewrites its event properties and its person properties. A
-# HogQL predicate runs here only on rows with no events copy, compiled against the table's own HogQL
-# table. Deferred event removal with a predicate deletes the rows with a copy through the uuids of
-# their events copies, and queues the rows without one that the compiled predicate matches.
-# Immediate event removal with a predicate leaves the rows with a copy to the TTL, and refuses while
-# a row without one matches. Property removal with a predicate refuses while the table holds
-# matching rows. docs/internal/clickhouse-deletion-coverage.md explains these limits.
+# events-shaped table. Property removal rewrites its event properties and its person properties.
+# Event removal with a HogQL predicate compiles the predicate against the table's own HogQL table
+# and sweeps the rows it matches, as it does on each events table. Property removal with a predicate
+# refuses while the table holds matching rows. docs/internal/clickhouse-deletion-coverage.md
+# explains these limits.
 FLAG_EVALUATIONS = DeletionTarget(
     data_table=FLAG_EVALUATIONS_DATA_TABLE,
     read_table=FLAG_EVALUATIONS_TABLE,
@@ -236,10 +227,7 @@ FLAG_EVALUATIONS = DeletionTarget(
     node_role=NodeRole.FLAGS,
     accepts_property_rewrite=True,
     accepts_person_id_rewrite=True,
-    # Both tables shard on sipHash64(distinct_id), so a flag call and its event share a shard while both tables
-    # are on one cluster. A request with a HogQL predicate refuses when they are on different clusters.
-    copied_from=EVENTS_DATA_TABLE(),
-    uncopied_rows_hogql_table=FLAG_EVALUATIONS_HOGQL_TABLE,
+    own_hogql_table=FLAG_EVALUATIONS_HOGQL_TABLE,
     stored_events=frozenset({FLAG_EVALUATIONS_SOURCE_EVENT}),
     ttl_days=FLAG_EVALUATIONS_TTL_DAYS,
 )
