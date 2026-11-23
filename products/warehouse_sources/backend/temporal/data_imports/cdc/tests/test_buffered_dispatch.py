@@ -15,6 +15,8 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.tests.conforma
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.tests.fake_engine import FakeCDCAdapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import MySQLImplementation
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 
 _SCHEMA_MODEL = "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema"
@@ -88,6 +90,7 @@ def _dispatch(
     hand_reset: MagicMock | None = None,
     expired: AsyncMock | None = None,
     resumable: MagicMock | None = None,
+    source_class: type[PostgresSource] | type[MySQLSource] = PostgresSource,
 ):
     job = None if job_version is None else MagicMock(pipeline_version=job_version)
     with (
@@ -111,15 +114,22 @@ def _dispatch(
     ):
         objects.select_related.return_value.get.return_value = schema
         job_objects.filter.return_value.first.return_value = job
-        return PostgresSource().source_for_pipeline(MagicMock(), resumable or MagicMock(), inputs)
+        return source_class().source_for_pipeline(MagicMock(), resumable or MagicMock(), inputs)
 
 
 class TestBufferedDispatch:
-    def test_a_streaming_schema_is_consumed_from_the_buffer(self):
-        response = _dispatch(_schema(), _inputs())
+    @pytest.mark.parametrize("source_class", [PostgresSource, MySQLSource])
+    def test_a_streaming_schema_is_consumed_from_the_buffer(self, source_class):
+        response = _dispatch(_schema(), _inputs(), source_class=source_class)
 
         assert response.name == "users"
         assert response.cdc_write_mode == "incremental_merge"
+
+    def test_a_mysql_schema_not_seeded_yet_runs_a_snapshot(self):
+        with patch.object(MySQLImplementation, "build_pipeline") as snapshot:
+            _dispatch(_schema(initial_sync_complete=False), _inputs(), source_class=MySQLSource)
+
+        snapshot.assert_called_once()
 
     def test_an_unrecognized_table_mode_fails_the_run(self):
         with pytest.raises(ValueError, match="cdc_table_mode"):
