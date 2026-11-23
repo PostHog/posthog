@@ -2495,6 +2495,11 @@ describe('EmailService', () => {
                             'cdp_ses_send_duration_ms_count'
                         ),
                         await metricTotal(
+                            'cdp_ses_send_duration_ms',
+                            { with_files: withFiles },
+                            'cdp_ses_send_duration_ms_count'
+                        ),
+                        await metricTotal(
                             'cdp_email_queue_to_send_ms',
                             { with_files: withFiles },
                             'cdp_email_queue_to_send_ms_count'
