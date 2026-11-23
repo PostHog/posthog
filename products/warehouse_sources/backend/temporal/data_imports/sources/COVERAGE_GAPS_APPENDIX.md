@@ -5903,7 +5903,7 @@ Note (2026-11-19): Re-parsed the live swagger (about 325 paths, GET routes only)
 
 ## Fleetio — gaps
 
-Today (23): `contacts`, `expense_entries`, `expense_entry_types`, `faults`, `fuel_entries`, `inventory_journal_entries`, `issues`, `location_entries`, `meter_entries`, `parts`, `purchase_order_line_items`, `purchase_orders`, `service_entries`, `service_entry_line_items`, `service_reminders`, `service_tasks`, `vehicle_assignments`, `vehicle_statuses`, `vehicle_types`, `vehicles`, `vendors`, `work_order_statuses`, `work_orders`
+Today (27): `contacts`, `expense_entries`, `expense_entry_types`, `fault_rules`, `faults`, `fuel_entries`, `inspection_forms`, `inventory_adjustment_reasons`, `inventory_journal_entries`, `issues`, `location_entries`, `meter_entries`, `parts`, `purchase_order_line_items`, `purchase_orders`, `service_entries`, `service_entry_line_items`, `service_reminders`, `service_tasks`, `vehicle_assignments`, `vehicle_statuses`, `vehicle_types`, `vehicles`, `vendors`, `work_order_line_items`, `work_order_statuses`, `work_orders`
 
 Diffed against: <https://developer.fleetio.com/sitemap.xml>
 
@@ -5924,10 +5924,10 @@ Note: No OpenAPI file is published; the resource list came from the Docusaurus s
 
 Re-audited 2026-11-19 against: <https://developer.fleetio.com/sitemap.xml>
 
-- [ ] `Work order line items (GET /v2/work_orders/:work_order_id/work_order_line_items)` — Labor, parts and cost lines behind each synced work order, the counterpart to service entry line items (high)
-- [ ] `Inspection forms (GET /v3/inspection_forms)` — Inspection form definitions that submitted inspections are built from (medium)
-- [ ] `Inventory adjustment reasons (GET /v1/inventory_adjustment_reasons)` — Lookup that decodes the reason on synced inventory journal entries (medium)
-- [ ] `Fault rules (GET /v1/fault_rules)` — Rules that decide which diagnostic codes raise faults, to explain synced faults (low)
+- [x] `Work order line items (GET /v2/work_orders/:work_order_id/work_order_line_items)` — Labor, parts and cost lines behind each synced work order, the counterpart to service entry line items (high)
+- [x] `Inspection forms (GET /v3/inspection_forms)` — Inspection form definitions that submitted inspections are built from (medium)
+- [x] `Inventory adjustment reasons (GET /v1/inventory_adjustment_reasons)` — Lookup that decodes the reason on synced inventory journal entries (medium)
+- [x] `Fault rules (GET /v1/fault_rules)` — Rules that decide which diagnostic codes raise faults, to explain synced faults (low)
 - [ ] `Inspection schedules (GET /v1/inspection_schedules)` — Recurring inspection schedules per vehicle, for compliance tracking (low)
 - [ ] `Purchase details (GET /v1/purchase_details)` — Vehicle purchase cost and date records for ownership cost analysis (low)
 
