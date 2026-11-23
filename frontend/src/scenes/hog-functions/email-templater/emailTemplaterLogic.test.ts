@@ -1001,6 +1001,28 @@ describe('emailTemplaterLogic', () => {
             toast.mockRestore()
         })
 
+        it('lets a save through when a load echo with no change cannot be read as text', async () => {
+            const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
+            logic.actions.setEmailEditorRef({
+                editor: {
+                    ...fakeEditorRef().editor,
+                    exportPlainText: () => {
+                        throw new Error('export failed')
+                    },
+                },
+            } as unknown as EditorRef)
+            const save = jest.fn()
+            jest.useFakeTimers()
+            editorListeners['design:updated']()
+            await jest.advanceTimersByTimeAsync(500)
+            await saveWithLatestEmailEdit(save)
+            jest.useRealTimers()
+
+            expect(save).toHaveBeenCalledTimes(1)
+            expect(toast).not.toHaveBeenCalled()
+            toast.mockRestore()
+        })
+
         it('lets a save through when the canvas cannot be read but nothing was edited', async () => {
             const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
             logic.actions.setEmailEditorRef({

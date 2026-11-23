@@ -136,6 +136,19 @@ type JSONTemplate = Parameters<Editor['loadDesign']>[0]
 
 const EDITOR_READ_TIMEOUT_MS = 5000
 
+// The old editor reports its own load as an edit, so a failed read of an unchanged design isn't an unsaved edit.
+async function designUnchanged(editor: Editor, lastDesign: JSONTemplate | undefined): Promise<boolean> {
+    if (!lastDesign) {
+        return false
+    }
+    try {
+        const { design } = await withTimeout(exportEditorHtml(editor), EDITOR_READ_TIMEOUT_MS)
+        return objectsEqual(design, lastDesign)
+    } catch {
+        return false
+    }
+}
+
 function exportEditorHtml(editor: Editor): Promise<{ html: string; design: JSONTemplate }> {
     return new Promise((resolve) =>
         editor.exportHtml((data: { html: string; design: JSONTemplate }) => {
@@ -1083,6 +1096,13 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             } catch (error) {
                 // The edit stays pending, so the next edit or a flush tries again.
                 posthog.captureException(error)
+                const unchanged = await designUnchanged(editor, cache.lastEditorDesign)
+                breakpoint()
+                if (unchanged) {
+                    cache.pendingDesignEdit = false
+                    actions.setLatestEditUnsaved(false)
+                    return
+                }
                 if (!values.latestEditUnsaved) {
                     showEmailSaveFailed()
                 }
@@ -1252,6 +1272,17 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     posthog.captureException(error)
                     // With no edit reported, a canvas that can't be read counts as unchanged, so it never traps the email.
                     if (!cache.pendingDesignEdit && !values.latestEditUnsaved) {
+                        return
+                    }
+                    if (
+                        cache.designEdits === editsBeforeExport &&
+                        (await designUnchanged(editor, cache.lastEditorDesign))
+                    ) {
+                        if (cache.unmounted) {
+                            return
+                        }
+                        cache.pendingDesignEdit = false
+                        actions.setLatestEditUnsaved(false)
                         return
                     }
                     cache.flushFailed = true
