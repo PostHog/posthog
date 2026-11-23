@@ -41,6 +41,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.dashboards.backend.facade import api as dashboards_api
 from products.exports.backend.facade.api import export_execution_mode, export_limit_context
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token, save_content
+from products.exports.backend.tasks.dashboard_pdf import PDF_PAGE_WIDTH, render_dashboard_pdf, validate_dashboard_pdf
 from products.exports.backend.tasks.exporter_utils import log_error_if_site_url_not_reachable
 from products.exports.backend.tasks.failure_handler import (
     BrowserlessUnavailable,
@@ -276,8 +277,8 @@ MEASURE_CONTENT_WIDTH_JS = f"""
             return null;
         """
 
-ScreenWidth = Literal[600, 800, 1920, 1400, 4000]
-CSSSelector = Literal[".InsightCard", ".ExportedInsight", ".replayer-wrapper", ".heatmap-exporter"]
+ScreenWidth = Literal[600, 800, 1122, 1920, 1400, 4000]
+CSSSelector = Literal[".InsightCard", ".ExportedInsight", ".replayer-wrapper", ".heatmap-exporter", ".react-grid-item"]
 
 
 def _insight_query_wants_legend(query: dict) -> bool:
@@ -323,16 +324,16 @@ def _insight_query_screenshot_width(query: dict) -> ScreenWidth:
     return 600 if is_metric else 800
 
 
-def _export_to_png(
+def _export_rendered_asset(
     exported_asset: ExportedAsset,
     max_height_pixels: Optional[int] = None,
     insight_cache_keys: Optional[dict[int, str]] = None,
 ) -> None:
     """
-    Exporting an Insight means:
-    1. Loading the Insight from the web app in a dedicated rendering mode
-    2. Waiting for the page to have fully loaded before taking a screenshot to disk
-    3. Loading that screenshot into memory and saving the data representation to the relevant Insight
+    Exporting a rendered asset means:
+    1. Loading the asset from the web app in a dedicated rendering mode
+    2. Waiting for the page to have fully loaded before writing the PNG or PDF to disk
+    3. Loading the file into memory and saving it to the exported asset
     4. Cleanup: Remove the old file and close the browser session
 
     Args:
@@ -356,7 +357,8 @@ def _export_to_png(
             )
 
         image_id = str(uuid.uuid4())
-        image_path = os.path.join(TMP_DIR, f"{image_id}.png")
+        extension = "pdf" if exported_asset.export_format == ExportedAsset.ExportFormat.PDF else "png"
+        image_path = os.path.join(TMP_DIR, f"{image_id}.{extension}")
 
         if not os.path.exists(TMP_DIR):
             os.makedirs(TMP_DIR)
@@ -377,8 +379,12 @@ def _export_to_png(
         elif exported_asset.dashboard is not None:
             cache_keys_param = _build_cache_keys_param(insight_cache_keys)
             url_to_render = _exporter_url(f"token={access_token}{cache_keys_param}")
-            wait_for_css_selector = ".InsightCard"
-            screenshot_width = 1920
+            wait_for_css_selector = (
+                ".react-grid-item" if exported_asset.export_format == ExportedAsset.ExportFormat.PDF else ".InsightCard"
+            )
+            screenshot_width = (
+                PDF_PAGE_WIDTH if exported_asset.export_format == ExportedAsset.ExportFormat.PDF else 1920
+            )
         elif exported_asset.export_context and exported_asset.export_context.get("session_recording_id"):
             # Handle replay export using /exporter route (same as insights/dashboards)
             url_to_render = _exporter_url(
@@ -464,8 +470,10 @@ def _export_to_png(
                 read_site_style,
                 fixed_width=image_size.get("width"),
                 device_scale_factor=1 if any(image_size.values()) else 2,
+                export_pdf=exported_asset.export_format == ExportedAsset.ExportFormat.PDF,
             )
-            fit_image_to_size(image_path, image_size.get("width"), image_size.get("height"))
+            if exported_asset.export_format != ExportedAsset.ExportFormat.PDF:
+                fit_image_to_size(image_path, image_size.get("width"), image_size.get("height"))
         except Exception as e:
             IMAGE_EXPORT_RENDER_DURATION.labels(backend="browserless", outcome="failure").observe(
                 time.perf_counter() - render_start
@@ -609,6 +617,8 @@ def _screenshot_asset_browserless(
     read_site_style: bool = False,
     fixed_width: int | None = None,
     device_scale_factor: int = 2,
+    *,
+    export_pdf: bool = False,
 ) -> Optional[dict]:
     endpoint = _build_cdp_endpoint(
         settings.BROWSERLESS_CDP_URL, settings.BROWSERLESS_TOKEN, settings.BROWSERLESS_SESSION_TIMEOUT_MS
@@ -663,6 +673,11 @@ def _screenshot_asset_browserless(
                     _save_debug_screenshot(lambda p: page.screenshot(path=p), image_path)
                     capture_exception(e)
             stages.done("content")
+
+            if export_pdf:
+                render_dashboard_pdf(page, image_path)
+                stages.done("screenshot")
+                return None
 
             effective_max = _effective_max_height(max_height_pixels)
             height = _cap_height(
@@ -831,6 +846,8 @@ def export_image(
                 if result is not None and result.cache_key:
                     insight_cache_keys[exported_asset.insight.id] = result.cache_key
             elif exported_asset.dashboard:
+                if exported_asset.export_format == ExportedAsset.ExportFormat.PDF:
+                    validate_dashboard_pdf(exported_asset.dashboard)
                 logger.info(
                     "export_image.calculate_dashboard_insights",
                     dashboard_id=exported_asset.dashboard.id,
@@ -891,9 +908,11 @@ def export_image(
                 if warm_error:
                     raise InvalidExportContext(f"Invalid query: {warm_error}")
 
-            if exported_asset.export_format == "image/png":
+            if exported_asset.export_format == ExportedAsset.ExportFormat.PNG or (
+                exported_asset.export_format == ExportedAsset.ExportFormat.PDF and exported_asset.dashboard_id
+            ):
                 with EXPORT_TIMER.labels(type=exported_asset.export_format).time():
-                    _export_to_png(
+                    _export_rendered_asset(
                         exported_asset,
                         max_height_pixels=max_height_pixels,
                         insight_cache_keys=insight_cache_keys or None,

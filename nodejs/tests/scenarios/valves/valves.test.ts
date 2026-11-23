@@ -12,6 +12,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { ValveEntry } from '../cards/schema'
 import { FakeCloud, FakeCloudOptions } from '../cloud/fake-cloud'
+import { pinClockAfterMinuteStart } from '../cloud/fixtures'
 import { Actuation, createEnvironment } from '../environment/environment'
 import { Role } from '../environment/roles'
 import { Queue } from '../probe/cyclotron-probe'
@@ -211,7 +212,12 @@ describe('valves', () => {
         { name: 'first_probe_commit', at: expect.any(String) },
     ]
 
+    afterEach(() => {
+        jest.useRealTimers()
+    })
+
     const runClusterOf = (options: Partial<FakeCloudOptions> = {}, stalls?: string) => {
+        pinClockAfterMinuteStart()
         const cloud = new FakeCloud({
             now: () => new Date(),
             failover: { takesMs: 20 },
@@ -260,9 +266,35 @@ describe('valves', () => {
         ],
         [
             'records no intent for a failover its preconditions refused',
-            { liveReaderAcu: { maxima: [1, 1, 2, 1, 1] } },
+            { liveReaderAcu: { maxima: [1, 1, 3, 1, 1] } },
             true,
-            { error: expect.stringMatching(/^pg\.failover refused: .* was above 1 ACU/) },
+            { error: expect.stringMatching(/^pg\.failover refused: .* was above its 2.5 ACU idle limit/) },
+        ],
+        [
+            'records no intent for a failover whose capacity read has fewer values than timestamps',
+            { shortValuesOf: 'Average' },
+            true,
+            { error: expect.stringMatching(/^pg\.failover refused: .*'s capacity read has 5 timestamps and 4 values/) },
+        ],
+        [
+            'records no intent for a failover whose capacity read has a value that is not a finite number',
+            { liveReaderAcu: { maxima: [1, 1, Number.NaN, 1, 1] } },
+            true,
+            {
+                error: expect.stringMatching(
+                    /^pg\.failover refused: .*'s capacity read has a value that is not a finite number at /
+                ),
+            },
+        ],
+        [
+            'records no intent for a failover whose capacity read has no status',
+            { liveReaderAcu: { maxima: [2, 2, 2, 2, 2] }, omitsCapacityStatus: true },
+            true,
+            {
+                error: expect.stringMatching(
+                    /^pg\.failover refused: .*'s capacity read came back with no status, not Complete/
+                ),
+            },
         ],
         ['refuses a failover outside a run host', {}, false, { error: 'pg.failover runs only on a run host' }],
     ])('%s', async (_story, options, onRunHost, recorded) => {

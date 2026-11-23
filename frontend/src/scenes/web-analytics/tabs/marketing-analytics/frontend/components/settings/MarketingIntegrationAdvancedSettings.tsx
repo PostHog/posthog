@@ -1,13 +1,20 @@
 import { useValues } from 'kea'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { getEnabledNativeMarketingSourcesInDisplayOrder } from '../../logic/utils'
 import { IntegrationSettingsCard } from './IntegrationSettingsCard'
+import { QuillMarketingIntegrationAdvancedSettings } from './QuillMarketingIntegrationAdvancedSettings'
 
 export function MarketingIntegrationAdvancedSettings(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const availableIntegrations = getEnabledNativeMarketingSourcesInDisplayOrder(featureFlags)
+
+    if (todayRailNav) {
+        return <QuillMarketingIntegrationAdvancedSettings availableIntegrations={availableIntegrations} />
+    }
 
     return (
         <div className="space-y-4">

@@ -20,6 +20,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from ..facade import eval_suggestions as facade
 from ..facade.contracts import EvalSuggestionNotFoundError
 from ..models.eval_suggestions import (
+    EvalFixProblem,
     EvalSuggestion,
     EvalSuggestionDismissReason,
     EvalSuggestionKind,
@@ -79,7 +80,7 @@ class EvalSuggestionSerializer(serializers.Serializer):
     headline = serializers.CharField(
         read_only=True,
         help_text=(
-            "A short, stable name for the issue, such as 'Unrecovered tool or model failures'. For fix_eval, the "
+            "A short, stable name for the issue, such as 'Tool or model calls that never succeed'. For fix_eval, the "
             "condition observed on the evaluation. It carries no counts; `observation` does."
         ),
     )
@@ -153,6 +154,15 @@ class EvalSuggestionSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Name of the evaluation a fix_eval suggestion repairs.",
     )
+    fix_problem = serializers.ChoiceField(
+        choices=EvalFixProblem.choices,
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "What a fix_eval suggestion found. no_runs: the evaluation ran nothing in the lookback. one_outcome: it "
+            "returned the same result and reasoning almost every time. Null for other kinds."
+        ),
+    )
     similar_evaluation = serializers.UUIDField(
         read_only=True, allow_null=True, help_text="Existing evaluation that may already cover this suggestion."
     )
@@ -193,6 +203,15 @@ class EvalSuggestionListSerializer(serializers.Serializer):
     pending = serializers.BooleanField(help_text="True while a run for this project is in progress.")
     results = EvalSuggestionSerializer(
         many=True, help_text="Open suggestions of the latest run, best first. At most 3."
+    )
+
+
+class EvalSuggestionSettingsSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField(
+        help_text=(
+            "Whether the project gets suggestions. While false, the list returns none and the weekly run skips the "
+            "project."
+        )
     )
 
 
@@ -249,8 +268,8 @@ class EvalSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     schema = _EnvelopeSchema()
     scope_object = "evaluation"
-    scope_object_read_actions = ["list", "retrieve", "accept_estimate"]
-    scope_object_write_actions = ["accept", "dismiss", "apply_fix"]
+    scope_object_read_actions = ["list", "retrieve", "accept_estimate", "project_settings"]
+    scope_object_write_actions = ["accept", "dismiss", "apply_fix", "update_project_settings"]
 
     @property
     def requires_resource_level_access(self) -> bool:
@@ -292,6 +311,24 @@ class EvalSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def list(self, request: Request, **kwargs: Any) -> Response:
         """The latest suggestions. Loading them records the visit, and the first visit starts a run."""
         return Response(EvalSuggestionListSerializer(facade.list_eval_suggestions(self.team, self._access())).data)
+
+    @extend_schema(request=None, responses={200: EvalSuggestionSettingsSerializer})
+    # Not named `settings`, which would shadow DRF's APIView.settings.
+    @action(detail=False, methods=["get"], url_path="settings", pagination_class=None)
+    def project_settings(self, request: Request, **kwargs: Any) -> Response:
+        """Whether the project gets suggestions."""
+        return Response(EvalSuggestionSettingsSerializer(facade.get_eval_suggestion_settings(self.team)).data)
+
+    @extend_schema(request=EvalSuggestionSettingsSerializer, responses={200: EvalSuggestionSettingsSerializer})
+    @project_settings.mapping.patch
+    def update_project_settings(self, request: Request, **kwargs: Any) -> Response:
+        """Turn suggestions off or back on for the project. A body without `enabled` changes nothing."""
+        body = EvalSuggestionSettingsSerializer(data=request.data, partial=True)
+        body.is_valid(raise_exception=True)
+        if "enabled" not in body.validated_data:
+            return Response(EvalSuggestionSettingsSerializer(facade.get_eval_suggestion_settings(self.team)).data)
+        updated = facade.update_eval_suggestion_settings(self.team, enabled=body.validated_data["enabled"])
+        return Response(EvalSuggestionSettingsSerializer(updated).data)
 
     @extend_schema(request=None, responses={200: EvalSuggestionSerializer})
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:

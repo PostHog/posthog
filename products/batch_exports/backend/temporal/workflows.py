@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 from products.batch_exports.backend.temporal.backfill_batch_export import (
     BackfillBatchExportWorkflow,
     backfill_schedule,
@@ -59,6 +61,9 @@ from products.batch_exports.backend.temporal.monitoring import (
 from products.batch_exports.backend.temporal.noop import NoOpWorkflow, noop_activity
 from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
 
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
+
 WORKFLOWS = [
     BackfillBatchExportWorkflow,
     BigQueryBatchExportWorkflow,
@@ -75,7 +80,7 @@ WORKFLOWS = [
     FileDownloadBatchExportWorkflow,
 ]
 
-ACTIVITIES = [
+ACTIVITIES: list[ActivityDefinition] = [
     backfill_schedule,
     create_batch_export_backfill_model,
     get_backfill_info,

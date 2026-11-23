@@ -111,7 +111,6 @@ describe('aiObservabilityDatasetsLogic', () => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], {
             [FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]: true,
-            [FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS]: true,
         })
         const tabs = offlineEvaluationsLogic()
         tabs.mount()

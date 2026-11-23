@@ -37,7 +37,12 @@ from social_core.backends.base import BaseAuth
 from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParameter, AuthStateForbidden, AuthStateMissing
 from structlog.testing import capture_logs
 
-from posthog.api.current_alias_usage import CURRENT_ALIAS_USED_EVENT, CurrentAliasScope, current_alias_scope
+from posthog.api.current_alias_usage import (
+    CURRENT_ALIAS_USED_EVENT,
+    FLAT_ROUTE_USED_EVENT,
+    CurrentAliasScope,
+    current_alias_scope,
+)
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.clickhouse.query_tagging import get_query_tags
@@ -1467,6 +1472,11 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
             res = self.client.post("/logout/")
             assert res.status_code == 302
             assert res.headers["Location"] == f"/admin/posthog/user/{self.other_user.id}/change/"
+
+            res = self.client.get(res.headers["Location"])
+            assert [str(message) for message in res.context["messages"]] == [
+                "You are now logged back in as user1@posthog.com."
+            ]
 
             # Verify we're back to original user
             res = self.client.get("/api/users/@me")
@@ -3714,8 +3724,8 @@ class TestCurrentAliasUsage(APIBaseTest):
         super().setUp()
         cache.clear()
 
-    def _alias_events(self, capture: MagicMock) -> list[Mapping[str, Any]]:
-        return [call.kwargs for call in capture.call_args_list if call.kwargs.get("event") == CURRENT_ALIAS_USED_EVENT]
+    def _alias_events(self, capture: MagicMock, event: str = CURRENT_ALIAS_USED_EVENT) -> list[Mapping[str, Any]]:
+        return [call.kwargs for call in capture.call_args_list if call.kwargs.get("event") == event]
 
     def test_reports_each_credential_caller_once_per_route(self) -> None:
         token = generate_random_token_personal()
@@ -3771,6 +3781,112 @@ class TestCurrentAliasUsage(APIBaseTest):
         assert [
             (event["properties"]["access_method"], event["properties"]["oauth_application_id"]) for event in events
         ] == [("oauth", application_id) for application_id in tokens.values()]
+
+    @parameterized.expand(
+        [
+            ("unscoped_key_on_project", "/api/projects/@current/", None, status.HTTP_200_OK, ("user", False)),
+            (
+                "project_scoped_key_on_project",
+                "/api/projects/@current/",
+                "own_team",
+                status.HTTP_200_OK,
+                ("user", True),
+            ),
+            (
+                "key_listing_a_project_outside_its_organization",
+                "/api/projects/@current/",
+                "own_and_foreign_team_in_own_organization",
+                status.HTTP_200_OK,
+                ("user", True),
+            ),
+            (
+                "key_scoped_to_another_project",
+                "/api/projects/@current/",
+                "other_team",
+                status.HTTP_403_FORBIDDEN,
+                ("user", True),
+            ),
+            (
+                "project_token_on_a_nested_project_route",
+                "/api/projects/@current/feature_flags/?token={project_token}",
+                None,
+                status.HTTP_200_OK,
+                ("token", False),
+            ),
+            (
+                "unscoped_key_on_organization",
+                "/api/organizations/@current/members/",
+                None,
+                status.HTTP_200_OK,
+                ("user", False),
+            ),
+            (
+                "project_scoped_key_on_organization",
+                "/api/organizations/@current/members/",
+                "own_team",
+                status.HTTP_403_FORBIDDEN,
+                ("user", True),
+            ),
+            (
+                "organization_scoped_key_on_organization",
+                "/api/organizations/@current/members/",
+                "own_organization",
+                status.HTTP_200_OK,
+                ("user", True),
+            ),
+        ]
+    )
+    def test_reports_what_decided_the_scope(
+        self, _name: str, path: str, key_scope: str | None, expected_status: int, expected: tuple[str, bool]
+    ) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        foreign_team = create_team(organization=create_organization(name="Foreign"))
+        scoping_by_kind: dict[str | None, dict[str, list[int] | list[str]]] = {
+            None: {},
+            "own_team": {"scoped_teams": [self.team.id]},
+            "other_team": {"scoped_teams": [other_team.id]},
+            "own_and_foreign_team_in_own_organization": {
+                "scoped_teams": [self.team.id, foreign_team.id],
+                "scoped_organizations": [str(self.organization.id)],
+            },
+            "own_organization": {"scoped_organizations": [str(self.organization.id)]},
+        }
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user, secure_value=hash_key_value(token), scopes=["*"], **scoping_by_kind[key_scope]
+        )
+        self.client.logout()
+
+        with patch("posthog.event_usage.posthoganalytics.capture") as capture:
+            response = self.client.get(
+                path.format(project_token=self.team.api_token), HTTP_AUTHORIZATION=f"Bearer {token}"
+            )
+
+        assert response.status_code == expected_status
+        [event] = self._alias_events(capture)
+        assert (event["properties"]["project_from"], event["properties"]["credential_pins_scope"]) == expected
+
+    @parameterized.expand(
+        [
+            ("flat_route_follows_the_user", "/api/feature_flag/", False, [("api/feature_flag/", "user")]),
+            ("flat_route_with_a_token", "/api/cohort/", True, [("api/cohort/", "token")]),
+            ("nested_route", "/api/projects/{team_id}/feature_flags/", False, []),
+        ]
+    )
+    def test_reports_flat_route_callers(
+        self, _name: str, path: str, with_token: bool, expected: list[tuple[str, str]]
+    ) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(user=self.user, secure_value=hash_key_value(token), scopes=["*"])
+        self.client.logout()
+        query = {"token": self.team.api_token} if with_token else {}
+
+        with patch("posthog.event_usage.posthoganalytics.capture") as capture:
+            response = self.client.get(path.format(team_id=self.team.id), query, HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        assert response.status_code == status.HTTP_200_OK
+        events = self._alias_events(capture, FLAT_ROUTE_USED_EVENT)
+        assert [(event["properties"]["route"], event["properties"]["project_from"]) for event in events] == expected
 
     def test_recording_failure_does_not_fail_the_request(self) -> None:
         token = generate_random_token_personal()

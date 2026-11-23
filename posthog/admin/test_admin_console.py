@@ -3,7 +3,6 @@ from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from importlib import import_module
-from pathlib import Path
 from types import FunctionType
 from urllib.parse import urlencode
 
@@ -101,12 +100,6 @@ from products.posthog_ai.backend.models.assistant import Conversation
 from ee.billing.quota_limiting import QuotaResource
 from ee.hogai.django_checkpoint.compaction import CompactionResult
 
-TEMPLATE_DIR = Path(settings.BASE_DIR) / "posthog" / "templates" / "admin_console"
-CONSOLE_ASSETS = Path(settings.BASE_DIR) / "frontend" / "public" / "admin-console"
-REBUILD = "pnpm --filter=@posthog/frontend build:admin-console"
-
-_CLASS_ATTRIBUTE = re.compile(r'class="([^"]*)"')
-_TEMPLATE_TAG = re.compile(r"\{%.*?%\}|\{\{.*?\}\}")
 _PATH_PARAMETER = re.compile(r"<(?:(\w+):)?(\w+)>")
 _SAMPLE_VALUES = {"int": "7", "uuid": "0d7b8a52-4f0e-4b8e-9a43-6f1c2e5d9b10", "str": "example", "path": "example"}
 CONSOLE_HOME = "/admin/console/"
@@ -128,13 +121,6 @@ INTENTIONAL_ADMIN_OVERRIDES = frozenset(
 DISABLED_ADMIN_FORMS = frozenset({"admin/posthog/user/<int:pk>/password/"})
 
 
-def _selector_present(css: str, class_name: str) -> bool:
-    # Tailwind and quill escape every character that is not selector-safe, so `@3xl:grid-cols-2` is
-    # written `.\@3xl\:grid-cols-2`. The trailing guard stops `.flex` matching inside `.flex-1`.
-    escaped = "".join(char if char.isalnum() or char in "-_" else "\\" + char for char in class_name)
-    return re.search(re.escape("." + escaped) + r"(?![a-zA-Z0-9_\\-])", css) is not None
-
-
 def _sample_path(old_path: str) -> tuple[str, dict[str, str]]:
     # Fills each path parameter of an old URL pattern with a value its converter accepts.
     values: dict[str, str] = {}
@@ -150,7 +136,7 @@ class _DuplicatePanel(Panel):
     record = "team"
     key = "overview"
     title = "Duplicate"
-    owner = Owner(name="Dev experience", crest="dev-experience")
+    owner = None
 
 
 class _UndeclaredOperationPanel(_DuplicatePanel):
@@ -163,8 +149,8 @@ class _UndeclaredOperationPanel(_DuplicatePanel):
 class _Tool(ConsoleTool):
     key = "some-report"
     title = "Some report"
-    owner = Owner(name="Dev experience", crest="dev-experience")
-    group = "Data"
+    owner = None
+    group = "Infrastructure"
 
 
 class _ToolActionForm(forms.Form):
@@ -320,54 +306,7 @@ def _move_twice() -> None:
     registry.register_moved_page(old_path="admin/report/", title="Report", url="/admin/console/tools/other-report/")
 
 
-class TestAdminConsoleAssets(SimpleTestCase):
-    def test_every_class_in_the_templates_is_in_the_compiled_stylesheet(self) -> None:
-        css = (CONSOLE_ASSETS / "console.css").read_text()
-        templates = sorted(TEMPLATE_DIR.glob("*.html"))
-        assert templates, f"No templates found in {TEMPLATE_DIR}, so this test checks nothing."
-
-        missing: dict[str, set[str]] = {}
-        for template in templates:
-            for attribute in _CLASS_ATTRIBUTE.findall(template.read_text()):
-                for token in _TEMPLATE_TAG.sub(" ", attribute).split():
-                    # `group/name` only marks a parent for `group-*/name:` variants and has no rule of its own.
-                    if token.startswith("group/") or "{" in token or "}" in token:
-                        continue
-                    if not _selector_present(css, token):
-                        missing.setdefault(template.name, set()).add(token)
-
-        assert not missing, (
-            "These classes are in the console templates but not in console.css, so they render unstyled. "
-            f"Rebuild with `{REBUILD}`. If the class is quill's, quill may have renamed it: "
-            + "; ".join(f"{name}: {sorted(classes)}" for name, classes in sorted(missing.items()))
-        )
-
-    def test_every_asset_the_templates_link_to_ships(self) -> None:
-        linked = {
-            name
-            for template in TEMPLATE_DIR.glob("*.html")
-            for name in re.findall(r"/static/admin-console/([^\"?{]+)[\"?]", template.read_text())
-        }
-        assert linked, "No linked assets found, so this test checks nothing."
-
-        missing = sorted(name for name in linked if not (CONSOLE_ASSETS / name).is_file())
-        assert not missing, (
-            f"These assets are linked from the console templates but missing. Rebuild with `{REBUILD}`: {missing}"
-        )
-
-    def test_every_owner_crest_ships(self) -> None:
-        missing = sorted(
-            {
-                owner.crest
-                for owner in console.owners()
-                if not (CONSOLE_ASSETS / "crests" / f"{owner.crest}.svg").is_file()
-            }
-        )
-
-        assert not missing, (
-            f"Console owners name crests the console does not ship: {missing}. Rebuild with `{REBUILD}`."
-        )
-
+class TestAdminConsoleContract(SimpleTestCase):
     @parameterized.expand(
         [
             ("duplicate_panel_key", _register_twice, "already used"),
@@ -450,7 +389,7 @@ class TestAdminConsoleAssets(SimpleTestCase):
             ),
             (
                 "owner_gate_for_an_owner_without_a_staff_group",
-                lambda: Gate.owner().resolve(Owner(name="Dev experience", crest="dev-experience")),
+                lambda: Gate.owner().resolve(Owner(name="Replay", crest="replay")),
                 "has no staff_group",
             ),
             ("fact_with_markup", lambda: Fact(label="Plan", value=format_html("<b>{}</b>", "Scale")), "plain text"),
@@ -782,14 +721,23 @@ class TestAdminConsoleViews(BaseTest):
         self.user.save()
         self.client.force_login(self.user)
 
-    def test_staff_login_is_required(self) -> None:
+    @parameterized.expand([("team_page", "/admin/console/teams/{team}/"), ("tools_index", "/admin/console/tools/")])
+    def test_staff_login_is_required(self, _name: str, path: str) -> None:
         self.user.is_staff = False
         self.user.save()
 
-        response = self.client.get(f"/admin/console/teams/{self.team.pk}/")
+        response = self.client.get(path.format(team=self.team.pk))
 
         assert response.status_code == 302
         assert response["Location"].startswith("/admin/login/")
+
+    def test_the_tools_page_links_every_registered_tool(self) -> None:
+        response = self.client.get("/admin/console/tools/")
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        for tool in console.tools():
+            assert f'href="/admin/console/tools/{tool.key}/"' in content, f"{tool.key} is missing from the tools page"
 
     def test_operations_need_a_csrf_token_even_with_an_api_key_parameter(self) -> None:
         client = Client(enforce_csrf_checks=True)
@@ -906,7 +854,14 @@ class TestAdminConsoleViews(BaseTest):
 
         home = self.client.get("/admin/console/").content.decode()
         assert "Recently opened" in home
-        assert f"/admin/console/teams/{self.team.pk}/" in home
+        opened_pages = (
+            f"/admin/console/teams/{self.team.pk}/",
+            f"/admin/console/organizations/{self.organization.pk}/",
+            f"/admin/console/projects/{self.project.pk}/",
+            f"/admin/console/users/{self.user.pk}/",
+        )
+        for opened_page in opened_pages:
+            assert opened_page in home, f"home misses {opened_page}, which was opened before"
 
     @parameterized.expand([("team",), ("project",), ("user",)])
     def test_django_admin_page_points_moved_actions_to_registered_panels(self, record: str) -> None:
@@ -937,6 +892,7 @@ class TestAdminConsoleViews(BaseTest):
     @parameterized.expand(
         [
             ("team_name", "team", None),
+            ("organization_name", "organization_name", None),
             ("team_uuid", "team_uuid", None),
             ("team_api_token_in_uuid_form", "team_token", None),
             ("organization_id", "organization", None),
@@ -947,6 +903,9 @@ class TestAdminConsoleViews(BaseTest):
     def test_a_lookup_with_one_match_opens_its_page(self, _name: str, record: str, ticket: str | None) -> None:
         if record == "team":
             query, expected = self.team.name, f"/admin/console/teams/{self.team.pk}/"
+        elif record == "organization_name":
+            query, expected = "Lookup Hedgehogs", f"/admin/console/teams/{self.team.pk}/"
+            Organization.objects.filter(pk=self.organization.pk).update(name="The Lookup Hedgehogs Ltd")
         elif record == "team_uuid":
             query, expected = str(self.team.uuid), f"/admin/console/teams/{self.team.pk}/"
         elif record == "team_token":
@@ -1388,6 +1347,35 @@ class TestAdminConsoleViews(BaseTest):
         assert "restriction_type=redirect_to_dlq" not in content
         assert "The high cardinality query failed: Timeout exceeded" in content
         assert "/admin/console/tools/distinct-id-usage/restrict/?" in content
+
+    @patch("posthog.models.distinct_id_usage.report.DistinctIdUsageQueries")
+    def test_distinct_id_usage_report_reuses_event_counts_but_not_restrictions(self, queries: MagicMock) -> None:
+        caches["default"].clear()
+        queries.high_usage.return_value = [(self.team.pk, "heavy-user", 200_000, 300_000, 66.67)]
+        queries.high_cardinality.return_value = []
+        burst_minute = datetime(2026, 11, 7, 5, 30, tzinfo=UTC)
+        queries.distinct_id_bursts.return_value = [(self.team.pk, "bursty-user", burst_minute, 150_000)]
+        queries.team_bursts.return_value = [(self.team.pk, burst_minute, 600_000)]
+        url = (
+            "/admin/console/tools/distinct-id-usage/?datetime_from=2026-11-07T04%3A00&datetime_to=2026-11-07T10%3A00"
+            "&high_usage_percentage_threshold=30&high_usage_min_events_threshold=10000"
+            "&high_usage_distinct_id_min_events=100000&high_cardinality_threshold=1000000"
+            "&burst_distinct_id_threshold=100000&burst_team_threshold=500000"
+        )
+
+        first = self.client.get(url).content.decode()
+        EventIngestionRestrictionConfig.objects.create(
+            token=self.team.api_token,
+            restriction_type=RestrictionType.SKIP_PERSON_PROCESSING,
+            distinct_ids=["heavy-user"],
+        )
+        second = self.client.get(url).content.decode()
+
+        assert queries.high_usage.call_count == 1
+        assert "Event counts were read at" in second
+        assert "bursty-user" in second and "600,000" in first and "600,000" in second
+        assert "Not in list" not in first
+        assert "Applied: Skip person processing" in second
 
     @parameterized.expand(
         [

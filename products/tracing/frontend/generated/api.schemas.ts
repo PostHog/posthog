@@ -634,6 +634,49 @@ export interface _TracingLatencyHeatmapResponseApi {
     results: _TracingLatencyHeatmapCellApi[]
 }
 
+export interface _TracingTimeseriesQueryBodyApi {
+    /** Date range for the query. Defaults to last hour. */
+    dateRange?: _TracingDateRangeApi
+    /** Filter by service names. */
+    serviceNames?: string[]
+    /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
+    statusCodes?: number[]
+    /** Property filters for the query. */
+    filterGroup?: _SpanPropertyFilterApi[]
+}
+
+export interface _TracingLatencyPercentilesRequestApi {
+    /** The latency percentiles query to execute. */
+    query: _TracingTimeseriesQueryBodyApi
+}
+
+export interface _TracingLatencyPercentilesRowApi {
+    /** ISO 8601 UTC start of the time bucket. */
+    time: string
+    /** Spans the percentiles cover in this bucket: server and consumer spans, or root spans when the matching spans in the window hold neither. 0 for a bucket with no such spans. */
+    count: number
+    /**
+     * Median duration in nanoseconds. Null when count is 0.
+     * @nullable
+     */
+    p50_ns: number | null
+    /**
+     * 95th percentile duration in nanoseconds. Null when count is 0.
+     * @nullable
+     */
+    p95_ns: number | null
+    /**
+     * 99th percentile duration in nanoseconds. Null when count is 0.
+     * @nullable
+     */
+    p99_ns: number | null
+}
+
+export interface _TracingLatencyPercentilesResponseApi {
+    /** One row per time bucket in the window, ordered by time, on the sparkline's time axis. */
+    results: _TracingLatencyPercentilesRowApi[]
+}
+
 /**
  * * `timestamp` - timestamp
  * * `duration` - duration
@@ -695,11 +738,30 @@ export interface _TracingQueryBodyApi {
     prefetchSpans?: number
     /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
     excludeAttributes?: boolean
+    /** Include each span's OpenTelemetry events, such as recorded exceptions. The events are large, so keep `limit` small. Ignored when `excludeAttributes` is true. Defaults to false. */
+    includeEvents?: boolean
 }
 
 export interface _TracingQueryRequestApi {
     /** The tracing spans query to execute. */
     query: _TracingQueryBodyApi
+}
+
+/**
+ * Event attributes. Keys are whatever the instrumentation set.
+ */
+export type _SpanEventApiAttributes = { [key: string]: string }
+
+export interface _SpanEventApi {
+    /** Event name, for example `exception`. */
+    name: string
+    /**
+     * When the event occurred. Null when the SDK did not set a time.
+     * @nullable
+     */
+    timestamp: string | null
+    /** Event attributes. Keys are whatever the instrumentation set. */
+    attributes: _SpanEventApiAttributes
 }
 
 /**
@@ -754,6 +816,8 @@ export interface _SpanApi {
     attributes: _SpanApiAttributes
     /** Resource attributes of the emitting service. Keys are whatever the instrumentation set. */
     resource_attributes: _SpanApiResourceAttributes
+    /** OpenTelemetry span events, earliest first. The trace action returns them, and list queries only with `includeEvents`. Omitted when `excludeAttributes` is true. */
+    events?: _SpanEventApi[]
 }
 
 export interface _TracingQueryResponseApi {
@@ -1045,6 +1109,14 @@ export interface _TracingSparklineResponseApi {
     results: _TracingSparklineRowApi[]
 }
 
+export interface _StoredTraceResponseApi {
+    /**
+     * The id as lowercase hex when the team stores a span of this trace, in any time range. Null when the id is not an OpenTelemetry trace id, as 32 hex characters or a hyphenated UUID, or no span is stored.
+     * @nullable
+     */
+    traceId: string | null
+}
+
 export interface _SymbolStatsSymbolApi {
     /**
      * Opaque identifier (e.g. the function name) echoed back on the matching result row.
@@ -1189,23 +1261,6 @@ export interface _TracingTraceRequestApi {
 }
 
 /**
- * Event attributes. Keys are whatever the instrumentation set.
- */
-export type _SpanEventApiAttributes = { [key: string]: string }
-
-export interface _SpanEventApi {
-    /** Event name, for example `exception`. */
-    name: string
-    /**
-     * When the event occurred. Null when the SDK did not set a time.
-     * @nullable
-     */
-    timestamp: string | null
-    /** Event attributes. Keys are whatever the instrumentation set. */
-    attributes: _SpanEventApiAttributes
-}
-
-/**
  * Span attributes. Keys are whatever the instrumentation set.
  */
 export type _TraceSpanApiAttributes = { [key: string]: string }
@@ -1216,7 +1271,7 @@ export type _TraceSpanApiAttributes = { [key: string]: string }
 export type _TraceSpanApiResourceAttributes = { [key: string]: string }
 
 /**
- * A span in a single trace. The trace action adds self time and span events, which the list does not return.
+ * A span in a single trace. The trace action adds self time, which the list does not return.
  */
 export interface _TraceSpanApi {
     /** Span's own UUID. */
@@ -1253,10 +1308,10 @@ export interface _TraceSpanApi {
     attributes: _TraceSpanApiAttributes
     /** Resource attributes of the emitting service. Keys are whatever the instrumentation set. */
     resource_attributes: _TraceSpanApiResourceAttributes
+    /** OpenTelemetry span events, earliest first. The trace action returns them, and list queries only with `includeEvents`. Omitted when `excludeAttributes` is true. */
+    events?: _SpanEventApi[]
     /** Span duration minus the time spent in its children, in nanoseconds. */
     self_time_nano: number
-    /** OpenTelemetry span events, earliest first. Omitted when `excludeAttributes` is true. */
-    events?: _SpanEventApi[]
 }
 
 export interface _TraceSummarySpanApi {
@@ -1722,6 +1777,15 @@ export type TracingSpansServiceNamesRetrieveParams = {
      * @minLength 1
      */
     search?: string
+}
+
+export type TracingSpansStoredTraceRetrieveParams = {
+    /**
+     * A trace id from another product, such as an `$ai_trace_id`. Any string is accepted.
+     * @minLength 1
+     * @maxLength 255
+     */
+    trace_id: string
 }
 
 export type TracingSpansValuesRetrieveParams = {

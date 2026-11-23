@@ -497,6 +497,27 @@ def _trigger_schema_sync(instance: ExternalDataSchema) -> None:
         sync_external_data_job_workflow(instance, create=True, should_sync=instance.should_sync)
 
 
+def _sync_now_for_shorter_cadence(instance: ExternalDataSchema) -> None:
+    """Start a sync after the user shortened the cadence, with the same guards as a manual sync.
+
+    The new cadence is already saved and scheduled, so a failed start, including a failed Temporal
+    connection, is logged and does not fail the request. The next scheduled run then syncs the table.
+
+    The status is not set to Running here. A run in failure backoff exits before it creates a job,
+    so only the job-creation activity knows that a sync started.
+    """
+    if manual_sync_refusal(instance.source) is not None or is_any_external_data_schema_paused(instance.team_id):
+        return
+    try:
+        trigger_external_data_workflow(instance)
+    except Exception as e:
+        logger.exception(
+            "Could not start a sync after the sync frequency got shorter",
+            schema_id=str(instance.id),
+            exc_info=e,
+        )
+
+
 def resync_schema(instance: ExternalDataSchema) -> Response:
     refusal = manual_sync_refusal(instance.source)
     if refusal is not None:
@@ -1677,6 +1698,20 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     else set()
                 )
                 if known:
+                    # Discovery keeps a stored column that left the source when dropping it would empty the
+                    # selection, and the column picker sends it back unseen. Drop it here, but never save an
+                    # empty selection, which would read every column.
+                    stored = set(instance.enabled_columns or [])
+                    stale = [c for c in enabled_columns if c not in known and c in stored]
+                    if stale:
+                        enabled_columns = [c for c in enabled_columns if c not in stale]
+                        if not enabled_columns:
+                            raise ValidationError(
+                                f"These columns no longer exist in the source: {', '.join(sorted(stale))}. "
+                                "Select at least one column to sync."
+                            )
+                        validated_data["enabled_columns"] = enabled_columns
+                        enabled_columns_changed = enabled_columns != instance.enabled_columns
                     unknown = [c for c in enabled_columns if c not in known]
                     if unknown:
                         raise ValidationError(
@@ -2053,11 +2088,17 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         ):
             sync_frequency = FLOOR_SYNC_FREQUENCY
 
+        sync_frequency_shortened = False
         if sync_frequency:
             sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
 
             if sync_frequency_interval != instance.sync_frequency_interval:
                 was_sync_frequency_updated = True
+                sync_frequency_shortened = (
+                    sync_frequency_interval is not None
+                    and instance.sync_frequency_interval is not None
+                    and sync_frequency_interval < instance.sync_frequency_interval
+                )
                 validated_data["sync_frequency_interval"] = sync_frequency_interval
                 instance.sync_frequency_interval = sync_frequency_interval
 
@@ -2336,6 +2377,19 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 self._run_temporal_side_effect(cancel_running_import)
                 import_cancelled = True
 
+        # A refresh, a mask rebuild, a CDC re-snapshot or an API version change in the same request already
+        # decides when the table syncs next, so a shorter cadence does not start a second sync.
+        sync_now_for_shorter_cadence = sync_frequency_shortened and not (
+            trigger_refresh
+            or masked_columns_changed
+            or api_version_changed
+            or (
+                is_cdc
+                and "cdc_table_mode" in data
+                and _cdc_table_mode_change_needs_resnapshot(previous_cdc_table_mode, data.get("cdc_table_mode"))
+            )
+        )
+
         if source.supports_scheduled_sync and (
             should_sync is not None
             or was_sync_frequency_updated
@@ -2394,6 +2448,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                         sync_external_data_job_workflow(
                             updated_instance, create=False, should_sync=should_sync_value and not reset_pending
                         )
+                        # The re-issued schedule first fires at the next slot of the new cadence, so without
+                        # a trigger a user who shortens the cadence waits up to a full new interval.
+                        if sync_now_for_shorter_cadence and should_sync_value and not reset_pending:
+                            _sync_now_for_shorter_cadence(updated_instance)
 
             self._run_temporal_side_effect(update_schedule)
 

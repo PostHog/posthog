@@ -1,8 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { z } from 'zod'
 
-import { LEGACY_COMMANDS } from '@/commands/legacy'
-import { EXIT_FAILURE, EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
+import { EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
 import { VERSION } from '@/version'
 
 import { runHog } from './testing'
@@ -18,43 +17,17 @@ describe('hog', () => {
             'Usage: hog query run',
         ],
         ['command help lists examples and scopes', ['query', 'run', '--help'], 'Needs the scopes: query:read'],
+        ['help for a shortcut shows the command it names', ['help', 'whoami'], 'Usage: hog auth status'],
     ])('%s', async (_name, argv, stdout) => {
         const result = await runHog(argv)
         expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.stdout).toContain(stdout)
     })
 
-    test.each(Object.entries(LEGACY_COMMANDS).map(([name, command]) => [name, 'use' in command ? command.use : '']))(
-        '%s fails and points to %s',
-        async (name, use) => {
-            const result = await runHog([name, 'sub', "it's", '--flag'])
-            expect(result.exitCode).toBe(EXIT_FAILURE)
-            expect(result.error()).toMatchObject({ code: 'not_ported' })
-            expect(result.error().message).toContain(`${use} sub 'it'\\''s' --flag`)
-        }
-    )
-
-    test.each([
-        ['help for an unported command', ['help', 'logs', 'import'], 'posthog-cli exp logs import --help'],
-        ['an unported subcommand of a ported group', ['query', 'editor'], 'posthog-cli exp query editor'],
-        [
-            'hog globals that posthog-cli takes before the subcommand',
-            ['-o', 'json', '--host', 'https://eu.example.com', 'logs', 'import', '--dotenv-file=p.env', '--dir', 'x'],
-            'posthog-cli --host https://eu.example.com --dotenv-file p.env exp logs import --dir x',
-        ],
-        [
-            'an --output that the legacy command owns',
-            ['logs', 'import', '--output', './logs'],
-            'posthog-cli exp logs import --output ./logs',
-        ],
-    ])('%s points to posthog-cli', async (_name, argv, invocation) => {
-        const result = await runHog(argv)
-        expect(result.exitCode).toBe(EXIT_FAILURE)
-        expect(result.error().message).toEndWith(`Run this instead:\n  ${invocation}`)
-    })
-
     test.each([
         ['an unknown command', ['nope'], 'unknown_command', 'hog feedback "<what happened>"'],
+        ['a name only Object.prototype has', ['constructor'], 'unknown_command', 'hog feedback "<what happened>"'],
+        ['__proto__', ['__proto__'], 'unknown_command', 'hog feedback "<what happened>"'],
         [
             'a missing argument',
             ['query', 'check'],
@@ -77,6 +50,7 @@ describe('hog', () => {
         const result = await runHog(argv, { env: { CLAUDECODE: '1' } })
         expect(result.exitCode).toBe(EXIT_USAGE)
         expect(result.error()).toMatchObject({ code, feedback })
+        expect(result.error().message).not.toContain('undefined')
     })
 
     test.each([
@@ -88,6 +62,46 @@ describe('hog', () => {
         const result = await runHog(argv)
         expect(result.exitCode).toBe(EXIT_USAGE)
         expect(result.error().message).toContain(message)
+    })
+
+    test.each([
+        ['hog alone shows a person the overview', [], true, 'Get started', 'Usage: hog'],
+        ['hog --help shows a person no exit codes', ['--help'], true, 'Usage: hog', 'Exit codes'],
+        ['hog alone shows an agent the full help', [], false, 'Exit codes', 'Get started'],
+        ['hog --help shows an agent the exit codes', ['--help'], false, 'Exit codes', 'Get started'],
+    ])('%s', async (_name, argv, person, shown, hidden) => {
+        const result = await runHog(argv, person ? { stdoutIsTTY: true, env: { NO_COLOR: '1' } } : {})
+
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
+        expect(result.stdout).toContain(shown)
+        expect(result.stdout).not.toContain(hidden)
+    })
+
+    test('every command the overview names exists', async () => {
+        const overview = await runHog([], { stdoutIsTTY: true, env: { NO_COLOR: '1' } })
+        const named = [...overview.stdout.matchAll(/^ {2}hog ([a-z -]+?)(?= [<[]| {2})/gm)].map((match) => match[1]!)
+        const manifest = (await runHog(['commands'], { env: { CLAUDECODE: '1' } })).json(
+            z.object({ commands: z.array(z.object({ name: z.string() })), aliases: z.record(z.string(), z.string()) })
+        )
+        const commands = new Set(manifest.commands.map((command) => command.name))
+        const resolve = (name: string): string => {
+            const alias = Object.keys(manifest.aliases).find((key) => name === key || name.startsWith(`${key} `))
+            return alias ? manifest.aliases[alias] + name.slice(alias.length) : name
+        }
+
+        expect(named.length).toBeGreaterThan(0)
+        expect(named.filter((name) => !commands.has(resolve(name)))).toEqual([])
+    })
+
+    test('hog whoami runs hog auth status', async () => {
+        const whoami = await runHog(['whoami'])
+        const status = await runHog(['auth', 'status'])
+
+        expect({ exitCode: whoami.exitCode, stdout: whoami.stdout }).toEqual({
+            exitCode: status.exitCode,
+            stdout: status.stdout,
+        })
+        expect(whoami.stdout).toContain('"authenticated"')
     })
 
     test('a person sees errors as text', async () => {
@@ -106,7 +120,11 @@ describe('hog', () => {
                 commands: z.array(z.looseObject({ name: z.string() })),
             })
         )
-        expect(manifest).toMatchObject({ cli: 'hog', agent: 'claude-code', aliases: { et: 'error-tracking' } })
+        expect(manifest).toMatchObject({
+            cli: 'hog',
+            agent: 'claude-code',
+            aliases: { et: 'error-tracking', whoami: 'auth status' },
+        })
         expect(manifest.globalOptions).toContainEqual(expect.objectContaining({ flags: '-o, --output <format>' }))
         expect(manifest.commands.find((command: { name: string }) => command.name === 'query run')).toMatchObject({
             name: 'query run',
@@ -126,7 +144,6 @@ describe('hog', () => {
             'ci setup',
             'query run',
             'query check',
-            'query editor',
             'api groups',
             'api tools',
             'api search',
@@ -135,7 +152,6 @@ describe('hog', () => {
             'api call',
             'api access',
             'api refresh',
-            'api agents-md',
             'skills',
             'skills list',
             'skills search',
@@ -161,8 +177,8 @@ describe('hog', () => {
             'config check',
             'config schema',
             'commands',
+            'upgrade',
             'feedback',
-            ...Object.keys(LEGACY_COMMANDS),
         ])
     })
 })

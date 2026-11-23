@@ -174,6 +174,27 @@ class TestBuildInitialParams:
                 None,
                 {"limit": 100},
             ),
+            (
+                "teams_have_no_pagination_params",
+                "teams",
+                False,
+                None,
+                {},
+            ),
+            (
+                "help_center_articles_include_drafts",
+                "help_center_articles",
+                False,
+                None,
+                {"limit": 100, "state": "all"},
+            ),
+            (
+                "audit_logs_full_refresh_has_no_filter",
+                "audit_logs",
+                False,
+                None,
+                {"limit": 100},
+            ),
         ]
     )
     def test_build_initial_params(
@@ -187,16 +208,32 @@ class TestBuildInitialParams:
         )
         assert params == expected
 
-    def test_changelogs_incremental_sends_server_side_start_date(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "changelogs_sort_ascending_by_date",
+                "changelogs",
+                "date",
+                {"limit": 100, "sortBy": "date", "sortOrder": "asc", "startDate": "2026-03-04T02:58:14.000Z"},
+            ),
+            (
+                "audit_logs_have_no_sort_param",
+                "audit_logs",
+                "createdAt",
+                {"limit": 100, "startDate": "2026-03-04T02:58:14.000Z"},
+            ),
+        ]
+    )
+    def test_server_filter_incremental_sends_start_date(
+        self, _name: str, endpoint: str, field: str, expected: dict
+    ) -> None:
         params = _build_initial_params(
-            FEATUREBASE_ENDPOINTS["changelogs"],
+            FEATUREBASE_ENDPOINTS[endpoint],
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-            incremental_field="date",
+            incremental_field=field,
         )
-        assert params["startDate"] == "2026-03-04T02:58:14.000Z"
-        assert params["sortBy"] == "date"
-        assert params["sortOrder"] == "asc"
+        assert params == expected
 
     def test_every_advertised_incremental_field_has_sort_params(self) -> None:
         # A "desc_cutoff" sweep stops once a whole page predates the watermark, which is only
@@ -442,6 +479,8 @@ class TestSourceResponse:
             ("boards_full_refresh", "boards", False, "asc"),
             ("tickets_incremental", "tickets", True, "desc"),
             ("tickets_full_refresh", "tickets", False, "asc"),
+            # Audit logs come newest-first even though `startDate` filters them server-side.
+            ("audit_logs_incremental", "audit_logs", True, "desc"),
         ]
     )
     def test_sort_mode_matches_emit_order(self, _name: str, endpoint: str, incremental: bool, expected: str) -> None:

@@ -66,6 +66,7 @@ export function EmailDocumentEditor(): JSX.Element {
         logicProps,
         documentEditorInitialDoc,
         convertedEmailDocument,
+        templatingEngine,
     } = useValues(emailTemplaterLogic)
     const { setEmailEditorRef, onEmailEditorReady, flushPendingDesignEdit } = useActions(emailTemplaterLogic)
     const { currentProjectId } = useValues(teamLogic)
@@ -406,6 +407,8 @@ export function EmailDocumentEditor(): JSX.Element {
                         </>
                     ) : null}
                     <div className="flex-1" />
+                    <EmailEditorSwitch.ConvertedNotice />
+                    <EmailEditorFeedback />
                     <EmailEditorSwitch.UseOldButton />
                     {mode === 'edit' ? (
                         <LemonButton
@@ -418,10 +421,15 @@ export function EmailDocumentEditor(): JSX.Element {
                         </LemonButton>
                     ) : null}
                 </div>
-                <EmailEditorSwitch.ConvertedNotice />
-                <EmailEditorFeedback />
                 {mode === 'preview' ? (
-                    <EmailDocumentPreview html={html} unsubscribeMissing={!!html && !hasUnsubscribeLink(html)} />
+                    <EmailDocumentPreview
+                        html={html}
+                        liquid={
+                            (typeof logicProps.templating === 'string' ? logicProps.templating : templatingEngine) ===
+                            'liquid'
+                        }
+                        unsubscribeMissing={!!html && !hasUnsubscribeLink(html)}
+                    />
                 ) : (
                     <div className="flex flex-1 min-h-0 relative">
                         <div

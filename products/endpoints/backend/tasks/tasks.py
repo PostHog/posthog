@@ -64,8 +64,8 @@ def deactivate_stale_materializations() -> None:
     1. The version has an active materialization (saved_query.is_materialized = True)
     2. The materialization has run in the past 24h (a finished job, or saved_query.last_run_at)
     3. The materialization was enabled at least 30 days ago (saved_query.created_at)
-    4. The version was last executed over 30 days ago (via API key), or it is a superseded
-       version that was never executed
+    4. The version was last executed over 30 days ago, or it was never executed and either
+       the endpoint was never executed or the version is superseded
     5. No other view, endpoint or metric reads the saved query
 
     For matching versions, the materialization is reverted to save resources.
@@ -81,15 +81,16 @@ def deactivate_stale_materializations() -> None:
     ).exclude(status=DataModelingJobStatus.RUNNING)
     ran_recently = Q(saved_query__last_run_at__gte=twenty_four_hours_ago) | Q(Exists(recent_job))
 
-    # Both stamps are written together on every API-key call, so a superseded version with no stamp
-    # of its own has not been called since the stamp existed. The endpoint stamp belongs to the
-    # version that replaced it.
+    # Both stamps are written together on every programmatic call, so a version with no stamp of its
+    # own has not been called since the stamp existed. The endpoint stamp belongs to the version that
+    # replaced it, and an endpoint with no stamp at all was never called from code. Only playground
+    # and UI calls go unstamped, and those do not justify a running materialization; the 30-day gate on
+    # saved_query.created_at below keeps a freshly materialized version safe.
     superseded = ~Q(version=F("endpoint__current_version"))
-    version_stale = (
-        Q(last_executed_at__lt=stale_threshold)
-        | Q(last_executed_at__isnull=True, endpoint__last_executed_at__lt=stale_threshold)
-        | (Q(last_executed_at__isnull=True) & superseded)
+    never_called_version = Q(last_executed_at__isnull=True) & (
+        Q(endpoint__last_executed_at__lt=stale_threshold) | Q(endpoint__last_executed_at__isnull=True) | superseded
     )
+    version_stale = Q(last_executed_at__lt=stale_threshold) | never_called_version
 
     stale_versions = EndpointVersion.objects.filter(
         ran_recently,

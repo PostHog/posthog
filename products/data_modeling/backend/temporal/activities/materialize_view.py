@@ -12,6 +12,7 @@ from collections.abc import Iterator
 from django.conf import settings
 from django.db import transaction
 
+import aiohttp
 import pyarrow as pa
 import deltalake
 import pyarrow.compute as pc
@@ -30,14 +31,14 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ParsingError
 from posthog.hogql.functions.prompt_jev import PromptJevFinder
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.resolver import ResolverFactory
-from posthog.hogql.visitor import CloningVisitor
+from posthog.hogql.utils import alias_output_columns
 
 from posthog.clickhouse.client.execute import ClickHouseExternalTable, KillSwitchLevel, resolve_kill_switch_level
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
-from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -51,22 +52,29 @@ from posthog.temporal.common.clickhouse import (
     get_client as get_clickhouse_client,
 )
 from posthog.temporal.common.db_errors import is_transient_db_error
-from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.common.errors import NonReportableApplicationError, NonReportableError
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
 from products.data_modeling.backend.facade.api import (
+    DESCRIBE_QUERY_SETTINGS,
+    THERE_IS_NO_COLUMN_ERROR_CODE,
+    DescribedColumn,
     IncrementalFilterError,
     WritePlan,
     clear_incremental_state,
+    describe_ast_settings,
     duplicate_output_columns,
     duplicate_output_columns_message,
     get_incremental_state,
-    inject_incremental_filter,
+    narrow_to_incremental_window,
     parse_model_query,
+    print_describe_variant,
     record_incremental_history,
+    rename_described_columns,
     resolve_write_plan,
     set_incremental_state,
+    wrap_with_incremental_guard,
 )
 from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
@@ -99,59 +107,11 @@ tracer = trace.get_tracer(__name__)
 
 MB_100_IN_BYTES = 100 * 1000 * 1000
 
-# ClickHouse builds every GLOBAL IN subquery as a temporary table while it plans a query, and
-# DESCRIBE plans the query too, so the schema probe scans the source tables just to return column
-# types. The probe therefore prints a copy of the query with GLOBAL IN downgraded to plain IN and
-# runs with the two settings that would add GLOBAL back pinned off (the cluster profile sets
-# distributed_product_mode=global). Joins keep their GLOBAL prefix: the resolver adds it to
-# events-to-S3 join chains to work around a ClickHouse bug, not for cost. The materialization query
-# itself is printed from the untouched AST.
-DESCRIBE_QUERY_SETTINGS = {"distributed_product_mode": "allow", "prefer_global_in_and_join": "0"}
-
-_LOCAL_COMPARE_OPS = {
-    ast.CompareOperationOp.GlobalIn: ast.CompareOperationOp.In,
-    ast.CompareOperationOp.GlobalNotIn: ast.CompareOperationOp.NotIn,
-}
-
-
-class _DowngradeGlobalIn(CloningVisitor):
-    def __init__(self) -> None:
-        super().__init__(clear_types=False, clear_locations=False)
-
-    def visit_compare_operation(self, node: ast.CompareOperation) -> ast.CompareOperation:
-        cloned = super().visit_compare_operation(node)
-        cloned.op = _LOCAL_COMPARE_OPS.get(cloned.op, cloned.op)
-        return cloned
-
-
-def _print_describe_variant(
-    prepared_query: ast.SelectQuery | ast.SelectSetQuery, context: HogQLContext, settings: HogQLGlobalSettings
-) -> str:
-    downgraded = _DowngradeGlobalIn().visit(prepared_query)
-    return print_prepared_ast(downgraded, context=context, dialect="clickhouse", settings=settings, stack=[])
-
 
 def _print_untouched(
     prepared_query: ast.SelectQuery | ast.SelectSetQuery, context: HogQLContext, settings: HogQLGlobalSettings
 ) -> str:
     return print_prepared_ast(prepared_query, context=context, dialect="clickhouse", settings=settings, stack=[])
-
-
-def _describe_ast_settings(settings: HogQLGlobalSettings) -> dict[str, str]:
-    return {
-        name: str(value)
-        for name, value in {
-            "max_ast_elements": settings.max_ast_elements,
-            "max_expanded_ast_elements": settings.max_expanded_ast_elements,
-        }.items()
-        if value is not None
-    }
-
-
-@frozen
-class _DescribedColumn:
-    name: str
-    ch_type: str
 
 
 def _plan_prompt_jev(
@@ -185,7 +145,7 @@ async def _describe_columns(
     query_settings: dict[str, str],
     external_tables: list[ClickHouseExternalTable],
     retry_with_untouched_query: bool,
-) -> list[_DescribedColumn]:
+) -> list[DescribedColumn]:
     """A select list is ordered and may repeat a name, so the probe returns a list, not a mapping.
     `_reject_duplicate_output_columns` is what turns a repeat into a readable error."""
     try:
@@ -199,17 +159,17 @@ async def _describe_columns(
             ) as ch_response:
                 table_describe_response = await ch_response.content.read()
     except ClickHouseError as error:
-        if error.code != 8 or not retry_with_untouched_query:
+        if error.code != THERE_IS_NO_COLUMN_ERROR_CODE or not retry_with_untouched_query:
             raise
         raise ClickHouseQueryPlanningError(str(error), query=error.query, query_id=error.query_id) from error
-    columns: list[_DescribedColumn] = []
+    columns: list[DescribedColumn] = []
     for line in table_describe_response.decode("utf-8").splitlines():
         column_name, ch_type = line.strip().split("\t")
-        columns.append(_DescribedColumn(name=column_name, ch_type=ch_type))
+        columns.append(DescribedColumn(name=column_name, ch_type=ch_type))
     return columns
 
 
-def _reject_duplicate_output_columns(columns: list[_DescribedColumn]) -> None:
+def _reject_duplicate_output_columns(columns: list[DescribedColumn]) -> None:
     duplicates = duplicate_output_columns(column.name for column in columns)
     if duplicates:
         raise DuplicateOutputColumnError(duplicates)
@@ -227,6 +187,8 @@ DELTA_KERNEL_ERROR_RETRY_DELAY = dt.timedelta(minutes=2)
 # with jitter so the refused models do not return together. Most timeouts hit one query on its own
 # and pass on a quick retry, so a timeout starts from seconds. Both delays grow with the number of
 # refusals and timeouts this worker saw recently, so during a spike the retries stop landing in it.
+# A connection that ClickHouse does not accept is a refusal too, so it takes the refusal delay. A
+# connection that drops during the query is usually a one-off, so it takes the timeout delay.
 TOO_MANY_SIMULTANEOUS_QUERIES_RETRY_BASE_DELAY = dt.timedelta(minutes=2)
 QUERY_TIMEOUT_RETRY_BASE_DELAY = dt.timedelta(seconds=20)
 RETRY_PRESSURE_WINDOW = dt.timedelta(minutes=5)
@@ -261,6 +223,15 @@ def _adaptive_retry_delay(base: dt.timedelta, attempt: int, recent_errors: int) 
     return delay * random.uniform(0.5, 1.0)
 
 
+def _adaptive_retry_base_delay(error: Exception) -> dt.timedelta | None:
+    # ClientConnectorError subclasses ClientOSError, so it must match first.
+    if isinstance(error, ClickHouseTooManySimultaneousQueriesError | aiohttp.ClientConnectorError):
+        return TOO_MANY_SIMULTANEOUS_QUERIES_RETRY_BASE_DELAY
+    if isinstance(error, ClickHouseQueryTimeoutError | aiohttp.ClientOSError | aiohttp.ServerDisconnectedError):
+        return QUERY_TIMEOUT_RETRY_BASE_DELAY
+    return None
+
+
 KILL_SWITCH_MAX_THREADS: dict[KillSwitchLevel, int] = {KillSwitchLevel.LIGHT: 16, KillSwitchLevel.FULL: 8}
 
 # Above this many files, the per-run compaction is worth its full-table rewrite. Below it, skipping
@@ -292,6 +263,32 @@ class UnstorableIntegerError(NonReportableError):
             f"materialized table can store. Wrap the column in toString() to store it as text."
         )
         self.column = column
+
+
+class RustPanicError(Exception):
+    """A panic inside a Rust extension that the write path calls, such as delta-rs or deltalite.
+
+    pyo3 raises a panic as PanicException, which derives from BaseException. The activity's
+    failure handling catches Exception, so a panic skips the failed-attempt log and the discard of
+    staged CDP rows. This error replaces the panic and keeps its message, because the failure
+    classification in utils.py matches on that message.
+    """
+
+
+def _is_rust_panic(error: BaseException) -> bool:
+    # pyo3 creates PanicException at runtime, so no module exports it for an isinstance check.
+    error_type = type(error)
+    return error_type.__module__ == "pyo3_runtime" and error_type.__name__ == "PanicException"
+
+
+@contextlib.contextmanager
+def _rust_panics_as_errors() -> Iterator[None]:
+    try:
+        yield
+    except BaseException as error:
+        if _is_rust_panic(error):
+            raise RustPanicError(str(error)) from error
+        raise
 
 
 class DuplicateOutputColumnError(NonReportableError):
@@ -506,6 +503,29 @@ def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, 
     return pa.RecordBatch.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
 
 
+def _nullable_type(arrow_type: pa.DataType) -> pa.DataType:
+    if pa.types.is_large_list(arrow_type):
+        return pa.large_list(_nullable_field(arrow_type.value_field))
+
+    if pa.types.is_list(arrow_type):
+        return pa.list_(_nullable_field(arrow_type.value_field))
+
+    if pa.types.is_struct(arrow_type):
+        return pa.struct([_nullable_field(field) for field in arrow_type])
+
+    if pa.types.is_map(arrow_type):
+        # A map built from types has a nullable value and a non-nullable key, which Arrow requires.
+        return pa.map_(
+            _nullable_type(arrow_type.key_type), _nullable_type(arrow_type.item_type), arrow_type.keys_sorted
+        )
+
+    return arrow_type
+
+
+def _nullable_field(field: pa.Field) -> pa.Field:
+    return field.with_type(_nullable_type(field.type)).with_nullable(True)
+
+
 def _force_nullable(batch: pa.RecordBatch) -> pa.RecordBatch:
     """Mark every column nullable so batch schemas don't diverge across delta commits.
 
@@ -517,42 +537,88 @@ def _force_nullable(batch: pa.RecordBatch) -> pa.RecordBatch:
     mean 'userId'?" — breaking any column with uppercase characters. Pinning every column to
     nullable keeps each batch's schema identical to the first overwrite, so the append never
     triggers that path and camelCase column names survive.
+
+    Nested children are relaxed too. A list element, struct field or map value that is
+    non-nullable in the first batch and nullable in a later one is accepted by the append, but
+    compaction then fails because it cannot cast the nullable child back to non-nullable.
     """
     nullable_schema = pa.schema(
-        [pa.field(field.name, field.type, nullable=True, metadata=field.metadata) for field in batch.schema],
+        [_nullable_field(field) for field in batch.schema],
         metadata=typing.cast("dict[bytes | str, bytes | str] | None", batch.schema.metadata),
     )
     return batch.cast(nullable_schema)
 
 
+class UnstorableDecimalError(NonReportableApplicationError):
+    """A nested column holds a decimal with more digits than the 128-bit decimals Delta Lake has.
+
+    Non-retryable here rather than in the workflow's retry policy, so that a retry of the same
+    query does not repeat the read and the writes before it fails on the same value again.
+    """
+
+    def __init__(self, column: str) -> None:
+        super().__init__(
+            f'Column "{column}" has decimal values with more than 38 digits, which is the most a '
+            f"materialized table can store. Round the values, or wrap the column in toString() to store it as text.",
+            type="UnstorableDecimalError",
+            non_retryable=True,
+        )
+        self.column = column
+
+
+DELTA_MAX_DECIMAL_PRECISION = 38
+
+
+def _delta_decimal_type(arrow_type: pa.DataType) -> pa.DataType:
+    """The type Delta Lake stores this as. Unchanged unless a decimal wider than 128 bits is in it."""
+    if pa.types.is_decimal256(arrow_type):
+        if arrow_type.precision <= DELTA_MAX_DECIMAL_PRECISION:
+            return pa.decimal128(arrow_type.precision, arrow_type.scale)
+        return pa.decimal128(DELTA_MAX_DECIMAL_PRECISION, min(arrow_type.scale, DELTA_MAX_DECIMAL_PRECISION - 1))
+
+    if pa.types.is_large_list(arrow_type):
+        return pa.large_list(_delta_decimal_field(arrow_type.value_field))
+
+    if pa.types.is_list(arrow_type):
+        return pa.list_(_delta_decimal_field(arrow_type.value_field))
+
+    if pa.types.is_struct(arrow_type):
+        return pa.struct([_delta_decimal_field(field) for field in arrow_type])
+
+    if pa.types.is_map(arrow_type):
+        return pa.map_(
+            _delta_decimal_type(arrow_type.key_type), _delta_decimal_type(arrow_type.item_type), arrow_type.keys_sorted
+        )
+
+    return arrow_type
+
+
+def _delta_decimal_field(field: pa.Field) -> pa.Field:
+    return field.with_type(_delta_decimal_type(field.type))
+
+
 def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
-    """Transform high-precision decimal columns to types supported by Delta Lake."""
+    """Transform decimal columns wider than 128 bits, at any depth, to types supported by Delta Lake."""
     schema = batch.schema
-    columns_to_cast: dict[str, pa.DataType] = {}
-
-    precision = 38
-    scale = 38 - 1
-
-    for field in schema:
-        if isinstance(field.type, pa.Decimal128Type | pa.Decimal256Type):
-            if field.type.precision > 38:
-                original_scale = field.type.scale
-                new_scale = min(original_scale, scale)
-                columns_to_cast[field.name] = pa.decimal128(precision, new_scale)
-
-    if not columns_to_cast:
+    target_fields = [_delta_decimal_field(field) for field in schema]
+    if all(target.type.equals(field.type) for target, field in zip(target_fields, schema)):
         return batch
+
+    precision = DELTA_MAX_DECIMAL_PRECISION
+    scale = DELTA_MAX_DECIMAL_PRECISION - 1
 
     new_columns: list[pa.Array] = []
     new_fields: list[pa.Field] = []
 
-    for field in batch.schema:
+    for field, target in zip(schema, target_fields):
         col = batch[field.name]
-        if field.name in columns_to_cast:
-            decimal128_type = columns_to_cast[field.name]
+        if target.type.equals(field.type):
+            new_fields.append(field)
+            new_columns.append(col)
+        elif pa.types.is_decimal(field.type):
             try:
-                cast_col = pc.cast(col, decimal128_type)
-                new_fields.append(field.with_type(decimal128_type))
+                cast_col = pc.cast(col, target.type)
+                new_fields.append(target)
                 new_columns.append(cast_col)
             except Exception:
                 reduced_decimal_type = pa.decimal128(precision, scale)
@@ -563,8 +629,11 @@ def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
                 new_fields.append(field.with_type(reduced_decimal_type))
                 new_columns.append(cast_reduced)
         else:
-            new_fields.append(field)
-            new_columns.append(col)
+            try:
+                new_columns.append(pc.cast(col, target.type))
+            except pa.ArrowInvalid as err:
+                raise UnstorableDecimalError(field.name) from err
+            new_fields.append(target)
 
     new_metadata: dict[str | bytes, str | bytes] | None = (
         typing.cast(dict[str | bytes, str | bytes], dict(schema.metadata)) if schema.metadata else None
@@ -665,11 +734,14 @@ async def hogql_table(
     """Execute a HogQL query and yield batches of results.
 
     With a ``window``, the query is narrowed to rows at or after its lower bound before anything
-    else happens — in particular before the arrow type-conversion wrapper below re-wraps the node,
-    so the guard's column reference still resolves against the user's own output.
+    else happens. Its guard goes on after DESCRIBE, once the columns carry the names ClickHouse
+    gives them, and before the arrow type-conversion wrapper below re-wraps the node, so the
+    guard's column reference still resolves against the user's own output.
     """
     if window is not None:
-        query_node = inject_incremental_filter(query, incremental_key=window.incremental_key, since=window.since)
+        query_node = narrow_to_incremental_window(
+            parse_select(query), incremental_key=window.incremental_key, since=window.since
+        )
     else:
         query_node = parse_model_query(query)
     if query_node is None:
@@ -677,7 +749,7 @@ async def hogql_table(
 
     settings = HogQLGlobalSettings()
     settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
-    describe_ast_settings = _describe_ast_settings(settings)
+    ast_settings = describe_ast_settings(settings)
     kill_switch_level = await database_sync_to_async_pool(resolve_kill_switch_level)(team.pk)
     if kill_switch_level in KILL_SWITCH_MAX_THREADS:
         settings.max_threads = KILL_SWITCH_MAX_THREADS[kill_switch_level]
@@ -718,7 +790,7 @@ async def hogql_table(
     if prepared_hogql_query is None:
         raise EmptyHogQLResponseColumnsError()
 
-    printed = await database_sync_to_async_pool(_print_describe_variant)(prepared_hogql_query, context, settings)
+    probe = await database_sync_to_async_pool(print_describe_variant)(prepared_hogql_query, context, settings)
 
     arrow_type_conversion: dict[str, tuple[str, tuple[ast.Constant, ...]]] = {
         "DateTime": ("toTimeZone", (ast.Constant(value="UTC"),)),
@@ -757,12 +829,15 @@ async def hogql_table(
     )
 
     try:
-        described_columns = await _describe_columns(
-            printed,
-            context.values,
-            {**DESCRIBE_QUERY_SETTINGS, **describe_ast_settings},
-            list(context.external_tables.values()),
-            retry_with_untouched_query=True,
+        described_columns = rename_described_columns(
+            await _describe_columns(
+                probe.sql,
+                context.values,
+                {**DESCRIBE_QUERY_SETTINGS, **ast_settings},
+                list(context.external_tables.values()),
+                retry_with_untouched_query=True,
+            ),
+            probe,
         )
     except ClickHouseQueryPlanningError as error:
         # ClickHouse cannot plan some shapes once GLOBAL is gone, such as an IN subquery inside an
@@ -774,7 +849,7 @@ async def hogql_table(
         described_columns = await _describe_columns(
             untouched,
             context.values,
-            describe_ast_settings,
+            ast_settings,
             list(context.external_tables.values()),
             retry_with_untouched_query=False,
         )
@@ -789,8 +864,20 @@ async def hogql_table(
             query_typings.append((column.name, column.ch_type, None))
 
     has_type_to_convert = any(call_tuple is not None for _, _, call_tuple in query_typings)
+    # The guard and the type wrapper both re-select the output by name through HogQL, which keeps one
+    # column per name. ClickHouse keeps a bare column's qualifier when another column takes its plain
+    # name, so it can name columns `a.event` and `event` where HogQL names both `event`. Each item
+    # carries its described name as its alias, so every column reaches the re-select.
+    if window is not None or has_type_to_convert:
+        alias_output_columns(query_node, [column.name for column in described_columns])
+    if window is not None:
+        query_node = wrap_with_incremental_guard(query_node, incremental_key=window.incremental_key, since=window.since)
     if has_type_to_convert:
         await logger.adebug("Query has fields that need converting")
+        # ClickHouse keeps a bare column's qualifier when another column takes its plain name, so it
+        # can name columns `a.event` and `event` where HogQL names both `event`. The wrapper reads the
+        # columns by their described names, so each item carries that name as its alias.
+        alias_output_columns(query_node, [column.name for column in described_columns])
         select_fields: list[ast.Expr] = []
         for column_name, ch_type, call_tuple in query_typings:
             if call_tuple is not None:
@@ -1059,6 +1146,10 @@ def _batch_span(name: str, batch: pa.RecordBatch) -> contextlib.AbstractContextM
     return tracer.start_as_current_span(name, attributes={"rows": batch.num_rows, "bytes": batch.nbytes})
 
 
+async def _open_delta_table(table_uri: str, storage_options: dict[str, str]) -> deltalake.DeltaTable:
+    return await asyncio.to_thread(deltalake.DeltaTable, table_uri, storage_options=storage_options)
+
+
 async def _materialize_fully(
     objects: MatviewInputObjects,
     plan: WritePlan,
@@ -1126,7 +1217,7 @@ async def _materialize_fully(
                         schema_mode="overwrite",
                         storage_options=storage_options,
                     )
-                    delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
+                    delta_table = await _open_delta_table(table_uri, storage_options)
                 else:
                     await asyncio.to_thread(
                         deltalake.write_deltalake,
@@ -1195,7 +1286,7 @@ async def _materialize_incrementally(
     config = plan.config
     assert config is not None  # resolve_write_plan only sets incremental with a config
 
-    delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
+    delta_table = await _open_delta_table(table_uri, storage_options)
     # Wrapped in pa.schema() because delta-rs hands back an arro3 schema, whose DataType does not
     # compare equal to pyarrow's. arro3 exposes the Arrow PyCapsule interface, which pa.schema()
     # consumes at runtime even though its stubs don't advertise it.
@@ -1271,7 +1362,7 @@ async def _materialize_incrementally(
     # Reopened because deltalite commits through its own handle, leaving this one pinned to the
     # snapshot from before the upserts. Maintaining or listing files off the stale handle would
     # publish the pre-run file set and lose everything this run wrote.
-    delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
+    delta_table = await _open_delta_table(table_uri, storage_options)
 
     file_uris = delta_table.file_uris()
     if len(file_uris) > INCREMENTAL_COMPACT_FILE_THRESHOLD:
@@ -1296,15 +1387,23 @@ async def _vacuum(delta_table: deltalake.DeltaTable, logger: FilteringBoundLogge
     A killed upsert leaves parquet that was never committed, so it carries no tombstone, and lite
     vacuum only reclaims tombstoned files. Those orphans would otherwise accumulate forever and
     inflate every later publish copy and folder-size read.
+
+    The vacuum commits to the delta log, so it can lose a commit race with a concurrent writer. The
+    run's data and watermark are already committed when this runs, and the next run vacuums again,
+    so a conflict here only logs a warning. It must not fail the run and make Temporal redo all the
+    work.
     """
     await logger.ainfo("Vacuuming delta table")
-    await asyncio.to_thread(
-        delta_table.vacuum,
-        retention_hours=DELTA_TABLE_RETENTION_HOURS,
-        enforce_retention_duration=False,
-        dry_run=False,
-        full=True,
-    )
+    try:
+        await asyncio.to_thread(
+            delta_table.vacuum,
+            retention_hours=DELTA_TABLE_RETENTION_HOURS,
+            enforce_retention_duration=False,
+            dry_run=False,
+            full=True,
+        )
+    except deltalake.exceptions.CommitFailedError as e:
+        await logger.awarning(f"Skipped the delta table vacuum because of a commit conflict: {e}")
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
@@ -1426,28 +1525,29 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             hogql_query = typing.cast(dict, objects.saved_query.query)["query"]
 
             try:
-                if plan.incremental:
-                    row_count, file_uris = await _materialize_incrementally(
-                        objects,
-                        plan,
-                        hogql_query,
-                        table_uri,
-                        storage_options,
-                        logger,
-                        cdp_sink,
-                        person_property_sink,
-                    )
-                else:
-                    row_count, file_uris = await _materialize_fully(
-                        objects,
-                        plan,
-                        hogql_query,
-                        table_uri,
-                        storage_options,
-                        logger,
-                        cdp_sink,
-                        person_property_sink,
-                    )
+                with _rust_panics_as_errors():
+                    if plan.incremental:
+                        row_count, file_uris = await _materialize_incrementally(
+                            objects,
+                            plan,
+                            hogql_query,
+                            table_uri,
+                            storage_options,
+                            logger,
+                            cdp_sink,
+                            person_property_sink,
+                        )
+                    else:
+                        row_count, file_uris = await _materialize_fully(
+                            objects,
+                            plan,
+                            hogql_query,
+                            table_uri,
+                            storage_options,
+                            logger,
+                            cdp_sink,
+                            person_property_sink,
+                        )
             except (Exception, asyncio.CancelledError):
                 # A retry stages from scratch and a terminal failure produces nothing, so whatever
                 # this attempt wrote is only ever waste.
@@ -1463,12 +1563,9 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         delta_version: int | None = None
         if account_property_sync_enabled:
             try:
-                delta_table = await asyncio.to_thread(
-                    deltalake.DeltaTable,
-                    table_uri,
-                    storage_options=storage_options,
-                )
-                delta_version = delta_table.version()
+                with _rust_panics_as_errors():
+                    delta_table = await _open_delta_table(table_uri, storage_options)
+                    delta_version = delta_table.version()
             except Exception as error:
                 await logger.awarning(f"Could not resolve account-property Delta snapshot: {error}")
                 capture_exception(error)
@@ -1489,7 +1586,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         )
         published = True
         return result
-    except ClickHouseError as error:
+    except (ClickHouseError, aiohttp.ClientOSError, aiohttp.ServerDisconnectedError) as error:
         if not published:
             await cdp_sink.discard()
         await _log_failed_attempt(logger, error)
@@ -1497,12 +1594,8 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             raise ApplicationError(
                 str(error), type=type(error).__name__, next_retry_delay=DELTA_KERNEL_ERROR_RETRY_DELAY
             ) from error
-        if isinstance(error, ClickHouseTooManySimultaneousQueriesError | ClickHouseQueryTimeoutError):
-            base_delay = (
-                TOO_MANY_SIMULTANEOUS_QUERIES_RETRY_BASE_DELAY
-                if isinstance(error, ClickHouseTooManySimultaneousQueriesError)
-                else QUERY_TIMEOUT_RETRY_BASE_DELAY
-            )
+        base_delay = _adaptive_retry_base_delay(error)
+        if base_delay is not None:
             recent_errors = _recent_capacity_errors.record(time.monotonic())
             raise ApplicationError(
                 str(error),

@@ -58,7 +58,7 @@ class AdjustSource(ResumableSource[AdjustSourceConfig, AdjustResumeConfig]):
     )
 
     # The Report Service API carries no version token in its path, headers, or params, so there is
-    # no vendor version to pin.
+    # no vendor version to pin. The Campaign API's `/public/v2` is its only published version.
     api_docs_url = "https://dev.adjust.com/en/api/rs-api/"
 
     lists_tables_without_credentials = True  # static report catalog — safe for public docs
@@ -76,6 +76,9 @@ class AdjustSource(ResumableSource[AdjustSourceConfig, AdjustResumeConfig]):
             # retrying it identically can never succeed.
             "400 Client Error: Bad Request for url: https://automate.adjust.com": "Adjust rejected the report request. Check that the app tokens belong to this account and that your account has access to the requested metrics.",
             "404 Client Error: Not Found for url: https://automate.adjust.com": "Adjust could not find the requested report data. Check the app tokens on this source.",
+            "401 Client Error: Unauthorized for url: https://api.adjust.com": "Adjust rejected your API token. Generate a new token in the Adjust dashboard and reconnect.",
+            "403 Client Error: Forbidden for url: https://api.adjust.com": "Adjust denied access to the links of these apps. Check that your user can view and edit links for the apps on this source.",
+            "404 Client Error: Not Found for url: https://api.adjust.com": "Adjust could not find the links of an app. Check the app tokens on this source.",
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -83,7 +86,13 @@ class AdjustSource(ResumableSource[AdjustSourceConfig, AdjustResumeConfig]):
         # timeouts and connection failures on GET, not just 429/5xx. Once that budget exhausts,
         # requests wraps the failure as this host-scoped pool error and Temporal retries the
         # whole activity from there, so it's transient and self-recovering rather than a bug.
-        return {"HTTPSConnectionPool(host='automate.adjust.com', port=443)"}
+        # `AdjustRetryableError` is the same contract for a 429/5xx response that survived those
+        # retries: `adjust.py` re-raises it once exhausted, and Temporal retries the activity.
+        return {
+            "HTTPSConnectionPool(host='automate.adjust.com', port=443)",
+            "HTTPSConnectionPool(host='api.adjust.com', port=443)",
+            "Adjust API error (retryable)",
+        }
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -95,7 +104,7 @@ class AdjustSource(ResumableSource[AdjustSourceConfig, AdjustResumeConfig]):
 
 Find your API token in the Adjust dashboard under your account menu > Account settings. The token needs reporting access to the apps you want to import. Leave app tokens blank to import every app the token can read, or enter a comma-separated list to narrow it down.
 
-Adjust's Report Service API returns metrics aggregated per day, so these tables are daily time series rather than user-level events. Raw user-level data needs server callbacks or a cloud storage upload, which can't be set up through the API.""",
+Adjust's Report Service API returns metrics aggregated per day, so the report tables are daily time series rather than user-level events. Raw user-level data needs server callbacks or a cloud storage upload, which can't be set up through the API.""",
             iconPath="/static/services/adjust.png",
             docsUrl="https://posthog.com/docs/cdp/sources/adjust",
             releaseStatus=ReleaseStatus.GA,

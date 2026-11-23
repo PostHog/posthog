@@ -20,7 +20,7 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
-from .enums import AutoQuarantineMode, QuarantineLiftState, ShiftBandKind
+from .enums import AutoQuarantineMode, NoRunNeededOutcome, QuarantineLiftState, RunGate, ShiftBandKind
 
 # Classification thresholds, applied by `diffing.classify_compare_result`:
 #
@@ -93,6 +93,25 @@ class CreateRunInput:
     # Tells the classifier to leave omitted baseline identifiers alone instead
     # of marking them as removed.
     is_partial: bool = False
+
+
+@dataclass(frozen=True)
+class NoRunNeededInput:
+    """CI decided that a commit needs no visual run of one run type."""
+
+    repo_id: UUID
+    run_type: str
+    commit_sha: str
+    branch: str
+    pr_number: int | None = None
+
+
+@dataclass(frozen=True)
+class NoRunNeededResult:
+    """What the report did. `detail` says it in a sentence for the CI log."""
+
+    outcome: NoRunNeededOutcome
+    detail: str
 
 
 @dataclass(frozen=True)
@@ -362,6 +381,9 @@ class Run:
     metadata: dict = field(default_factory=dict)
     # How this row matched the `search` query param: "exact", "similar", or None when not searching.
     search_match_type: str | None = None
+    gate: RunGate = RunGate.CI_JOB
+    # Computed by the single-run read only, because it reads the ledger per run.
+    stale_approval_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -654,6 +676,35 @@ class BaselineOverview:
     generated_at: datetime
 
 
+@dataclass(frozen=True)
+class BaselineLedgerRepairEntry:
+    """One entry a ledger repair appends, at the position of the commit that changed the baseline file."""
+
+    position: int
+    commit_sha: str
+    pr_number: int | None
+    identifier: str
+    previous_hash: str
+    # Empty for a removal, as the ledger stores removals.
+    content_hash: str
+
+
+@dataclass(frozen=True)
+class BaselineLedgerRepair:
+    """What a ledger repair of one run type plans or wrote, up to the newest resolved ledger commit."""
+
+    run_type: str
+    cursor_position: int
+    cursor_sha: str
+    entries: tuple[BaselineLedgerRepairEntry, ...]
+    # Identifiers whose ledger hash differs from the baseline file at the cursor, before and after the repair.
+    drift_before: tuple[str, ...]
+    drift_after: tuple[str, ...]
+    # Planned entries whose hash differs from the file read again at their own commit. An apply
+    # refuses to write while there is any.
+    mismatches: tuple[str, ...] = ()
+
+
 # How far back the page reads. Sets the width of the per-day activity strip and
 # the span `headroom` looks over, where more days mean better evidence of the
 # worst case a snapshot can produce.
@@ -711,6 +762,18 @@ AUTO_QUARANTINE_DAILY_LIMIT = 10
 # As of November 2026, 3 percent of clean streaks in this repo relapsed after 500 default-branch runs,
 # against 15 percent after 300.
 AUTO_LIFT_CLEAN_RUNS = 500
+
+# The release check runs at most once an hour, on a default-branch run. Two days give it many chances
+# before the expiry, also on a quiet weekend.
+AUTO_EXTEND_BEFORE_EXPIRY_HOURS = 48
+
+# Short enough that a story fixed a while ago lapses, and long enough that a flake which fails a few runs
+# in a hundred still shows.
+AUTO_EXTEND_RECENT_RUNS = 100
+
+# Every extension reason starts with this. The daily limit of automatic quarantines and the quarantine
+# notice read it to tell an extension from a new automatic quarantine.
+AUTO_EXTEND_REASON_PREFIX = "Extended automatically"
 
 # Bounds GitHub requests, so a storm of failures cannot stall run completion.
 AUTO_QUARANTINE_MAX_STORIES_PER_RUN = 25

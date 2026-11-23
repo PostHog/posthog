@@ -97,13 +97,19 @@ export interface WatchFeedItemApi {
 
 export interface WatchFeedResponseApi {
     results?: WatchFeedItemApi[]
+    has_more?: boolean
+    as_of?: string | null
 }
 
 export const WATCH_FEED_LIMIT = 5
 
-export async function fetchWatchFeed(signal?: AbortSignal): Promise<WatchFeedResponseApi> {
-    return apiJson<WatchFeedResponseApi>(projectPath('vision/scanners/watch_feed/'), {
-        query: { limit: WATCH_FEED_LIMIT, date_from: '-7d' },
+/** Replay Vision's ranked feed, `GET vision/scanners/highlight_feed/`: observations most worth watching first. */
+export async function fetchWatchFeed(
+    signal?: AbortSignal,
+    page: { limit: number; offset: number; asOf: string | null } = { limit: WATCH_FEED_LIMIT, offset: 0, asOf: null }
+): Promise<WatchFeedResponseApi> {
+    return apiJson<WatchFeedResponseApi>(projectPath('vision/scanners/highlight_feed/'), {
+        query: { limit: page.limit, offset: page.offset || undefined, as_of: page.asOf ?? undefined, date_from: '-7d' },
         signal,
     })
 }

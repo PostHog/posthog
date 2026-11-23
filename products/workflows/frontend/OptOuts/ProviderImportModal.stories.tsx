@@ -9,6 +9,7 @@ import type { ProviderImportRunApi } from 'products/messaging/frontend/generated
 import type { OptOutSyncConfigResponse } from './customerIOImportLogic'
 import { providerImportLogic } from './providerImportLogic'
 import { ProviderImportModal } from './ProviderImportModal'
+import type { ImportEntryPoint } from './providerImportOrder'
 
 const syncConfigEndpoint = '/api/environments/:team_id/messaging_categories/optout_sync_config/'
 const importRunsEndpoint = '/api/projects/:team_id/messaging_provider_imports/'
@@ -23,6 +24,7 @@ const importProviders = [
         api_key_help:
             'You can generate an App API key in Customer.io under Settings → Account Settings → API Credentials.',
         api_key_url: null,
+        settings: [],
         not_imported: '',
         next_steps: [],
         steps: [
@@ -49,13 +51,14 @@ const importProviders = [
 
 function mockSyncConfig(
     config: OptOutSyncConfigResponse,
-    importRuns: ProviderImportRunApi[] = []
+    importRuns: ProviderImportRunApi[] = [],
+    providers: typeof importProviders = importProviders
 ): Record<string, any> {
     return {
         get: {
             [syncConfigEndpoint]: config,
             [importRunsEndpoint]: importRuns,
-            [importProvidersEndpoint]: importProviders,
+            [importProvidersEndpoint]: providers,
         },
     }
 }
@@ -125,17 +128,54 @@ export default meta
 type StoryProps = {
     syncConfig: OptOutSyncConfigResponse
     importRuns?: ProviderImportRunApi[]
+    providers?: typeof importProviders
+    entryPoint?: ImportEntryPoint
 }
 
-const Template: StoryFn<StoryProps> = ({ syncConfig, importRuns }) => {
-    useStorybookMocks(mockSyncConfig(syncConfig, importRuns))
+const Template: StoryFn<StoryProps> = ({ syncConfig, importRuns, providers, entryPoint }) => {
+    useStorybookMocks(mockSyncConfig(syncConfig, importRuns, providers))
     const { openImportModal } = useActions(providerImportLogic)
 
     useEffect(() => {
-        openImportModal()
-    }, [openImportModal])
+        openImportModal(null, entryPoint)
+    }, [openImportModal, entryPoint])
 
     return <ProviderImportModal />
+}
+
+const otherTool = (key: string, label: string, stepLabels: string[]): (typeof importProviders)[number] => ({
+    ...importProviders[0],
+    key,
+    label,
+    retains_credentials: false,
+    steps: stepLabels.map((stepLabel, index) => ({ key: `step_${index}`, label: stepLabel, description: '' })),
+})
+
+export const ProviderPicker: StoryFn<StoryProps> = Template.bind({})
+ProviderPicker.args = {
+    syncConfig: emptySyncConfig,
+    providers: [
+        otherTool('sendgrid', 'SendGrid', [
+            'Unsubscribe groups',
+            'Bounces',
+            'Global unsubscribes',
+            'Templates',
+            'Lists',
+        ]),
+        ...importProviders,
+        otherTool('resend', 'Resend', ['Topics', 'Suppression list', 'Contacts', 'Templates', 'Automations']),
+        otherTool('mailgun', 'Mailgun', ['Bounces', 'Unsubscribes']),
+        otherTool('postmark', 'Postmark', ['Suppressions', 'Templates', 'Webhooks']),
+    ],
+}
+ProviderPicker.parameters = {
+    testOptions: { waitForSelector: '[data-attr="import-provider-resend"]', snapshotBrowsers: [] },
+}
+
+export const CustomerIOWithAutomations: StoryFn<StoryProps> = Template.bind({})
+CustomerIOWithAutomations.args = { syncConfig: emptySyncConfig, entryPoint: 'workflows' }
+CustomerIOWithAutomations.parameters = {
+    testOptions: { waitForSelector: '[data-attr="import-provider-customerio-automations"]', snapshotBrowsers: [] },
 }
 
 export const BothStepsNotCompleted: StoryFn<StoryProps> = Template.bind({})
@@ -238,6 +278,7 @@ const importRun = (
     created_at: '2026-04-13T10:00:00Z',
     started_at: '2026-04-13T10:00:02Z',
     finished_at: status === 'completed' || status === 'failed' ? '2026-04-13T10:06:00Z' : null,
+    settings: {},
 })
 
 export const ImportRunning: StoryFn<StoryProps> = Template.bind({})
@@ -341,6 +382,7 @@ const resendProvider = {
     api_key_help:
         'Resend has no read-only keys, so this needs a key with full access. PostHog only reads from your account, deletes the key as soon as the import ends, and asks for it again next time.',
     api_key_url: 'https://resend.com/api-keys',
+    settings: [],
     not_imported: 'API keys, webhooks, send history and stats stay in Resend.',
     next_steps: [
         'Add each sending domain in PostHog and publish its DNS records.',

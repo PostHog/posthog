@@ -262,10 +262,11 @@ export const CodeReviewApprovalsReviewerRoutingListQueryParams = () => zod.objec
             'model_kept',
             'model_cut',
             'stamphog_approved',
+            'attested',
         ])
         .optional()
         .describe(
-            'Keep only runs where an owner was kept or cut for this reason. With `owner`, that owner must have it.\n\n\* `sensitive` - Owns a sensitive path\n\* `new_path` - Owns a new path\n\* `largest_owner` - Has the largest part\n\* `diff_not_seen` - Diff not shown to the model\n\* `cut_skipped` - Cut step skipped\n\* `model_kept` - Kept by the model\n\* `model_cut` - Cut by the model\n\* `stamphog_approved` - Auto-approved'
+            'Keep only runs where an owner was kept or cut for this reason. With `owner`, that owner must have it.\n\n\* `sensitive` - Owns a sensitive path\n\* `new_path` - Owns a new path\n\* `largest_owner` - Has the largest part\n\* `diff_not_seen` - Diff not shown to the model\n\* `cut_skipped` - Cut step skipped\n\* `model_kept` - Kept by the model\n\* `model_cut` - Cut by the model\n\* `stamphog_approved` - Auto-approved\n\* `attested` - Every file attested'
         ),
     repository: zod.string().min(1).optional().describe("Filter by repository full name, e.g. 'PostHog\/posthog'."),
 })

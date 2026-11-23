@@ -216,8 +216,15 @@ describe('unlayerToEmailDocument', () => {
 
     it.each([
         [
-            'a border on one side of a button',
-            content('button', { border: { borderTopWidth: '2px', borderTopStyle: 'solid' } }),
+            'button sides in different colors',
+            content('button', {
+                border: {
+                    borderTopWidth: '1px',
+                    borderTopColor: '#111111',
+                    borderBottomWidth: '3px',
+                    borderBottomColor: '#222222',
+                },
+            }),
             'buttons with a border on only some sides',
         ],
     ])('rebuilds an email with %s and no html, and says the border is dropped', (_name, block, reason) => {
@@ -225,6 +232,42 @@ describe('unlayerToEmailDocument', () => {
         const conversion = unlayerToEmailDocument(design([block]), '')
         expect(conversion.document?.doc.content?.[0].type).toBe('emailButton')
         expect(conversion.notKept).toEqual([reason])
+    })
+
+    it('keeps a button with a thicker bottom edge as a button, with each side drawn as before', () => {
+        const side = (width: string): Record<string, string> => ({ Width: width, Style: 'solid', Color: '#8a5a12' })
+        const border = Object.fromEntries(
+            Object.entries({ Top: '1px', Right: '1px', Bottom: '3px', Left: '1px' }).flatMap(([name, width]) =>
+                Object.entries(side(width)).map(([key, value]) => [`border${name}${key}`, value])
+            )
+        )
+        const conversion = unlayerToEmailDocument(
+            design([
+                content('text', { text: '<p>Book a call</p>' }),
+                content('button', {
+                    text: 'Pick a time',
+                    href: { values: { href: 'https://example.com/book' } },
+                    border,
+                }),
+            ])
+        )
+        const doc = conversion.document?.doc as Record<string, any>
+        const button = doc.content.find((node: Record<string, any>) => node.type === 'emailButton')
+
+        expect(conversion.keptAsHtml).toEqual([])
+        expect(button.attrs.emailStyle).toMatchObject({
+            borderSides: { top: 1, right: 1, bottom: 3, left: 1 },
+            borderColor: '#8a5a12',
+        })
+        expect(button.attrs.emailStyle.borderWidth).toBeUndefined()
+        const html = renderEmailHtml(doc)
+        expect(html).toContain(
+            'border-top:1px solid #8a5a12;border-right:1px solid #8a5a12;border-bottom:3px solid #8a5a12;border-left:1px solid #8a5a12'
+        )
+        expect(html).toContain('strokeweight="1px"')
+        const back = JSON.stringify(emailDocumentToUnlayer(doc))
+        expect(back).toContain('"borderBottomWidth":"3px"')
+        expect(back).toContain('"borderTopWidth":"1px"')
     })
 
     it('keeps what real emails rely on: preview text, web fonts, button width and border, column border, tables in text', () => {

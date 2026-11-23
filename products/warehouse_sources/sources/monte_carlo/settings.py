@@ -349,6 +349,141 @@ query PostHogGetJobSchedules($resourceUuid: String!) {
 }
 """
 
+DATA_PRODUCTS_QUERY = """
+query PostHogGetDataProducts {
+  getDataProductsV2 {
+    id
+    uuid
+    name
+    description
+    createdTime
+    updatedTime
+    isDeleted
+    deletedAt
+    sharedWithAllInSameAccount
+    dataProductTag
+    warehouseUuids
+    tableCount
+    monitoredTableCount
+    unmonitoredTableCount
+    createdBy { email }
+    lastUpdatedBy { email }
+    createdInDomain { uuid name }
+    audiences { uuid label }
+  }
+}
+"""
+
+ROLES_QUERY = """
+query PostHogGetAccountRoles {
+  getAccountRoles {
+    name
+    version
+    label
+    description
+    isManaged
+    restrictionsSummary
+    recommendedFor
+    deprecated
+    deprecationReason
+    allowedPermissionCount
+    resolvedPermissions { permission permissionPath effect }
+  }
+}
+"""
+
+AUTHORIZATION_GROUPS_QUERY = """
+query PostHogGetAuthorizationGroups($first: Int!, $after: String) {
+  getAuthorizationGroupsPaginated(first: $first, after: $after) {
+    edges {
+      node {
+        name
+        label
+        description
+        version
+        isManaged
+        isInternal
+        isMembershipManaged
+        source
+        ssoGroup
+        roles { name }
+        domainRestrictions { uuid name }
+        connectionRestrictions { uuid name }
+      }
+    }
+    pageInfo { endCursor hasNextPage }
+  }
+}
+"""
+
+AUTHORIZATION_GROUP_MEMBERS_QUERY = """
+query PostHogGetAuthorizationGroupMembers($first: Int!, $after: String, $authorizationGroups: [String]) {
+  getUsersInAccount(first: $first, after: $after, authorizationGroups: $authorizationGroups) {
+    edges {
+      node {
+        id
+        email
+      }
+    }
+    pageInfo { endCursor hasNextPage }
+  }
+}
+"""
+
+BILLING_MONITOR_USAGE_QUERY = """
+query PostHogGetBillingMonitorUsage($startOn: DateTime!, $endBefore: DateTime!) {
+  getBillingMonitorUsage(startOn: $startOn, endBefore: $endBefore) {
+    usages {
+      date
+      tableMonitorCredits
+      metricMonitorCredits
+      validationMonitorCredits
+      comparisonMonitorCredits
+      customSqlMonitorCredits
+      performanceMonitorCredits
+      jsonSchemaMonitorCredits
+      metricLegacyMonitorCredits
+      freshnessRuleMonitorCredits
+      volumeRuleMonitorCredits
+      metricComparisonMonitorCredits
+      troubleshootingAgentMonitorCredits
+      agentObservabilityMonitorCredits
+      prAgentMonitorCredits
+      triageMonitorCredits
+      costAgentMonitorCredits
+      piiAgentMonitorCredits
+    }
+  }
+}
+"""
+
+MONITOR_AUDIT_LOGS_QUERY = """
+query PostHogGetMonitorAuditLogs($monitorUuid: UUID!, $first: Int!, $after: String) {
+  getMonitorAuditLogs(monitorUuid: $monitorUuid, first: $first, after: $after) {
+    edges {
+      node {
+        id
+        timestamp
+        action
+        objectTypeName
+        objectUuid
+        actorName
+        actorDisplayName
+        actorFirstName
+        actorLastName
+        changes {
+          field
+          friendlyName
+          scalarChange { before after }
+          manyToManyChange { operation objectNames }
+        }
+      }
+    }
+    pageInfo { endCursor hasNextPage }
+  }
+}
+"""
+
 VALIDATE_CREDENTIALS_QUERY = """
 query PostHogValidateCredentials {
   getUser { email }
@@ -394,6 +529,44 @@ MONTE_CARLO_ENDPOINTS: dict[str, MonteCarloEndpointConfig] = {
                 "field_type": IncrementalFieldType.DateTime,
             },
         ],
+    ),
+    "authorization_group_members": MonteCarloEndpointConfig(
+        name="authorization_group_members",
+        query=AUTHORIZATION_GROUP_MEMBERS_QUERY,
+        data_path="getUsersInAccount",
+        pagination="relay",
+        primary_keys=["authorizationGroupName", "id"],
+    ),
+    "authorization_groups": MonteCarloEndpointConfig(
+        name="authorization_groups",
+        query=AUTHORIZATION_GROUPS_QUERY,
+        data_path="getAuthorizationGroupsPaginated",
+        pagination="relay",
+        primary_keys=["name"],
+    ),
+    "billing_monitor_usage": MonteCarloEndpointConfig(
+        name="billing_monitor_usage",
+        query=BILLING_MONITOR_USAGE_QUERY,
+        data_path="getBillingMonitorUsage",
+        pagination="none",
+        primary_keys=["date"],
+        default_incremental_field="date",
+        incremental_fields=[
+            {
+                "label": "date",
+                "type": IncrementalFieldType.Date,
+                "field": "date",
+                "field_type": IncrementalFieldType.Date,
+            },
+        ],
+    ),
+    "data_products": MonteCarloEndpointConfig(
+        name="data_products",
+        query=DATA_PRODUCTS_QUERY,
+        data_path="getDataProductsV2",
+        pagination="none",
+        primary_keys=["uuid"],
+        partition_key="createdTime",
     ),
     "dbt_runs": MonteCarloEndpointConfig(
         name="dbt_runs",
@@ -484,12 +657,26 @@ MONTE_CARLO_ENDPOINTS: dict[str, MonteCarloEndpointConfig] = {
         pagination="none",
         primary_keys=["uuid"],
     ),
+    "monitor_audit_logs": MonteCarloEndpointConfig(
+        name="monitor_audit_logs",
+        query=MONITOR_AUDIT_LOGS_QUERY,
+        data_path="getMonitorAuditLogs",
+        pagination="relay",
+        primary_keys=["monitorUuid", "id"],
+    ),
     "monitors": MonteCarloEndpointConfig(
         name="monitors",
         query=MONITORS_QUERY,
         data_path="getMonitors",
         pagination="offset",
         primary_keys=["uuid"],
+    ),
+    "roles": MonteCarloEndpointConfig(
+        name="roles",
+        query=ROLES_QUERY,
+        data_path="getAccountRoles",
+        pagination="none",
+        primary_keys=["name"],
     ),
     "tables": MonteCarloEndpointConfig(
         name="tables",
