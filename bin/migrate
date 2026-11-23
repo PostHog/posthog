@@ -77,7 +77,7 @@ fi
 if run_scope "clickhouse"; then RUN_CLICKHOUSE=1; else RUN_CLICKHOUSE=0; fi
 if run_scope "postgres"; then RUN_POSTGRES=1; else RUN_POSTGRES=0; fi
 
-# Local dev sets CLICKHOUSE_MIGRATIONS_WITH_PROD_GRANTS=1 (bin/mprocs.yaml) so that recent migrations
+# Local dev sets CLICKHOUSE_MIGRATIONS_WITH_PROD_GRANTS=1 (bin/mprocs.yaml, hogli.yaml) so that recent migrations
 # run with the privileges of the prod migrations user.
 migrate_clickhouse() {
     if [ "${CLICKHOUSE_MIGRATIONS_WITH_PROD_GRANTS:-0}" = "1" ]; then

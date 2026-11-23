@@ -738,11 +738,13 @@ migrations:
         description: Run all database migrations (ClickHouse, Postgres, async) in parallel
         env:
             DEBUG: '1'
+            CLICKHOUSE_MIGRATIONS_WITH_PROD_GRANTS: '1'
     migrations:clickhouse:
         cmd: bin/migrate --scope=clickhouse
         description: Initialize ClickHouse - run all ClickHouse migrations (and sync replicated schema)
         env:
             DEBUG: '1'
+            CLICKHOUSE_MIGRATIONS_WITH_PROD_GRANTS: '1'
         services:
             - clickhouse
     migrations:check:
