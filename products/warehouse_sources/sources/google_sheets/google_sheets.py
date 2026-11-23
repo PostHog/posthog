@@ -2,6 +2,7 @@ import re
 import time
 import random
 import decimal
+import datetime
 from collections import Counter
 from collections.abc import Callable, Collection, Iterator
 from typing import Any, Optional, TypeVar, cast
@@ -247,18 +248,96 @@ def _parse_number_text(text: str, locale: Locale | None) -> int | float | str | 
     return float(number)
 
 
-def _records_from_grid(grid: list[list[str]], locale: Locale | None) -> list[dict[str, Any]]:
+# Google Sheets stores a date as the number of days since this day, with the time of day as the
+# fraction. See https://developers.google.com/sheets/api/reference/rest/v4/DateTimeRenderOption.
+_SHEETS_SERIAL_EPOCH = datetime.datetime(1899, 12, 30)
+_MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000
+
+# Number format types whose cells hold a serial date. TIME cells hold no date, so they keep their
+# display text as before.
+_DATE_NUMBER_FORMAT_TYPES = frozenset({"DATE", "DATE_TIME"})
+
+_DATE_CELLS_FIELDS = "sheets(data(startRow,startColumn,rowData(values(effectiveValue(numberValue),effectiveFormat(numberFormat(type))))))"
+
+
+def _date_from_serial(serial: float, number_format_type: str) -> datetime.date | None:
+    # Round to milliseconds, which is the finest unit a Sheets time format can show. Without this,
+    # float error turns 13:30:00 into 13:29:59.999999.
+    try:
+        moment = _SHEETS_SERIAL_EPOCH + datetime.timedelta(milliseconds=round(serial * _MILLISECONDS_PER_DAY))
+    except OverflowError:
+        return None
+    return moment.date() if number_format_type == "DATE" else moment
+
+
+def _read_date_cells(worksheet: gspread.Worksheet) -> dict[tuple[int, int], datetime.date]:
+    """Find the date and date-time cells of a worksheet, keyed by (row, column) from A1.
+
+    The values read returns the text that each cell shows, so a date in a format such as "dd-mm"
+    loses its year. The display format does not change the value that the cell holds, so read that
+    value and the number format type of every cell in one request."""
+    params: dict[str, str | int | bool | float | list[str] | None] = {
+        "ranges": absolute_range_name(worksheet.title),
+        "fields": _DATE_CELLS_FIELDS,
+    }
+    response = _retry_on_transient_api_error(lambda: worksheet.spreadsheet.fetch_sheet_metadata(params))
+
+    dates: dict[tuple[int, int], datetime.date] = {}
+    for sheet in response.get("sheets", []):
+        for grid_data in sheet.get("data", []):
+            start_row = grid_data.get("startRow", 0)
+            start_column = grid_data.get("startColumn", 0)
+            for row_offset, row_data in enumerate(grid_data.get("rowData", [])):
+                for column_offset, cell in enumerate(row_data.get("values", [])):
+                    number_format_type = cell.get("effectiveFormat", {}).get("numberFormat", {}).get("type")
+                    serial = cell.get("effectiveValue", {}).get("numberValue")
+                    if number_format_type not in _DATE_NUMBER_FORMAT_TYPES or serial is None:
+                        continue
+                    value = _date_from_serial(serial, number_format_type)
+                    if value is not None:
+                        dates[(start_row + row_offset, start_column + column_offset)] = value
+    return dates
+
+
+def _value_kind(value: Any) -> type:
+    # A datetime is also a date, so check it first. Integers and floats share one numeric column.
+    if isinstance(value, datetime.datetime):
+        return datetime.datetime
+    if isinstance(value, datetime.date):
+        return datetime.date
+    if isinstance(value, int | float):
+        return float
+    return str
+
+
+def _records_from_grid(
+    grid: list[list[str]], locale: Locale | None, date_cells: dict[tuple[int, int], datetime.date]
+) -> list[dict[str, Any]]:
     if not grid or grid == [[]]:
         return []
 
     column_names = _resolve_column_names(list(grid[0]))
 
-    records = [dict(zip(column_names, [_parse_number_text(cell, locale) for cell in row])) for row in grid[1:]]
+    records = [
+        dict(
+            zip(
+                column_names,
+                [
+                    date_cells[(row_index, column_index)]
+                    if (row_index, column_index) in date_cells
+                    else _parse_number_text(cell, locale)
+                    for column_index, cell in enumerate(row)
+                ],
+            )
+        )
+        for row_index, row in enumerate(grid[1:], start=1)
+    ]
 
-    # A column that holds both numbers and text must stay text. The pipeline JSON-encodes a column
-    # of mixed Python types, which stores each text cell wrapped in double quotes.
+    # A column that holds more than one kind of value (numbers, text, dates or date-times) must stay
+    # text. The pipeline JSON-encodes a column of mixed Python types, which stores each text cell
+    # wrapped in double quotes.
     for index, name in enumerate(column_names):
-        if len({isinstance(record[name], str) for record in records if record.get(name) is not None}) > 1:
+        if len({_value_kind(record[name]) for record in records if record.get(name) is not None}) > 1:
             for raw_row, record in zip(grid[1:], records):
                 if name in record:
                     record[name] = raw_row[index] or None
@@ -602,6 +681,7 @@ def google_sheets_source(
         # what `get_all_records` asks for, so every row is the same width as the widest one.
         # Cells stay formatted so that percent and currency cells keep the text the sheet shows.
         # The number text is then parsed in the spreadsheet locale, because it uses that locale's separators.
+        # Date and date-time cells take the value they hold instead, because a display format can hide part of it.
         try:
             grid = cast(list[list[str]], _retry_on_transient_api_error(lambda: worksheet.get(pad_values=True)))
         except gspread.exceptions.APIError as e:
@@ -613,7 +693,9 @@ def google_sheets_source(
                 grid = []
             else:
                 raise
-        values = _records_from_grid(grid, _spreadsheet_locale(worksheet))
+        # A grid with no data rows has no date cells, so skip the request.
+        date_cells = _read_date_cells(worksheet) if len(grid) > 1 else {}
+        values = _records_from_grid(grid, _spreadsheet_locale(worksheet), date_cells)
 
         if should_use_incremental_field and db_incremental_field_last_value is not None:
             values = [value for value in values if value.get("id", 0) > db_incremental_field_last_value]

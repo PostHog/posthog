@@ -1,3 +1,4 @@
+import datetime
 from collections.abc import Iterable
 from typing import Any, cast
 from urllib.parse import urlencode
@@ -363,11 +364,25 @@ def test_google_sheets_source_retries_transient_error_on_data_reads():
     assert mock_worksheet.get.call_count == 2
 
 
-def _read_sheet(header_row: list[str], data_rows: list[list[str]], locale: str = "en_US") -> list[Any]:
+def _read_sheet(
+    header_row: list[str],
+    data_rows: list[list[str]],
+    locale: str = "en_US",
+    first_column_formats: list[tuple[str, float | None]] | None = None,
+) -> list[Any]:
     config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+
+    # Shaped like a `spreadsheets.get` response: the first row is the header, which has no format.
+    row_data: list[dict[str, Any]] = [{"values": [{}]}]
+    for number_format_type, serial in first_column_formats or []:
+        cell: dict[str, Any] = {"effectiveFormat": {"numberFormat": {"type": number_format_type}}}
+        if serial is not None:
+            cell["effectiveValue"] = {"numberValue": serial}
+        row_data.append({"values": [cell]})
 
     mock_worksheet = mock.MagicMock()
     mock_worksheet.spreadsheet.locale = locale
+    mock_worksheet.spreadsheet.fetch_sheet_metadata.return_value = {"sheets": [{"data": [{"rowData": row_data}]}]}
     mock_worksheet.get_all_values.return_value = [header_row]
     mock_worksheet.get.return_value = [header_row, *data_rows]
 
@@ -431,7 +446,7 @@ _ONE_LOCALE_PER_PATH = ["de_DE", "fr_FR", "en_US"]
         ),
         pytest.param("de_DE", ["1.5", "2,5"], ["1.5", "2,5"], id="ambiguous_text_keeps_the_column_as_text"),
         pytest.param("fr_FR", ["12 34", "0,5"], ["12 34", "0,5"], id="misplaced_group_space_keeps_the_column_as_text"),
-        pytest.param("de_DE", ["15.01.2024"], ["15.01.2024"], id="date_stays_text"),
+        pytest.param("de_DE", ["15.01.2024"], ["15.01.2024"], id="date_like_text_stays_text"),
         pytest.param("de_DE", ["50 %", "1.234,50 €"], ["50 %", "1.234,50 €"], id="percent_and_currency_stay_text"),
         pytest.param(
             "fr_FR", ["50 %", "1 234,50 €"], ["50 %", "1 234,50 €"], id="space_grouped_percent_and_currency_stay_text"
@@ -472,6 +487,48 @@ _ONE_LOCALE_PER_PATH = ["de_DE", "fr_FR", "en_US"]
 )
 def test_google_sheets_source_parses_cell_text_in_the_spreadsheet_locale(locale, cells, expected):
     tables = _read_sheet(["value"], [[cell] for cell in cells], locale=locale)
+
+    assert tables[0].column("value").to_pylist() == expected
+
+
+_SERIAL_2026_10_13 = 46308
+_SERIAL_2026_03_01 = 46082
+
+
+@pytest.mark.parametrize(
+    "cells,formats,expected",
+    [
+        pytest.param(
+            ["13-10", ""],
+            [("DATE", _SERIAL_2026_10_13), ("DATE", None)],
+            [datetime.date(2026, 10, 13), None],
+            id="date_keeps_the_year_its_format_hides",
+        ),
+        pytest.param(
+            ["01.03. 13:30"],
+            [("DATE_TIME", _SERIAL_2026_03_01 + 13.5 / 24)],
+            [datetime.datetime(2026, 3, 1, 13, 30)],
+            id="date_time",
+        ),
+        pytest.param(
+            ["13-10", "TBD"],
+            [("DATE", _SERIAL_2026_10_13), ("DATE", None)],
+            ["13-10", "TBD"],
+            id="date_column_with_text_keeps_display_text",
+        ),
+        pytest.param(
+            ["13-10", "13-10 08:00"],
+            [("DATE", _SERIAL_2026_10_13), ("DATE_TIME", _SERIAL_2026_10_13 + 1 / 3)],
+            ["13-10", "13-10 08:00"],
+            id="date_and_date_time_in_one_column_keep_display_text",
+        ),
+        pytest.param(
+            ["50%", "12:30"], [("PERCENT", 0.5), ("TIME", 0.5208)], ["50%", "12:30"], id="other_formats_stay_text"
+        ),
+    ],
+)
+def test_google_sheets_source_reads_date_cells_as_the_date_they_hold(cells, formats, expected):
+    tables = _read_sheet(["value"], [[cell] for cell in cells], locale="de_DE", first_column_formats=formats)
 
     assert tables[0].column("value").to_pylist() == expected
 
