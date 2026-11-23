@@ -96,6 +96,12 @@ An API key grants access to every workspace your user belongs to. To sync a sing
             "403 Client Error: Forbidden for url: https://api.render.com": KEY_FORBIDDEN_MESSAGE,
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # The source retries dropped connections and read timeouts in-process. When that budget runs out,
+        # urllib3 raises "... Max retries exceeded with url: ...". Temporal retries the activity, so the
+        # failure is transient and must not be reported as an exception.
+        return {"Max retries exceeded with url"}
+
     def get_schemas(
         self,
         config: RenderSourceConfig,

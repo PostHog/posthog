@@ -61,6 +61,9 @@ brew install posthog/tap/hog
 curl -fsSL https://releases.posthog.com/hog/install.sh | sh   # macOS and Linux
 ```
 
+Every install puts `hog-worker`, the program hog runs for `hog error-tracking`, next to `hog`.
+posthog-cli is one file and hog is two, so a Dockerfile or CI cache that copied the `posthog-cli` binary must copy both `hog` and `hog-worker` into the same folder.
+
 `hog upgrade` replaces `posthog-cli update`.
 
 ## 3. Log in on the machine

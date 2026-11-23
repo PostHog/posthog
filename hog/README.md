@@ -16,10 +16,11 @@ npm install -g hog                                            # or pnpm add -g, 
 npx hog setup                                                 # run once without installing
 ```
 
-- The install script picks the build for your OS, processor and C library (glibc or musl), checks it against `SHA256SUMS`, and puts `hog` in `~/.local/bin`. It tells you when that folder isn't on your `PATH`.
+- The install script picks the build for your OS, processor and C library (glibc or musl), checks it against `SHA256SUMS`, and puts `hog` in `~/.local/bin`, with `hog-worker`, the program hog runs for `hog error-tracking`, next to it. It tells you when that folder isn't on your `PATH`.
 - `--version <version>` (or `HOG_VERSION`) installs another version, and `--dir <folder>` (or `HOG_INSTALL_DIR`) installs somewhere else: `curl -fsSL https://releases.posthog.com/hog/install.sh | sh -s -- --version 0.1.0`.
 - Builds exist for macOS (Apple silicon and Intel), Linux (x64 and arm64, glibc and musl) and Windows (x64 and arm64).
-- The npm package `hog` is a small launcher. npm, pnpm and bun install only the `@posthog/hog-<platform>` package with the binary for your machine.
+- On Alpine and other musl systems, hog needs `libstdc++` and `libgcc`. Install them first, as in `apk add libstdc++ libgcc`.
+- The npm package `hog` is a small launcher. npm, pnpm and bun install only the `@posthog/hog-<platform>` package with `hog` and `hog-worker` for your machine.
 
 ### Updates
 
@@ -27,7 +28,7 @@ npx hog setup                                                 # run once without
 
 | Installed with                 | `hog upgrade`                                                                                                         |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
-| The install script, or by hand | Downloads the new build, checks its SHA-256, and replaces the binary in one rename                                    |
+| The install script, or by hand | Downloads the new build, checks its SHA-256, and replaces `hog` and `hog-worker` together                             |
 | Homebrew, npm, pnpm or bun     | Shows the package manager's command, such as `brew upgrade hog`, and runs it once you say yes. Agents get the command |
 | npx, or a project dependency   | Changes nothing, and says which copy runs and how to update it                                                        |
 
@@ -352,6 +353,13 @@ hog error-tracking clone index.android.bundle.map index.android.bundle.hbc.compo
 hog error-tracking upload android/app/build/generated/sourcemaps     # the composed maps
 ```
 
+`inject`, `clone`, `upload` and `process` hand their file work to `hog-worker`, a program that ships next to `hog` in every install.
+hog starts only the `hog-worker` in its own folder, and the two must come from the same release.
+A hog that can't use its worker stops before it changes a file:
+
+- `worker_missing`: no `hog-worker` sits next to `hog`, for example in an image that copied only the `hog` binary. Copy both files, or follow the hint, which names the command for your install, such as `hog upgrade`.
+- `worker_mismatch`: the `hog-worker` next to `hog` comes from another release, or is another program. Follow the hint, which names the command for your install. For a copy the install script put there, `hog upgrade` installs the same version again when the two don't match.
+
 hog uploads the same bytes and content hashes as posthog-cli, so either CLI can re-upload what the other uploaded. A few things differ on purpose:
 
 - `posthog-cli sourcemap`, `hermes`, `proguard`, `dsym` and `symbol-sets upload` are `hog error-tracking`, with paths as arguments instead of `--directory` and `--path`
@@ -437,10 +445,13 @@ Install [Bun](https://bun.sh) 1.3.3 or later, then from the repo root:
 
 ```bash
 pnpm --filter hog hog --help  # run hog from source
-pnpm --filter hog unit        # run the tests
+pnpm --filter hog build:worker # build hog-worker, which `hog error-tracking` runs
+pnpm --filter hog unit        # build hog-worker, then run the tests
 pnpm --filter hog typecheck   # check types
 pnpm --filter hog compile     # build dist/hog for this machine
 ```
+
+`hog error-tracking` hands its file work to hog-worker, the Rust program in `worker/`, so those commands and their tests need a Rust toolchain. A run from source starts the worker that `build:worker` leaves in `worker/target/release/`. A compiled hog starts the `hog-worker` next to its own binary, and never looks for one anywhere else.
 
 A build from `pnpm compile` or a run from source reports the version in `package.json` without a build date, and never checks for updates.
 
@@ -454,6 +465,7 @@ The `Release hog` workflow (`.github/workflows/release-hog.yml`) runs it, and `r
 A change to code compiled into hog that the downloadable tool catalog can't deliver, such as a change to the MCP code the CLI library bundles, needs no changeset of its own.
 Every release builds master, so it ships those changes anyway.
 `release/catalog-gap.ts` reads the build metafiles of hog and the CLI library to find the compiled files the catalog can't deliver.
+It also counts every change under `worker/`, because hog-worker ships in every release beside hog.
 A change to the generated API schemas in `services/mcp/src/generated/`, or to the registry of generated tool modules, counts only when it reaches a tool the catalog doesn't carry or hand-written code, because hog builds every tool the catalog carries from its catalog entry.
 
 On a pull request with such a change and no changeset, the `hog release check` workflow comments with the files and the choices below, and deletes the comment once a changeset is added. It runs the pull request's code with no secrets, so it works on forks, and `hog release check comment` posts the comment from the default branch.
@@ -506,10 +518,10 @@ When a release starts, the workflow:
 Merging the release pull request runs the workflow again, which:
 
 4. Checks that the releaser App made the release commit, and that it changes only the release files and the version in `hog/package.json`. Then it runs the approver check again on everything since the last release tag, since the changes that merged while the release pull request waited ship in the build too. When an approver owns one of them, nothing publishes: revert the release pull request, which restores the changesets it consumed, and run the `Release hog` workflow by hand so someone else approves a new release.
-5. Compiles every target, with the version and the release commit's date as the build date.
-6. Signs and notarizes the macOS builds in the `hog-publish` environment, which has no reviewers, admits only master, and is the only environment the release bucket trusts. A missing certificate or notarization credential fails the release. Then it uploads them to `releases.posthog.com/hog/v<version>/`.
-7. Runs the signed Apple silicon build in a job without secrets, to check that it starts.
-8. Publishes the npm packages, platform packages first, and waits until npm serves each one. npm takes minutes to serve a new version, and an install in that window gets `hog` without its binary. Then it checks that a clean `npm install hog@<version>` installs that version and the Linux x64 binary this run built, comparing the bytes without running them. Only after that does it create the GitHub release and the `hog/v<version>` tag, and point `hog/latest/manifest.json`, the install scripts and `Formula/hog.rb` in `PostHog/homebrew-tap` at it. One release at a time does this step.
+5. Compiles hog for every target, with the version and the release commit's date as the build date. A second job cross-compiles `hog-worker`, the Rust program in `worker/` that ships next to hog, for the same targets with the same version. It runs `release/build-worker.sh`, which builds in the Docker image `release/worker-cross.Dockerfile` pins.
+6. Signs and notarizes the macOS builds of hog and `hog-worker` in the `hog-publish` environment, which has no reviewers, admits only master, and is the only environment the release bucket trusts. A missing certificate or notarization credential fails the release. Then it packs both binaries into each archive and npm platform package, and uploads the archives to `releases.posthog.com/hog/v<version>/`.
+7. Runs the signed Apple silicon build in a job without secrets, to check that hog starts and that it runs `error-tracking inject` with its `hog-worker`.
+8. Publishes the npm packages, platform packages first, and waits until npm serves each one. npm takes minutes to serve a new version, and an install in that window gets `hog` without its binary. Then it checks that a clean `npm install hog@<version>` installs that version and the Linux x64 binaries this run built, comparing the bytes without running them. Only after that does it create the GitHub release and the `hog/v<version>` tag, and point `hog/latest/manifest.json`, the install scripts and `Formula/hog.rb` in `PostHog/homebrew-tap` at it. One release at a time does this step.
 
 A release takes two merges, the change and then the release pull request, and one approval.
 
@@ -521,5 +533,6 @@ A release takes two merges, the change and then the release pull request, and on
 
 ```bash
 bun release/compile.ts --version 0.1.0 --target darwin-arm64   # a release build for this machine
+release/build-worker.sh --version 0.1.0 --target darwin-arm64  # its hog-worker, built in Docker
 bun test release/                                              # the install script and launcher tests
 ```

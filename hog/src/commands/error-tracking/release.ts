@@ -1,7 +1,6 @@
 import { defineCommand } from '@/core/command'
-import { resolveJsRelease } from '@/error-tracking/js-flow'
 import { fetchOrCreateRelease, findRelease, releaseHashId, type Release } from '@/error-tracking/release'
-import { releaseFields } from '@/error-tracking/run'
+import { releaseFields, resolveJsRelease } from '@/error-tracking/session'
 import { SymbolSetClient } from '@/error-tracking/upload'
 
 import { readOptions, RELEASE_OPTIONS } from './shared'
