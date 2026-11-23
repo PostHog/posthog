@@ -650,7 +650,7 @@ class TestPageDirectoryDimensionalParity(WebAnalyticsPreAggregatedTestBase):
             self.addCleanup(sync_execute, f"SYSTEM START TTL MERGES {table}")
         flag_patcher = patch(
             "products.web_analytics.backend.hogql_queries.web_dimensional_read.feature_enabled_or_false",
-            return_value=True,
+            side_effect=lambda key, *args, **kwargs: key == WEB_ANALYTICS_QUERY_MODIFIERS_FLAG,
         )
         flag_patcher.start()
         self.addCleanup(flag_patcher.stop)
