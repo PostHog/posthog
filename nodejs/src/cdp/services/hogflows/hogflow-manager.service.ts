@@ -11,6 +11,7 @@ import { validTeamIds } from '~/common/utils/team-manager'
 import { Team } from '~/types'
 
 import { EncryptedFields } from '../../utils/encryption-utils'
+import { organizationInactiveColumn, withoutDeactivatedOrganizations } from '../managers/deactivated-organizations'
 
 // Nonzero means a flow's encrypted secret inputs couldn't be decrypted (most likely Fernet key skew
 // between Django and the workers, or a corrupt blob). The flow still runs, but its secret-input steps
@@ -61,7 +62,8 @@ export class HogFlowManagerService {
     constructor(
         private postgres: PostgresRouter,
         private pubSub: PubSub,
-        private encryptedFields: EncryptedFields
+        private encryptedFields: EncryptedFields,
+        private skipDeactivatedOrganizations = false
     ) {
         // The reload-hog-flows pub/sub below is the primary invalidation; these ages bound how
         // stale a worker can run when it misses the publish (pod restart, Redis blip). Live edits
@@ -230,18 +232,22 @@ export class HogFlowManagerService {
         })
     }
 
+    private organizationInactiveSelect(): string {
+        return this.skipDeactivatedOrganizations ? `, ${organizationInactiveColumn('posthog_hogflow')}` : ''
+    }
+
     private async fetchTeamHogFlows(teamIds: string[]): Promise<Record<string, HogFlowTeamInfo[]>> {
         logger.debug('[HogFlowManager]', 'Fetching team hog flows', { teamIds })
         const response = await this.postgres.query<HogFlowTeamInfo>(
             PostgresUse.COMMON_READ,
-            `SELECT id, team_id, version FROM posthog_hogflow WHERE status='active' AND team_id = ANY($1)`,
+            `SELECT id, team_id, version${this.organizationInactiveSelect()} FROM posthog_hogflow WHERE status='active' AND team_id = ANY($1)`,
             [validTeamIds(teamIds)],
             'fetchAllTeamHogFlows'
         )
 
         const byTeam: Record<string, HogFlowTeamInfo[]> = {}
 
-        for (const item of response.rows) {
+        for (const item of withoutDeactivatedOrganizations('hog_flow', response.rows)) {
             const teamId = item.team_id.toString()
             if (!byTeam[teamId]) {
                 byTeam[teamId] = []
@@ -260,12 +266,12 @@ export class HogFlowManagerService {
 
         const response = await this.postgres.query<HogFlow>(
             use,
-            `SELECT ${HOG_FLOW_FIELDS.join(', ')} FROM posthog_hogflow WHERE id = ANY($1)`,
+            `SELECT ${HOG_FLOW_FIELDS.join(', ')}${this.organizationInactiveSelect()} FROM posthog_hogflow WHERE id = ANY($1)`,
             [ids],
             'fetchHogFlows'
         )
 
-        const items = response.rows
+        const items = withoutDeactivatedOrganizations('hog_flow', response.rows)
 
         return items.reduce<Record<string, HogFlow | undefined>>((acc, item) => {
             // Ensure billable_action_types is properly parsed as an array

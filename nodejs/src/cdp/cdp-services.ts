@@ -161,6 +161,7 @@ export type CdpCoreServicesConfig = Pick<
     UsageIngestionConfig &
     Pick<
         CdpConfig,
+        | 'CDP_SKIP_DEACTIVATED_ORGANIZATIONS'
         | 'CDP_REDIS_HOST'
         | 'CDP_REDIS_PORT'
         | 'CDP_REDIS_PASSWORD'
@@ -486,8 +487,18 @@ export function createCdpCoreServices(
     // source has to be applied for `dualRead` / `dualWrite` to see it.
     configureValkeyReads(config.CDP_VALKEY_READ_FEATURES)
 
-    const hogFunctionManager = new HogFunctionManagerService(deps.postgres, deps.pubSub, deps.encryptedFields)
-    const hogFlowManager = new HogFlowManagerService(deps.postgres, deps.pubSub, deps.encryptedFields)
+    const hogFunctionManager = new HogFunctionManagerService(
+        deps.postgres,
+        deps.pubSub,
+        deps.encryptedFields,
+        config.CDP_SKIP_DEACTIVATED_ORGANIZATIONS
+    )
+    const hogFlowManager = new HogFlowManagerService(
+        deps.postgres,
+        deps.pubSub,
+        deps.encryptedFields,
+        config.CDP_SKIP_DEACTIVATED_ORGANIZATIONS
+    )
 
     const hogWatcherConfig = {
         hogCostTimingLowerMs: config.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS,
