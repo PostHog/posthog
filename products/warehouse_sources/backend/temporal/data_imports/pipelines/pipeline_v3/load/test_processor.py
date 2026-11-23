@@ -642,6 +642,49 @@ class TestMarkJobCompleted:
 
     @parameterized.expand(
         [
+            ("single_table_run", {}, False, True),
+            # The history table's rows stay reserved against the billing limit until its own job completes.
+            ("schema_job_before_its_history_table", {"cdc_companion_job_ids": ["companion-1"]}, False, False),
+            ("last_table_of_the_run", {"companion_of": "job-0"}, True, True),
+        ]
+    )
+    @patch(f"{_PROCESSOR}.run_completed_on_every_table")
+    @patch(f"{_PROCESSOR}.resume_schedule_after_ad_hoc_run")
+    @patch(f"{_PROCESSOR}.transaction")
+    @patch(f"{_PROCESSOR}.release_v3_pipeline_lock")
+    @patch(f"{_PROCESSOR}.ExternalDataJob.objects")
+    @patch(f"{_PROCESSOR}.finish_row_tracking", new_callable=AsyncMock)
+    @patch(f"{_PROCESSOR}.ExternalDataSchema.objects")
+    @patch(f"{_PROCESSOR}.update_external_job_status")
+    def test_the_last_table_of_a_run_clears_its_billing_reserve(
+        self,
+        _case: str,
+        snapshot: dict,
+        every_table_completed: bool,
+        cleared: bool,
+        mock_update: MagicMock,
+        _schema_objects: MagicMock,
+        mock_finish_row_tracking: AsyncMock,
+        _job_objects: MagicMock,
+        _release: MagicMock,
+        _transaction: MagicMock,
+        _resume: MagicMock,
+        mock_every_table_completed: MagicMock,
+    ) -> None:
+        model = MagicMock()
+        model.status = "Completed"
+        model.schema_snapshot = snapshot
+        mock_update.return_value = model
+        mock_every_table_completed.return_value = every_table_completed
+        signal = self._make_signal()
+        signal.sync_type = "cdc"
+
+        _mark_job_completed(signal)
+
+        assert mock_finish_row_tracking.await_count == (1 if cleared else 0)
+
+    @parameterized.expand(
+        [
             (
                 "aged_out_batch_never_loaded",
                 UnfinishedEarlierBatches(count=1, first_batch_index=2, states=("pending",)),

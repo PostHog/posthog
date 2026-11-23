@@ -38,6 +38,8 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     history_naming_of,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import (
+    COMPANION_JOB_IDS_KEY,
+    COMPANION_OF_KEY,
     COMPANION_RUN_SUFFIX,
     run_completed_on_every_table,
 )
@@ -759,7 +761,8 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
                 )
 
     if job_completed:
-        async_to_sync(finish_row_tracking)(export_signal.team_id, export_signal.schema_id)
+        if _run_completed_on_every_table(model, export_signal):
+            async_to_sync(finish_row_tracking)(export_signal.team_id, export_signal.schema_id)
         if (model.schema_snapshot or {}).get("sync_type") == ExternalDataSchema.SyncType.WEBHOOK:
             _delete_consumed_webhook_files(export_signal)
 
@@ -782,6 +785,15 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
 
     if job_completed:
         _resume_schedule_after_ad_hoc_run(export_signal)
+
+
+def _run_completed_on_every_table(model: ExternalDataJob, export_signal: ExportSignalMessage) -> bool:
+    """Whether this completion ends the run. A run's billing-limit reserve covers every table it bills, so
+    the last of them to complete clears it."""
+    snapshot = model.schema_snapshot or {}
+    if not (snapshot.get(COMPANION_JOB_IDS_KEY) or snapshot.get(COMPANION_OF_KEY)):
+        return True
+    return run_completed_on_every_table(export_signal.job_id, export_signal.team_id)
 
 
 def _delete_consumed_webhook_files(export_signal: ExportSignalMessage) -> None:
