@@ -3,9 +3,11 @@ import http from 'http'
 import { AddressInfo } from 'net'
 import path from 'path'
 
-import { LoadedCard, load, stepsOf } from '../cards'
+import { parseJSON } from '~/common/utils/json-parse'
+
+import { LoadedCard, load } from '../cards'
 import type { JournalEntry } from '../judge/judge'
-import { type LiveRamp, rampOf, watchRamp } from '../judge/ramp'
+import { type LiveRamp, watchRamp } from '../judge/ramp'
 import { SeedState, StepGate, drive } from './generator'
 import { OfferContext, kafkaEmit } from './traffic'
 
@@ -272,7 +274,7 @@ describe('drive', () => {
 
     it.each([
         ['accepted', 202],
-        ['refused', 503],
+        ['refused', 422],
     ])('counts a transactional unit sent inside the window that cdp-api %s after the window', async (_, status) => {
         jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
         const held: http.ServerResponse[] = []
@@ -367,6 +369,66 @@ describe('drive', () => {
             await jest.advanceTimersByTimeAsync(200)
 
             expect({ live, summary: await driving }).toMatchObject({ live: 2, summary: { offeredUnits: 6 } })
+        } finally {
+            server.closeAllConnections()
+            await new Promise<void>((resolve) => server.close(() => resolve()))
+        }
+    })
+
+    it.each<[string, string, object]>([
+        ['transactional sends', 'transactional_email', { answer: { accepted: true, retries: 1 } }],
+        [
+            'bounce follow-ups',
+            'bounce_followup',
+            { answer: { accepted: true }, followUp: { accepted: true, retries: 1 } },
+        ],
+    ])('sums the retries of %s that cdp-api answered with a 5xx, over every unit', async (_kind, traffic, entry) => {
+        jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+        const refused = new Set<string>()
+        let retries = 0
+        let elapsedMs = 0
+        let retried = (): void => undefined
+        const answered = new Promise<void>((resolve) => (retried = resolve))
+        const server = http.createServer((request, response) => {
+            let raw = ''
+            request.on('data', (chunk) => (raw += chunk))
+            request.on('end', () => {
+                const key: string = parseJSON(raw).idempotency_key
+                const first = !refused.has(key)
+                refused.add(key)
+                retries += first ? 0 : 1
+                response.writeHead(first ? 503 : 202).end('{}', !first && retries === 2 ? retried : undefined)
+            })
+        })
+        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+        const { port } = server.address() as AddressInfo
+        try {
+            const { driving, journal } = startDrive(
+                cardWith({ ratePerSecond: 20, driveFor: '100ms', traffic }),
+                ACKNOWLEDGED,
+                {
+                    cdpApi: {
+                        ...CDP_API,
+                        url: `http://127.0.0.1:${port}`,
+                        clock: {
+                            now: () => elapsedMs,
+                            wait: (ms) => {
+                                elapsedMs += ms
+                                return Promise.resolve()
+                            },
+                        },
+                    },
+                    sesFeedback: { settled: () => Promise.resolve(undefined) },
+                }
+            )
+
+            await jest.advanceTimersByTimeAsync(100)
+            await Promise.race([answered, driving])
+            await jest.advanceTimersByTimeAsync(100)
+            expect({ summary: await driving, journal }).toMatchObject({
+                summary: { offeredUnits: 2, sendRetries: 2 },
+                journal: [entry, entry],
+            })
         } finally {
             server.closeAllConnections()
             await new Promise<void>((resolve) => server.close(() => resolve()))
@@ -484,43 +546,23 @@ describe('drive', () => {
         (delayMs: number, percent: number): LiveRamp['writerCpu'] =>
         ({ startedAt }) =>
             new Promise((resolve) => setTimeout(() => resolve([{ at: startedAt, percent }]), delayMs))
-    const BROKE_AT_1X = {
-        end: 'broke',
-        sustainedScale: null,
-        broke: {
-            scale: 1,
-            offeredPerSecond: 1,
-            by: 'writer_cpu_under',
-            kind: 'bar',
-            at: expect.any(String),
-            part: 'db:cyclotron',
-        },
-        reason: 'writer_cpu_under broke at the 1x step',
-    }
 
     it.each<[string, LiveRamp['writerCpu'], object]>([
         [
-            'its writer CPU broke the bar at the 1x step, read during the 2x step',
+            'its writer CPU broke the bar at the 1x step, which is no hard failure, read during the 2x step',
             cpuReadAfter(30_000, 90),
             {
-                offeredSteps: [0, 1],
+                offeredSteps: [0, 1, 2],
                 steps: [
                     { fromMs: 0, toMs: MINUTE, firstOfferMs: 0 },
-                    { fromMs: MINUTE, toMs: 105_000, firstOfferMs: MINUTE },
+                    { fromMs: MINUTE, toMs: 2 * MINUTE, firstOfferMs: MINUTE },
+                    { fromMs: 2 * MINUTE, toMs: 3 * MINUTE, firstOfferMs: 2 * MINUTE },
                 ],
-                ramp: BROKE_AT_1X,
-            },
-        ],
-        [
-            'its writer CPU broke the bar at the 1x step, read only after the 2x step was due to end',
-            cpuReadAfter(MINUTE, 90),
-            {
-                offeredSteps: [0, 1],
-                steps: [
-                    { fromMs: 0, toMs: MINUTE, firstOfferMs: 0 },
-                    { fromMs: MINUTE, toMs: 135_000, firstOfferMs: MINUTE, waitedFor: 0 },
+                stopped: undefined,
+                broken: [
+                    { index: 0, bars: ['writer_cpu_under'] },
+                    { index: 1, bars: ['writer_cpu_under'] },
                 ],
-                ramp: BROKE_AT_1X,
             },
         ],
         [
@@ -533,7 +575,11 @@ describe('drive', () => {
                     { fromMs: MINUTE, toMs: 135_000, firstOfferMs: MINUTE, waitedFor: 0 },
                     { fromMs: 135_000, toMs: 195_000, firstOfferMs: 135_000 },
                 ],
-                ramp: { end: 'ceiling', sustainedScale: 5, reason: 'every step held up to the 5x ceiling' },
+                stopped: undefined,
+                broken: [
+                    { index: 0, bars: [] },
+                    { index: 1, bars: [] },
+                ],
             },
         ],
         [
@@ -545,9 +591,10 @@ describe('drive', () => {
                     { fromMs: 0, toMs: MINUTE, firstOfferMs: 0 },
                     { fromMs: MINUTE, toMs: 75_000, firstOfferMs: MINUTE },
                 ],
-                ramp: {
+                stopped: {
+                    index: 0,
                     end: 'harness_limit',
-                    sustainedScale: null,
+                    reason: 'writer_cpu_under was not judged: CloudWatch is down in the 1x step',
                     broke: {
                         scale: 1,
                         offeredPerSecond: 1,
@@ -556,12 +603,12 @@ describe('drive', () => {
                         at: expect.any(String),
                         part: null,
                     },
-                    reason: 'writer_cpu_under was not judged: CloudWatch is down in the 1x step',
                 },
+                broken: [{ index: 0, bars: ['writer_cpu_under'] }],
             },
         ],
     ])(
-        'a break at step N halts the drive by the end of step N+1, and step N+2 never starts before step N is judged, when %s',
+        'the live verdict on step N gates the drive, halting it by the end of step N+1 only on a hard failure, when %s',
         async (_story, writerCpu, expected) => {
             jest.setSystemTime(Math.ceil(Date.now() / MINUTE) * MINUTE)
             const ramped = rampedCard(
@@ -608,18 +655,11 @@ describe('drive', () => {
                         startedAt,
                     ...(waitedFor !== undefined && { waitedFor }),
                 })),
-                ramp: rampOf({
-                    planned: stepsOf(ramped.card.drive),
-                    steps,
-                    minOffered: 0.9,
-                    stop: watch.stopped(),
-                    bars: [],
-                    invariants: [],
-                    gates: {},
-                    journal,
-                    admissions: [],
-                    converged: true,
-                }),
+                stopped: watch.stopped(),
+                broken: [...watch.settled()].map(([index, results]) => ({
+                    index,
+                    bars: results.filter(({ passed }) => !passed).map(({ name }) => name),
+                })),
             }).toEqual(expected)
         }
     )

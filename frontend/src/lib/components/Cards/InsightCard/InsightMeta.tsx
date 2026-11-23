@@ -679,6 +679,7 @@ function InsightMetaBody({
                         <QuillInsightMetaContent
                             {...metaContentProps}
                             infoPopover={<QuillCompactInfoPopover {...infoPopoverProps} />}
+                            onCopyLink={showEditingControls ? copyInsightLink : undefined}
                         />
                     }
                     menuItems={showEditingControls ? <QuillInsightCardMenuItems menu={menu} /> : null}
@@ -798,6 +799,8 @@ export interface InsightMetaContentProps {
     /** Whether the person can act on a finding. Without one the tile only notes that the query is slow. */
     queryScanActionable?: boolean
     warehouseSyncTooltip?: JSX.Element | null
+    /** Shows a copy link icon beside the title while the card is hovered. */
+    onCopyLink?: () => void
 }
 
 export function InsightMetaContent({

@@ -141,6 +141,57 @@ describe('statusOf', () => {
             `role.kill on ${EMAIL_WORKER} was not observed: never applied`,
         ],
         [
+            'a valve applied only after the drive ended',
+            {
+                timeline: [
+                    {
+                        ...failedOver,
+                        intentAt: at(52),
+                        appliedAt: at(52),
+                        observedAt: at(53),
+                        releaseIntentAt: at(54),
+                        releasedAt: at(55),
+                    },
+                ],
+            },
+            'invalid',
+            'pg.failover on cyclotron was not observed: applied after the drive ended',
+        ],
+        [
+            'a valve that failed to apply after the drive ended',
+            {
+                timeline: [
+                    {
+                        valve: 'role.freeze',
+                        target: EMAIL_WORKER,
+                        requestedAt: at(51),
+                        intentAt: at(52),
+                        error: `${EMAIL_WORKER} is not running`,
+                    },
+                ],
+            },
+            'invalid',
+            `role.freeze on ${EMAIL_WORKER} was not observed: ${EMAIL_WORKER} is not running`,
+        ],
+        [
+            'a valve that applied after the drive ended but was never observed',
+            {
+                timeline: [
+                    {
+                        valve: 'role.kill',
+                        target: EMAIL_WORKER,
+                        requestedAt: at(51),
+                        intentAt: at(52),
+                        appliedAt: at(52),
+                        releasedAt: at(52),
+                        error: `${EMAIL_WORKER} is not running`,
+                    },
+                ],
+            },
+            'invalid',
+            `role.kill on ${EMAIL_WORKER} was not observed: ${EMAIL_WORKER} is not running`,
+        ],
+        [
             'an invariant failed while a valve was never observed',
             {
                 timeline: [{ valve: 'role.kill', target: EMAIL_WORKER, requestedAt: at(0), error: 'never applied' }],
@@ -250,6 +301,90 @@ describe('statusOf', () => {
             { ramp: { end: 'ceiling', sustainedScale: 5, reason: 'every step held up to the 5x ceiling' } },
             'passed',
             'every invariant held',
+        ],
+        [
+            'a ramp that ran to its ceiling but lost deliveries and sent duplicates under the hard limit',
+            {
+                convergence: { converged: false, unfinishedJobs: 0, unrecorded: ['run-1', 'run-2'], tookMs: 120_000 },
+                invariants: [
+                    { ...BROKEN, crossedBy: 'run-1' },
+                    { name: 'duplicate_sends', passed: false, observed: 1, unitIds: ['run-3'], crossedBy: 'run-3' },
+                ],
+                ramp: {
+                    end: 'ceiling',
+                    sustainedScale: 5,
+                    reason: 'every step held up to the 5x ceiling',
+                    rates: [
+                        {
+                            index: 0,
+                            scale: 1,
+                            expected: 120,
+                            lost: 0,
+                            lossRate: 0,
+                            sent: 119,
+                            duplicates: 1,
+                            duplicateRate: 1 / 119,
+                        },
+                        {
+                            index: 1,
+                            scale: 2,
+                            expected: 240,
+                            lost: 2,
+                            lossRate: 2 / 240,
+                            sent: 238,
+                            duplicates: 0,
+                            duplicateRate: 0,
+                        },
+                    ],
+                },
+            },
+            'failed',
+            'the ramp ran to its last step, but lost 2 of 360 deliveries (0.56%): 2 in the 2x step; sent 1 duplicate of 357 deliveries (0.28%): 1 in the 1x step',
+        ],
+        [
+            'a ramp that ran to its ceiling with duplicates the janitor resets allow',
+            {
+                ramp: {
+                    end: 'ceiling',
+                    sustainedScale: 5,
+                    reason: 'every step held up to the 5x ceiling',
+                    rates: [
+                        {
+                            index: 0,
+                            scale: 1,
+                            expected: 120,
+                            lost: 0,
+                            lossRate: 0,
+                            sent: 120,
+                            duplicates: 1,
+                            duplicateRate: 1 / 120,
+                        },
+                    ],
+                },
+                invariants: [{ name: 'duplicate_sends', passed: true, observed: 1, unitIds: ['run-3'] }],
+            },
+            'passed',
+            'every invariant held',
+        ],
+        [
+            'a ramp that ran to its ceiling whose last delivery arrived only after the convergence deadline',
+            {
+                convergence: { converged: false, unfinishedJobs: 0, unrecorded: ['run-1'], tookMs: 120_000 },
+                invariants: [{ name: 'at_least_once', passed: true, observed: 0, unitIds: [] }],
+                ramp: { end: 'ceiling', sustainedScale: 5, reason: 'every step held up to the 5x ceiling' },
+            },
+            'failed',
+            'not converged: 0 unfinished jobs, 1 units without a delivery record',
+        ],
+        [
+            'a ramp that ran to its ceiling on a card that does not judge at_least_once, with units left unrecorded',
+            {
+                convergence: { converged: false, unfinishedJobs: 0, unrecorded: ['run-1', 'run-2'], tookMs: 120_000 },
+                invariants: [{ name: 'duplicate_sends', passed: true, observed: 0, unitIds: [] }],
+                ramp: { end: 'ceiling', sustainedScale: 5, reason: 'every step held up to the 5x ceiling' },
+            },
+            'failed',
+            'not converged: 0 unfinished jobs, 2 units without a delivery record',
         ],
         [
             'a ramp that held up to its ceiling with a bar the stack has no source for',
@@ -385,6 +520,24 @@ describe('statusOf', () => {
             { timeline: [failedOver], writer: probed((second) => (second === 52 ? '08006' : false)) },
             'invalid',
             `Cyclotron interrupted without a valve: a writer probe lost its connection (SQLSTATE 08006) after the drive and every valve ended, at ${at(52)}`,
+        ],
+        [
+            'the writer probe lost its connection after the drive but before a late valve applied',
+            {
+                timeline: [
+                    {
+                        ...failedOver,
+                        intentAt: at(54),
+                        appliedAt: at(54),
+                        observedAt: at(54),
+                        releaseIntentAt: undefined,
+                        releasedAt: at(55),
+                    },
+                ],
+                writer: probed((second) => (second === 52 ? '08006' : false)),
+            },
+            'invalid',
+            `Cyclotron interrupted without a valve: a writer probe lost its connection (SQLSTATE 08006) before any valve applied, at ${at(52)}`,
         ],
         [
             'a card without a valve whose writer probe lost its connection across the drive end',

@@ -200,7 +200,7 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
                     .boolean()
                     .optional()
                     .describe(
-                        "Whether the email's links go through a redirect that counts clicks. Defaults to true when the email isn't sensitive and false when it is. Needs `opens`. A link with `data-ph-no-track` keeps its own address."
+                        "Whether the email's links go through a redirect that counts clicks. Defaults to true, for sensitive emails too. Needs `opens`. A link with `data-ph-no-track` keeps its own address."
                     ),
                 engagement: zod
                     .boolean()
@@ -212,7 +212,7 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            "What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and captures engagement events, and tracks clicks only when the email isn't sensitive (see `sensitive`). Turn on `clicks` for a sensitive email only when its links are safe to send through a redirect. A link with `data-ph-no-track` keeps its own address either way. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body."
+            'What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and clicks and captures engagement events, for sensitive emails too. A link with `data-ph-no-track` keeps its own address, so an app link still opens the app. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body.'
         ),
     scheduled_at: zod.iso
         .datetime({ offset: true })
@@ -224,7 +224,7 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            "Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails keep their links unchanged unless `tracking` turns clicks on, leave the subject off engagement events, and keep the content out of logs. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive."
+            "Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails leave the subject off engagement events, record only the site address of a clicked link, and keep the content out of logs. They are tracked like any other email unless `tracking` turns tracking off. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive."
         ),
     from: zod
         .string()
@@ -594,8 +594,8 @@ export const MessagingPreferencesRemoveOptOutCreateBody = /* @__PURE__ */ zod.ob
 })
 
 /**
- * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid and Mailgun suppressions and
- * unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid, Mailgun and Mailchimp
+ * suppressions and unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary Start a background import from another messaging tool
@@ -608,12 +608,12 @@ export const messagingProviderImportsCreateBodySettingsMaxOne = 64
 
 export const MessagingProviderImportsCreateBody = /* @__PURE__ */ zod.object({
     provider: zod
-        .enum(['customerio', 'resend', 'postmark', 'sendgrid', 'mailgun'])
+        .enum(['customerio', 'resend', 'postmark', 'sendgrid', 'mailgun', 'mailchimp'])
         .describe(
-            '\* `customerio` - Customer.io\n\* `resend` - Resend\n\* `postmark` - Postmark\n\* `sendgrid` - SendGrid\n\* `mailgun` - Mailgun'
+            '\* `customerio` - Customer.io\n\* `resend` - Resend\n\* `postmark` - Postmark\n\* `sendgrid` - SendGrid\n\* `mailgun` - Mailgun\n\* `mailchimp` - Mailchimp'
         )
         .describe(
-            'The provider to import from.\n\n\* `customerio` - Customer.io\n\* `resend` - Resend\n\* `postmark` - Postmark\n\* `sendgrid` - SendGrid\n\* `mailgun` - Mailgun'
+            'The provider to import from.\n\n\* `customerio` - Customer.io\n\* `resend` - Resend\n\* `postmark` - Postmark\n\* `sendgrid` - SendGrid\n\* `mailgun` - Mailgun\n\* `mailchimp` - Mailchimp'
         ),
     steps: zod
         .array(zod.string().max(messagingProviderImportsCreateBodyStepsItemMax))
@@ -626,7 +626,7 @@ export const MessagingProviderImportsCreateBody = /* @__PURE__ */ zod.object({
         .max(messagingProviderImportsCreateBodyApiKeyMax)
         .optional()
         .describe(
-            "The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. For SendGrid, a key with read access to the selected steps. For Mailgun, an account key that can read suppressions. PostHog deletes a Resend, Postmark, SendGrid or Mailgun key when the run ends, so send it every time."
+            "The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. For SendGrid, a key with read access to the selected steps. For Mailgun, an account key that can read suppressions. For Mailchimp, a Marketing API key ending in its data center, such as -us21. PostHog deletes a Resend, Postmark, SendGrid, Mailgun or Mailchimp key when the run ends, so send it every time."
         ),
     settings: zod
         .record(zod.string(), zod.string().max(messagingProviderImportsCreateBodySettingsMaxOne))

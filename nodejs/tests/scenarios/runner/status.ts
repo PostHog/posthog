@@ -4,8 +4,8 @@ import type { RoleExit } from '../environment/supervisor'
 import type { DriveSummary } from '../generator/generator'
 import { BarResult, unsourced } from '../judge/bars'
 import type { Convergence, InvariantResult } from '../judge/judge'
-import { Baseline, DriveWindow, MIN_BASELINE_SECONDS, phasesOf } from '../judge/measurements'
-import type { Ramp } from '../judge/ramp'
+import { Baseline, DriveWindow, MIN_BASELINE_SECONDS } from '../judge/measurements'
+import { type Ramp, ratesReasonOf } from '../judge/ramp'
 import type { WriterSample } from '../probe/writer-probe'
 import { VALVES, ValveTimelineEntry } from '../valves/valves'
 
@@ -159,7 +159,8 @@ function interruptionWithoutValve(
     drive: DriveWindow,
     timeline: ValveTimelineEntry[]
 ): string | undefined {
-    const firstIntent = phasesOf(drive, timeline).baseline.to
+    const intents = timeline.flatMap(({ intentAt }) => (intentAt === undefined ? [] : [Date.parse(intentAt)]))
+    const firstIntent = intents.length === 0 ? drive.endedAt : Math.max(Math.min(...intents), drive.startedAt)
     const lastRelease = Math.max(
         drive.endedAt,
         ...timeline.flatMap(({ releasedAt }) => (releasedAt === undefined ? [] : [Date.parse(releasedAt)]))
@@ -205,26 +206,44 @@ function withRamp(
     }
     return ramp.end === 'harness_limit'
         ? { status: 'invalid', statusReason: `the ramp hit a harness limit: ${ramp.reason}` }
-        : { status: 'failed', statusReason: `the ramp broke: ${ramp.reason}` }
+        : {
+              status: 'failed',
+              statusReason: [
+                  `the ramp broke: ${ramp.reason}`,
+                  ...(ramp.stop && ramp.stop.reason !== ramp.reason ? [ramp.stop.reason] : []),
+              ].join('; '),
+          }
 }
 
 function judgedOf(verdict: Verdict): { status: Status; statusReason: string } {
     if (!verdict.ramp) {
         return unrampedStatusOf(verdict)
     }
-    const { invariants, convergence } = verdict
-    const placesDeliveries = invariants.some(
-        ({ name, crossedBy }) => name === 'at_least_once' && crossedBy !== undefined
-    )
-    const ramped = withRamp(
+    const { invariants, convergence, ramp } = verdict
+    const failed = (name: string): boolean =>
+        invariants.some((invariant) => invariant.name === name && !invariant.passed)
+    const recorded = ratesReasonOf(ramp.rates ?? [], {
+        lost: failed('at_least_once'),
+        duplicates: failed('duplicate_sends'),
+    })
+    const rampJudgesConvergence =
+        convergence.unfinishedJobs > 0 ||
+        invariants.some(({ name, crossedBy }) => name === 'at_least_once' && crossedBy !== undefined)
+    const unramped = withRamp(
         unrampedStatusOf({
             ...verdict,
             bars: [],
             invariants: invariants.filter(({ crossedBy }) => crossedBy === undefined),
-            convergence: placesDeliveries ? { ...convergence, converged: true } : convergence,
+            convergence: rampJudgesConvergence ? { ...convergence, converged: true } : convergence,
         }),
-        verdict.ramp
+        ramp
     )
+    const ramped =
+        recorded.length === 0
+            ? unramped
+            : unramped.status === 'passed'
+              ? { status: 'failed' as const, statusReason: `the ramp ran to its last step, but ${recorded.join('; ')}` }
+              : { ...unramped, statusReason: [unramped.statusReason, ...recorded].join('; ') }
     const notJudged = verdict.bars.filter(unsourced).map(({ name, unjudged }) => `${name} was not judged: ${unjudged}`)
     if (notJudged.length === 0) {
         return ramped
@@ -273,7 +292,13 @@ function unrampedStatusOf({
     }
     const crashes = exits.filter((exit) => !exitedByValve(exit, timeline)).map((exit) => unexpectedExit(exit, timeline))
     const unobserved = [
-        ...timeline.filter(({ observedAt }) => observedAt === undefined).map(unobservedReasonOf),
+        ...timeline.flatMap((entry) =>
+            entry.observedAt === undefined
+                ? [unobservedReasonOf(entry)]
+                : entry.intentAt !== undefined && Date.parse(entry.intentAt) >= drive.endedAt
+                  ? [unobservedReasonOf({ ...entry, error: 'applied after the drive ended' })]
+                  : []
+        ),
         ...bars.flatMap(({ name, unjudged }) =>
             unjudged === undefined ? [] : [`${name} was not judged: ${unjudged}`]
         ),
