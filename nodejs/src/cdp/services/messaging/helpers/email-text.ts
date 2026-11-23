@@ -8,7 +8,10 @@ const CELL_ELEMENTS = new Set(['td', 'th'])
 const HIDDEN_STYLE = /display\s*:\s*none/i
 const INVISIBLE_CHARACTERS = /[\u00ad\u034f\u200b\u2060\ufeff]/g
 const WHITESPACE = /\s+/g
-const URL_SCHEME = /^[a-z][a-z0-9+.-]*:/i
+const URL_LABEL = /^(?:[a-z][a-z0-9+.-]*:\/\/|mailto:)\S+$/i
+const VISIBLE_CHARACTER = /[^\s\u200c\u200d]/
+// Holds the spaces of preformatted text so that tidying lines keeps their indentation.
+const PRE_SPACE = '\ue000'
 
 const isSkipped = (name: string, attributes: Record<string, string>): boolean =>
     SKIPPED_ELEMENTS.has(name) || HIDDEN_STYLE.test(attributes.style ?? '')
@@ -34,13 +37,15 @@ const linkTarget = (href: string | undefined): string | null => {
     return target && !target.startsWith('#') && !/^javascript:/i.test(target) ? target : null
 }
 
-const linkSuffix = (label: string, target: string): string => {
-    const shownTarget = target.replace(/^mailto:/i, '')
-    if (!label) {
-        return shownTarget
+// A label that is itself a URL gives way to the target, which may carry more of the destination or link tags.
+const closeLink = (out: string[], link: OpenLink): void => {
+    const label = tidyLines(out.slice(link.labelStart).join(''))
+    const shownTarget = link.target.replace(/^mailto:/i, '')
+    if (!label || URL_LABEL.test(label)) {
+        out.splice(link.labelStart, out.length - link.labelStart, shownTarget)
+    } else if (label !== shownTarget) {
+        out.push(` (${shownTarget})`)
     }
-    const labelIsTheLink = label === shownTarget || (URL_SCHEME.test(label) && target.startsWith(label))
-    return labelIsTheLink ? '' : ` (${shownTarget})`
 }
 
 const tidyLines = (text: string): string =>
@@ -82,13 +87,17 @@ export const plainTextFromHtml = (html: string): string => {
         ontext(text) {
             if (skippedAt === null) {
                 const visible = text.replace(INVISIBLE_CHARACTERS, '')
-                out.push(preDepth > 0 ? visible.replace(/\r\n?/g, '\n') : visible.replace(WHITESPACE, ' '))
+                out.push(
+                    preDepth > 0
+                        ? visible.replace(/\r\n?/g, '\n').replace(/[ \t]/g, PRE_SPACE)
+                        : visible.replace(WHITESPACE, ' ')
+                )
             }
         },
         onclosetag(name) {
             if (skippedAt === null) {
                 if (name === 'a' && link) {
-                    out.push(linkSuffix(tidyLines(out.slice(link.labelStart).join('')), link.target))
+                    closeLink(out, link)
                     link = null
                 }
                 if (name === 'pre') {
@@ -104,5 +113,6 @@ export const plainTextFromHtml = (html: string): string => {
     parser.write(html)
     parser.end()
 
-    return tidyLines(out.join(''))
+    const text = tidyLines(out.join('')).replaceAll(PRE_SPACE, ' ')
+    return VISIBLE_CHARACTER.test(text) ? text : ''
 }

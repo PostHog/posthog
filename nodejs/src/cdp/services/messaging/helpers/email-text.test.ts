@@ -20,9 +20,19 @@ describe('plainTextFromHtml', () => {
             'https://example.com or help@example.com',
         ],
         [
-            'a link whose label is its target before link tagging',
+            'a URL label in place of its tagged target',
             '<a href="https://example.com/reset?t=1&amp;utm_source=posthog">https://example.com/reset?t=1</a>',
-            'https://example.com/reset?t=1',
+            'https://example.com/reset?t=1&utm_source=posthog',
+        ],
+        [
+            'a URL label in place of a longer target',
+            '<a href="https://example.com/reset/confirm?token=abc">https://example.com/reset</a>',
+            'https://example.com/reset/confirm?token=abc',
+        ],
+        [
+            'a label that starts like a URL scheme',
+            '<a href="https://example.com">Note: read this</a>',
+            'Note: read this (https://example.com)',
         ],
         [
             'an image-only link',
@@ -54,7 +64,8 @@ describe('plainTextFromHtml', () => {
         ['a literal less-than sign', '<p>1 < 2 and 3 > 2</p>', '1 < 2 and 3 > 2'],
         ['lists and line breaks', '<ul><li>One</li><li>Two</li></ul>Line<br>Next', '- One\n- Two\n\nLine\nNext'],
         ['joiners in visible text', '<p>👩&#8205;💻 می&#8204;خواهم</p>', '👩\u200d💻 می\u200cخواهم'],
-        ['preformatted text', '<pre>export FOO=1\nrun-command</pre><p>Done</p>', 'export FOO=1\nrun-command\n\nDone'],
+        ['preformatted text', '<pre>def run():\n    export(1)</pre><p>Done</p>', 'def run():\n    export(1)\n\nDone'],
+        ['an image with only joiners beside it', '<img src="banner.png"><p>&#8204;&#8205; </p>', ''],
         ['table cells', '<table><tr><td>Total</td><td>$5</td></tr></table>', 'Total $5'],
     ])('renders %s', (_case, html, expected) => {
         expect(plainTextFromHtml(html)).toBe(expected)
