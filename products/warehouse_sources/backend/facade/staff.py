@@ -1,6 +1,6 @@
 """Reads and actions for warehouse sources and schemas in PostHog Admin."""
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from uuid import UUID
 
 from products.warehouse_sources.backend.facade.contracts import (
@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.facade.contracts import (
     StaffSchemaSummary,
     StaffSourceSummary,
 )
+from products.warehouse_sources.backend.logic import schema_shutdown
 from products.warehouse_sources.backend.logic.auto_disabled_schemas import (
     DAYS_CHOICES,
     DEFAULT_DAYS,
@@ -48,7 +49,9 @@ __all__ = [
     "reenable_schemas_for_staff",
     "repartition_schema_for_staff",
     "select_auto_disabled_schemas_for_staff",
+    "stop_schema_syncing_for_staff",
     "summarize_auto_disabled_schemas_for_staff",
+    "syncing_schema_ids_for_staff",
     "trigger_schema_sync_for_staff",
     "unpause_schema_schedule_for_staff",
 ]
@@ -88,6 +91,19 @@ def unpause_schema_schedule_for_staff(schema_id: UUID) -> StaffActionResult:
 
 def recreate_schema_schedule_for_staff(schema_id: UUID) -> StaffActionResult:
     return SchemaStaffActions.recreate_schedule(schema_id)
+
+
+def syncing_schema_ids_for_staff(team_ids: Collection[int]) -> list[str]:
+    """The ids of the schemas of these teams that still sync."""
+    return schema_shutdown.syncing_schema_ids(team_ids)
+
+
+def stop_schema_syncing_for_staff(schema_id: str, *, team_ids: Collection[int]) -> bool:
+    """Pauses a syncing schema's Temporal schedule, then turns its syncing off. Returns False when it no longer syncs.
+
+    Raises when Temporal rejects the pause, and the schema keeps syncing.
+    """
+    return schema_shutdown.stop_schema_syncing(schema_id, team_ids=team_ids)
 
 
 def summarize_auto_disabled_schemas_for_staff(selection: AutoDisabledSchemaFilter) -> AutoDisabledSchemasSummary:

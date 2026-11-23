@@ -192,3 +192,21 @@ class TestInsightShortIdsWatchedBy(BaseTest):
 
     def _user(self, email: str) -> User:
         return User.objects.create_and_join(self.organization, email, None)
+
+
+class TestDisableAlert(BaseTest):
+    def test_disables_only_an_enabled_alert_of_the_given_teams(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        alerts = {
+            team.pk: AlertConfiguration.objects.create(
+                team=team, insight=Insight.objects.create(team=team), enabled=True, created_by=self.user
+            )
+            for team in (self.team, other_team)
+        }
+        mine, theirs = str(alerts[self.team.pk].id), str(alerts[other_team.pk].id)
+
+        assert api.enabled_alert_ids([self.team.pk]) == [mine]
+        assert api.disable_alert(mine, team_ids=[self.team.pk]) is True
+        assert api.disable_alert(mine, team_ids=[self.team.pk]) is False
+        assert api.disable_alert(theirs, team_ids=[self.team.pk]) is False
+        assert api.enabled_alert_ids([self.team.pk, other_team.pk]) == [theirs]

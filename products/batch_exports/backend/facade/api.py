@@ -22,7 +22,7 @@ those may be imported from here.
 """
 
 import datetime as dt
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from types import ModuleType
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
@@ -94,10 +94,12 @@ __all__ = [
     "list_supported_intervals",
     "organization_has_custom_events_schema_exports",
     "pause_batch_export",
+    "pause_batch_export_of_teams",
     "retry_batch_export_run",
     "run_destination_test_step",
     "start_file_download",
     "unpause_batch_export",
+    "unpaused_batch_export_ids",
     "update_batch_export",
     "validate_batch_export_destination",
     "validate_batch_export_filters",
@@ -558,6 +560,20 @@ def pause_batch_export(team_id: int, export_id: UUID, *, note: str) -> None:
     ``contracts.BatchExportScheduleError`` when Temporal rejects the change.
     """
     _import_exports().pause_batch_export(team_id, export_id, note=note)
+
+
+def unpaused_batch_export_ids(team_ids: Collection[int]) -> list[str]:
+    """The ids of the batch exports of these teams that are not paused."""
+    return _import_exports().unpaused_batch_export_ids(team_ids)
+
+
+def pause_batch_export_of_teams(export_id: str, *, team_ids: Collection[int], note: str) -> bool:
+    """Pause a batch export of these teams, Temporal schedule included. Returns False when it is already paused.
+
+    ``note`` records who asked, on the Temporal schedule. Raises
+    ``contracts.BatchExportScheduleError`` when Temporal rejects the change.
+    """
+    return _import_exports().pause_batch_export_of_teams(export_id, team_ids=team_ids, note=note)
 
 
 def unpause_batch_export(team_id: int, export_id: UUID, *, note: str, backfill: bool) -> None:

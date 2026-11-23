@@ -7,6 +7,7 @@ the Temporal client and the HogQL parser, none of which may load on the ``django
 import typing
 import contextlib
 import dataclasses
+from collections.abc import Collection
 from uuid import UUID
 
 from django.db import transaction
@@ -558,6 +559,32 @@ def pause_batch_export(team_id: int, export_id: UUID, *, note: str) -> None:
     """
     with _map_schedule_errors():
         service.pause_batch_export(sync_connect(), str(export_id), note=note, team_id=team_id)
+
+
+def unpaused_batch_export_ids(team_ids: Collection[int]) -> list[str]:
+    rows = (
+        BatchExport.objects.filter(team_id__in=team_ids, deleted=False, paused=False)
+        .order_by("created_at")
+        .values_list("id", flat=True)
+    )
+    return [str(export_id) for export_id in rows]
+
+
+def pause_batch_export_of_teams(export_id: str, *, team_ids: Collection[int], note: str) -> bool:
+    """Pause an export of these teams. Returns False when it is no longer running.
+
+    Raises:
+        contracts.BatchExportScheduleError: If Temporal rejects the change.
+    """
+    team_id = (
+        BatchExport.objects.filter(team_id__in=team_ids, id=export_id, deleted=False, paused=False)
+        .values_list("team_id", flat=True)
+        .first()
+    )
+    if team_id is None:
+        return False
+    pause_batch_export(team_id, UUID(export_id), note=note)
+    return True
 
 
 def unpause_batch_export(team_id: int, export_id: UUID, *, note: str, backfill: bool) -> None:

@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import cast
 
 from django import forms
 from django.contrib import messages
@@ -7,10 +8,23 @@ from django.http import HttpRequest, HttpResponse
 
 import structlog
 
+from posthog.admin.console.organization_shutdown import (
+    STOP_NOTICE,
+    UNDO_HINT,
+    OrganizationShutdownForm,
+    find_background_work,
+    inventory_table,
+    planned_action,
+    result_page,
+    shut_down_organizations,
+    take_inventory,
+)
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Operation, Owner, Panel, Tone
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
+from posthog.admin.console.tools import Notice, Page
 from posthog.models.organization import Organization
+from posthog.models.user import User
 
 from ee.billing.quota_limiting import QuotaResource
 
@@ -67,6 +81,80 @@ class OrganizationTeamsPanel(Panel):
             hidden = obj.teams.count() - len(shown)
             facts.append(Fact(label="More", value=f"{hidden} more teams. Look up the organization name to see all."))
         return facts
+
+
+def preview_shutdown(request: HttpRequest, obj: Model, form: forms.Form) -> Page:
+    assert isinstance(obj, Organization)
+    stop_background_work = form.cleaned_data["stop_background_work"]
+    action = planned_action(obj, stop_background_work=stop_background_work)
+    blocks = [
+        Notice(
+            text=f"Deactivates the organization with the reason: {form.cleaned_data['resolved_reason']}"
+            if obj.is_active is not False
+            else "The organization is already inactive and keeps its reason."
+        )
+    ]
+    if stop_background_work:
+        blocks.append(Notice(text=STOP_NOTICE))
+    return Page(blocks=(*blocks, inventory_table([take_inventory(obj)], {obj.id: action})))
+
+
+def shut_down(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | Page | None:
+    assert isinstance(obj, Organization) and form is not None
+    stop_background_work = form.cleaned_data["stop_background_work"]
+    results = shut_down_organizations(
+        [obj.id],
+        reason=form.cleaned_data["resolved_reason"],
+        stop_background_work=stop_background_work,
+        triggered_by=cast(User, request.user).email,
+    )
+    if stop_background_work:
+        return result_page(results)
+    if results and results[0].deactivated:
+        messages.success(request, f"Deactivated '{obj.name}'.")
+    else:
+        messages.warning(request, f"'{obj.name}' was already inactive. Its reason did not change.")
+    return None
+
+
+@console.register_panel
+class OrganizationBackgroundWorkPanel(Panel):
+    record = "organization"
+    key = "background-work"
+    title = "Background work"
+    owner = None
+    order = 25
+
+    def facts(self, obj: Model) -> list[Fact]:
+        assert isinstance(obj, Organization)
+        running = find_background_work(list(obj.teams.values_list("id", flat=True)))
+        if not running:
+            return [Fact(label="Running", value="Nothing", tone=Tone.SUCCESS)]
+        shown = running if len(running) <= MAX_FACTS_PER_PANEL else running[: MAX_FACTS_PER_PANEL - 1]
+        facts = [Fact(label=work.label, value=str(len(work.ids))) for work in shown]
+        if len(shown) < len(running):
+            facts.append(
+                Fact(label="More", value=f"{len(running) - len(shown)} more kinds. The shutdown preview lists all.")
+            )
+        return facts
+
+    def operations(self, obj: Model) -> list[Operation]:
+        return [
+            Operation(
+                key="shut-down",
+                label="Shut down organization",
+                handler=shut_down,
+                preview=preview_shutdown,
+                danger=True,
+                description=(
+                    "Deactivates the organization and stops its background work. Members see the reason. "
+                    "Nothing is deleted."
+                ),
+                form_class=OrganizationShutdownForm,
+                undo_hint=UNDO_HINT,
+                pending_label="Shutting down. This can take a minute...",
+            )
+        ]
 
 
 class QuotaLimits:

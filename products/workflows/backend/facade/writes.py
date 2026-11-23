@@ -17,9 +17,11 @@ from products.workflows.backend.services.hog_flow_writes import (
     update_workflow,
 )
 from products.workflows.backend.services.publish_impact import build_publish_impact
+from products.workflows.backend.services.workflow_shutdown import active_workflow_ids, move_workflow_to_draft
 
 __all__ = [
     "DRAFT_CONTENT_FIELDS",
+    "active_workflow_ids",
     "apply_email_utm_defaults",
     "build_publish_impact",
     "create_workflow",
@@ -27,6 +29,7 @@ __all__ = [
     "discard_draft",
     "destroy_workflow",
     "edit_workflow_content",
+    "move_workflow_to_draft",
     "publish_confirm_value",
     "publish_moves_to_sandbox_sender",
     "publish_draft",

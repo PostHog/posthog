@@ -18,6 +18,7 @@ from products.subscriptions.backend.logic import (
     auto_disable,
     queries,
     subscription_reads,
+    subscription_shutdown,
     subscription_utils,
     subscription_writes,
     summary_quota,
@@ -98,7 +99,9 @@ __all__ = [
     "create_subscription",
     "dashboard_has_active_full_subscription",
     "dashboard_ids_with_subscriptions",
+    "disable_subscription",
     "delete_insight_subscriptions",
+    "enabled_subscription_ids",
     "failed_delivery_counts",
     "get_subscription",
     "get_subscription_delivery",
@@ -121,6 +124,16 @@ __all__ = [
     "validate_re_enable",
     "viewable_live_insight_id",
 ]
+
+
+def enabled_subscription_ids(team_ids: Collection[int]) -> list[str]:
+    """The ids of the enabled subscriptions of these teams."""
+    return subscription_shutdown.enabled_subscription_ids(team_ids)
+
+
+def disable_subscription(subscription_id: str, *, team_ids: Collection[int]) -> bool:
+    """Disables one enabled subscription of these teams. Returns False when it is no longer enabled."""
+    return subscription_shutdown.disable_subscription(subscription_id, team_ids=team_ids)
 
 
 def validate_re_enable(target_type: str | None, integration_id: int | None) -> str | None:

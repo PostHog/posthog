@@ -424,6 +424,22 @@ def test_pause_unpause_and_delete_refuse_another_teams_or_a_deleted_export(team,
     assert (export.paused, export.deleted) == (True, scope == "deleted")
 
 
+def test_pausing_an_export_of_the_teams_pauses_its_temporal_schedule(team, organization):
+    export_id = str(_create_export(team))
+    other_team_id = create_team(organization=organization).pk
+    temporal = mock.MagicMock()
+    temporal.get_schedule_handle.return_value.pause = mock.AsyncMock()
+
+    with mock.patch("products.batch_exports.backend.logic.exports.sync_connect", return_value=temporal):
+        assert api.pause_batch_export_of_teams(export_id, team_ids=[other_team_id], note="Paused") is False
+        assert api.pause_batch_export_of_teams(export_id, team_ids=[team.pk], note="Paused") is True
+        assert api.pause_batch_export_of_teams(export_id, team_ids=[team.pk], note="Paused") is False
+
+    temporal.get_schedule_handle.assert_called_once_with(export_id)
+    temporal.get_schedule_handle.return_value.pause.assert_awaited_once_with(note="Paused")
+    assert api.unpaused_batch_export_ids([team.pk]) == []
+
+
 def test_deleting_team_batch_exports_continues_past_a_missing_schedule(team):
     first = _create_export(team, name="first")
     second = _create_export(team, name="second")

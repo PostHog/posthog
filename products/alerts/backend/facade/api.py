@@ -63,6 +63,7 @@ from products.alerts.backend.llm_detector_limits import (
     is_llm_detector_config,
     llm_detector_access_error,
 )
+from products.alerts.backend.logic import alert_shutdown
 from products.alerts.backend.logic.destinations import retire_alert_hog_functions
 from products.alerts.backend.models.alert import (
     METRICS_INSIGHT_QUERY_FILTER,
@@ -100,6 +101,16 @@ SlackSnoozeOutcome = Literal["snoozed", "no_access", "disabled", "not_found", "i
 # Mirrors the in-app SnoozeButton's DateFilter max — Slack's datetimepicker has no bounds of
 # its own, so the cap has to live here.
 SLACK_SNOOZE_MAX_DAYS = 31
+
+
+def enabled_alert_ids(team_ids: Collection[int]) -> list[str]:
+    """The ids of the enabled alerts of these teams."""
+    return alert_shutdown.enabled_alert_ids(team_ids)
+
+
+def disable_alert(alert_id: str, *, team_ids: Collection[int]) -> bool:
+    """Disables one enabled alert of these teams. Returns False when it is no longer enabled."""
+    return alert_shutdown.disable_alert(alert_id, team_ids=team_ids)
 
 
 def first_subscriber_id(*, team_id: int, alert_id: uuid.UUID) -> int | None:
@@ -852,6 +863,8 @@ __all__ = [
     "admit_llm_alert_write",
     "take_alert_ownership",
     "calls_ai_gateway",
+    "disable_alert",
+    "enabled_alert_ids",
     "forecast_detector_access_error",
     "forecast_rule",
     "is_llm_detector_config",
