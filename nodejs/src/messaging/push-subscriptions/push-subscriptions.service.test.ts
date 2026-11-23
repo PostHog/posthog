@@ -4,7 +4,7 @@ import { CaptureBillingLimitError } from './push-capture'
 import { PushSubscriptionsService } from './push-subscriptions.service'
 
 describe('PushSubscriptionsService', () => {
-    const team = { id: 7, api_token: 'phc_real', secret_api_token: null }
+    const team = { id: 7, api_token: 'phc_real' }
 
     let teamManager: any
     let postgres: any
