@@ -187,6 +187,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             SITE_URL: 'http://localhost:8000',
             WORKFLOWS_SANDBOX_SENDER_ENABLED: true,
             CDP_EMAIL_ATTACHMENTS_TEAMS: '*',
+            CDP_INTAKE_KAFKA_ASYNC_TEAMS: '',
         })
         queued = []
         api = new CdpApi(
