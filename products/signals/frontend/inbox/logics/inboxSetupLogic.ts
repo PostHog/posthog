@@ -52,6 +52,7 @@ import type {
     SignalScoutConfigApi,
 } from '../../generated/api.schemas'
 import type { InboxOnboardingStepEnumApi } from '../../generated/api.schemas'
+import type { InboxOnboardingOriginEnumApi, SignalsScoutConfigSyncSurface } from '../../generated/api.schemas'
 import type { AgentRosterSource } from '../components/config/agentRosterMeta'
 import { captureInboxWelcomeManualSetupClicked, captureSignalSourceConnected } from '../inboxAnalytics'
 import { signalSourcesLogic } from '../signalSourcesLogic'
@@ -175,10 +176,8 @@ export interface inboxSetupLogicValues {
 export interface inboxSetupLogicActions {
     loadIntegrations: (_?: any) => any // integrationsLogic
     loadScoutConfigs: (_?: void | undefined) => void // scoutFleetLogic
-    materializeScoutFleet: (
-        surface?: import('../../generated/api.schemas').SignalsScoutConfigSyncSurface | undefined
-    ) => {
-        surface: import('../../generated/api.schemas').SignalsScoutConfigSyncSurface
+    materializeScoutFleet: (surface?: SignalsScoutConfigSyncSurface | undefined) => {
+        surface: SignalsScoutConfigSyncSurface
     } // scoutFleetLogic
     syncScoutFleet: (_?: void | undefined) => void // scoutFleetLogic
     loadProductDataEvents: () => any // signalSourcesLogic
@@ -304,11 +303,7 @@ export interface inboxSetupLogicMeta {
                 search: string
             }
         ) => NonNullable<InboxOnboardingDraftApi['onboarding_origin']>
-        quickSetupGithubReturnUrl: (
-            onboardingOrigin: NonNullable<
-                import('../../generated/api.schemas').InboxOnboardingOriginEnumApi | undefined
-            >
-        ) => string
+        quickSetupGithubReturnUrl: (onboardingOrigin: NonNullable<InboxOnboardingOriginEnumApi | undefined>) => string
         isGithubOptionalSetup: (savedState: InboxOnboardingStateApi | null) => boolean
         isQuickSetup: (searchParams: Record<string, any>, savedState: InboxOnboardingStateApi | null) => boolean
         shouldResumeQuickSetup: (

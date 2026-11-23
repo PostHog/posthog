@@ -578,6 +578,31 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         self.assertEqual(dock_resp.status_code, 200, dock_resp.json())
         self.assertEqual(dock_resp.json()["results"], [])
 
+    def test_a_snapshot_whose_stores_name_two_experiments_needs_both_readable(self) -> None:
+        # The three stores can disagree on a row the mirror has not caught up with.
+        readable = create_experiment(self.team, "readable-flag")
+        restricted = create_experiment(self.team, "restricted-flag")
+        self._set_resource_default("replay_scanner", "editor")
+        self._set_resource_default("session_recording", "editor")
+        self._set_resource_default("experiment", "none")
+        self._grant_object_access(self.other_user, "experiment", str(readable.id), "editor")
+        self._grant_object_access(self.other_user, "experiment", str(restricted.id), "none")
+
+        # The scanner itself watches the readable experiment, so the scanner-level gate admits it.
+        # Only its frozen snapshot disagrees, which is what the row-level gate has to catch.
+        scanner = self._create_scanner(name="disagreeing", experiment_targeting={"experiment_id": readable.id})
+        snapshot = {
+            **snapshot_for(scanner),
+            "scope": {"kind": "experiment", "experiment_id": readable.id},
+            "experiment_targeting": {"experiment_id": restricted.id},
+        }
+        ReplayObservation.objects.create(scanner=scanner, session_id="disagreeing-sess", scanner_snapshot=snapshot)
+
+        self.client.force_login(self.other_user)
+        resp = self.client.get(self.observations_url(str(scanner.id)))
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.json()["results"], [])
+
     def test_dock_experiment_access_check_does_not_scale_per_scanner(self) -> None:
         # The dock's readable-scanner filter must batch the experiment-access lookup, not run one
         # query per targeted scanner — otherwise a team member can amplify one request into a query

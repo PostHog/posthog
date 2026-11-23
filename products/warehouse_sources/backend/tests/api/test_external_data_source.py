@@ -1,6 +1,7 @@
 import json
 import uuid
 import typing as t
+import contextlib
 from datetime import date, timedelta
 from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
@@ -173,13 +174,23 @@ _PH_HISTORY_NAMING_FLAG = (
 )
 
 
-def _test_team_not_allowlisted_for_internal_hosts():
+def _test_team_not_allowlisted_for_internal_hosts() -> contextlib.ExitStack:
     # The test team's id depends on which tests ran before it in the same database. The allowlist exempts
     # team 2 in the US region and team 1 in the EU region from the internal-host check.
-    return patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.is_team_allowlisted_for_internal_hosts",
-        return_value=False,
+    stack = contextlib.ExitStack()
+    stack.enter_context(
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.is_team_allowlisted_for_internal_hosts",
+            return_value=False,
+        )
     )
+    stack.enter_context(
+        patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_source.source_setup.is_team_allowlisted_for_internal_hosts",
+            return_value=False,
+        )
+    )
+    return stack
 
 
 def _mock_source_without_oauth_fields(mock_get_source) -> None:

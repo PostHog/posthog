@@ -6,6 +6,7 @@ import { LemonButton, LemonDialog, LemonDivider, LemonSnack, LemonSwitch, LemonT
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -16,6 +17,9 @@ import type {
 } from '../generated/api.schemas'
 import { type ToolApprovalState, mcpStoreLogic } from '../mcpStoreLogic'
 import { ServerIcon } from './icons'
+import { QuillPendingOAuthView } from './QuillPendingOAuthView'
+import { QuillServerDetailPanel } from './QuillServerDetailPanel'
+import { QuillToolsSection } from './QuillToolsSection'
 import { ToolRow } from './ToolRow'
 
 function authorizeUrl(teamId: number | null, installationId: string): string {
@@ -33,6 +37,21 @@ function PendingOAuthView({ installation }: { installation: MCPServerInstallatio
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Member,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const continueOAuth = (): void => {
+        window.location.href = authorizeUrl(currentTeamId, installation.id)
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillPendingOAuthView
+                restrictedReason={restrictedReason}
+                onContinueOAuth={continueOAuth}
+                onCancelInstall={() => uninstallServer(installation.id)}
+            />
+        )
+    }
 
     return (
         <div className="border border-dashed border-primary rounded p-6 text-center deprecated-space-y-3">
@@ -41,13 +60,7 @@ function PendingOAuthView({ installation }: { installation: MCPServerInstallatio
                 This server hasn't completed its OAuth handshake yet. Click below to continue.
             </p>
             <div className="flex items-center justify-center gap-2">
-                <LemonButton
-                    type="primary"
-                    onClick={() => {
-                        window.location.href = authorizeUrl(currentTeamId, installation.id)
-                    }}
-                    disabledReason={restrictedReason}
-                >
+                <LemonButton type="primary" onClick={continueOAuth} disabledReason={restrictedReason}>
                     Continue OAuth
                 </LemonButton>
                 <LemonButton
@@ -74,6 +87,7 @@ function ToolsSection({ installation, disabledReason }: ToolsSectionProps): JSX.
     const { loadInstallationTools, refreshInstallationTools, setToolApprovalState, setBulkApprovalState } =
         useActions(mcpStoreLogic)
     const [showRemoved, setShowRemoved] = useState(false)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     useEffect(() => {
         if (!installationTools[installation.id]) {
@@ -87,6 +101,29 @@ function ToolsSection({ installation, disabledReason }: ToolsSectionProps): JSX.
     const approvedCount = countBy(tools, (t) => t.approval_state === 'approved')
     const pendingCount = countBy(tools, (t) => (t.approval_state ?? 'needs_approval') === 'needs_approval')
     const blockedCount = countBy(tools, (t) => t.approval_state === 'do_not_use')
+
+    if (todayRailNav) {
+        return (
+            <QuillToolsSection
+                tools={tools}
+                visibleTools={visibleTools}
+                teamScope={installation.scope === 'shared'}
+                loading={installationToolsLoading}
+                disabledReason={disabledReason}
+                approvedCount={approvedCount}
+                pendingCount={pendingCount}
+                blockedCount={blockedCount}
+                removedCount={removedCount}
+                showRemoved={showRemoved}
+                onToggleShowRemoved={() => setShowRemoved((v) => !v)}
+                onRefresh={() => refreshInstallationTools({ installationId: installation.id })}
+                onSetAll={(approvalState) => setBulkApprovalState({ installationId: installation.id, approvalState })}
+                onPolicyChange={(toolName, approvalState) =>
+                    setToolApprovalState({ installationId: installation.id, toolName, approvalState })
+                }
+            />
+        )
+    }
 
     return (
         <div className="deprecated-space-y-3">
@@ -242,6 +279,61 @@ export function ServerDetailPanel({ installation, template }: Props): JSX.Elemen
         installation?.scope === 'shared' && !isOwner && !isAdmin
             ? 'Only the owner or a project admin can remove a shared server'
             : restrictedReason
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const goBack = (): void => {
+        selectServer(null)
+        setSceneView('marketplace')
+    }
+
+    const confirmShare = (server: MCPServerInstallationApi): void => {
+        LemonDialog.open({
+            title: `Share "${server.name}" with the project?`,
+            description: (
+                <div className="max-w-120">
+                    Everyone in this project, including the PostHog agent, can use <strong>{server.name}</strong> via
+                    your connection. Their actions will be attributed to your account. For better security, connect a
+                    service account. You can unshare anytime.
+                </div>
+            ),
+            secondaryButton: {
+                type: 'secondary',
+                children: 'Cancel',
+            },
+            primaryButton: {
+                type: 'primary',
+                children: 'Share with project',
+                onClick: () => shareInstallation({ id: server.id }),
+            },
+        })
+    }
+
+    const continueOAuth = (installationId: string): void => {
+        window.location.href = authorizeUrl(currentTeamId, installationId)
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillServerDetailPanel
+                installation={installation}
+                template={template}
+                isOwner={isOwner}
+                isAdmin={isAdmin}
+                restrictedReason={restrictedReason}
+                mutationDisabledReason={mutationDisabledReason}
+                removeDisabledReason={removeDisabledReason}
+                onBack={goBack}
+                onShare={confirmShare}
+                onContinueOAuth={continueOAuth}
+            >
+                {installation?.pending_oauth ? (
+                    <PendingOAuthView installation={installation} />
+                ) : installation ? (
+                    <ToolsSection installation={installation} disabledReason={restrictedReason} />
+                ) : null}
+            </QuillServerDetailPanel>
+        )
+    }
 
     if (!installation && !template) {
         return (
@@ -260,11 +352,6 @@ export function ServerDetailPanel({ installation, template }: Props): JSX.Elemen
     const iconDomain = installation?.icon_domain ?? template?.icon_domain ?? null
     const serverUrl = installation?.url ?? template?.url ?? null
     const authType = installation?.auth_type ?? template?.auth_type
-
-    const goBack = (): void => {
-        selectServer(null)
-        setSceneView('marketplace')
-    }
 
     return (
         <div className="deprecated-space-y-6">
@@ -303,9 +390,7 @@ export function ServerDetailPanel({ installation, template }: Props): JSX.Elemen
                     ) : installation?.needs_reauth ? (
                         <LemonButton
                             type="primary"
-                            onClick={() => {
-                                window.location.href = authorizeUrl(currentTeamId, installation.id)
-                            }}
+                            onClick={() => continueOAuth(installation.id)}
                             disabledReason={restrictedReason}
                         >
                             Reconnect
@@ -326,28 +411,7 @@ export function ServerDetailPanel({ installation, template }: Props): JSX.Elemen
                             size="small"
                             icon={<IconShare />}
                             loading={installationsLoading}
-                            onClick={() =>
-                                LemonDialog.open({
-                                    title: `Share "${installation.name}" with the project?`,
-                                    description: (
-                                        <div className="max-w-120">
-                                            Everyone in this project, including the PostHog agent, can use{' '}
-                                            <strong>{installation.name}</strong> via your connection. Their actions will
-                                            be attributed to your account. For better security, connect a service
-                                            account. You can unshare anytime.
-                                        </div>
-                                    ),
-                                    secondaryButton: {
-                                        type: 'secondary',
-                                        children: 'Cancel',
-                                    },
-                                    primaryButton: {
-                                        type: 'primary',
-                                        children: 'Share with project',
-                                        onClick: () => shareInstallation({ id: installation.id }),
-                                    },
-                                })
-                            }
+                            onClick={() => confirmShare(installation)}
                         >
                             Share with project
                         </LemonButton>

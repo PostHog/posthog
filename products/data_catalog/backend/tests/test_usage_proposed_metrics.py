@@ -50,12 +50,14 @@ def _group(digest: str, draft: str | None, runs: int = 10) -> UncoveredGroup:
 def _evidence(
     *hashes: int,
     people: tuple[str, ...] = ("person-1",),
+    viewers: tuple[str, ...] = (),
     agents: tuple[str, ...] = (),
     sessions: tuple[str, ...] = (),
     agent_runs: int = 0,
 ) -> MeasureEvidence:
     return MeasureEvidence(
         people=frozenset(people),
+        viewers=frozenset(viewers),
         shape_hashes=frozenset(hashes),
         agent_people=frozenset(agents),
         agent_sessions=frozenset(sessions),
@@ -81,7 +83,36 @@ def _row(
     )
 
 
+_COMPLEX_DEFINITION = (
+    "SELECT sumIf(properties.amount, properties.paid) / sum(properties.amount) FROM events e "
+    "JOIN persons p ON e.person_id = p.id WHERE e.event = 'purchase' AND p.properties.plan = 'pro'"
+)
+
+
 class TestBuildProposedMetrics(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("few_viewers_keep_the_complex_one_first", 3, ["paid_share", "signups"]),
+            ("a_widely_viewed_number_ranks_first", 200, ["signups", "paid_share"]),
+        ]
+    )
+    def test_rank_weighs_complexity_against_the_people_who_build_or_view_it(
+        self, _name: str, viewers: int, expected: list[str]
+    ) -> None:
+        groups = [
+            dataclasses.replace(_group("a", "paid_share"), draft_definition=_COMPLEX_DEFINITION),
+            dataclasses.replace(_group("b", "signups"), draft_definition="SELECT count() FROM events"),
+        ]
+        evidence = {
+            "a": _evidence(1, people=("person-1", "person-2")),
+            "b": _evidence(2, viewers=tuple(f"viewer-{number}" for number in range(viewers))),
+        }
+
+        proposals = build_proposed_metrics(groups, evidence, [], {}, PEOPLE)
+
+        assert [proposal.name for proposal in proposals] == expected
+        assert proposals[0].priority > proposals[1].priority
+
     def test_measures_with_one_draft_merge_without_counting_a_shared_query_twice(self) -> None:
         groups = [_group("a", "signups", runs=9), _group("b", "signups", runs=5), _group("c", "revenue", runs=1)]
         evidence = {

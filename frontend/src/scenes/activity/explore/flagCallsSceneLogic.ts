@@ -3,12 +3,12 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, reducers, s
 import { urlToAction } from 'kea-router'
 import { UrlToActionPayload } from 'kea-router/lib/types'
 
-import { PERSON_DISPLAY_NAME_COLUMN_NAME } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { applyTestAccountFilter } from 'scenes/activity/explore/defaults'
+import { FLAG_CALLS_COLUMNS } from 'scenes/feature-flags/flagCallsListQuery'
 import {
     FEATURE_FLAG_CALLED_EVENT,
     flagCallsListReachesPastRetention,
@@ -31,16 +31,6 @@ import type { TeamPublicType, TeamType } from '../../../types'
 const SAVED_QUERY_KEY = 'flag-calls'
 
 export type FlagCallsQuery = DataTableNode & { source: EventsQuery }
-
-const FLAG_CALLS_COLUMNS = [
-    '*',
-    'properties.$feature_flag',
-    'properties.$feature_flag_response',
-    PERSON_DISPLAY_NAME_COLUMN_NAME,
-    'coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen',
-    'properties.$lib',
-    'timestamp',
-]
 
 export const getDefaultFlagCallsSceneQuery = (): FlagCallsQuery => ({
     kind: NodeKind.DataTableNode,

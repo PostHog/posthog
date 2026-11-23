@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { LemonButton, LemonInput, LemonSegmentedButton, LemonSegmentedButtonOption } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'
@@ -19,9 +20,8 @@ import {
     logsRetentionDaysToMonths,
     logsRetentionMonthsToDays,
 } from './logsRetentionPeriod'
-
-const CUSTOM = 'custom'
-type PickerValue = number | typeof CUSTOM
+import { QuillLogsRetentionPeriodPicker } from './QuillLogsRetentionPeriodPicker'
+import { CUSTOM, PickerValue } from './retentionPickerValue'
 
 const PAID_TIER_DISABLED_REASON = 'Upgrade to a paid plan to keep logs longer than 14 days'
 
@@ -63,6 +63,7 @@ export function LogsRetentionPeriodPicker({
 }: LogsRetentionPeriodPickerProps): JSX.Element {
     const { hasAvailableFeature } = useValues(userLogic)
     const hasPaidRetention = hasAvailableFeature(AvailableFeature.LOGS_RETENTION_30D)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const presetDays = pickerPresetDays(value, allowCustom)
     const valueIsPreset = presetDays.includes(value)
@@ -121,19 +122,46 @@ export function LogsRetentionPeriodPicker({
         }
     }
 
+    const handleSelect = (selected: PickerValue): void => {
+        if (selected === CUSTOM) {
+            setCustomSelected(true)
+            return
+        }
+        setCustomSelected(false)
+        committedCustomDays.current = undefined
+        onChange(selected)
+    }
+
+    const handleApply = (): void => {
+        if (customDays !== undefined) {
+            commitCustomDays(customDays)
+        }
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillLogsRetentionPeriodPicker
+                value={customSelected ? CUSTOM : value}
+                options={options}
+                onSelect={handleSelect}
+                customSelected={customSelected}
+                customMonths={customMonths}
+                customDays={customDays}
+                onCustomMonthsChange={handleCustomMonthsChange}
+                customDisabledReason={customDisabledReason}
+                showApply={customCommit === 'apply'}
+                applyDisabledReason={customDisabledReason ?? customApplyDisabledReason}
+                onApply={handleApply}
+                dataAttrPrefix={dataAttrPrefix}
+            />
+        )
+    }
+
     return (
         <div className="flex flex-col gap-2">
             <LemonSegmentedButton<PickerValue>
                 value={customSelected ? CUSTOM : value}
-                onChange={(selected) => {
-                    if (selected === CUSTOM) {
-                        setCustomSelected(true)
-                        return
-                    }
-                    setCustomSelected(false)
-                    committedCustomDays.current = undefined
-                    onChange(selected)
-                }}
+                onChange={handleSelect}
                 options={options}
                 size={size}
                 disabledReason={disabledReason ?? undefined}
@@ -159,7 +187,7 @@ export function LogsRetentionPeriodPicker({
                         <LemonButton
                             type="secondary"
                             size={size}
-                            onClick={() => customDays !== undefined && commitCustomDays(customDays)}
+                            onClick={handleApply}
                             disabledReason={customDisabledReason ?? customApplyDisabledReason}
                             data-attr={`${dataAttrPrefix}-custom-apply`}
                         >

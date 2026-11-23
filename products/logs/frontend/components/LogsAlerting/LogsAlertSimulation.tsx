@@ -1,147 +1,16 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
 
 import { LemonButton, LemonCard, LemonSelect, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
-import { DefaultTooltip, type Series, TimeSeriesBarChart, type TimeSeriesBarChartConfig } from '@posthog/quill-charts'
 
-import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
-import { getColorVar } from 'lib/colors'
 import { TZLabel } from 'lib/components/TZLabel'
-import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
-import { LogsAlertSimulateBucketApi, LogsAlertSimulateResponseApi } from 'products/logs/frontend/generated/api.schemas'
+import { LogsAlertSimulateResponseApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { logsAlertFormLogic } from './logsAlertFormLogic'
-
-const SIMULATION_RANGE_OPTIONS = [
-    { value: '-1h', label: 'Last 1 hour' },
-    { value: '-6h', label: 'Last 6 hours' },
-    { value: '-24h', label: 'Last 24 hours' },
-    { value: '-7d', label: 'Last 7 days' },
-]
-
-function BucketTooltipDetails({ bucket }: { bucket: LogsAlertSimulateBucketApi | undefined }): JSX.Element | null {
-    if (!bucket) {
-        return null
-    }
-    const details = [`State: ${bucket.state}`]
-    if (bucket.threshold_breached) {
-        details.push('Threshold breached')
-    }
-    if (bucket.notification === 'fire') {
-        details.push('Notification sent')
-    } else if (bucket.notification === 'resolve') {
-        details.push('Resolved notification sent')
-    }
-    return (
-        <div className="flex flex-col text-left">
-            {details.map((detail) => (
-                <span key={detail}>{detail}</span>
-            ))}
-        </div>
-    )
-}
-
-function SimulationChart({ result }: { result: LogsAlertSimulateResponseApi }): JSX.Element {
-    const { labels, series } = useMemo(
-        () => ({
-            labels: result.buckets.map((b: LogsAlertSimulateBucketApi) => b.timestamp),
-            series: [
-                {
-                    key: 'count',
-                    label: 'Log count',
-                    data: result.buckets.map((b: LogsAlertSimulateBucketApi) => b.count),
-                    // One series with per-bar colors, so a bucket's simulated outcome is visible without
-                    // splitting the counts across three mutually exclusive series.
-                    bars: result.buckets.map((b: LogsAlertSimulateBucketApi) => {
-                        if (b.notification === 'fire') {
-                            return { color: getColorVar('danger') }
-                        }
-                        return b.threshold_breached ? { color: getColorVar('warning') } : {}
-                    }),
-                },
-            ] as Series[],
-        }),
-        [result]
-    )
-
-    const theme = useChartTheme()
-    const config = useChartConfig<TimeSeriesBarChartConfig>(
-        () => ({
-            showCrosshair: false,
-            // Buckets are minutes apart, and the surrounding incident table renders in local time.
-            xAxis: { interval: 'minute', timezone: dayjs.tz.guess() },
-            goalLines: [
-                {
-                    value: result.threshold_count,
-                    label: 'Threshold',
-                    displayLabel: true,
-                },
-            ],
-        }),
-        [result.threshold_count]
-    )
-
-    return (
-        // Quill charts fill a *flex* parent (their root is flex-1), so the sized container must be a flex column.
-        <div className="h-56 flex flex-col">
-            <TimeSeriesBarChart
-                series={series}
-                labels={labels}
-                theme={theme}
-                config={config}
-                tooltip={(ctx) => (
-                    <DefaultTooltip
-                        {...ctx}
-                        labelFormatter={(label) => dayjs(label).format('MMM D, HH:mm')}
-                        footer={<BucketTooltipDetails bucket={result.buckets[ctx.dataIndex]} />}
-                    />
-                )}
-            />
-        </div>
-    )
-}
-
-interface Incident {
-    firedAt: string
-    resolvedAt: string | null
-    durationMinutes: number
-    peakCount: number
-    stillFiring: boolean
-}
-
-function extractIncidents(buckets: LogsAlertSimulateBucketApi[]): Incident[] {
-    const incidents: Incident[] = []
-    let currentIncident: Incident | null = null
-
-    for (const b of buckets) {
-        if (b.state === 'firing' || b.state === 'pending_resolve') {
-            if (!currentIncident) {
-                currentIncident = {
-                    firedAt: b.timestamp,
-                    resolvedAt: null,
-                    durationMinutes: 1,
-                    peakCount: b.count,
-                    stillFiring: true,
-                }
-            } else {
-                currentIncident.durationMinutes += 1
-                currentIncident.peakCount = Math.max(currentIncident.peakCount, b.count)
-            }
-        } else if (currentIncident) {
-            currentIncident.resolvedAt = b.timestamp
-            currentIncident.stillFiring = false
-            incidents.push(currentIncident)
-            currentIncident = null
-        }
-    }
-    if (currentIncident) {
-        incidents.push(currentIncident)
-    }
-    return incidents
-}
+import { LogsAlertSimulationChart } from './LogsAlertSimulationChart'
+import { extractIncidents, Incident, SIMULATION_RANGE_OPTIONS } from './logsAlertSimulationIncidents'
 
 function SimulationSummary({
     result,
@@ -254,7 +123,7 @@ function SimulationResults({ result }: { result: LogsAlertSimulateResponseApi })
                 Simulated with current form settings: {op} {result.threshold_count} logs in window. Edit the form and
                 re-run to compare.
             </p>
-            <SimulationChart result={result} />
+            <LogsAlertSimulationChart result={result} />
             <SimulationSummary result={result} incidents={incidents} />
             <SimulationIncidents incidents={incidents} threshold={result.threshold_count} />
         </div>

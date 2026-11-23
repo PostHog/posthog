@@ -14,6 +14,7 @@ import {
 } from 'kea'
 import { combineUrl } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+import type { BuiltLogic } from 'kea/lib'
 import posthog from 'posthog-js'
 
 import { JSONContent } from 'lib/components/RichContentEditor/types'
@@ -28,11 +29,13 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { notebooksModel } from '~/models/notebooksModel'
 import { DataVisualizationNode, FileSystemIconType, HogQLFilters, NodeKind } from '~/queries/schema/schema-general'
+import type { Node } from '~/queries/schema/schema-general'
 import { Breadcrumb, ProjectTreeRef } from '~/types'
 
 import type { SaveAsTargetId } from 'products/data_warehouse/frontend/sql_editor/saveAsTargets'
 
 import type { DataWarehouseSavedQuery, LinkBreadcrumb, InsightModel } from '../../../types'
+import type { notebookLogicType } from '../../notebooks/Notebook/notebookLogic'
 import { NEW_QUERY, normalizeFiltersForUrl, sqlEditorLogic, toDataVisualizationNode } from './sqlEditorLogic'
 import type { QueryTab, SqlEditorSource } from './sqlEditorLogic'
 import { SQLEditorMode } from './sqlEditorModes'
@@ -131,16 +134,16 @@ export interface editorSceneLogicValues {
               }
           }
         | {
-              description: string
-              forceBackTo: LinkBreadcrumb
+              description?: undefined
+              forceBackTo?: undefined
               name: string
               resourceType: {
                   type: string
               }
           }
         | {
-              description?: undefined
-              forceBackTo?: undefined
+              description: string
+              forceBackTo: LinkBreadcrumb
               name: string
               resourceType: {
                   type: string
@@ -155,24 +158,12 @@ export interface editorSceneLogicActions {
         location: NotebookTarget,
         title?: string | undefined,
         content?: JSONContent[] | undefined,
-        onCreate?:
-            | ((
-                  notebook: import('node_modules/kea/lib').BuiltLogic<
-                      import('../../notebooks/Notebook/notebookLogic').notebookLogicType
-                  >
-              ) => void)
-            | undefined,
+        onCreate?: ((notebook: BuiltLogic<notebookLogicType>) => void) | undefined,
         shortId?: string | undefined
     ) => {
         content: JSONContent[] | undefined
         location: NotebookTarget
-        onCreate:
-            | ((
-                  notebook: import('node_modules/kea/lib').BuiltLogic<
-                      import('../../notebooks/Notebook/notebookLogic').notebookLogicType
-                  >
-              ) => void)
-            | undefined
+        onCreate: ((notebook: BuiltLogic<notebookLogicType>) => void) | undefined
         shortId: string | undefined
         title: string | undefined
     } // notebooksModel
@@ -207,17 +198,15 @@ export interface editorSceneLogicActions {
 export interface editorSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        projectTreeRef: (
-            editingInsight: InsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>> | null
-        ) => ProjectTreeRef | null
+        projectTreeRef: (editingInsight: InsightModel<Node<Record<string, any>>> | null) => ProjectTreeRef | null
         breadcrumbs: (activeTab: QueryTab | null, editorUrl: string) => Breadcrumb[]
         isCreateViewFlow: (
             editorSource: SqlEditorSource,
             editingView: DataWarehouseSavedQuery | undefined,
-            editingInsight: InsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>> | null
+            editingInsight: InsightModel<Node<Record<string, any>>> | null
         ) => boolean
         titleSectionProps: (
-            editingInsight: InsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>> | null,
+            editingInsight: InsightModel<Node<Record<string, any>>> | null,
             insightLoading: boolean,
             editingView: DataWarehouseSavedQuery | undefined,
             viewLoading: boolean,
@@ -235,16 +224,16 @@ export interface editorSceneLogicMeta {
                   }
               }
             | {
-                  description: string
-                  forceBackTo: LinkBreadcrumb
+                  description?: undefined
+                  forceBackTo?: undefined
                   name: string
                   resourceType: {
                       type: string
                   }
               }
             | {
-                  description?: undefined
-                  forceBackTo?: undefined
+                  description: string
+                  forceBackTo: LinkBreadcrumb
                   name: string
                   resourceType: {
                       type: string
@@ -260,7 +249,7 @@ export interface editorSceneLogicMeta {
         updateInsightButtonEnabled: (
             sourceQuery: DataVisualizationNode,
             activeTab: QueryTab | null,
-            editingInsight: InsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>> | null,
+            editingInsight: InsightModel<Node<Record<string, any>>> | null,
             queryInput: string | null
         ) => boolean
     }

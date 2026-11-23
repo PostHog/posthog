@@ -4,6 +4,7 @@ import { Form } from 'kea-forms'
 import { Link } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -13,6 +14,7 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 
+import { QuillConfigureSAMLModal } from './QuillConfigureSAMLModal'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 
 export function ConfigureSAMLModal(): JSX.Element {
@@ -20,6 +22,7 @@ export function ConfigureSAMLModal(): JSX.Element {
         useValues(verifiedDomainsLogic)
     const { setConfigureSAMLModalId } = useActions(verifiedDomainsLogic)
     const { preflight } = useValues(preflightLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const siteUrl = preflight?.site_url ?? window.location.origin
 
     const samlReady = samlConfig.saml_acs_url && samlConfig.saml_entity_id && samlConfig.saml_x509_cert
@@ -27,6 +30,10 @@ export function ConfigureSAMLModal(): JSX.Element {
     const handleClose = (): void => {
         setConfigureSAMLModalId(null)
         // clean()
+    }
+
+    if (todayRailNav) {
+        return <QuillConfigureSAMLModal siteUrl={siteUrl} samlReady={!!samlReady} onClose={handleClose} />
     }
 
     return (

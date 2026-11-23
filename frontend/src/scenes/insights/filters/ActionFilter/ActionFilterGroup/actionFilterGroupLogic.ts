@@ -5,6 +5,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { uuid } from 'lib/utils/dom'
 
 import { AnyEntityNode, GroupNode, NodeKind } from '~/queries/schema/schema-general'
+import type { DataWarehouseNode } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
 import {
@@ -131,12 +132,8 @@ export interface actionFilterGroupLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         groupNode: (localSeries: LocalSeries[], groupIndex: number) => GroupNode | undefined
-        nestedNodes: (
-            groupNode: GroupNode<import('~/queries/schema/schema-general').DataWarehouseNode> | undefined
-        ) => AnyEntityNode[]
-        operator: (
-            groupNode: GroupNode<import('~/queries/schema/schema-general').DataWarehouseNode> | undefined
-        ) => FilterLogicalOperator
+        nestedNodes: (groupNode: GroupNode<DataWarehouseNode> | undefined) => AnyEntityNode[]
+        operator: (groupNode: GroupNode<DataWarehouseNode> | undefined) => FilterLogicalOperator
     }
 }
 

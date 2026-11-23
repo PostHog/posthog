@@ -7,12 +7,14 @@ import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { MARKETING_DEFAULT_SOURCE_MAPPINGS } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { getEnabledNativeMarketingSources } from '../../logic/utils'
 import { parseCommaSeparatedValues, removeSourceFromMappings } from '../CampaignMapping/mappingUtils'
+import { QuillCustomSourceMappingsConfiguration } from './QuillCustomSourceMappingsConfiguration'
 
 export interface CustomSourceMappingsConfigurationProps {
     sourceFilter?: string
@@ -30,6 +32,7 @@ export function CustomSourceMappingsConfiguration({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const quillSurface = useQuillSurface()
 
     const customMappings = marketingAnalyticsConfig?.custom_source_mappings || {}
     const [inputValues, setInputValues] = useState<Record<string, string>>(() =>
@@ -102,6 +105,22 @@ export function CustomSourceMappingsConfiguration({
 
     const removeMapping = (integration: string, utmSource: string): void => {
         updateCustomSourceMappings(removeSourceFromMappings(marketingAnalyticsConfig, integration as any, utmSource))
+    }
+
+    if (quillSurface) {
+        return (
+            <QuillCustomSourceMappingsConfiguration
+                sourceFilter={sourceFilter}
+                integrationsToShow={integrationsToShow}
+                customMappings={customMappings}
+                getInputValue={getInputValue}
+                onInputChange={setInputValue}
+                getValidationError={getValidationError}
+                onAddMapping={addMapping}
+                onRemoveMapping={removeMapping}
+                restrictedReason={restrictedReason}
+            />
+        )
     }
 
     return (

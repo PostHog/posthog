@@ -19786,6 +19786,12 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "preComputeStale": {
+                    "type": "boolean"
+                },
+                "preComputedAt": {
+                    "type": "string"
+                },
                 "query_metadata": {
                     "type": "object"
                 },
@@ -20695,6 +20701,9 @@
                 "metric": {
                     "$ref": "#/definitions/MetricChartSettings"
                 },
+                "movingAverageIntervals": {
+                    "type": "number"
+                },
                 "pie": {
                     "$ref": "#/definitions/PieChartSettings"
                 },
@@ -20718,6 +20727,9 @@
                     "type": "boolean"
                 },
                 "showLegend": {
+                    "type": "boolean"
+                },
+                "showMovingAverage": {
                     "type": "boolean"
                 },
                 "showNullsAsZero": {
@@ -33663,6 +33675,10 @@
                 },
                 "negatedPersonFiltersNotIn": {
                     "description": "Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.",
+                    "type": "boolean"
+                },
+                "optimizeCrossJoins": {
+                    "description": "Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints",
                     "type": "boolean"
                 },
                 "optimizeJoinedFilters": {
@@ -46688,6 +46704,9 @@
                 "nav_panel_advertisement_clicked",
                 "feature_preview_enabled",
                 "workflow_created",
+                "workflow_email_impact_turn_on_replay",
+                "workflow_survey_trigger_create_survey",
+                "workflow_warehouse_table_trigger_set_up_source",
                 "data_pipeline_created",
                 "batch_export_created",
                 "batch_export_updated",
@@ -49507,6 +49526,12 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "preComputeStale": {
+                            "type": "boolean"
+                        },
+                        "preComputedAt": {
+                            "type": "string"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -65897,6 +65922,12 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "preComputeStale": {
+                    "type": "boolean"
+                },
+                "preComputedAt": {
+                    "type": "string"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -66065,7 +66096,6 @@
                     "$ref": "#/definitions/WebPageDirectoryValue"
                 }
             },
-            "required": ["serverLogs"],
             "type": "object"
         },
         "WebPageDirectorySortBy": {
