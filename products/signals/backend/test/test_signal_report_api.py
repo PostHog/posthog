@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 from django.apps import apps
 from django.core.cache import cache
 from django.db import OperationalError, connection
-from django.http import HttpRequest, QueryDict
+from django.http import QueryDict
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -3106,31 +3106,28 @@ class TestSignalReportListAPI(APIBaseTest):
         )
 
         with patch("products.signals.backend.views.organization_inbox_cached_filters_enabled", return_value=cached):
-            response = self.client.get(f"{self._list_url()}section_counts/?exclude={excluded.id}&tags=billing")
-            list_counts = {
-                name: self.client.get(
-                    self._list_url(
-                        status="ready",
-                        has_implementation_pr=has_pr,
-                        exclude=excluded.id,
-                        tags="billing",
-                        count_only="true",
-                    )
-                ).json()["count"]
-                for name, has_pr in (("pull_requests", "true"), ("reports", "false"))
-            }
+            with CaptureQueriesContext(connection) as section_count_queries:
+                response = self.client.get(f"{self._list_url()}section_counts/?exclude={excluded.id}&tags=billing")
+            with CaptureQueriesContext(connection) as list_count_queries:
+                list_counts = {
+                    name: self.client.get(
+                        self._list_url(
+                            status="ready",
+                            has_implementation_pr=has_pr,
+                            exclude=excluded.id,
+                            tags="billing",
+                            count_only="true",
+                        )
+                    ).json()["count"]
+                    for name, has_pr in (("pull_requests", "true"), ("reports", "false"))
+                }
 
-        view = SignalReportViewSet()
-        view.action = "section_counts"
-        view.__dict__["team_id"] = self.team.id
-        view.request = Request(HttpRequest())
-        count_sql = str(view._apply_signal_report_listed_filter(SignalReport.objects.all()).query)
+        section_count_sql = "\n".join(query["sql"] for query in section_count_queries.captured_queries)
+        list_count_sql = "\n".join(query["sql"] for query in list_count_queries.captured_queries)
 
-        assert "@>" in count_sql
-        assert "jsonb_array_elements_text" not in count_sql
-        view.action = "list"
-        list_sql = str(view._apply_signal_report_listed_filter(SignalReport.objects.all()).query)
-        assert "jsonb_array_elements_text" in list_sql
+        assert "@>" in section_count_sql
+        assert "jsonb_array_elements_text" not in section_count_sql
+        assert "jsonb_array_elements_text" in list_count_sql
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == list_counts == {"pull_requests": 1, "reports": 1}
 
