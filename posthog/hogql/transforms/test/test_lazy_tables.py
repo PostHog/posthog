@@ -579,10 +579,10 @@ class TestLazyJoins(BaseTest):
                 "grouped",
                 "toJSONString(related.properties.label), JSONExtractString(related.properties, 'label'), "
                 "toJSONString(related.properties.amount), any(toJSONString(related.properties.label)), "
-                "any(JSONExtractRaw(related.properties, 'a')), count()",
-                ('"ready"', "ready", "7", '"ready"', '{"b":"nested"}', 1),
+                "any(JSONExtractRaw(related.properties, 'a')), JSONExtractRaw(related.properties, 'a'), count()",
+                ('"ready"', "ready", "7", '"ready"', '{"b":"nested"}', '{"b":"nested"}', 1),
                 "GROUP BY toJSONString(related.properties.label), JSONExtractString(related.properties, 'label'), "
-                "toJSONString(related.properties.amount)",
+                "toJSONString(related.properties.amount), JSONExtractRaw(related.properties, 'a')",
             ),
             (
                 "grouped_by_key",

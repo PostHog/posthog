@@ -56,6 +56,7 @@ from posthog.hogql.transforms.grouped_clauses import (
     GroupedClauseTracker,
     before_grouping,
     is_grouped,
+    needs_stored_json,
     visit_after_grouping,
 )
 from posthog.hogql.type_system import (
@@ -1448,6 +1449,9 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
                 return self.visit(exported_json_text)
 
         if self._in_grouped_clause:
+            if needs_stored_json(node):
+                with self._grouped_clause(False):
+                    return self.visit_call(node)
             # Shortcuts can introduce raw columns unavailable after grouping. WindowFunction is a separate node,
             # so its inputs keep the grouped context while ordinary aggregates above read original rows.
             comparison = _call_form_comparison(node)

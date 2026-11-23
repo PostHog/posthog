@@ -749,6 +749,7 @@ class CloningVisitor(Visitor[Any]):
             type=None if self.clear_types else node.type,
             expr=self.visit(node.expr),
             keys=list(node.keys),
+            as_json=node.as_json,
         )
 
     def visit_json_subcolumn_access(self, node: ast.JsonSubcolumnAccess):

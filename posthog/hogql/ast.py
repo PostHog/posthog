@@ -1044,6 +1044,8 @@ class PropertyAccess(Expr):
 
     expr: Expr
     keys: list[str | int]
+    # Carried over from `PropertyType.as_json`: a JSON function rewrite asked for the key's JSON text.
+    as_json: bool = False
 
 
 @dataclass(frozen=False, kw_only=True, slots=True)
