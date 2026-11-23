@@ -1928,3 +1928,357 @@ describe('mirror', () => {
         ])
     })
 })
+
+describe('mirror digests', () => {
+    interface WireParts {
+        config: Record<string, unknown>
+        errors: string
+        external_id: string | null
+        sensitive_config: Record<string, unknown>
+        unreadable_keys: string[]
+    }
+    interface PartsVector {
+        name: string
+        parts: WireParts
+        salt_b64: string
+        digest: string
+    }
+
+    const VECTORS = (
+        JSON.parse(readFileSync(join(import.meta.dirname, '../fixtures/content-digest-vectors.json'), 'utf8')) as {
+            name: string
+            parts?: WireParts
+        }[]
+    ).filter((vector): vector is PartsVector => vector.parts !== undefined)
+
+    function vector(name: string): PartsVector {
+        const found = VECTORS.find((v) => v.name === name)
+        expect(found, name).toBeDefined()
+        return found!
+    }
+
+    const SALT = vector('parts full').salt_b64
+
+    function mirrorRow(legacyId: number, sourceVersion: number, overrides: Record<string, unknown> = {}) {
+        return {
+            legacy_id: legacyId,
+            deleted: false,
+            source_version: sourceVersion,
+            kind: 'hubspot',
+            integration_id: `portal-${legacyId}`,
+            auth_type: 'oauth',
+            is_source_row: false,
+            config: { region: 'us' },
+            sensitive_config: { access_token: ACCESS_TOKEN, refresh_token: REFRESH_TOKEN },
+            legacy_unreadable_keys: [],
+            errors: '',
+            created_by_id: 5,
+            created_at: '2024-01-01T00:00:00.123456+00:00',
+            ...overrides,
+        }
+    }
+
+    function vectorRow(legacyId: number, parts: WireParts) {
+        return mirrorRow(legacyId, 1, {
+            config: parts.config,
+            errors: parts.errors,
+            integration_id: parts.external_id,
+            sensitive_config: parts.sensitive_config,
+            legacy_unreadable_keys: parts.unreadable_keys,
+        })
+    }
+
+    async function mirror(rows: unknown[], team = TEAM_A): Promise<void> {
+        const res = await call('PUT', '/mirror', {
+            deployment: CELERY,
+            ops: ['mirror'],
+            team,
+            body: { origin: 'backfill', force: false, rows },
+        })
+        expect(res.status).toBe(200)
+        for (const result of res.json.results) {
+            expect(['created', 'deleted']).toContain(result.outcome)
+        }
+    }
+
+    async function digests(body: Record<string, unknown>, opts: CallOptions = {}): Promise<CallResult> {
+        return call('POST', '/mirror/digests', {
+            deployment: CELERY,
+            team: null,
+            ops: ['reconcile'],
+            kinds: ['hubspot'],
+            ...opts,
+            body: { kind: 'hubspot', salt: SALT, ...body },
+        })
+    }
+
+    async function page(body: Record<string, unknown>, opts: CallOptions = {}): Promise<any> {
+        const res = await digests(body, opts)
+        expect(res.status).toBe(200)
+        return res.json
+    }
+
+    function ids(json: any): number[] {
+        return json.results.map((result: { legacy_id: number }) => result.legacy_id)
+    }
+
+    async function digestCount(outcome: string): Promise<number> {
+        const metric = await register.getSingleMetric('credentials_service_integration_mirror_digest_rows_total')?.get()
+        return metric?.values.find((v) => v.labels['outcome'] === outcome)?.value ?? 0
+    }
+
+    it('pages by legacy id across teams, only over mirrored rows of the kind', async () => {
+        await mirror([mirrorRow(601, 3), mirrorRow(603, 1), mirrorRow(605, 1)])
+        await mirror([mirrorRow(602, 1, { created_by_id: null }), mirrorRow(604, 7)], TEAM_B)
+        await mirror([mirrorRow(606, 1, { kind: 'slack' })])
+        // Not written by the mirror: no source version.
+        await insertIntegration(pool, {
+            owner: { type: 'team', id: TEAM_A },
+            kind: 'hubspot',
+            externalId: 'portal-600',
+            authType: 'oauth',
+            legacyId: 600,
+        })
+        await create({ integration_id: 'portal-native' })
+
+        const first = await page({ limit: 2 })
+        expect(ids(first)).toEqual([601, 602])
+        expect(first.next_after_legacy_id).toBe(602)
+        expect(first.results[0]).toEqual({
+            legacy_id: 601,
+            team_id: TEAM_A,
+            kind: 'hubspot',
+            deleted: false,
+            source_version: 3,
+            created_by_id: 5,
+            digest: expect.stringMatching(/^[0-9a-f]{64}$/),
+            digest_error: null,
+        })
+        expect(first.results[1]).toMatchObject({ team_id: TEAM_B, created_by_id: null })
+
+        const second = await page({ limit: 2, after_legacy_id: 602 })
+        expect(ids(second)).toEqual([603, 604])
+        expect(second.next_after_legacy_id).toBe(604)
+        expect(second.results[1]).toMatchObject({ team_id: TEAM_B, source_version: 7 })
+
+        const last = await page({ limit: 2, after_legacy_id: 604 })
+        expect(ids(last)).toEqual([605])
+        expect(last.next_after_legacy_id).toBeNull()
+
+        // A page that ends exactly on the last row has no next page.
+        const exact = await page({ limit: 5 })
+        expect(ids(exact)).toEqual([601, 602, 603, 604, 605])
+        expect(exact.next_after_legacy_id).toBeNull()
+
+        expect(await page({ after_legacy_id: 605 })).toEqual({ results: [], next_after_legacy_id: null })
+    })
+
+    it('returns exactly the named rows in legacy_ids mode', async () => {
+        await mirror([mirrorRow(611, 1), mirrorRow(612, 1), mirrorRow(613, 1, { kind: 'slack' })])
+        await insertIntegration(pool, {
+            owner: { type: 'team', id: TEAM_A },
+            kind: 'hubspot',
+            externalId: 'portal-614',
+            authType: 'oauth',
+            legacyId: 614,
+        })
+
+        const json = await page({ legacy_ids: [612, 9999, 613, 614, 611], limit: 1 })
+
+        expect(ids(json)).toEqual([611, 612])
+        expect(json.next_after_legacy_id).toBeNull()
+        expect(json.results[0].digest).toBe((await page({})).results[0].digest)
+    })
+
+    it('includes tombstones and deleted rows with no digest', async () => {
+        await mirror([mirrorRow(621, 1), mirrorRow(622, 1)])
+        await mirror([
+            { legacy_id: 621, deleted: true, kind: 'hubspot', tombstone: false, source_version: 2 },
+            { legacy_id: 623, deleted: true, kind: 'hubspot', tombstone: true, source_version: 4 },
+            // A tombstone with no source version is not a mirrored row.
+            { legacy_id: 624, deleted: true, kind: 'hubspot', tombstone: true },
+        ])
+
+        const json = await page({})
+
+        expect(json.results).toEqual([
+            expect.objectContaining({ legacy_id: 621, deleted: true, source_version: 2, digest: null }),
+            expect.objectContaining({ legacy_id: 622, deleted: false, digest: expect.any(String) }),
+            {
+                legacy_id: 623,
+                team_id: TEAM_A,
+                kind: 'hubspot',
+                deleted: true,
+                source_version: 4,
+                created_by_id: null,
+                digest: null,
+                digest_error: null,
+            },
+        ])
+        expect(json.results[0].digest_error).toBeNull()
+    })
+
+    it('answers unreadable_secret for a secret that does not decrypt, and digests the other rows', async () => {
+        await mirror([mirrorRow(631, 1), mirrorRow(632, 1)])
+        await pool.query(
+            `UPDATE integration_secrets SET ciphertext = '\\x00'::bytea
+             WHERE integration_id = (SELECT id FROM integrations WHERE legacy_id = 631)`
+        )
+        const before = { unreadable: await digestCount('unreadable_secret'), digest: await digestCount('digest') }
+
+        const json = await page({})
+
+        expect(json.results).toEqual([
+            expect.objectContaining({
+                legacy_id: 631,
+                deleted: false,
+                digest: null,
+                digest_error: 'unreadable_secret',
+            }),
+            expect.objectContaining({
+                legacy_id: 632,
+                digest: expect.stringMatching(/^[0-9a-f]{64}$/),
+                digest_error: null,
+            }),
+        ])
+        expect(await digestCount('unreadable_secret')).toBe(before.unreadable + 1)
+        expect(await digestCount('digest')).toBe(before.digest + 1)
+    })
+
+    // Not 'parts unicode and astral keys': Postgres stores its lone-surrogate unreadable key as U+FFFD.
+    it.each(['parts full', 'parts minimal'])(
+        'equals the shared vector %j for a row with the same content',
+        async (name) => {
+            const v = vector(name)
+            await mirror([vectorRow(641, v.parts)])
+
+            const json = await page({ salt: v.salt_b64 })
+
+            expect(json.results).toEqual([expect.objectContaining({ legacy_id: 641, digest: v.digest })])
+        }
+    )
+
+    it('gives a different digest for a different salt', async () => {
+        const a = vector('parts salt a')
+        const b = vector('parts salt b')
+        await mirror([vectorRow(651, a.parts)])
+
+        const withA = (await page({ salt: a.salt_b64 })).results[0].digest
+        const withB = (await page({ salt: b.salt_b64 })).results[0].digest
+
+        expect(withA).toBe(a.digest)
+        expect(withB).toBe(b.digest)
+        expect(withA).not.toBe(withB)
+    })
+
+    it('returns no config or secret value', async () => {
+        await mirror([mirrorRow(661, 1, { config: { region: 'config-value-marker' }, errors: 'errors-value-marker' })])
+
+        const res = await digests({})
+
+        expect(res.status).toBe(200)
+        for (const marker of [
+            'config-value-marker',
+            'errors-value-marker',
+            'portal-661',
+            ACCESS_TOKEN,
+            REFRESH_TOKEN,
+        ]) {
+            expect(res.text).not.toContain(marker)
+        }
+    })
+
+    it.each([
+        ['web', { deployment: WEB }, 403, 'forbidden_op'],
+        ['cdp', { deployment: CDP }, 403, 'forbidden_op'],
+        ['the reverse sync', { deployment: REVERSE_SYNC }, 403, 'forbidden_op'],
+        ['a token without the op', { ops: ['list_across_teams'] as IntegrationOp[] }, 403, 'forbidden_op'],
+        ['a token for another kind', { kinds: ['slack'] }, 403, 'forbidden_kind'],
+        ['a token with no kinds', { kinds: undefined }, 401, 'unauthorized'],
+        ['a token with an owner', { team: TEAM_A }, 401, 'unauthorized'],
+    ] as [string, CallOptions, number, string][])('refuses %s', async (_label, opts, status, code) => {
+        await mirror([mirrorRow(671, 1)])
+        const res = await digests({}, opts)
+        expect(res.status).toBe(status)
+        expect(res.json.error.code).toBe(code)
+        expect((await auditRows()).filter((row) => row.operation === 'reconcile')).toEqual([])
+    })
+
+    it.each([
+        ['a 31-byte salt', { salt: randomBytes(31).toString('base64') }],
+        ['a 33-byte salt', { salt: randomBytes(33).toString('base64') }],
+        ['an empty salt', { salt: '' }],
+        ['a salt that is not base64', { salt: '!'.repeat(44) }],
+        ['a limit above 1000', { limit: 1001 }],
+        ['a zero limit', { limit: 0 }],
+        ['more than 1000 legacy ids', { legacy_ids: Array.from({ length: 1001 }, (_, i) => i + 1) }],
+        ['an empty legacy_ids list', { legacy_ids: [] }],
+        ['legacy_ids with after_legacy_id', { legacy_ids: [1], after_legacy_id: 1 }],
+        ['an unknown field', { team_id: TEAM_A }],
+    ])('rejects %s with a validation error', async (_label, body) => {
+        const res = await digests(body)
+        expect(res.status).toBe(400)
+        expect(res.json.error.code).toBe('validation')
+    })
+
+    it('writes one audit row per page, with field names and no values', async () => {
+        await mirror([mirrorRow(681, 1), mirrorRow(682, 1, { legacy_unreadable_keys: ['client_secret'] })])
+        await mirror([mirrorRow(683, 1)], TEAM_B)
+
+        await page({ limit: 2 })
+        await page({ limit: 2, after_legacy_id: 682 })
+        await page({ legacy_ids: [683] })
+
+        // Two requests can share an occurred_at millisecond, so compare the rows sorted by content.
+        const rows = (await auditRows())
+            .filter((row) => row.operation === 'reconcile')
+            .map((row: any) => [row.outcome, row.owner_id, row.fields, row.details])
+            .sort((a, b) =>
+                `${a[3].mode}-${a[3].first_legacy_id}`.localeCompare(`${b[3].mode}-${b[3].first_legacy_id}`)
+            )
+        expect(rows).toEqual([
+            [
+                'ok',
+                null,
+                ['access_token', 'refresh_token'],
+                { kind: 'hubspot', mode: 'legacy_ids', rows: 1, first_legacy_id: 683, last_legacy_id: 683 },
+            ],
+            [
+                'ok',
+                null,
+                ['access_token', 'client_secret', 'refresh_token'],
+                { kind: 'hubspot', mode: 'page', rows: 2, first_legacy_id: 681, last_legacy_id: 682 },
+            ],
+            [
+                'ok',
+                null,
+                ['access_token', 'refresh_token'],
+                { kind: 'hubspot', mode: 'page', rows: 1, first_legacy_id: 683, last_legacy_id: 683 },
+            ],
+        ])
+        const logged = logLines
+            .map((line) => JSON.parse(line))
+            .filter((line) => line.event === 'integrations:audited' && line.fields.operation === 'reconcile')
+        expect(logged).toHaveLength(3)
+        expect(logged[0].fields).toMatchObject({ deployment: CELERY, owner_id: null, kind: 'hubspot' })
+    })
+
+    it('answers kms_unavailable for the whole page when KMS is down', async () => {
+        await mirror([mirrorRow(691, 1)])
+        const unavailable = (): Promise<never> => Promise.reject(new KmsError('unavailable', 'KMS did not answer'))
+        const down: Kms = { provider: 'local', generateDataKey: unavailable, decrypt: unavailable, rewrap: unavailable }
+        const res = await digests({}, { target: buildApp(down) })
+        expect(res.status).toBe(503)
+        expect(res.json.error.code).toBe('kms_unavailable')
+        expect((await auditRows()).filter((row) => row.operation === 'reconcile')).toEqual([])
+    })
+
+    it('digests warehouse source rows for the Celery worker', async () => {
+        await mirror([mirrorRow(695, 1, { is_source_row: true }), mirrorRow(696, 1)])
+
+        const json = await page({})
+
+        expect(ids(json)).toEqual([695, 696])
+        expect(json.results[0].digest).toMatch(/^[0-9a-f]{64}$/)
+    })
+})

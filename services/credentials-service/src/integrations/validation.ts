@@ -143,6 +143,30 @@ export const mirrorBody = z
     })
 export type MirrorBody = z.infer<typeof mirrorBody>
 
+export const MAX_DIGEST_ROWS = 1000
+export const DIGEST_SALT_BYTES = 32
+
+const digestSalt = z
+    .base64()
+    .transform((value) => Buffer.from(value, 'base64'))
+    .refine((salt) => salt.length === DIGEST_SALT_BYTES, `must be ${DIGEST_SALT_BYTES} bytes after base64 decoding`)
+
+export const mirrorDigestsBody = z
+    .strictObject({
+        kind,
+        salt: digestSalt,
+        after_legacy_id: legacyId.nullable().default(null),
+        limit: z.int().min(1).max(MAX_DIGEST_ROWS).default(MAX_DIGEST_ROWS),
+        /** Selects exact rows for a confirm pass. `after_legacy_id` and `limit` do not apply then. */
+        legacy_ids: z.array(legacyId).min(1).max(MAX_DIGEST_ROWS).nullable().default(null),
+    })
+    .superRefine((body, ctx) => {
+        if (body.legacy_ids !== null && body.after_legacy_id !== null) {
+            ctx.addIssue({ code: 'custom', path: ['after_legacy_id'], message: 'must be null when legacy_ids is set' })
+        }
+    })
+export type MirrorDigestsBody = z.infer<typeof mirrorDigestsBody>
+
 function validationError(error: z.ZodError): IntegrationApiError {
     // Paths and messages only: an issue never carries the rejected value back to the caller.
     const issues = error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message }))

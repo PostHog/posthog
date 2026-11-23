@@ -24,3 +24,10 @@ export const mirrorRowsTotal = new Counter({
     labelNames: ['origin', 'outcome'],
     registers: [register],
 })
+
+export const mirrorDigestRowsTotal = new Counter({
+    name: 'credentials_service_integration_mirror_digest_rows_total',
+    help: 'Rows of POST /v1/integrations/mirror/digests, by outcome',
+    labelNames: ['outcome'],
+    registers: [register],
+})

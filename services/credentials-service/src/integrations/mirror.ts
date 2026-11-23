@@ -25,10 +25,12 @@ import { logger } from '../lib/logging'
 import { type AuditEntry, insertAuditRows, logAuditEntries } from './audit'
 import { IntegrationApiError } from './errors'
 import { mirrorRowsTotal } from './metrics'
+import { type DigestPage, mirrorDigests } from './mirror-digests'
 import { type Caller, isEmpty, owner, sealSecret, writeDeadline } from './service'
 import {
     type MirrorBody,
     type MirrorDeleteRow,
+    type MirrorDigestsBody,
     type MirrorRowBody,
     type MirrorUpsertRow,
     checkAuthType,
@@ -128,6 +130,11 @@ export interface MirrorDeps {
 
 export class MirrorService {
     constructor(private readonly deps: MirrorDeps) {}
+
+    /** Salted digests of the mirrored rows of one kind, across every team. */
+    digests(caller: Caller, body: MirrorDigestsBody): Promise<DigestPage> {
+        return mirrorDigests(this.deps, caller, body)
+    }
 
     async mirror(caller: Caller, body: MirrorBody): Promise<{ results: MirrorResult[] }> {
         const teamOwner = owner(caller)
