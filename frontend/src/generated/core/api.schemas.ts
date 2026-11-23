@@ -1863,7 +1863,7 @@ export interface TeamMarketingAnalyticsConfigApi {
     /**
      * Google Ads conversion actions that recommendations count as conversions, as resource names. Each ad account counts the actions it owns or reports, including actions shared from a manager account, and an account with none of them counts its primary actions. Empty counts the primary actions of every account. Replaces the whole list on write.
      * @maxItems 200
-     * @items.pattern ^customers/\d+/conversionActions/\d+$
+     * @items.pattern ^customers/[0-9]+/conversionActions/[0-9]+$
      */
     recommendation_conversion_actions?: string[]
 }
