@@ -88,6 +88,11 @@ class TestSetFlagEvaluationsMode(BaseTest):
         path.write_text("".join(f"{line}\n" for line in lines))
         return str(path)
 
+    def _file_without_final_newline(self, content: str) -> str:
+        path = self._ids_file()
+        Path(path).write_text(content)
+        return path
+
     def _file_locked_by_another_run(self, *lines: object) -> str:
         path = self._ids_file(*lines)
         file = open(path, "a")
@@ -310,6 +315,16 @@ class TestSetFlagEvaluationsMode(BaseTest):
                 "write the changed ids to a new file",
             ),
             (
+                "changed_ids_file_of_one_bare_id_without_a_final_newline",
+                lambda self, missing: (
+                    "--organization-id",
+                    str(self.organization.id),
+                    "--write-changed-ids",
+                    self._file_without_final_newline(str(self.organization.id)),
+                ),
+                "write the changed ids to a new file",
+            ),
+            (
                 "changed_ids_file_as_the_ids_file",
                 lambda self, missing: (
                     "--organization-ids-file",
@@ -471,9 +486,7 @@ class TestSetFlagEvaluationsMode(BaseTest):
             changed_ids_file,
         )
         deleted_later.delete()
-        output = self._run(
-            "--restore-from-changed-ids-file", changed_ids_file, "--skip-unknown-organization-ids", "--chunk-size", "1"
-        )
+        output = self._run("--restore-from-changed-ids-file", changed_ids_file, "--skip-unknown-organization-ids")
 
         self.assertIn(f"Appended 3 changed organization(s) to {changed_ids_file}.", run_output)
         self.assertIn(f"Skipping 1 unknown organization id(s) in {changed_ids_file}.", output)
@@ -539,6 +552,20 @@ class TestSetFlagEvaluationsMode(BaseTest):
                 (FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, True),
                 (FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, True),
                 "Kept the settings of 1 organization(s)",
+            ),
+            (
+                "keeps_an_organization_whose_later_record_chains_onto_a_change_outside_the_runs",
+                ["0 0 1 0", "2 0 2 1", "2 1 1 0"],
+                (FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False),
+                (FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False),
+                "Kept the settings of 1 organization(s)",
+            ),
+            (
+                "restores_kept_events_writes_a_run_turned_off",
+                ["2 1 2 0"],
+                (FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False),
+                (FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, True),
+                "Restored 1 organization(s).",
             ),
         ]
     )

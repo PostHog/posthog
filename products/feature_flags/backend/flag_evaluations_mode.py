@@ -14,13 +14,10 @@ from posthog.models import Organization, Team
 
 from products.experiments.backend.facade import count_running_experiments_needing_flag_calls_in_events
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import FlagEvaluationsConfig
+from products.feature_flags.backend.facade.flags import NO_ROW_CONFIG, FlagEvaluationsConfig
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 ID_LOOKUP_BATCH_SIZE = 10_000
-
-# Readers treat an organization without a config row as on EVENTS, with events writes not kept.
-NO_ROW_CONFIG = FlagEvaluationsConfig(mode=FlagEvaluationsMode.EVENTS, keeps_events_writes=False)
 
 FLAG_EVALUATIONS_MODES_HELP = (
     "0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects "
@@ -284,10 +281,10 @@ def restore_organizations_flag_evaluations_configs(
 ) -> list[OrganizationRestore]:
     """Put each organization back to the settings it had before the recorded runs, in the order given.
 
-    The restore writes an organization only while the organization has the settings the last run left it with and
-    its records chain. It keeps the settings of any other organization, which changed outside the runs. It leaves an
-    organization that already has its settings from before the runs alone, so a restore that runs again changes
-    nothing more.
+    The restore writes an organization only while the organization has the settings the last run left it with, and
+    each of its records starts from settings that an earlier record of it reached (`RecordedHistory.unbroken`). It
+    keeps the settings of any other organization, which changed outside the runs. It leaves an organization that
+    already has its settings from before the runs alone, so a restore that runs again changes nothing more.
 
     Opens no transaction. The caller wraps the call in one, because the row locks it takes last until the
     transaction ends.
