@@ -6,6 +6,7 @@ import {
     clickableHrefs,
     hasReplaceableUnsubscribeLink,
     preferencesTokensInBody,
+    replaceUnsubscribePlaceholder,
 } from './clickable-links'
 
 const manyAttributes = Array.from({ length: 1_000 }, (_, index) => `data-${index}="x"`).join(' ')
@@ -134,6 +135,16 @@ describe('clickableHrefs', () => {
         [
             'an SVG xlink:href anchor inside a MathML annotation-xml element without an HTML encoding',
             '<math><annotation-xml><svg><a xlink:href="https://example.com/bye"><text>Unsubscribe</text></a></svg></annotation-xml></math>',
+            ['https://example.com/bye'],
+        ],
+        [
+            'an SVG xlink:href anchor after an hr closes an open paragraph inside foreignObject',
+            '<svg><foreignObject><p>News<hr></foreignObject><a xlink:href="https://example.com/bye"><text>Unsubscribe</text></a></svg>',
+            ['https://example.com/bye'],
+        ],
+        [
+            'an SVG xlink:href anchor after an xmp block closes an open paragraph inside foreignObject',
+            '<svg><foreignObject><p><xmp></xmp></foreignObject><a xlink:href="https://example.com/bye"><text>Unsubscribe</text></a></svg>',
             ['https://example.com/bye'],
         ],
         [
@@ -439,7 +450,9 @@ describe('clickableHrefs', () => {
                 if ('tagName' in node && node.tagName === 'a') {
                     const href =
                         node.attrs.find(({ name, namespace }) => name === 'href' && !namespace) ??
-                        node.attrs.find(({ name }) => name === 'href')
+                        (node.namespaceURI === 'http://www.w3.org/2000/svg'
+                            ? node.attrs.find(({ name }) => name === 'href')
+                            : undefined)
                     if (href) {
                         hrefs.add(href.value)
                     }
@@ -501,6 +514,7 @@ describe('clickableHrefs', () => {
             '</math>',
             '<p>',
             '</p>',
+            '<hr>',
             '</br>',
             '<script>',
             '</script>',
@@ -571,6 +585,14 @@ describe('preferencesTokensInBody', () => {
         const withSvg = preferencesTokensInBody({ html: `<svg></svg>${paragraphs}` }, 'https://app.posthog.com')
         expect(plain).toContain('tok-first')
         expect(withSvg).toEqual(plain)
+    })
+
+    it('extracts the preferences token from an SVG xlink:href anchor after hr closes a paragraph in foreignObject', () => {
+        const html =
+            '<svg><foreignObject><p>News<hr></foreignObject><a xlink:href="{{ unsubscribe_url }}"><text>Unsubscribe</text></a></svg>'
+        expect(hasReplaceableUnsubscribeLink({ html })).toBe(true)
+        const filled = replaceUnsubscribePlaceholder(html, 'https://app.posthog.com/messaging-preferences/tok-hr/')
+        expect(preferencesTokensInBody({ html: filled }, 'https://app.posthog.com')).toEqual(['tok-hr'])
     })
 })
 

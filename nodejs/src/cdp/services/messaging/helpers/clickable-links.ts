@@ -95,10 +95,14 @@ const HTML_P_CLOSERS = new Set([
     'article',
     'aside',
     'blockquote',
+    'center',
+    'dd',
     'details',
     'dialog',
+    'dir',
     'div',
     'dl',
+    'dt',
     'fieldset',
     'figcaption',
     'figure',
@@ -113,16 +117,21 @@ const HTML_P_CLOSERS = new Set([
     'header',
     'hgroup',
     'hr',
+    'li',
+    'listing',
     'main',
     'menu',
     'nav',
     'ol',
     'p',
+    'plaintext',
     'pre',
     'search',
     'section',
+    'summary',
     'table',
     'ul',
+    'xmp',
 ])
 
 export const BODY_MAX_LENGTH = 1_500_000
@@ -470,6 +479,12 @@ export const clickableHrefs = (body: string): string[] => {
 
                 let anchorNs: Namespace = 'html'
                 if (inHtml) {
+                    if (
+                        HTML_P_CLOSERS.has(tag.tagName) &&
+                        (frame.htmlScopes[frame.htmlScopes.length - 1].get('p') ?? 0) > 0
+                    ) {
+                        popToHtmlTag(frame, 'p')
+                    }
                     if (tag.tagName === 'svg') {
                         if (!tag.selfClosing) {
                             pushEntry(frame, {
@@ -495,22 +510,10 @@ export const clickableHrefs = (body: string): string[] => {
                     } else if (tag.tagName === 'select') {
                         frame.inSelect = true
                     } else if (TABLE_TAGS.has(tag.tagName)) {
-                        if (
-                            tag.tagName === 'table' &&
-                            (frame.htmlScopes[frame.htmlScopes.length - 1].get('p') ?? 0) > 0
-                        ) {
-                            popToHtmlTag(frame, 'p')
-                        }
                         pushHtmlTableTag(frame, tag.tagName)
                     } else if (TEXT_MODES.has(tag.tagName)) {
                         tokenizer.state = TEXT_MODES.get(tag.tagName)!
                     } else if (!HTML_VOID_ELEMENTS.has(tag.tagName) && !HTML_ROOT_ELEMENTS.has(tag.tagName)) {
-                        if (
-                            HTML_P_CLOSERS.has(tag.tagName) &&
-                            (frame.htmlScopes[frame.htmlScopes.length - 1].get('p') ?? 0) > 0
-                        ) {
-                            popToHtmlTag(frame, 'p')
-                        }
                         pushEntry(frame, {
                             tag: tag.tagName,
                             ns: 'html',
