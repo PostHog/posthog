@@ -3240,10 +3240,9 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
 @pytest.mark.parametrize(
     "variant,runtime,adapter,model,tier",
     [
-        ("test-sol", "acp", "codex", "gpt-6.1-sol", "priority"),
-        ("test-deepseek", "pi", None, "deepseek-ai/deepseek-v4.1-flash-1017-fast", None),
-        ("control", None, None, None, None),
-        (False, None, None, None, None),
+        ("test-terra", "acp", "codex", "gpt-6.1-terra", None),
+        ("control", "pi", None, "deepseek-ai/deepseek-v4.1-flash-1017-fast", None),
+        (False, "pi", None, "deepseek-ai/deepseek-v4.1-flash-1017-fast", None),
     ],
 )
 async def test_first_report_experiment_restarts_and_records_assignment(ateam, variant, runtime, adapter, model, tier):
@@ -3297,7 +3296,7 @@ async def test_first_report_experiment_restarts_and_records_assignment(ateam, va
         patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=start),
         patch(
             "products.signals.backend.first_report_experiment.posthoganalytics.get_feature_flag",
-            side_effect=lambda key, *args, **kwargs: variant if key == "self-driving-banger-scout" else None,
+            side_effect=lambda key, *args, **kwargs: variant if key == "self-driving-first-report-model" else None,
         ),
         patch(
             "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env", return_value="env-id"
@@ -3311,24 +3310,17 @@ async def test_first_report_experiment_restarts_and_records_assignment(ateam, va
             team_id=ateam.id, skill_name="signals-scout-first-report", triggered_by="onboarding"
         )
         outcome = await env.run(run_signals_scout_activity, input)
-        if runtime is not None:
-            assert outcome.status == "completed"
-            first_run_id = outcome.run_id
-            replay = await env.run(run_signals_scout_activity, input)
-            assert replay.run_id == outcome.run_id
-            assert replay.task_run_id == outcome.task_run_id
-            assert replay.status == "completed"
-            env.info = replace(env.info, workflow_run_id=str(uuid4()))
-            outcome = await env.run(run_signals_scout_activity, input)
-            assert outcome.run_id != first_run_id
+        assert outcome.status == "completed"
+        first_run_id = outcome.run_id
+        replay = await env.run(run_signals_scout_activity, input)
+        assert replay.run_id == outcome.run_id
+        assert replay.task_run_id == outcome.task_run_id
+        assert replay.status == "completed"
+        env.info = replace(env.info, workflow_run_id=str(uuid4()))
+        outcome = await env.run(run_signals_scout_activity, input)
+        assert outcome.run_id != first_run_id
 
-    if runtime is None:
-        assert outcome.skip_reason == (
-            "first-report control arm" if variant == "control" else "first-report experiment disabled"
-        )
-        sandbox.assert_not_called()
-        assert not captured
-        return
+    sandbox.assert_called()
     assert outcome.status == "completed"
     context = captured["context"]
     assert captured["profile"] == FIRST_REPORT_SCOUT
@@ -3346,11 +3338,12 @@ async def test_first_report_experiment_restarts_and_records_assignment(ateam, va
     assert previous_task.idempotency_key == "first-report"
     assert previous_run.status == TaskRun.Status.FAILED
     assert run.metadata is not None
-    assert run.metadata["experiment_variant"] == variant
+    expected_variant = variant or None
+    assert run.metadata.get("experiment_variant") == expected_variant
     assert run.metadata["runtime"] == runtime
     events = {call.kwargs["event"]: call.kwargs["properties"] for call in capture.call_args_list}
-    assert events["signals_scout_run_started"]["experiment_variant"] == variant
-    assert events["signals_scout_run_finished"]["experiment_variant"] == variant
+    assert events["signals_scout_run_started"].get("experiment_variant") == expected_variant
+    assert events["signals_scout_run_finished"].get("experiment_variant") == expected_variant
     assert events["signals_scout_run_finished"]["first_report_outcome"] == "no_actionable_finding"
     assert events["signals_scout_run_finished"]["report_delivered"] is False
 
@@ -3404,7 +3397,7 @@ async def test_first_report_concurrent_dispatch_creates_one_task(ateam: Team, sa
         patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=start),
         patch(
             "products.signals.backend.first_report_experiment.posthoganalytics.get_feature_flag",
-            side_effect=lambda key, *args, **kwargs: "test-deepseek" if key == "self-driving-banger-scout" else None,
+            side_effect=lambda key, *args, **kwargs: "control" if key == "self-driving-first-report-model" else None,
         ),
         patch("products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env", return_value="env-id"),
         patch("products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team", return_value=42),

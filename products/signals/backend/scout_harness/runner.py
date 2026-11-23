@@ -39,11 +39,7 @@ from products.signals.backend.constants import FIRST_REPORT_SCOUT, FIRST_REPORT_
 from products.signals.backend.facade.source_scouts import refresh_source_scout
 from products.signals.backend.first_report_completion import complete_first_report_investigation
 from products.signals.backend.first_report_experiment import FirstReportExperiment, resolve_first_report_experiment
-from products.signals.backend.first_report_scout import (
-    FirstReportRunInProgress,
-    lock_first_report_start,
-    set_first_report_state,
-)
+from products.signals.backend.first_report_scout import FirstReportRunInProgress, lock_first_report_start
 from products.signals.backend.first_report_scout_types import FirstReportScoutResult
 from products.signals.backend.github_optional import ResearchAccessPolicy
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
@@ -536,18 +532,6 @@ async def _arun_signals_scout(
     experiment = None
     if skill.name == FIRST_REPORT_SCOUT and agent_runtime is None and trial is None:
         experiment = await database_sync_to_async(resolve_first_report_experiment, thread_sensitive=False)(team)
-        if experiment is None or experiment.agent_runtime is None:
-            await database_sync_to_async(set_first_report_state, thread_sensitive=False)(team.id, "incomplete")
-            return RunResult(
-                run_id=None,
-                task_run_id=None,
-                status=None,
-                last_message=None,
-                runtime_s=0.0,
-                skill_name=skill.name,
-                skill_version=skill.version,
-                skip_reason="first-report experiment disabled" if experiment is None else "first-report control arm",
-            )
         agent_runtime = experiment.agent_runtime
     preserve_trial_model = skill.origin == "canonical" and skill.name in canonical_scouts_preserving_trial_model()
     if trial is None and experiment is None and not preserve_trial_model:
