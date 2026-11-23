@@ -314,7 +314,8 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
             f'101,"{policy_topics}"\n'
             '11,1,PAUSED,"[""{\\""text\\"": \\""CRM for dentists\\""}""]","[]","[""https://example.com/crm""]",,DISAPPROVED,102,[]\n'
             "11,1,ENABLED,[],[],[],Patient records made simple,APPROVED_LIMITED,100,[]\n"
-            "11,1,ENABLED,[],[],[],Session replay,APPROVED,104,[]\n",
+            "11,1,ENABLED,[],[],[],Session replay,APPROVED,104,[]\n"
+            "12,1,ENABLED,[],[],[],Clinic scheduling,APPROVED,105,[]\n",
         )
         source = MarketingAnalyticsRecommendationsSource(
             sourceType="GoogleAds",
@@ -335,6 +336,7 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
 
         assert [(ad.campaign_id, ad.final_urls) for ad in runner._ads(source)] == [
             ("1", ("https://example.com/product",)),
+            ("1", ()),
             ("1", ()),
             ("1", ()),
         ]
