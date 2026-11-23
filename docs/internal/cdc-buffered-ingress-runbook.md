@@ -301,8 +301,8 @@ Consume runs are ordinary jobs: `billable=True`, `rows_synced` = consumed rows.
 
 **Each table bills its own rows.** `consolidated` bills the consolidated table and `cdc_only` bills the history table.
 `both` bills the consolidated table, and bills the history table too once the organization has the `dwh-bill-history-tables` flag; without the flag the history table is free.
-All of it lands on the run's own job: the history table's companion job stays `billable=False`, so nothing counts twice.
-With the flag, the snapshot's seed of a `both` history table also bills, on the snapshot job.
+The history rows bill on the history table's companion job, not the run's own job: it has no destinations, so they count once, and only when that table loads.
+With the flag, the snapshot's seed of a `both` history table also bills, on a completed companion job of its own.
 `history_billing.history_lane_billable` holds the rule for every kind of history table.
 
 **The merge lane re-bills the rows at its position until the file holding them is deleted.** It
