@@ -13,23 +13,23 @@ export const TODAY_PANE_INTROS: Record<TodayIntroPane, TodayPaneIntroCopy> = {
         description: 'Ask questions, run tasks and pick up past chats.',
     },
     analytics: {
-        title: 'Understand product usage',
+        title: 'See what’s happening, and why',
         description: 'Dashboards, insights, SQL and replays of what your users do.',
     },
     people: {
-        title: 'Understand your users',
+        title: 'Know your users, and reach them',
         description: 'Persons, cohorts and accounts, plus tickets to reach them.',
     },
     release: {
-        title: 'Change what users get',
-        description: 'Roll out with feature flags, and check it worked with experiments.',
+        title: 'Change what users get, and check it worked',
+        description: 'Feature flags, experiments and early access features.',
     },
     monitor: {
-        title: 'Keep an eye on your systems',
-        description: 'Track errors, logs, traces and metrics across your systems.',
+        title: 'Know when something breaks',
+        description: 'Errors, logs, traces, metrics and the alerts on them.',
     },
     data: {
-        title: 'Connect your data',
+        title: 'Bring in your data, define it and send it on',
         description: 'Sources, pipelines, the warehouse, the definitions that describe your data, and where it goes.',
     },
     products: {
