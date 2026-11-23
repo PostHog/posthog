@@ -225,25 +225,31 @@ class TestSkioNestedTransport:
         ]
         assert result.response is not None and result.response.sort_mode is None
 
-    def test_incremental_filters_both_parents_and_rows_on_the_watermark(self) -> None:
+    @parameterized.expand(
+        [
+            ("snake_case_cursor", "cancel_flow_v2_sessions", "CancelFlowV2Sessions", "Subscriptions", "updated_at"),
+            ("customer_parent", "reward_credit_histories", "RewardCreditHistories", "StorefrontUsers", "createdAt"),
+            ("subscription_parent", "discounts", "Discounts", "Subscriptions", "updatedAt"),
+        ]
+    )
+    def test_incremental_filters_both_parents_and_rows_on_the_watermark(
+        self, _name: str, endpoint: str, relationship: str, parent_query: str, field: str
+    ) -> None:
         result = _run(
-            [
-                _parents(
-                    [("sub-1", [_child("session-1", "updated_at")])],
-                    relationship="CancelFlowV2Sessions",
-                )
-            ],
-            endpoint="cancel_flow_v2_sessions",
-            incremental_field="updated_at",
+            [_parents([("parent-1", [_child("row-1", field)])], relationship=relationship, parent_query=parent_query)],
+            endpoint=endpoint,
+            incremental_field=field,
             db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
-        watermark = {"updated_at": {"_gte": "2026-01-01T00:00:00+00:00"}}
-        variables = result.requests[0].json()["variables"]
-        assert variables["where"] == watermark
-        assert variables["parentWhere"] == {"CancelFlowV2Sessions": watermark}
-        assert variables["orderBy"] == [{"updated_at": "asc"}, {"id": "asc"}]
-        assert [row["id"] for row in result.rows] == ["session-1"]
+        assert result.raised is None
+        watermark = {field: {"_gte": "2026-01-01T00:00:00+00:00"}}
+        request = result.requests[0].json()
+        assert f"{parent_query}(limit: $parentLimit" in request["query"]
+        assert request["variables"]["where"] == watermark
+        assert request["variables"]["parentWhere"] == {relationship: watermark}
+        assert request["variables"]["orderBy"] == [{field: "asc"}, {"id": "asc"}]
+        assert [row["id"] for row in result.rows] == ["row-1"]
 
     @parameterized.expand(
         [

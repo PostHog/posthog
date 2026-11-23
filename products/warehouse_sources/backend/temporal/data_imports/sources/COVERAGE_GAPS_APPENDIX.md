@@ -13691,10 +13691,10 @@ Diffed against: <https://code.skio.com>
 - [x] `SellingPlan (GraphQL SubscriptionLines { OriginalSellingPlan })` — resolve sellingPlanId on subscription lines to plan names, intervals, and pricing rules (high) → `selling_plans` (incremental, read through `Policies { SellingPlansByBillingPolicy }` so each plan appears once)
 - [x] `AuditLogs (GraphQL Subscriptions { AuditLogs })` — track subscription changes and measure pauses, skips, and other lifecycle actions (high) → `audit_logs` (incremental, fan-out over `Subscriptions`)
 - [x] `CancelFlowV2Sessions and CancelFlowV3Sessions (GraphQL Subscriptions { CancelFlowV2Sessions CancelFlowV3Sessions })` — analyze cancellation reasons, retention offers, and outcomes beyond current subscription status (high) → `cancel_flow_v2_sessions`, `cancel_flow_v3_sessions` (incremental, fan-out over `Subscriptions`)
-- [ ] `Discounts (GraphQL Subscriptions { Discounts })` — compare discounts with subscription revenue and retention (medium)
-- [ ] `PricingPolicies (GraphQL query PricingPolicies)` — analyze fixed prices and percentage discounts that change after specified billing cycles (medium)
-- [ ] `RewardCreditHistories (GraphQL StorefrontUsers { RewardCreditHistories })` — track customer credit grants and redemptions for loyalty analysis (medium)
-- [ ] `NotificationLogs (GraphQL Subscriptions { NotificationLogs })` — analyze subscription notifications and their delivery history (medium)
+- [x] `Discounts (GraphQL Subscriptions { Discounts })` — compare discounts with subscription revenue and retention (medium) → `discounts` (incremental, fan-out over `Subscriptions`)
+- [x] `PricingPolicies (GraphQL query PricingPolicies)` — analyze fixed prices and percentage discounts that change after specified billing cycles (medium) → `pricing_policies` (incremental)
+- [x] `RewardCreditHistories (GraphQL StorefrontUsers { RewardCreditHistories })` — track customer credit grants and redemptions for loyalty analysis (medium) → `reward_credit_histories` (incremental on `createdAt` only, fan-out over `StorefrontUsers`)
+- [x] `NotificationLogs (GraphQL Subscriptions { NotificationLogs })` — analyze subscription notifications and their delivery history (medium) → `notification_logs` (incremental, fan-out over `Subscriptions`; message `body` not selected)
 
 Note: Parsed the published GraphQL reference, including root queries and array relationships on subscription and customer types. The eight existing tables select scalar fields, so these nested collections do not enter their rows. Policies and pricing policies have root list queries; other collections require queries through parent records. Excluded mutations, login tokens, deprecated CancelFlowSessions, and billing attempt types without a published readable relationship.
 
