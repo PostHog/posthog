@@ -39,9 +39,11 @@ class TestChargebeeSourceResumeBehavior:
     @staticmethod
     def _page(endpoint: str, row_id: str, next_offset: str | None = None) -> ScriptedResponse:
         wrapper = {
+            "CreditNotes": "credit_note",
             "CreditUnits": "credit_unit",
             "ItemPrices": "item_price",
             "PaymentSchedules": "payment_schedule",
+            "PaymentSources": "payment_source",
         }.get(endpoint, endpoint[:-1].lower())
         body: dict[str, Any] = {"list": [{wrapper: {"id": row_id}}]}
         if next_offset is not None:
@@ -51,6 +53,8 @@ class TestChargebeeSourceResumeBehavior:
     @pytest.mark.parametrize(
         "endpoint",
         [
+            "Coupons",
+            "CreditNotes",
             "CreditUnits",
             "Customers",
             "Events",
@@ -61,6 +65,8 @@ class TestChargebeeSourceResumeBehavior:
             "Subscriptions",
             "Transactions",
             "Orders",
+            "PaymentSources",
+            "Usages",
         ],
     )
     def test_fresh_run_saves_offset_after_each_non_terminal_page(self, endpoint: str) -> None:
@@ -143,8 +149,8 @@ class TestChargebeeSiteNameValidation:
 
 class TestChargebeeCatalogEndpoints:
     """`Items` and `ItemPrices` carry the product catalog that `subscription_items` points at.
-    `CreditUnits` and `Meters` carry the usage-based billing catalog. `Disputes`, `PaymentSchedules`
-    and `Einvoices` follow the same nested shape.
+    `CreditUnits` and `Meters` carry the usage-based billing catalog. `Disputes`, `PaymentSchedules`,
+    `Einvoices`, `Coupons`, `CreditNotes`, `PaymentSources` and `Usages` follow the same nested shape.
 
     Their rows sit one level deeper than the response list, so a wrong `data_selector` or
     path yields an empty table rather than an error.
@@ -190,6 +196,30 @@ class TestChargebeeCatalogEndpoints:
                 "einvoice",
                 {"id": "einv_1", "entity_type": "credit_note", "entity_id": "cn_1", "status": "accepted"},
             ),
+            (
+                "Coupons",
+                "/v2/coupons",
+                "coupon",
+                {"id": "SUMMER10", "discount_type": "percentage", "discount_percentage": 10.0, "redemptions": 3},
+            ),
+            (
+                "CreditNotes",
+                "/v2/credit_notes",
+                "credit_note",
+                {"id": "cn_1", "reference_invoice_id": "inv_1", "type": "refundable", "total": 500},
+            ),
+            (
+                "PaymentSources",
+                "/v2/payment_sources",
+                "payment_source",
+                {"id": "pm_1", "customer_id": "cus_1", "type": "card", "card": {"last4": "1111"}},
+            ),
+            (
+                "Usages",
+                "/v2/usages",
+                "usage",
+                {"id": "usage_1", "subscription_id": "sub_1", "item_price_id": "calls-USD", "quantity": "12"},
+            ),
         ],
     )
     def test_yields_the_nested_catalog_object(
@@ -201,6 +231,22 @@ class TestChargebeeCatalogEndpoints:
 
         assert result.paths == [f"/api{path}"]
         assert result.items == [[row]]
+        assert result.raised is None
+
+    def test_usages_key_on_subscription_and_usage_id(self) -> None:
+        # A usage is read through its subscription, so the same usage id on two subscriptions
+        # must stay two rows when the table merges.
+        rows = [
+            {"id": "usage_1", "subscription_id": "sub_1", "quantity": "1"},
+            {"id": "usage_1", "subscription_id": "sub_2", "quantity": "2"},
+        ]
+        result = SourceDriver(ChargebeeSource(), ChargebeeSourceConfig(api_key="test-key", site_name="site-test")).run(
+            "Usages", [ScriptedResponse(json={"list": [{"usage": row} for row in rows]})]
+        )
+
+        assert result.response is not None
+        assert result.response.primary_keys == ["subscription_id", "id"]
+        assert result.items == [rows]
         assert result.raised is None
 
 
@@ -215,6 +261,7 @@ class TestChargebeeIncrementalFilter:
     """
 
     CURSOR_PARAMS = {
+        "CreditNotes": "updated_at[after]",
         "Customers": "updated_at[after]",
         "Einvoices": "updated_at[after]",
         "Events": "occurred_at[after]",
@@ -223,8 +270,10 @@ class TestChargebeeIncrementalFilter:
         "Items": "updated_at[after]",
         "Orders": "updated_at[after]",
         "PaymentSchedules": "updated_at[after]",
+        "PaymentSources": "updated_at[after]",
         "Subscriptions": "updated_at[after]",
         "Transactions": "updated_at[after]",
+        "Usages": "updated_at[after]",
     }
 
     def _drive(self, endpoint: str, *, incremental: bool, last_value: Any) -> DriveResult:
@@ -257,7 +306,7 @@ class TestChargebeeIncrementalFilter:
         assert result.requests[0].param(self.CURSOR_PARAMS[endpoint]) is None
         assert result.raised is None
 
-    @pytest.mark.parametrize("endpoint", ["CreditUnits", "Disputes", "Meters"])
+    @pytest.mark.parametrize("endpoint", ["Coupons", "CreditUnits", "Disputes", "Meters"])
     def test_full_refresh_only_endpoints_ignore_incremental_watermark(self, endpoint: str) -> None:
         result = self._drive(endpoint, incremental=True, last_value=1750000000)
 

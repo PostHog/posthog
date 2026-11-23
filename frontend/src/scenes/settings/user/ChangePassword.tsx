@@ -4,11 +4,13 @@ import { Form } from 'kea-forms'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import PasswordStrength from 'lib/components/PasswordStrength'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { userLogic } from 'scenes/userLogic'
 
 import { changePasswordLogic } from './changePasswordLogic'
+import { QuillChangePassword } from './QuillChangePassword'
 
 export function ChangePasswordTitle(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -26,6 +28,11 @@ export function ChangePassword(): JSX.Element {
     } = useValues(changePasswordLogic)
     const { requestPasswordResetEmail } = useActions(changePasswordLogic)
     const hasPassword = user?.has_password ?? false
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillChangePassword />
+    }
 
     return (
         <Form logic={changePasswordLogic} formKey="changePassword" enableFormOnSubmit className="max-w-160">

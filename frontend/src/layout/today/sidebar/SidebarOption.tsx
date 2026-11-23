@@ -16,6 +16,14 @@ export interface SidebarOptionProps extends Omit<
     children: ReactNode
 }
 
+export function sidebarRowClassName(variant: 'default' | 'destructive', className?: string): string {
+    return cn(
+        'w-full min-w-0 font-semibold [&>span]:w-full [&>span]:overflow-visible',
+        variant === 'default' && 'text-foreground',
+        className
+    )
+}
+
 // Like Desktop's sidebar, the keyboard highlight tints the row like a hover, without a focus ring.
 export function SidebarOption({
     value,
@@ -39,14 +47,15 @@ export function SidebarOption({
                     left
                     nativeButton={false}
                     render={<LinkPrimitive to={to} />}
-                    className={cn(
-                        'w-full min-w-0 font-semibold [&>span]:w-full [&>span]:overflow-visible',
-                        variant === 'default' && 'text-foreground',
-                        'data-highlighted:border-transparent data-highlighted:ring-0',
-                        active
-                            ? 'bg-fill-selected data-highlighted:bg-fill-selected'
-                            : 'data-highlighted:bg-fill-hover',
-                        className
+                    className={sidebarRowClassName(
+                        variant,
+                        cn(
+                            'data-highlighted:border-transparent data-highlighted:ring-0',
+                            active
+                                ? 'bg-fill-selected data-highlighted:bg-fill-selected'
+                                : 'data-highlighted:bg-fill-hover',
+                            className
+                        )
                     )}
                 />
             }

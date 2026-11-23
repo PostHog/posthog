@@ -27,12 +27,15 @@ class TestGetSchemas:
     def test_only_server_side_filtered_endpoints_are_incremental(self) -> None:
         schemas = {s.name: s for s in CourierSource().get_schemas(_config(), team_id=1)}
         assert set(schemas) == set(ENDPOINTS)
-        # Messages filters on `enqueued_after` and PreferenceChanges on `since`; MessageHistory has
-        # no filter of its own and inherits that window through its parent listing.
+        # Messages filters on `enqueued_after`, PreferenceChanges on `since` and the run listings on
+        # `start_date`; MessageHistory has no filter of its own and inherits that window through its
+        # parent listing.
         assert {name for name, s in schemas.items() if s.supports_incremental} == {
             "Messages",
             "MessageHistory",
             "PreferenceChanges",
+            "JourneyRuns",
+            "AutomationRuns",
         }
         assert [f["field"] for f in schemas["Messages"].incremental_fields] == ["enqueued"]
 

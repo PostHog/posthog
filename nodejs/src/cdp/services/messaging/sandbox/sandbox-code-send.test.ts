@@ -39,7 +39,7 @@ import {
 import { CyclotronJobConflictError } from '../../cyclotron-v2/manager'
 import { IdempotentJobQueue } from '../../job-queue/job-queue.interface'
 import { createEmailAttachmentsValkeyPool } from '../attachment-uploads'
-import { capturedAnalytics, sandboxEventsCapturedInMemory } from './_tests/captured-analytics'
+import { capturedAnalytics, capturedFor, sandboxEventsCapturedInMemory } from './_tests/captured-analytics'
 import { SES_REJECTED, SES_THROTTLE } from './_tests/fake-ses-endpoint'
 import { SANDBOX_FROM_ADDRESS, useSandboxWorld } from './_tests/sandbox-world'
 
@@ -400,7 +400,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
                 { status: 'sent', reason: 'untracked' },
             ])
             await waitForExpect(() =>
-                expect(capturedAnalytics).toEqual([
+                expect(capturedFor(world.team.uuid)).toEqual([
                     expect.objectContaining({
                         event: 'workflows sandbox email sent',
                         properties: expect.objectContaining({ is_test: false, source: 'code' }),
@@ -494,7 +494,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         )
         expect(deliveryStatuses(queued[0].id)).toEqual([{ status: 'failed', reason }])
         await waitForExpect(() =>
-            expect(capturedAnalytics.map(({ event, properties }) => [event, properties?.source])).toEqual([
+            expect(capturedFor(world.team.uuid).map(({ event, properties }) => [event, properties?.source])).toEqual([
                 ['workflows sandbox email blocked', 'code'],
             ])
         )
@@ -566,7 +566,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         const expectedEvent =
             final.status === 'sent' ? 'workflows sandbox email sent' : 'workflows sandbox email failed'
         await waitForExpect(() =>
-            expect(capturedAnalytics.map(({ event, properties }) => [event, properties?.source])).toEqual([
+            expect(capturedFor(world.team.uuid).map(({ event, properties }) => [event, properties?.source])).toEqual([
                 [expectedEvent, 'code'],
             ])
         )

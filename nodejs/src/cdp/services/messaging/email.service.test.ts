@@ -1667,6 +1667,13 @@ describe('EmailService', () => {
                 case: 'keeps the defaults',
                 sensitive: true,
                 tracking: { captureEngagement: true },
+                links: ['tracked https://example.com/a', 'https://example.com/b'],
+                pixel: true,
+            },
+            {
+                case: 'turns clicks off',
+                sensitive: true,
+                tracking: { captureEngagement: true, clicks: false },
                 links: ['https://example.com/a', 'https://example.com/b'],
                 pixel: true,
             },
@@ -1835,7 +1842,7 @@ describe('EmailService', () => {
                 case: 'a sensitive code send that keeps the defaults',
                 sensitive: true,
                 send: {},
-                links: untracked,
+                links: clicksTracked,
                 opens: true,
                 subject: false,
             },
@@ -1861,7 +1868,7 @@ describe('EmailService', () => {
                 sensitive: true,
                 step: { template_uuid: 'template-1' },
                 send: { sensitive: false },
-                links: untracked,
+                links: clicksTracked,
                 opens: true,
                 subject: false,
             },
@@ -1869,7 +1876,7 @@ describe('EmailService', () => {
                 case: "a code send marked sensitive on a template's workflow that isn't sensitive",
                 sensitive: false,
                 send: { sensitive: true },
-                links: untracked,
+                links: clicksTracked,
                 opens: true,
                 subject: false,
             },
@@ -1909,6 +1916,14 @@ describe('EmailService', () => {
                 case: 'a sensitive template send',
                 sensitive: true,
                 send: undefined,
+                links: clicksTracked,
+                opens: true,
+                subject: false,
+            },
+            {
+                case: 'a sensitive code send that turns clicks off',
+                sensitive: true,
+                send: { tracking: { clicks: false } },
                 links: untracked,
                 opens: true,
                 subject: false,
@@ -1946,12 +1961,12 @@ describe('EmailService', () => {
                         return clicked.status === 302 ? `tracked ${clicked.headers.location}` : `unusable ${href}`
                     })
                 )
-                for (const [, src] of html.matchAll(/<img\b[^>]*\bsrc="([^"]*)"/g)) {
-                    if (src.startsWith(sesEndpoint)) {
-                        await supertest(sesEndpoint).get(new URL(src).pathname)
-                    }
+                const images = [...html.matchAll(/<img\b[^>]*\bsrc="([^"]*)"/g)].map(([, src]) => src)
+                for (const src of images) {
+                    await supertest(sesEndpoint).get(new URL(src).pathname)
                 }
                 expect(delivered).toEqual(links)
+                expect(images).toEqual(opens ? [`${sesEndpoint}/I0/open.gif`] : [])
                 expect(fakeSes.opened).toBe(opens ? 1 : 0)
                 expect(
                     result.capturedPostHogEvents
@@ -4231,6 +4246,26 @@ describe('EmailService', () => {
                 ])
             })
 
+            it.each([
+                ['a double-quoted', `"https://app.posthog-test.com/dl?sig=a>b"`],
+                ['a single-quoted', `'https://app.posthog-test.com/dl?sig=a>b'`],
+            ])(
+                'sends a marked link with %s href holding a > as written, and the next opt-out to SES',
+                async (_quoting, href) => {
+                    const taggingService = createService({ workflowRunLinkTagTeams: String(team.id) })
+                    invocation.hogFunction.metadata = { tracking_enabled: true, sensitive: false }
+                    invocation.queueParameters = createEmailParams({
+                        from: { integrationId: 1 },
+                        html: `<a href=${href} data-ph-no-utm>a</a><a href="https://example.com/" data-ph-no-track>b</a>`,
+                    })
+                    const result = await taggingService.executeSendEmail(invocation)
+                    expect(result.error).toBeUndefined()
+                    expect(ses.sent[0].html).toEqual(
+                        `<a href=${href} data-ph-no-utm ses:tags="phl:0">a</a><a href="https://example.com/" data-ph-no-track ses:no-track>b</a>`
+                    )
+                }
+            )
+
             it('records an email_untracked app metric for untracked sends but not for test sends', async () => {
                 invocation.state.renderedWorkflowVersion = 3
                 const normal = await service.executeSendEmail(invocation)
@@ -4303,9 +4338,8 @@ describe('EmailService', () => {
                     const sentHtml = ses.sent[0].html
                     if (expectTracked) {
                         // SES sends tag each anchor and let SES report the click, instead of
-                        // rewriting the href to a redirect URL. The open pixel is unchanged.
+                        // rewriting the href to a redirect URL.
                         expect(sentHtml).toContain('ses:tags="phl:')
-                        expect(sentHtml).toContain('ph_id=')
                     } else {
                         expect(sentHtml).toEqual(trackableHtml)
                     }
@@ -4319,7 +4353,6 @@ describe('EmailService', () => {
                 expect(result.error).toBeUndefined()
                 const sentHtml = ses.sent[0].html
                 expect(sentHtml).toContain('ses:tags="phl:')
-                expect(sentHtml).toContain('ph_id=')
             })
 
             it('the step-level toggle wins over consent: tracking_enabled false is untracked even for opted-in recipients', async () => {
