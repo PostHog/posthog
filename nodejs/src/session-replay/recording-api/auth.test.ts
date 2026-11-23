@@ -20,7 +20,7 @@ describe('createRecordingApiAuthMiddleware', () => {
     ) => new JWT(secret).sign(claims, PosthogJwtAudience.RECORDING_API, { expiresIn })
 
     const mockResponse = () => {
-        const res = {} as Response
+        const res = { locals: {} } as Response
         res.status = jest.fn().mockReturnValue(res)
         res.json = jest.fn().mockReturnValue(res)
         return res
@@ -188,6 +188,79 @@ describe('createRecordingApiAuthMiddleware', () => {
             expect(res.status).not.toHaveBeenCalled()
         })
     })
+
+    describe('staff read tokens', () => {
+        const STAFF_SECRET = 'recording-api-staff-key'
+        const staffClaims = { team_id: 123, op: 'read', actor: 'staff@example.com', reason: 'ticket 1' }
+        const nowSeconds = Math.floor(Date.now() / 1000)
+        const mintStaffToken = (
+            claims: Record<string, unknown> = staffClaims,
+            { secret = STAFF_SECRET, expiresIn = '15m' as string | number, noTimestamp = false } = {}
+        ) => new JWT(secret).sign(claims, PosthogJwtAudience.RECORDING_API_STAFF, { expiresIn, noTimestamp })
+
+        it.each([
+            ['a staff token on a read route', 'read', '123', mintStaffToken(), 'allowed'],
+            ['a staff token on a delete route', 'delete', '123', mintStaffToken(), 401],
+            ['a staff token for another team', 'read', '456', mintStaffToken(), 403],
+            ['a staff token without a reason', 'read', '123', mintStaffToken({ ...staffClaims, reason: ' ' }), 403],
+            [
+                'a staff token without an actor',
+                'read',
+                '123',
+                mintStaffToken({ ...staffClaims, actor: undefined }),
+                403,
+            ],
+            [
+                'a staff token whose op is not read',
+                'read',
+                '123',
+                mintStaffToken({ ...staffClaims, op: 'delete' }),
+                403,
+            ],
+            [
+                'a staff token minted over 15 minutes ago, whatever its exp',
+                'read',
+                '123',
+                mintStaffToken({ ...staffClaims, iat: nowSeconds - 16 * 60 }, { expiresIn: '1d' }),
+                401,
+            ],
+            ['a staff token without iat', 'read', '123', mintStaffToken(staffClaims, { noTimestamp: true }), 401],
+            ['an expired staff token', 'read', '123', mintStaffToken(staffClaims, { expiresIn: -60 }), 401],
+            [
+                'a staff token signed with the service key',
+                'read',
+                '123',
+                mintStaffToken(staffClaims, { secret: JWT_SECRET }),
+                401,
+            ],
+            [
+                'a delete token signed with the staff key',
+                'delete',
+                '123',
+                mintToken({ team_id: 123, op: 'delete' }, STAFF_SECRET),
+                401,
+            ],
+        ] as const)('handles %s', (_, op, teamId, token, expected) => {
+            const { res, next } = run({ op, staffJwtSecret: STAFF_SECRET }, mockRequest(teamId, bearer(token)))
+            if (expected === 'allowed') {
+                expect(next).toHaveBeenCalled()
+                expect(res.status).not.toHaveBeenCalled()
+            } else {
+                expect(next).not.toHaveBeenCalled()
+                expect(res.status).toHaveBeenCalledWith(expected)
+            }
+        })
+
+        it('refuses staff tokens when no staff key is configured', () => {
+            const { res, next } = run({ op: 'read' }, mockRequest('123', bearer(mintStaffToken())))
+            expect(next).not.toHaveBeenCalled()
+            expect(res.status).toHaveBeenCalledWith(401)
+        })
+
+        it('audience enum value matches the Python minter', () => {
+            expect(PosthogJwtAudience.RECORDING_API_STAFF).toBe('posthog:recording_api:staff')
+        })
+    })
 })
 
 describe('deployed signing keys', () => {
@@ -197,6 +270,13 @@ describe('deployed signing keys', () => {
         ['public', { blocksJwtSecret: 'dev-recording-api-blocks-jwt-secret' }, /dev RECORDING_API_BLOCKS_JWT_SECRET/],
         ['all', { blocksJwtSecret: 'new,dev-recording-api-blocks-jwt-secret' }, /dev RECORDING_API_BLOCKS_JWT_SECRET/],
         ['internal', { jwtSecret: 'dev-recording-api-jwt-secret' }, /dev RECORDING_API_JWT_SECRET/],
+        ['internal', { staffJwtSecret: 'dev-recording-api-staff-jwt-secret' }, /dev RECORDING_API_STAFF_JWT_SECRET/],
+        ['internal', { staffJwtSecret: 's'.repeat(31) }, /STAFF_JWT_SECRET keys must be at least 32 bytes/],
+        [
+            'internal',
+            { jwtSecret: 'k'.repeat(32), staffJwtSecret: `${'s'.repeat(32)},${'k'.repeat(32)}` },
+            /must not share a key/,
+        ],
         ['public', { blocksJwtSecret: 'x'.repeat(31) }, /at least 32 bytes/],
         ['all', { blocksJwtSecret: `${'x'.repeat(32)},short` }, /at least 32 bytes/],
     ] as const)('refuses a deployed %s process holding a dev or short key', (role, secrets, error) => {
