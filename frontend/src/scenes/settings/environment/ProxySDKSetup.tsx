@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react'
 
 import { LemonButton, LemonModal, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { OnboardingDocsContentWrapper } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
@@ -11,6 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { SDKKey } from '~/types'
 
+import { QuillSDKSetupInstructions } from './QuillSDKSetupInstructions'
 import { buildSDKSelectOptions, filterRequiredSteps, SDK_CONFIGS } from './SDKSetupInstructions'
 
 const PROXY_SDK_OPTIONS = buildSDKSelectOptions(['web', 'mobile'])
@@ -21,7 +23,31 @@ export function ProxySDKSetup(): JSX.Element {
     const [showFullSetup, setShowFullSetup] = useState(false)
     const { reportSDKSetupInstructionsSDKSelected } = useActions(eventUsageLogic)
 
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
     const config = useMemo(() => SDK_CONFIGS[selectedSDK], [selectedSDK])
+
+    const handleSelectSDK = (value: SDKKey): void => {
+        setSelectedSDK(value)
+        setShowFullSetup(false)
+        reportSDKSetupInstructionsSDKSelected(value, 'settings_reverse_proxy_setup')
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillSDKSetupInstructions
+                loading={currentTeamLoading && !currentTeam}
+                config={config}
+                options={PROXY_SDK_OPTIONS}
+                selectedSDK={selectedSDK}
+                onSelectSDK={handleSelectSDK}
+                showFullSetup={showFullSetup}
+                setShowFullSetup={setShowFullSetup}
+                useReverseProxy
+                filterRequiredSteps={filterRequiredSteps}
+            />
+        )
+    }
 
     if (currentTeamLoading && !currentTeam) {
         return (
@@ -42,11 +68,7 @@ export function ProxySDKSetup(): JSX.Element {
         <div className="space-y-4 max-w-200">
             <LemonSelect
                 value={selectedSDK}
-                onChange={(value) => {
-                    setSelectedSDK(value)
-                    setShowFullSetup(false)
-                    reportSDKSetupInstructionsSDKSelected(value, 'settings_reverse_proxy_setup')
-                }}
+                onChange={handleSelectSDK}
                 options={PROXY_SDK_OPTIONS}
                 className="max-w-80"
             />

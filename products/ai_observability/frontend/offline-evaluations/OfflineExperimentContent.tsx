@@ -155,6 +155,14 @@ export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JS
                                         </dd>
                                     </>
                                 )}
+                                {experiment.updated_at && (
+                                    <>
+                                        <dt>Last edited</dt>
+                                        <dd className="m-0">
+                                            <TZLabel time={experiment.updated_at} />
+                                        </dd>
+                                    </>
+                                )}
                             </dl>
                         </details>
                     </>

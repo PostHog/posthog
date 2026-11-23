@@ -5,9 +5,22 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from structlog.testing import capture_logs
-from trino.exceptions import HttpError, TrinoQueryError, TrinoUserError
+from trino.exceptions import (
+    Http502Error,
+    Http503Error,
+    Http504Error,
+    HttpError,
+    TrinoConnectionError,
+    TrinoQueryError,
+    TrinoUserError,
+)
 
 from products.managed_warehouse.backend import trino_execution as execution
+
+INSTANCE_REPLACED_MESSAGE = (
+    "Query killed by user 'ops'. Message: this query was cancelled because the Trino instance "
+    "running it was being replaced; please run it again"
+)
 
 
 @pytest.mark.asyncio
@@ -119,6 +132,10 @@ async def test_reports_cpu_time() -> None:
         (TrinoQueryError({"errorName": "TOO_MANY_REQUESTS_FAILED", "message": "Query killed"}), 2),
         (TrinoQueryError({"errorName": "PAGE_TRANSPORT_TIMEOUT", "message": "Query killed"}), 2),
         (HttpError("error 403: b'This tenant is not admitted to the pool yet; the request was not dispatched'"), 2),
+        (Http502Error("error 502: bad gateway"), 2),
+        (Http503Error("error 503: service unavailable"), 2),
+        (Http504Error("error 504: gateway timeout"), 2),
+        (TrinoConnectionError("failed to fetch: connection reset"), 2),
         (HttpError("error 403: b'Forbidden'"), 1),
         (
             TrinoUserError(
@@ -130,6 +147,16 @@ async def test_reports_cpu_time() -> None:
             1,
         ),
         (TrinoQueryError({"errorName": "EXCEEDED_LOCAL_MEMORY_LIMIT", "message": "Query killed"}), 1),
+        (TrinoUserError({"errorName": "ADMINISTRATIVELY_KILLED", "message": INSTANCE_REPLACED_MESSAGE}), 2),
+        (
+            TrinoUserError(
+                {
+                    "errorName": "ADMINISTRATIVELY_KILLED",
+                    "message": "Query killed by user 'ops'. Message: runaway query",
+                }
+            ),
+            1,
+        ),
     ],
 )
 async def test_retries_only_transient_trino_errors(error: Exception, expected_attempts: int) -> None:
@@ -174,3 +201,45 @@ async def test_deadline_after_a_retry_reports_the_whole_budget() -> None:
 
     with pytest.raises(TimeoutError, match=r"exceeded its 0\.01-minute deadline after 2 attempts"):
         await execution.run_trino_model_with_retries(execute, query_seconds=0.6, retry_delays=(0,))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "retry_delays,query_seconds,expected_attempts,expected_message",
+    [
+        (
+            (0, 0),
+            60,
+            3,
+            "Trino restarted while it was building this model, and all 3 attempts failed. "
+            "The model's query did not cause this. The model builds again on its next scheduled run, "
+            "or you can run it now. Trino query ID: 20261119_000000_00003_abcde",
+        ),
+        (
+            (3600,),
+            60,
+            1,
+            "Trino restarted while it was building this model, and there was not enough time left to try again. "
+            "The model's query did not cause this. The model builds again on its next scheduled run, "
+            "or you can run it now. Trino query ID: 20261119_000000_00001_abcde",
+        ),
+    ],
+)
+async def test_reports_a_trino_restart_once_the_retries_run_out(
+    retry_delays: tuple[float, ...], query_seconds: float, expected_attempts: int, expected_message: str
+) -> None:
+    attempts = 0
+
+    def execute(control: execution.TrinoQueryControl) -> int:
+        nonlocal attempts
+        attempts += 1
+        raise TrinoUserError(
+            {"errorName": "ADMINISTRATIVELY_KILLED", "errorType": "USER_ERROR", "message": INSTANCE_REPLACED_MESSAGE},
+            f"20261119_000000_0000{attempts}_abcde",
+        )
+
+    with pytest.raises(execution.TrinoInstanceReplacedError) as raised:
+        await execution.run_trino_model_with_retries(execute, query_seconds=query_seconds, retry_delays=retry_delays)
+
+    assert attempts == expected_attempts
+    assert str(raised.value) == expected_message

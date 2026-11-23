@@ -2,6 +2,8 @@ from typing import Optional, cast
 
 from products.warehouse_sources.sources.aws_cost_explorer._config import AwsCostExplorerSourceConfig
 from products.warehouse_sources.sources.aws_cost_explorer.aws_cost_explorer import (
+    DISCOUNT_PERMISSION_ERROR_MESSAGE,
+    DISCOUNT_PERMISSION_ERROR_RESOLUTION,
     THROTTLING_ERROR_CODES,
     VALIDATION_ERROR_MESSAGES,
     AwsCostExplorerResumeConfig,
@@ -72,6 +74,9 @@ class AwsCostExplorerSource(ResumableSource[AwsCostExplorerSourceConfig, AwsCost
                 f"AWS Cost Explorer request failed: {code}": message
                 for code, message in VALIDATION_ERROR_MESSAGES.items()
             },
+            f"AWS Cost Explorer request failed: ValidationException - {DISCOUNT_PERMISSION_ERROR_MESSAGE}": (
+                DISCOUNT_PERMISSION_ERROR_RESOLUTION
+            ),
         }
 
     def get_retryable_errors(self) -> set[str]:

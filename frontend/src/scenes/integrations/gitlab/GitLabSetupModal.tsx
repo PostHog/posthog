@@ -5,13 +5,26 @@ import { IconGitLab } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { GitLabSetupModalLogicProps, gitlabSetupModalLogic } from './gitlabSetupModalLogic'
+import { QuillGitLabSetupModal } from './QuillGitLabSetupModal'
 
 export const GitLabSetupModal = (props: GitLabSetupModalLogicProps): JSX.Element => {
     const logic = gitlabSetupModalLogic(props)
     const { isGitlabIntegrationSubmitting } = useValues(logic)
     const { submitGitlabIntegration } = useActions(logic)
+    const quillSurface = useQuillSurface()
+
+    if (quillSurface) {
+        return (
+            <QuillGitLabSetupModal
+                logicProps={props}
+                submitting={isGitlabIntegrationSubmitting}
+                onSubmit={submitGitlabIntegration}
+            />
+        )
+    }
 
     return (
         <LemonModal
