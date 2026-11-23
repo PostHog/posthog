@@ -186,8 +186,9 @@ class MailchimpImportProvider(ImportProvider):
             key="groups",
             label="Groups",
             description=(
-                "Creates a marketing message category for each group contacts can choose, and opts subscribed contacts "
-                "out of the groups they didn't choose."
+                "Creates a marketing message category for each group contacts can choose, and opts out subscribed "
+                "contacts who didn't choose it and contacts who left the audience. A contact has left if they "
+                "unsubscribed, never subscribed or were archived."
             ),
             count_labels=(
                 ("created", "New categories"),

@@ -131,7 +131,7 @@ Follow the same steps, with these differences.
 | ------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------ |
 | Audiences                                               | A category each, and opt-outs for who left                    | Builds the audience from its own data            |
 | Unsubscribed, pending, transactional, archived contacts | Opted out of that audience's category and its groups          | Nothing                                          |
-| Groups contacts can choose                              | A category each, with opt-outs for who didn't choose it       | Puts the matching templates in that category     |
+| Groups contacts can choose                              | A category each, opt-outs for who didn't choose it or left    | Puts the matching templates in that category     |
 | Cleaned contacts                                        | Suppression list, blocks all email                            | Reads the summary                                |
 | Abuse reports                                           | Suppression list, blocks marketing email only                 | Knows these people still get transactional email |
 | Saved templates                                         | Library templates in Liquid, when Mailchimp shares their HTML | Exports the rest as HTML from Mailchimp          |
