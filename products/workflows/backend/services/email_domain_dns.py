@@ -33,7 +33,7 @@ MAX_PARALLEL_LOOKUPS = 8
 ABSENT_ERRORS = (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer)
 _DMARC_VERSION = re.compile(r"[vV][ \t]*=[ \t]*DMARC1[ \t]*(;|\Z)")
 _DMARC_REQUEST = r"none|quarantine|reject"
-_DMARC_TEXT = re.compile(r"(?:[\t\x20-\x7e]|\r?\n(?=[ \t]))*")
+_DMARC_TEXT = re.compile(r"[\t\x20-\x7e]*")
 _DMARC_TAG_NAME = re.compile(r"[a-z][a-z0-9_]*", re.IGNORECASE)
 _DMARC_SHOWN_TAGS = {
     name: re.compile(pattern, re.IGNORECASE)
@@ -219,7 +219,7 @@ def _dmarc_policies(answers: list[str]) -> tuple[str, ...]:
 
 
 def _policy_in_force(policy: str) -> str | None:
-    specs = [spec.strip(" \t\r\n") for spec in policy.split(";")[1:]]
+    specs = [spec.strip(" \t") for spec in policy.split(";")[1:]]
     if specs and not specs[-1]:
         specs.pop()
     fields = [spec.partition("=") for spec in specs]
@@ -227,7 +227,7 @@ def _policy_in_force(policy: str) -> str | None:
     names = ["v", *(name for name, _ in tags)]
     if (
         not _DMARC_TEXT.fullmatch(policy)
-        or any("\r" in spec or "\n" in spec or not separator for spec, (_, separator, _) in zip(specs, fields))
+        or not all(separator for _, separator, _ in fields)
         or not all(_DMARC_TAG_NAME.fullmatch(name) for name, _ in tags)
         or len(names) != len(set(names))
     ):

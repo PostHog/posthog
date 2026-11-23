@@ -613,7 +613,6 @@ class TestEmailDomainDnsLookups(EmailDomainApiTestCase):
         [
             ("spaced_tags", [" V = DMARC1 ; p = reject "]),
             ("lowercase_copy_receivers_ignore", ["v=dmarc1; p=none", "v=DMARC1; p=reject"]),
-            ("line_folded_between_tags", ["v=DMARC1; p=reject;\\010  rua=mailto:reports@example.net"]),
         ]
     )
     def test_dmarc_record_receivers_apply_counts(self, _name: str, dmarc: list[str]) -> None:
@@ -684,6 +683,24 @@ class TestEmailDomainDnsLookups(EmailDomainApiTestCase):
         ]
         assert self.is_verified(sender)
 
+    def test_subdomain_policy_wins_over_the_organizational_policy(self) -> None:
+        self.world.dns.publish_txt(f"_dmarc.{ROOT_DOMAIN}", "v=DMARC1; p=reject")
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.publish(self.records_to_publish(sender), *ALL_KINDS[:-1])
+        self.world.dns.publish_txt(f"_dmarc.{DOMAIN}", "v=DMARC1; p=quarantine")
+
+        body = self.status_body(sender)
+        response = self.verify(sender)
+
+        assert [(r["hostname"], r["value"], r["status"]) for r in body["records"] if r["kind"] == "dmarc"] == [
+            (f"_dmarc.{DOMAIN}", "v=DMARC1; p=quarantine", "verified")
+        ]
+        assert [
+            (r["recordHostname"], r["recordValue"], r["status"])
+            for r in response.json()["dnsRecords"]
+            if r["type"] == "dmarc"
+        ] == [(f"_dmarc.{DOMAIN}", "v=DMARC1; p=quarantine", "success")]
+
     def test_subdomain_under_a_private_suffix_does_not_inherit_the_suffix_operators_dmarc_record(self) -> None:
         self.world.dns.add_zone("eu.org")
         self.world.dns.add_zone("name.eu.org")
@@ -714,8 +731,7 @@ class TestEmailDomainDnsLookups(EmailDomainApiTestCase):
             ("report_only_record", [], ["v=DMARC1; rua=mailto:reports@example.net"]),
             ("invalid_policy_with_a_report_address", [], ["v=DMARC1; p=block; rua=mailto:reports@example.net"]),
             ("version_tag_split_by_a_line_feed", [], ["V\\010= DMARC1; p=reject"]),
-            ("policy_value_split_by_a_line_feed", [], ["v = DMARC1; p=\\010reject"]),
-            ("blank_line_before_the_policy", [], ["V = DMARC1;\\010\\010p=reject"]),
+            ("line_break_between_tags", [], ["v=DMARC1; p=reject;\\010  rua=mailto:reports@example.net"]),
             ("subdomain_record_without_a_policy", ["v=DMARC1"], ["v=DMARC1; p=reject"]),
             ("policy_wrapped_in_literal_quotes", [], ['\\"v=DMARC1; p=reject\\"']),
             ("two_policies_at_the_subdomain", ["v=DMARC1; p=none", "v=DMARC1; p=quarantine"], ["v=DMARC1; p=reject"]),
@@ -866,13 +882,16 @@ class TestEmailDomainStatusChaos(EmailDomainApiTestCase):
         )
         assert list(Integration.objects.filter(kind="email").values("id", "config")) == senders_before
 
-    @parameterized.expand([(DnsFault.TIMEOUT,), (DnsFault.SERVFAIL,)])
-    def test_unanswered_organizational_dmarc_lookup_holds_verification_until_it_answers(self, fault: DnsFault) -> None:
+    @parameterized.expand(product([f"_dmarc.{DOMAIN}", f"_dmarc.{ROOT_DOMAIN}"], [DnsFault.TIMEOUT, DnsFault.SERVFAIL]))
+    def test_unanswered_dmarc_lookup_holds_verification_until_it_answers(
+        self, unanswered: str, fault: DnsFault
+    ) -> None:
         self.world.dns.unpublish(f"_dmarc.{DOMAIN}", "TXT")
         self.world.dns.publish_txt(f"_dmarc.{ROOT_DOMAIN}", "v=DMARC1; p=reject")
-        self.world.faults.inject(dns_operation(f"_dmarc.{ROOT_DOMAIN}", "TXT"), fault)
+        self.world.faults.inject(dns_operation(unanswered, "TXT"), fault)
 
-        assert self.status_body(self.sender, refresh=False)["status"] in ("pending", "records_found")
+        body = self.status_body(self.sender, refresh=False)
+        assert (body["status"] in ("pending", "records_found"), record_statuses(body)["dmarc"]) == (True, ["pending"])
 
         self.world.faults.clear()
         assert self.status_body(self.sender, refresh=False)["status"] == "verified"
