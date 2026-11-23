@@ -2,6 +2,7 @@ import hmac
 import json
 import time
 import hashlib
+import ipaddress
 from collections.abc import Callable
 from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
@@ -1498,6 +1499,9 @@ def test_aws_warehouse_sources_integration_needs_our_role(mock_validate, client:
     mock_validate.assert_not_called()
 
 
+S3_COMPATIBLE_ENDPOINT_IPS = {ipaddress.ip_address("93.184.216.34")}
+
+
 class TestS3CompatibleIntegration:
     @pytest.fixture(autouse=True)
     def setup_integration(self, db):
@@ -1507,7 +1511,8 @@ class TestS3CompatibleIntegration:
             self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
         )
 
-    def test_create_with_valid_config(self, client: HttpClient):
+    @patch("posthog.security.url_validation.resolve_host_ips", return_value=S3_COMPATIBLE_ENDPOINT_IPS)
+    def test_create_with_valid_config(self, _mock_resolve, client: HttpClient):
         client.force_login(self.user)
 
         response = client.post(
@@ -1537,7 +1542,8 @@ class TestS3CompatibleIntegration:
         assert "aws_access_key_id" not in response_body
         assert "aws_secret_access_key" not in response_body
 
-    def test_create_rejects_duplicate_name(self, client: HttpClient):
+    @patch("posthog.security.url_validation.resolve_host_ips", return_value=S3_COMPATIBLE_ENDPOINT_IPS)
+    def test_create_rejects_duplicate_name(self, _mock_resolve, client: HttpClient):
         client.force_login(self.user)
         payload = {
             "kind": "s3-compatible",
