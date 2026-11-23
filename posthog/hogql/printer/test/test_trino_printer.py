@@ -559,16 +559,33 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("toLastDayOfMonth(created_at) - 1", "date_add('day', CAST(-(1) AS BIGINT), last_day_of_month("),
         ("toMonday(created_at) + 7", "date_add('day', CAST(7 AS BIGINT), CAST(date_trunc('week'"),
         ("now('UTC')", "SELECT at_timezone(now(), "),
-        ("toDateTime64(id, 3, 'UTC')", 'SELECT at_timezone(from_unixtime(CAST("users"."id" AS DOUBLE)), '),
-        ("toDateTime64(id, 6)", 'CAST(from_unixtime(CAST("users"."id" AS DOUBLE)) AS TIMESTAMP(6))'),
-        ("anyHeavy(id)", 'element_at(map_keys(approx_most_frequent(1, CAST("users"."id" AS BIGINT), 1000)), 1)'),
         (
-            "anyHeavyIf(user_id, id > 1)",
-            'element_at(map_keys(approx_most_frequent(1, "users"."user_id", 1000) FILTER (WHERE ("users"."id" > 1))), 1)',
+            "toDateTime64(id, 3, 'UTC')",
+            'SELECT CAST(at_timezone(from_unixtime_nanos(CAST(CAST("users"."id" AS DECIMAL(38, 9)) * 1000000000 AS BIGINT)), ',
         ),
         (
-            "multiMatchAnyIndex(user_id, ['a', 'b'])",
-            '__hogql_pattern -> regexp_like("users"."user_id", __hogql_pattern)), TRUE)',
+            "toDateTime64(id, 6)",
+            'CAST(from_unixtime_nanos(CAST(CAST("users"."id" AS DECIMAL(38, 9)) * 1000000000 AS BIGINT)) AS TIMESTAMP(6))',
+        ),
+        (
+            "anyHeavy(id)",
+            'coalesce(element_at(map_keys(approx_most_frequent(1, CAST("users"."id" AS BIGINT), 10)), 1), BIGINT \'0\')',
+        ),
+        (
+            "anyHeavyIf(user_id, id > 1)",
+            'coalesce(element_at(map_keys(approx_most_frequent(1, "users"."user_id", 10) FILTER (WHERE ("users"."id" > 1))), 1), \'\')',
+        ),
+        (
+            "anyHeavy(toNullable(user_id))",
+            'SELECT element_at(map_keys(approx_most_frequent(1, "users"."user_id", 10)), 1) FROM',
+        ),
+        (
+            "multiMatchAnyIndex(max(user_id), ['a', 'b'])",
+            'SELECT CASE WHEN max("users"."user_id") IS NULL THEN NULL WHEN regexp_like(max("users"."user_id"), ',
+        ),
+        (
+            "multiMatchAnyIndex(user_id, [user_id])",
+            'element_at(transform(ARRAY[ROW("users"."user_id", ARRAY["users"."user_id"])], __hogql_match -> IF(__hogql_match[1] IS NULL, NULL, array_position(',
         ),
         (
             "JSONExtract(properties, user_id, 'Nullable(Float64)')",

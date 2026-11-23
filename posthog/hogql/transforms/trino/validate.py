@@ -79,6 +79,7 @@ _SPECIAL_CALLS = frozenset(
         "topk",
         "anyheavy",
         "anyheavyif",
+        "multimatchanyindex",
         "arraymax",
         "arrayenumerate",
         "arrayall",

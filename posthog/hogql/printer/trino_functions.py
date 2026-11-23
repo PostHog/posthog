@@ -1592,11 +1592,6 @@ def _now(args: list[str]) -> str:
     return f"at_timezone(now(), {args[0]})" if args else "now()"
 
 
-def _multi_match_any_index(args: list[str]) -> str:
-    _require_args("multiMatchAnyIndex", args, 2)
-    return f"array_position(transform({args[1]}, __hogql_pattern -> regexp_like({args[0]}, __hogql_pattern)), TRUE)"
-
-
 def _domain_without_www(args: list[str]) -> str:
     _require_args("domainWithoutWWW", args, 1)
     return f"regexp_replace(coalesce(url_extract_host({args[0]}), ''), '^www\\.', '')"
@@ -2000,7 +1995,6 @@ TRINO_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "bitCount": _bit_count,
     "bitHammingDistance": _bit_hamming_distance,
     "now": _now,
-    "multiMatchAnyIndex": _multi_match_any_index,
     "bitShiftLeft": _bit_shift("bitShiftLeft", "bitwise_left_shift"),
     "bitShiftRight": _bit_shift("bitShiftRight", "bitwise_right_shift_arithmetic"),
     "domain": _url_string("domain", "url_extract_host"),
