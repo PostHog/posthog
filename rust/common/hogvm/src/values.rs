@@ -391,7 +391,6 @@ impl HogLiteral {
         };
         match (self, rhs) {
             (HogLiteral::String(a), HogLiteral::String(b)) if a.len() == b.len() => a.len(),
-            // Coercion parses the text or makes a lowercase copy of it.
             (HogLiteral::String(text), HogLiteral::Number(_) | HogLiteral::Boolean(_))
             | (HogLiteral::Number(_) | HogLiteral::Boolean(_), HogLiteral::String(text)) => {
                 text.len()
@@ -428,11 +427,8 @@ impl HogLiteral {
         }
     }
 
-    // What the heap limit charges for the literal, in bytes. It is not the allocated size:
-    // - a shared string costs one pointer whatever its length, because every copy points at one allocation;
-    // - a null, a boolean, a number and a container cost 8 bytes, where a value slot takes 32;
-    // - a container adds the charge of each value it holds, and a value on the heap costs its reference;
-    // - a callable costs a fixed size, without the length of its name.
+    // What the heap limit charges for the literal, in bytes, which is not the allocated size. A shared string costs one pointer whatever its length. A null, a boolean, a number and a container cost 8 bytes, where a value slot takes 32.
+    // A container adds the charge of each value it holds, and a value on the heap costs its reference. A callable costs a fixed size, without the length of its name.
     pub fn size(&self) -> usize {
         match self {
             // A shared string is one allocation that every copy points at, so a copy costs a pointer.

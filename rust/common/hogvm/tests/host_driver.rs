@@ -232,7 +232,6 @@ fn the_public_printer_refuses_a_value_that_repeats_past_the_heap_limit() {
         printed.map(|text| text.len())
     );
 
-    // Without `with_raw_result` the result goes through `hog_to_json`, which has the same limit.
     let as_json = hogvm::sync_execute(&ExecutionContext::with_defaults(doubled), false);
     let error = as_json.unwrap_err().error;
     assert!(
