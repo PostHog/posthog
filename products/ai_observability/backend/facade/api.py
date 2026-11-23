@@ -1151,13 +1151,12 @@ def plan_eval_suggestions() -> contracts.EvalSuggestionsPlan:
     )
 
 
-def start_eval_suggestions_run(team_id: int, trigger: str, batch_id: str, run_id: str) -> bool:
-    """False when the team was deleted after its run was queued."""
+def start_eval_suggestions_run(team_id: int, trigger: str, batch_id: str, run_id: str) -> str | None:
+    """None when the team was deleted after its run was queued."""
     team = Team.objects.filter(id=team_id).first()
     if team is None:
-        return False
-    eval_suggestion_runs.create_run(team, trigger, batch_id, run_id=run_id)
-    return True
+        return None
+    return str(eval_suggestion_runs.create_run(team, trigger, batch_id, run_id=run_id).id)
 
 
 def fail_eval_suggestions_run(team_id: int, run_id: str, error: str) -> None:

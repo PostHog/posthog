@@ -109,7 +109,7 @@ def test_totals_are_partial_when_the_read_reached_the_event_cap(_name: str, cap:
 
 @pytest.mark.django_db
 def test_starting_a_run_for_a_deleted_team_does_not_start_it() -> None:
-    assert api.start_eval_suggestions_run(999_999_999, "scheduled", "batch", "run") is False
+    assert api.start_eval_suggestions_run(999_999_999, "scheduled", "batch", "run") is None
 
 
 def test_missing_trace_raises_not_found() -> None:
