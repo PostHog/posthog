@@ -112,6 +112,8 @@ def defer_libraries() -> None:
             continue
         module = DeferredModule(name)
         module.__spec__ = spec
+        # inspect.getmodule probes every module in sys.modules for __file__, which would load the library.
+        module.__file__ = spec.origin
         sys.modules[name] = module
 
 
@@ -145,9 +147,13 @@ def open_stream_sockets() -> set[str]:
             continue
         if not target.startswith("socket:"):
             continue
-        with socket.socket(fileno=os.dup(int(fd))) as sock:
-            if sock.type == socket.SOCK_STREAM:
-                sockets.add(target)
+        try:
+            with socket.socket(fileno=os.dup(int(fd))) as sock:
+                if sock.type == socket.SOCK_STREAM:
+                    sockets.add(target)
+        except OSError:
+            # A socket that cannot be inspected is not known to be safe to share.
+            sockets.add(target)
     return sockets
 
 
@@ -164,6 +170,9 @@ def why_not_safe_to_fork(sockets_before_import: set[str]) -> str | None:
 def run_again_without_preload(reason: str) -> None:
     sys.stderr.write(f"granian_preload: {reason}, so each worker imports the app itself\n")
     os.environ[NOT_SAFE_TO_FORK] = reason
+    # Output that the app import buffered would be lost when the process image is replaced.
+    sys.stdout.flush()
+    sys.stderr.flush()
     # A new process, because this one already holds the app that the workers would not use.
     os.execv(sys.executable, [sys.executable, os.path.abspath(__file__), *sys.argv[1:]])
 

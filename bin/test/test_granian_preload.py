@@ -87,10 +87,11 @@ def body():
 
 @unittest.skipUnless(sys.platform == "linux", "hobby runs granian on Linux")
 class TestGranianPreload(unittest.TestCase):
-    def serve(self, interface: str, shared_socket: str, app: str) -> tuple[dict[int, int], int, int, str]:
+    def serve(self, interface: str, shared_socket: str, app: str) -> tuple[dict[int, int], int, int, str, set[str]]:
         """
         Start the launcher, ask until both workers answered, and return which process imported
-        the app that each worker runs, the launcher pid, the listen socket count and stderr.
+        the app that each worker runs, the launcher pid, the listen socket count, stderr and
+        any further words that the app put in its answers.
         """
         with TemporaryDirectory() as tmp:
             Path(tmp, "app.py").write_text(app)
@@ -117,6 +118,7 @@ class TestGranianPreload(unittest.TestCase):
             try:
                 deadline = time.monotonic() + 60
                 importer_by_worker: dict[int, int] = {}
+                extra_words: set[str] = set()
                 # A worker opens its own listen socket when it starts, so count the sockets only
                 # after both workers have answered.
                 while len(importer_by_worker) < 2:
@@ -126,8 +128,9 @@ class TestGranianPreload(unittest.TestCase):
                         time.sleep(0.2)
                         continue
                     imported_by, served_by = (int(pid) for pid in body.split()[:2])
+                    extra_words.update(body.split()[2:])
                     importer_by_worker[served_by] = imported_by
-                return importer_by_worker, server.pid, count_listen_sockets(port), stderr_path.read_text()
+                return importer_by_worker, server.pid, count_listen_sockets(port), stderr_path.read_text(), extra_words
             finally:
                 server.terminate()
                 try:
@@ -147,7 +150,7 @@ class TestGranianPreload(unittest.TestCase):
     def test_workers_share_the_parent_import_under_asgi_and_one_socket_on_request(
         self, interface: str, shared_socket: str, preloaded: bool, listen_sockets: int
     ) -> None:
-        importer_by_worker, server_pid, sockets, _ = self.serve(interface, shared_socket, APP)
+        importer_by_worker, server_pid, sockets, _, _ = self.serve(interface, shared_socket, APP)
 
         self.assertNotIn(server_pid, importer_by_worker)
         self.assertEqual([imported_by == server_pid for imported_by in importer_by_worker.values()], [preloaded] * 2)
@@ -164,10 +167,12 @@ class TestGranianPreload(unittest.TestCase):
     def test_workers_fork_from_the_parent_only_when_the_import_leaves_it_safe_to_fork(
         self, _name: str, import_side_effect: str, preloaded: bool
     ) -> None:
-        importer_by_worker, server_pid, _, stderr = self.serve("asgi", "false", APP + import_side_effect)
+        importer_by_worker, server_pid, _, stderr, extra_words = self.serve("asgi", "false", APP + import_side_effect)
 
         self.assertEqual([imported_by == server_pid for imported_by in importer_by_worker.values()], [preloaded] * 2)
         self.assertEqual("so each worker imports the app itself" in stderr, not preloaded)
+        if import_side_effect == THREAD_STARTING_LIBRARY_IMPORTED:
+            self.assertEqual(extra_words, {"2"})
 
 
 if __name__ == "__main__":
