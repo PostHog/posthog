@@ -1244,20 +1244,23 @@ def get_or_set_session_cookie_created_at(request: HttpRequest) -> float:
 
 
 SESSION_EXPIRED_MESSAGE = "Your session has expired. Please log in again."
-# Login and OAuth endpoints can carry one-time tokens in their query string, which must not be copied into
-# the `/login` page URL, where analytics would record them. Returning to them after logging in is wrong anyway.
-_NO_RETURN_PATH_PREFIXES = ("/api/", "/login", "/agentic/login", "/complete/", "/connect/", "/logout")
-# An OAuth callback can live on any path, so the one-time credential in its query string identifies it.
+# An app page that receives an OAuth callback holds a one-time credential in its query string.
 _NO_RETURN_QUERY_PARAMS = frozenset({"code", "token"})
+
+
+def _is_authenticated_app_page(request: HttpRequest) -> bool:
+    # `next` ends up in the `/login` page URL, which analytics record. Every route other than the app's
+    # authenticated catch-all is an API, a backend endpoint, or a public page such as a reset or share link.
+    # Those can hold a token in their path or query, and none of them sends a signed-out visitor to log in.
+    return request.method == "GET" and resolve(request.path_info).func.__name__ == "home_with_region_redirect"
 
 
 def session_expired_login_url(request: HttpRequest) -> str:
     params = {"message": SESSION_EXPIRED_MESSAGE}
     next_url = request.get_full_path()
     # The session is already destroyed, so `next` is the only record of the page the person opened.
-    # An API call or a form post is not a page to return to, and login lands on `/` without a `next`.
-    is_page_load = request.method == "GET" and not request.path.startswith(_NO_RETURN_PATH_PREFIXES)
-    if is_page_load and next_url != "/" and _NO_RETURN_QUERY_PARAMS.isdisjoint(request.GET):
+    # Login lands on `/` without a `next`.
+    if _is_authenticated_app_page(request) and next_url != "/" and _NO_RETURN_QUERY_PARAMS.isdisjoint(request.GET):
         params["next"] = next_url
     return settings.LOGIN_URL + "?" + urlencode(params, safe="/", quote_via=quote)
 

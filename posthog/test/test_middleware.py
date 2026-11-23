@@ -2465,8 +2465,9 @@ class TestSessionAgeMiddleware(APIBaseTest):
             ),
             ("api_call", "get", "/api/users/@me/", ""),
             ("login_token_link", "get", "/agentic/login?token=one-time-token&team_id=2", ""),
-            ("oauth_callback", "get", "/toolbar_oauth/callback?code=one-time-code&state=signed-state", ""),
-            ("form_post", "post", "/logout", ""),
+            ("public_token_link", "get", "/reset/user-uuid/one-time-token", ""),
+            ("app_oauth_callback", "get", "/integrations/slack/callback?code=one-time-code&state=signed-state", ""),
+            ("form_post", "post", "/project/2/dashboard/5", ""),
         ]
     )
     @time_machine.travel("2024-01-01 12:00:00", tick=False)
