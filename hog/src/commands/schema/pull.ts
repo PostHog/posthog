@@ -228,11 +228,8 @@ async function moduleSdk(
     if (saved?.sdk !== undefined) {
         return effectiveSdk(language, saved.sdk)
     }
-    if (!sdks.recordsDefault) {
-        return undefined
-    }
     if (saved || !ctx.prompts || !sdks.prompt) {
-        return sdks.choices[0]
+        return sdks.recordsDefault ? sdks.choices[0] : undefined
     }
     return ctx.prompts.select(sdks.prompt.message, sdks.prompt.options)
 }

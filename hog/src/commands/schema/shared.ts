@@ -114,6 +114,13 @@ export const LANGUAGE_SDKS: Partial<Record<Language, LanguageSdks>> = {
         info: {
             'posthog-go-v2': { ...LANGUAGE_INFO.golang, nextSteps: (file) => goNextSteps(file, 'posthog-go-v2') },
         },
+        prompt: {
+            message: 'Which posthog-go version does this app use?',
+            options: [
+                { value: 'posthog-go-v2', label: 'posthog-go 2.x: imports github.com/posthog/posthog-go/v2' },
+                { value: 'posthog-go', label: 'posthog-go 1.x: imports github.com/posthog/posthog-go' },
+            ],
+        },
     },
 }
 

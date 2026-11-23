@@ -114,21 +114,34 @@ describe('hog schema', () => {
     })
 
     test.each([
-        ['no --sdk and nothing saved', [], undefined, '', undefined],
-        ['--sdk posthog-go', ['--sdk', 'posthog-go'], undefined, '', 'posthog-go'],
-        ['--sdk posthog-go-v2', ['--sdk', 'posthog-go-v2'], undefined, '?sdk=posthog-go-v2', 'posthog-go-v2'],
-        ['a saved posthog-go-v2 entry', [], 'posthog-go-v2', '?sdk=posthog-go-v2', 'posthog-go-v2'],
+        ['no --sdk and nothing saved', [], undefined, '', undefined, []],
+        ['--sdk posthog-go', ['--sdk', 'posthog-go'], undefined, '', 'posthog-go', []],
+        ['--sdk posthog-go-v2', ['--sdk', 'posthog-go-v2'], undefined, '?sdk=posthog-go-v2', 'posthog-go-v2', []],
+        ['a saved posthog-go-v2 entry', [], 'posthog-go-v2', '?sdk=posthog-go-v2', 'posthog-go-v2', []],
         [
             '--sdk posthog-go over a saved posthog-go-v2 entry',
             ['--sdk', 'posthog-go'],
             'posthog-go-v2',
             '',
             'posthog-go',
+            [],
         ],
-    ])('pull for Go with %s asks PostHog for the right module', async (_name, flags, saved, query, stored) => {
+        [
+            'a person who picks posthog-go-v2',
+            [],
+            undefined,
+            '?sdk=posthog-go-v2',
+            'posthog-go-v2',
+            ['posthog-go-v2', ''],
+        ],
+        ['a person who picks posthog-go', [], undefined, '', 'posthog-go', ['posthog-go', '']],
+    ])('pull for Go with %s asks PostHog for the right module', async (_name, flags, saved, query, stored, answers) => {
         const config = { languages: { golang: { output_path: 'typed.go', schema_hash: 'hash-old', sdk: saved } } }
+        const person = answers.length > 0
         const result = await runHog(['schema', 'pull', '--language', 'golang', ...flags], {
-            env: AGENT,
+            env: person ? TEST_CREDENTIALS : AGENT,
+            stdoutIsTTY: person,
+            answers,
             files: saved ? { '/work/posthog.json': JSON.stringify(config), '/work/typed.go': 'old' } : {},
             respond: goDefinitions,
         })
@@ -141,6 +154,21 @@ describe('hog schema', () => {
         expect(result.files[file]).toBe(`go module ${query}`)
         const written = readJson(result.files['/work/posthog.json']!) as { languages: { golang: { sdk?: string } } }
         expect(written.languages.golang.sdk).toBe(stored)
+    })
+
+    test('pull for Go does not ask a person about a module saved before the SDK choice existed', async () => {
+        const config = { languages: { golang: { output_path: 'typed.go', schema_hash: 'hash-old' } } }
+        const result = await runHog(['schema', 'pull', '--language', 'golang'], {
+            env: TEST_CREDENTIALS,
+            stdoutIsTTY: true,
+            files: { '/work/posthog.json': JSON.stringify(config), '/work/typed.go': 'old' },
+            respond: goDefinitions,
+        })
+
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
+        expect(result.requests.map((request) => request.url.split('/event_definitions/')[1])).toEqual(['golang/'])
+        const written = readJson(result.files['/work/posthog.json']!) as { languages: { golang: { sdk?: string } } }
+        expect(written.languages.golang.sdk).toBeUndefined()
     })
 
     test.each([
