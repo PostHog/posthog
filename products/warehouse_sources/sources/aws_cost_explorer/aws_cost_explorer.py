@@ -437,6 +437,19 @@ VALIDATION_ERROR_MESSAGES: dict[str, str] = {
     "BillExpirationException": "The requested dates are older than the data AWS keeps. Move the start date forward and try again.",
 }
 
+# AWS raises a ValidationException with this text when the connected credentials are a
+# linked/member account asking for a metric that includes discounts (amortized or net costs).
+# Only the management (payer) account, or a linked account with "View Discounts" turned on in
+# Cost Explorer preferences, can see those metrics, so retrying never changes the outcome.
+DISCOUNT_PERMISSION_ERROR_MESSAGE = (
+    "Linked accounts without permissions to view discounts may not query for this metric"
+)
+
+DISCOUNT_PERMISSION_ERROR_RESOLUTION = (
+    "This AWS account can't view amortized or net cost metrics. Connect the AWS management (payer) account, "
+    'or turn on "View Discounts" for this linked account in Cost Explorer preferences, to sync these metrics.'
+)
+
 TRANSIENT_VALIDATION_ERROR = "AWS Cost Explorer is busy or temporarily unavailable. Wait a moment and try again."
 
 GENERIC_VALIDATION_ERROR = (

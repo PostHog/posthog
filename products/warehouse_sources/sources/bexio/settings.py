@@ -1,6 +1,11 @@
 from typing import Literal, Optional
 
-from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, frozen
+from products.warehouse_sources.sources.sdk import (
+    DependentEndpointConfig,
+    IncrementalField,
+    IncrementalFieldType,
+    frozen,
+)
 
 BEXIO_BASE_URL = "https://api.bexio.com"
 
@@ -23,17 +28,46 @@ UPDATED_AT_INCREMENTAL_FIELDS: list[IncrementalField] = [
 class BexioEndpointConfig:
     name: str
     path: str
-    pagination: Literal["offset", "page"] = "offset"
+    pagination: Literal["offset", "page", "single"] = "offset"
     # The `order_by` value for a full refresh. None when the endpoint has no `order_by` parameter.
     order_by: Optional[str] = None
     # The POST search path that accepts an `updated_at` criterion. None means full refresh only.
     search_path: Optional[str] = None
     data_selector: Optional[str] = None
     partition_key: Optional[str] = None
+    primary_keys: tuple[str, ...] = ("id",)
+    # Set for endpoints that need one request per parent row, such as the positions of one invoice.
+    fanout: Optional[DependentEndpointConfig] = None
 
     @property
     def incremental_fields(self) -> list[IncrementalField]:
         return UPDATED_AT_INCREMENTAL_FIELDS if self.search_path else []
+
+    @property
+    def default_incremental_field(self) -> Optional[str]:
+        return None
+
+    @property
+    def page_size(self) -> int:
+        return PAGE_NUMBER_PAGE_SIZE if self.pagination == "page" else OFFSET_PAGE_SIZE
+
+
+def _item_positions(name: str, parent_name: str, document_type: str, parent_key: str) -> BexioEndpointConfig:
+    # Only item positions (`kb_position_article`) carry an article, a quantity and a price. The other
+    # position types are text, subtotals, discounts and page breaks.
+    return BexioEndpointConfig(
+        name=name,
+        path=f"/2.0/{document_type}/{{document_id}}/kb_position_article",
+        primary_keys=(parent_key, "id"),
+        fanout=DependentEndpointConfig(
+            parent_name=parent_name,
+            resolve_param="document_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": parent_key},
+            parent_params={"order_by": "id"},
+        ),
+    )
 
 
 _ENDPOINT_LIST: tuple[BexioEndpointConfig, ...] = (
@@ -78,6 +112,26 @@ _ENDPOINT_LIST: tuple[BexioEndpointConfig, ...] = (
     BexioEndpointConfig(name="currencies", path="/3.0/currencies"),
     BexioEndpointConfig(name="taxes", path="/3.0/taxes"),
     BexioEndpointConfig(name="users", path="/3.0/users"),
+    BexioEndpointConfig(name="client_services", path="/2.0/client_service", order_by="id"),
+    BexioEndpointConfig(name="project_states", path="/2.0/pr_project_state", pagination="single"),
+    BexioEndpointConfig(name="project_types", path="/2.0/pr_project_type", pagination="single", order_by="id"),
+    _item_positions("invoice_item_positions", "invoices", "kb_invoice", "invoice_id"),
+    _item_positions("quote_item_positions", "quotes", "kb_offer", "quote_id"),
+    _item_positions("order_item_positions", "orders", "kb_order", "order_id"),
+    BexioEndpointConfig(
+        name="outgoing_payments",
+        # The list takes one bill per request, through the required `bill_id` query parameter.
+        path="/4.0/purchase/outgoing-payments?bill_id={bill_id}",
+        pagination="page",
+        data_selector="data",
+        primary_keys=("bill_id", "id"),
+        fanout=DependentEndpointConfig(
+            parent_name="bills",
+            resolve_param="bill_id",
+            resolve_field="id",
+            include_from_parent=[],
+        ),
+    ),
 )
 
 BEXIO_ENDPOINTS: dict[str, BexioEndpointConfig] = {endpoint.name: endpoint for endpoint in _ENDPOINT_LIST}
