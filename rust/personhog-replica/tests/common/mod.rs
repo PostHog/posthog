@@ -30,6 +30,7 @@ fn storage_over(pool: PgPool, hash_key_override_statement_timeout_ms: u64) -> Ar
         pool,
         BULK_CHUNK_SIZE,
         5,  // bulk_max_concurrent_chunks
+        3,  // team_delete_max_concurrent_chunks
         12, // tombstoned_delete_max_rows, small enough that the clamp is observable
         hash_key_override_statement_timeout_ms,
     ))

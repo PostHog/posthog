@@ -119,6 +119,13 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 config.bulk_max_concurrent_chunks,
                 config.bulk_max_pg_connections
             );
+            assert!(
+                config.team_delete_max_concurrent_chunks >= 1,
+                "TEAM_DELETE_MAX_CONCURRENT_CHUNKS must be at least 1"
+            );
+            let team_delete_max_concurrent_chunks = config
+                .team_delete_max_concurrent_chunks
+                .min(config.bulk_max_pg_connections as usize);
 
             Arc::new(PostgresStorage::new(
                 primary_pool,
@@ -127,6 +134,7 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 bulk_replica_pool,
                 config.bulk_chunk_size,
                 config.bulk_max_concurrent_chunks,
+                team_delete_max_concurrent_chunks,
                 config.tombstoned_delete_max_rows,
                 config.hash_key_override_statement_timeout_ms,
             ))
