@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiConfig, CountedPaginatedResponse } from 'lib/api'
-import { ApiError } from 'lib/api-error'
+import { ApiError, shouldReportApiFailure } from 'lib/api-error'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { derivePrState } from 'lib/signals/prState'
@@ -30,7 +30,12 @@ import type {
 
 import type { SignalReportAssigneeApi } from '../../generated/api.schemas'
 import { createdAfterForWindow, isMergeKeySortField } from '../filterOptions'
-import { captureInboxReportAction, type InboxReportActionSurface, setInboxServedRanker } from '../inboxAnalytics'
+import {
+    captureInboxReportAction,
+    captureInboxReportListRetryRecovered,
+    type InboxReportActionSurface,
+    setInboxServedRanker,
+} from '../inboxAnalytics'
 import {
     INBOX_PRIMARY_REPORT_SECTION_KEY,
     INBOX_REPORT_SECTION_KEYS,
@@ -52,15 +57,22 @@ import { setReportState } from '../utils/writeTimeout'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { appliedInboxSearch, buildSignalReportListSortParams, inboxFiltersLogic } from './inboxFiltersLogic'
 import type { InboxCreatedWindow, InboxFilterState, InboxSortDirection, InboxSortField } from './inboxFiltersLogic'
+import type { InboxSourceSelection } from './inboxFiltersLogic'
 import { prCiStatusLogic } from './prCiStatusLogic'
 
 const PAGE_SIZE = 50
-const REPORT_LIST_RETRY_DELAY_MS = 300
+// Connection drops come in bursts of several seconds, so a retry soon after the failure fails too.
+const REPORT_LIST_RETRY_DELAYS_MS = [1000, 3000]
 // The refresh endpoint's own id cap per call.
 const METRIC_REFRESH_PAGE_SIZE = 20
 
+// A status-less `ApiError` is a dropped connection or a truncated or malformed 2xx body. A 504 is
+// not retried because the gateway already waited its full timeout, and a 500 is an application bug.
 function isRetryableReportListError(error: unknown): boolean {
-    return error instanceof ApiError && (error.status === undefined || error.status === 408 || error.status >= 500)
+    return (
+        error instanceof ApiError &&
+        (error.status === undefined || error.status === 408 || error.status === 502 || error.status === 503)
+    )
 }
 
 /** The row fields the list leaves empty (`include_source_metadata=false`) and `source_metadata` fills in. */
@@ -154,6 +166,7 @@ function requestContextFromValues(values: {
     searchQuery: string
     activeSourceProductFilter: string[]
     activeScoutFilter: string[]
+    activeTagFilter: string[]
     priorityFilter: SignalReportPriority[]
     activeSortField: InboxSortField
     activeSortDirection: InboxSortDirection
@@ -165,6 +178,7 @@ function requestContextFromValues(values: {
             appliedInboxSearch(values.searchQuery) !== undefined ||
             values.activeSourceProductFilter.length > 0 ||
             values.activeScoutFilter.length > 0 ||
+            values.activeTagFilter.length > 0 ||
             values.priorityFilter.length > 0 ||
             values.activeCreatedWindow !== null,
         sortField: values.activeSortField,
@@ -240,6 +254,7 @@ export interface reportListLogicValues {
     activeSortDirection: InboxSortDirection // inboxFiltersLogic
     activeSortField: InboxSortField // inboxFiltersLogic
     activeSourceProductFilter: string[] // inboxFiltersLogic
+    activeTagFilter: string[] // inboxFiltersLogic
     hasUserChosenScope: boolean // inboxFiltersLogic
     isScopedToMe: boolean // inboxFiltersLogic
     priorityFilter: SignalReportPriority[] // inboxFiltersLogic
@@ -316,10 +331,16 @@ export interface reportListLogicActions {
         direction: InboxSortDirection
         field: InboxSortField
     } // inboxFiltersLogic
-    setSourceFilter: (selection: null | import('./inboxFiltersLogic').InboxSourceSelection) => {
-        selection: null | import('./inboxFiltersLogic').InboxSourceSelection
+    setSourceFilter: (selection: InboxSourceSelection | null) => {
+        selection: InboxSourceSelection | null
+    } // inboxFiltersLogic
+    setTagFilter: (tags: string[]) => {
+        tags: string[]
     } // inboxFiltersLogic
     sourceFilterAvailabilityChanged: () => {
+        value: true
+    } // inboxFiltersLogic
+    tagFilterAvailabilityChanged: () => {
         value: true
     } // inboxFiltersLogic
     togglePriority: (priority: SignalReportPriority) => {
@@ -330,6 +351,9 @@ export interface reportListLogicActions {
     } // inboxFiltersLogic
     toggleSourceProduct: (source: string) => {
         source: string
+    } // inboxFiltersLogic
+    toggleTag: (tag: string) => {
+        tag: string
     } // inboxFiltersLogic
     trackReports: (
         source: string,
@@ -507,6 +531,7 @@ export interface reportListLogicMeta {
             activeSortDirection: InboxSortDirection,
             activeSourceProductFilter: string[],
             activeScoutFilter: string[],
+            activeTagFilter: string[],
             priorityFilter: SignalReportPriority[],
             scopeReviewerUuid: string | undefined,
             scope: InboxScope,
@@ -578,6 +603,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 'activeSortDirection',
                 'activeSourceProductFilter',
                 'activeScoutFilter',
+                'activeTagFilter',
                 'priorityFilter',
                 'activeCreatedWindow',
             ],
@@ -598,6 +624,9 @@ export const reportListLogic = kea<reportListLogicType>([
                 'toggleScout',
                 'setSourceFilter',
                 'sourceFilterAvailabilityChanged',
+                'toggleTag',
+                'setTagFilter',
+                'tagFilterAvailabilityChanged',
                 'needsYouScopeAvailabilityChanged',
                 'togglePriority',
                 'setPriorityFilter',
@@ -717,18 +746,31 @@ export const reportListLogic = kea<reportListLogicType>([
                                 ? loadedPersonalRankingId()
                                 : undefined,
                         })
-                    let response: CountedPaginatedResponse<SignalReport>
-                    try {
-                        response = await request()
-                    } catch (error) {
-                        if (!isRetryableReportListError(error)) {
-                            throw error
+                    let response: CountedPaginatedResponse<SignalReport> | undefined
+                    let firstError: unknown
+                    let retryCount = 0
+                    while (response === undefined) {
+                        try {
+                            response = await request()
+                        } catch (error) {
+                            const delay = REPORT_LIST_RETRY_DELAYS_MS[retryCount]
+                            if (delay === undefined || !isRetryableReportListError(error)) {
+                                throw error
+                            }
+                            firstError ??= error
+                            retryCount++
+                            await breakpoint(delay)
                         }
-                        await breakpoint(REPORT_LIST_RETRY_DELAY_MS)
-                        response = await request()
                     }
                     // A newer first-page request for a changed query supersedes this one.
                     breakpoint()
+                    if (retryCount > 0) {
+                        captureInboxReportListRetryRecovered({
+                            sectionKey: props.sectionKey,
+                            retryCount,
+                            error: firstError,
+                        })
+                    }
                     return {
                         ...response,
                         results: keepRowFieldsWrittenDuringFetch(
@@ -880,6 +922,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 s.activeSortDirection,
                 s.activeSourceProductFilter,
                 s.activeScoutFilter,
+                s.activeTagFilter,
                 s.priorityFilter,
                 s.scopeReviewerUuid,
                 s.scope,
@@ -893,6 +936,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 sortDirection: import('./inboxFiltersLogic').InboxSortDirection,
                 sourceProductFilter: string[],
                 scoutFilter: string[],
+                tagFilter: string[],
                 priorityFilter: import('../types').SignalReportPriority[],
                 suggestedReviewer: string | undefined,
                 scope: InboxScope,
@@ -907,6 +951,7 @@ export const reportListLogic = kea<reportListLogicType>([
                     ...buildSignalReportListSortParams(sortField, sortDirection),
                     source_product: sourceProductFilter.length > 0 ? sourceProductFilter.join(',') : undefined,
                     scout: scoutFilter.length > 0 ? scoutFilter.join(',') : undefined,
+                    tags: tagFilter.length > 0 ? tagFilter.join(',') : undefined,
                     priority: priorityFilter.length > 0 ? priorityFilter.join(',') : undefined,
                     suggested_reviewers: suggestedReviewer,
                     // `suggested_reviewers` only filters. These make `sort=personal` read the teammate's ranking.
@@ -1088,7 +1133,9 @@ export const reportListLogic = kea<reportListLogicType>([
                     )
                 )
             } catch (error) {
-                posthog.captureException(error)
+                if (shouldReportApiFailure(error)) {
+                    posthog.captureException(error)
+                }
             } finally {
                 requested.forEach((id) => inFlight.delete(id))
             }
@@ -1157,6 +1204,9 @@ export const reportListLogic = kea<reportListLogicType>([
         toggleScout: () => actions.refresh(),
         setSourceFilter: () => actions.refresh(),
         sourceFilterAvailabilityChanged: () => actions.refresh(),
+        toggleTag: () => actions.refresh(),
+        setTagFilter: () => actions.refresh(),
+        tagFilterAvailabilityChanged: () => actions.refresh(),
         needsYouScopeAvailabilityChanged: () => actions.refresh(),
         togglePriority: () => actions.refresh(),
         setPriorityFilter: () => actions.refresh(),

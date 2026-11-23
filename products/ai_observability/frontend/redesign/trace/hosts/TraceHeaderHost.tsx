@@ -19,7 +19,7 @@ export function TraceHeaderHost({
     timestampHint,
     backLink,
 }: TraceHeaderHostProps): JSX.Element | null {
-    const { trace } = useValues(traceViewLogic({ traceId, timestampHint }))
+    const { trace, overview } = useValues(traceViewLogic({ traceId, timestampHint }))
     const viewModel = traceViewModelLogic({ hostId, traceId, timestampHint })
     const { searchBox } = useValues(viewModel)
     const { setQuery, stepMatch } = useActions(viewModel)
@@ -30,9 +30,10 @@ export function TraceHeaderHost({
     const { reviewStatus, reviewStatusFailed } = useValues(reviewLogic)
     const { loadReviewStatus } = useActions(reviewLogic)
 
-    if (!trace) {
+    if (!overview) {
         return null
     }
+    const disabledReason = trace ? undefined : 'Loading trace'
     const queue = reviewStatus?.queue ?? null
     // No queue id goes to the review button: saving a review then clears whichever queue holds the trace, so a stale
     // status can never point the save at the wrong queue.
@@ -60,12 +61,12 @@ export function TraceHeaderHost({
         ) : null
     return (
         <TraceHeader
-            name={trace.name}
-            hasError={trace.hasError}
+            name={overview.name}
+            hasError={overview.hasError}
             backLink={backLink}
             search={{ ...searchBox, onQueryChange: setQuery, onStep: stepMatch }}
-            copyAction={{ loading: traceCopying, onCopy: copyTrace }}
-            exportAction={{ loading: traceExportLoading, onExport: exportTrace }}
+            copyAction={{ loading: traceCopying, onCopy: copyTrace, disabledReason }}
+            exportAction={{ loading: traceExportLoading, onExport: exportTrace, disabledReason }}
             actions={reviewActions}
         />
     )

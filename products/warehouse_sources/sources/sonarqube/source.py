@@ -58,7 +58,7 @@ class SonarqubeSource(ResumableSource[SonarqubeSourceConfig, SonarqubeResumeConf
 
 Using SonarQube Cloud (sonarcloud.io or sonarqube.us)? Connect it with the Sonar Cloud source instead.
 
-Enter your server URL (e.g. `https://sonarqube.yourcompany.com`) and a user token. Create a token under **My Account → Security → Generate Tokens** in your SonarQube instance. The token inherits your permissions, so it can read the projects, issues, and rules you can see. Syncing the **users** table additionally requires the *Administer System* permission.""",
+Enter your server URL (e.g. `https://sonarqube.yourcompany.com`) and a user token. Create a token under **My Account → Security → Generate Tokens** in your SonarQube instance. The token inherits your permissions, so it can read the projects, issues, and rules you can see. Syncing the **users**, **user_groups**, and **user_group_members** tables additionally requires the *Administer System* permission.""",
             iconPath="/static/services/sonarqube.png",
             docsUrl="https://posthog.com/docs/cdp/sources/sonarqube",
             fields=cast(
@@ -95,7 +95,7 @@ Enter your server URL (e.g. `https://sonarqube.yourcompany.com`) and a user toke
             # message. Retrying can never fix a credential, permission, or request problem, so fail
             # the sync. Match the stable status text, not the per-request message or URL.
             "401 Client Error": "Your SonarQube token is invalid or has expired. Generate a new token in your SonarQube account settings, then reconnect.",
-            "403 Client Error": "Your SonarQube token is missing the permissions needed to sync this data (the users table needs the Administer System permission). Check the token's permissions, then reconnect.",
+            "403 Client Error": "Your SonarQube token is missing the permissions needed to sync this data (the users and user group tables need the Administer System permission). Check the token's permissions, then reconnect.",
             # A 400 means the server rejected the request itself. Keep the raised message, which
             # carries SonarQube's explanation; no fixed string can name the cause as well.
             "400 Client Error": None,

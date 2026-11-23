@@ -16,6 +16,8 @@ from uuid import UUID
 from pydantic import Field
 from pydantic.dataclasses import dataclass
 
+from posthog.dataclasses import frozen
+
 from .enums import (
     ChannelResolutionSource,
     DigestRunStatus,
@@ -278,6 +280,17 @@ class ReviewReasoningDTO:
     showstoppers: list[str] | None = None
     review_body: str | None = None
     change_summary: str | None = None
+
+
+@frozen
+class ApprovalGateCheck:
+    """What stamphog's deterministic gates decide for one PR head, outside any review run."""
+
+    # A size, restricted-path (deny-list) or tier gate refuses this head, and the engine pre-check is final.
+    needs_human: bool
+    # The engine gate names that failed among "size", "deny-list" and "tier", in engine order.
+    # Empty when needs_human is False.
+    failed_gates: tuple[str, ...]
 
 
 class ReviewRequestRefusedError(Exception):

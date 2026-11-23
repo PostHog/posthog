@@ -1,8 +1,7 @@
-"""Keeps both rows of a logs alert the platform owns in step.
+"""Creates and deletes the logs row of a logs alert the platform owns.
 
-A logs alert the platform owns keeps its logs row until every team is cut over: the logs page reads
-it, the shadow evaluation runs it, and a rollback hands it back. So every write to either row reaches
-the other in the same transaction, and every writer locks the logs row before the platform's copy.
+The platform's copy is the whole alert, and an edit writes the copy only. The logs row keeps the id the
+alert is known by, its creation time, and its logs history, for the logs API to show beside the copy.
 """
 
 from collections.abc import Callable
@@ -11,9 +10,18 @@ from datetime import datetime
 from typing import Final
 from uuid import UUID
 
+from django.db import transaction
 from django.utils import timezone
 
-from products.alerts_platform.backend.facade.api import close_owned_firings_now, delete_copy, update_owned_copy
+from posthog.models.team.team import Team
+
+from products.alerts_platform.backend.facade.api import (
+    close_owned_firings_now,
+    delete_copy,
+    take_ownership,
+    update_owned_copy,
+    upsert_configuration,
+)
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
     Grouping,
@@ -21,21 +29,75 @@ from products.alerts_platform.backend.facade.contracts import (
     InvalidPlatformAlertEdit,
     PlatformAlertConfigurationEdit,
     PlatformAlertCreateRefused,
-    PlatformAlertNotEditable,
+    PlatformOwnershipHandover,
 )
+from products.alerts_platform.backend.facade.delivery import team_flag_enabled
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.logs.backend.alert_creation import AlertLimitReached, check_alert_slot, first_check_at
 from products.logs.backend.alert_group_columns import grouping_problem
-from products.logs.backend.alert_state_machine import apply_enabled
-from products.logs.backend.alert_utils import PLATFORM_SHADOW
 from products.logs.backend.facade.api import close_incident_before_delete
 from products.logs.backend.models import LogsAlertConfiguration
-from products.logs.backend.platform_alert_backfill import CONDITION_FIELDS, SETTINGS_FIELDS, platform_upsert_of
-from products.logs.backend.platform_cutover import hand_over, in_an_environment, takes_new_alert, team_cutover_at
+from products.logs.backend.platform_alert_backfill import (
+    CONDITION_FIELDS,
+    PLATFORM_HANDOVER_STATE,
+    SETTINGS_FIELDS,
+    platform_upsert_of,
+)
 from products.logs.backend.platform_source_config import filters_of
 
 GROUPING_NOT_AVAILABLE: Final = "Grouping isn't available for this alert yet. Set the mode to single to save it."
 LABELS_NOT_AVAILABLE: Final = "Labels aren't available for this alert yet. Remove them to save it."
 ANNOTATIONS_NOT_AVAILABLE: Final = "Annotations aren't available for this alert yet. Remove them to save it."
+
+
+def in_an_environment(alert: LogsAlertConfiguration) -> bool:
+    """Whether the alert belongs to a child environment, whose copy would live on its project."""
+    return alert.team.parent_team_id is not None
+
+
+def hand_over(alert: LogsAlertConfiguration, at: datetime, *, grouping: Grouping | None = None) -> bool:
+    """Copies a logs alert locked by the caller onto the platform and makes the platform its owner,
+    on both rows. False, changing nothing, when the platform copy is inside a firing of its own.
+
+    `grouping` applies only to a copy this creates, because the logs row stores none."""
+    upsert = platform_upsert_of(alert)
+    savepoint = transaction.savepoint_create()
+    upsert_configuration(upsert if grouping is None else replace(upsert, grouping=grouping))
+    taken = take_ownership(
+        PlatformOwnershipHandover(
+            legacy_configuration_id=alert.id,
+            team_id=alert.team_id,
+            state=PLATFORM_HANDOVER_STATE[alert.state],
+            last_notified_at=alert.last_notified_at,
+            consecutive_failures=alert.consecutive_failures,
+            next_check_at=alert.next_check_at or at,
+            at=at,
+        )
+    )
+    if not taken:
+        # The copy stays as live delivery left it. A copy disabled here would drop out of
+        # discovery and never resolve the firing it is inside.
+        transaction.savepoint_rollback(savepoint)
+        return False
+    transaction.savepoint_commit(savepoint)
+    # `update()` rather than `save()`: a handover is not a user's edit, and `save()` would log one.
+    LogsAlertConfiguration.objects.filter(id=alert.id).update(owner=PlatformAlertOwner.PLATFORM, owner_changed_at=at)
+    alert.owner = PlatformAlertOwner.PLATFORM
+    alert.owner_changed_at = at
+    return True
+
+
+# Turns on, per team, creates that make no logs row.
+NATIVE_CREATE_FLAG: Final = "logs-alerts-native-create"
+
+
+def creates_native_alert(team_id: int) -> bool:
+    """Whether a new logs alert of the team gets no logs row. An environment, whose alert the platform
+    cannot store, keeps the logs row."""
+    team = Team.objects.only("id", "uuid", "organization_id", "parent_team_id").get(id=team_id)
+    if team.parent_team_id is not None:
+        return False
+    return bool(team_flag_enabled(NATIVE_CREATE_FLAG, team))
 
 
 def _refuse_grouping_on_logs(grouping: Grouping | None) -> None:
@@ -61,19 +123,19 @@ def on_created(
     annotations: dict[str, str] | None = None,
 ) -> bool:
     """Hands a new alert to the platform, and creates the copy with `grouping`, `labels` and
-    `annotations`, unless its team keeps its alerts on logs. False when the alert stays with logs.
+    `annotations`, unless it belongs to an environment. False when the alert stays with logs.
 
     Raises `InvalidPlatformAlertEdit` when the alert cannot take the grouping, the labels or the
     annotations.
     """
     grouping = grouping if grouping is not None else Grouping()
-    if in_an_environment(alert) or not takes_new_alert(alert.team_id, new_alert_id=alert.id):
+    if in_an_environment(alert):
         _refuse_grouping_on_logs(grouping)
         _refuse_metadata_on_logs(labels, annotations)
         return False
     if grouping.mode != GroupingMode.SINGLE and (problem := grouping_problem(grouping.keys, alert.threshold_operator)):
         raise InvalidPlatformAlertEdit("grouping", problem)
-    if _hand_over_new(alert, at, grouping):
+    if hand_over(alert, at, grouping=grouping):
         if labels or annotations:
             # The hand-over's upsert validates neither labels nor annotations. The edit path does.
             update_owned_copy(
@@ -87,14 +149,6 @@ def on_created(
     _refuse_grouping_on_logs(grouping)
     _refuse_metadata_on_logs(labels, annotations)
     return False
-
-
-def _hand_over_new(alert: LogsAlertConfiguration, at: datetime, grouping: Grouping | None) -> bool:
-    # A week of its own per alert would keep the legacy evaluator running while the team adds alerts. A
-    # team's first alert has no logs history to compare against, so its shadow starts already over, and
-    # the team's later alerts inherit that.
-    shadow_from = team_cutover_at(alert.team_id, new_alert_id=alert.id) or at - PLATFORM_SHADOW
-    return hand_over(alert, at, grouping=grouping, shadow_from=shadow_from)
 
 
 def admit_platform_write(
@@ -128,41 +182,18 @@ def create_platform_owned(*, team_id: int, edit: PlatformAlertConfigurationEdit,
     )
     _set_settings(alert, edit)
     alert.save()
-    if not _hand_over_new(alert, now, edit.grouping):
+    if not hand_over(alert, now, grouping=edit.grouping):
         raise RuntimeError(f"Logs alert {alert.id} was created with a platform copy already firing")
     return alert.id
 
 
-def on_updated(
-    alert: LogsAlertConfiguration,
-    *,
-    snooze_changed: bool,
-    grouping: Grouping | None = None,
-    labels: dict[str, str] | None = None,
-    annotations: dict[str, str] | None = None,
-    at: datetime | None = None,
+def refuse_platform_only_settings(
+    grouping: Grouping | None, labels: dict[str, str] | None, annotations: dict[str, str] | None
 ) -> None:
-    """Writes an edit the logs API saved onto the platform's copy, with the grouping, labels and
-    annotations the edit set. A `grouping`, `labels` or `annotations` of None keeps the copy's own. An
-    alert logs owns has no copy to write. `at` is when the edit started, before its `LogsAlertEvent`
-    row.
-
-    Raises `InvalidPlatformAlertEdit` when the platform's schema rejects the edit, or when the
-    alert cannot take the grouping, the labels or the annotations.
-    """
-    if not alert.platform_owned:
-        _refuse_grouping_on_logs(grouping)
-        _refuse_metadata_on_logs(labels, annotations)
-        return
-    update_owned_copy(
-        team_id=alert.team_id,
-        legacy_configuration_id=alert.id,
-        change=platform_change_of(alert, grouping, labels, annotations),
-        snooze_until=alert.snooze_until,
-        snooze_changed=snooze_changed,
-        at=at,
-        first_enabled_at=alert.first_enabled_at,
-    )
+    """Raises `InvalidPlatformAlertEdit` for a grouping, labels or annotations on an edit of an alert the
+    logs stack owns, which has no copy to store them."""
+    _refuse_grouping_on_logs(grouping)
+    _refuse_metadata_on_logs(labels, annotations)
 
 
 def on_deleted(*, team_id: int, alert_id: UUID) -> bool:
@@ -208,22 +239,6 @@ def platform_change_of(
     )
 
 
-def mirror_platform_edit(
-    *, team_id: int, legacy_configuration_id: UUID
-) -> Callable[[PlatformAlertConfigurationEdit], None] | None:
-    """Locks the logs row of an alert edited through the platform API, and returns its writer."""
-    alert = LogsAlertConfiguration.objects.select_for_update().filter(id=legacy_configuration_id).first()
-    if alert is None:
-        return None
-    if alert.team_id != team_id:
-        # A copy lives on the project, and its logs row on the environment. The platform API checked
-        # access to the project only.
-        raise PlatformAlertNotEditable(
-            "This alert belongs to one of this project's environments. Edit it on that environment's logs alerts page."
-        )
-    return lambda edit: _write_logs_row(alert, edit)
-
-
 def _set_settings(alert: LogsAlertConfiguration, edit: PlatformAlertConfigurationEdit) -> None:
     # The inverse of `platform_upsert_of`, over the same field lists.
     condition = edit.source_config[SOURCE_CONDITION_KEY]
@@ -233,21 +248,6 @@ def _set_settings(alert: LogsAlertConfiguration, edit: PlatformAlertConfiguratio
     for field in SETTINGS_FIELDS:
         if field != "source_config":
             setattr(alert, field, getattr(edit, field))
-
-
-def _write_logs_row(alert: LogsAlertConfiguration, edit: PlatformAlertConfigurationEdit) -> None:
-    # The shadow evaluation still runs this row, so an on or off moves its state the way the logs API does.
-    enabled_fields = apply_enabled(alert, edit.enabled, now=timezone.now())
-    _set_settings(alert, edit)
-    alert.save(
-        update_fields=[
-            *enabled_fields,
-            "filters",
-            *CONDITION_FIELDS,
-            *(field for field in SETTINGS_FIELDS if field != "source_config"),
-            "updated_at",
-        ]
-    )
 
 
 def before_delete(alert: LogsAlertConfiguration) -> None:
