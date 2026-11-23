@@ -78,16 +78,17 @@ def record_token_on_project_path(
     """Store on the HttpRequest whether a token decided the project of a route whose path names one."""
     try:
         path_ids = {
-            int(value) for name, value in path_kwargs.items() if name in _PATH_PROJECT_KWARGS and str(value).isdigit()
+            name: int(value)
+            for name, value in path_kwargs.items()
+            if name in _PATH_PROJECT_KWARGS and str(value).isdigit()
         }
         if not path_ids:
             return
         team = _team_from_token(request, token_team)
         if team is None:
             return
-        # An environment route names the team and a project route names the project, and both ids identify the
-        # token's own project, so either one counts as a match.
-        matches = bool(path_ids & {team.id, team.project_id})
+        token_ids = {"team_id": team.id, "project_id": team.project_id}
+        matches = all(token_ids[name] == path_id for name, path_id in path_ids.items())
         setattr(request._request, _TOKEN_ON_PROJECT_PATH_ATTR, TokenOnProjectPath(token_matches_path=matches))
     except Exception:
         logger.warning("token_on_project_path_record_failed", exc_info=True)

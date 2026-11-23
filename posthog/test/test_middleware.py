@@ -3891,24 +3891,29 @@ class TestCurrentAliasUsage(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("token_for_the_path_project", "path_project", [True]),
-            ("token_for_another_project", "other_project", [False]),
-            ("no_token", None, []),
+            ("token_for_the_path_project", "feature_flags", "path_team", [True]),
+            ("token_for_another_project", "feature_flags", "other_project", [False]),
+            ("sibling_environment_on_a_project_route", "feature_flags", "sibling_environment", [True]),
+            ("sibling_environment_on_a_team_route", "insights", "sibling_environment", [False]),
+            ("no_token", "feature_flags", None, []),
         ]
     )
     def test_reports_tokens_on_routes_that_name_a_project(
-        self, _name: str, token_project: str | None, expected: list[bool]
+        self, _name: str, collection: str, token_team: str | None, expected: list[bool]
     ) -> None:
-        other_team = Team.objects.create(organization=self.organization, name="Other project")
-        project_tokens = {"path_project": self.team.api_token, "other_project": other_team.api_token}
+        teams = {
+            "path_team": self.team,
+            "other_project": Team.objects.create(organization=self.organization, name="Other project"),
+            "sibling_environment": Team.objects.create(organization=self.organization, project=self.team.project),
+        }
         key = generate_random_token_personal()
         PersonalAPIKey.objects.create(user=self.user, secure_value=hash_key_value(key), scopes=["*"])
         self.client.logout()
-        query = {"token": project_tokens[token_project]} if token_project else {}
+        query = {"token": teams[token_team].api_token} if token_team else {}
 
         with patch("posthog.event_usage.posthoganalytics.capture") as capture:
             response = self.client.get(
-                f"/api/projects/{self.team.id}/feature_flags/", query, HTTP_AUTHORIZATION=f"Bearer {key}"
+                f"/api/projects/{self.team.id}/{collection}/", query, HTTP_AUTHORIZATION=f"Bearer {key}"
             )
 
         assert response.status_code == status.HTTP_200_OK
