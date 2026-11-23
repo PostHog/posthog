@@ -1,0 +1,45 @@
+id: delivery-bursts
+version: 1
+clock: real
+profile: synthetic
+seed: 8
+setup:
+    teams: 4
+drive:
+    for: 3m
+    traffic:
+        - name: event_email
+        - name: event_webhook
+        - name: transactional_email
+    ramp:
+        - scale: 1
+          for: 1m
+        - scale: 10
+          for: 30s
+        - scale: 25
+          for: 30s
+        - scale: 50
+          for: 30s
+        - scale: 100
+          for: 30s
+    stopOnBreak: true
+convergeWithin: 10m
+invariants:
+    - name: at_least_once
+    - name: duplicate_sends
+    - name: refused_at_intake
+gates:
+    duplicate_sends: 0
+    refused_at_intake: 0
+bars:
+    - name: pickup_p99_under
+      params:
+          seconds: 5
+          queues:
+              - hogflow
+              - email
+measure:
+    - name: delivery_latency_ms
+    - name: step_claims_per_second
+    - name: role_cpu_seconds
+    - name: role_rss_max_bytes

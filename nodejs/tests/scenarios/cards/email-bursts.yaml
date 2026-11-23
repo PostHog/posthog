@@ -1,0 +1,38 @@
+id: email-bursts
+version: 1
+clock: real
+profile: synthetic
+seed: 10
+setup:
+    teams: 4
+drive:
+    for: 2m
+    traffic:
+        - name: event_email
+        - name: transactional_email
+    ramp:
+        - scale: 1
+          for: 1m
+        - scale: 10
+          for: 30s
+        - scale: 100
+          for: 30s
+valves:
+    - valve: ses.throttle
+      target: ses
+      dose:
+          rate: 1
+      at: 90s
+      for: 30s
+convergeWithin: 10m
+invariants:
+    - name: at_least_once
+    - name: duplicate_sends
+    - name: refused_at_intake
+gates:
+    duplicate_sends: 0
+    refused_at_intake: 0
+measure:
+    - name: delivery_latency_ms
+    - name: role_cpu_seconds
+    - name: role_rss_max_bytes
