@@ -11,6 +11,18 @@ def agent_egress_staging_probe_enabled() -> bool:
     return agent_egress_staging_environment() and bool(settings.AGENT_EGRESS_STAGING_PROBE_RUN_ID)
 
 
+def agent_egress_enrollment_environment() -> bool:
+    return (settings.DEBUG and str(settings.SANDBOX_PROVIDER).upper() == "MODAL_DOCKER") or (
+        not settings.DEBUG
+        and settings.CLOUD_DEPLOYMENT in {"DEV", "US", "EU"}
+        and str(settings.SANDBOX_PROVIDER).upper() == "MODAL"
+    )
+
+
+def agent_egress_enrollment_enabled() -> bool:
+    return agent_egress_enrollment_environment() and bool(settings.AGENT_EGRESS_ENROLLMENT_CONFIG)
+
+
 # Production: 6 hours (safety net; workflow inactivity timeout handles cleanup).
 # Tests: 15 min so any sandbox orphaned by a crashed test auto-destroys quickly
 # instead of burning Modal capacity for hours.
