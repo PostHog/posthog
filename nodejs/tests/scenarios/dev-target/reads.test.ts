@@ -124,14 +124,15 @@ describe('dev reads', () => {
         }
     }, 10_000)
 
+    const receipts = (from: number, to: number): Receipt[] =>
+        Array.from({ length: to - from }, (_, i) => ({
+            runId: 'run-a',
+            unitId: `run-a-${from + i}`,
+            at: AT + from + i,
+            uuid: `r${from + i}`,
+        }))
+
     it('reads every receipt past the query API default of 100 rows, and fails when its own limit fills', async () => {
-        const receipts = (from: number, to: number): Receipt[] =>
-            Array.from({ length: to - from }, (_, i) => ({
-                runId: 'run-a',
-                unitId: `run-a-${from + i}`,
-                at: AT + from + i,
-                uuid: `r${from + i}`,
-            }))
         const state = { receipts: receipts(0, 101), series: {} }
         const dev = await fakeDev(state)
         let clock = 0
@@ -142,6 +143,26 @@ describe('dev reads', () => {
             state.receipts.push(...receipts(101, RECEIPT_ROWS))
             clock = QUERY_EVERY_MS
             await expect(truth.head()).rejects.toThrow(`filled all ${RECEIPT_ROWS} rows`)
+        } finally {
+            await dev.close()
+        }
+    })
+
+    it('keeps failing a judge read between queries until a fresh receipts query succeeds', async () => {
+        const state = { receipts: receipts(0, RECEIPT_ROWS), series: {} }
+        const dev = await fakeDev(state)
+        let clock = 0
+        const truth = receiptTruth(dev.config, 'run-a', () => clock)
+        try {
+            await expect(truth.head()).rejects.toThrow(`filled all ${RECEIPT_ROWS} rows`)
+            clock = 1
+            await expect(truth.after(0)).rejects.toThrow(`filled all ${RECEIPT_ROWS} rows`)
+
+            state.receipts.splice(RECEIPT_ROWS - 1)
+            clock = QUERY_EVERY_MS
+            expect(await truth.head()).toBe(RECEIPT_ROWS - 1)
+            clock = QUERY_EVERY_MS + 1
+            expect(await truth.head()).toBe(RECEIPT_ROWS - 1)
         } finally {
             await dev.close()
         }
