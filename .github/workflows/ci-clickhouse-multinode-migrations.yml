@@ -14,6 +14,9 @@ on:
             - 'docker-compose.multinode-clickhouse.yml'
             # The multinode stack extends this file, which pins the ClickHouse image.
             - 'docker-compose.base.yml'
+            # The migrations run as the `migrations` user defined here.
+            - 'docker/clickhouse/users-dev.xml'
+            - 'bin/migrate-clickhouse-with-prod-grants'
             - 'tools/infra-scripts/clickhouse-multinode/**'
             - 'posthog/clickhouse/hcl/**'
             - '.github/workflows/ci-clickhouse-multinode-migrations.yml'
@@ -71,6 +74,19 @@ jobs:
             HCLEXP_IMAGE: ${{ vars.HCLEXP_IMAGE }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Fetch the PR base for bin/migrate-clickhouse-with-prod-grants
+              # Migrations added after this commit run as the prod migrations user. Outside a PR,
+              # HEAD is the base, so every migration runs as the default user.
+              env:
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+              run: |
+                  if [ -n "$BASE_SHA" ]; then
+                      git fetch --no-tags --depth=1 --filter=blob:none origin "$BASE_SHA"
+                      echo "CLICKHOUSE_MIGRATIONS_BASE=$BASE_SHA" >> "$GITHUB_ENV"
+                  else
+                      echo "CLICKHOUSE_MIGRATIONS_BASE=HEAD" >> "$GITHUB_ENV"
+                  fi
 
             - name: Add multinode hostnames to /etc/hosts
               run: |

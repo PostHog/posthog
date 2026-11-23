@@ -201,7 +201,7 @@ fi
 
 SMOKE_STAGE="migrate_clickhouse"
 echo "==> Running ClickHouse migrations against the data node..."
-python manage.py migrate_clickhouse
+bin/migrate-clickhouse-with-prod-grants
 
 SMOKE_STAGE="verify"
 echo "==> Verifying per-node table layout..."
