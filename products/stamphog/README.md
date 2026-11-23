@@ -213,7 +213,9 @@ Why the digest works this way: [`docs/digest.md`](docs/digest.md).
 Reviewer routing requests reviews from the owners of the changed code (`backend/logic/routing/`, queued by its own webhook consumer).
 Owners come from `owners.yaml` at the default branch, read with stamphog's installation token, so a PR cannot name its own reviewers.
 When more than one owner is a candidate, one Claude Haiku call through the ai-gateway may cut owners whose part is trivial, with its own short-lived token capped far below the reviewer's.
-Pinned owners (sensitive paths and owners of additions) are never cut, forks never reach the model, and any model failure requests everyone.
+A diff too large for one call's input cap is split by owner over at most `MAX_CUT_CALLS` calls, smallest parts first.
+An owner that fits in none of them is requested.
+Pinned owners (sensitive paths and owners of additions) are never cut, forks never reach the model, and a failed call requests every owner it asked about.
 A comment names the cut owners and why.
 
 `routing_mode` on the repo config decides when routing runs:

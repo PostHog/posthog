@@ -1736,6 +1736,38 @@ def test_lowers_array_join_function_to_cross_join_unnest() -> None:
     )
 
 
+def test_unnests_an_array_of_aggregates_after_grouping() -> None:
+    sql, _ = prepare_and_print_ast(
+        parse_select(
+            "SELECT user_id, arrayJoin([('rows', count()), ('ids', count(DISTINCT id))]) AS metric, metric.2 AS value "
+            "FROM users GROUP BY user_id ORDER BY user_id, metric.1 LIMIT 3"
+        ),
+        _context_with_trino_table(),
+        "trino",
+    )
+
+    assert sql.index("GROUP BY") < sql.index("CROSS JOIN UNNEST") < sql.index("ORDER BY") < sql.index("LIMIT 3")
+
+
+@pytest.mark.parametrize(
+    "query, expected",
+    [
+        (
+            "SELECT 7 AS n, arrayJoin([count(), count() + 1]) AS m, arrayMap(n -> n + m, [1, 2]) AS vals FROM users",
+            '"n" -> ("n" + "__trino_array_function_0"."value_0")',
+        ),
+        (
+            "SELECT (WITH t AS (SELECT 1 AS k) SELECT k FROM t) AS x, arrayJoin([count()]) AS n FROM users",
+            '(WITH "t" AS (SELECT 1 AS "k") SELECT "t"."k" FROM "t") AS "x"',
+        ),
+    ],
+)
+def test_unnests_an_array_of_aggregates_next_to_other_projections(query: str, expected: str) -> None:
+    sql, _ = prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
+
+    assert expected in sql
+
+
 def test_lowers_select_alias_inside_array_join_function() -> None:
     sql, _ = prepare_and_print_ast(
         parse_select("SELECT [user_id] AS ids, arrayJoin(ids) AS item FROM users"),
@@ -2178,6 +2210,7 @@ def test_percentage_limit_rounds_up(percentage: int, offset: int, expected: list
             "ORDER BY l.live",
             [(0, 10), (1, 20)],
         ),
+        ("SELECT 7 AS n, arrayFilter(n -> n > 1, [1, 2]) AS vals", [(7, [2])]),
         # ClickHouse lets a projection name a part of itself, and inlining the projection must not redefine that name.
         (
             "WITH rows AS (SELECT 1 AS id UNION ALL SELECT 2) "
@@ -3443,6 +3476,12 @@ def test_removes_noop_sample_one_for_trino() -> None:
             "SELECT arrayMap(x -> concat(x, user_id), ['a']) AS user_id FROM users AS id",
             "TRINO_LAMBDA_QUALIFIER_AMBIGUOUS",
         ),
+        ("SELECT arrayJoin([count()]) + count() AS x FROM users", "TRINO_ARRAY_JOIN_AGGREGATE_SHAPE_UNSUPPORTED"),
+        (
+            "SELECT arrayJoin([count(), count() + 1]) AS n, count() OVER () + n AS c FROM users",
+            "TRINO_ARRAY_JOIN_AGGREGATE_SHAPE_UNSUPPORTED",
+        ),
+        ("SELECT x + 1 AS y, arrayJoin([sum(id)]) AS x FROM users", "TRINO_ARRAY_JOIN_AGGREGATE_FORWARD_REFERENCE"),
     ],
 )
 def test_rejects_clickhouse_query_clauses_without_safe_trino_semantics(query: str, feature_code: str) -> None:
