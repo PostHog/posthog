@@ -8,6 +8,7 @@ its topic are unknown, and a reader with any denied table does not see that topi
 
 import re
 import json
+import dataclasses
 from collections import Counter, defaultdict
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from datetime import datetime
@@ -224,33 +225,27 @@ class ReadSources:
     field reads, or to None when the scan cannot tell. ``fields_changed_at`` holds the last change or delete of
     any of those fields. ``table_expressions`` holds the saved expression fields of each table, which `*` expands.
     ``view_changes`` holds the last change of each saved view or of a view that it reads. ``view_reads`` holds
-    the tables that each view reads through a field, or None when the scan cannot tell. ``views_saved_at`` holds the last save of any saved view, and
-    ``table_exists`` says whether the team has a table or view with a name now."""
+    the tables that each view reads, or None when the scan cannot tell. ``views_saved_at`` holds the last save of
+    any saved view, and ``table_exists`` says whether the team has a table or view with a name now."""
 
     metric_definitions: Mapping[str, SavedDefinition]
     insight_queries: Mapping[str, SavedDefinition]
     saved_filters: SavedFilters = NO_SAVED_FILTERS
-    field_tables: Mapping[str, frozenset[str] | None] | None = None
+    field_tables: Mapping[str, frozenset[str] | None] = dataclasses.field(default_factory=dict)
     fields_changed_at: datetime | None = None
-    table_expressions: Mapping[str, frozenset[str]] | None = None
-    view_changes: Mapping[str, datetime] | None = None
-    view_reads: Mapping[str, frozenset[str] | None] | None = None
+    table_expressions: Mapping[str, frozenset[str]] = dataclasses.field(default_factory=dict)
+    view_changes: Mapping[str, datetime] = dataclasses.field(default_factory=dict)
+    view_reads: Mapping[str, frozenset[str] | None] = dataclasses.field(default_factory=dict)
     views_saved_at: datetime | None = None
     table_exists: Callable[[str], bool] | None = None
 
     def as_of(self, at: datetime) -> "ReadSources":
         """Only a definition that did not change after a call still says what that call read."""
-        return ReadSources(
+        return dataclasses.replace(
+            self,
             metric_definitions=_unchanged(self.metric_definitions, at),
             insight_queries=_unchanged(self.insight_queries, at),
             saved_filters=self.saved_filters.as_of(at),
-            field_tables=self.field_tables,
-            fields_changed_at=self.fields_changed_at,
-            table_expressions=self.table_expressions,
-            view_changes=self.view_changes,
-            view_reads=self.view_reads,
-            views_saved_at=self.views_saved_at,
-            table_exists=self.table_exists,
         )
 
     def field_reads(self, bodies: Iterable[object]) -> frozenset[str] | None:
@@ -273,8 +268,8 @@ class ReadSources:
         """The tables that the saved expressions of ``tables`` read, because `*` expands every field of a table."""
         found: set[str] = set()
         for table in tables:
-            for field in (self.table_expressions or {}).get(_bare(table), frozenset()):
-                field_reads = (self.field_tables or {}).get(field)
+            for field in self.table_expressions.get(_bare(table), frozenset()):
+                field_reads = self.field_tables.get(field)
                 if field_reads is None:
                     return None
                 found |= field_reads
@@ -282,8 +277,7 @@ class ReadSources:
 
     def view_changed_after(self, tables: Iterable[str], at: datetime) -> bool:
         """A reader's denial follows a view's current body, so a view that changed after the call can hide a read."""
-        changes = self.view_changes or {}
-        return any(_changed_after(changes.get(table), at) for table in tables)
+        return any(_changed_after(self.view_changes.get(table), at) for table in tables)
 
     def names_renamed_view(self, tables: Iterable[str], at: datetime) -> bool:
         """Whether a call can name a view by a name that the view had before a rename.
@@ -319,6 +313,11 @@ class _SavedFilterFinder(TraversingVisitor):
     def visit_hogqlx_tag(self, node: ast.HogQLXTag) -> None:
         # A tag can run a query that the scan does not read.
         self.found = True
+
+    def visit_placeholder(self, node: ast.Placeholder) -> None:
+        # The call log does not hold the filters that fill `{filters}`, and a filter can read a table.
+        self.found = self.found or (node.chain or [])[:1] == ["filters"]
+        super().visit_placeholder(node)
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> None:
         self.found = self.found or node.op in _COHORT_OPERATORS
@@ -512,7 +511,10 @@ def _direct_tables(call: ReadCall, current: ReadSources) -> frozenset[str] | Non
         # The MCP server fills an omitted `filterTestAccounts` from the project default, which the log does not
         # hold, so an omitted flag counts as set. That can only add the tables of the test account filters.
         query = call.payload
-        if isinstance(query, dict) and query.get("filterTestAccounts") is None:
+        if not isinstance(query, dict) or not query.get("kind"):
+            # Without a kind the scan cannot tell which tables the tool reads.
+            return None
+        if query.get("filterTestAccounts") is None:
             query = {**query, "filterTestAccounts": True}
         return query_tables(query, current.saved_filters)
     # A dashboard run reads the insights on the dashboard as it is now, which can differ from the run.
@@ -545,8 +547,8 @@ def call_tables(call: ReadCall, sources: ReadSources) -> frozenset[str] | None:
         if expanded is None:
             return None
         tables |= expanded
-    for view in tables & (current.view_reads or {}).keys():
-        through_fields = (current.view_reads or {})[view]
+    for view in tables & current.view_reads.keys():
+        through_fields = current.view_reads[view]
         if through_fields is None:
             return None
         tables |= through_fields

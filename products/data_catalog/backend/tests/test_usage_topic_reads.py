@@ -141,6 +141,8 @@ class TestSessionTables(SimpleTestCase):
             ("sql_using_a_dollar_saved_expression", [_sql("SELECT $billing_total FROM events")], {"events", "billing"}),
             ("sql_selecting_every_field", [_sql("SELECT * FROM events")], {"events", "billing"}),
             ("sql_with_a_query_tag", [_sql("SELECT 1 FROM <HogQLQuery query='SELECT 1 FROM billing' />")], None),
+            ("sql_with_a_filters_placeholder", [_sql("SELECT 1 FROM events WHERE {filters}")], None),
+            ("typed_query_with_no_kind", [_call("query-trends", {"series": [_EVENTS_NODE]})], None),
             (
                 "sql_over_a_view_by_its_models_name",
                 [_sql("SELECT 1 FROM models.wide_view")],
