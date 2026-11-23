@@ -55,9 +55,11 @@ import { MessageAssetsService } from './services/messaging/message-assets.servic
 import { PushNotificationService } from './services/messaging/push-notification.service'
 import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
+import { readerBeforeDeadline } from './services/messaging/sandbox/sandbox-authorization'
 import { SandboxEmailRuntime } from './services/messaging/sandbox/sandbox-email-runtime'
 import { SandboxEmailSendStep } from './services/messaging/sandbox/sandbox-email-step'
 import { SandboxEmailTester } from './services/messaging/sandbox/sandbox-email-tester'
+import { RECIPIENT_READ_TIMEOUT_MS } from './services/messaging/sandbox/sandbox-recipient-checks'
 import { deliveredAddressReader } from './services/messaging/sandbox/sandbox-render'
 import {
     HogFunctionMonitoringService,
@@ -533,7 +535,10 @@ export function createCdpCoreServices(
         globalHardBounceEnforce: config.EMAIL_SUPPRESSION_GLOBAL_HARD_BOUNCE_ENFORCE,
         softBounceEventTimeTeams: config.CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS,
     })
-    const recipientsManager = new RecipientsManagerService(deps.postgres)
+    const recipientsManager = new RecipientsManagerService(
+        deps.postgres,
+        readerBeforeDeadline(deps.postgres, RECIPIENT_READ_TIMEOUT_MS, 'email-service-preferences')
+    )
     const personsManager = new PersonsManagerService(
         deps.teamManager,
         deps.personRepository,

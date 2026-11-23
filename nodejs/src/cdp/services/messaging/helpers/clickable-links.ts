@@ -65,27 +65,71 @@ const FOREIGN_BREAKOUT_TAGS = new Set([
     'var',
 ])
 const SELECT_CLOSERS = new Set(['input', 'keygen', 'textarea', 'select'])
-const SELECT_IN_TABLE_CLOSERS = new Set(['caption', 'table', 'tbody', 'tfoot', 'thead', 'tr', 'td', 'th'])
+const TABLE_TAGS = new Set(['caption', 'table', 'tbody', 'tfoot', 'thead', 'tr', 'td', 'th'])
 const TABLE_SECTIONS = new Set(['tbody', 'tfoot', 'thead'])
+const MATH_MGLYPH_MALIGNMARK = new Set(['mglyph', 'malignmark'])
+const HTML_VOID_ELEMENTS = new Set([
+    'area',
+    'base',
+    'basefont',
+    'bgsound',
+    'br',
+    'col',
+    'embed',
+    'frame',
+    'hr',
+    'img',
+    'input',
+    'keygen',
+    'link',
+    'meta',
+    'param',
+    'source',
+    'track',
+    'wbr',
+])
+const HTML_ROOT_ELEMENTS = new Set(['html', 'head', 'body'])
+const HTML_IN_SCOPE_BARRIERS = new Set(['applet', 'caption', 'marquee', 'object', 'table', 'td', 'th'])
+const HTML_P_CLOSERS = new Set([
+    'address',
+    'article',
+    'aside',
+    'blockquote',
+    'details',
+    'dialog',
+    'div',
+    'dl',
+    'fieldset',
+    'figcaption',
+    'figure',
+    'footer',
+    'form',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'h5',
+    'h6',
+    'header',
+    'hgroup',
+    'hr',
+    'main',
+    'menu',
+    'nav',
+    'ol',
+    'p',
+    'pre',
+    'search',
+    'section',
+    'table',
+    'ul',
+])
 
 export const BODY_MAX_LENGTH = 1_500_000
 export const UNSUBSCRIBE_TOKENS_CHECKED = 50
 const TAG_MAX_ATTRIBUTES = 64
 const URL_MAX_AUTHORITY_LENGTH = 255
 const SENTINEL_ORIGIN = 'https://a'
-
-export type ClickableHrefsStats = {
-    tokens: number
-    contextOps: number
-}
-
-export type HasReplaceableStats = ClickableHrefsStats & {
-    sentinelScans: number
-}
-
-export type PreferencesTokensStats = {
-    urlParses: number
-}
 
 const isAscii = (value: string): boolean => {
     for (let i = 0; i < value.length; i++) {
@@ -98,19 +142,42 @@ const isAscii = (value: string): boolean => {
 
 type Namespace = 'svg' | 'math' | 'html'
 
+type StackEntry = {
+    tag: string
+    ns: Namespace
+    integration: 'none' | 'html' | 'math-text'
+    inScopeBarrier: boolean
+    tableTag: boolean
+}
+
 type TemplateFrame = {
-    contexts: Array<{ tag: string; ns: Namespace }>
-    openCounts: Map<string, number>
+    stack: StackEntry[]
+    foreignRuns: Array<Map<string, number>>
+    htmlScopes: Array<Map<string, number>>
     inSelect: boolean
     tables: Array<Set<string>>
 }
 
 const createTemplateFrame = (): TemplateFrame => ({
-    contexts: [],
-    openCounts: new Map(),
+    stack: [],
+    foreignRuns: [],
+    htmlScopes: [new Map()],
     inSelect: false,
     tables: [],
 })
+
+const incCount = (counts: Map<string, number>, tag: string): void => {
+    counts.set(tag, (counts.get(tag) ?? 0) + 1)
+}
+
+const decCount = (counts: Map<string, number>, tag: string): void => {
+    const next = (counts.get(tag) ?? 1) - 1
+    if (next <= 0) {
+        counts.delete(tag)
+    } else {
+        counts.set(tag, next)
+    }
+}
 
 class TooComplex extends Error {}
 
@@ -138,7 +205,7 @@ const isHtmlAnnotationXml = (tag: Token.TagToken): boolean => {
     return lower === 'text/html' || lower === 'application/xhtml+xml'
 }
 
-const parsePreferencesUrl = (href: string, siteIsAscii: boolean, stats?: PreferencesTokensStats): URL | undefined => {
+const parsePreferencesUrl = (href: string, siteIsAscii: boolean): URL | undefined => {
     const colon = href.indexOf(':')
     if (colon === -1) {
         return undefined
@@ -191,9 +258,6 @@ const parsePreferencesUrl = (href: string, siteIsAscii: boolean, stats?: Prefere
     if (authorityLength === 0 || (siteIsAscii && nonAscii)) {
         return undefined
     }
-    if (stats) {
-        stats.urlParses += 1
-    }
     try {
         return new URL(href)
     } catch {
@@ -204,87 +268,12 @@ const parsePreferencesUrl = (href: string, siteIsAscii: boolean, stats?: Prefere
 export const isTooLargeToCheck = ({ html, text }: { html?: string; text?: string }): boolean =>
     (html?.length ?? 0) > BODY_MAX_LENGTH || (text?.length ?? 0) > BODY_MAX_LENGTH
 
-const trackTableStart = (tables: Array<Set<string>>, tagName: string): void => {
-    if (tagName === 'table') {
-        const current = tables[tables.length - 1]
-        if (!current || current.has('td') || current.has('th') || current.has('caption')) {
-            tables.push(new Set(['table']))
-        } else {
-            tables[tables.length - 1] = new Set(['table'])
-        }
-        return
-    }
-    const table = tables[tables.length - 1]
-    if (!table) {
-        return
-    }
-    if (tagName === 'caption') {
-        table.delete('tbody')
-        table.delete('tfoot')
-        table.delete('thead')
-        table.delete('tr')
-        table.delete('td')
-        table.delete('th')
-        table.add('caption')
-    } else if (TABLE_SECTIONS.has(tagName)) {
-        table.delete('caption')
-        table.delete('tbody')
-        table.delete('tfoot')
-        table.delete('thead')
-        table.delete('tr')
-        table.delete('td')
-        table.delete('th')
-        table.add(tagName)
-    } else if (tagName === 'tr') {
-        table.delete('caption')
-        table.delete('tr')
-        table.delete('td')
-        table.delete('th')
-        if (!table.has('tbody') && !table.has('tfoot') && !table.has('thead')) {
-            table.add('tbody')
-        }
-        table.add('tr')
-    } else if (tagName === 'td' || tagName === 'th') {
-        table.delete('caption')
-        table.delete('td')
-        table.delete('th')
-        if (!table.has('tbody') && !table.has('tfoot') && !table.has('thead')) {
-            table.add('tbody')
-        }
-        table.add('tr')
-        table.add(tagName)
-    }
-}
-
-const trackTableEnd = (tables: Array<Set<string>>, tagName: string): void => {
-    const table = tables[tables.length - 1]
-    if (!table || !table.has(tagName)) {
-        return
-    }
-    if (tagName === 'table') {
-        tables.pop()
-    } else if (tagName === 'caption') {
-        table.delete('caption')
-    } else if (TABLE_SECTIONS.has(tagName)) {
-        table.delete(tagName)
-        table.delete('tr')
-        table.delete('td')
-        table.delete('th')
-    } else if (tagName === 'tr') {
-        table.delete('tr')
-        table.delete('td')
-        table.delete('th')
-    } else if (tagName === 'td' || tagName === 'th') {
-        table.delete(tagName)
-    }
-}
-
 /**
  * Extracts clickable anchor hrefs in a single linear `parse5.Tokenizer` pass without building a DOM
  * tree, keeping worst-case work O(N) against adversarial markup. Intended as a lint against honest
  * authoring mistakes (backed by `List-Unsubscribe` headers), not full WHATWG tree construction.
  */
-export const clickableHrefs = (body: string, stats?: ClickableHrefsStats): string[] => {
+export const clickableHrefs = (body: string): string[] => {
     if (body.length > BODY_MAX_LENGTH) {
         return []
     }
@@ -292,166 +281,330 @@ export const clickableHrefs = (body: string, stats?: ClickableHrefsStats): strin
     const frames: TemplateFrame[] = [createTemplateFrame()]
 
     const currentFrame = (): TemplateFrame => frames[frames.length - 1]
-    const currentNs = (): Namespace => {
-        const { contexts } = currentFrame()
-        return contexts.length > 0 ? contexts[contexts.length - 1].ns : 'html'
-    }
-    const pushContext = (tag: string, ns: Namespace): void => {
-        const frame = currentFrame()
-        frame.contexts.push({ tag, ns })
-        frame.openCounts.set(tag, (frame.openCounts.get(tag) ?? 0) + 1)
-        if (stats) {
-            stats.contextOps += 1
+    const topEntry = (frame: TemplateFrame): StackEntry | undefined => frame.stack[frame.stack.length - 1]
+
+    const pushEntry = (frame: TemplateFrame, entry: StackEntry): void => {
+        const prev = topEntry(frame)
+        if (entry.inScopeBarrier) {
+            frame.htmlScopes.push(new Map())
         }
+        if (entry.ns !== 'html') {
+            if (!prev || prev.ns === 'html') {
+                frame.foreignRuns.push(new Map())
+            }
+            incCount(frame.foreignRuns[frame.foreignRuns.length - 1], entry.tag)
+        } else {
+            incCount(frame.htmlScopes[frame.htmlScopes.length - 1], entry.tag)
+        }
+        frame.stack.push(entry)
     }
-    const popContext = (): void => {
-        const frame = currentFrame()
-        const popped = frame.contexts.pop()
-        if (popped) {
-            frame.openCounts.set(popped.tag, (frame.openCounts.get(popped.tag) ?? 1) - 1)
-            if (stats) {
-                stats.contextOps += 1
+
+    const popEntry = (frame: TemplateFrame): StackEntry | undefined => {
+        const popped = frame.stack.pop()
+        if (!popped) {
+            return undefined
+        }
+        if (popped.ns !== 'html') {
+            decCount(frame.foreignRuns[frame.foreignRuns.length - 1], popped.tag)
+            const next = topEntry(frame)
+            if (!next || next.ns === 'html') {
+                frame.foreignRuns.pop()
+            }
+        } else {
+            decCount(frame.htmlScopes[frame.htmlScopes.length - 1], popped.tag)
+            if (popped.tableTag) {
+                if (popped.tag === 'table') {
+                    frame.tables.pop()
+                } else {
+                    frame.tables[frame.tables.length - 1]?.delete(popped.tag)
+                }
             }
         }
-    }
-    const popToTag = (tag: string): void => {
-        const frame = currentFrame()
-        if ((frame.openCounts.get(tag) ?? 0) === 0) {
-            return
+        if (popped.inScopeBarrier) {
+            frame.htmlScopes.pop()
         }
-        while (frame.contexts.length > 0) {
-            const top = frame.contexts[frame.contexts.length - 1]
-            popContext()
-            if (top.tag === tag) {
+        return popped
+    }
+
+    const popToHtmlTag = (frame: TemplateFrame, tag: string): void => {
+        while (frame.stack.length > 0) {
+            const popped = popEntry(frame)
+            if (popped && popped.ns === 'html' && popped.tag === tag) {
                 break
             }
         }
     }
-    const pushTemplateFrame = (): void => {
-        frames.push(createTemplateFrame())
-        if (stats) {
-            stats.contextOps += 1
+
+    const popUntilTable = (frame: TemplateFrame): void => {
+        while (frame.stack.length > 0) {
+            const top = topEntry(frame)!
+            if (top.ns === 'html' && top.tag === 'table') {
+                break
+            }
+            popEntry(frame)
         }
     }
-    const popTemplateFrame = (): void => {
-        if (frames.length > 1) {
-            frames.pop()
-            if (stats) {
-                stats.contextOps += 1
+
+    const pushHtmlTableTag = (frame: TemplateFrame, tagName: string): void => {
+        if (tagName === 'table') {
+            const current = frame.tables[frame.tables.length - 1]
+            if (current && !current.has('td') && !current.has('th') && !current.has('caption')) {
+                popToHtmlTag(frame, 'table')
             }
+            frame.tables.push(new Set(['table']))
+            pushEntry(frame, { tag: 'table', ns: 'html', integration: 'none', inScopeBarrier: true, tableTag: true })
+            return
         }
+        const table = frame.tables[frame.tables.length - 1]
+        if (!table) {
+            return
+        }
+        if (tagName === 'caption') {
+            popUntilTable(frame)
+            table.add('caption')
+            pushEntry(frame, { tag: 'caption', ns: 'html', integration: 'none', inScopeBarrier: true, tableTag: true })
+        } else if (TABLE_SECTIONS.has(tagName)) {
+            popUntilTable(frame)
+            table.add(tagName)
+            pushEntry(frame, { tag: tagName, ns: 'html', integration: 'none', inScopeBarrier: false, tableTag: true })
+        } else if (tagName === 'tr') {
+            if (table.has('caption')) {
+                popToHtmlTag(frame, 'caption')
+            }
+            if (table.has('tr')) {
+                popToHtmlTag(frame, 'tr')
+            }
+            if (!table.has('tbody') && !table.has('tfoot') && !table.has('thead')) {
+                table.add('tbody')
+                pushEntry(frame, {
+                    tag: 'tbody',
+                    ns: 'html',
+                    integration: 'none',
+                    inScopeBarrier: false,
+                    tableTag: true,
+                })
+            }
+            table.add('tr')
+            pushEntry(frame, { tag: 'tr', ns: 'html', integration: 'none', inScopeBarrier: false, tableTag: true })
+        } else if (tagName === 'td' || tagName === 'th') {
+            if (table.has('caption')) {
+                popToHtmlTag(frame, 'caption')
+            }
+            if (table.has('td')) {
+                popToHtmlTag(frame, 'td')
+            } else if (table.has('th')) {
+                popToHtmlTag(frame, 'th')
+            }
+            if (!table.has('tbody') && !table.has('tfoot') && !table.has('thead')) {
+                table.add('tbody')
+                pushEntry(frame, {
+                    tag: 'tbody',
+                    ns: 'html',
+                    integration: 'none',
+                    inScopeBarrier: false,
+                    tableTag: true,
+                })
+            }
+            if (!table.has('tr')) {
+                table.add('tr')
+                pushEntry(frame, { tag: 'tr', ns: 'html', integration: 'none', inScopeBarrier: false, tableTag: true })
+            }
+            table.add(tagName)
+            pushEntry(frame, { tag: tagName, ns: 'html', integration: 'none', inScopeBarrier: true, tableTag: true })
+        }
+    }
+
+    const isHtmlStartMode = (frame: TemplateFrame, tagName: string): boolean => {
+        const top = topEntry(frame)
+        if (!top || top.ns === 'html' || top.integration === 'html') {
+            return true
+        }
+        return top.integration === 'math-text' && !MATH_MGLYPH_MALIGNMARK.has(tagName)
+    }
+
+    const updateForeignTokenizerFlag = (): void => {
+        const top = topEntry(currentFrame())
+        tokenizer.inForeignNode = top !== undefined && top.ns !== 'html' && top.integration === 'none'
     }
 
     const tokenizer: Tokenizer = new BoundedTokenizer(
         {},
         {
             onStartTag: (tag: Token.TagToken) => {
-                if (stats) {
-                    stats.tokens += 1
-                }
                 const frame = currentFrame()
-                let ns = currentNs()
+                let inHtml = isHtmlStartMode(frame, tag.tagName)
 
-                if (ns === 'html' && frame.inSelect) {
+                if (inHtml && frame.inSelect) {
                     if (SELECT_CLOSERS.has(tag.tagName)) {
                         frame.inSelect = false
                         if (tag.tagName === 'select') {
+                            updateForeignTokenizerFlag()
                             return
                         }
-                    } else if (frame.tables.length > 0 && SELECT_IN_TABLE_CLOSERS.has(tag.tagName)) {
+                    } else if (frame.tables.length > 0 && TABLE_TAGS.has(tag.tagName)) {
                         frame.inSelect = false
                     } else {
                         if (tag.tagName === 'template') {
-                            pushTemplateFrame()
+                            frames.push(createTemplateFrame())
                         } else if (tag.tagName === 'script') {
                             tokenizer.state = TokenizerMode.SCRIPT_DATA
                         }
+                        updateForeignTokenizerFlag()
                         return
                     }
                 }
 
-                if (ns !== 'html' && isForeignBreakout(tag)) {
-                    while (frame.contexts.length > 0 && frame.contexts[frame.contexts.length - 1].ns !== 'html') {
-                        popContext()
+                if (!inHtml && isForeignBreakout(tag)) {
+                    while (frame.stack.length > 0) {
+                        const top = topEntry(frame)!
+                        if (top.ns === 'html' || top.integration !== 'none') {
+                            break
+                        }
+                        popEntry(frame)
                     }
-                    ns = currentNs()
+                    inHtml = isHtmlStartMode(frame, tag.tagName)
                 }
 
-                if (ns === 'html') {
-                    if (tag.tagName === 'svg' && !tag.selfClosing) {
-                        pushContext('svg', 'svg')
-                    } else if (tag.tagName === 'math' && !tag.selfClosing) {
-                        pushContext('math', 'math')
+                let anchorNs: Namespace = 'html'
+                if (inHtml) {
+                    if (tag.tagName === 'svg') {
+                        if (!tag.selfClosing) {
+                            pushEntry(frame, {
+                                tag: 'svg',
+                                ns: 'svg',
+                                integration: 'none',
+                                inScopeBarrier: false,
+                                tableTag: false,
+                            })
+                        }
+                    } else if (tag.tagName === 'math') {
+                        if (!tag.selfClosing) {
+                            pushEntry(frame, {
+                                tag: 'math',
+                                ns: 'math',
+                                integration: 'none',
+                                inScopeBarrier: false,
+                                tableTag: false,
+                            })
+                        }
                     } else if (tag.tagName === 'template') {
-                        pushTemplateFrame()
+                        frames.push(createTemplateFrame())
                     } else if (tag.tagName === 'select') {
                         frame.inSelect = true
-                    } else {
-                        if (SELECT_IN_TABLE_CLOSERS.has(tag.tagName)) {
-                            trackTableStart(frame.tables, tag.tagName)
+                    } else if (TABLE_TAGS.has(tag.tagName)) {
+                        if (
+                            tag.tagName === 'table' &&
+                            (frame.htmlScopes[frame.htmlScopes.length - 1].get('p') ?? 0) > 0
+                        ) {
+                            popToHtmlTag(frame, 'p')
                         }
-                        tokenizer.state = TEXT_MODES.get(tag.tagName) ?? tokenizer.state
+                        pushHtmlTableTag(frame, tag.tagName)
+                    } else if (TEXT_MODES.has(tag.tagName)) {
+                        tokenizer.state = TEXT_MODES.get(tag.tagName)!
+                    } else if (!HTML_VOID_ELEMENTS.has(tag.tagName) && !HTML_ROOT_ELEMENTS.has(tag.tagName)) {
+                        if (
+                            HTML_P_CLOSERS.has(tag.tagName) &&
+                            (frame.htmlScopes[frame.htmlScopes.length - 1].get('p') ?? 0) > 0
+                        ) {
+                            popToHtmlTag(frame, 'p')
+                        }
+                        pushEntry(frame, {
+                            tag: tag.tagName,
+                            ns: 'html',
+                            integration: 'none',
+                            inScopeBarrier: HTML_IN_SCOPE_BARRIERS.has(tag.tagName),
+                            tableTag: false,
+                        })
                     }
-                } else if (ns === 'svg' && SVG_HTML_INTEGRATION_POINTS.has(tag.tagName) && !tag.selfClosing) {
-                    pushContext(tag.tagName, 'html')
-                } else if (
-                    ns === 'math' &&
-                    (MATH_TEXT_INTEGRATION_POINTS.has(tag.tagName) ||
-                        (tag.tagName === 'annotation-xml' && isHtmlAnnotationXml(tag))) &&
-                    !tag.selfClosing
-                ) {
-                    pushContext(tag.tagName, 'html')
-                } else if (tag.tagName === 'svg' && !tag.selfClosing) {
-                    pushContext('svg', 'svg')
-                } else if (tag.tagName === 'math' && !tag.selfClosing) {
-                    pushContext('math', 'math')
+                } else {
+                    const parentNs = topEntry(frame)!.ns
+                    const elementNs: Namespace = parentNs
+                    anchorNs = elementNs
+                    if (!tag.selfClosing) {
+                        const integration: StackEntry['integration'] =
+                            parentNs === 'svg' && SVG_HTML_INTEGRATION_POINTS.has(tag.tagName)
+                                ? 'html'
+                                : parentNs === 'math' && MATH_TEXT_INTEGRATION_POINTS.has(tag.tagName)
+                                  ? 'math-text'
+                                  : parentNs === 'math' && tag.tagName === 'annotation-xml' && isHtmlAnnotationXml(tag)
+                                    ? 'html'
+                                    : 'none'
+                        const inScopeBarrier =
+                            integration !== 'none' || (parentNs === 'math' && tag.tagName === 'annotation-xml')
+                        pushEntry(frame, {
+                            tag: tag.tagName,
+                            ns: elementNs,
+                            integration,
+                            inScopeBarrier,
+                            tableTag: false,
+                        })
+                    }
                 }
 
-                tokenizer.inForeignNode = currentNs() !== 'html'
+                updateForeignTokenizerFlag()
 
                 if (tag.tagName === 'a' && frames.length === 1 && !frame.inSelect) {
                     const href =
                         tag.attrs.find(({ name }) => name === 'href') ??
-                        (ns === 'svg' ? tag.attrs.find(({ name }) => name === 'xlink:href') : undefined)
+                        (anchorNs === 'svg' ? tag.attrs.find(({ name }) => name === 'xlink:href') : undefined)
                     if (href) {
                         hrefs.add(href.value)
                     }
                 }
             },
             onEndTag: (tag: Token.TagToken) => {
-                if (stats) {
-                    stats.tokens += 1
-                }
                 const frame = currentFrame()
-                const ns = currentNs()
                 if (tag.tagName === 'template' && frames.length > 1) {
-                    popTemplateFrame()
-                } else if (ns !== 'html' && (tag.tagName === 'p' || tag.tagName === 'br')) {
-                    while (frame.contexts.length > 0 && frame.contexts[frame.contexts.length - 1].ns !== 'html') {
-                        popContext()
+                    frames.pop()
+                    updateForeignTokenizerFlag()
+                    return
+                }
+
+                const top = topEntry(frame)
+                if (top && top.ns !== 'html') {
+                    if (tag.tagName === 'p' || tag.tagName === 'br') {
+                        while (frame.stack.length > 0) {
+                            const cur = topEntry(frame)!
+                            if (cur.ns === 'html' || cur.integration !== 'none') {
+                                break
+                            }
+                            popEntry(frame)
+                        }
+                        if (tag.tagName === 'br') {
+                            updateForeignTokenizerFlag()
+                            return
+                        }
+                    } else {
+                        const foreignRun = frame.foreignRuns[frame.foreignRuns.length - 1]
+                        if ((foreignRun?.get(tag.tagName) ?? 0) > 0) {
+                            while (frame.stack.length > 0) {
+                                const popped = popEntry(frame)
+                                if (popped && popped.tag === tag.tagName) {
+                                    break
+                                }
+                            }
+                            updateForeignTokenizerFlag()
+                            return
+                        }
                     }
-                } else if (ns === 'html' && frame.inSelect) {
+                }
+
+                if (frame.inSelect) {
                     if (tag.tagName === 'select') {
                         frame.inSelect = false
-                    } else if (
-                        SELECT_IN_TABLE_CLOSERS.has(tag.tagName) &&
-                        frame.tables[frame.tables.length - 1]?.has(tag.tagName)
-                    ) {
+                    } else if (TABLE_TAGS.has(tag.tagName) && frame.tables[frame.tables.length - 1]?.has(tag.tagName)) {
                         frame.inSelect = false
-                        trackTableEnd(frame.tables, tag.tagName)
+                        popToHtmlTag(frame, tag.tagName)
                     }
-                } else if (ns === 'html' && SELECT_IN_TABLE_CLOSERS.has(tag.tagName)) {
-                    trackTableEnd(frame.tables, tag.tagName)
-                } else if (
-                    tag.tagName === 'svg' ||
-                    tag.tagName === 'math' ||
-                    SVG_HTML_INTEGRATION_POINTS.has(tag.tagName) ||
-                    MATH_TEXT_INTEGRATION_POINTS.has(tag.tagName) ||
-                    tag.tagName === 'annotation-xml'
-                ) {
-                    popToTag(tag.tagName)
+                } else if (TABLE_TAGS.has(tag.tagName)) {
+                    if (frame.tables[frame.tables.length - 1]?.has(tag.tagName)) {
+                        popToHtmlTag(frame, tag.tagName)
+                    }
+                } else if ((frame.htmlScopes[frame.htmlScopes.length - 1].get(tag.tagName) ?? 0) > 0) {
+                    popToHtmlTag(frame, tag.tagName)
                 }
-                tokenizer.inForeignNode = currentNs() !== 'html'
+
+                updateForeignTokenizerFlag()
             },
             onComment: ignore,
             onDoctype: ignore,
@@ -486,24 +639,15 @@ export const filledUnsubscribeLength = (body: string | undefined, url: string | 
 export const replaceUnsubscribePlaceholder = (body: string, url: string): string =>
     body.replace(UNSUBSCRIBE_PLACEHOLDER, () => url)
 
-const unusedSentinelUrl = (
-    source: string,
-    stats?: HasReplaceableStats
-): { origin: string; pathname: string; url: string } => {
+const unusedSentinelUrl = (source: string): { origin: string; pathname: string; url: string } => {
     for (let attempt = 0; attempt < 4; attempt += 1) {
         const token = randomBytes(6).toString('base64url')
-        if (stats) {
-            stats.sentinelScans += 1
-        }
         if (!source.includes(token)) {
             const pathname = `/${token}/`
             return { origin: SENTINEL_ORIGIN, pathname, url: `${SENTINEL_ORIGIN}${pathname}` }
         }
     }
     const used = new Set<string>()
-    if (stats) {
-        stats.sentinelScans += 1
-    }
     for (const match of source.matchAll(/_[0-9a-z]{5}/g)) {
         used.add(match[0])
     }
@@ -521,17 +665,14 @@ const unusedSentinelUrl = (
  * link in `html` (or a placeholder in plain `text` when `html` is empty), matching the delivery-time
  * substitution so entity-encoded placeholders and foreign-host wrapper URLs are rejected upfront.
  */
-export const hasReplaceableUnsubscribeLink = (
-    { html, text }: { html?: string; text?: string },
-    stats?: HasReplaceableStats
-): boolean => {
+export const hasReplaceableUnsubscribeLink = ({ html, text }: { html?: string; text?: string }): boolean => {
     if (html) {
         if (html.length > BODY_MAX_LENGTH || html.search(UNSUBSCRIBE_PLACEHOLDER) === -1) {
             return false
         }
-        const sentinel = unusedSentinelUrl(html, stats)
+        const sentinel = unusedSentinelUrl(html)
         const filled = replaceUnsubscribePlaceholder(html, sentinel.url)
-        return clickableHrefs(filled, stats).some((href) => {
+        return clickableHrefs(filled).some((href) => {
             const page = parsePreferencesUrl(href, true)
             return page !== undefined && page.origin === sentinel.origin && page.pathname === sentinel.pathname
         })
@@ -539,11 +680,7 @@ export const hasReplaceableUnsubscribeLink = (
     return (text ?? '').search(UNSUBSCRIBE_PLACEHOLDER) !== -1
 }
 
-export const preferencesTokensInBody = (
-    body: { html?: string; text?: string },
-    siteUrl: string,
-    stats?: PreferencesTokensStats
-): string[] => {
+export const preferencesTokensInBody = (body: { html?: string; text?: string }, siteUrl: string): string[] => {
     const preferencesPage = `${siteUrl}/messaging-preferences/`
     const tokens = new Set<string>()
     const addPath = (path: string): void => {
@@ -555,7 +692,7 @@ export const preferencesTokensInBody = (
     if (body.html) {
         const siteIsAscii = isAscii(siteUrl)
         for (const href of clickableHrefs(body.html)) {
-            const page = parsePreferencesUrl(href, siteIsAscii, stats)
+            const page = parsePreferencesUrl(href, siteIsAscii)
             const path = page ? `${page.origin}${page.pathname}` : ''
             if (path.startsWith(preferencesPage)) {
                 addPath(path.slice(preferencesPage.length))

@@ -1,5 +1,5 @@
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
 import { createTeam, createTestTeamFixture, getTeam } from '~/tests/helpers/sql'
 import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
@@ -356,47 +356,155 @@ describe('RecipientsManager', () => {
     })
 
     describe('getFresh', () => {
-        it('batches concurrent primary reads into a single query without caching', async () => {
-            await createRecipient(team.id, 'Alice@Example.com', { 'cat-1': 'OPTED_OUT' })
-            await createRecipient(team.id, 'bob@example.com', { 'cat-1': 'OPTED_IN' })
-
-            const uses: Array<Parameters<typeof hub.postgres.query>[0]> = []
-            const freshManager = new RecipientsManagerService({
-                query: (use, query, values, tag) => {
-                    uses.push(use)
-                    return hub.postgres.query(use, query, values, tag)
-                },
-            })
-
-            const results = await Promise.all([
-                ...Array.from({ length: 25 }, () =>
-                    freshManager.getFresh({ teamId: team.id, identifier: 'alice@example.com', anyCase: true })
-                ),
-                ...Array.from({ length: 25 }, () =>
-                    freshManager.getFresh({ teamId: team.id, identifier: 'bob@example.com', anyCase: true })
-                ),
-                freshManager.getFresh({ teamId: team.id, identifier: 'missing@example.com', anyCase: true }),
-            ])
-
-            expect(uses).toEqual([PostgresUse.COMMON_WRITE])
-            expect(results[0]?.preferences).toEqual({ 'cat-1': 'OPTED_OUT' })
-            expect(results[25]?.preferences).toEqual({ 'cat-1': 'OPTED_IN' })
-            expect(results[50]).toBeNull()
-
-            // A subsequent read hits primary again and observes later updates.
+        it('excludes soft-deleted rows for earlier recipients in a multi-recipient batch', async () => {
             await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
-                `UPDATE posthog_messagerecipientpreference SET preferences = $1 WHERE team_id = $2 AND identifier = $3`,
-                [JSON.stringify({ 'cat-1': 'OPTED_OUT' }), team.id, 'bob@example.com'],
-                'testUpdateRecipient'
+                `INSERT INTO posthog_messagerecipientpreference (id, team_id, identifier, preferences, created_at, updated_at, deleted)
+                 VALUES ($1, $2, $3, $4, NOW(), NOW(), true)`,
+                [new UUIDT().toString(), team.id, 'deleted@example.com', JSON.stringify({ 'cat-1': 'OPTED_OUT' })],
+                'testInsertDeletedRecipient'
             )
-            const updated = await freshManager.getFresh({
-                teamId: team.id,
-                identifier: 'bob@example.com',
-                anyCase: true,
+            await createRecipient(team.id, 'live@example.com', { 'cat-1': 'OPTED_IN' })
+
+            const [deletedFresh, liveFresh] = await Promise.all([
+                manager.getFresh({ teamId: team.id, identifier: 'deleted@example.com', anyCase: true }),
+                manager.getFresh({ teamId: team.id, identifier: 'live@example.com', anyCase: true }),
+            ])
+            expect(deletedFresh).toBeNull()
+            expect(liveFresh?.preferences).toEqual({ 'cat-1': 'OPTED_IN' })
+
+            const many = await manager.getMany([
+                { teamId: team.id, identifier: 'deleted@example.com', anyCase: true },
+                { teamId: team.id, identifier: 'live@example.com', anyCase: true },
+            ])
+            expect(many[`${team.id}:deleted@example.com`]).toBeNull()
+            expect(many[`${team.id}:live@example.com`]?.preferences).toEqual({ 'cat-1': 'OPTED_IN' })
+        })
+
+        it('reads fresh primary state instead of a lagging replica and batches concurrent reads', async () => {
+            const primarySchema = `fresh_primary_${team.id}`
+            const replicaSchema = `fresh_replica_${team.id}`
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `CREATE SCHEMA ${primarySchema};
+                 CREATE TABLE ${primarySchema}.posthog_messagerecipientpreference (LIKE public.posthog_messagerecipientpreference INCLUDING ALL);
+                 CREATE SCHEMA ${replicaSchema};
+                 CREATE TABLE ${replicaSchema}.posthog_messagerecipientpreference (LIKE public.posthog_messagerecipientpreference INCLUDING ALL);`,
+                [],
+                'testCreatePrimaryAndReplicaSchemas'
+            )
+
+            const primaryUrl = new URL(hub.DATABASE_URL)
+            primaryUrl.searchParams.set('options', `-c search_path=${primarySchema},public`)
+            const replicaUrl = new URL(hub.DATABASE_URL)
+            replicaUrl.searchParams.set('options', `-c search_path=${replicaSchema},public`)
+            const splitRouter = new PostgresRouter({
+                ...hub,
+                DATABASE_URL: primaryUrl.toString(),
+                DATABASE_READONLY_URL: replicaUrl.toString(),
+                POSTGRES_CONNECTION_POOL_SIZE: 1,
             })
-            expect(updated?.preferences).toEqual({ 'cat-1': 'OPTED_OUT' })
-            expect(uses).toEqual([PostgresUse.COMMON_WRITE, PostgresUse.COMMON_WRITE])
+
+            const readPrimaryScans = async (): Promise<number> => {
+                await splitRouter.query(
+                    PostgresUse.COMMON_WRITE,
+                    'SELECT pg_stat_force_next_flush()',
+                    [],
+                    'testFlushStats'
+                )
+                await splitRouter.query(
+                    PostgresUse.COMMON_WRITE,
+                    'SELECT pg_stat_clear_snapshot()',
+                    [],
+                    'testClearSnapshot'
+                )
+                const { rows } = await splitRouter.query<{ scans: string }>(
+                    PostgresUse.COMMON_WRITE,
+                    `SELECT coalesce(seq_scan, 0) + coalesce(idx_scan, 0) AS scans
+                     FROM pg_stat_user_tables
+                     WHERE schemaname = $1 AND relname = 'posthog_messagerecipientpreference'`,
+                    [primarySchema],
+                    'testReadPrimaryScans'
+                )
+                return Number(rows[0]?.scans ?? 0)
+            }
+
+            try {
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO ${primarySchema}.posthog_messagerecipientpreference
+                        (id, team_id, identifier, preferences, created_at, updated_at, deleted)
+                     VALUES
+                        ($1, $2, 'Alice@Example.com', $3, NOW(), NOW(), false),
+                        ($4, $2, 'bob@example.com', $5, NOW(), NOW(), false)`,
+                    [
+                        new UUIDT().toString(),
+                        team.id,
+                        JSON.stringify({ 'cat-1': 'OPTED_OUT' }),
+                        new UUIDT().toString(),
+                        JSON.stringify({ 'cat-1': 'OPTED_IN' }),
+                    ],
+                    'testSeedPrimary'
+                )
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO ${replicaSchema}.posthog_messagerecipientpreference
+                        (id, team_id, identifier, preferences, created_at, updated_at, deleted)
+                     VALUES
+                        ($1, $2, 'Alice@Example.com', $3, NOW(), NOW(), false),
+                        ($4, $2, 'bob@example.com', $3, NOW(), NOW(), false)`,
+                    [new UUIDT().toString(), team.id, JSON.stringify({ 'cat-1': 'OPTED_IN' }), new UUIDT().toString()],
+                    'testSeedReplica'
+                )
+
+                const freshManager = new RecipientsManagerService(splitRouter)
+                const cachedReplica = await freshManager.get({
+                    teamId: team.id,
+                    identifier: 'alice@example.com',
+                    anyCase: true,
+                })
+                expect(cachedReplica?.preferences).toEqual({ 'cat-1': 'OPTED_IN' })
+
+                const scansBefore = await readPrimaryScans()
+                const results = await Promise.all([
+                    ...Array.from({ length: 25 }, () =>
+                        freshManager.getFresh({ teamId: team.id, identifier: 'alice@example.com', anyCase: true })
+                    ),
+                    ...Array.from({ length: 25 }, () =>
+                        freshManager.getFresh({ teamId: team.id, identifier: 'bob@example.com', anyCase: true })
+                    ),
+                    freshManager.getFresh({ teamId: team.id, identifier: 'missing@example.com', anyCase: true }),
+                ])
+                const scansAfterBatch = await readPrimaryScans()
+
+                expect(scansAfterBatch - scansBefore).toBeGreaterThan(0)
+                expect(scansAfterBatch - scansBefore).toBeLessThanOrEqual(3)
+                expect(results[0]?.preferences).toEqual({ 'cat-1': 'OPTED_OUT' })
+                expect(results[25]?.preferences).toEqual({ 'cat-1': 'OPTED_IN' })
+                expect(results[50]).toBeNull()
+
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `UPDATE ${primarySchema}.posthog_messagerecipientpreference
+                     SET preferences = $1 WHERE team_id = $2 AND identifier = $3`,
+                    [JSON.stringify({ 'cat-1': 'OPTED_OUT' }), team.id, 'bob@example.com'],
+                    'testUpdatePrimaryRecipient'
+                )
+                const updated = await freshManager.getFresh({
+                    teamId: team.id,
+                    identifier: 'bob@example.com',
+                    anyCase: true,
+                })
+                expect(updated?.preferences).toEqual({ 'cat-1': 'OPTED_OUT' })
+            } finally {
+                await splitRouter.end()
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `DROP SCHEMA IF EXISTS ${primarySchema} CASCADE; DROP SCHEMA IF EXISTS ${replicaSchema} CASCADE;`,
+                    [],
+                    'testDropPrimaryAndReplicaSchemas'
+                )
+            }
         })
 
         it('does not attach a new fresh read to a primary query that already started', async () => {
@@ -407,14 +515,13 @@ describe('RecipientsManager', () => {
             const firstStarted = new Promise<void>((resolve) => {
                 firstQueryStarted = resolve
             })
-            let queryCount = 0
+            let heldFirst = false
 
             const freshManager = new RecipientsManagerService({
                 query: async (use, query, values, tag) => {
-                    queryCount += 1
-                    const current = queryCount
                     const result = await hub.postgres.query(use, query, values, tag)
-                    if (current === 1) {
+                    if (!heldFirst) {
+                        heldFirst = true
                         firstQueryStarted()
                         await new Promise<void>((resolve) => {
                             releaseFirstQuery = resolve
@@ -443,14 +550,12 @@ describe('RecipientsManager', () => {
                 identifier: 'user@example.com',
                 anyCase: true,
             })
-
-            const second = await secondRead
             releaseFirstQuery()
-            const first = await firstRead
+
+            const [first, second] = await Promise.all([firstRead, secondRead])
 
             expect(first?.preferences).toEqual({ 'cat-1': 'OPTED_IN' })
             expect(second?.preferences).toEqual({ 'cat-1': 'OPTED_OUT' })
-            expect(queryCount).toBe(2)
         })
     })
 })

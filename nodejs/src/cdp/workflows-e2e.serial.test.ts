@@ -3635,13 +3635,18 @@ describe('Workflows E2E (email queue)', () => {
                 email.envelope.to.some((recipient: { address: string }) => recipient.address === address)
             )
 
-        const preferencesLinkOwners = async (body: string): Promise<string[]> =>
+        const preferencesLinkOwners = async (
+            body: string,
+            { oneClick }: { oneClick?: boolean } = {}
+        ): Promise<string[]> =>
             await Promise.all(
                 [...body.matchAll(/https?:\/\/[^\s"'<>()[\]]+/g)]
                     .map(([link]) => new URL(link.replace(/&amp;/g, '&')))
                     .filter(
-                        ({ origin, pathname }) =>
-                            origin === siteUrl && /^\/messaging-preferences\/[^/]+\/$/.test(pathname)
+                        ({ origin, pathname, search }) =>
+                            origin === siteUrl &&
+                            /^\/messaging-preferences\/[^/]+\/$/.test(pathname) &&
+                            (oneClick === undefined || search === (oneClick ? '?one_click_unsubscribe=1' : ''))
                     )
                     .map(async ({ pathname }) => {
                         const token = pathname.split('/')[2]
@@ -3825,7 +3830,7 @@ describe('Workflows E2E (email queue)', () => {
 
                     expect(ses.sent.map((email) => email.to)).toEqual([[to]])
                     const { headers } = ses.sent[0]
-                    expect(await preferencesLinkOwners(headers['List-Unsubscribe'] ?? '')).toEqual(
+                    expect(await preferencesLinkOwners(headers['List-Unsubscribe'] ?? '', { oneClick: true })).toEqual(
                         unsubscribes ? [to] : []
                     )
                     expect(headers['List-Unsubscribe-Post']).toEqual(
@@ -3961,6 +3966,17 @@ describe('Workflows E2E (email queue)', () => {
                 kind: 'code',
                 stepEmail: {
                     html: `<a href="{{ unsubscribe_url }}?${' '.repeat(80_000)}\nx">Unsubscribe</a>`,
+                    text: 'News',
+                },
+                payload: codeSendIn(newsletter, { content: undefined }),
+                status: 400,
+                error: 'unsubscribe_link_required',
+            },
+            {
+                name: 'a code send in a marketing category without its own content whose email step wraps a conditional unsubscribe link in another host URL',
+                kind: 'code',
+                stepEmail: {
+                    html: '<a href="https://example.com/?next={% if true %}{{ unsubscribe_url }}{% endif %}">Unsubscribe</a>',
                     text: 'News',
                 },
                 payload: codeSendIn(newsletter, { content: undefined }),
@@ -4115,6 +4131,16 @@ describe('Workflows E2E (email queue)', () => {
                 stepEmail: {
                     subject: 'News',
                     html: '<a href="{{ unsubscribe_url | escape }}">Unsubscribe</a>',
+                    text: '',
+                },
+                payload: codeSendIn(newsletter, { content: undefined }),
+            },
+            {
+                name: 'a code send in a marketing category without its own content whose email step wraps the link in a Liquid conditional',
+                kind: 'code',
+                stepEmail: {
+                    subject: 'News',
+                    html: '<a href="{% if true %}{{ unsubscribe_url }}{% endif %}">Unsubscribe</a>',
                     text: '',
                 },
                 payload: codeSendIn(newsletter, { content: undefined }),
@@ -4488,6 +4514,82 @@ describe('Workflows E2E (email queue)', () => {
                 locker.release()
                 boundedServer.close()
                 await boundedApi.stop()
+                await onePoolPostgres.end()
+            }
+        })
+
+        it('bounds the email worker preference read and parks on retry backoff when primary preferences are locked', async () => {
+            const flow = await insertHogFlow(hub.postgres, sendFlow('code', 'transactional'))
+            const to = `reader-${new UUIDT().toString()}@example.com`
+
+            const res = await post('code', flow, { to, distinct_id: 'reader', ...codeSendIn(newsletter) })
+            expect(res.status).toEqual(202)
+
+            const onePoolPostgres = new PostgresRouter({ ...hub, POSTGRES_CONNECTION_POOL_SIZE: 1 })
+            const workerDeps = { ...createCdpConsumerDeps(hub, kafkaProducer), postgres: onePoolPostgres }
+            const locker = await hub.postgres.connect(PostgresUse.COMMON_WRITE)
+            let worker: CdpCyclotronWorkerEmail | undefined
+            let locked = false
+            const queryWithTimeout = async (router: PostgresRouter, tag: string) => {
+                let timer: NodeJS.Timeout | undefined
+                try {
+                    return await Promise.race([
+                        router
+                            .query(PostgresUse.COMMON_WRITE, 'SELECT 1 AS answered', undefined, tag)
+                            .then((result) => result.rows),
+                        new Promise<string>((resolve) => {
+                            timer = setTimeout(() => resolve('pool_exhausted'), 1_000)
+                        }),
+                    ])
+                } finally {
+                    clearTimeout(timer)
+                }
+            }
+            try {
+                await locker.query('BEGIN')
+                await locker.query(`SET LOCAL idle_in_transaction_session_timeout = '15s'`)
+                await locker.query('LOCK TABLE posthog_messagerecipientpreference IN ACCESS EXCLUSIVE MODE')
+                locked = true
+
+                worker = new CdpCyclotronWorkerEmail(
+                    hub,
+                    workerDeps,
+                    new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+                )
+                await worker.start()
+
+                await waitForExpect(async () => {
+                    const jobs = await queryCyclotronJobs()
+                    expect(jobs).toHaveLength(1)
+                    expect(jobs[0].status).toEqual('available')
+                    expect(new Date(jobs[0].scheduled).getTime()).toBeGreaterThan(Date.now() + 1_000)
+                }, 8_000)
+
+                expect(await emailsTo(to)).toEqual([])
+                expect(await queryWithTimeout(onePoolPostgres, 'test-worker-main-pool-free')).toEqual([{ answered: 1 }])
+                expect(
+                    await queryWithTimeout(sandboxReadRouter(onePoolPostgres), 'test-worker-bounded-pool-free')
+                ).toEqual([{ answered: 1 }])
+
+                await locker.query('COMMIT')
+                locked = false
+
+                await cyclotronPool.query(`UPDATE cyclotron_jobs SET scheduled = NOW() WHERE id = $1`, [
+                    res.body.invocation_id,
+                ])
+                await waitForExpect(async () => {
+                    const jobs = await queryCyclotronJobs()
+                    expect(jobs.every((job: any) => job.status === 'completed')).toBe(true)
+                }, 15_000)
+                expect(await emailsTo(to)).toHaveLength(1)
+            } finally {
+                if (locked) {
+                    await locker.query('COMMIT').catch(() => undefined)
+                }
+                locker.release()
+                if (worker) {
+                    await worker.stop()
+                }
                 await onePoolPostgres.end()
             }
         })

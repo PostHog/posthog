@@ -855,8 +855,19 @@ describe('a transactional email sent from code on the sandbox sender', () => {
                 'test:sandbox-code-send-opt-out'
             )
 
-        const tokenOwner = async (url: string): Promise<string | null> => {
-            const token = new URL(url).pathname.split('/').filter(Boolean).at(-1) ?? ''
+        const preferencesUrlOwner = async (
+            url: string,
+            { oneClick = false }: { oneClick?: boolean } = {}
+        ): Promise<string | null> => {
+            const parsed = new URL(url)
+            if (
+                parsed.origin !== hub.SITE_URL ||
+                !/^\/messaging-preferences\/[^/]+\/$/.test(parsed.pathname) ||
+                parsed.search !== (oneClick ? '?one_click_unsubscribe=1' : '')
+            ) {
+                return null
+            }
+            const token = parsed.pathname.split('/')[2]
             const res = await supertest(app).get(`/api/messaging/validate_preferences_token/${token}`)
             return res.status === 200 && res.body.valid && res.body.team_id === world.team.id
                 ? res.body.identifier
@@ -889,10 +900,10 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             const htmlHref = delivered.html!.match(/href="([^"]+)"/)![1].replace(/&amp;/g, '&')
             const textUrl = delivered.text!.match(/https?:\/\/\S+/)![0]
             const headerUrl = delivered.headers['List-Unsubscribe']?.match(/^<([^>]+)>$/)?.[1]
-            expect(await tokenOwner(htmlHref)).toEqual(mixedMember)
-            expect(await tokenOwner(textUrl)).toEqual(mixedMember)
+            expect(await preferencesUrlOwner(htmlHref)).toEqual(mixedMember)
+            expect(await preferencesUrlOwner(textUrl)).toEqual(mixedMember)
             expect(headerUrl).toBeDefined()
-            expect(await tokenOwner(headerUrl!)).toEqual(mixedMember)
+            expect(await preferencesUrlOwner(headerUrl!, { oneClick: true })).toEqual(mixedMember)
             expect(delivered.headers['List-Unsubscribe-Post']).toEqual('List-Unsubscribe=One-Click')
             expect(deliveryStatuses(res.body.invocation_id)).toEqual([{ status: 'sent', reason: 'untracked' }])
         })

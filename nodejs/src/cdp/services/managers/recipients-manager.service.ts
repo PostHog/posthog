@@ -61,7 +61,10 @@ export class RecipientsManagerService {
         anyCase: null,
     }
 
-    constructor(private postgres: Pick<PostgresRouter, 'query'>) {
+    constructor(
+        private postgres: Pick<PostgresRouter, 'query'>,
+        private freshPostgres: Pick<PostgresRouter, 'query'> = postgres
+    ) {
         this.lazyLoader = new LazyLoader({
             name: 'recipients_manager',
             loader: async (ids) => await this.fetchRecipients(ids, false),
@@ -114,7 +117,8 @@ export class RecipientsManagerService {
                 const chunk = await this.fetchRecipients(
                     uniqueKeys.slice(i, i + FRESH_BATCH_SIZE),
                     anyCase,
-                    PostgresUse.COMMON_WRITE
+                    PostgresUse.COMMON_WRITE,
+                    this.freshPostgres
                 )
                 Object.assign(rows, chunk)
             }
@@ -192,7 +196,8 @@ export class RecipientsManagerService {
     private async fetchRecipients(
         ids: string[],
         anyCase: boolean,
-        postgresUse: PostgresUse = PostgresUse.COMMON_READ
+        postgresUse: PostgresUse = PostgresUse.COMMON_READ,
+        postgres: Pick<PostgresRouter, 'query'> = this.postgres
     ): Promise<Record<string, RecipientManagerRecipient | undefined>> {
         const recipientArgs = ids.map(fromKey).filter(({ teamId }) => isValidTeamId(teamId))
         if (recipientArgs.length === 0) {
@@ -224,12 +229,12 @@ export class RecipientsManagerService {
                 updated_at,
                 deleted
             FROM posthog_messagerecipientpreference
-            WHERE ${conditions} AND deleted = false`
+            WHERE (${conditions}) AND deleted = false`
 
         // Flatten the parameters: [teamId1, identifier1, teamId2, identifier2, ...]
         const params = recipientArgs.flatMap((recipient) => [recipient.teamId, recipient.identifier])
 
-        const response = await this.postgres.query<MessageRecipientPreferenceRow>(
+        const response = await postgres.query<MessageRecipientPreferenceRow>(
             postgresUse,
             queryString,
             params,

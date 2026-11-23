@@ -264,11 +264,134 @@ export const marketingEmailStep = (hogFlow: HogFlow, category: SendCategory | un
 const LIQUID_UNSUBSCRIBE_EXPRESSION =
     '(?:\\{\\{-?\\s*unsubscribe_url(?:_one_click)?\\s*(?:-?|\\|\\s*[a-zA-Z_][^{}]*)\\}\\}|\\{%-?\\s*unsubscribe_url\\s*-?%\\})'
 const LIQUID_UNSUBSCRIBE_PLACEHOLDER = new RegExp(LIQUID_UNSUBSCRIBE_EXPRESSION)
-const LIQUID_UNSUBSCRIBE_HREF = new RegExp(`^${LIQUID_UNSUBSCRIBE_EXPRESSION}(?:[?#].*)?$`)
+const LIQUID_UNSUBSCRIBE_HREF = new RegExp(`^${LIQUID_UNSUBSCRIBE_EXPRESSION}(?:[?#][^\\r\\n]*)?$`)
+const LIQUID_QUERY_SUFFIX = /^[?#][^\r\n]*$/
+const LIQUID_CONTROL_KEYWORD = /^-?\s*(if|unless|case|elsif|when|else|endif|endunless|endcase)(?=\s|-?$)/
+
+type LiquidBranchState = 'empty' | 'matched' | 'invalid'
+
+type LiquidFrame = {
+    openTag: 'root' | 'if' | 'unless' | 'case'
+    inActiveBranch: boolean
+    seenElse: boolean
+    matchedBranch: boolean
+    branchState: LiquidBranchState
+    branchText: string
+}
+
+const isLiquidUnsubscribeHref = (rawHref: string): boolean => {
+    const href = decodeLiquidTags(rawHref).trim()
+    if (LIQUID_UNSUBSCRIBE_HREF.test(href)) {
+        return true
+    }
+    if (!href.includes('{%')) {
+        return false
+    }
+
+    const root: LiquidFrame = {
+        openTag: 'root',
+        inActiveBranch: true,
+        seenElse: false,
+        matchedBranch: false,
+        branchState: 'empty',
+        branchText: '',
+    }
+    const stack: LiquidFrame[] = [root]
+
+    const flushText = (frame: LiquidFrame): void => {
+        const text = frame.branchText.trim()
+        frame.branchText = ''
+        if (!text || !frame.inActiveBranch || frame.branchState === 'invalid') {
+            return
+        }
+        if (frame.branchState === 'empty') {
+            frame.branchState = LIQUID_UNSUBSCRIBE_HREF.test(text) ? 'matched' : 'invalid'
+        } else if (!LIQUID_QUERY_SUFFIX.test(text)) {
+            frame.branchState = 'invalid'
+        }
+    }
+
+    const finalizeBranch = (frame: LiquidFrame): void => {
+        flushText(frame)
+        if (frame.inActiveBranch && frame.branchState === 'matched') {
+            frame.matchedBranch = true
+        }
+        frame.branchState = 'empty'
+    }
+
+    let pos = 0
+    while (pos < href.length) {
+        const open = href.indexOf('{%', pos)
+        if (open === -1) {
+            stack[stack.length - 1].branchText += href.slice(pos)
+            break
+        }
+        const close = href.indexOf('%}', open + 2)
+        if (close === -1) {
+            return false
+        }
+        const inner = href.slice(open + 2, close)
+        const keywordMatch = inner.match(LIQUID_CONTROL_KEYWORD)
+        if (!keywordMatch) {
+            stack[stack.length - 1].branchText += href.slice(pos, close + 2)
+            pos = close + 2
+            continue
+        }
+        const current = stack[stack.length - 1]
+        current.branchText += href.slice(pos, open)
+        const keyword = keywordMatch[1]
+        if (keyword === 'if' || keyword === 'unless' || keyword === 'case') {
+            flushText(current)
+            if (current.inActiveBranch && current.branchState !== 'empty') {
+                current.branchState = 'invalid'
+            }
+            stack.push({
+                openTag: keyword,
+                inActiveBranch: keyword !== 'case',
+                seenElse: false,
+                matchedBranch: false,
+                branchState: 'empty',
+                branchText: '',
+            })
+        } else if (keyword === 'elsif' || keyword === 'when' || keyword === 'else') {
+            if (current.openTag === 'root' || current.seenElse) {
+                return false
+            }
+            if (
+                (keyword === 'elsif' && current.openTag !== 'if') ||
+                (keyword === 'when' && current.openTag !== 'case')
+            ) {
+                return false
+            }
+            finalizeBranch(current)
+            current.inActiveBranch = true
+            if (keyword === 'else') {
+                current.seenElse = true
+            }
+        } else {
+            if (current.openTag === 'root' || keyword !== `end${current.openTag}`) {
+                return false
+            }
+            stack.pop()
+            finalizeBranch(current)
+            const parent = stack[stack.length - 1]
+            if (parent.inActiveBranch) {
+                parent.branchState = parent.branchState === 'empty' && current.matchedBranch ? 'matched' : 'invalid'
+            }
+        }
+        pos = close + 2
+    }
+
+    if (stack.length !== 1) {
+        return false
+    }
+    flushText(root)
+    return root.branchState === 'matched'
+}
 
 const hasLiquidUnsubscribeLink = ({ html, text }: { html?: string; text?: string }): boolean =>
     html
-        ? clickableHrefs(html).some((href) => LIQUID_UNSUBSCRIBE_HREF.test(decodeLiquidTags(href).trim()))
+        ? clickableHrefs(html).some(isLiquidUnsubscribeHref)
         : LIQUID_UNSUBSCRIBE_PLACEHOLDER.test(decodeLiquidTags(text ?? ''))
 
 const hasAddresses = (value: unknown): boolean =>

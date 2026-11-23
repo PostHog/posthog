@@ -887,29 +887,42 @@ describe('SandboxEmailSendStep', () => {
         it('keeps retrying a categorized marketing code send past MAX_SANDBOX_RETRIES while preference reads fail, then delivers once recovered', async () => {
             const now = DateTime.utc()
             const clock = jest.spyOn(Date, 'now').mockReturnValue(now.toMillis())
-            const unlock = await world.lockTable('posthog_messagerecipientpreference')
+            const brokenSchema = `broken_prefs_${world.team.id}`
+            await world.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `CREATE SCHEMA ${brokenSchema};
+                 CREATE TABLE ${brokenSchema}.posthog_messagerecipientpreference (broken boolean);`,
+                [],
+                'test:create-broken-preferences-schema'
+            )
+            const brokenUrl = new URL(defaultConfig.DATABASE_URL)
+            brokenUrl.searchParams.set('options', `-c search_path=${brokenSchema},public`)
+            const brokenRecipientsDb = new PostgresRouter({
+                ...defaultConfig,
+                DATABASE_URL: brokenUrl.toString(),
+                DATABASE_READONLY_URL: brokenUrl.toString(),
+            })
             try {
                 const flow = buildCodeSendFlow()
                 const category = { id: '00000000-0000-0000-0000-000000000099', type: 'marketing' as const }
-                const stalledExecutor = buildExecutor(
+                const failingExecutor = buildExecutor(
                     { team: 100, recipient: 100 },
                     deliveredAddressReader(world.postgres),
-                    { recipientReadTimeoutMs: 50 }
+                    { recipientsDb: brokenRecipientsDb }
                 )
-                const routed = await stalledExecutor.execute(
+                const routed = await failingExecutor.execute(
                     codeSendInvocation({ flow, email: member(), category, content: marketingContent })
                 )
 
                 let current = routed.invocation
                 for (let attempt = 0; attempt <= MAX_SANDBOX_RETRIES + 1; attempt++) {
-                    const step = await stalledExecutor.execute(nextDequeue(current))
+                    const step = await failingExecutor.execute(nextDequeue(current))
                     current = step.invocation
                     expect(current.queue).toBe('emailsandbox')
                     expect(current.queueScheduledAt!.toMillis()).toBeGreaterThan(now.toMillis())
                 }
                 expect(world.ses.attempts).toBe(0)
 
-                await unlock()
                 const segments = await runSandboxQueue(buildExecutor({ team: 100, recipient: 100 }), current)
                 const finished = await buildExecutor({ team: 100, recipient: 100 }).execute(
                     nextDequeue(segments.at(-1)!.invocation)
@@ -922,7 +935,13 @@ describe('SandboxEmailSendStep', () => {
                 })
             } finally {
                 clock.mockRestore()
-                await unlock().catch(() => undefined)
+                await brokenRecipientsDb.end()
+                await world.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `DROP SCHEMA IF EXISTS ${brokenSchema} CASCADE`,
+                    [],
+                    'test:drop-broken-preferences-schema'
+                )
             }
         })
     })
