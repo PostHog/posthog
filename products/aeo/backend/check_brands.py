@@ -230,10 +230,10 @@ class BrandMatcher:
         # A name inside a link or a domain of the same brand ("acme" in acme.com) is part of that mention.
         inside: dict[uuid.UUID, list[tuple[int, int]]] = {}
         for kind, spans in ((MentionKind.URL, urls), (MentionKind.DOMAIN, _bare_domains(folded, urls))):
-            for start, end, host in spans:
-                if brand_id := self.brand_for_host(host):
-                    add(brand_id, Mention(surface=text[start:end], kind=kind, start=start))
-                    inside.setdefault(brand_id, []).append((start, end))
+            for span in spans:
+                if brand_id := self.brand_for_host(span.host):
+                    add(brand_id, Mention(surface=text[span.start : span.end], kind=kind, start=span.start))
+                    inside.setdefault(brand_id, []).append((span.start, span.end))
         return {
             brand_id: [
                 at[start]
@@ -285,7 +285,16 @@ def _host(url: str) -> str:
         return ""
 
 
-def _urls(folded: str) -> list[tuple[int, int, str]]:
+@frozen
+class _HostSpan:
+    """Where a link or a bare domain sits in the text, and the host it names."""
+
+    start: int
+    end: int
+    host: str
+
+
+def _urls(folded: str) -> list[_HostSpan]:
     spans = []
     for match in _URL.finditer(folded):
         # Sentence punctuation after a link is not part of it.
@@ -293,16 +302,15 @@ def _urls(folded: str) -> list[tuple[int, int, str]]:
         while end > match.start() and folded[end - 1] in ".,;:!?":
             end -= 1
         if (host := _host(folded[match.start() : end])) and len(host) <= BRAND_DOMAIN_MAX_LENGTH:
-            spans.append((match.start(), end, host))
+            spans.append(_HostSpan(start=match.start(), end=end, host=host))
     return spans
 
 
-def _bare_domains(folded: str, urls: list[tuple[int, int, str]]) -> list[tuple[int, int, str]]:
-    in_urls = [(start, end) for start, end, _ in urls]
+def _bare_domains(folded: str, urls: list[_HostSpan]) -> list[_HostSpan]:
     return [
-        (match.start(), match.end(), match.group())
+        _HostSpan(start=match.start(), end=match.end(), host=match.group())
         for match in _BARE_DOMAIN.finditer(folded)
-        if not any(start <= match.start() < end for start, end in in_urls) and _DOMAIN_PARTS(match.group()).suffix
+        if not any(url.start <= match.start() < url.end for url in urls) and _DOMAIN_PARTS(match.group()).suffix
     ]
 
 
