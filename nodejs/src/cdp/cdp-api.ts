@@ -1646,8 +1646,6 @@ export class CdpApi {
                 if (intakeModeOf(this.config)(parseInt(req.params.team_id)) !== 'async') {
                     return refuse('batch_unavailable', 409, { error: 'batch_unavailable' })
                 }
-                // A batch reaches the broker before any worker runs, so a pod that does not seal would publish its
-                // content in plaintext. That is the pod's setup, not the team's, so the caller retries the batch.
                 if (!this.config.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE) {
                     return refuse('not_sealing', 503, {
                         error: 'Transactional email sealing not configured (CDP_SEAL_TRANSACTIONAL_EMAIL_STATE off)',

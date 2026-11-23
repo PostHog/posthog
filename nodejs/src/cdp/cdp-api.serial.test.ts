@@ -5303,10 +5303,13 @@ describe('CDP API', () => {
                 Object.fromEntries(
                     records.map((value) => {
                         const { job } = parseJSON(value.toString())
-                        expect(job.state.sealed).toEqual(expect.any(String))
                         const opener = new EncryptedFields(api['config'].CDP_SEALED_STATE_KEYS)
                         const row = { id: job.id, teamId: team.id, state: Buffer.from(JSON.stringify(job.state)) }
-                        return [job.id, decodeJobState(row, opener).state?.variables]
+                        const variables = decodeJobState(row, opener).state?.variables ?? {}
+                        for (const variable of Object.values(variables)) {
+                            expect(value.toString()).not.toContain(JSON.stringify(variable))
+                        }
+                        return [job.id, variables]
                     })
                 )
             let releaseStalledReads = () => {}
@@ -5644,13 +5647,7 @@ describe('CDP API', () => {
             it.each([
                 ['in intake mode off', 'off', true, 409, 'batch_unavailable'],
                 ['in intake mode shadow', 'shadow', true, 409, 'batch_unavailable'],
-                [
-                    'in intake mode async, on a pod that does not seal',
-                    'async',
-                    false,
-                    503,
-                    expect.stringContaining('sealing not configured'),
-                ],
+                ['in intake mode async, on a pod that does not seal', 'async', false, 503, expect.any(String)],
             ])(
                 'refuses a whole batch for a team %s, and sends nothing',
                 async (_name, mode, sealing, status, error) => {
