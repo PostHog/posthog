@@ -985,7 +985,7 @@ export interface ErrorTrackingIssueTagReadApi {
     label: string
     /** What the tag means, for a tooltip. */
     description: string
-    /** Color of the tag, from a fixed set of named colors. Null means the default color.
+    /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
      *
      * * `blue` - Blue
      * * `teal` - Teal
@@ -1232,7 +1232,7 @@ export interface ErrorTrackingIssueTagCorrectionApi {
     label: string
     /** What the tag means, for a tooltip. */
     description: string
-    /** Color of the tag, from a fixed set of named colors. Null means the default color.
+    /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
      *
      * * `blue` - Blue
      * * `teal` - Teal
@@ -1291,7 +1291,7 @@ export interface ErrorTrackingIssueTagDefinitionApi {
     label: string
     /** What the tag means, for a tooltip. */
     description: string
-    /** Color of the tag, from a fixed set of named colors. Null means the default color.
+    /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
      *
      * * `blue` - Blue
      * * `teal` - Teal
@@ -2829,7 +2829,7 @@ export interface ErrorTrackingIssueTagRuleApi {
     label: string
     /** What the tag means. Shown with the tag. */
     description: string
-    /** Color of the tag, from a fixed set of named colors. Null shows the tag in the default color.
+    /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
      *
      * * `blue` - Blue
      * * `teal` - Teal
@@ -2873,7 +2873,7 @@ export interface ErrorTrackingIssueTagRuleCreateRequestApi {
      * @maxLength 1000
      */
     description?: string
-    /** Color of the tag, from a fixed set of named colors. Null shows the tag in the default color. Defaults to null.
+    /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label. Defaults to null.
      *
      * * `blue` - Blue
      * * `teal` - Teal
@@ -2905,7 +2905,7 @@ export interface ErrorTrackingIssueTagRuleUpdateRequestApi {
      * @maxLength 1000
      */
     description?: string
-    /** Replacement color. Null sets the default color. Omit to keep the existing color.
+    /** Replacement color. Null switches to a color picked from the label. Omit to keep the existing color.
      *
      * * `blue` - Blue
      * * `teal` - Teal
@@ -2931,7 +2931,7 @@ export interface PatchedErrorTrackingIssueTagRuleUpdateRequestApi {
      * @maxLength 1000
      */
     description?: string
-    /** Replacement color. Null sets the default color. Omit to keep the existing color.
+    /** Replacement color. Null switches to a color picked from the label. Omit to keep the existing color.
      *
      * * `blue` - Blue
      * * `teal` - Teal

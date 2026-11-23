@@ -8,26 +8,36 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import type { ErrorTrackingIssueTagColor } from '~/queries/schema/schema-general'
 
 import { IssueTag } from '../../../components/IssueTag/IssueTag'
-import { ISSUE_TAG_COLOR_LABELS } from '../../../components/IssueTag/issueTagColors'
+import { ISSUE_TAG_COLOR_LABELS, issueTagColor } from '../../../components/IssueTag/issueTagColors'
 import { RuleModal } from '../rules/RuleModal'
 import { TagRuleMatchBanner } from './TagRuleMatchBanner'
 import { tagRuleModalLogic } from './tagRuleModalLogic'
 
-const DEFAULT_COLOR_LABEL = 'Default'
+const AUTOMATIC_COLOR_LABEL = 'Automatic'
 
-const COLOR_OPTIONS: LemonSelectOptions<ErrorTrackingIssueTagColor | null> = [
-    { value: null, label: DEFAULT_COLOR_LABEL, labelInMenu: <IssueTag label={DEFAULT_COLOR_LABEL} color={null} /> },
-    ...(Object.keys(ISSUE_TAG_COLOR_LABELS) as ErrorTrackingIssueTagColor[]).map((color) => ({
-        value: color,
-        label: ISSUE_TAG_COLOR_LABELS[color],
-        labelInMenu: <IssueTag label={ISSUE_TAG_COLOR_LABELS[color]} color={color} />,
-    })),
-]
+function colorOptions(
+    automaticColor: ErrorTrackingIssueTagColor
+): LemonSelectOptions<ErrorTrackingIssueTagColor | null> {
+    return [
+        {
+            value: null,
+            label: AUTOMATIC_COLOR_LABEL,
+            labelInMenu: <IssueTag label={AUTOMATIC_COLOR_LABEL} color={automaticColor} />,
+        },
+        ...(Object.keys(ISSUE_TAG_COLOR_LABELS) as ErrorTrackingIssueTagColor[]).map((color) => ({
+            value: color,
+            label: ISSUE_TAG_COLOR_LABELS[color],
+            labelInMenu: <IssueTag label={ISSUE_TAG_COLOR_LABELS[color]} color={color} />,
+        })),
+    ]
+}
 
 export function TagRuleModal(): JSX.Element {
     const { rule, hasFilters, hasLabel } = useValues(tagRuleModalLogic)
     const { updateLabel, updateDescription, updateColor } = useActions(tagRuleModalLogic)
     const saveDisabledReason = !hasFilters ? 'Add at least one filter' : !hasLabel ? 'Add a tag' : undefined
+    const previewLabel = rule.label.trim() || 'Tag'
+    const automaticColor = issueTagColor(previewLabel, null)
 
     return (
         <RuleModal
@@ -61,13 +71,14 @@ export function TagRuleModal(): JSX.Element {
                                 data-attr="error-tracking-tag-rule-color"
                                 value={rule.color}
                                 onChange={updateColor}
-                                options={COLOR_OPTIONS}
-                                renderButtonContent={(leaf) => (
-                                    <IssueTag
-                                        label={leaf?.value ? ISSUE_TAG_COLOR_LABELS[leaf.value] : DEFAULT_COLOR_LABEL}
-                                        color={leaf?.value}
-                                    />
-                                )}
+                                options={colorOptions(automaticColor)}
+                                renderButtonContent={(leaf) =>
+                                    leaf?.value ? (
+                                        <IssueTag label={ISSUE_TAG_COLOR_LABELS[leaf.value]} color={leaf.value} />
+                                    ) : (
+                                        <IssueTag label={AUTOMATIC_COLOR_LABEL} color={automaticColor} />
+                                    )
+                                }
                             />
                         </div>
                     </div>
@@ -85,7 +96,7 @@ export function TagRuleModal(): JSX.Element {
                     <div className="flex flex-col items-start">
                         <LemonLabel className="mb-2">Preview</LemonLabel>
                         <Tooltip title={rule.description || undefined}>
-                            <IssueTag tabIndex={0} label={rule.label.trim() || 'Tag'} color={rule.color} />
+                            <IssueTag tabIndex={0} label={previewLabel} color={rule.color} />
                         </Tooltip>
                     </div>
                     <TagRuleMatchBanner />

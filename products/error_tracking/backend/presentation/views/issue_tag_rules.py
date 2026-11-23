@@ -27,7 +27,9 @@ FILTERS_HELP_TEXT = (
 )
 LABEL_HELP_TEXT = "Display name of the tag the rule applies to each new issue whose first event matches the filters."
 DESCRIPTION_HELP_TEXT = "What the tag means. Shown with the tag."
-COLOR_HELP_TEXT = "Color of the tag, from a fixed set of named colors. Null shows the tag in the default color."
+COLOR_HELP_TEXT = (
+    "Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label."
+)
 # The bounds of the Postgres integer column that stores the order key.
 ORDER_KEY_MIN, ORDER_KEY_MAX = -(2**31), 2**31 - 1
 
@@ -145,7 +147,7 @@ class ErrorTrackingIssueTagRuleUpdateRequestSerializer(serializers.Serializer):
         choices=contracts.IssueTagColor.choices,
         required=False,
         allow_null=True,
-        help_text="Replacement color. Null sets the default color. Omit to keep the existing color.",
+        help_text="Replacement color. Null switches to a color picked from the label. Omit to keep the existing color.",
     )
     filters = ErrorTrackingIssueTagRuleFiltersField(
         required=False,

@@ -5175,7 +5175,7 @@ export interface ErrorTrackingIssueTag {
     label: string
     /** What the tag means, for a tooltip. */
     description: string
-    /** Named color of the tag, or null for the default color. */
+    /** Named color of the tag, or null for a color picked from the label. */
     color?: ErrorTrackingIssueTagColor | null
     /** The tagger that applied the tag: `jev` for AI, `manual` for a person. Issue detail sets it, list results send null. */
     source?: string | null

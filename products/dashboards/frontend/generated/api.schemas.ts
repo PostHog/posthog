@@ -5858,7 +5858,7 @@ export const ErrorTrackingIssueTagColorApi = {
 } as const
 
 export interface ErrorTrackingIssueTagApi {
-    /** Named color of the tag, or null for the default color. */
+    /** Named color of the tag, or null for a color picked from the label. */
     color?: ErrorTrackingIssueTagColorApi | null
     /** What the tag means, for a tooltip. */
     description: string

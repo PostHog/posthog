@@ -12,7 +12,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Replacement color. Null sets the default color. Omit to keep the existing color.\n\n* `blue` - Blue\n* `teal` - Teal\n* `green` - Green\n* `yellow` - Yellow\n* `orange` - Orange\n* `red` - Red\n* `pink` - Pink\n* `purple` - Purple"
+            "description": "Replacement color. Null switches to a color picked from the label. Omit to keep the existing color.\n\n* `blue` - Blue\n* `teal` - Teal\n* `green` - Green\n* `yellow` - Yellow\n* `orange` - Orange\n* `red` - Red\n* `pink` - Pink\n* `purple` - Purple"
         },
         "description": {
             "description": "Replacement description. Omit to keep the existing description.",

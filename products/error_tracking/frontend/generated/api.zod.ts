@@ -1454,7 +1454,7 @@ export const ErrorTrackingTagRulesCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            'Color of the tag, from a fixed set of named colors. Null shows the tag in the default color. Defaults to null.\n\n\* `blue` - Blue\n\* `teal` - Teal\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red\n\* `pink` - Pink\n\* `purple` - Purple'
+            'Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label. Defaults to null.\n\n\* `blue` - Blue\n\* `teal` - Teal\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red\n\* `pink` - Pink\n\* `purple` - Purple'
         ),
     filters: zod
         .object({
@@ -1641,7 +1641,7 @@ export const ErrorTrackingTagRulesUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            'Replacement color. Null sets the default color. Omit to keep the existing color.\n\n\* `blue` - Blue\n\* `teal` - Teal\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red\n\* `pink` - Pink\n\* `purple` - Purple'
+            'Replacement color. Null switches to a color picked from the label. Omit to keep the existing color.\n\n\* `blue` - Blue\n\* `teal` - Teal\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red\n\* `pink` - Pink\n\* `purple` - Purple'
         ),
     filters: zod
         .object({
@@ -1823,7 +1823,7 @@ export const ErrorTrackingTagRulesPartialUpdateBody = /* @__PURE__ */ zod.object
         ])
         .optional()
         .describe(
-            'Replacement color. Null sets the default color. Omit to keep the existing color.\n\n\* `blue` - Blue\n\* `teal` - Teal\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red\n\* `pink` - Pink\n\* `purple` - Purple'
+            'Replacement color. Null switches to a color picked from the label. Omit to keep the existing color.\n\n\* `blue` - Blue\n\* `teal` - Teal\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red\n\* `pink` - Pink\n\* `purple` - Purple'
         ),
     filters: zod
         .object({

@@ -5994,7 +5994,7 @@ class ErrorTrackingIssueTag(BaseModel):
     )
     color: ErrorTrackingIssueTagColor | None = Field(
         default=None,
-        description="Named color of the tag, or null for the default color.",
+        description=("Named color of the tag, or null for a color picked from the label."),
     )
     description: str = Field(..., description="What the tag means, for a tooltip.")
     key: str = Field(..., description="Key of the tag definition.")

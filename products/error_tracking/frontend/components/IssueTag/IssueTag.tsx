@@ -8,8 +8,11 @@ import { cn } from 'lib/utils/css-classes'
 
 import type { ErrorTrackingIssueTagColor } from '~/queries/schema/schema-general'
 
+import { issueTagColor } from './issueTagColors'
+
 type IssueTagProps = Omit<React.ComponentPropsWithoutRef<typeof LemonTag>, 'children' | 'type' | 'color'> & {
     label: string
+    // Null shows the color that issueTagColor picks from the label.
     color: ErrorTrackingIssueTagColor | null | undefined
 }
 
@@ -19,7 +22,7 @@ export const IssueTag = forwardRef<HTMLDivElement, IssueTagProps>(function Issue
     ref
 ): JSX.Element {
     return (
-        <LemonTag ref={ref} className={cn(color && `IssueTag--${color}`, className)} {...props}>
+        <LemonTag ref={ref} className={cn(`IssueTag--${issueTagColor(label, color)}`, className)} {...props}>
             <span className="truncate">{label}</span>
         </LemonTag>
     )

@@ -81,7 +81,7 @@ class ErrorTrackingIssueTagDefinitionSerializer(serializers.Serializer):
     color = serializers.ChoiceField(
         choices=contracts.IssueTagColor.choices,
         allow_null=True,
-        help_text="Color of the tag, from a fixed set of named colors. Null means the default color.",
+        help_text="Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.",
     )
 
 

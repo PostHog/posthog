@@ -27395,7 +27395,7 @@
                             "type": "null"
                         }
                     ],
-                    "description": "Named color of the tag, or null for the default color."
+                    "description": "Named color of the tag, or null for a color picked from the label."
                 },
                 "description": {
                     "description": "What the tag means, for a tooltip.",
