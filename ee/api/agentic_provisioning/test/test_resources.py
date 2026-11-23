@@ -760,12 +760,13 @@ class TestProvisioningResourceRemove(ProvisioningTestBase):
             access_token=sibling_at,
             scoped_teams=[self.team.id, 99999],
         )
-        for _ in range(3):
+        for _ in range(4):
             assert maybe_create_provisioned_pat(sibling_user, self.team, access_token.application, "query:read")
-        unrestricted_key, other_organization_key = PersonalAPIKey.objects.filter(
+        unrestricted_key, fully_unrestricted_key, other_organization_key = PersonalAPIKey.objects.filter(
             provisioned_by=access_token.application
-        )[:2]
+        )[:3]
         PersonalAPIKey.objects.filter(id=unrestricted_key.id).update(scoped_teams=[])
+        PersonalAPIKey.objects.filter(id=fully_unrestricted_key.id).update(scoped_teams=[], scoped_organizations=[])
         PersonalAPIKey.objects.filter(id=other_organization_key.id).update(
             scoped_teams=[], scoped_organizations=[str(Organization.objects.create(name="Other org").id)]
         )

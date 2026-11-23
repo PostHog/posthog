@@ -63,6 +63,7 @@ def delete_provisioned_pats(app: OAuthApplication, *, team_id: int, user: User |
 
     A key ``app`` minted whose owner removed its project restriction still reaches the
     project, so it is deleted too when its organization restriction covers the project's
+    organization, or when it has no organization restriction and its owner belongs to that
     organization.
 
     Deletes key by key so the activity log records each deletion. Keys the user created
@@ -71,11 +72,14 @@ def delete_provisioned_pats(app: OAuthApplication, *, team_id: int, user: User |
     in_scope = Q(scoped_teams__contains=[team_id])
     organization_id = Team.objects.filter(pk=team_id).values_list("organization_id", flat=True).first()
     if organization_id is not None:
-        in_scope |= (Q(scoped_teams=[]) | Q(scoped_teams__isnull=True)) & Q(
-            scoped_organizations__contains=[str(organization_id)]
+        no_team_restriction = Q(scoped_teams=[]) | Q(scoped_teams__isnull=True)
+        no_organization_restriction = Q(scoped_organizations=[]) | Q(scoped_organizations__isnull=True)
+        covers_organization = Q(scoped_organizations__contains=[str(organization_id)]) | (
+            no_organization_restriction & Q(user__organization_membership__organization_id=organization_id)
         )
+        in_scope |= no_team_restriction & covers_organization
 
-    keys = PersonalAPIKey.objects.filter(provisioned_by=app).filter(in_scope)
+    keys = PersonalAPIKey.objects.filter(provisioned_by=app).filter(in_scope).distinct()
     if user is not None:
         keys = keys.filter(user=user)
 

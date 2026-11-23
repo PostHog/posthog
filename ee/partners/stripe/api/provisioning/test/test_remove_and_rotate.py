@@ -108,7 +108,7 @@ class TestRemoveAndRotate(StripeProvisioningTestBase):
         unrestricted_api_key = maybe_create_provisioned_pat(self.user, self.team, self.stripe_app, "query:read")
         assert unrestricted_api_key
         unrestricted_pat = PersonalAPIKey.objects.filter(provisioned_by=self.stripe_app).latest("created_at")
-        PersonalAPIKey.objects.filter(id=unrestricted_pat.id).update(scoped_teams=[])
+        PersonalAPIKey.objects.filter(id=unrestricted_pat.id).update(scoped_teams=[], scoped_organizations=[])
 
         res = self._post_signed_with_bearer(f"{RESOURCES_URL}/{self.team.id}/remove", token=token)
         assert res.status_code == 200
