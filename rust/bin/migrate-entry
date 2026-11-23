@@ -105,7 +105,9 @@ run_persons_migrations() {
 # run builds it again. This step rebuilds each INVALID index that a migration in $2 builds concurrently, and
 # drops the INVALID copies (<name>_ccnew, <name>_ccold) that an interrupted REINDEX CONCURRENTLY leaves.
 # A failed step fails the run, and the next run repeats it.
-# Each statement goes in its own psql call because the CONCURRENTLY forms cannot run in a transaction block.
+# One psql session holds an advisory lock from the catalog read to the last repair, so a second migrate run
+# waits and then reads the catalog that the first left. \gexec runs each repair as its own statement,
+# because the CONCURRENTLY forms cannot run in a transaction block.
 rebuild_invalid_concurrent_indexes() {
     local database_url="$1"
     local source="$2"
@@ -116,8 +118,9 @@ rebuild_invalid_concurrent_indexes() {
         | awk '{ print $NF }' | sort -u | paste -sd, -)
     [ -n "$names" ] || return 0
 
-    local statements
-    statements=$(psql "$database_url" -X -q -t -A -v ON_ERROR_STOP=1 -v names="{$names}" <<'SQL'
+    log_json "info" "Repairing invalid indexes" "running" "$db_type"
+    psql "$database_url" -X -q -e -v ON_ERROR_STOP=1 -v names="{$names}" <<'SQL'
+SELECT pg_advisory_lock(hashtext('migrate-entry rebuild_invalid_concurrent_indexes')) AS locked \gset
 SELECT CASE WHEN c.relname = ANY (:'names'::text[])
             THEN format('REINDEX INDEX CONCURRENTLY %I.%I', n.nspname, c.relname)
             ELSE format('DROP INDEX CONCURRENTLY IF EXISTS %I.%I', n.nspname, c.relname)
@@ -126,18 +129,12 @@ FROM pg_index i
 JOIN pg_class c ON c.oid = i.indexrelid
 JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE NOT i.indisvalid
+  AND n.nspname = current_schema()
   AND (c.relname = ANY (:'names'::text[])
        OR substring(c.relname FROM '^(.*)_cc(?:new|old)[0-9]*$') = ANY (:'names'::text[]))
 ORDER BY c.relname = ANY (:'names'::text[]), c.relname
+\gexec
 SQL
-)
-
-    local statement
-    while IFS= read -r statement; do
-        [ -n "$statement" ] || continue
-        log_json "info" "Repairing an invalid index" "running" "$db_type" "\"statement\":\"$statement\""
-        psql "$database_url" -X -q -v ON_ERROR_STOP=1 -c "$statement"
-    done <<< "$statements"
 }
 
 run_cyclotron_node_migrations() {
