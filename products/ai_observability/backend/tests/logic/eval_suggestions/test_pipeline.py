@@ -776,6 +776,16 @@ class TestRunRecords(BaseTest):
                 "no gateway route to calibrate judges on unrouted-model",
                 "unrouted-model",
             ),
+            (
+                "turned_off_while_the_run_works",
+                True,
+                SuggestionSettings(llm_drafting=True),
+                True,
+                None,
+                "turned off by the project",
+                "gpt-5-mini",
+                True,
+            ),
         ]
     )
     def test_the_review_runs_only_when_allowed_and_in_time(
@@ -787,9 +797,11 @@ class TestRunRecords(BaseTest):
         deadline: float | None,
         detail: str,
         judge_model: str = "gpt-5-mini",
+        turned_off: bool = False,
     ) -> None:
         self.organization.is_ai_data_processing_approved = consent
         self.organization.save()
+        set_suggestions_turned_off(self.team, turned_off)
         run = create_run(self.team, "scheduled")
         handoff = runs.Handoff(
             window=pipeline.ProfileWindow(start=timezone.now() - timedelta(days=7), end=timezone.now()),

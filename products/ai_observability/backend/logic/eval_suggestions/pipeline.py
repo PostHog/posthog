@@ -546,6 +546,9 @@ def _paid_skip(team: Team, include_paid: bool, enabled: bool) -> str | None:
         return "free stages only"
     if not enabled:
         return "switched off"
+    # Measure checked this too, but the project can turn suggestions off while the run works.
+    if suggestions_turned_off(team):
+        return "turned off by the project"
     if not screening.consented(team):
         return "AI data processing not approved"
     return None
