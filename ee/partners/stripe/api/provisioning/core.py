@@ -21,6 +21,7 @@ import structlog
 
 from posthog.accessible_teams import AccessibleTeams
 from posthog.api.authentication import password_reset_token_generator
+from posthog.cloud_utils import get_cached_instance_license
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.event_usage import report_user_signed_up
@@ -38,8 +39,10 @@ from posthog.tasks.email import send_provisioning_welcome
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 
+from ee.billing.billing_manager import BillingManager
 from ee.partners.stripe.api.provisioning import AUTH_CODE_CACHE_PREFIX
 from ee.partners.stripe.api.provisioning.analytics import capture_provisioning_event
+from ee.partners.stripe.api.provisioning.billing import try_activate_billing_with_spt
 from ee.partners.stripe.api.provisioning.constants import (
     ANALYTICS_SERVICE_ID,
     AUTH_CODE_TTL_SECONDS,
@@ -182,6 +185,9 @@ def mint_auth_code(
 
 
 PROJECT_LIMIT_REACHED_CODE = "project_limit_reached"
+
+# Connect and read timeouts, in seconds, for the billing read that resource creation waits on.
+BILLING_FEATURES_REFRESH_TIMEOUT = (5, 10)
 
 
 class ProjectLimitReachedError(Exception):
@@ -573,12 +579,37 @@ def _ensure_team_in_token_scopes(
     return team, [*scoped_teams, team.id]
 
 
+def _activate_billing_for_new_project(base_team: Team, user: User, payment_credentials: Any) -> None:
+    """Start the paid plan from the request's payment token before the project limit is checked.
+
+    The resource view activates billing only after it resolves the team, so without this a new
+    organization with a payment token is refused on the free plan's one-project limit.
+    """
+    organization = base_team.organization
+    if organization_project_limit_reached(organization) != ProjectLimit.PLAN:
+        return
+    if not try_activate_billing_with_spt(payment_credentials, base_team, user):
+        return
+
+    # Activation does not store the paid plan's features on the organization, so read them.
+    license = get_cached_instance_license()
+    if not license:
+        return
+    try:
+        BillingManager(license).update_available_product_features(
+            organization, timeout=BILLING_FEATURES_REFRESH_TIMEOUT
+        )
+    except Exception:
+        capture_exception(additional_properties={"organization_id": str(organization.id)})
+
+
 def resolve_or_create_project_team(
     project_id: str,
     scoped_teams: list[int],
     user: User,
     configuration: dict,
     access_token: OAuthAccessToken,
+    payment_credentials: Any = None,
 ) -> tuple[Team | None, list[int]]:
     """Look up or create a team for the given project_id.
 
@@ -608,6 +639,7 @@ def resolve_or_create_project_team(
     if not user_can_access_team(user, base_team):
         return None, scoped_teams
 
+    _activate_billing_for_new_project(base_team, user, payment_credentials)
     try:
         _assert_organization_can_add_project(base_team.organization)
     except ProjectLimitReachedError as refused:

@@ -526,10 +526,13 @@ class BillingManager:
         handle_billing_service_error(res)
         return res
 
-    def update_available_product_features(self, organization: Organization) -> list[dict[str, Any]]:
+    def update_available_product_features(
+        self, organization: Organization, *, timeout: tuple[float, float] | None = None
+    ) -> list[dict[str, Any]]:
         res = http_session.get(
             f"{BILLING_SERVICE_URL}/api/billing/available_product_features",
             headers=self.get_auth_headers(organization),
+            timeout=timeout,
         )
 
         handle_billing_service_error(res)

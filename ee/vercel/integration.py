@@ -56,6 +56,9 @@ VercelItemType = Literal["flag", "experiment"]
 # original contract for already-installed users.
 CLIENT_ENV_PREFIXES = ("NEXT_PUBLIC_", "VITE_", "NUXT_PUBLIC_", "PUBLIC_")
 
+# Connect and read timeouts, in seconds, for the billing read that resource creation waits on.
+BILLING_FEATURES_REFRESH_TIMEOUT = (5, 10)
+
 
 class VercelSSOError(Exception):
     pass
@@ -559,7 +562,9 @@ class VercelIntegration:
             # Deferred for the same reason as in upsert_installation: keep the billing stack off the import path.
             from ee.billing.billing_manager import BillingManager  # noqa: PLC0415
 
-            BillingManager(license).update_available_product_features(organization)
+            BillingManager(license).update_available_product_features(
+                organization, timeout=BILLING_FEATURES_REFRESH_TIMEOUT
+            )
         except Exception as e:
             logger.exception(
                 "Failed to refresh available product features for Vercel resource creation",

@@ -28,6 +28,7 @@ from ee.partners.stripe.api.provisioning.test.base import BASE_PATH, StripeProvi
 RESOURCES_URL = f"{BASE_PATH}/provisioning/resources"
 UNLIMITED_PROJECTS_FEATURE = {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": None}
 ONE_PROJECT_FEATURE = {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": 1}
+SIX_PROJECTS_FEATURE = {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": 6}
 
 
 class TestResources(StripeProvisioningTestBase):
@@ -92,6 +93,46 @@ class TestResources(StripeProvisioningTestBase):
             "error": {"code": "project_limit_reached", "message": message},
         }
         assert Team.objects.filter(organization=self.organization).count() == team_count
+
+    @parameterized.expand(
+        [
+            ("activation_grants_more_projects", 201, 200),
+            ("activation_fails", 500, 403),
+        ]
+    )
+    def test_create_with_new_project_id_activates_billing_from_payment_token_before_the_plan_limit(
+        self, _name: str, activation_status: int, expected_status: int
+    ) -> None:
+        self.organization.available_product_features = []
+        self.organization.save()
+        token = self._get_bearer_token()
+        team_count = Team.objects.filter(organization=self.organization).count()
+        activation_response = requests.Response()
+        activation_response.status_code = activation_status
+        license = License(key="12345::67890")
+
+        with (
+            patch("ee.partners.stripe.api.provisioning.billing.get_cached_instance_license", return_value=license),
+            patch("ee.partners.stripe.api.provisioning.core.get_cached_instance_license", return_value=license),
+            patch("ee.partners.stripe.api.provisioning.billing._team_has_active_billing", return_value=False),
+            patch("ee.billing.billing_manager.http_session.post", return_value=activation_response) as billing_post,
+            patch("ee.billing.billing_manager.http_session.get") as billing_get,
+        ):
+            billing_get.return_value.status_code = 200
+            billing_get.return_value.json.return_value = {"available_product_features": [SIX_PROJECTS_FEATURE]}
+            res = self._post_signed_with_bearer(
+                RESOURCES_URL,
+                data={
+                    "project_id": "proj_paid",
+                    "payment_credentials": {"type": "stripe_payment_token", "stripe_payment_token": "spt_1"},
+                },
+                token=token,
+            )
+
+        assert res.status_code == expected_status, res.json()
+        assert billing_post.call_args_list[0].kwargs["json"] == {"shared_payment_token": "spt_1"}
+        expected_team_count = team_count + 1 if expected_status == 200 else team_count
+        assert Team.objects.filter(organization=self.organization).count() == expected_team_count
 
     @parameterized.expand([("203.0.113.7", 200), ("198.51.100.7", 403)])
     def test_bearer_checks_organization_ip_policy(self, ip: str, expected_status: int) -> None:

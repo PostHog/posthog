@@ -177,7 +177,16 @@ def resolve_or_create_project_team(
     except IntegrityError:
         return _resolve_race_winner(project_id, scoped_teams, user, access_token, enforce_ip_policy)
     if claimed_team is not None:
+        if "project_name" in configuration:
+            claimed_team.name = configuration["project_name"]
+            claimed_team.save(update_fields=["name"])
         return ensure_team_in_token_scopes(access_token, scoped_teams, claimed_team)
+
+    # A concurrent request with the same project_id can claim the team first. Its mapping is
+    # the answer, not a new project.
+    concurrent_mapping = _find_project_mapping(project_id, scoped_teams, access_token)
+    if concurrent_mapping:
+        return _resolve_mapped_team(concurrent_mapping, scoped_teams, user, access_token, enforce_ip_policy)
 
     _assert_user_can_create_project(user, base_team)
 

@@ -103,7 +103,11 @@ class TestProvisioningResources(ProvisioningTestBase):
         TeamProvisioningConfig.objects.create(team=self.team, application=self.partner)
         token = self._get_bearer_token()
 
-        first = self._post_with_bearer(RESOURCES_URL, data={"project_id": "proj_first"}, token=token)
+        first = self._post_with_bearer(
+            RESOURCES_URL,
+            data={"project_id": "proj_first", "configuration": {"project_name": "Partner app"}},
+            token=token,
+        )
         repeated = self._post_with_bearer(RESOURCES_URL, data={"project_id": "proj_first"}, token=token)
         second = self._post_with_bearer(RESOURCES_URL, data={"project_id": "proj_second"}, token=token)
 
@@ -111,9 +115,27 @@ class TestProvisioningResources(ProvisioningTestBase):
         assert first.json()["id"] == str(self.team.id)
         assert repeated.json()["id"] == str(self.team.id)
         assert TeamProvisioningConfig.objects.get(team=self.team).stripe_project_id == "proj_first"
+        assert Team.objects.get(id=self.team.id).name == "Partner app"
         assert second.status_code == 403
         assert second.json()["error"]["code"] == "project_limit_reached"
         assert list(Team.objects.filter(organization=self.organization).values_list("id", flat=True)) == [self.team.id]
+
+    def test_new_project_id_resolves_to_a_concurrent_claim_of_the_same_project_id(self) -> None:
+        self._set_organization_features([])
+        config = TeamProvisioningConfig.objects.create(team=self.team, application=self.partner)
+        token = self._get_bearer_token()
+
+        def lose_claim_to_concurrent_request(project_id: str, *args, **kwargs) -> None:
+            config.stripe_project_id = project_id
+            config.save()
+
+        with patch(
+            "ee.api.agentic_provisioning.teams._claim_provisioned_team", side_effect=lose_claim_to_concurrent_request
+        ):
+            res = self._post_with_bearer(RESOURCES_URL, data={"project_id": "proj_raced"}, token=token)
+
+        assert res.status_code == 200, res.content
+        assert res.json()["id"] == str(self.team.id)
 
     @parameterized.expand(
         [
