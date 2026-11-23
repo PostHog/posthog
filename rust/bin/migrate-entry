@@ -104,7 +104,10 @@ run_persons_migrations() {
 # The rerun's IF NOT EXISTS skips the existing index and sqlx records the migration as applied, so no later
 # run builds it again. This step rebuilds each INVALID index that a migration in $2 builds concurrently, and
 # drops the INVALID copies (<name>_ccnew, <name>_ccold) that an interrupted REINDEX CONCURRENTLY leaves.
-# A failed step fails the run, and the next run repeats it.
+# It keeps to indexes on the table that an unqualified table name resolves to through the search path, as the
+# migrations' own statements do, so a same-named index in another schema stays untouched.
+# A failed repair fails the run, and the next run repeats it. A URL that psql cannot use skips the repair with a
+# warning instead, because sqlx already applied the migrations with it.
 # One psql session holds an advisory lock from the catalog read to the last repair. A second migrate run that
 # finds the lock taken fails at once instead of waiting: a waiting statement holds a snapshot, and
 # REINDEX CONCURRENTLY in the first run waits for that snapshot, so the two runs would deadlock.
@@ -115,7 +118,8 @@ rebuild_invalid_concurrent_indexes() {
     local db_type="$3"
 
     local names
-    names=$(grep -ohiE 'CREATE +(UNIQUE +)?INDEX +CONCURRENTLY +(IF +NOT +EXISTS +)?[a-z0-9_]+' "$source"/*.sql \
+    names=$(cat "$source"/*.sql | tr -s '[:space:]' ' ' \
+        | grep -oiE 'CREATE +(UNIQUE +)?INDEX +CONCURRENTLY +(IF +NOT +EXISTS +)?[a-z0-9_]+' \
         | awk '{ print $NF }' | sort -u | paste -sd, -)
     [ -n "$names" ] || return 0
 
@@ -136,8 +140,8 @@ rebuild_invalid_concurrent_indexes() {
     if ! connect_error=$(psql "$url" -X -q -t -c 'SELECT 1' 2>&1 >/dev/null); then
         connect_error=$(printf '%s' "${connect_error//"$url"/<url>}" | head -1 \
             | sed -E 's/"[^"]*"/<redacted>/g; s#[a-z]+://[^ ]*#<url>#g; s/["\\]//g')
-        log_json "error" "Repairing invalid indexes could not connect: $connect_error" "failed" "$db_type"
-        return 1
+        log_json "warn" "Skipping the invalid index repair, psql could not connect: $connect_error" "running" "$db_type"
+        return 0
     fi
 
     log_json "info" "Repairing invalid indexes" "running" "$db_type"
@@ -154,8 +158,9 @@ SELECT CASE WHEN c.relname = ANY (:'names'::text[])
 FROM pg_index i
 JOIN pg_class c ON c.oid = i.indexrelid
 JOIN pg_namespace n ON n.oid = c.relnamespace
+JOIN pg_class t ON t.oid = i.indrelid
 WHERE NOT i.indisvalid
-  AND n.nspname = current_schema()
+  AND to_regclass(format('%I', t.relname)) = t.oid
   AND (c.relname = ANY (:'names'::text[])
        OR substring(c.relname FROM '^(.*)_cc(?:new|old)[0-9]*$') = ANY (:'names'::text[]))
 ORDER BY c.relname = ANY (:'names'::text[]), c.relname
