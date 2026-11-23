@@ -42,6 +42,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs
     COMPANION_OF_KEY,
     COMPANION_RUN_SUFFIX,
     run_completed_on_every_table,
+    run_ended_on_every_table,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
     SCD2_APPEND_MODE,
@@ -761,7 +762,7 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
                 )
 
     if job_completed:
-        if _run_completed_on_every_table(model, export_signal):
+        if not _is_laned_run(model) or run_ended_on_every_table(export_signal.job_id, export_signal.team_id):
             async_to_sync(finish_row_tracking)(export_signal.team_id, export_signal.schema_id)
         if (model.schema_snapshot or {}).get("sync_type") == ExternalDataSchema.SyncType.WEBHOOK:
             _delete_consumed_webhook_files(export_signal)
@@ -787,13 +788,11 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
         _resume_schedule_after_ad_hoc_run(export_signal)
 
 
-def _run_completed_on_every_table(model: ExternalDataJob, export_signal: ExportSignalMessage) -> bool:
-    """Whether this completion ends the run. A run's billing-limit reserve covers every table it bills, so
-    the last of them to complete clears it."""
+def _is_laned_run(model: ExternalDataJob) -> bool:
+    """Whether the job's run writes more than one table. Its billing-limit reserve covers every table it bills,
+    so whichever of its jobs ends last clears it, completed or failed."""
     snapshot = model.schema_snapshot or {}
-    if not (snapshot.get(COMPANION_JOB_IDS_KEY) or snapshot.get(COMPANION_OF_KEY)):
-        return True
-    return run_completed_on_every_table(export_signal.job_id, export_signal.team_id)
+    return bool(snapshot.get(COMPANION_JOB_IDS_KEY) or snapshot.get(COMPANION_OF_KEY))
 
 
 def _delete_consumed_webhook_files(export_signal: ExportSignalMessage) -> None:
@@ -1190,13 +1189,15 @@ def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> No
         )
         return
 
-    update_external_job_status(
+    model = update_external_job_status(
         job_id=export_signal.job_id,
         team_id=export_signal.team_id,
         status=ExternalDataJob.Status.FAILED,
         logger=logger,
         latest_error=str(error),
     )
+    if _is_laned_run(model) and run_ended_on_every_table(export_signal.job_id, export_signal.team_id):
+        async_to_sync(finish_row_tracking)(export_signal.team_id, export_signal.schema_id)
 
     logger.info(
         "job_marked_failed",

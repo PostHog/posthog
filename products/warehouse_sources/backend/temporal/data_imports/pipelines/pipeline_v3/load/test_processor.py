@@ -53,6 +53,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _finalize_run,
     _get_write_type,
     _mark_job_completed,
+    _mark_job_failed,
     _partial_data_loading_applies,
     _promote_loaded_prefixes,
     _promote_staged_cursor,
@@ -642,13 +643,18 @@ class TestMarkJobCompleted:
 
     @parameterized.expand(
         [
-            ("single_table_run", {}, False, True),
-            # The history table's rows stay reserved against the billing limit until its own job completes.
-            ("schema_job_before_its_history_table", {"cdc_companion_job_ids": ["companion-1"]}, False, False),
-            ("last_table_of_the_run", {"companion_of": "job-0"}, True, True),
+            ("single_table_run_completes", "completed", {}, False, True),
+            # A single-table run that fails in the loader keeps its reserve until its next run, as before.
+            ("single_table_run_fails", "failed", {}, True, False),
+            # The history table's rows stay reserved against the billing limit until its own job ends.
+            ("schema_job_before_its_history_table", "completed", {"cdc_companion_job_ids": ["c-1"]}, False, False),
+            ("last_table_of_the_run_completes", "completed", {"companion_of": "job-0"}, True, True),
+            ("last_table_of_the_run_fails", "failed", {"companion_of": "job-0"}, True, True),
+            ("history_table_fails_before_the_schema_job", "failed", {"companion_of": "job-0"}, False, False),
         ]
     )
-    @patch(f"{_PROCESSOR}.run_completed_on_every_table")
+    @patch(f"{_PROCESSOR}.run_completed_on_every_table", return_value=True)
+    @patch(f"{_PROCESSOR}.run_ended_on_every_table")
     @patch(f"{_PROCESSOR}.resume_schedule_after_ad_hoc_run")
     @patch(f"{_PROCESSOR}.transaction")
     @patch(f"{_PROCESSOR}.release_v3_pipeline_lock")
@@ -659,27 +665,33 @@ class TestMarkJobCompleted:
     def test_the_last_table_of_a_run_clears_its_billing_reserve(
         self,
         _case: str,
+        outcome: str,
         snapshot: dict,
-        every_table_completed: bool,
+        run_ended: bool,
         cleared: bool,
         mock_update: MagicMock,
         _schema_objects: MagicMock,
         mock_finish_row_tracking: AsyncMock,
-        _job_objects: MagicMock,
+        mock_job_objects: MagicMock,
         _release: MagicMock,
         _transaction: MagicMock,
         _resume: MagicMock,
-        mock_every_table_completed: MagicMock,
+        mock_run_ended: MagicMock,
+        _run_completed: MagicMock,
     ) -> None:
         model = MagicMock()
-        model.status = "Completed"
+        model.status = "Completed" if outcome == "completed" else "Failed"
         model.schema_snapshot = snapshot
         mock_update.return_value = model
-        mock_every_table_completed.return_value = every_table_completed
+        mock_job_objects.filter.return_value.first.return_value = None
+        mock_run_ended.return_value = run_ended
         signal = self._make_signal()
         signal.sync_type = "cdc"
 
-        _mark_job_completed(signal)
+        if outcome == "completed":
+            _mark_job_completed(signal)
+        else:
+            _mark_job_failed(signal, RuntimeError("load failed"))
 
         assert mock_finish_row_tracking.await_count == (1 if cleared else 0)
 
@@ -1136,6 +1148,7 @@ class TestStagedCursorWaitsForTheFinalBatch:
             mock_update.return_value.status = mock_job_cls.Status.COMPLETED
             mock_schema_objects = stack.enter_context(patch(f"{_PROCESSOR}.ExternalDataSchema.objects"))
             stack.enter_context(patch(f"{_PROCESSOR}.run_completed_on_every_table", return_value=True))
+            stack.enter_context(patch(f"{_PROCESSOR}.run_ended_on_every_table", return_value=True))
             stack.enter_context(
                 patch(
                     f"{_PROCESSOR}.BatchQueue.get_loaded_prefix_sync",

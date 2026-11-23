@@ -81,16 +81,35 @@ def companions_completed(companion_job_ids: list[str]) -> bool:
     )
 
 
-def run_completed_on_every_table(job_id: str, team_id: int) -> bool:
-    """Whether the run of this job, or of the job it is a companion of, completed on every table it writes."""
+def _run_parent(job_id: str, team_id: int) -> ExternalDataJob:
+    """The schema's own job of the run this job belongs to."""
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
     job = ExternalDataJob.objects.get(id=job_id, team_id=team_id)
     parent_id = (job.schema_snapshot or {}).get(COMPANION_OF_KEY)
-    parent = ExternalDataJob.objects.get(id=parent_id, team_id=team_id) if parent_id else job
+    return ExternalDataJob.objects.get(id=parent_id, team_id=team_id) if parent_id else job
+
+
+def run_completed_on_every_table(job_id: str, team_id: int) -> bool:
+    """Whether the run of this job, or of the job it is a companion of, completed on every table it writes."""
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+
+    parent = _run_parent(job_id, team_id)
     return parent.status == ExternalDataJob.Status.COMPLETED and companions_completed(
         (parent.schema_snapshot or {}).get(COMPANION_JOB_IDS_KEY) or []
     )
+
+
+def run_ended_on_every_table(job_id: str, team_id: int) -> bool:
+    """Whether the run of this job, or of the job it is a companion of, has stopped on every table it writes,
+    completed or failed."""
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+
+    parent = _run_parent(job_id, team_id)
+    if parent.status == ExternalDataJob.Status.RUNNING:
+        return False
+    companion_ids = (parent.schema_snapshot or {}).get(COMPANION_JOB_IDS_KEY) or []
+    return not ExternalDataJob.objects.filter(id__in=companion_ids, status=ExternalDataJob.Status.RUNNING).exists()
 
 
 def record_companion_job(parent_job_id: str, team_id: int, companion_job_id: str, *, first_of_attempt: bool) -> None:
