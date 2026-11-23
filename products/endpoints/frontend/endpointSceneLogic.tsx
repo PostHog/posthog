@@ -180,8 +180,8 @@ export interface endpointSceneLogicActions {
         endpointName: string
         options:
             | {
-                  showViewButton?: boolean | undefined
-                  version?: number | undefined
+                  showViewButton?: boolean
+                  version?: number
               }
             | undefined
         response: any

@@ -1,7 +1,9 @@
 import { IconCheck, IconCircleDashed, IconWarning } from '@posthog/icons'
 import { LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { Badge, Spinner as QuillSpinner } from '@posthog/quill'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { cn } from 'lib/utils/css-classes'
 
 import type { InsightDataChecksStatus } from './insightDataChecksLogic'
@@ -10,6 +12,25 @@ const TYPES: Partial<Record<InsightDataChecksStatus, LemonTagType>> = {
     passed: 'success',
     warning: 'warning',
     problem: 'danger',
+}
+
+const BADGE_VARIANTS: Partial<Record<InsightDataChecksStatus, 'success' | 'warning' | 'destructive'>> = {
+    passed: 'success',
+    warning: 'warning',
+    problem: 'destructive',
+}
+
+function StatusIcon({ status, quill }: { status: InsightDataChecksStatus; quill: boolean }): JSX.Element {
+    if (status === 'passed') {
+        return <IconCheck />
+    }
+    if (status === 'checking') {
+        return quill ? <QuillSpinner /> : <Spinner textColored />
+    }
+    if (status === 'no_events' || status === 'inconclusive' || status === 'on_request' || status === 'partial') {
+        return <IconCircleDashed />
+    }
+    return <IconWarning />
 }
 
 export function DataChecksTag({
@@ -21,20 +42,11 @@ export function DataChecksTag({
     label: string
     labelOpen: boolean
 }): JSX.Element {
-    return (
-        <LemonTag type={TYPES[status] ?? 'muted'} className="gap-0">
-            {status === 'passed' ? (
-                <IconCheck key={status} />
-            ) : status === 'checking' ? (
-                <Spinner key={status} textColored />
-            ) : status === 'no_events' ||
-              status === 'inconclusive' ||
-              status === 'on_request' ||
-              status === 'partial' ? (
-                <IconCircleDashed key={status} />
-            ) : (
-                <IconWarning key={status} />
-            )}
+    const quillSurface = useQuillSurface()
+
+    const content = (
+        <>
+            <StatusIcon key={status} status={status} quill={quillSurface} />
             <span
                 className={cn(
                     'overflow-hidden whitespace-nowrap',
@@ -49,6 +61,16 @@ export function DataChecksTag({
                     {label}
                 </span>
             </span>
+        </>
+    )
+
+    return quillSurface ? (
+        <Badge variant={BADGE_VARIANTS[status] ?? 'default'} className="gap-0">
+            {content}
+        </Badge>
+    ) : (
+        <LemonTag type={TYPES[status] ?? 'muted'} className="gap-0">
+            {content}
         </LemonTag>
     )
 }

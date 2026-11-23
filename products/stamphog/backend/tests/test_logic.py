@@ -1,10 +1,11 @@
 import json
+import time
 import tempfile
 import threading
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
-from typing import TypeVar, cast
+from typing import Any, TypeVar, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -12,20 +13,35 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase, override_settings
 
 import jwt
+import yaml
+from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 
+from posthog.api.oauth.client_assertion import UnknownSigningKeyError
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 
 from products.stamphog.backend.facade.enums import AudienceReason, ReviewMode, ReviewTrigger
 from products.stamphog.backend.logic.approval_retention import approved_diff_unchanged, base_merge_is_clean
+from products.stamphog.backend.logic.attestation_pins import check_runs_with_pins
+from products.stamphog.backend.logic.attestation_policy import (
+    WORKFLOW_PROOF_KEY,
+    WorkflowPublisher,
+    workflow_publishers,
+)
 from products.stamphog.backend.logic.audiences import resolve_audiences
+from products.stamphog.backend.logic.decision_fingerprint import decision_fingerprint
 from products.stamphog.backend.logic.digest import DigestPRSummary, DigestSummary, _build_selection_prompt
 from products.stamphog.backend.logic.digest_config import RepoDigestConfig, load_repo_digest_config
+from products.stamphog.backend.logic.engine_pregate import EnginePregateError, run_engine_attestation_proof
 from products.stamphog.backend.logic.familiarity_facts import FamiliarityStatus, ReviewHistory, fetch_review_history
 from products.stamphog.backend.logic.github_client import (
+    MAX_CHECK_RUNS,
     MAX_COMPARE_DIFF_BYTES,
     CommitComparison,
+    GitObjectId,
     RepoPathEntry,
+    RepositoryIdentity,
     StamphogGitHubClient,
     StamphogGitHubError,
     _build_app_jwt,
@@ -41,6 +57,7 @@ from products.stamphog.backend.logic.slack_digest import (
     _detail_blocks,
     _lead_blocks,
 )
+from products.stamphog.backend.logic.workflow_proofs import WorkflowProofs, proof_audience, proven_check_runs
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, StamphogRepoConfig
 from products.stamphog.backend.temporal import activities as activities_module
 from products.stamphog.backend.temporal.registry import ACTIVITIES
@@ -218,6 +235,8 @@ class BuildReviewerInvocationTests(SimpleTestCase):
         # Separate keys on purpose: self_driving_review relaxes gates, the trigger only describes.
         assert context_for()["review_trigger"] == ""
         assert context_for()["self_driving_review"] is False
+        assert context_for()["admitted_bot"] == ""
+        assert context_for(admitted_bot="renovate[bot]")["admitted_bot"] == "renovate[bot]"
 
 
 def _graphql_commit(oid: str, login: str | None) -> dict:
@@ -373,6 +392,18 @@ class ReviewTriggerTests(SimpleTestCase):
             ("no_output", None, ReviewMode.ALL, "all"),
             ("empty_output", {}, ReviewMode.LABEL, "label"),
             ("inbox_only", {"inbox_review": {"trigger": "inbox"}}, ReviewMode.ALL, "self_driving"),
+            (
+                "bot_admission_beats_label_mode",
+                {"bot_admission": {"login": "renovate[bot]"}},
+                ReviewMode.LABEL,
+                "bot_admission",
+            ),
+            (
+                "inbox_beats_bot_admission",
+                {"inbox_review": {"trigger": "inbox"}, "bot_admission": {"login": "renovate[bot]"}},
+                ReviewMode.ALL,
+                "self_driving",
+            ),
         ]
     )
     def test_an_unstamped_run_derives_live(
@@ -791,10 +822,11 @@ class CosmeticWriteFailOpenTests(SimpleTestCase):
 
 
 class CommitGraphqlTests(SimpleTestCase):
-    def _blame(self, response: fakes.FakeResponse) -> list[dict]:
-        def fake_request(method: str, url: str, **kwargs: object) -> fakes.FakeResponse:
+    def _call(self, response: fakes.FakeResponse, call: Callable[[StamphogGitHubClient], Any]) -> Any:
+        def fake_request(method: str, url: str, **kwargs: Any) -> fakes.FakeResponse:
             if url.endswith("/access_tokens"):
                 return fakes.FakeResponse(201, json_data={"token": "t", "expires_at": "2999-01-01T00:00:00Z"})
+            self.graphql_variables = kwargs["json"]["variables"]
             return response
 
         with (
@@ -803,7 +835,76 @@ class CommitGraphqlTests(SimpleTestCase):
             patch(f"{_GH}.remember_observed_core_limit", lambda *a, **k: None),
             patch(f"{_GH}.raise_if_github_rate_limited", lambda *a, **k: None),
         ):
-            return StamphogGitHubClient("123").get_blame_ranges("acme/widgets", "abc", "src/a.py", timeout=5)
+            return call(StamphogGitHubClient("123"))
+
+    def _blame(self, response: fakes.FakeResponse) -> list[dict]:
+        return self._call(response, lambda c: c.get_blame_ranges("acme/widgets", "abc", "src/a.py", timeout=5))
+
+    @parameterized.expand(
+        [
+            (
+                "file",
+                {"text": "paths:\n  - tools/proof/\n", "isBinary": False, "isTruncated": False},
+                "paths:\n  - tools/proof/\n",
+            ),
+            (
+                "symlink_reads_its_link_text",
+                {"text": "../docs/x.yml", "isBinary": False, "isTruncated": False},
+                "../docs/x.yml",
+            ),
+            ("missing", None, None),
+            ("directory", {}, None),
+            ("binary", {"text": None, "isBinary": True, "isTruncated": False}, None),
+            ("truncated", {"text": "paths:", "isBinary": False, "isTruncated": True}, None),
+        ]
+    )
+    def test_default_branch_blob_text_reads_the_blob_at_the_path(
+        self, _name: str, blob: dict | None, expected: str | None
+    ) -> None:
+        # The contents API follows an in-repo symlink, so an issuer manifest read through it would
+        # take the target's text, which neither self-governance nor the pins cover.
+        response = fakes.FakeResponse(200, json_data={"data": {"repository": {"object": blob}}})
+
+        text = self._call(response, lambda c: c.get_default_branch_blob_text("acme/widgets", "tools/proof/issuer.yml"))
+
+        assert text == expected
+        assert self.graphql_variables == {
+            "owner": "acme",
+            "name": "widgets",
+            "expression": "HEAD:tools/proof/issuer.yml",
+        }
+
+    def test_default_branch_objects_read_a_missing_path_as_absent(self) -> None:
+        # One failed read would mark every proof stale, so a missing path must not fail the request.
+        response = fakes.FakeResponse(
+            200,
+            json_data={
+                "data": {
+                    "repository": {
+                        "p0": {"__typename": "Blob", "oid": "a" * 40},
+                        "p1": None,
+                        "p2": {"__typename": "Tree", "oid": "b" * 40},
+                    }
+                }
+            },
+        )
+
+        objects = self._call(
+            response, lambda c: c.get_default_branch_objects("acme/widgets", ["prover.py", ".npmrc", "tools/proof/"])
+        )
+
+        assert objects == {
+            "prover.py": GitObjectId(kind="Blob", oid="a" * 40),
+            ".npmrc": None,
+            "tools/proof/": GitObjectId(kind="Tree", oid="b" * 40),
+        }
+        assert self.graphql_variables == {
+            "owner": "acme",
+            "name": "widgets",
+            "p0": "HEAD:prover.py",
+            "p1": "HEAD:.npmrc",
+            "p2": "HEAD:tools/proof",
+        }
 
     @parameterized.expand(
         [
@@ -816,6 +917,475 @@ class CommitGraphqlTests(SimpleTestCase):
     ) -> None:
         with pytest.raises(expected):
             self._blame(fakes.FakeResponse(200, json_data={"errors": [error]}))
+
+
+class _PinClient:
+    def __init__(self, check_runs: list[dict], default_branch: dict[str, GitObjectId]) -> None:
+        self.check_runs = check_runs
+        self.default_branch = default_branch
+        self.blob_reads = 0
+
+    def get_check_runs(self, repo: str, head_sha: str) -> list[dict]:
+        return self.check_runs
+
+    def get_default_branch_objects(self, repo: str, paths: list[str], **_: Any) -> dict[str, GitObjectId | None]:
+        self.blob_reads += 1
+        return {path: self.default_branch.get(path) for path in paths}
+
+
+def _pinning_check_run(blobs: object, name: str = "Proof", run_id: int = 1) -> dict:
+    return {
+        "id": run_id,
+        "name": name,
+        "status": "completed",
+        "app": {"id": 123},
+        "output": {"summary": f"<!-- stamphog:v1 {json.dumps({'files': [], 'blobs': blobs})} -->"},
+    }
+
+
+class AttestationPinTests(SimpleTestCase):
+    _DEFAULT_BRANCH: dict[str, GitObjectId] = {
+        "prover.py": GitObjectId(kind="Blob", oid="a" * 40),
+        ".npmrc": GitObjectId(kind="Blob", oid="b" * 40),
+        "tools/proof/": GitObjectId(kind="Tree", oid="d" * 40),
+        "tools/proof": GitObjectId(kind="Tree", oid="d" * 40),
+    }
+
+    @parameterized.expand(
+        [
+            ("every_pin_holds", {"prover.py": "a" * 40, ".npmrc": "b" * 40}, True),
+            ("a_directory_pin_holds", {"tools/proof/": "d" * 40, "prover.py": "a" * 40}, True),
+            ("a_directory_changed", {"tools/proof/": "e" * 40}, False),
+            ("a_directory_pinned_as_a_file", {"tools/proof": "d" * 40}, False),
+            ("a_file_pinned_as_a_directory", {"prover.py/": "a" * 40}, False),
+            ("an_absent_file_stays_absent", {"prover.py": "a" * 40, "frontend/.npmrc": None}, True),
+            ("a_pinned_file_changed", {"prover.py": "c" * 40}, False),
+            ("a_file_absent_at_the_proof_now_exists", {".npmrc": None}, False),
+            ("a_pinned_file_was_deleted", {"gone.py": "a" * 40}, False),
+            ("no_pins", {}, False),
+            ("malformed_pins", ["prover.py"], False),
+            ("more_paths_than_the_limit", {f"f{index}": None for index in range(65)}, False),
+        ]
+    )
+    def test_a_pinning_check_run_is_current_only_while_every_blob_matches(
+        self, _name: str, blobs: object, expected: bool
+    ) -> None:
+        client = _PinClient([_pinning_check_run(blobs)], self._DEFAULT_BRANCH)
+
+        [check_run] = check_runs_with_pins(cast(StamphogGitHubClient, client), "acme/widgets", client.check_runs)
+
+        assert check_run["pinned_blobs_current"] is expected
+
+    def test_only_a_bounded_number_of_pinning_check_runs_is_read(self) -> None:
+        # A job of any PR can post as GitHub Actions, and a re-run leaves older runs of a check
+        # behind. Neither may use up the budget that a publisher's newest run needs.
+        pinning = [_pinning_check_run({"prover.py": "a" * 40}, f"Proof {n}", run_id=10 + n) for n in range(7)]
+        unread = [
+            {"output": {"summary": '<!-- stamphog:v1 ["a.py"] -->'}},
+            {**pinning[0], "app": {"id": 15368}},
+            {"output": {"summary": pinning[0]["output"]["summary"] * 2}},
+            {**pinning[6], "id": 1},
+            {**pinning[6], "id": 99, "status": "in_progress"},
+        ]
+        client = _PinClient([*unread, *pinning], self._DEFAULT_BRANCH)
+
+        *unmarked, a, b, c, d, e, f, g = check_runs_with_pins(
+            cast(StamphogGitHubClient, client), "acme/widgets", client.check_runs
+        )
+
+        assert all("pinned_blobs_current" not in check_run for check_run in unmarked)
+        assert [check_run["pinned_blobs_current"] for check_run in (a, b, c, d, e, f, g)] == [False] * 2 + [True] * 5
+        assert client.blob_reads == 5
+
+
+_PUBLISHER = WorkflowPublisher(
+    name="migration_risk",
+    check="Migration risk",
+    workflow=".github/workflows/migration-risk.yml",
+    job="publish",
+    events=("pull_request_target",),
+)
+_OIDC_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+_WORKFLOW_REF = "acme/widgets/.github/workflows/migration-risk.yml@refs/heads/main"
+_RUN_SHA = "c" * 40
+_PROVER = GitObjectId(kind="Blob", oid="a" * 40)
+_WORKFLOW_FILE = GitObjectId(kind="Blob", oid="f" * 40)
+
+
+def _oidc_claims(**overrides: object) -> dict:
+    # Issued and expired an hour ago: the review comes after the token's five minutes.
+    issued = int(time.time()) - 3600
+    claims = {
+        "iss": "https://token.actions.githubusercontent.com",
+        "iat": issued,
+        "exp": issued + 300,
+        "repository_id": "42",
+        "event_name": "pull_request_target",
+        "workflow_ref": _WORKFLOW_REF,
+        "job_workflow_ref": _WORKFLOW_REF,
+        "job_workflow_sha": _RUN_SHA,
+        "run_id": "77",
+        "run_attempt": "1",
+        "check_run_id": "900",
+        **overrides,
+    }
+    # An override of None leaves the claim out.
+    return {key: value for key, value in claims.items() if value is not None}
+
+
+def _marker(**overrides: object) -> str:
+    return json.dumps({"files": ["m.sql"], "pr": 7, "head_sha": "sha", "blobs": {"prover.py": "a" * 40}, **overrides})
+
+
+def _signed_check_run(
+    posted_id: int = 5,
+    *,
+    conclusion: str = "success",
+    marker: str | None = None,
+    audience: str | None = None,
+    **claims: object,
+) -> dict:
+    marker = marker or _marker()
+    claim_set = {"aud": audience or proof_audience("Migration risk", conclusion, marker), **_oidc_claims(**claims)}
+    token = jwt.encode(claim_set, _OIDC_KEY, algorithm="RS256")
+    return {
+        "id": posted_id,
+        "name": "Migration risk",
+        "app": {"id": 15368},
+        "status": "completed",
+        "conclusion": conclusion,
+        "output": {"summary": f"<!-- stamphog:v1 {marker} -->\n<!-- stamphog-oidc:v1 {token} -->"},
+    }
+
+
+def _test_signing_key(token: str) -> Any:
+    return MagicMock(key=_OIDC_KEY.public_key())
+
+
+class _WorkflowClient:
+    def __init__(self, check_runs: list[dict], jobs: dict[int, dict] | None = None) -> None:
+        self.check_runs = check_runs
+        self.jobs = {900: {"id": 900, "name": "publish", "run_id": 77}} if jobs is None else jobs
+        self.default_branch = {"prover.py": _PROVER, ".github/workflows/migration-risk.yml": _WORKFLOW_FILE}
+        self.at_run = dict(self.default_branch)
+        self.job_reads = 0
+        self.object_read_lanes: list[Priority] = []
+        self.check_suites = 1
+
+    def get_check_runs(self, repo: str, head_sha: str, **filters: Any) -> list[dict]:
+        assert filters["all_runs"] is True
+        return [check_run for check_run in self.check_runs if check_run.get("name") == filters["check_name"]]
+
+    def count_check_suites(self, repo: str, ref: str, **_: Any) -> int:
+        return self.check_suites
+
+    def get_repository_identity(self, repo: str, **_: Any) -> RepositoryIdentity:
+        return RepositoryIdentity(id=42, full_name="acme/widgets", default_branch="main")
+
+    def get_workflow_job(self, repo: str, job_id: int, **_: Any) -> dict | None:
+        self.job_reads += 1
+        return self.jobs.get(job_id)
+
+    def get_objects(
+        self, repo: str, revision: str, paths: list[str], *, priority: Priority
+    ) -> dict[str, GitObjectId | None]:
+        assert revision == _RUN_SHA
+        self.object_read_lanes.append(priority)
+        return {path: self.at_run.get(path) for path in paths}
+
+    def get_default_branch_objects(
+        self, repo: str, paths: list[str], *, priority: Priority
+    ) -> dict[str, GitObjectId | None]:
+        self.object_read_lanes.append(priority)
+        return {path: self.default_branch.get(path) for path in paths}
+
+
+def _proofs(client: _WorkflowClient) -> WorkflowProofs:
+    return WorkflowProofs(
+        cast(StamphogGitHubClient, client),
+        "acme/widgets",
+        pr_number=7,
+        head_sha="sha",
+        signing_key=_test_signing_key,
+    )
+
+
+class WorkflowProofTests(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("the_publishing_job", _signed_check_run(), None, True),
+            # GitHub documents the job_ claims for reusable workflows only.
+            (
+                "a_token_without_job_claims",
+                _signed_check_run(job_workflow_ref=None, job_workflow_sha=None, workflow_sha=_RUN_SHA),
+                None,
+                True,
+            ),
+            ("a_pull_request_run", _signed_check_run(event_name="pull_request"), None, False),
+            (
+                "a_branch_workflow",
+                _signed_check_run(
+                    workflow_ref=_WORKFLOW_REF.replace("main", "evil"),
+                    job_workflow_ref=_WORKFLOW_REF.replace("main", "evil"),
+                ),
+                None,
+                False,
+            ),
+            (
+                "a_reusable_workflow_job",
+                _signed_check_run(workflow_ref="acme/widgets/.github/workflows/caller.yml@refs/heads/main"),
+                None,
+                False,
+            ),
+            ("another_repository", _signed_check_run(repository_id="43"), None, False),
+            (
+                "a_flipped_conclusion",
+                {**_signed_check_run(conclusion="failure"), "conclusion": "success"},
+                None,
+                False,
+            ),
+            ("a_token_of_another_result", _signed_check_run(audience="stamphog-other"), None, False),
+            ("another_pr", _signed_check_run(marker=_marker(pr=8)), None, False),
+            ("another_head", _signed_check_run(marker=_marker(head_sha="other")), None, False),
+            ("another_job_of_the_workflow", _signed_check_run(), {900: {"name": "conclude", "run_id": 77}}, False),
+            ("a_job_of_another_run", _signed_check_run(), {900: {"name": "publish", "run_id": 76}}, False),
+            (
+                "no_token",
+                {**_signed_check_run(), "output": {"summary": f"<!-- stamphog:v1 {_marker()} -->"}},
+                None,
+                False,
+            ),
+        ]
+    )
+    def test_a_workflow_result_counts_only_when_the_publishing_job_signed_it(
+        self, _name: str, check_run: dict, jobs: dict[int, dict] | None, counts: bool
+    ) -> None:
+        client = _WorkflowClient([check_run], jobs)
+
+        proof = _proofs(client).verified_result(_PUBLISHER)
+
+        if not counts:
+            assert proof is None
+            return
+        assert proof is not None
+        assert (proof[WORKFLOW_PROOF_KEY], proof["conclusion"], proof["pinned_blobs_current"]) == (
+            "migration_risk",
+            "success",
+            True,
+        )
+
+    def test_an_older_result_posted_again_does_not_replace_the_newer_run(self) -> None:
+        older = _signed_check_run(5, run_id="76", check_run_id="899")
+        newer = _signed_check_run(6, conclusion="failure", run_id="77")
+        replayed = [{**older, "id": posted_id} for posted_id in range(7, 13)]
+        # A copy of the newer token that claims success comes first, and must not stand in for the real one.
+        tampered = {**newer, "id": 2, "conclusion": "success"}
+        jobs = {899: {"name": "publish", "run_id": 76}, 900: {"name": "publish", "run_id": 77}}
+        client = _WorkflowClient([tampered, older, newer, *replayed], jobs)
+
+        proof = _proofs(client).verified_result(_PUBLISHER)
+
+        assert proof is not None
+        assert (proof["id"], proof["conclusion"], proof["pinned_blobs_current"]) == (6, "failure", False)
+
+    @parameterized.expand(
+        [
+            ("current_code", {}, {}, True),
+            ("an_old_run_of_a_changed_prover", {"prover.py": GitObjectId(kind="Blob", oid="b" * 40)}, {}, False),
+            ("an_old_run_of_a_changed_workflow", {".github/workflows/migration-risk.yml": None}, {}, False),
+            ("pins_that_misreport_the_run", {}, {"prover.py": GitObjectId(kind="Blob", oid="b" * 40)}, False),
+        ]
+    )
+    def test_a_success_lifts_only_while_the_run_executed_the_default_branch_code(
+        self, _name: str, at_run: dict, both: dict, current: bool
+    ) -> None:
+        client = _WorkflowClient([_signed_check_run()])
+        client.at_run.update({**at_run, **both})
+        client.default_branch.update(both)
+
+        proof = _proofs(client).verified_result(_PUBLISHER)
+
+        assert proof is not None
+        assert proof["pinned_blobs_current"] is current
+
+    @parameterized.expand(
+        [
+            (
+                "an_unsigned_check",
+                {"id": 9, "name": "Migration risk", "status": "completed", "output": {}},
+                None,
+                False,
+            ),
+            ("another_job_of_the_workflow", _signed_check_run(), {900: {"name": "conclude", "run_id": 77}}, False),
+            ("the_publishing_job", _signed_check_run(), None, True),
+            # GitHub documents the job_ claims for reusable workflows only.
+            (
+                "a_token_without_job_claims",
+                _signed_check_run(job_workflow_ref=None, job_workflow_sha=None, workflow_sha=_RUN_SHA),
+                None,
+                True,
+            ),
+        ]
+    )
+    def test_the_poll_wakes_only_on_what_ends_the_engines_wait(
+        self, _name: str, check_run: dict, jobs: dict[int, dict] | None, reported: bool
+    ) -> None:
+        # A wake that the engine answers with another WAIT spends one of the head's few re-reviews.
+        client = _WorkflowClient([check_run], jobs)
+
+        assert _proofs(client).has_result(_PUBLISHER) is reported
+
+    @parameterized.expand(
+        [
+            # A refresh that failed after a key rotation must not let an older success decide.
+            ("a_newer_failure_behind_an_unreadable_key", "77", "failure", [], None),
+            # A newer token from another job must not lift the cutoff above that failure.
+            (
+                "another_jobs_token_above_an_unreadable_failure",
+                "77",
+                "failure",
+                [_signed_check_run(7, run_id="78", check_run_id="901")],
+                None,
+            ),
+            # GitHub dropped the key of an old run, and a newer verified result still decides.
+            ("an_older_token_behind_an_unreadable_key", "75", "success", [], "success"),
+        ]
+    )
+    def test_a_token_whose_key_cannot_be_read_never_lets_an_older_result_decide(
+        self, _name: str, unread_run: str, unread_conclusion: str, others: list[dict], expected: str | None
+    ) -> None:
+        verified = _signed_check_run(5, run_id="76", check_run_id="899")
+        unread = _signed_check_run(6, conclusion=unread_conclusion, run_id=unread_run)
+        unread_token = unread["output"]["summary"].rsplit(" ", 2)[-2]
+
+        def signing_key(token: str) -> Any:
+            if token == unread_token:
+                raise UnknownSigningKeyError("Client assertion is signed by an unknown key")
+            return _test_signing_key(token)
+
+        jobs = {899: {"name": "publish", "run_id": 76}, 901: {"name": "conclude", "run_id": 78}}
+        client = _WorkflowClient([verified, unread, *others], jobs)
+        proofs = WorkflowProofs(
+            cast(StamphogGitHubClient, client), "acme/widgets", pr_number=7, head_sha="sha", signing_key=signing_key
+        )
+
+        proof = proofs.verified_result(_PUBLISHER)
+
+        assert (proof or {}).get("conclusion") == expected
+
+    def test_a_background_poll_reads_the_code_on_the_sheddable_lane(self) -> None:
+        # Many waiting PRs poll at once, and must not spend the budget a person waiting on a review needs.
+        client = _WorkflowClient([_signed_check_run()])
+        proofs = WorkflowProofs(
+            cast(StamphogGitHubClient, client),
+            "acme/widgets",
+            pr_number=7,
+            head_sha="sha",
+            priority=Priority.BATCH,
+            signing_key=_test_signing_key,
+        )
+
+        assert proofs.has_result(_PUBLISHER) is True
+        assert client.object_read_lanes == [Priority.BATCH, Priority.BATCH]
+
+    @parameterized.expand(
+        [
+            ("a_job_lookup_server_error", "get_workflow_job", StamphogGitHubError("502", status_code=502), False),
+            ("a_job_lookup_rate_limit", "get_workflow_job", GitHubRateLimitError("slow down"), False),
+            # The result stays pending rather than refusing the lift, and the poll does not spend a wake on it.
+            ("a_code_check_rate_limit", "get_objects", GitHubRateLimitError("slow down"), False),
+        ]
+    )
+    def test_a_lookup_that_github_refuses_proves_nothing_and_fails_no_review(
+        self, _name: str, method: str, error: Exception, poll_wakes: bool
+    ) -> None:
+        check_run = _signed_check_run()
+        client = _WorkflowClient([check_run])
+        setattr(client, method, MagicMock(side_effect=error))
+
+        assert _proofs(client).verified_result(_PUBLISHER) is None
+        assert _proofs(client).has_result(_PUBLISHER) is poll_wakes
+
+    @parameterized.expand([("an_integer_past_the_digit_limit", '{"pr": ' + "9" * 4301 + "}")])
+    def test_a_hostile_marker_hides_no_result_and_fails_no_review(self, _name: str, marker: str) -> None:
+        hostile = {**_signed_check_run(9), "output": {"summary": f"<!-- stamphog:v1 {marker} -->"}}
+        client = _WorkflowClient([hostile, _signed_check_run()])
+
+        assert _proofs(client).verified_result(_PUBLISHER) is not None
+
+    @parameterized.expand(
+        [
+            ("too_many_check_runs", MAX_CHECK_RUNS, 1),
+            # GitHub lists check runs from only the newest 1000 check suites of a commit.
+            ("too_many_check_suites", 1, 1001),
+        ]
+    )
+    def test_a_listing_that_may_have_stopped_short_proves_nothing(
+        self, _name: str, check_runs: int, check_suites: int
+    ) -> None:
+        client = _WorkflowClient([_signed_check_run(posted_id) for posted_id in range(check_runs)])
+        client.check_suites = check_suites
+
+        assert _proofs(client).verified_result(_PUBLISHER) is None
+
+    def test_both_review_paths_add_the_verified_result_and_leave_its_pins_alone(self) -> None:
+        check_run = _signed_check_run()
+        client = _WorkflowClient([check_run])
+        client.at_run["prover.py"] = GitObjectId(kind="Blob", oid="b" * 40)
+        policy = yaml.safe_dump(
+            {
+                "attestations": [
+                    {
+                        "name": "migration_risk",
+                        "check": "Migration risk",
+                        "workflow": _PUBLISHER.workflow,
+                        "job": "publish",
+                        "events": ["pull_request_target"],
+                    }
+                ]
+            }
+        )
+
+        with patch(
+            "products.stamphog.backend.logic.workflow_proofs.select_signing_key",
+            side_effect=lambda _, token: _test_signing_key(token),
+        ):
+            check_runs = proven_check_runs(
+                cast(StamphogGitHubClient, client),
+                "acme/widgets",
+                pr_number=7,
+                head_sha="sha",
+                check_runs=[check_run],
+                policy=policy,
+            )
+
+        [carrier, proof] = check_runs
+        assert "pinned_blobs_current" not in carrier
+        # The run executed an older prover, and the App pin check must not overwrite that answer.
+        assert (proof[WORKFLOW_PROOF_KEY], proof["pinned_blobs_current"]) == ("migration_risk", False)
+
+    @parameterized.expand(
+        [
+            ("an_app_entry", {"app_id": 1}, ()),
+            (
+                "a_workflow_entry",
+                {"workflow": _PUBLISHER.workflow, "job": "publish", "events": ["pull_request_target"]},
+                (_PUBLISHER,),
+            ),
+            (
+                "a_pull_request_event",
+                {"workflow": _PUBLISHER.workflow, "job": "publish", "events": ["pull_request"]},
+                (),
+            ),
+            ("an_event_that_is_no_string", {"workflow": _PUBLISHER.workflow, "job": "publish", "events": [{}]}, ()),
+        ]
+    )
+    def test_workflow_publishers_reads_only_valid_workflow_entries(
+        self, _name: str, publisher_keys: dict, expected: tuple[WorkflowPublisher, ...]
+    ) -> None:
+        entry = {"name": "migration_risk", "check": "Migration risk", **publisher_keys}
+
+        assert workflow_publishers(yaml.safe_dump({"attestations": [entry]})) == expected
 
 
 class BuildAppJwtIssuerTests(SimpleTestCase):
@@ -1234,3 +1804,83 @@ class BaseMergeProofTests(SimpleTestCase):
             assert self._proven(self.base, head, master) is False
         else:
             assert self._proven(approved, head, self.base) is False
+
+
+def _fingerprint_context() -> dict:
+    return {
+        "pr": {
+            "number": 7,
+            "title": "feat: add a helper",
+            "updated_at": "2026-11-09T10:00:00Z",
+            "mergeable_state": "blocked",
+            "labels": [{"name": "backend"}],
+            "base": {"ref": "master", "sha": "base1", "repo": {"full_name": "acme/widgets", "pushed_at": "t1"}},
+            "head": {"ref": "feat/x", "sha": "head1", "repo": {"full_name": "acme/widgets", "pushed_at": "t1"}},
+        },
+        "discussion": [{"user": {"login": "maintainer"}, "body": "Looks fine.", "reactions": {"+1": 0}}],
+        "check_runs": [{"name": "Migration risk", "status": "completed", "conclusion": "success"}],
+        "pr_reactions": [],
+        "policy_files": {".stamphog/policy.yml": "attestations:\n  - {name: proof, check: Dependency proof}\n"},
+    }
+
+
+class TestDecisionFingerprint(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("trigger_label_added", lambda c: c["pr"]["labels"].append({"name": "stamphog"}), True),
+            ("routing_fork_label_added", lambda c: c["pr"]["labels"].append({"name": "needs-devex"}), True),
+            ("updated_at_moved", lambda c: c["pr"].update(updated_at="2026-11-09T11:00:00Z"), True),
+            ("repo_pushed_to", lambda c: c["pr"]["base"]["repo"].update(pushed_at="t2"), True),
+            ("checks_went_red", lambda c: c["pr"].update(mergeable_state="unstable"), True),
+            ("comment_got_a_reaction", lambda c: c["discussion"][0]["reactions"].update({"+1": 1}), True),
+            ("human_reacted", lambda c: c["pr_reactions"].append({"user": "someone", "content": "rocket"}), True),
+            ("other_check_ran", lambda c: c["check_runs"].append({"name": "Lint", "status": "completed"}), True),
+            ("merge_conflict", lambda c: c["pr"].update(mergeable_state="dirty"), False),
+            ("other_label_added", lambda c: c["pr"]["labels"].append({"name": "hotfix"}), False),
+            ("comment_edited", lambda c: c["discussion"][0].update(body="Please hold."), False),
+            ("migration_check_rerun", lambda c: c["check_runs"][0].update(conclusion="failure"), False),
+            (
+                "attestation_check_finished",
+                lambda c: c["check_runs"].append({"name": "Dependency proof", "status": "completed"}),
+                False,
+            ),
+            (
+                "reviewer_bot_reacted",
+                lambda c: c["pr_reactions"].append({"user": "greptile-apps[bot]", "content": "eyes"}),
+                False,
+            ),
+            ("engine_deployed", lambda c: c.update(engine_digest="engine2"), False),
+        ]
+    )
+    def test_only_decision_inputs_move_the_fingerprint(
+        self, _name: str, change: Callable[[dict], None], expect_same: bool
+    ) -> None:
+        def fingerprint(context: dict) -> str:
+            return decision_fingerprint(
+                context,
+                head_sha="head1",
+                ignored_labels={"stamphog", "needs-devex"},
+                engine_digest=context.get("engine_digest", "engine1"),
+            )
+
+        context = _fingerprint_context()
+        before = fingerprint(context)
+        change(context)
+        assert (before == fingerprint(context)) is expect_same
+
+
+class EngineAttestationProofParsingTests(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("missing_app_id", {"check": "Dependency proof"}),
+            ("null_app_id", {"check": "Dependency proof", "app_id": None}),
+            ("text_app_id", {"check": "Dependency proof", "app_id": "not-a-number"}),
+            ("missing_check", {"app_id": 4242}),
+            ("not_an_object", "Dependency proof"),
+        ]
+    )
+    def test_a_malformed_check_is_an_engine_failure(self, _name: str, entry: object) -> None:
+        stdout = json.dumps({"checks": [entry], "proven": True})
+        with patch("products.stamphog.backend.logic.engine_pregate._run_engine_gates_only", return_value=stdout):
+            with self.assertRaises(EnginePregateError):
+                run_engine_attestation_proof({}, {})

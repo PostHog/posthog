@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import textwrap
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -28,13 +29,21 @@ from products.signals.backend.scout_harness.lazy_seed import (
     seed_canonical_skills,
     sync_canonical_skills,
 )
-from products.signals.backend.scout_harness.skill_loader import load_skill_for_run
+from products.signals.backend.scout_harness.prompt import (
+    DREAM_DIGEST_KEY_PREFIX,
+    LEARNED_KEY_KINDS,
+    LEARNED_KEY_PREFIX,
+    MEMORY_UPKEEP_SCOUT,
+)
+from products.signals.backend.scout_harness.skill_loader import load_skill_for_run, skill_uses_report_channel
 from products.signals.backend.scout_harness.tools.structured_output import (
     InvalidStructuredOutputError,
     StructuredOutputRecord,
     _validate_records,
 )
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
+
+from ee.billing.billing_types import USAGE_TYPE_VALUES
 
 _SCHEMA_JSON = '{"type": "object", "properties": {"verdict": {"type": "string"}}}'
 
@@ -810,6 +819,82 @@ class TestShippedStructuredOutputSchemas:
         ):
             with pytest.raises(InvalidStructuredOutputError):
                 _validate_records([StructuredOutputRecord(payload=rejected)], schema)
+
+    def test_dreaming_schema_accepts_a_change_record_and_refuses_entry_content(self) -> None:
+        schema = canonical_structured_output_schema_for(MEMORY_UPKEEP_SCOUT)
+        assert schema is not None
+
+        retire = {
+            "dream_record_version": "1",
+            "dream_owner_skill": "signals-scout-example",
+            "dream_action": "retire",
+            "dream_key": "noise:example:checkout-alert",
+            "dream_reason": "stale",
+            "dream_content_chars_before": 840,
+            "dream_content_chars_after": 840,
+            "dream_entry_age_days": 41.5,
+            "dream_evidence": "alert is deleted, read with alert-get",
+        }
+        _validate_records([StructuredOutputRecord(payload=retire, subject="signals-scout-example")], schema)
+        # Entries can hold customer data, and these records land in the project's event stream,
+        # so the schema stays closed to any field that could carry an entry's content.
+        for rejected in ({**retire, "dream_content": "the entry body"}, {**retire, "dream_action": "forget"}):
+            with pytest.raises(InvalidStructuredOutputError):
+                _validate_records([StructuredOutputRecord(payload=rejected)], schema)
+
+
+class TestShippedMemoryUpkeepScout:
+    def test_skill_matches_the_names_the_harness_prompt_uses(self) -> None:
+        # The run prompt tells every scout which keys this scout writes, and the runner turns that
+        # section on when this scout has written, both from the `prompt.py` constants. A rename on
+        # either side leaves the fleet reading keys nothing writes.
+        (skill,) = [s for s in discover_canonical_skills() if s.name == MEMORY_UPKEEP_SCOUT]
+        named_kinds = set(re.findall(rf"`{re.escape(LEARNED_KEY_PREFIX)}([a-z]+):", skill.body))
+
+        assert skill.source_path.name == MEMORY_UPKEEP_SCOUT
+        assert named_kinds == set(LEARNED_KEY_KINDS)
+        assert f"`{DREAM_DIGEST_KEY_PREFIX}<skill-name>`" in skill.body
+        assert not skill_uses_report_channel(list(skill.allowed_tools))
+
+
+class TestShippedBillingScoutVocabulary:
+    @pytest.mark.parametrize(
+        "section",
+        [
+            # The scout prices a meter only through this table.
+            "## Three vocabularies for one meter",
+            # And hands it off, and finds the skill to read, only through this one.
+            "## Where each usage type hands off",
+        ],
+    )
+    def test_every_billing_usage_type_has_a_row(self, section: str) -> None:
+        # A usage type billing adds without a row is a meter the scout reads but can neither price nor hand off.
+        (skill,) = [s for s in discover_canonical_skills() if s.name == "signals-scout-billing"]
+        (reference,) = [f.content for f in skill.files if f.path == "references/usage-types.md"]
+        table = reference.split(section, 1)[1].split("\n## ", 1)[0]
+        mapped = {
+            usage_type
+            for line in table.splitlines()
+            if line.startswith("| `")
+            for usage_type in re.findall(r"`([a-z0-9_]+)`", line.split("|")[1])
+        }
+
+        assert set(USAGE_TYPE_VALUES) - mapped == set()
+
+    def test_every_official_skill_the_scout_names_exists(self) -> None:
+        # The scout reads these skills from the sandbox at run time, so a renamed or removed skill leaves
+        # it following a pointer to nothing.
+        (skill,) = [s for s in discover_canonical_skills() if s.name == "signals-scout-billing"]
+        named = {
+            name
+            for content in (skill.body, *(f.content for f in skill.files))
+            for name in re.findall(r"`posthog:([a-z0-9-]+)`", content)
+        }
+        repo_root = Path(__file__).resolve().parents[4]
+        official = {path.parent.name for path in repo_root.glob("products/*/skills/*/SKILL.md")}
+
+        assert "managing-self-driving-spend" in named
+        assert named - official == set()
 
 
 class TestDeprecationFrontmatter:

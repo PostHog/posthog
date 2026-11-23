@@ -3,9 +3,9 @@ import { useState } from 'react'
 import { IconPlus } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { PathCleaningFilter } from '~/types'
 

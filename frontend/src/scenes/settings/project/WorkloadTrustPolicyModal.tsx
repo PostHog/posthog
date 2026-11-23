@@ -4,9 +4,11 @@ import { Form } from 'kea-forms'
 import { LemonButton, LemonInput, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { riskyScopeWarning } from 'lib/scopes'
 
+import { QuillWorkloadTrustPolicyModal } from './QuillWorkloadTrustPolicyModal'
 import { WorkloadConditionRows } from './WorkloadConditionRows'
 import { WorkloadProviderIcon } from './WorkloadProviderIcon'
 import { WorkloadSetupSnippet } from './WorkloadSetupSnippet'
@@ -27,9 +29,49 @@ export function WorkloadTrustPolicyModal(): JSX.Element {
     } = useValues(workloadTrustPoliciesLogic)
     const { setEditingPolicyId, submitEditingPolicy, setScopeLevel, setScopeSearchTerm } =
         useActions(workloadTrustPoliciesLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const isNew = editingPolicyId === 'new'
     const close = (): void => setEditingPolicyId(null)
+    const renderScopeRow = ({ key, label, disabledActions }: (typeof scopeRows)[number]): JSX.Element => (
+        <ScopeAccessRow
+            key={key}
+            row={{
+                key,
+                label,
+                value: scopeLevels[key] ?? 'none',
+                warning: riskyScopeWarning(key, scopeLevels[key] ?? 'none', providers?.risky_scopes ?? {}),
+                disabledReasons: {
+                    read: disabledActions.includes('read') ? 'Not available for workload tokens' : undefined,
+                    write: disabledActions.includes('write') ? 'Not available for workload tokens' : undefined,
+                },
+            }}
+            onChange={setScopeLevel}
+        />
+    )
+
+    if (todayRailNav) {
+        return (
+            <QuillWorkloadTrustPolicyModal
+                isOpen={!!editingPolicyId}
+                isNew={isNew}
+                onClose={close}
+                setup={
+                    showingSetup && editingProvider?.setup_snippet && providers
+                        ? { provider: editingProvider, jobSettings: providers.job_settings }
+                        : null
+                }
+                hasUnsavedInput={editingPolicyChanged}
+                isSubmitting={isEditingPolicySubmitting}
+                onSubmit={submitEditingPolicy}
+                providers={providers?.supported ?? []}
+                showConditions={!!editingProvider?.condition_claims.length}
+                scopeSearchTerm={scopeSearchTerm}
+                onScopeSearchTermChange={setScopeSearchTerm}
+                scopeRows={scopeRows.map(renderScopeRow)}
+            />
+        )
+    }
 
     if (showingSetup && editingProvider?.setup_snippet && providers) {
         return (
@@ -105,46 +147,25 @@ export function WorkloadTrustPolicyModal(): JSX.Element {
                         label="Scopes"
                         help="Every token from this policy gets these scopes. Scopes that would let a token outlive itself aren't available."
                     >
-                        <div className="w-full">
-                            <LemonInput
-                                type="search"
-                                placeholder="Search scopes"
-                                value={scopeSearchTerm}
-                                onChange={setScopeSearchTerm}
-                                className="mb-2"
-                                size="small"
-                            />
-                            <div className="max-h-[40vh] overflow-y-auto deprecated-space-y-2">
-                                {scopeRows.length === 0 ? (
-                                    <div className="text-secondary text-sm py-2">No scopes match your search.</div>
-                                ) : (
-                                    scopeRows.map(({ key, label, disabledActions }) => (
-                                        <ScopeAccessRow
-                                            key={key}
-                                            row={{
-                                                key,
-                                                label,
-                                                value: scopeLevels[key] ?? 'none',
-                                                warning: riskyScopeWarning(
-                                                    key,
-                                                    scopeLevels[key] ?? 'none',
-                                                    providers?.risky_scopes ?? {}
-                                                ),
-                                                disabledReasons: {
-                                                    read: disabledActions.includes('read')
-                                                        ? 'Not available for workload tokens'
-                                                        : undefined,
-                                                    write: disabledActions.includes('write')
-                                                        ? 'Not available for workload tokens'
-                                                        : undefined,
-                                                },
-                                            }}
-                                            onChange={setScopeLevel}
-                                        />
-                                    ))
-                                )}
+                        {() => (
+                            <div className="w-full">
+                                <LemonInput
+                                    type="search"
+                                    placeholder="Search scopes"
+                                    value={scopeSearchTerm}
+                                    onChange={setScopeSearchTerm}
+                                    className="mb-2"
+                                    size="small"
+                                />
+                                <div className="max-h-[40vh] overflow-y-auto deprecated-space-y-2">
+                                    {scopeRows.length === 0 ? (
+                                        <div className="text-secondary text-sm py-2">No scopes match your search.</div>
+                                    ) : (
+                                        scopeRows.map(renderScopeRow)
+                                    )}
+                                </div>
                             </div>
-                        </div>
+                        )}
                     </LemonField>
                 </div>
             </LemonModal>

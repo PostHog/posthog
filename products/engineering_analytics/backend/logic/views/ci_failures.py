@@ -1,27 +1,7 @@
-"""Row-level fingerprinted CI failure lines from the Logs product — the failure-index substrate.
+"""One row per pytest ``FAILED <nodeid>`` line that the CI job-logs pipeline emitted to Logs.
 
-The CI job-logs worker emits one Logs record per failure line (service ``github-ci-logs``, see
-``job_logs``). This view keeps only the pytest ``FAILED <nodeid>`` lines and turns each into a
-fingerprinted row so a caller can count "how often is this exact failure happening, and on which
-branches / SHAs / PRs" without re-deriving the fingerprint recipe every time.
-
-One row per pytest FAILED line. ``test_id`` is the node id from ``FAILED <id>``; ``error_signature``
-is the trailing ``" - <detail>"`` with volatile bits normalized to ``N`` (long hex/uuid blobs and
-digit runs) so two runs of the same failure share a signature; ``fingerprint`` is
-``test_id | signature`` — the group key. The run/branch/repo/job attributes ride the emitted log
-record, and ``run_id`` / ``job_id`` are cast to Int so they join against ``ci_job_history`` and the
-raw ``github_*`` tables.
-
-The fingerprint recipe is **pytest-only v1** — jest / playwright / cargo failure lines don't match
-``FAILED <id>`` and are not fingerprinted yet. The recipe lives in code (not a stored materialization)
-on purpose, so it can evolve by PR as more test runners are covered, re-rendering into a team's view
-on the next sync.
-
-Reads the ``logs`` table, not the warehouse — the failure lines live in the Logs product. Team-global
-(logs aren't source-scoped), so there is no per-source resolution; the view is still gated on the team
-having a qualifying GitHub source so it appears alongside ``ci_job_history``. Nothing here is
-registered as a global HogQL view; it is provisioned per-team as a non-materialized
-``DataWarehouseSavedQuery`` by data_modeling's managed-viewset sync.
+``fingerprint`` is ``test_id | error_signature`` and groups the same failure across runs. Only pytest
+lines are fingerprinted, because other runners do not print ``FAILED <id>::<id>``.
 """
 
 from typing import TYPE_CHECKING
@@ -34,11 +14,10 @@ from products.engineering_analytics.backend.logic.sources import resolve_job_sou
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
-# Public view name — stable contract for insights, subscriptions, other products, and execute-sql.
+# Saved queries and insights select this view by name, so a rename breaks them.
 VIEW_NAME = "engineering_analytics_ci_failures"
 
-# Public column contract (order fixes the saved-query schema). ``nullable=True`` where a value can be
-# absent: no trailing detail → NULL signature; an unstamped conclusion attribute → NULL conclusion.
+# The column order is the saved-query schema, so append new columns and never reorder.
 FIELDS: dict[str, FieldOrTable] = {
     "timestamp": DateTimeDatabaseField(name="timestamp"),
     "test_id": StringDatabaseField(name="test_id"),
@@ -56,12 +35,9 @@ FIELDS: dict[str, FieldOrTable] = {
     "ci_engine": StringDatabaseField(name="ci_engine", nullable=True),
 }
 
-# ``__SERVICE_NAME__`` is substituted with the constant below (a plain identifier, not user input) —
-# .replace, not an f-string, so the ``{8,}`` regex quantifier doesn't collide with f-string braces.
-# The inner layer extracts test_id + the normalized signature; the outer layer derives error_signature
-# (NULL when empty) and the fingerprint off those projected columns (a same-SELECT alias can't feed
-# another expression). Volatile bits — long hex/uuid runs and digit runs — collapse to ``N`` so the
-# same failure across runs shares a signature, truncated to keep the group key bounded.
+# ``__SERVICE_NAME__`` is filled in with ``str.replace``, because the ``{8,}`` regex quantifier would
+# collide with f-string braces. Long hex runs and digit runs collapse to ``N`` so that the same
+# failure shares one signature across runs.
 _SELECT = """
     SELECT
         `timestamp`,
@@ -107,15 +83,14 @@ _SELECT = """
 
 
 def build_query() -> str:
-    """The failure-line SELECT over the team's Logs. No per-source table — logs are team-global."""
+    """The view's SELECT. It takes no table name because Logs are not scoped to a GitHub source."""
     return _SELECT.replace("__SERVICE_NAME__", CI_LOGS_SERVICE_NAME)
 
 
 def build_team_view(team: "Team") -> str | None:
-    """The view body, or None when the team has no qualifying GitHub source.
+    """The view body, or None when the team has no GitHub source with runs and jobs synced.
 
-    Gated on the same ``resolve_job_source_tables`` condition as ``ci_job_history`` so the two
-    views always appear together — a team without a synced GitHub jobs/runs source gets neither.
+    The gate matches ``ci_job_history`` so that a team gets both views or neither.
     """
     if not resolve_job_source_tables(team):
         return None

@@ -289,6 +289,8 @@ def test_validate_credentials_rejects_unverified_user():
     [
         # Percent-encoded domain property copied from a URL bar.
         ("sc-domain%3Aexample.com", "sc-domain:example.com"),
+        # Domain property typed with a capitalised prefix and domain.
+        ("Sc-domain:Example.com", "sc-domain:example.com"),
         # URL-prefix property missing its trailing slash.
         ("https://example.com", "https://example.com/"),
         # Full Search Console UI URL pasted in.

@@ -4,6 +4,10 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
+import type {
+    SessionPlayerModalContext,
+    SessionPlayerModalRecordingList,
+} from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 
 import { NodeKind, RecordingsQuery } from '~/queries/schema/schema-general'
 import {
@@ -87,12 +91,12 @@ export interface heatmapRecordingFallbackLogicActions {
     openSessionPlayer: (
         sessionRecording: Pick<SessionRecordingType, 'id' | 'matching_events'>,
         initialTimestamp?: number | null | undefined,
-        modalContext?:
-            | import('scenes/session-recordings/player/modal/sessionPlayerModalLogic').SessionPlayerModalContext
-            | undefined
+        modalContext?: SessionPlayerModalContext | undefined,
+        recordingList?: SessionPlayerModalRecordingList | null | undefined
     ) => {
         initialTimestamp: number | null
-        modalContext: import('scenes/session-recordings/player/modal/sessionPlayerModalLogic').SessionPlayerModalContext
+        modalContext: SessionPlayerModalContext
+        recordingList: SessionPlayerModalRecordingList | null
         sessionRecording: Pick<SessionRecordingType, 'id' | 'matching_events'>
     } // sessionPlayerModalLogic
     loadMatchingRecordings: () => {

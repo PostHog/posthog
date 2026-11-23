@@ -8,12 +8,15 @@ from typing import Any
 import pytest
 import time_machine
 from posthog.test.base import BaseTest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
+from django.core.cache import cache
 from django.test import override_settings
 
+import httpx
 import redis
 import fakeredis
+from openai import RateLimitError
 from parameterized import parameterized
 from temporalio import activity
 from temporalio.client import Client, ScheduleState
@@ -31,7 +34,14 @@ from products.signals.backend.activity_summary import (
     tick,
 )
 from products.signals.backend.activity_summary.computed import MAX_OWNED, MAX_WATCHED
-from products.signals.backend.activity_summary.config import ActivitySummaryConfig, SourceWeights, parse_config
+from products.signals.backend.activity_summary.config import (
+    DEFAULT_MODEL_SPLIT_SALT,
+    ActivitySummaryConfig,
+    ModelVariant,
+    SourceWeights,
+    parse_config,
+    variant_for_pair,
+)
 from products.signals.backend.activity_summary.mcp_buffer import DIRTY_KEY, build_record, records_key
 from products.signals.backend.activity_summary.prompt import (
     MAX_HEADLINE_CHARS,
@@ -43,6 +53,7 @@ from products.signals.backend.activity_summary.prompt import (
     user_message,
 )
 from products.signals.backend.activity_summary.queue import (
+    TRIGGERS,
     ActivitySummaryPair,
     ActivitySummaryTierStats,
     DailyUsage,
@@ -72,6 +83,13 @@ from products.signals.backend.activity_summary.schedule import (
     ACTIVITY_SUMMARY_TICK_SCHEDULE_ID,
     create_activity_summary_tick_schedule,
 )
+from products.signals.backend.activity_summary.summaries import (
+    DEFAULT_VARIANT,
+    MODEL_PRICES,
+    ServiceTier,
+    SummaryVariant,
+    cost_usd,
+)
 from products.signals.backend.activity_summary.tick import (
     STOP_ERROR_RATE,
     STOP_GATEWAY_NOT_CONFIGURED,
@@ -89,11 +107,19 @@ from products.signals.backend.activity_summary.tick import (
     plan_tick,
     run_pair,
 )
-from products.signals.backend.models import SignalSourceConfig, UserActivitySummary, UserActivitySummaryQueueState
+from products.signals.backend.models import (
+    SignalSourceConfig,
+    UserActivitySummary,
+    UserActivitySummaryQueueState,
+    UserActivitySummaryVersion,
+)
+from products.signals.backend.personal_ranking_tasks import build_lock_key
 from products.signals.backend.test.test_activity_summary_render import FakeLLM
 from products.tasks.backend.facade.user_task_summaries import UserTaskTime
 
 NOW = datetime.datetime(2026, 10, 19, 12, tzinfo=datetime.UTC)
+TERRA = SummaryVariant(model="gpt-6.1-terra")
+TERRA_FLEX = SummaryVariant(model="gpt-6.1-terra", service_tier=ServiceTier.FLEX)
 ANSWER = json.dumps(
     {
         "profile": "## Funnels\n- Builds the signup funnel.",
@@ -130,6 +156,9 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "rebuild_before": "not a time",
             "max_org_share": 2,
             "rebuild_budget_share": 2,
+            "inbox_visit_budget_share": 0,
+            "overdue_budget_share": 2,
+            "outdated_rebuild_after_days": 0,
             "max_error_rate": 0,
             "self_driving_organization_percentage": 101,
             "deny_organization_ids": "org-b",
@@ -161,10 +190,13 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "capture_events": False,
             "emit_profile_embeddings": True,
             "rebuild_before": "2026-10-01T00:00:00",
+            "outdated_rebuild_after_days": 10,
             "enroll_all_approved": True,
             "count_views": True,
             "target_interval_days_free": 7,
             "max_org_share": 0.3,
+            "inbox_visit_budget_share": 0.5,
+            "overdue_budget_share": 0,
             "self_driving_organization_percentage": 12.5,
             "deny_organization_ids": ["org-b", 4],
             "min_score": 4.5,
@@ -188,10 +220,13 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             capture_events=False,
             emit_profile_embeddings=True,
             rebuild_before=datetime.datetime(2026, 10, 1, tzinfo=datetime.UTC),
+            outdated_rebuild_after_days=10.0,
             enroll_all_approved=True,
             count_views=True,
             target_interval_days_free=7.0,
             max_org_share=0.3,
+            inbox_visit_budget_share=0.5,
+            overdue_budget_share=0.0,
             self_driving_organization_percentage=12.5,
             deny_organization_ids=("org-b",),
             source_weights=SourceWeights(new_views=1.0, repeat_view_days=0.25, mcp=2.0),
@@ -226,6 +261,52 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
     ),
     ("limits that are not an object", {"enabled": True, "limits": [5]}, ActivitySummaryConfig(enabled=True)),
     (
+        "model variants keep the valid entries and add up a repeated variant",
+        {
+            "enabled": True,
+            "model_variants": [
+                {"model": "gpt-6-luna", "service_tier": "standard", "weight": 85},
+                {"model": "gpt-6.1-terra", "weight": 5},
+                {"model": "gpt-6.1-terra", "service_tier": "flex", "weight": 5},
+                {"model": "gpt-6-luna", "weight": 5},
+                {"model": "unpriced-model", "weight": 20},
+                {"model": "gpt-6-luna", "service_tier": "flex", "weight": 20},
+                {"model": "gpt-6.1-terra", "service_tier": "priority", "weight": 20},
+                {"model": "gpt-6.1-terra", "service_tier": ["flex"], "weight": 20},
+                {"model": "gpt-6.1-terra", "weight": 0},
+                {"model": "gpt-6.1-terra", "weight": True},
+                {"model": "gpt-6.1-terra", "weight": "5"},
+                {"model": "gpt-6.1-terra", "weight": float("inf")},
+                {"model": 7, "weight": 5},
+                "not an object",
+            ],
+            "model_split_salt": "v2",
+        },
+        ActivitySummaryConfig(
+            enabled=True,
+            model_variants=(
+                ModelVariant(variant=DEFAULT_VARIANT, weight=90.0),
+                ModelVariant(variant=TERRA, weight=5.0),
+                ModelVariant(variant=TERRA_FLEX, weight=5.0),
+            ),
+            model_split_salt="v2",
+        ),
+    ),
+    (
+        "model variants with no valid entry give no split",
+        {
+            "enabled": True,
+            "model_variants": [{"model": "gpt-6-luna", "service_tier": "flex", "weight": 50}],
+            "model_split_salt": "",
+        },
+        ActivitySummaryConfig(enabled=True),
+    ),
+    (
+        "model variants that are not a list give no split",
+        {"enabled": True, "model_variants": {"model": "gpt-6.1-terra", "weight": 1}, "model_split_salt": 3},
+        ActivitySummaryConfig(enabled=True),
+    ),
+    (
         "a future rebuild_before waits",
         {"enabled": True, "rebuild_before": "2026-10-20T00:00:00+00:00"},
         ActivitySummaryConfig(enabled=True),
@@ -258,6 +339,63 @@ def test_a_higher_percentage_keeps_the_organizations_of_a_lower_one(lower: float
         return {o for o in organization_ids if organization_rollout_bucket(o) < percentage * 100}
 
     assert members(lower) < members(higher)
+
+
+_PAIRS = [(team_id, user_id) for team_id in range(1, 5) for user_id in range(2500)]
+_A, _B, _C = (SummaryVariant(model=model) for model in "abc")
+
+
+def _variants(*weights: float) -> tuple[ModelVariant, ...]:
+    return tuple(ModelVariant(variant=variant, weight=weight) for variant, weight in zip((_A, _B, _C), weights))
+
+
+def _assigned(variants: tuple[ModelVariant, ...], salt: str = DEFAULT_MODEL_SPLIT_SALT) -> list[SummaryVariant]:
+    return [variant_for_pair(variants, salt, team_id, user_id) for team_id, user_id in _PAIRS]
+
+
+@parameterized.expand(
+    [
+        ("no split", (), 2, DEFAULT_VARIANT),
+        ("one variant", _variants(1), 2, _A),
+        ("two variants", _variants(80, 20), 3, _B),
+        ("two variants, other pair", _variants(80, 20), 2, _A),
+        (
+            "the tier is part of the variant",
+            (ModelVariant(variant=TERRA, weight=1), ModelVariant(variant=TERRA_FLEX, weight=1)),
+            2,
+            TERRA_FLEX,
+        ),
+    ]
+)
+def test_the_variant_of_a_pair_does_not_change(
+    _name: str, variants: tuple[ModelVariant, ...], user_id: int, expected: SummaryVariant
+) -> None:
+    assert variant_for_pair(variants, DEFAULT_MODEL_SPLIT_SALT, 1, user_id) == expected
+
+
+def test_the_variant_shares_follow_the_weights() -> None:
+    assigned = _assigned(_variants(6, 3, 1))
+
+    shares = {variant.model: assigned.count(variant) / len(assigned) for variant in (_A, _B, _C)}
+    assert shares == pytest.approx({"a": 0.6, "b": 0.3, "c": 0.1}, abs=0.02)
+
+
+def test_a_new_salt_reassigns_the_pairs() -> None:
+    variants = _variants(1, 1)
+
+    moved = sum(old != new for old, new in zip(_assigned(variants), _assigned(variants, salt="v2")))
+    assert moved / len(_PAIRS) == pytest.approx(0.5, abs=0.03)
+
+
+@parameterized.expand([("the last variant", 2), ("the first variant", 0), ("a middle variant", 1)])
+def test_raising_one_weight_moves_pairs_only_into_that_variant(_name: str, raised: int) -> None:
+    weights = [50.0, 30.0, 20.0]
+    before = _assigned(_variants(*weights))
+    weights[raised] += 30
+    after = _assigned(_variants(*weights))
+
+    moves = {(old, new) for old, new in zip(before, after) if old != new}
+    assert moves and {new for _old, new in moves} == {(_A, _B, _C)[raised]}
 
 
 @time_machine.travel(NOW, tick=False)
@@ -409,10 +547,72 @@ class TestActivitySummaryQueue(BaseTest):
         config = self._config(
             rebuild_before=NOW - datetime.timedelta(days=2, hours=12), rebuild_budget_share=share, max_org_share=1
         )
-        assert self._select(config) == [
+        with patch("products.signals.backend.activity_summary.queue.MIN_PROMPT_VERSION", PROMPT_VERSION):
+            selected = self._select(config)
+
+        assert selected == [
             *[(self.team.id, before_rebuild.id), (self.team.id, old_version.id)][:rebuilds],
             (self.team.id, busy.id),
         ]
+
+    @parameterized.expand(
+        [
+            ("every overdue pair fits the share", 0.2, ["older", "old", "busy"], 2),
+            ("the share caps the overdue pairs", 0.1, ["older", "busy"], 2),
+            ("a zero share makes no overdue pair due", 0, ["busy"], 0),
+        ]
+    )
+    def test_an_overdue_summary_is_due_with_new_rows_below_min_score(
+        self, _name: str, share: float, expected: list[str], due_overdue: int
+    ) -> None:
+        users = {name: self._user(f"{name}@example.com") for name in ("older", "old", "quiet", "recent", "busy")}
+        for name, days, new_rows in (
+            ("older", 13, 1),
+            ("old", 11, 1),
+            ("quiet", 11, 0),
+            ("recent", 2, 1),
+            ("busy", 1, 3),
+        ):
+            summarized = NOW - datetime.timedelta(days=days)
+            self._summary(users[name], generated_at=summarized, input_watermark=summarized)
+            self._changes(users[name], 1, days_ago=15)
+            self._changes(users[name], new_rows, days_ago=0.5)
+        config = self._config(overdue_budget_share=share, max_org_share=1)
+        self._seed(config)
+
+        selection = select_pairs(config, NOW, 10)
+
+        triggers = {"older": "overdue", "old": "overdue", "busy": "activity"}
+        assert [(pair.user_id, pair.trigger) for pair in selection.pairs] == [
+            (users[name].id, triggers[name]) for name in expected
+        ]
+        assert selection.due_by_trigger["overdue"] == due_overdue
+        [free] = [tier for tier in selection.tiers if tier.tier == "free"]
+        assert (free.due_overdue, free.fresh_share, free.recent_share) == (due_overdue, 3 / 5, 2 / 5)
+
+    @parameterized.expand(
+        [
+            ("no new rows", 0, None, None),
+            ("enough new rows", 3, None, "activity"),
+            ("older than outdated_rebuild_after_days", 0, 1.0, "stale"),
+            ("younger than outdated_rebuild_after_days", 0, 5.0, None),
+        ]
+    )
+    def test_a_version_bump_above_the_floor_waits_for_new_rows_or_outdated_rebuild_after_days(
+        self, _name: str, new_rows: int, after_days: float | None, trigger: str | None
+    ) -> None:
+        summarized = NOW - datetime.timedelta(days=2)
+        self._summary(self.user, generated_at=summarized, input_watermark=summarized)
+        self._changes(self.user, 1, days_ago=5)
+        self._changes(self.user, new_rows, days_ago=0.5)
+        config = self._config(outdated_rebuild_after_days=after_days)
+
+        with patch("products.signals.backend.activity_summary.queue.PROMPT_VERSION", PROMPT_VERSION + 1):
+            self._seed(config)
+            selection = select_pairs(config, NOW, 10)
+
+        assert [(pair.user_id, pair.trigger) for pair in selection.pairs] == [(self.user.id, trigger)][: bool(trigger)]
+        assert (selection.outdated_pairs, selection.current_version_share) == (int(trigger is None), 0.0)
 
     def test_leaves_out_pairs_that_are_not_due_or_not_enrolled(self) -> None:
         waiting, scout_only, setup_only, impersonated, skipped_team = (
@@ -725,7 +925,7 @@ class TestActivitySummaryQueue(BaseTest):
         usage = daily_usage(NOW)
 
         assert usage.updates == 2
-        assert usage.cost_usd == pytest.approx(0.25 + max_update_cost_usd(MAX_LIMITS))
+        assert usage.cost_usd == pytest.approx(0.25 + max_update_cost_usd(MAX_LIMITS, TERRA))
         with time_machine.travel(NOW + datetime.timedelta(days=1, minutes=1), tick=False):
             assert daily_usage(NOW + datetime.timedelta(days=1, minutes=1)).updates == 0
 
@@ -870,6 +1070,10 @@ class TestActivitySummaryQueue(BaseTest):
             ),
             ("no summary and views on two days", True, False, [("a", [2]), ("b", [1, 2])], None),
             ("no summary and views on three days when views do not count", False, False, [("a", [3, 2, 1])], None),
+            ("no summary and one Inbox visit", True, False, [("scene:Inbox", [1])], "inbox_visit"),
+            ("no summary and one visit to another scene", True, False, [("scene:Insight", [1])], None),
+            ("no summary and one Inbox visit when views do not count", False, False, [("scene:Inbox", [1])], None),
+            ("a summary and an Inbox visit", True, True, [("scene:Inbox", [1])], None),
         ]
     )
     def test_views_make_a_pair_due_by_weighted_score_or_on_active_days(
@@ -892,9 +1096,54 @@ class TestActivitySummaryQueue(BaseTest):
         selection = select_pairs(config, NOW, 10)
 
         assert [(pair.user_id, pair.trigger) for pair in selection.pairs] == [(self.user.id, trigger)][: bool(trigger)]
-        assert selection.due_by_trigger == {
-            name: int(name == trigger) for name in ("activity", "views", "cold_start_views", "stale", "mcp")
-        }
+        assert selection.due_by_trigger == {name: int(name == trigger) for name in TRIGGERS}
+
+    @parameterized.expand(
+        [
+            (
+                "the share takes the Inbox visits first, paying pairs first",
+                2,
+                ["paying", "free0", "busy0", "busy1", "busy2"],
+            ),
+            ("the unused share goes back to the other passes", 0, ["paying", "busy0", "busy1", "busy2", "busy3"]),
+        ]
+    )
+    def test_inbox_visits_fill_a_reserved_share_of_the_tick(
+        self, _name: str, free_inbox_users: int, expected: list[str]
+    ) -> None:
+        paying_org = Organization.objects.create(name="Paying", has_active_subscription=True)
+        paying_team = Team.objects.create(organization=paying_org, name="Paying")
+        users: dict[str, tuple[Team, User]] = {}
+        summarized = NOW - datetime.timedelta(days=10)
+        for index in range(4):
+            busy = self._user(f"busy{index}@example.com")
+            self._summary(busy, generated_at=summarized, input_watermark=summarized)
+            self._changes(busy, 20, days_ago=0.5)
+            users[f"busy{index}"] = (self.team, busy)
+        for index in range(free_inbox_users):
+            users[f"free{index}"] = (self.team, self._user(f"free{index}@example.com"))
+        users["paying"] = (paying_team, User.objects.create_and_join(paying_org, "paying@example.com", None))
+        for name, (team, user) in users.items():
+            if not name.startswith("busy"):
+                FileSystemViewLog.objects.create(
+                    team=team,
+                    user=user,
+                    type="scene",
+                    ref="Inbox",
+                    viewed_at=NOW - datetime.timedelta(days=1),
+                    view_days=[(NOW - datetime.timedelta(days=1)).date()],
+                )
+        config = ActivitySummaryConfig(
+            enabled=True, enroll_all_approved=True, count_views=True, max_org_share=1, inbox_visit_budget_share=0.4
+        )
+        self._seed(config)
+
+        selection = select_pairs(config, NOW, 5)
+
+        assert [(pair.team_id, pair.user_id) for pair in selection.pairs] == [
+            (users[name][0].id, users[name][1].id) for name in expected
+        ]
+        assert selection.due_by_trigger["inbox_visit"] == free_inbox_users + 1
 
     def test_the_feed_counts_one_repeat_day_for_many_reopens_of_a_known_object_in_a_day(self) -> None:
         watermark = NOW - datetime.timedelta(days=2)
@@ -1047,16 +1296,105 @@ class TestActivitySummaryQueue(BaseTest):
         assert plan.mcp_feed.sessions == 3 * (1 - members_left)
         assert [pair.trigger for pair in plan.pairs] == ["mcp"][: 1 - members_left]
 
-    @parameterized.expand([("activity", 24), ("views", 168), ("cold_start_views", 168), (None, 24)])
+    @parameterized.expand(
+        [
+            ("no split", (), DEFAULT_VARIANT),
+            ("default and candidate", ((DEFAULT_VARIANT, 90.0), (TERRA_FLEX, 10.0)), TERRA),
+            ("candidate first", ((TERRA, 10.0), (DEFAULT_VARIANT, 90.0)), TERRA),
+        ]
+    )
+    def test_the_plan_bounds_an_update_at_the_most_expensive_variant_of_the_split(
+        self, _name: str, variants: tuple[tuple[SummaryVariant, float], ...], bound_variant: SummaryVariant
+    ) -> None:
+        model_variants = tuple(ModelVariant(variant=variant, weight=weight) for variant, weight in variants)
+        with (
+            override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test"),
+            patch.object(
+                tick, "read_config", return_value=self._config(model_variants=model_variants, model_split_salt="v2")
+            ),
+            patch("products.signals.backend.activity_summary.queue.list_user_task_times", return_value=[]),
+        ):
+            plan = plan_tick(None, NOW)
+
+        assert plan.max_update_cost_usd == max_update_cost_usd(DEFAULT_LIMITS, bound_variant)
+        assert (plan.model_variants, plan.model_split_salt) == (model_variants, "v2")
+
+    @parameterized.expand(
+        [
+            ("no split", (), DEFAULT_VARIANT, ["standard"], "default", False, None),
+            ("a standard candidate", (TERRA,), TERRA, ["standard"], "default", False, "v2"),
+            ("a flex candidate", (TERRA_FLEX,), TERRA_FLEX, ["flex"], "flex", False, "v2"),
+            ("a refused flex candidate", (TERRA_FLEX,), TERRA_FLEX, ["standard"], "default", True, "v2"),
+        ]
+    )
+    def test_an_update_calls_stores_prices_and_reports_the_variant_of_the_pair(
+        self,
+        _name: str,
+        variants: tuple[SummaryVariant, ...],
+        variant: SummaryVariant,
+        answered_tiers: list[str],
+        served_tier: str,
+        fell_back: bool,
+        salt: str | None,
+    ) -> None:
+        self._changes(self.user, 3)
+        refused = httpx.Response(429, request=httpx.Request("POST", "https://gateway.example/v1/chat/completions"))
+        llm = FakeLLM([RateLimitError("refused", response=refused, body=None), ANSWER] if fell_back else [ANSWER])
+        capture = MagicMock()
+        with (
+            patch("products.signals.backend.activity_summary.logic.gateway_client", return_value=llm),
+            patch.object(tick, "ph_background_capture", return_value=capture),
+            patch.object(tick, "start_first_summary_build"),
+        ):
+            result = run_pair(
+                ActivitySummaryPairInput(
+                    team_id=self.team.id,
+                    user_id=self.user.id,
+                    min_units=3,
+                    min_update_interval_hours=24,
+                    emit_embeddings=False,
+                    capture_events=True,
+                    model_variants=tuple(ModelVariant(variant=entry, weight=1.0) for entry in variants),
+                    model_split_salt="v2",
+                )
+            )
+
+        prices = MODEL_PRICES[SummaryVariant(model=variant.model, service_tier=ServiceTier(answered_tiers[0]))]
+        expected_cost = cost_usd(100, 20, prices)
+        assert result.status == "ok"
+        assert result.cost_usd == pytest.approx(expected_cost)
+        assert {request["model"] for request in llm.requests} == {variant.model}
+        stored = UserActivitySummary.objects.for_team(self.team.id).get(user_id=self.user.id)
+        assert stored.model == variant.model
+        assert stored.cost_usd == pytest.approx(expected_cost)
+        assert UserActivitySummaryVersion.objects.for_team(self.team.id).get(summary_row=stored).model == variant.model
+        properties = capture.call_args.kwargs["properties"]
+        assert {
+            name: properties[name] for name in ("model", "service_tier", "served_tier", "fell_back", "model_split_salt")
+        } == {
+            "model": variant.model,
+            "service_tier": variant.service_tier.value,
+            "served_tier": served_tier,
+            "fell_back": fell_back,
+            "model_split_salt": salt,
+        }
+
+    @parameterized.expand(
+        [("activity", 24), ("views", 168), ("cold_start_views", 168), ("inbox_visit", 24), (None, 24)]
+    )
     def test_an_ok_update_emits_the_embedding_and_an_event_without_the_summary(
         self, trigger: str | None, wait_hours: int
     ) -> None:
         self._changes(self.user, 3)
+        cache.delete(build_lock_key(self.team.id, self.user.id))
+        self.addCleanup(cache.delete, build_lock_key(self.team.id, self.user.id))
         capture = MagicMock()
         with (
             patch("products.signals.backend.activity_summary.logic.gateway_client", return_value=FakeLLM([ANSWER])),
             patch("posthog.api.embedding_worker.emit_embedding_request") as emit,
             patch.object(tick, "ph_background_capture", return_value=capture),
+            patch("products.signals.backend.personal_ranking.config.read_flag_payload", return_value={}),
+            patch("products.signals.backend.personal_ranking_tasks.build_personal_inbox_ranking.delay") as queue,
         ):
             result = run_pair(
                 ActivitySummaryPairInput(
@@ -1080,6 +1418,7 @@ class TestActivitySummaryQueue(BaseTest):
         assert event["event"] == "activity summary generated"
         assert event["properties"]["trigger"] == trigger
         assert "signup funnel" not in json.dumps(event["properties"]).lower()
+        assert queue.call_args_list == [call(self.team.id, self.user.id, None, None, True, "first_summary")]
 
     @parameterized.expand(
         [
@@ -1170,8 +1509,12 @@ def _plan(pairs: int, **overrides: Any) -> ActivitySummaryTickPlan:
         "tiers": [ActivitySummaryTierStats(tier="paying", due_pairs=pairs)],
         "enrollment": EnrollmentCounts(qualifying_organizations=3, enrolled_organizations=2, enrolled_teams=4),
         "due_by_trigger": {"activity": 1, "views": pairs - 1},
+        "outdated_pairs": 2,
+        "current_version_share": 0.75,
         "stop_reason": None,
         "mcp_buffer_days": 10,
+        "model_variants": _variants(80, 20),
+        "model_split_salt": "v2",
     }
     return ActivitySummaryTickPlan(**{**fields, **overrides})
 
@@ -1244,10 +1587,18 @@ async def test_the_tick_bounds_concurrency_and_stops_at_the_daily_caps_and_the_e
     result, peak, captured, pair_inputs = await _run_tick(plan, pair_cost, pair_status)
 
     assert peak <= plan.max_concurrency
-    assert {(pair.trigger, pair.view_update_interval_hours, pair.mcp_buffer_days) for pair in pair_inputs} == {
-        ("views", 168.0, 10)
-    }
+    assert {
+        (
+            pair.trigger,
+            pair.view_update_interval_hours,
+            pair.mcp_buffer_days,
+            pair.model_variants,
+            pair.model_split_salt,
+        )
+        for pair in pair_inputs
+    } == {("views", 168.0, 10, plan.model_variants, "v2")}
     assert result.due_by_trigger == plan.due_by_trigger
+    assert (result.outdated_pairs, result.current_version_share) == (2, 0.75)
     assert (result.picked, result.statuses, result.stop_reason) == (picked, {pair_status: picked}, stop_reason)
     assert result.tiers == plan.tiers
     assert (result.new_builds, result.refresh_builds) == builds

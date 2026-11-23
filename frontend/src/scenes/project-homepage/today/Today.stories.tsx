@@ -30,6 +30,9 @@ import { TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
 import type { ReportPageApi } from 'products/today/frontend/generated/api.schemas'
 import type { HighlightsApi } from 'products/today/frontend/generated/api.schemas'
 
+import { TodayPulseCard } from './TodayPulseCard'
+import { readyPulseSlots, withReadySlots } from './todayTestFixtures'
+
 const ADA = {
     id: 1,
     uuid: 'user-ada',
@@ -565,7 +568,7 @@ const KEY_METRIC_URL = (event: string): string =>
         })
     )}`
 
-const HIGHLIGHTS: HighlightsApi = {
+const HIGHLIGHTS: HighlightsApi = withReadySlots({
     status: 'ready',
     generated_at: '2026-09-28T18:00:00Z',
     day: '2026-09-28',
@@ -589,6 +592,7 @@ const HIGHLIGHTS: HighlightsApi = {
             opened_days: 9,
             last_opened: '2026-09-27',
             previous_value: 3956,
+            experiment: null,
             movers: [
                 { label: 'Paid plans', value: 2610, change_pct: 9.2 },
                 { label: 'Free plan', value: 1420, change_pct: 1.8 },
@@ -612,6 +616,7 @@ const HIGHLIGHTS: HighlightsApi = {
             opened_days: null,
             last_opened: null,
             previous_value: 1017,
+            experiment: null,
             movers: [],
         },
         {
@@ -631,6 +636,7 @@ const HIGHLIGHTS: HighlightsApi = {
             opened_days: null,
             last_opened: null,
             previous_value: 353,
+            experiment: null,
             movers: [],
         },
         {
@@ -650,6 +656,7 @@ const HIGHLIGHTS: HighlightsApi = {
             opened_days: null,
             last_opened: null,
             previous_value: 18012,
+            experiment: null,
             movers: [],
         },
     ],
@@ -727,7 +734,7 @@ const HIGHLIGHTS: HighlightsApi = {
             product: 'error_tracking',
         },
     ],
-}
+})
 
 const SAVED_INSIGHTS = [
     { id: 1, short_id: 'chk01', name: 'Checkout conversion' },
@@ -781,12 +788,59 @@ const REVENUE_METRIC: HighlightsApi['pulse'][number] = {
     previous_value: 46600,
 }
 
+const EXPERIMENT_METRIC: HighlightsApi['pulse'][number] = {
+    ...HIGHLIGHTS.pulse[0],
+    key: 'experiment:42',
+    name: 'Checkout redesign',
+    value: 8.2,
+    unit: 'number',
+    change_pct: null,
+    series: [],
+    period_starts: [],
+    url: '/experiments/42',
+    value_format: null,
+    reason: 'experiment',
+    opened_days: null,
+    last_opened: null,
+    movers: [],
+    previous_value: null,
+    experiment: {
+        metric_name: 'Checkout conversion',
+        variant: 'test',
+        control: 'control',
+        variants: 1,
+        significant: true,
+        favorable: true,
+        exposures: 4120,
+    },
+}
+
+const EVALUATION_METRIC: HighlightsApi['pulse'][number] = {
+    ...HIGHLIGHTS.pulse[0],
+    key: 'evaluation:0195f0aa-7c1e-7000-8000-000000000001',
+    name: 'Answer accuracy',
+    value: 91.5,
+    unit: 'number',
+    change_pct: 8.9,
+    series: [78, 81, 80, 84, 83.5, 84, 91.5],
+    period_starts: ['2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25', '2026-09-26', '2026-09-27', '2026-09-28'],
+    interval: 'day',
+    url: '/ai-evals/evaluations/0195f0aa-7c1e-7000-8000-000000000001',
+    value_format: { format: 'percentage', prefix: null, postfix: null, decimal_places: null },
+    reason: 'evaluation',
+    opened_days: null,
+    last_opened: null,
+    movers: [],
+    previous_value: 84,
+    experiment: null,
+}
+
 function storyHighlights(): HighlightsApi {
     if (storyComputingCalls > 0) {
         storyComputingCalls -= 1
         return storyLastReady
             ? { ...storyLastReady, status: 'computing' }
-            : { ...HIGHLIGHTS, status: 'computing', generated_at: null, pulse: [], items: [] }
+            : { ...HIGHLIGHTS, status: 'computing', generated_at: null, pulse: [], pulse_slots: [], items: [] }
     }
     const offered = [...HIGHLIGHTS.pulse, CHECKOUT_METRIC, RETENTION_METRIC, REVENUE_METRIC].filter(
         (metric) => !storyHidden.some((hidden) => hidden.key === metric.key)
@@ -797,7 +851,7 @@ function storyHighlights(): HighlightsApi {
         key: pin.key,
         status: chosen.some((metric) => metric.key === pin.key) ? ('ready' as const) : ('unavailable' as const),
     }))
-    storyLastReady = { ...HIGHLIGHTS, pulse: [...chosen, ...suggested], pins }
+    storyLastReady = withReadySlots({ ...HIGHLIGHTS, pulse: [...chosen, ...suggested], pins })
     return storyLastReady
 }
 
@@ -922,6 +976,11 @@ const meta: Meta = {
                     const results = type ? LIBRARY.filter((entry) => entry.type === type) : LIBRARY
                     return [200, { results, count: results.length }]
                 },
+                '/api/projects/:team_id/file_system/search/': ({ request }) => {
+                    const search = (new URL(request.url).searchParams.get('search') ?? '').toLowerCase()
+                    const results = LIBRARY.filter((entry) => entry.path.toLowerCase().includes(search))
+                    return [200, { results: results.map((entry) => ({ entry, rank: [] })) }]
+                },
                 '/api/projects/:team_id/file_system/frequent/': [],
                 '/api/environments/:team_id/file_system/unfiled/': { results: [], count: 0 },
                 '/api/projects/:team_id/canvases/canvas-building/': VIEW_CANVASES[1],
@@ -1000,6 +1059,30 @@ type Story = StoryObj<{}>
 
 export const Home: Story = { decorators: [keepNumbers([])] }
 
+// The campaign id picks the slot for the story's date and user, so each story shows one placement.
+function productPushCampaign(id: string): Decorator {
+    return mswDecorator({
+        get: {
+            '/api/organizations/:organization_id/product_push_campaign/active/': {
+                id,
+                product_key: 'session_replay',
+                product_path: 'Session replay',
+                reason_text: null,
+                started_at: '2026-09-21T09:00:00Z',
+                ends_at: null,
+            },
+        },
+    })
+}
+
+export const HomeWithProductPush: Story = {
+    decorators: [keepNumbers([]), productPushCampaign('0195a0b2-0000-0000-0000-000000000101')],
+}
+
+export const HomeWithProductPushBehindShowMore: Story = {
+    decorators: [keepNumbers([]), productPushCampaign('0195a0b2-0000-0000-0000-000000000102')],
+}
+
 export const HomeWithFrequentItems: Story = {
     parameters: {
         featureFlags: {
@@ -1065,6 +1148,36 @@ export const HomeWithSampleReports: Story = {
 
 export const SampleReportPage: Story = {
     parameters: { pageUrl: `${urls.todayReport('sample-pr')}?sample=1` },
+}
+
+const PERSONAL_REASONS: Record<string, string> = {
+    'report-1': 'You fixed the last two sign-up validation bugs.',
+    'report-3':
+        'You changed the summarize prompt last week, and the cost rose right after that change, so you can best check whether the new prompt causes it.',
+}
+
+export const HomeWithPersonalRanking: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/signals/reports/': ({ request }) => {
+                    const limit = Number(new URL(request.url).searchParams.get('limit') ?? ALL_REPORTS.length)
+                    return [
+                        200,
+                        {
+                            results: ALL_REPORTS.slice(0, limit).map((report) => ({
+                                ...report,
+                                personal_tier: PERSONAL_REASONS[report.id] ? 'top' : null,
+                                personal_reason: PERSONAL_REASONS[report.id] ?? null,
+                            })),
+                            count: OPEN_REPORT_COUNT,
+                            ranker: 'personal',
+                        },
+                    ]
+                },
+            },
+        }),
+    ],
 }
 
 export const HomeWithReportsOnly: Story = {
@@ -1332,6 +1445,140 @@ export const ProductsPaneProductCard: Story = {
     },
 }
 
+const railEntry = (
+    id: string,
+    folder: string,
+    name: string,
+    type: string,
+    ref: string,
+    href: string,
+    lastViewedAt?: string
+): Record<string, string> => ({
+    id,
+    path: `Unfiled/${folder}/${name}`,
+    type,
+    ref,
+    href,
+    created_at: '2026-08-01T10:00:00Z',
+    ...(lastViewedAt ? { last_viewed_at: lastViewedAt } : {}),
+})
+
+const RAIL_RECENTS = [
+    railEntry(
+        'rr-1',
+        'Insights',
+        'Checkout conversion by plan',
+        'insight',
+        'ins-1',
+        '/insights/ins-1',
+        '2026-09-28T18:10:00Z'
+    ),
+    railEntry(
+        'rr-2',
+        'Feature flags',
+        'new-onboarding-flow',
+        'feature_flag',
+        '41',
+        '/feature-flags/41',
+        '2026-09-28T17:55:00Z'
+    ),
+    railEntry('rr-3', 'Persons', 'maria.lopez@example.com', 'person', 'p-1', '/person/p-1', '2026-09-28T17:30:00Z'),
+    railEntry(
+        'rr-4',
+        'Dashboards',
+        'Weekly business review',
+        'dashboard',
+        '21',
+        '/dashboard/21',
+        '2026-09-28T16:45:00Z'
+    ),
+    railEntry(
+        'rr-5',
+        'Experiments',
+        'Pricing page layout',
+        'experiment',
+        '8',
+        '/experiments/8',
+        '2026-09-28T15:20:00Z'
+    ),
+    railEntry('rr-6', 'Cohorts', 'Trial users in week one', 'cohort', '5', '/cohorts/5', '2026-09-28T14:05:00Z'),
+    railEntry(
+        'rr-7',
+        'Notebooks',
+        'Q3 activation review',
+        'notebook',
+        'nb-1',
+        '/notebooks/nb-1',
+        '2026-09-28T11:40:00Z'
+    ),
+    railEntry(
+        'rr-8',
+        'Early access',
+        'Session summaries beta',
+        'early_access_feature',
+        'eaf-1',
+        '/early_access_features/eaf-1',
+        '2026-09-27T17:15:00Z'
+    ),
+    railEntry('rr-9', 'Groups', 'Northwind Traders', 'group', 'g-1', '/groups/0/g-1', '2026-09-27T10:30:00Z'),
+    railEntry(
+        'rr-10',
+        'Insights',
+        'Retention by signup source',
+        'insight',
+        'ins-2',
+        '/insights/ins-2',
+        '2026-09-26T16:00:00Z'
+    ),
+]
+
+const RAIL_PINS = [
+    { id: 'rp-1', path: 'Product analytics', type: 'insight', href: '/insights' },
+    { id: 'rp-2', path: 'Session replay', type: 'session_recording_playlist', href: '/replay/home' },
+    { id: 'rp-3', path: 'Feature flags', type: 'feature_flag', href: '/feature-flags' },
+    railEntry('rp-4', 'Insights', 'Daily active users', 'insight', 'ins-3', '/insights/ins-3'),
+    railEntry('rp-5', 'Dashboards', 'Growth overview', 'dashboard', '12', '/dashboard/12'),
+    railEntry('rp-6', 'Insights', 'Signup to paid funnel', 'insight', 'ins-4', '/insights/ins-4'),
+    railEntry('rp-7', 'Feature flags', 'checkout-v2', 'feature_flag', '42', '/feature-flags/42'),
+    railEntry('rp-8', 'Experiments', 'Onboarding checklist', 'experiment', '9', '/experiments/9'),
+    railEntry('rp-9', 'Cohorts', 'Accounts at churn risk', 'cohort', '6', '/cohorts/6'),
+]
+
+// Hovering a rail item opens a card with its newest recents and its pins. Monitor has none, so it opens no card.
+export const RailHoverCard: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/file_system_shortcut/': {
+                    count: RAIL_PINS.length,
+                    next: null,
+                    previous: null,
+                    results: RAIL_PINS,
+                },
+                '/api/environments/:team_id/file_system/': ({ request }) => {
+                    const params = new URL(request.url).searchParams
+                    if (params.get('order_by') === '-last_viewed_at') {
+                        return [200, { results: RAIL_RECENTS, count: RAIL_RECENTS.length }]
+                    }
+                    return [200, { results: LIBRARY, count: LIBRARY.length }]
+                },
+            },
+        }),
+    ],
+    parameters: {
+        featureFlags: [
+            FEATURE_FLAGS.TODAY_RAIL_NAV,
+            FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS,
+            FEATURE_FLAGS.RELEASES_AREA,
+            FEATURE_FLAGS.MONITOR_AREA,
+        ],
+    },
+    play: async ({ canvasElement }) => {
+        await userEvent.hover(await within(canvasElement).findByLabelText('Analytics'))
+        await within(document.body).findByText('Daily active users')
+    },
+}
+
 export const NarrowWindow: Story = {
     parameters: { testOptions: { viewport: { width: 800, height: 900 } } },
 }
@@ -1374,6 +1621,44 @@ function HoverCardFrame({ children }: { children: ReactNode }): JSX.Element {
             </Card>
         </div>
     )
+}
+
+export const ExperimentNumberHoverCard: Story = {
+    render: () => (
+        <HoverCardFrame>
+            <TodayPulseCard
+                metric={EXPERIMENT_METRIC}
+                tone="good"
+                formatValue={String}
+                onOpen={noop}
+                pinned={false}
+                pinDisabledReason="Experiments can't be pinned"
+                onTogglePin={noop}
+                hideDisabledReason={null}
+                onHide={noop}
+            />
+        </HoverCardFrame>
+    ),
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+}
+
+export const EvaluationNumberHoverCard: Story = {
+    render: () => (
+        <HoverCardFrame>
+            <TodayPulseCard
+                metric={EVALUATION_METRIC}
+                tone="good"
+                formatValue={(value) => `${value}%`}
+                onOpen={noop}
+                pinned={false}
+                pinDisabledReason="Evaluations can't be pinned"
+                onTogglePin={noop}
+                hideDisabledReason={null}
+                onHide={noop}
+            />
+        </HoverCardFrame>
+    ),
+    parameters: { testOptions: { snapshotBrowsers: [] } },
 }
 
 export const SessionHoverCard: Story = {
@@ -1437,6 +1722,7 @@ export const HomePulseLoading: Story = {
                     status: 'computing',
                     generated_at: null,
                     pulse: [],
+                    pulse_slots: [],
                     items: [],
                 },
             },
@@ -1453,6 +1739,7 @@ export const HomePulsePartial: Story = {
                     ...HIGHLIGHTS,
                     status: 'computing',
                     pulse: HIGHLIGHTS.pulse.slice(0, 1),
+                    pulse_slots: readyPulseSlots(HIGHLIGHTS.pulse.slice(0, 1)),
                     items: [],
                 },
             },
@@ -1507,6 +1794,21 @@ export const HomePulseMixed: Story = {
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 
+export const HomeWithProductNumbers: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/highlights/': withReadySlots({
+                    ...HIGHLIGHTS,
+                    items: [],
+                    pulse: [EXPERIMENT_METRIC, EVALUATION_METRIC, ...HIGHLIGHTS.pulse.slice(0, 2)],
+                }),
+            },
+        }),
+    ],
+    parameters: { testOptions: { snapshotBrowsers: [], waitForSelector: '[data-pulse-key="experiment:42"]' } },
+}
+
 export const HomePulseEmptyAndError: Story = {
     decorators: [
         mswDecorator({
@@ -1537,6 +1839,14 @@ export const HomeWithComposer: Story = {
             FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS,
             FEATURE_FLAGS.PHAI_SANDBOX_MODE,
         ],
+    },
+}
+
+// Without PostHog AI 2.0, the home composer opens a chat instead of starting a task.
+export const HomeWithLegacyComposer: Story = {
+    decorators: [keepNumbers([])],
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS],
     },
 }
 

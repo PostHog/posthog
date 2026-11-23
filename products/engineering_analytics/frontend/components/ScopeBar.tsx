@@ -1,7 +1,3 @@
-// Shared scope bar: the in-page trail (list › entity) on the left, dismissible filter chips on
-// the right, and the shared date scope (engineeringAnalyticsFiltersLogic) so a window picked on one page
-// carries to the next. The run-scope control lives here too, but pages dock it on their scope panel.
-
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { Fragment, ReactNode, useState } from 'react'
@@ -46,21 +42,18 @@ export const DELIVERY_DATE_OPTIONS = dateMapping.filter(({ key }) =>
 export interface ScopeCrumb {
     label: string
     to?: string
-    /** Custom chip rendering (e.g. the workflow switcher); overrides `to`. `label` stays the key. */
+    /** Overrides `to`. `label` stays the React key. */
     node?: ReactNode
 }
 
 export interface LensChip {
     label: string
-    /** Where dismissing the chip navigates. */
     to: string
 }
 
 const CHIP_CLASS =
     'inline-flex items-center gap-1.5 rounded border border-primary bg-surface-primary px-2.5 py-1 text-xs text-secondary'
 
-/** Workflow crumb that doubles as a switcher: a searchable dropdown of the repo's workflows, loaded
- *  lazily on first open, navigating to the picked workflow's page. */
 export function WorkflowScopeChip({
     repoOwner,
     repoName,
@@ -180,8 +173,6 @@ export function RunScopeControl(): JSX.Element {
     )
 }
 
-/** The shared window picker, wired to the cross-page date scope. Standalone so pages can place it outside
- *  the scope bar (the hub docks it in the repo header). */
 export function ScopeDateFilter({
     dateOptions = SCOPE_DATE_OPTIONS,
 }: {
@@ -219,9 +210,7 @@ export function ScopeBar({
     showDate = true,
     extra,
 }: {
-    /** The trail from the list tab to this page (Workflows › workflow › run). The title names the repository. */
     crumbs: ScopeCrumb[]
-    /** The active cross-cutting lens (pr: #N). Dismissing it zooms out to `to`. */
     lensFilter?: LensChip
     showDate?: boolean
     extra?: ReactNode

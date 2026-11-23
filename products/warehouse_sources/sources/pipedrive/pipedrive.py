@@ -118,10 +118,10 @@ def _cursor_paginator() -> JSONResponseCursorPaginator:
     return JSONResponseCursorPaginator(cursor_path="additional_data.next_cursor", cursor_param="cursor")
 
 
-def _offset_paginator(maximum_offset: Optional[int] = None) -> OffsetPaginator:
+def _offset_paginator(maximum_offset: Optional[int] = None, limit: int = PAGE_SIZE) -> OffsetPaginator:
     # v1 endpoints: start/limit offset. No top-level total; termination is a short/empty page.
     return OffsetPaginator(
-        limit=PAGE_SIZE,
+        limit=limit,
         offset=0,
         offset_param="start",
         limit_param="limit",
@@ -138,7 +138,7 @@ def _build_paginator(config: PipedriveEndpointConfig) -> BasePaginator:
     if config.pagination == "none":
         # Documented as unpaginated: a full page must not send a second request at `start=500`.
         return SinglePagePaginator()
-    return _offset_paginator()
+    return _offset_paginator(limit=config.page_size)
 
 
 def validate_credentials(company_domain: str, api_token: str) -> Optional[int]:
@@ -673,7 +673,7 @@ def pipedrive_source(
         params: dict[str, Any] = {}
         if config.pagination == "cursor":
             # The cursor paginator only injects ``cursor``; ``limit`` must be a static param.
-            params["limit"] = PAGE_SIZE
+            params["limit"] = config.page_size
 
         rest_config: RESTAPIConfig = {
             "client": client_config,
@@ -685,7 +685,7 @@ def pipedrive_source(
                         "params": params,
                         # Mirrors the old `data.get("data") or []`: a 200 body without `data` yields an
                         # empty page rather than raising (not required).
-                        "data_selector": "data",
+                        "data_selector": config.data_selector,
                     },
                 }
             ],

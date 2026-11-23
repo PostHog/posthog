@@ -46,11 +46,7 @@ async function beforeRequest<T extends UpdateParams>(context: Context, params: T
     return { ...params, filters: mergedFilters }
 }
 
-// The API reports a rejected property type or group type by path only. This adds the key from the
-// sent filters and the recovery step, whether `beforeRequest` restored the value or the agent sent
-// it. The rewrite keeps the PostHogValidationError class for two reasons. `handleToolError` returns
-// that class's message to the agent. Telemetry records only its code and attr, so the property
-// key stays out of analytics.
+// The API detail identifies the rejected filter, but the diagnostic must not echo its value.
 function onError(_context: Context, params: UpdateParams, error: unknown): never {
     if (!(error instanceof PostHogValidationError) || error.method !== 'PATCH' || error.attr !== 'filters') {
         throw error
@@ -71,25 +67,24 @@ function onError(_context: Context, params: UpdateParams, error: unknown): never
     }
     throw new PostHogValidationError({
         ...error,
-        detail: `${error.detail}\n\n${recoveryStep(`filters.${path}`, key)}`,
+        message: `PostHog API validation error. ${recoveryStep(`filters.${path}`)}`,
     })
 }
 
-function propertyTypeRecoveryStep(path: string, key: string): string {
-    const quotedKey = JSON.stringify(key)
+function propertyTypeRecoveryStep(path: string): string {
     return (
-        `The property at ${path} (key ${quotedKey}) has a missing or invalid \`type\`. Read the flag. ` +
-        `If the flag already filters on ${quotedKey}, copy that filter's \`type\`, and its \`group_type_index\` ` +
+        `The property at ${path} has a missing or invalid \`type\`. Read the flag. ` +
+        `If the flag already filters on this property, copy that filter's \`type\`, and its \`group_type_index\` ` +
         `for a group property, from the stored condition you mean. ` +
         `If that stored filter has no \`type\` either, ask the user which type to use. ` +
-        `Don't guess \`person\`: the API accepts it, and the condition then filters on a person property named ${quotedKey}. ` +
-        `If the flag doesn't filter on ${quotedKey} yet, set the \`type\` you mean, plus \`group_type_index\` for a group property.`
+        `Don't guess \`person\`: the API accepts it, and the condition then filters on a person property with the same name. ` +
+        `If the flag doesn't filter on this property yet, set the \`type\` you mean, plus \`group_type_index\` for a group property.`
     )
 }
 
-function groupTypeRecoveryStep(path: string, key: string): string {
+function groupTypeRecoveryStep(path: string): string {
     return (
-        `The group property at ${path} (key ${JSON.stringify(key)}) is on a different group type than its condition aggregates on. ` +
+        `The group property at ${path} is on a different group type than its condition aggregates on. ` +
         `If the flag you read already has it this way, the flag checks this property on the property's own group type. ` +
         `Changing the property's \`group_type_index\` or the condition's \`aggregation_group_type_index\` to make them match ` +
         `changes which group the flag checks, so don't pick one yourself. ` +

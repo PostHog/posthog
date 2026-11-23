@@ -1,4 +1,5 @@
 import type { QueryKey } from '@tanstack/react-query'
+import { LIVE_EXCLUDE_INTERNAL_CACHE_SUFFIX } from '@/api/readCacheKeys'
 import type { ProjectScope } from '@/api/reports'
 import { asRecord } from '@/lib/records'
 
@@ -6,6 +7,9 @@ export function isReadCacheKey(key: QueryKey, scope: ProjectScope): boolean {
     if (key[1] !== scope.host || key[2] !== scope.projectId) return false
     if (key[0] === 'read-inbox') return key.length === 3
     if (key[0] !== 'views') return false
+    if (key[3] === 'live') {
+        return key.length === 5 || (key.length === 6 && key[5] === LIVE_EXCLUDE_INTERNAL_CACHE_SUFFIX)
+    }
     const lengths: Record<string, number> = { insight: 7, web: 5, dashboard: 6 }
     return key.length === lengths[String(key[3])]
 }
@@ -15,6 +19,8 @@ export function cacheable(key: QueryKey, data: unknown, scope: ProjectScope): bo
     const value = asRecord(data)
     if (!value) return false
     if (key[0] === 'read-inbox') return Array.isArray(value.items) && typeof value.sourceUpdatedAt === 'number'
+    if (key[3] === 'live')
+        return ['all', 'web', 'mobile'].includes(String(key[4])) && asRecord(value.snapshot)?.preference === key[4]
     if (key[3] === 'insight')
         return (
             ['TrendsQuery', 'FunnelsQuery', 'RetentionQuery'].includes(String(value.queryKind)) &&
@@ -46,6 +52,29 @@ function rawQueryPayload(value: unknown, depth = 0): boolean {
 export function projectedData(key: QueryKey, data: unknown): unknown {
     const value = asRecord(data)
     if (!value) return null
+    if (key[3] === 'live')
+        return {
+            dataReadAt: value.dataReadAt,
+            snapshot: {
+                ...fields(asRecord(value.snapshot) ?? {}, [
+                    'preference',
+                    'profile',
+                    'activity',
+                    'topPages',
+                    'topPagesMode',
+                    'topScreens',
+                    'topReferrers',
+                    'devices',
+                    'browsers',
+                    'platforms',
+                    'countries',
+                    'world',
+                    'usersOnline',
+                    'mobileMetrics',
+                ]),
+                events: null,
+            },
+        }
     if (key[0] === 'read-inbox')
         return {
             sourceUpdatedAt: value.sourceUpdatedAt,

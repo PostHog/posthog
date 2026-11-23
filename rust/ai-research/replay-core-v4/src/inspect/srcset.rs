@@ -315,6 +315,13 @@ mod tests {
                     "image/avif",
                     b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00avifmif1miaf",
                 ),
+                true,
+            ),
+            (
+                inline(
+                    "image/avif",
+                    b"\x00\x00\x00\x20ftypavis\x00\x00\x00\x00avisavifmif1msf1",
+                ),
                 false,
             ),
             (inline("image/bmp", b"BMbitmap"), false),

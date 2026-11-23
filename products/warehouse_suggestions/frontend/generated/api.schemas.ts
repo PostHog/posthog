@@ -104,7 +104,7 @@ export interface WarehouseSuggestionMaterializePayloadApi {
     refresh_interval_seconds: number
     /** Query time materializing saves in a month, in seconds. */
     saves_seconds_per_month: number
-    /** Bytes materializing saves from scanning in a month. */
+    /** Bytes materializing saves from scanning in a month. Negative when its refreshes scan more than its reads would. */
     saves_bytes_per_month: number
     /**
      * How old the view's data can be today, in seconds. Null when its sources are live.
@@ -139,6 +139,8 @@ export interface WarehouseSuggestionMaterializePayloadApi {
      * @nullable
      */
     read_seconds?: number | null
+    /** True when measuring the view's cost hit the time limit. The cost and every saving are then lower bounds. */
+    measurement_capped?: boolean
 }
 
 export interface WarehouseSuggestionUnmaterializePayloadApi {
@@ -242,6 +244,9 @@ export const WarehouseSuggestionStatusEnumApi = {
 /**
  * * `not_useful` - Not useful
  * * `not_now` - Not now
+ * * `wrong_estimate` - Wrong estimate
+ * * `already_handled` - Already handled
+ * * `not_owner` - Someone else decides
  * * `other` - Other
  */
 export type WarehouseSuggestionDismissalReasonEnumApi =
@@ -250,6 +255,9 @@ export type WarehouseSuggestionDismissalReasonEnumApi =
 export const WarehouseSuggestionDismissalReasonEnumApi = {
     NotUseful: 'not_useful',
     NotNow: 'not_now',
+    WrongEstimate: 'wrong_estimate',
+    AlreadyHandled: 'already_handled',
+    NotOwner: 'not_owner',
     Other: 'other',
 } as const
 
@@ -311,6 +319,9 @@ export interface WarehouseSuggestionApi {
      *
      * * `not_useful` - Not useful
      * * `not_now` - Not now
+     * * `wrong_estimate` - Wrong estimate
+     * * `already_handled` - Already handled
+     * * `not_owner` - Someone else decides
      * * `other` - Other */
     dismissal_reason: WarehouseSuggestionDismissalReasonEnumApi | null
     /** What happened to the asset an accepted suggestion created.
@@ -420,6 +431,9 @@ export interface DismissWarehouseSuggestionApi {
      *
      * * `not_useful` - Not useful
      * * `not_now` - Not now
+     * * `wrong_estimate` - Wrong estimate
+     * * `already_handled` - Already handled
+     * * `not_owner` - Someone else decides
      * * `other` - Other */
     reason: WarehouseSuggestionDismissalReasonEnumApi
     /**
@@ -448,6 +462,35 @@ export interface WarehouseSuggestionStatusApi {
      * @nullable
      */
     refreshed_at: string | null
+    /** Suggestions waiting to be shown on the requested surface that you can read and act on. 0 without a surface, or while new suggestions are paused or off. */
+    waiting: number
+    /** Whether a surface_more call would show at least one waiting suggestion now. False while the open limits are full. */
+    can_show_more: boolean
+}
+
+/**
+ * * `models` - Models
+ * * `catalog` - Data catalog
+ */
+export type WarehouseSuggestionSurfaceEnumApi =
+    (typeof WarehouseSuggestionSurfaceEnumApi)[keyof typeof WarehouseSuggestionSurfaceEnumApi]
+
+export const WarehouseSuggestionSurfaceEnumApi = {
+    Models: 'models',
+    Catalog: 'catalog',
+} as const
+
+export interface SurfaceMoreWarehouseSuggestionsApi {
+    /** Page to show more suggestions on. Only the kinds that page shows are picked. Without it, any kind can be picked.
+     *
+     * * `models` - Models
+     * * `catalog` - Data catalog */
+    surface?: WarehouseSuggestionSurfaceEnumApi
+}
+
+export interface WarehouseSuggestionSurfaceMoreResultApi {
+    /** How many waiting suggestions this call showed. 0 when none could be shown. */
+    surfaced: number
 }
 
 export type WarehouseSuggestionsListParams = {
@@ -489,6 +532,14 @@ export type WarehouseSuggestionsListParams = {
      * Only return suggestions about the view or table with this ID.
      */
     subject_id?: string
+    /**
+     * Only return the kinds of suggestions this page shows. models: materialize, stop materializing and view deprecations. catalog: certify and deprecate.
+     *
+     * * `models` - Models
+     * * `catalog` - Data catalog
+     * @minLength 1
+     */
+    surface?: WarehouseSuggestionsListSurface
 }
 
 export type WarehouseSuggestionsListKind =
@@ -512,7 +563,19 @@ export const WarehouseSuggestionsListStatus = {
     AutoResolved: 'auto_resolved',
 } as const
 
+export type WarehouseSuggestionsListSurface =
+    (typeof WarehouseSuggestionsListSurface)[keyof typeof WarehouseSuggestionsListSurface]
+
+export const WarehouseSuggestionsListSurface = {
+    Models: 'models',
+    Catalog: 'catalog',
+} as const
+
 export type WarehouseSuggestionsAcceptCreateParams = {
+    /**
+     * Whether the decision was part of one action on several selected suggestions. Only recorded on the analytics event.
+     */
+    bulk?: boolean
     /**
      * Page the decision was made on. Only recorded on the analytics event.
      *
@@ -533,6 +596,10 @@ export const WarehouseSuggestionsAcceptCreateSurface = {
 
 export type WarehouseSuggestionsDismissCreateParams = {
     /**
+     * Whether the decision was part of one action on several selected suggestions. Only recorded on the analytics event.
+     */
+    bulk?: boolean
+    /**
      * Page the decision was made on. Only recorded on the analytics event.
      *
      * * `models` - Models
@@ -546,6 +613,25 @@ export type WarehouseSuggestionsDismissCreateSurface =
     (typeof WarehouseSuggestionsDismissCreateSurface)[keyof typeof WarehouseSuggestionsDismissCreateSurface]
 
 export const WarehouseSuggestionsDismissCreateSurface = {
+    Models: 'models',
+    Catalog: 'catalog',
+} as const
+
+export type WarehouseSuggestionsStatusRetrieveParams = {
+    /**
+     * Page to count waiting suggestions for. Without it, counts waiting suggestions of every kind.
+     *
+     * * `models` - Models
+     * * `catalog` - Data catalog
+     * @minLength 1
+     */
+    surface?: WarehouseSuggestionsStatusRetrieveSurface
+}
+
+export type WarehouseSuggestionsStatusRetrieveSurface =
+    (typeof WarehouseSuggestionsStatusRetrieveSurface)[keyof typeof WarehouseSuggestionsStatusRetrieveSurface]
+
+export const WarehouseSuggestionsStatusRetrieveSurface = {
     Models: 'models',
     Catalog: 'catalog',
 } as const

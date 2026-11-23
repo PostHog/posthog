@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, defaults, kea, listeners, path, props, reducers, selectors } from 'kea'
 
+import type { ExperimentsWidgetConfig } from '../../generated/widget-configs.zod'
 import { isWidgetConfigValidationError } from '../../utils'
 import {
     widgetEditModalPropSelectors,
@@ -33,17 +34,11 @@ export interface editExperimentsListWidgetModalLogicValues {
     tileName: string
     validation:
         | {
-              fieldErrors: Partial<Record<'createdBy' | 'limit' | 'orderBy' | 'orderDirection' | 'status', string>>
+              fieldErrors: ExperimentsListWidgetFieldErrors
               success: false
           }
         | {
-              config: {
-                  createdBy?: number | null | undefined
-                  limit: number
-                  orderBy: 'created_at' | 'name' | 'start_date'
-                  orderDirection: 'ASC' | 'DESC'
-                  status: 'all' | 'draft' | 'exposure_frozen' | 'paused' | 'running' | 'stopped'
-              }
+              config: ExperimentsWidgetConfig
               success: true
           }
 }
@@ -92,35 +87,21 @@ export interface editExperimentsListWidgetModalLogicMeta {
             arg: any
         ) =>
             | {
-                  fieldErrors: Partial<Record<'createdBy' | 'limit' | 'orderBy' | 'orderDirection' | 'status', string>>
+                  fieldErrors: ExperimentsListWidgetFieldErrors
                   success: false
               }
             | {
-                  config: {
-                      createdBy?: number | null | undefined
-                      limit: number
-                      orderBy: 'created_at' | 'name' | 'start_date'
-                      orderDirection: 'ASC' | 'DESC'
-                      status: 'all' | 'draft' | 'exposure_frozen' | 'paused' | 'running' | 'stopped'
-                  }
+                  config: ExperimentsWidgetConfig
                   success: true
               }
         activeFieldErrors: (
             validation:
                 | {
-                      config: {
-                          createdBy?: number | null | undefined
-                          limit: number
-                          orderBy: 'created_at' | 'name' | 'start_date'
-                          orderDirection: 'ASC' | 'DESC'
-                          status: 'all' | 'draft' | 'exposure_frozen' | 'paused' | 'running' | 'stopped'
-                      }
+                      config: ExperimentsWidgetConfig
                       success: true
                   }
                 | {
-                      fieldErrors: Partial<
-                          Record<'createdBy' | 'limit' | 'orderBy' | 'orderDirection' | 'status', string>
-                      >
+                      fieldErrors: ExperimentsListWidgetFieldErrors
                       success: false
                   },
             fieldErrors: Partial<Record<'createdBy' | 'limit' | 'orderBy' | 'orderDirection' | 'status', string>>
@@ -129,19 +110,11 @@ export interface editExperimentsListWidgetModalLogicMeta {
             saving: boolean,
             validation:
                 | {
-                      config: {
-                          createdBy?: number | null | undefined
-                          limit: number
-                          orderBy: 'created_at' | 'name' | 'start_date'
-                          orderDirection: 'ASC' | 'DESC'
-                          status: 'all' | 'draft' | 'exposure_frozen' | 'paused' | 'running' | 'stopped'
-                      }
+                      config: ExperimentsWidgetConfig
                       success: true
                   }
                 | {
-                      fieldErrors: Partial<
-                          Record<'createdBy' | 'limit' | 'orderBy' | 'orderDirection' | 'status', string>
-                      >
+                      fieldErrors: ExperimentsListWidgetFieldErrors
                       success: false
                   }
         ) => string | undefined

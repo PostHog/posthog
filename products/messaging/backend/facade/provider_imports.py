@@ -1,14 +1,17 @@
-"""Background imports of opt-outs, suppressions and categories from other messaging tools.
+"""Background imports of opt-outs, suppressions, categories and templates from other messaging tools.
 
 Each run executes in Temporal, so a long provider list does not hit the request timeout. The synchronous
 Customer.io import in `customerio.py` stays available next to it.
 """
 
+from collections.abc import Mapping
+from dataclasses import field
 from datetime import datetime
 from typing import Any
 from uuid import UUID
 
 from posthog.dataclasses import frozen
+from posthog.ph_client import feature_enabled_or_false
 
 from products.messaging.backend.models.provider_import_run import (
     ImportProviderKey,
@@ -21,15 +24,21 @@ from products.messaging.backend.provider_imports.base import (
     ImportCredentialsConflict,
     ImportCredentialsInvalid,
     ImportCredentialsMissing,
+    ImportProvider,
     ImportProviderUnavailable,
+    ImportStepSpec,
 )
-from products.messaging.backend.provider_imports.registry import PROVIDERS, UnknownImportProvider, get_provider
+from products.messaging.backend.provider_imports.contacts import NEW_PEOPLE_STEP
+from products.messaging.backend.provider_imports.registry import PROVIDERS, UnknownImportProvider
 
 IMPORT_PROVIDER_CHOICES: list[tuple[str, str]] = [(value, str(label)) for value, label in ImportProviderKey.choices]
 PROVIDER_IMPORT_STATUS_CHOICES: list[tuple[str, str]] = [
     (value, str(label)) for value, label in ProviderImportStatus.choices
 ]
 IMPORT_STEP_STATUS_CHOICES: list[tuple[str, str]] = [(value, str(label)) for value, label in ImportStepStatus.choices]
+
+# Steps that write people and cohorts, so starting one needs the rights the people upload needs.
+CONTACT_STEPS = frozenset({"contacts", NEW_PEOPLE_STEP, "contact_properties"})
 
 
 class ProviderImportRejected(Exception):
@@ -49,6 +58,23 @@ class ImportStepOption:
     key: str
     label: str
     description: str
+    needs: tuple[str, ...] = ()
+    counts_as_events: bool = False
+
+
+@frozen
+class ImportSettingChoiceOption:
+    value: str
+    label: str
+
+
+@frozen
+class ImportSettingOption:
+    key: str
+    label: str
+    help: str
+    choices: tuple[ImportSettingChoiceOption, ...]
+    default: str | None
 
 
 @frozen
@@ -56,6 +82,29 @@ class ImportProviderOption:
     key: str
     label: str
     steps: tuple[ImportStepOption, ...]
+    retains_credentials: bool
+    # Copy about the key, not the key, but the secret field check reads the names.
+    api_key_label: str = field(repr=False)
+    api_key_help: str = field(repr=False)
+    api_key_url: str | None = field(repr=False)
+    not_imported: str
+    next_steps: tuple[str, ...]
+    settings: tuple[ImportSettingOption, ...] = ()
+
+
+@frozen
+class ImportStepCount:
+    key: str
+    label: str
+    value: int
+
+
+@frozen
+class ImportStepItem:
+    label: str
+    status: str
+    url: str | None
+    notes: tuple[str, ...]
 
 
 @frozen
@@ -67,6 +116,11 @@ class ImportStepProgress:
     imported: int
     warnings: tuple[str, ...]
     last_error: str | None
+    counts: tuple[ImportStepCount, ...] = ()
+    items: tuple[ImportStepItem, ...] = ()
+    # How many warnings and items didn't fit in the run's stored progress.
+    warnings_omitted: int = 0
+    items_omitted: int = 0
 
 
 @frozen
@@ -78,24 +132,66 @@ class ProviderImportRunState:
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
+    settings: Mapping[str, str] = field(default_factory=dict)
 
 
-def list_import_providers() -> list[ImportProviderOption]:
+def list_import_providers(team_uuid: str, organization_id: str) -> list[ImportProviderOption]:
+    """The providers this team can import from."""
     return [
         ImportProviderOption(
             key=provider.key,
             label=provider.label,
             steps=tuple(
-                ImportStepOption(key=spec.key, label=spec.label, description=spec.description)
+                ImportStepOption(
+                    key=spec.key,
+                    label=spec.label,
+                    description=spec.description,
+                    needs=spec.needs,
+                    counts_as_events=spec.counts_as_events,
+                )
                 for spec in provider.steps
+            ),
+            retains_credentials=provider.retains_credentials,
+            api_key_label=provider.api_key_label,
+            api_key_help=provider.api_key_help,
+            api_key_url=provider.api_key_url,
+            not_imported=provider.not_imported,
+            next_steps=provider.next_steps,
+            settings=tuple(
+                ImportSettingOption(
+                    key=spec.key,
+                    label=spec.label,
+                    help=spec.help,
+                    choices=tuple(ImportSettingChoiceOption(value=c.value, label=c.label) for c in spec.choices),
+                    default=spec.default,
+                )
+                for spec in provider.settings
             ),
         )
         for provider in PROVIDERS.values()
+        if _provider_enabled(provider, team_uuid, organization_id)
     ]
 
 
+def _provider_enabled(provider: ImportProvider, team_uuid: str, organization_id: str) -> bool:
+    if provider.feature_flag is None:
+        return True
+    return feature_enabled_or_false(
+        provider.feature_flag,
+        team_uuid,
+        groups={"organization": organization_id},
+        group_properties={"organization": {"id": organization_id}},
+        send_feature_flag_events=False,
+    )
+
+
 def start_provider_import(
-    team_id: int, provider: str, steps: list[str], api_key: str | None, created_by_id: int | None
+    team_id: int,
+    provider: str,
+    steps: list[str],
+    api_key: str | None,
+    created_by_id: int | None,
+    settings: Mapping[str, str] | None = None,
 ) -> ProviderImportRunState:
     """Check the credentials and start a background import of the selected steps.
 
@@ -104,8 +200,14 @@ def start_provider_import(
     key.
     """
     try:
-        run = runs.start_run(team_id, provider, steps, api_key, created_by_id)
-    except (UnknownImportProvider, runs.InvalidImportSteps, ImportCredentialsMissing, ImportCredentialsInvalid) as e:
+        run = runs.start_run(team_id, provider, steps, api_key, created_by_id, settings)
+    except (
+        UnknownImportProvider,
+        runs.InvalidImportSteps,
+        runs.InvalidImportSettings,
+        ImportCredentialsMissing,
+        ImportCredentialsInvalid,
+    ) as e:
         raise ProviderImportRejected(_rejection_message(e)) from e
     except (runs.ProviderImportAlreadyRunning, ImportCredentialsConflict) as e:
         raise ProviderImportConflict(str(e)) from e
@@ -115,8 +217,9 @@ def start_provider_import(
 
 
 def list_provider_import_runs(team_id: int, limit: int = 20) -> list[ProviderImportRunState]:
-    """The team's most recent imports, newest first."""
-    return [_to_state(run) for run in runs.list_runs(team_id, limit)]
+    """The team's most recent imports, newest first, without each step's items. A run can hold hundreds of items per
+    step, which makes the list too large for an MCP client to read. `get_provider_import_run` returns them."""
+    return [_to_state(run, with_items=False) for run in runs.list_runs(team_id, limit)]
 
 
 def get_provider_import_run(team_id: int, run_id: UUID) -> ProviderImportRunState | None:
@@ -130,26 +233,49 @@ def _rejection_message(error: Exception) -> str:
     return str(error)
 
 
-def _to_state(run: ProviderImportRun) -> ProviderImportRunState:
-    labels = {spec.key: spec.label for spec in get_provider(run.provider).steps}
+def _to_state(run: ProviderImportRun, with_items: bool = True) -> ProviderImportRunState:
+    # After a rollback a run can name a provider this deploy lacks; its steps then show only their keys.
+    provider = PROVIDERS.get(run.provider)
+    specs = {spec.key: spec for spec in provider.steps} if provider else {}
     return ProviderImportRunState(
         id=run.id,
         provider=run.provider,
         status=run.status,
-        steps=tuple(_step_progress(step, labels.get(step, step), run.progress.get(step, {})) for step in run.steps),
+        steps=tuple(
+            _step_progress(step, specs.get(step), run.progress.get(step, {}), with_items) for step in run.steps
+        ),
         created_at=run.created_at,
         started_at=run.started_at,
         finished_at=run.finished_at,
+        settings=run.settings,
     )
 
 
-def _step_progress(key: str, label: str, progress: dict[str, Any]) -> ImportStepProgress:
+def _step_progress(
+    key: str, spec: ImportStepSpec | None, progress: dict[str, Any], with_items: bool = True
+) -> ImportStepProgress:
+    counts = progress.get("counts", {})
+    stored_items = progress.get("items", [])
+    items = stored_items if with_items else []
     return ImportStepProgress(
         key=key,
-        label=label,
+        label=spec.label if spec else key,
         status=progress.get("status", ImportStepStatus.PENDING.value),
         processed=progress.get("processed", 0),
         imported=progress.get("imported", 0),
         warnings=tuple(progress.get("warnings", [])),
         last_error=progress.get("last_error"),
+        counts=tuple(
+            ImportStepCount(key=count_key, label=label, value=counts[count_key])
+            for count_key, label in (spec.count_labels if spec else ())
+            if counts.get(count_key)
+        ),
+        items=tuple(
+            ImportStepItem(
+                label=item["label"], status=item["status"], url=item.get("url"), notes=tuple(item.get("notes", []))
+            )
+            for item in items
+        ),
+        warnings_omitted=progress.get("warnings_omitted", 0),
+        items_omitted=progress.get("items_omitted", 0) + len(stored_items) - len(items),
     )

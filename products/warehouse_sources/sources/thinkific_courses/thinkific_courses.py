@@ -159,6 +159,7 @@ def _fanout_source(
             # mistake for a fetch-one-record endpoint and stop after a single page.
             parent_endpoint_extra={"paginator": _paginator(), "data_selector": "items"},
             child_endpoint_extra={"paginator": _paginator(), "data_selector": "items"},
+            parent_data_map=config.parent_data_map,
             resume_hook=save_checkpoint,
             initial_paginator_state=initial_state,
         ),

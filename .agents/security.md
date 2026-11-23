@@ -13,6 +13,11 @@ Before you create a branch or PR, choose the route:
 - **Severe vulnerability that needs an embargo:** use `PostHog/posthog-private` on a `security/` branch only when team-security agrees an embargo is necessary. Severe means an attacker can exploit PostHog Cloud remotely today, without special access, to do serious harm. Examples are cross-tenant data access, authentication bypass, remote code execution on our infrastructure, or exposure of credentials or secrets. The severity label does not necessarily decide the route: a high finding that does not meet this bar can go public. Keep the finding, reproduction, and vulnerable paths in private channels until disclosure is approved.
 - **Every other security fix:** open a normal PR in `PostHog/posthog`. This includes hardening, defense in depth, input validation, consistency fixes between code paths, access checks with low impact, issues that need privileged or same-team access, issues in local tools such as a CLI or SDK that need a non-default setup like a custom host, and missing rate limits.
 
+Two questions help you choose between the embargo and a public PR:
+
+- **Is the weakness already public?** A dependency upgrade that picks up an upstream fix with a public release, advisory, or CVE does not disclose anything new, because attackers can already read the upstream patch. It goes to `PostHog/posthog` as a plain version bump. Ask team-security to look before it merges, and to decide if it must land faster than the merge queue allows.
+- **Could an attacker, or an agent that reads every public diff, exploit the weakness from your diff before the fix is live?** A merged fix takes about an hour to deploy. If the diff does not give that head start, the fix goes public. If it does and the finding meets the severe bar above, it needs the embargo.
+
 A public security fix is a normal fix with a neutral description.
 Describe what the change does, not how to exploit the old behavior.
 Leave out step-by-step reproductions, payloads, and severity ratings from the title, description, commit messages, and test names.
@@ -20,11 +25,47 @@ Leave out step-by-step reproductions, payloads, and severity ratings from the ti
 Never create a branch, push, or open a PR in `PostHog/posthog-private` without the user's confirmation in the current conversation.
 When you ask, say why the finding looks severe enough for an embargo.
 If you are unsure whether a finding is severe enough, stop and ask the user before you push to either repo.
+With the user's confirmation, a draft PR in `PostHog/posthog-private` lets team-security read the diff before anyone decides. Keep it a draft until they decide, and move the fix to `PostHog/posthog` if they say it can go public.
 Do not choose the private repo only because a change touches access control, authentication, or another security-sensitive area, or only because a branch is named `security/`.
 
 Follow the user's instructions about whether to create a branch, commit, push, or update a PR.
 
 This section is about where the fix lands; the rest of this doc is about writing secure code.
+
+## Requesting a security review
+
+The `security-review` label starts an automated security review of a PR.
+The review removes the label when it ends, so adding the label again runs another review.
+A check adds the label when a PR becomes ready for review.
+It reads the author's answer in the PR description, and it matches paths and code patterns.
+The patterns miss a change whose risk is in what it means, so the author's answer covers that change.
+
+Every PR that matches the list below carries the `security-review` label when it is ready for review.
+Check every PR against the list when you open it, not only a PR in a security area.
+Write the result on the `**Security review:**` line of the PR template's Agent context section: `needed` or `not needed`.
+
+- **Authentication:** login, signup, SSO, SAML, OIDC, OAuth grants and scopes, client registration, 2FA, passkeys, sessions, password or email changes, impersonation, invites, or account linking.
+- **Credentials:** a change that mints, scopes, stores, rotates, or revokes a key, token, JWT, or secret, or that changes encryption or signing.
+- **Authorization:** permission classes, API scopes, access control, object-level checks, sharing links, membership, or staff and admin gates. This includes a query or action that resolves an object ID from request input.
+- **New attack surface:** a new API, viewset, route, or action for a product, a public or unauthenticated endpoint, a webhook or ingress, or a new MCP or agent tool.
+- **Untrusted input in a dangerous call:** raw SQL or HogQL built from strings, HTML rendering, redirects, file paths or archives, subprocesses, or deserialization.
+- **Outbound requests:** a request to a URL that a user controls, such as an integration, a warehouse source, a webhook, an MCP server, or a proxy, or a change to egress or URL validation.
+- **Agents and sandboxes:** what an agent or sandbox can run, read, or reach, which credentials it gets, untrusted text in its prompt, or logic that approves an action automatically.
+- **Browser boundary:** the Content Security Policy, CORS, CSRF, cookies, framing, `postMessage`, or trusted proxy headers.
+- **CI and supply chain:** `pull_request_target` or `workflow_run` triggers, secrets, write tokens, publish or deploy jobs, CODEOWNERS, or the dev sandbox profile.
+- **Tenant data paths:** a query or background task that takes a team or project ID from its input, reads across projects, or reads a system table.
+- **A security fix** of any severity.
+
+Do not add the label to a PR that only changes tests, docs, copy, or styling, to a dependency bump with no security advisory, or to a file move with no other change.
+
+Do not add the label to a draft yourself, because the review reads the code at the moment the label lands.
+A later push does not start another review.
+Add the label yourself with `gh pr edit <number> --add-label security-review` in two cases:
+
+- The PR is already ready for review when you find that it matches.
+- A push to a reviewed PR changes one of the areas in the list.
+
+A review reads one layer of a stack, so answer on each layer.
 
 ## Principle of Least Privilege
 
@@ -46,7 +87,8 @@ Default to the smallest permission, narrowest field set, and shortest scope that
 `SECRET_KEY` already backs Django session/CSRF signing and is the legacy default for several other keys. Treat it as load-bearing and frozen — every new signing/encryption need gets its own key, rotatable and per-environment from the start.
 
 - **Don't extend `SECRET_KEY` to new purposes.** Do not add code that reads `settings.SECRET_KEY` (or derives keys from it) for a new job. Mint a dedicated setting in `posthog/settings/` read from its own env var — e.g. `<PURPOSE>_SIGNING_KEY` / `<PURPOSE>_SECRET_KEYS`. A genuinely new purpose must NOT fall back to `SECRET_KEY`; fail closed when unprovisioned instead. Canonical example: `RECORDING_API_JWT_SECRET` (`posthog/settings/session_replay_v2.py`) — no `SECRET_KEY` default, empty in prod so only designated minters can sign. (Older keys like `JWT_SIGNING_KEY`, `TEMPORAL_SECRET_KEY`, `FLAGS_SECRET_KEYS` default to `SECRET_KEY` for self-hosted back-compat; that is migration debt, not the pattern to copy for new keys.)
-- **Support rotation from day one.** Read the key as a list, newest first: the first element signs/encrypts, all elements are tried for verify/decrypt. Prefer a single comma-separated env var (`KEY="<new>,<old>"`) parsed with `get_list()` — the Fernet `new,old` convention. Examples: `RECORDING_API_JWT_SECRET` (`recording_api_jwt.py`), `FLAGS_SECRET_KEYS` (`encrypted_flag_payloads.py`). For encryption use `MultiFernet` (encrypt with first, decrypt with any) — see `posthog/helpers/encrypted_fields.py`. Encrypting data at rest? ship a re-encryption path that re-wraps onto the primary key, like `posthog/management/commands/reencrypt_fields.py`. The primary + `_FALLBACKS` pair (`JWT_SIGNING_KEY` / `JWT_SIGNING_KEY_FALLBACKS`) is the older two-var variant; single-var comma-separated is preferred for new keys.
+- **Use `ENCRYPTION_SALT_KEYS` only for Django encrypted model fields.** Its one purpose is the values that the fields in `posthog/helpers/encrypted_fields.py` store. Node and Rust code that reads those same values uses it too (the Rust batch-import worker calls it `ENCRYPTION_KEYS`). Anything else gets its own key setting (`<PURPOSE>_ENCRYPTION_KEYS`, `<PURPOSE>_SIGNING_KEYS`), such as a queue or job payload, a token, a link, an HMAC signature, or a cache entry. The bullets below say how to make that key rotatable, unique per environment, and fail-closed. The shared key is already in every runtime, but that is not a reason to reuse it. A leak or a rotation of one shared key reaches every user of that key. Fernet does not bind a token to a purpose, so code that holds the key can open the tokens of every other purpose. Short-lived data on its own key can rotate in days, with no re-encryption. (`EmailTrackingCodeSigner`, `RecipientTokensService`, and the integration ref signer in `nodejs/src/cdp/` use the shared key today. That is migration debt, not the pattern to copy.)
+- **Support rotation from day one.** Read the key as a list, newest first: the first element signs/encrypts, all elements are tried for verify/decrypt. Prefer a single comma-separated env var (`KEY="<new>,<old>"`) parsed with `get_list()` — the Fernet `new,old` convention. Examples: `RECORDING_API_JWT_SECRET` (`posthog/session_recordings/recordings/recording_api_jwt.py`), `FLAGS_SECRET_KEYS` (`products/feature_flags/backend/encrypted_flag_payloads.py`). For encryption, build a `MultiFernet` (encrypt with first, decrypt with any) from your own key list, as `FlagPayloadCodec` in `encrypted_flag_payloads.py` does. Copy its shape, not its `SECRET_KEY` fallback. The fields in `posthog/helpers/encrypted_fields.py` always read `ENCRYPTION_SALT_KEYS`, so they serve model fields only. In Node, pass your own comma-separated keys to `EncryptedFields` (`nodejs/src/cdp/utils/encryption-utils.ts`). Encrypting data at rest? ship a re-encryption path that re-wraps onto the primary key, like `posthog/management/commands/reencrypt_flag_payloads.py`. The primary + `_FALLBACKS` pair (`JWT_SIGNING_KEY` / `JWT_SIGNING_KEY_FALLBACKS`) is the older two-var variant; single-var comma-separated is preferred for new keys.
 - **Unique value per environment — including prod US and prod EU.** Never share a key value across environments; provision each (dev, prod-US, prod-EU) independently so one region can rotate without breaking another and a leak in one doesn't compromise the rest. Enforced at provisioning, not in code — so never hardcode a shared prod default. Fail closed when a prod key is unset (mirror the `SECRET_KEY` startup guard in `posthog/settings/access.py` and `RECORDING_API_JWT_SECRET`'s empty-in-prod default).
 - **Don't extend `INTERNAL_API_SECRET` to new service-to-service calls.** It's a single fleet-wide shared secret already trusted by many services across Django, Node, and Rust — one leak reaches all of them — so it must not grow new callers or protected endpoints (it's being actively retired edge-by-edge; adding one moves it backwards). For a new internal call, in order of preference: (1) **mint a scoped JWT (strongly preferred)** — a dedicated per-audience signing key (never `INTERNAL_API_SECRET`/`SECRET_KEY`/`JWT_SIGNING_KEY`) with claims pinning the token to its team and operation, verified per-route; use the shared machinery instead of hand-rolling: `ScopedServiceJwtPurpose` + `ScopedServiceJWTAuthentication` in `posthog/scoped_service_jwt.py` (Django mint/verify) and `ScopedServiceJwt` in `nodejs/src/cdp/utils/scoped-service-jwt.ts` (Node mint/verify); worked examples: the conversations ticket route (`products/conversations/backend/api/internal.py`) and its minting worker (`nodejs/src/cdp/async-functions/internal-api-call.ts`). (2) If a JWT genuinely doesn't fit, **a dedicated static secret** scoped to that one caller→callee pair (`<PURPOSE>_API_SECRET`, its own env var, rotatable, empty-in-prod-fail-closed) — never reuse `INTERNAL_API_SECRET`. The goal is blast radius: no single "master" credential that authenticates to a dozen services — a scoped JWT limits a leak to one team + operation; a dedicated secret limits it to one hop.
 

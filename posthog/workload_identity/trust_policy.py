@@ -52,7 +52,8 @@ from posthog.rate_limit import (
     WorkloadTrustPolicyRequestBurstThrottle,
     WorkloadTrustPolicyRequestSustainedThrottle,
 )
-from posthog.scopes import RISKY_SCOPE_WARNINGS
+from posthog.scopes.catalog import translate_renamed_scopes
+from posthog.scopes.exposure import RISKY_SCOPE_WARNINGS
 from posthog.tasks.email import WorkloadTrustPolicyChange, send_workload_trust_policy_changed
 from posthog.workload_identity.providers import (
     SNIPPET_HOST,
@@ -229,7 +230,8 @@ class CIScopeListField(serializers.ListField):
         super().__init__(allow_empty=False, **kwargs)
 
     def to_internal_value(self, data: Any) -> list[str]:
-        scopes = super().to_internal_value(data)
+        # A policy saved before the code review rename can send its stored old scope names back.
+        scopes = translate_renamed_scopes(super().to_internal_value(data))
         not_grantable = workload_trust_policy_scopes_not_grantable(scopes)
         if not_grantable:
             raise serializers.ValidationError(
@@ -717,7 +719,7 @@ class WorkloadTrustPolicyRequestResolutionPermission(BasePermission):
         if not isinstance(request.successful_authenticator, SessionAuthentication):
             return False
         membership = get_required_organization_membership(request, get_organization_from_view(view))
-        return membership.level >= OrganizationMembership.Level.ADMIN
+        return membership.effective_level >= OrganizationMembership.Level.ADMIN
 
 
 def resolve_workload_trust_policy_request(
@@ -792,18 +794,21 @@ class WorkloadTrustPolicyRequestViewSet(
         context = super().get_serializer_context()
         organization_id = self.organization.id
         membership = get_cached_organization_membership(organization_id, cast(User, self.request.user))
-        context["can_approve"] = membership is not None and membership.level >= OrganizationMembership.Level.ADMIN
+        context["can_approve"] = (
+            membership is not None and membership.effective_level >= OrganizationMembership.Level.ADMIN
+        )
 
         @functools.cache
         def approvers() -> list[str]:
             memberships = (
-                OrganizationMembership.objects.filter(
+                OrganizationMembership.objects.with_effective_level()
+                .filter(
                     organization_id=organization_id,
-                    level__gte=OrganizationMembership.Level.ADMIN,
+                    resolved_level__gte=OrganizationMembership.Level.ADMIN,
                     user__is_active=True,
                 )
                 .select_related("user")
-                .order_by("-level", "joined_at")
+                .order_by("-resolved_level", "joined_at")
             )
             # Name only the admins this reader could see in the members list, when the organization hides it.
             visible_membership_ids = restricted_visible_membership_ids(self.organization, cast(User, self.request.user))

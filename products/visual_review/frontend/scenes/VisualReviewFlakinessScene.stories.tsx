@@ -16,6 +16,7 @@ const repo: RepoApi = {
     baseline_file_paths: {},
     enable_pr_comments: true,
     debt_digest_enabled: false,
+    auto_quarantine_mode: 'off',
     created_at: '2026-06-10T00:00:00Z',
 }
 

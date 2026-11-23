@@ -92,7 +92,13 @@ class TestHogQLErrorCode(SimpleTestCase):
 class TestSQLResultBudgets(SimpleTestCase):
     @parameterized.expand(["table", "fallback", "warnings"])
     async def test_sql_result_budget_reaches_formatting_and_fallback(self, kind: str) -> None:
-        response: dict[str, Any] = {"results": [["x" * 2000] for _ in range(100)]}
+        response: dict[str, Any] = {
+            "results": [["x" * 2000] for _ in range(100)],
+            "warehouse_suggestions": [
+                {"message": f"Materializing `view_{index}` would save time.", "url": f"https://example.com/{index}"}
+                for index in range(3)
+            ],
+        }
         if kind != "fallback":
             response["columns"] = ["example"]
         if kind == "warnings":
@@ -113,6 +119,33 @@ class TestSQLResultBudgets(SimpleTestCase):
         self.assertEqual(response["results"][0][0], "x" * 2000)
         if kind == "fallback":
             self.assertIn("JSON shown may be cut off", result)
+        if kind == "warnings":
+            self.assertNotIn("Warehouse suggestions", result)
+        else:
+            self.assertTrue(result.endswith("- Materializing `view_2` would save time."))
+
+    @parameterized.expand(
+        [
+            ("cut_sql", HogQLQuery(query="SELECT event FROM events"), True, True),
+            ("cut_visualization", DataVisualizationNode(source=HogQLQuery(query="SELECT 1")), True, True),
+            ("complete_sql", HogQLQuery(query="SELECT event FROM events"), False, False),
+        ]
+    )
+    async def test_row_limit_notice_tells_the_agent_more_rows_exist(
+        self, _name: str, query: HogQLQuery | DataVisualizationNode, has_more: bool, expect_notice: bool
+    ) -> None:
+        response = {"columns": ["event"], "results": [["$pageview"]] * 100, "hasMore": has_more, "limit": 100}
+        context = InsightContext(
+            team=Team(id=1, organization=Organization()),
+            user=User(),
+            query=query,
+            max_sql_result_chars=SQLResultsFormatter.MAX_RESULT_CHARS,
+        )
+        with patch("ee.hogai.context.insight.query_executor.process_query_dict", return_value=response):
+            result = await context.execute_and_format(prompt_template="{{{results}}}", include_prompt_framing=False)
+        self.assertEqual(result.startswith("[Row limit]"), expect_notice)
+        if expect_notice:
+            self.assertIn("only the first 100 rows", result)
 
     def test_synchronous_execution_keeps_sql_budget(self) -> None:
         runner = AssistantQueryExecutor(
@@ -1026,8 +1059,9 @@ class TestAssistantQueryExecutorAsync(NonAtomicBaseTest):
         query = AssistantHogQLQuery(query="SELECT arrayJoin(range(1, 100001))")
         result, used_fallback = await self.query_runner.arun_and_format_query(query)
         self.assertFalse(used_fallback)
-        lines = result.strip().split("\n")
-        data_rows = len(lines) - 1  # subtract header
+        notice, table = result.split("\n\n", 1)
+        self.assertIn(f"only the first {DEFAULT_POSTHOG_AI_RETURNED_ROWS} rows", notice)
+        data_rows = len(table.strip().split("\n")) - 1  # subtract header
         self.assertEqual(data_rows, DEFAULT_POSTHOG_AI_RETURNED_ROWS)
 
 

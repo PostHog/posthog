@@ -16,7 +16,6 @@ import { DefinitionView } from 'lib/components/DefinitionPopover/DefinitionPopov
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { AddBehavioralFilterButton } from 'lib/components/PropertyFilters/components/AddBehavioralFilterButton'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import { defaultDataWarehousePopoverFields } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
@@ -31,12 +30,14 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { IconWithCount, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { getEventNamesForAction } from 'lib/utils/events'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import {
     FEATURE_FLAG_CALLED_EVENT,
     FLAG_EVALUATIONS_TABLE,
     readsFlagEvaluationsTable,
+    storesFlagCallsOutsideEvents,
 } from 'scenes/feature-flags/flagEvaluationsTable'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -519,7 +520,9 @@ export function ActionFilterRow({
             }
             excludedProperties={excludedProperties}
             // The hidden flag-call event shows again, because picking it builds the flag_evaluations series.
+            // On mode 2 a stand-in row replaces it in search results, because the team may have no definition left to list.
             includeHiddenEvents={includeHiddenEvents || flagCallsFromFlagEvaluations}
+            offerHiddenEventStandIns={buildsFlagCallsSeries && storesFlagCallsOutsideEvents(currentTeam)}
             allowNonCapturedEvents={allowNonCapturedEvents}
             definitionPopoverRenderer={rowDefinitionPopoverRenderer}
         />

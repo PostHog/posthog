@@ -1,5 +1,3 @@
-"""Celery tasks for engineering_analytics."""
-
 import structlog
 from celery import shared_task
 
@@ -18,8 +16,8 @@ logger = structlog.get_logger(__name__)
 
 
 @shared_task(ignore_result=True)
-# Fan-out across every enrolled team with a GitHub source: cross-team by design, and the model
-# still uses a plain manager, so there is no unscoped() to declare it with.
+# The fan-out reads every enrolled team on purpose. The model uses a plain manager, so there is
+# no unscoped() to declare that with.
 @skip_team_scope_audit
 def emit_test_ownership_census() -> None:
     team_ids = enrolled_sources(ExternalDataSourceType.GITHUB).values_list("team_id", flat=True).distinct()
@@ -33,8 +31,8 @@ def emit_team_test_census(team_id: int) -> None:
     team = Team.objects.get(id=team_id)
     seen_repos: set[str] = set()
     for source in list_github_sources(team=team, user_access_control=None):
-        # Unsynced sources have no resolvable repository for the roster query, so their
-        # events would be unreadable; two sources on one repo would double the tarball fetch.
+        # The roster query cannot resolve an unsynced source's repository, so its events would be
+        # unreadable. Two sources on one repository would fetch the tarball twice.
         if not source.repo or not source.synced or source.repo in seen_repos:
             continue
         seen_repos.add(source.repo)

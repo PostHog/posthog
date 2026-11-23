@@ -26,7 +26,7 @@ from products.feature_flags.backend.flag_evaluations_mode import (
     OrganizationModeChange,
     UnknownIdsError,
     get_organizations_of_teams,
-    set_organization_flag_evaluations_mode,
+    set_organizations_flag_evaluations_mode,
 )
 from products.feature_flags.backend.flag_limits import (
     get_max_feature_flags_override_for_team,
@@ -184,8 +184,8 @@ class StaffFlagEvaluationsModeMutationSerializer(serializers.Serializer):
         default=False,
         help_text=(
             "Also lower organizations that are above the target mode. Lowering an organization from 2 restarts "
-            "the events writes that ingestion stopped for its teams in the ingestion allowlist. The events table "
-            "keeps a gap for those teams for the time the organization spent on 2."
+            "the events writes that ingestion stopped for its teams. The events table keeps a gap for those teams "
+            "for the time the organization spent on 2."
         ),
     )
     dry_run = serializers.BooleanField(
@@ -208,8 +208,8 @@ class StaffOrganizationModeChangeSerializer(DataclassSerializer):
             "organization_id": {"help_text": "Organization id."},
             "organization_name": {"help_text": "Organization name."},
             "team_count": {"help_text": "Teams of the organization. They all read the organization's mode."},
-            "running_experiments_on_feature_flag_called": {
-                "help_text": "Running experiments of the organization that count exposures on $feature_flag_called. On teams in the ingestion allowlist, mode 2 stops those exposures."
+            "running_experiments_needing_flag_calls_in_events": {
+                "help_text": "Running experiments of the organization that read $feature_flag_called from events without its $experiment_exposure copy: through an exposure action, an activation, or a metric. Mode 2 stops those events writes, so those reads find no new calls."
             },
             "changed": {
                 "help_text": "True when the write moved the organization to the target mode, or would on a dry run."
@@ -432,12 +432,9 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
 
         # One transaction across organizations, so the request applies in full or not at all.
         with transaction.atomic():
-            changes = [
-                set_organization_flag_evaluations_mode(
-                    organization, mode, allow_downgrade=allow_downgrade, dry_run=dry_run
-                )
-                for organization in organizations
-            ]
+            changes = set_organizations_flag_evaluations_mode(
+                organizations, mode, allow_downgrade=allow_downgrade, dry_run=dry_run
+            )
 
         if not dry_run:
             logger.info(

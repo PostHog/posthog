@@ -4,7 +4,6 @@ import { Ref, forwardRef, useEffect, useId, useState } from 'react'
 import { IconX } from '@posthog/icons'
 
 import { DisplayableEntity } from 'lib/components/EntityFilterInfo'
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import {
     DataWarehousePopoverField,
     DefinitionPopoverRenderer,
@@ -16,6 +15,7 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import type { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
@@ -47,6 +47,7 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     excludedProperties?: ExcludedProperties
     excludedOperators?: ExcludedOperators
     includeHiddenEvents?: boolean
+    offerHiddenEventStandIns?: boolean
     selectedProperties?: SelectedProperties
     metadataSource?: AnyDataNode
     showNumericalPropsOnly?: boolean
@@ -94,6 +95,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         excludedProperties,
         excludedOperators,
         includeHiddenEvents,
+        offerHiddenEventStandIns,
         selectedProperties,
         metadataSource,
         schemaColumns,
@@ -167,6 +169,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
             excludedProperties={excludedProperties}
             excludedOperators={excludedOperators}
             includeHiddenEvents={includeHiddenEvents}
+            offerHiddenEventStandIns={offerHiddenEventStandIns}
             selectedProperties={selectedProperties}
             showNumericalPropsOnly={showNumericalPropsOnly}
             dataWarehousePopoverFields={dataWarehousePopoverFields}

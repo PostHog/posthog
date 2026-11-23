@@ -18,7 +18,7 @@ export const StatusIcon = ({ status, message }: { status: SourceStatus; message:
     )
 }
 
-function getStatusDisplay(status: SourceStatus): {
+export function getStatusDisplay(status: SourceStatus): {
     tagType?: 'success' | 'danger' | 'primary'
     icon?: JSX.Element
 } {

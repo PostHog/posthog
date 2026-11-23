@@ -1,15 +1,23 @@
 from datetime import timedelta
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    NonAtomicBaseTest,
+    _create_event,
+    flush_persons_and_events,
+)
 from unittest import mock
 
 from django.core.cache import cache
 from django.db import InterfaceError, OperationalError
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 import psycopg
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
+from posthoganalytics.contexts import get_tags
 from prometheus_client import REGISTRY
 from rest_framework import status
 from rest_framework.response import Response
@@ -21,7 +29,7 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import get_query_tags
+from posthog.clickhouse.query_tagging import AccessMethod, Product, get_query_tags
 from posthog.errors import (
     CHQueryErrorNoCommonType,
     CHQueryErrorNotAnAggregate,
@@ -33,7 +41,11 @@ from posthog.errors import (
 from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseAtCapacity
 
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
-from products.endpoints.backend.logic.execution import EndpointExecutionService, _emit_endpoint_failure_signal
+from products.endpoints.backend.logic.execution import (
+    EndpointExecutionService,
+    _emit_endpoint_failure_signal,
+    access_method_stamps_execution,
+)
 from products.endpoints.backend.models import Endpoint
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 from products.product_analytics.backend.facade.models import InsightVariable
@@ -2337,13 +2349,13 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
     # METRICS
     # =========================================================================
 
-    def _make_simple_hogql_endpoint(self, name: str):
+    def _make_simple_hogql_endpoint(self, name: str, query: str = "SELECT count() FROM events"):
         return create_endpoint_with_version(
             name=name,
             team=self.team,
             query={
                 "kind": "HogQLQuery",
-                "query": "SELECT count() FROM events",
+                "query": query,
             },
             created_by=self.user,
             is_active=True,
@@ -2534,6 +2546,63 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertIs(args[2], boom)
         self.assertFalse(kwargs["materialized"])
 
+    @parameterized.expand(
+        [
+            ("inline", False),
+            ("materialized", True),
+        ]
+    )
+    def test_endpoint_failure_context_reaches_query_execution(self, _name: str, materialized: bool) -> None:
+        query_text = "SELECT 'do-not-capture-this-query' AS value"
+        endpoint = (
+            self._make_fresh_materialized_endpoint(
+                "failure_context_materialized", {"kind": "HogQLQuery", "query": query_text}
+            )
+            if materialized
+            else self._make_simple_hogql_endpoint("failure_context_inline", query=query_text)
+        )
+        outcomes: list[Response | Exception] = [RuntimeError("query failed")]
+        if materialized:
+            outcomes.append(Response({"results": [[1]], "columns": ["value"]}))
+        contexts: list[dict[str, object]] = []
+
+        def run_query(*_args: object, **_kwargs: object) -> Response:
+            contexts.append(get_tags())
+            outcome = outcomes.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        with (
+            mock.patch.object(EndpointExecutionService, "_execute_query_and_respond", side_effect=run_query),
+            mock.patch("products.endpoints.backend.logic.execution.capture_exception"),
+            mock.patch("products.endpoints.backend.logic.execution._emit_endpoint_failure_signal"),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK if materialized else status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+        self.assertTrue(contexts)
+        for properties in contexts:
+            self.assertEqual(properties["product"], Product.ENDPOINTS)
+            self.assertEqual(properties["team_id"], self.team.pk)
+            self.assertEqual(properties["endpoint_id"], str(endpoint.id))
+            self.assertEqual(properties["endpoint_name"], endpoint.name)
+            self.assertEqual(
+                properties["$groups"],
+                {
+                    "organization": str(self.team.organization_id),
+                    "project": str(self.team.uuid),
+                },
+            )
+            self.assertNotIn("query", properties)
+            self.assertNotIn("variables", properties)
+            self.assertNotIn(query_text, repr(properties))
+
     def test_emit_failure_signal_swallows_errors(self):
         """Signal emission must never mask the original exception."""
         endpoint = self._make_simple_hogql_endpoint("failure_signal_swallow")
@@ -2594,7 +2663,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             query=query,
             is_materialized=True,
             status=DataWarehouseSavedQuery.Status.COMPLETED,
-            sync_frequency_interval=timedelta(hours=24),
             last_run_at=timezone.now(),
         )
         saved_query.table = DataWarehouseTable.objects.create(
@@ -2733,7 +2801,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
         version = endpoint.versions.first()
         saved_query = version.saved_query
-        saved_query.sync_frequency_interval = None  # migration cleanup nulls this on v2 teams
         saved_query.last_run_at = timezone.now() - timedelta(days=3)
         saved_query.status = None
         saved_query.save()
@@ -2766,7 +2833,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             "v2-transform-now", {"kind": "HogQLQuery", "query": "select 1 as n"}
         )
         saved_query = endpoint.versions.first().saved_query
-        saved_query.sync_frequency_interval = None
         saved_query.last_run_at = None
         saved_query.status = None
         saved_query.save()
@@ -2935,6 +3001,10 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(error_after - error_before, 0.0)
         mock_capture.assert_not_called()
 
+
+class TestEndpointFailureSignal(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
     def test_emit_failure_signal_reaches_workflow_boundary(self):
         """The failure-signal plumbing must make it to the Temporal boundary when the
         org/source gates allow it — anything raising before that is a plumbing bug."""
@@ -2951,16 +3021,25 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             is_active=True,
         )
 
+        SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product=SignalSourceConfig.SourceProduct.ENDPOINTS,
+            source_type=SignalSourceConfig.SourceType.ENDPOINT_EXECUTION_FAILED,
+            enabled=True,
+        )
         mock_client = mock.AsyncMock()
-        with (
-            mock.patch(
-                "products.signals.backend.facade.api.async_connect",
-                new=mock.AsyncMock(return_value=mock_client),
-            ),
-            # The gate runs on a separate DB connection (thread_sensitive=False) and can't see
-            # rows from the test transaction, so patch it rather than creating a config row.
-            mock.patch.object(SignalSourceConfig, "is_source_enabled", return_value=True),
+        with mock.patch(
+            "products.signals.backend.facade.api.async_connect", new=mock.AsyncMock(return_value=mock_client)
         ):
             _emit_endpoint_failure_signal(self.team, endpoint, RuntimeError("boom"), materialized=False, version=1)
 
         self.assertGreaterEqual(mock_client.start_workflow.await_count, 1, "signal never reached the Temporal boundary")
+
+
+class TestAccessMethodStampsExecution(SimpleTestCase):
+    @parameterized.expand(
+        [(method.value, method, method != AccessMethod.SHARING_TOKEN) for method in AccessMethod]
+        + [("session", None, False)]
+    )
+    def test_every_automatable_credential_stamps(self, _name, access_method, expected):
+        assert access_method_stamps_execution(access_method) is expected

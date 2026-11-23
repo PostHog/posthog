@@ -129,6 +129,11 @@ def handle_sandbox_message(
                 lambda: _sandbox_stream(conv_data, run_id, start_id, conversation_id, content, team_id=team.id)
             )
 
+        try:
+            tasks_facade.check_wake_by_task_id(task_run.task_id, source="posthog_ai_follow_up")
+        except tasks_facade.TaskDoneError as error:
+            raise exceptions.ValidationError(str(error))
+
         # Signal the Temporal workflow to send the follow-up message
         try:
             client = sync_connect()

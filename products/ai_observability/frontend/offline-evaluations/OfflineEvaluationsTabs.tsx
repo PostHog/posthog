@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { Scene } from 'scenes/sceneTypes'
@@ -8,7 +8,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { OfflineEvaluationsTab, offlineEvaluationsLogic } from './offlineEvaluationsLogic'
 
 export function OfflineEvaluationsTabs({ activeTab }: { activeTab: OfflineEvaluationsTab }): JSX.Element {
-    const { datasetsEnabled, offlineEvaluationsEnabled } = useValues(offlineEvaluationsLogic)
+    const { datasetsEnabled } = useValues(offlineEvaluationsLogic)
     const { setActiveTab } = useActions(offlineEvaluationsLogic)
 
     return (
@@ -20,22 +20,11 @@ export function OfflineEvaluationsTabs({ activeTab }: { activeTab: OfflineEvalua
                 {
                     value: 'experiments',
                     'data-attr': 'offline-evaluations-experiments-tab',
-                    label: (
-                        <span className="flex items-center gap-1">
-                            <span>Experiments</span>
-                            {!offlineEvaluationsEnabled && (
-                                <LemonTag type="muted" size="small">
-                                    Coming soon
-                                </LemonTag>
-                            )}
-                        </span>
-                    ),
-                    disabledReason: !offlineEvaluationsEnabled
-                        ? 'Offline experiments are coming soon.'
-                        : getProductAccessDisabledReason({
-                              sceneKey: Scene.AIObservabilityOfflineExperiment,
-                              displayLabel: 'experiments',
-                          }),
+                    label: 'Experiments',
+                    disabledReason: getProductAccessDisabledReason({
+                        sceneKey: Scene.AIObservabilityOfflineExperiment,
+                        displayLabel: 'experiments',
+                    }),
                 },
                 {
                     value: 'datasets',
