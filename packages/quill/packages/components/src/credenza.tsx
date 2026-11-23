@@ -56,15 +56,23 @@ interface OpenChangeDetails {
     trigger: Element | undefined
 }
 
+interface CredenzaRootProps {
+    open: boolean
+    onOpenChange: (open: boolean, details: OpenChangeDetails) => void
+    onOpenChangeComplete: (open: boolean) => void
+}
+
 /**
  * A change of mode remounts the popup and loses what the user typed, and a rotated phone crosses the breakpoint.
  * So the mode stays fixed from open until the close animation ends, then focus moves to the remounted trigger.
  */
-function useStableMode(isOpen: boolean): {
+function useCredenzaState({ open, defaultOpen = false, onOpenChange }: Omit<CredenzaProps, 'children'>): {
     mode: CredenzaMode
-    rememberTrigger: (open: boolean, details: OpenChangeDetails) => void
-    handleOpenChangeComplete: (open: boolean) => void
+    rootProps: CredenzaRootProps
 } {
+    const [uncontrolledOpen, setUncontrolledOpen] = React.useState(defaultOpen)
+    const isOpen = open ?? uncontrolledOpen
+
     const viewportMode: CredenzaMode = useMediaQuery(DIALOG_QUERY) ? 'dialog' : 'drawer'
     const [popupMode, setPopupMode] = React.useState<CredenzaMode | null>(null)
     if (isOpen && popupMode === null) {
@@ -72,13 +80,18 @@ function useStableMode(isOpen: boolean): {
     }
 
     const openedByTriggerId = React.useRef<string | null>(null)
-    const rememberTrigger = React.useCallback((open: boolean, details: OpenChangeDetails) => {
-        if (open) {
-            openedByTriggerId.current = details.trigger?.id || null
-        }
-    }, [])
-    const handleOpenChangeComplete = React.useCallback((open: boolean) => {
-        if (!open) {
+    const handleOpenChange = React.useCallback(
+        (next: boolean, details: OpenChangeDetails) => {
+            if (next) {
+                openedByTriggerId.current = details.trigger?.id || null
+            }
+            setUncontrolledOpen(next)
+            onOpenChange?.(next)
+        },
+        [onOpenChange]
+    )
+    const handleOpenChangeComplete = React.useCallback((next: boolean) => {
+        if (!next) {
             setPopupMode(null)
         }
     }, [])
@@ -93,38 +106,24 @@ function useStableMode(isOpen: boolean): {
         }
     }, [popupMode])
 
-    return { mode: popupMode ?? viewportMode, rememberTrigger, handleOpenChangeComplete }
+    return {
+        mode: popupMode ?? viewportMode,
+        rootProps: { open: isOpen, onOpenChange: handleOpenChange, onOpenChangeComplete: handleOpenChangeComplete },
+    }
 }
 
 /** A dialog on a wide viewport and a bottom drawer on a phone, with one set of parts for both. */
-function Credenza({ open, defaultOpen = false, onOpenChange, children }: CredenzaProps): React.ReactElement {
-    const [uncontrolledOpen, setUncontrolledOpen] = React.useState(defaultOpen)
-    const isOpen = open ?? uncontrolledOpen
-    const { mode, rememberTrigger, handleOpenChangeComplete } = useStableMode(isOpen)
+function Credenza({ children, ...state }: CredenzaProps): React.ReactElement {
+    const { mode, rootProps } = useCredenzaState(state)
     const triggerId = React.useId()
     const context = React.useMemo(() => ({ mode, triggerId }), [mode, triggerId])
-    const handleOpenChange = React.useCallback(
-        (next: boolean, details: OpenChangeDetails) => {
-            rememberTrigger(next, details)
-            setUncontrolledOpen(next)
-            onOpenChange?.(next)
-        },
-        [rememberTrigger, onOpenChange]
-    )
 
     return (
         <CredenzaContext.Provider value={context}>
             {mode === 'dialog' ? (
-                <Dialog open={isOpen} onOpenChange={handleOpenChange} onOpenChangeComplete={handleOpenChangeComplete}>
-                    {children}
-                </Dialog>
+                <Dialog {...rootProps}>{children}</Dialog>
             ) : (
-                <Drawer
-                    open={isOpen}
-                    onOpenChange={handleOpenChange}
-                    onOpenChangeComplete={handleOpenChangeComplete}
-                    swipeDirection="down"
-                >
+                <Drawer {...rootProps} swipeDirection="down">
                     {children}
                 </Drawer>
             )}
