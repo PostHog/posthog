@@ -1,0 +1,15 @@
+// One rule per ErrorTrackingIssueTagColor value. Each rule repeats .LemonTag so it outranks the text color that
+// LemonTag sets on that class.
+@each $color in blue, teal, green, yellow, orange, red, pink, purple {
+    .LemonTag.IssueTag--#{$color} {
+        color: var(--color-#{$color}-700);
+        background-color: var(--color-#{$color}-50);
+        border-color: var(--color-#{$color}-200);
+
+        [theme='dark'] & {
+            color: var(--color-#{$color}-300);
+            background-color: color-mix(in oklch, var(--color-#{$color}-500) 15%, transparent);
+            border-color: color-mix(in oklch, var(--color-#{$color}-400) 40%, transparent);
+        }
+    }
+}

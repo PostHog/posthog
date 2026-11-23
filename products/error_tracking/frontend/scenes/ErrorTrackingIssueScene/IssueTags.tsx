@@ -1,6 +1,8 @@
-import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 
 import type { ErrorTrackingIssueTag } from '~/queries/schema/schema-general'
+
+import { IssueTag } from '../../components/IssueTag/IssueTag'
 
 function appliedBy(source: ErrorTrackingIssueTag['source']): string | null {
     switch (source) {
@@ -25,7 +27,7 @@ export function IssueTags({ tags }: { tags: ErrorTrackingIssueTag[] }): JSX.Elem
         <div className="flex shrink-0 flex-wrap items-center gap-1 border-b bg-surface-primary px-2 py-1.5">
             {tags.map((tag) => {
                 const by = appliedBy(tag.source)
-                // LemonTag renders a div, so it needs a tab stop: the tooltip holds the only copy of the
+                // The tag renders a div, so it needs a tab stop: the tooltip holds the only copy of the
                 // description and of who applied the label.
                 return (
                     <Tooltip
@@ -37,7 +39,7 @@ export function IssueTags({ tags }: { tags: ErrorTrackingIssueTag[] }): JSX.Elem
                             </div>
                         }
                     >
-                        <LemonTag tabIndex={0}>{tag.label}</LemonTag>
+                        <IssueTag tabIndex={0} label={tag.label} color={tag.color} />
                     </Tooltip>
                 )
             })}

@@ -3,6 +3,7 @@ import { LemonSelect } from '@posthog/lemon-ui'
 import type { ErrorTrackingIssueTagFilter } from '~/queries/schema/schema-general'
 
 import type { ErrorTrackingIssueTagDefinitionApi } from '../../generated/api.schemas'
+import { IssueTag } from '../IssueTag/IssueTag'
 
 function appliedOptionText(applied: boolean): string {
     return applied ? 'Has tag' : "Doesn't have tag"
@@ -24,7 +25,7 @@ export function IssueTagSelect({
     issueTag,
     onChange,
 }: {
-    definitions: Pick<ErrorTrackingIssueTagDefinitionApi, 'key' | 'label'>[]
+    definitions: Pick<ErrorTrackingIssueTagDefinitionApi, 'key' | 'label' | 'color'>[]
     loading: boolean
     issueTag: ErrorTrackingIssueTagFilter | null
     onChange: (issueTag: ErrorTrackingIssueTagFilter | null) => void
@@ -42,7 +43,7 @@ export function IssueTagSelect({
             value={issueTag ? toOptionValue(issueTag) : null}
             onChange={(optionValue) => onChange(optionValue ? fromOptionValue(optionValue) : null)}
             options={definitions.map((definition) => ({
-                title: definition.label,
+                title: <IssueTag label={definition.label} color={definition.color} />,
                 options: [true, false].map((applied) => ({
                     value: toOptionValue({ key: definition.key, applied }),
                     label: appliedOptionText(applied),

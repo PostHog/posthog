@@ -40,7 +40,7 @@ export type ErrorTrackingSeverityRuleNew = Omit<ErrorTrackingSeverityRule, 'id' 
 }
 
 export type ErrorTrackingTagRule = Omit<ErrorTrackingBaseRule, 'disabled_data'> &
-    Pick<ErrorTrackingIssueTagRuleApi, 'key' | 'label' | 'description' | 'disabled_data'>
+    Pick<ErrorTrackingIssueTagRuleApi, 'key' | 'label' | 'description' | 'color' | 'disabled_data'>
 
 export type ErrorTrackingTagRuleNew = Omit<ErrorTrackingTagRule, 'id' | 'key'> & { id: 'new' }
 
