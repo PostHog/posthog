@@ -1813,9 +1813,7 @@ filters:
         - products/approvals/backend/transactions.py
         - products/approvals/backend/coverage.py
         - 'products/approvals/backend/actions/**'
-        - products/notifications/backend/facade/api.py
-        - products/notifications/backend/logic.py
-        - products/notifications/backend/resolvers.py
+        - 'products/notifications/backend/**'
         - 'products/product_analytics/backend/facade/**'
         - products/product_analytics/backend/logic.py
         - 'products/product_analytics/backend/models/**'
@@ -2076,4 +2074,4 @@ images:
             max-ai:
                 repository: posthog-temporal-workers/max-ai
                 filter: maxAiWorker
-                bootstrapPolicyDigest: 36d10bb8b63ab4ce158788b746ff75113e39354ef00d25d6af3ea1c4fb67c7e0
+                bootstrapPolicyDigest: 132fe4ea4374fb655ca39be67ed996ae675e7029c80dfb6c68ce11b723b2c1a0
