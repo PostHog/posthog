@@ -286,39 +286,38 @@ def _parse_retry_after(response: requests.Response) -> float | None:
 def _get_config_rows(
     base: str, config: SigNozEndpointConfig, fetch: Callable[[str], Any]
 ) -> Iterator[list[dict[str, Any]]]:
-    paginated = config.legacy_path is not None
-    page_size = min(config.page_size, 200)
+    if config.legacy_path is None:
+        items = _extract_config_items(fetch(f"{base}{config.path}"), config)
+        if items:
+            yield items
+        return
 
-    def page_url(offset: int) -> str:
-        url = f"{base}{config.path}"
-        if paginated:
-            return f"{url}?limit={page_size}&offset={offset}&sort=created_at&order=asc"
-        return url
-
+    # Prefer the v1 list while the instance still serves it: it returns full rule and dashboard
+    # definitions, so existing tables keep their columns. SigNoz v0.150+ removed these routes.
+    legacy_config = dataclasses.replace(config, data_keys=config.legacy_data_keys, allowed_fields=None)
     try:
-        response = fetch(page_url(0))
+        legacy_response = fetch(f"{base}{config.legacy_path}")
     except (requests.HTTPError, SigNozNonJSONResponseError) as error:
-        if config.legacy_path is None:
-            raise
         if isinstance(error, requests.HTTPError) and (error.response is None or error.response.status_code != 404):
             raise
-        # Missing routes can return the SPA's HTML with status 200 on older instances.
-        config = dataclasses.replace(config, path=config.legacy_path, data_keys=config.legacy_data_keys)
-        paginated = False
-        response = fetch(page_url(0))
+        # Removed routes can return the SPA's HTML with status 200 instead of a 404.
+    else:
+        items = _extract_config_items(legacy_response, legacy_config)
+        if items:
+            yield items
+        return
 
+    page_size = min(config.page_size, 200)
     offset = 0
     while True:
+        response = fetch(f"{base}{config.path}?limit={page_size}&offset={offset}&sort=created_at&order=asc")
         items = _extract_config_items(response, config)
         if not items:
             return
         yield items
         offset += len(items)
-        if not paginated:
-            return
         if offset >= response["data"]["total"]:
             return
-        response = fetch(page_url(offset))
 
 
 def _retry_wait(retry_state: RetryCallState) -> float:

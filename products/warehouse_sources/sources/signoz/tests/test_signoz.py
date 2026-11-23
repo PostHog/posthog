@@ -239,6 +239,7 @@ class TestGetRows:
     @pytest.mark.parametrize("endpoint", ["alert_rules", "dashboards"])
     def test_config_pages_follow_total_and_preserve_record_keys(self, endpoint: str) -> None:
         list_key = "rules" if endpoint == "alert_rules" else "dashboards"
+        legacy_path = "/api/v1/rules" if endpoint == "alert_rules" else "/api/v1/dashboards"
         path = "/api/v3/rules" if endpoint == "alert_rules" else "/api/v2/dashboards"
         rows = [
             {"id": str(i), "createdAt": "2026-01-01T00:00:00Z", "alert": f"rule {i}", "unexpected": "drop"}
@@ -246,60 +247,83 @@ class TestGetRows:
             else {"id": str(i), "createdAt": "2026-01-01T00:00:00Z", "spec": {"display": {"name": f"board {i}"}}}
             for i in range(3)
         ]
-        result = self._run(
-            endpoint,
-            [
-                {"status": "success", "data": {list_key: rows[:1], "total": 3}},
-                {"status": "success", "data": {list_key: rows[1:], "total": 3}},
-            ],
-        )
+        with mock.patch.dict(sgz.SIGNOZ_ENDPOINTS, {endpoint: _with_page_size(endpoint, 2)}):
+            result = SourceDriver(SigNozSource(), CONFIG).run(
+                endpoint,
+                [
+                    ScriptedResponse(body=b"<!doctype html><html></html>"),
+                    ScriptedResponse(json={"status": "success", "data": {list_key: rows[:1], "total": 3}}),
+                    ScriptedResponse(json={"status": "success", "data": {list_key: rows[1:], "total": 3}}),
+                ],
+            )
 
         assert result.raised is None
         expected = [{k: v for k, v in row.items() if k != "unexpected"} for row in rows]
         assert result.rows == expected
-        assert result.paths == [path, path]
-        assert result.params("offset") == ["0", "1"]
-        assert result.params("limit") == ["2", "2"]
-        assert result.params("sort") == ["created_at", "created_at"]
-        assert result.params("order") == ["asc", "asc"]
+        assert result.paths == [legacy_path, path, path]
+        assert result.params("offset") == [None, "0", "1"]
+        assert result.params("limit") == [None, "2", "2"]
+        assert result.params("sort") == [None, "created_at", "created_at"]
+        assert result.params("order") == [None, "asc", "asc"]
         assert result.response is not None
         assert result.response.primary_keys == ["id"]
         assert all(row["id"] for row in result.rows)
         assert result.response.partition_keys == ["createdAt"]
         assert all(row["createdAt"] == "2026-01-01T00:00:00Z" for row in result.rows)
 
-    @pytest.mark.parametrize("endpoint", ["alert_rules", "dashboards"])
     @pytest.mark.parametrize(
         "unavailable",
         [ScriptedResponse(status=404), ScriptedResponse(body=b"<!doctype html><html></html>")],
     )
-    def test_config_falls_back_to_legacy_lists(self, endpoint: str, unavailable: ScriptedResponse) -> None:
-        legacy_row = {"id": "old-1", "createAt": "2026-01-01T00:00:00Z", "createBy": "viewer"}
-        modern_row = {"id": "old-1", "createdAt": "2026-01-01T00:00:00Z", "createdBy": "viewer"}
-        data: Any = {"rules": [legacy_row]} if endpoint == "alert_rules" else [modern_row]
+    def test_config_falls_back_to_current_api_when_legacy_list_is_removed(self, unavailable: ScriptedResponse) -> None:
         result = SourceDriver(SigNozSource(), CONFIG).run(
-            endpoint, [unavailable, ScriptedResponse(json={"status": "success", "data": data})]
+            "alert_rules",
+            [
+                unavailable,
+                ScriptedResponse(json={"status": "success", "data": {"rules": [{"id": "r1"}], "total": 1}}),
+            ],
         )
 
         assert result.raised is None
-        assert result.rows == [modern_row]
-        assert result.paths == [
-            "/api/v3/rules" if endpoint == "alert_rules" else "/api/v2/dashboards",
-            "/api/v1/rules" if endpoint == "alert_rules" else "/api/v1/dashboards",
-        ]
-        assert result.params("offset") == ["0", None]
+        assert result.rows == [{"id": "r1"}]
+        assert result.paths == ["/api/v1/rules", "/api/v3/rules"]
+
+    @pytest.mark.parametrize("endpoint", ["alert_rules", "dashboards"])
+    def test_config_prefers_legacy_lists_and_keeps_their_full_records(self, endpoint: str) -> None:
+        legacy_row = {
+            "id": "old-1",
+            "createAt": "2026-01-01T00:00:00Z",
+            "createBy": "viewer",
+            "condition": {"target": 1},
+            "frequency": "1m",
+            "annotations": {"summary": "s"},
+        }
+        dashboard_row = {"id": "old-1", "createdAt": "2026-01-01T00:00:00Z", "data": {"panels": []}}
+        data: Any = {"rules": [legacy_row]} if endpoint == "alert_rules" else [dashboard_row]
+        result = SourceDriver(SigNozSource(), CONFIG).run(
+            endpoint, [ScriptedResponse(json={"status": "success", "data": data})]
+        )
+
+        assert result.raised is None
+        if endpoint == "alert_rules":
+            assert result.rows == [{**legacy_row, "createdAt": "2026-01-01T00:00:00Z", "createdBy": "viewer"}]
+        else:
+            assert result.rows == [dashboard_row]
+        assert result.paths == ["/api/v1/rules" if endpoint == "alert_rules" else "/api/v1/dashboards"]
+        assert result.params("offset") == [None]
 
     @pytest.mark.parametrize("status", [401, 403, 400])
     def test_config_does_not_fall_back_on_api_errors(self, status: int) -> None:
         result = SourceDriver(SigNozSource(), CONFIG).run("alert_rules", [ScriptedResponse(status=status)])
 
         assert result.raised is not None
-        assert result.paths == ["/api/v3/rules"]
+        assert result.paths == ["/api/v1/rules"]
 
     def test_config_does_not_switch_versions_after_yielding_a_page(self) -> None:
         result = SourceDriver(SigNozSource(), CONFIG).run(
             "alert_rules",
             [
+                ScriptedResponse(status=404),
                 ScriptedResponse(json={"data": {"rules": [{"id": "r1"}], "total": 2}}),
                 ScriptedResponse(status=404),
             ],
@@ -307,7 +331,7 @@ class TestGetRows:
 
         assert result.raised is not None
         assert result.rows == [{"id": "r1"}]
-        assert result.paths == ["/api/v3/rules", "/api/v3/rules"]
+        assert result.paths == ["/api/v1/rules", "/api/v3/rules", "/api/v3/rules"]
 
     def test_notification_channels_endpoint_drops_credential_data(self) -> None:
         # End-to-end guard on the sync path: the receiver `data` payload never reaches the

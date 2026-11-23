@@ -24,7 +24,9 @@ class SigNozEndpointConfig:
     # Stable, monotonic sort keys sent as the query's `order`. The secondary key breaks
     # timestamp ties so limit/offset paging is deterministic.
     order_keys: tuple[str, ...] = ()
-    # Older self-hosted instances may expose only the unpaginated v1 lists.
+    # When `legacy_path` is set, its unpaginated v1 list is read first so existing tables keep
+    # their full records; `path` is the paginated API used once v1 is gone (SigNoz v0.150+).
+    # `allowed_fields` applies only to `path` records.
     path: Optional[str] = None
     legacy_path: Optional[str] = None
     legacy_data_keys: tuple[str, ...] = ()
