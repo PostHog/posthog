@@ -81,13 +81,23 @@ class TestTagProvisionedPersonalAPIKeys(TestCase):
             ),
         )
 
-    def _key(self, user: User, label: str, scoped_teams: list[int]) -> PersonalAPIKey:
+    def _key(
+        self, user: User, label: str, scoped_teams: list[int], scoped_organizations: list[str] | None = None
+    ) -> PersonalAPIKey:
+        if scoped_organizations is None:
+            scoped_organizations = [
+                str(organization_id)
+                for organization_id in Team.objects.filter(id__in=scoped_teams[:1]).values_list(
+                    "organization_id", flat=True
+                )
+            ]
         return PersonalAPIKey.objects.create(
             user=user,
             label=label,
             secure_value=hash_key_value(generate_random_token_personal()),
             scopes=["query:read"],
             scoped_teams=scoped_teams,
+            scoped_organizations=scoped_organizations,
         )
 
     def _run(self, *, dry_run: bool, key_ids: list[str] | None = None) -> dict:
@@ -106,6 +116,7 @@ class TestTagProvisionedPersonalAPIKeys(TestCase):
         bare = self._key(self.member, TEAM_NAME, [self.team.id])
         untouched = [
             self._key(self.member, "My laptop", [self.team.id]),
+            self._key(self.member, TEAM_NAME, [self.team.id], scoped_organizations=[]),
             self._key(self.member, TEAM_NAME, [self.team.id, self.ambiguous_team.id]),
             self._key(self.outsider, TEAM_NAME, [self.team.id]),
             self._key(self.member, TEAM_NAME, [self.ambiguous_team.id]),

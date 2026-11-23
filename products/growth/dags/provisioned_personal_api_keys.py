@@ -6,8 +6,9 @@ existing keys that match what the provisioning mint produces. It never deletes a
 
 Run it from the Dagster UI with `dry_run: true` (the default) first. Check every matched key it
 logs, the counts, and the ambiguous keys, then run it again with `dry_run: false`, passing the
-checked keys in `key_ids` to tag only those. The match is a label heuristic, so a key a user
-labeled with a provisioned project's name also matches.
+checked keys in `key_ids` to tag only those. A key matches on its label, its project and
+organization restriction, and its owner's membership, so a key a user built to look minted
+through the API also matches.
 """
 
 from collections import defaultdict
@@ -54,7 +55,9 @@ def label_matches_provisioned_pattern(label: str, team_name: str) -> bool:
 def matching_provisioning_apps(
     *,
     label: str,
+    scoped_organizations: Collection[str],
     team_name: str,
+    team_organization_id: UUID,
     user_in_team_organization: bool,
     team_app_ids: Collection[UUID],
 ) -> frozenset[UUID]:
@@ -62,7 +65,13 @@ def matching_provisioning_apps(
 
     One application means the key gets tagged, none means it is left alone, and more than one
     means the key is ambiguous and is skipped.
+
+    The mint restricts a key to the team's organization as well as the team, and the settings
+    form clears the organization list of a key it restricts to projects, so the organization
+    list separates minted keys from keys a user created in settings.
     """
+    if list(scoped_organizations) != [str(team_organization_id)]:
+        return frozenset()
     if not user_in_team_organization or not label_matches_provisioned_pattern(label, team_name):
         return frozenset()
 
@@ -134,25 +143,30 @@ def tag_provisioned_personal_api_keys(
         unlinked_single_team_keys = unlinked_single_team_keys.filter(id__in=config.key_ids)
     last_id = ""
     while batch := list(
-        unlinked_single_team_keys.filter(id__gt=last_id).values_list("id", "user_id", "label", "scoped_teams")[
-            :KEY_BATCH_SIZE
-        ]
+        unlinked_single_team_keys.filter(id__gt=last_id).values_list(
+            "id", "user_id", "label", "scoped_teams", "scoped_organizations"
+        )[:KEY_BATCH_SIZE]
     ):
         last_id = batch[-1][0]
 
-        candidates = [(key_id, user_id, label, scoped_teams[0]) for key_id, user_id, label, scoped_teams in batch]
-        candidates = [candidate for candidate in candidates if candidate[3] in teams]
+        candidates = [
+            (key_id, user_id, label, scoped_teams[0], scoped_organizations or [])
+            for key_id, user_id, label, scoped_teams, scoped_organizations in batch
+            if scoped_teams[0] in teams
+        ]
         memberships = _user_organization_pairs(
-            {user_id for _, user_id, _, _ in candidates},
-            {teams[team_id][1] for _, _, _, team_id in candidates},
+            {candidate[1] for candidate in candidates},
+            {teams[candidate[3]][1] for candidate in candidates},
         )
 
         key_ids_per_app: dict[UUID, list[str]] = defaultdict(list)
-        for key_id, user_id, label, team_id in candidates:
+        for key_id, user_id, label, team_id, scoped_organizations in candidates:
             team_name, organization_id = teams[team_id]
             app_ids = matching_provisioning_apps(
                 label=label,
+                scoped_organizations=scoped_organizations,
                 team_name=team_name,
+                team_organization_id=organization_id,
                 user_in_team_organization=(user_id, organization_id) in memberships,
                 team_app_ids=team_app_ids[team_id],
             )
