@@ -2317,6 +2317,11 @@ class TestFailRun:
         mock_capture.assert_not_called()
 
 
+_CONSUMER_MODULE = (
+    "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer"
+)
+
+
 class TestUpdateJobStatusToFailed:
     def test_swallows_does_not_exist_when_job_deleted_mid_sync(self):
         # The job row can vanish (e.g. its source was removed) between the "not already
@@ -2338,6 +2343,33 @@ class TestUpdateJobStatusToFailed:
             _update_job_status_to_failed(job_id="job-1", team_id=1, error="boom")
 
         mock_update.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "snapshot,run_ended,cleared",
+        [
+            # A single-table run keeps its reserve until its next run, as it always has.
+            ({}, True, False),
+            ({"companion_of": "job-0"}, False, False),
+            # The last job of a run that writes several tables clears the run's billing-limit reserve.
+            ({"companion_of": "job-0"}, True, True),
+        ],
+        ids=["single_table_run", "schema_job_still_loading", "last_table_of_the_run"],
+    )
+    def test_the_last_failed_table_of_a_run_clears_its_billing_reserve(self, snapshot, run_ended, cleared):
+        model = MagicMock(schema_snapshot=snapshot, schema_id="schema-1")
+        with (
+            patch(f"{_CONSUMER_MODULE}.close_old_connections"),
+            patch(
+                "products.warehouse_sources.backend.models.external_data_job.ExternalDataJob.objects.filter",
+            ) as mock_filter,
+            patch("products.data_warehouse.backend.facade.api.update_external_job_status", return_value=model),
+            patch(f"{_CONSUMER_MODULE}.run_ended_on_every_table", return_value=run_ended),
+            patch(f"{_CONSUMER_MODULE}.finish_row_tracking", new_callable=AsyncMock) as finish,
+        ):
+            mock_filter.return_value.first.return_value = None
+            _update_job_status_to_failed(job_id="job-1", team_id=1, error="boom")
+
+        assert [awaited.args for awaited in finish.await_args_list] == ([(1, "schema-1")] if cleared else [])
 
 
 class TestShouldProcessBatch:

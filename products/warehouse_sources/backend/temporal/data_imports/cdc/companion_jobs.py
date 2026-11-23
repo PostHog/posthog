@@ -100,6 +100,12 @@ def run_completed_on_every_table(job_id: str, team_id: int) -> bool:
     )
 
 
+def writes_several_tables(job: ExternalDataJob) -> bool:
+    """Whether this job's run writes more than one table, as the schema's own job or as a companion of it."""
+    snapshot = job.schema_snapshot or {}
+    return bool(snapshot.get(COMPANION_JOB_IDS_KEY) or snapshot.get(COMPANION_OF_KEY))
+
+
 def run_ended_on_every_table(job_id: str, team_id: int) -> bool:
     """Whether the run of this job, or of the job it is a companion of, has stopped on every table it writes,
     completed or failed."""

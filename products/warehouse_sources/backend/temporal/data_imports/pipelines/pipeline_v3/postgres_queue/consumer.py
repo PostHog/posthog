@@ -19,7 +19,7 @@ from django.db import close_old_connections
 
 import psycopg
 import structlog
-from asgiref.sync import sync_to_async
+from asgiref.sync import async_to_sync, sync_to_async
 
 from posthog.exceptions_capture import capture_exception
 
@@ -30,6 +30,10 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_should_sync,
 )
 from products.warehouse_sources.backend.self_managed_access import ADOPTION_ACCESS_ERROR
+from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import (
+    run_ended_on_every_table,
+    writes_several_tables,
+)
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     LOCK_TAKEOVER_LATEST_ERROR,
     TERMINAL_JOB_STATUSES,
@@ -56,6 +60,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     release_v3_pipeline_lock,
 )
+from products.warehouse_sources.backend.temporal.data_imports.row_tracking import finish_row_tracking
 from products.warehouse_sources.backend.temporal.data_imports.util import is_transient_internal_db_error
 from products.warehouse_sources.backend.types import ExternalDataJobStatus
 from products.warehouse_sources_queue.backend.core.batch_consumer import (
@@ -1304,7 +1309,7 @@ def _update_job_status_to_failed(*, job_id: str, team_id: int, error: str, run_u
         return
 
     try:
-        update_external_job_status(
+        model = update_external_job_status(
             job_id=job_id,
             team_id=team_id,
             status=ExternalDataJob.Status.FAILED,
@@ -1314,7 +1319,15 @@ def _update_job_status_to_failed(*, job_id: str, team_id: int, error: str, run_u
     except ExternalDataJob.DoesNotExist:
         # The job row itself was deleted between the check above and this write (e.g. its
         # source/schema was removed mid-sync) — nothing left to mark failed.
-        pass
+        return
+
+    # A run that writes several tables reserves rows for each, so the last of its jobs to end clears them.
+    # A single-table run keeps the reserve until its next run, as it always has.
+    try:
+        if writes_several_tables(model) and run_ended_on_every_table(job_id, team_id):
+            async_to_sync(finish_row_tracking)(team_id, model.schema_id)
+    except Exception:
+        logger.warning("failed_run_billing_reserve_not_cleared", job_id=job_id, team_id=team_id, exc_info=True)
 
 
 def _auto_widen_reset_is_pending(*, schema_id: str, team_id: int) -> bool:
