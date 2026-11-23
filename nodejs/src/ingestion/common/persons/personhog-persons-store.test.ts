@@ -3969,7 +3969,7 @@ describe('PersonhogPersonsStore', () => {
             expect(repository.updatePersonProperties).toHaveBeenCalledTimes(1)
         })
 
-        it('fails a flush queued behind a spent budget on its first transport error, and retries a later flush', async () => {
+        it('fails every flush after a spent budget on its first transport error', async () => {
             jest.useFakeTimers()
             try {
                 const budgetStore = new PersonhogPersonsStore(repository, { flushTransientRetryBudgetMs: 15_000 })
@@ -3995,16 +3995,8 @@ describe('PersonhogPersonsStore', () => {
                 expect(await queuedSettled).toBeInstanceOf(ConnectError)
 
                 const callsBefore = repository.updatePersonProperties.mock.calls.length
-                const laterSettled = settle(queued.flush())
-                let laterDone = false
-                void laterSettled.then(() => {
-                    laterDone = true
-                })
-                await jest.advanceTimersByTimeAsync(5_000)
-                expect(laterDone).toBe(false)
-                expect(repository.updatePersonProperties.mock.calls.length).toBeGreaterThan(callsBefore + 2)
-                await jest.advanceTimersByTimeAsync(11_000)
-                expect(await laterSettled).toBeInstanceOf(ConnectError)
+                await expect(queued.flush()).rejects.toBeInstanceOf(ConnectError)
+                expect(repository.updatePersonProperties.mock.calls.length).toBe(callsBefore + 2)
             } finally {
                 jest.useRealTimers()
             }

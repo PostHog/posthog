@@ -332,7 +332,7 @@ export class PersonhogPersonsStore implements PersonsStore {
 
     /** Serializes flush passes; see flush(). */
     private flushChain: Promise<void> = Promise.resolve()
-    private transientBudgetSpentAt?: number
+    private transientBudgetSpent = false
     /** Total lane wait per flush, derived in the constructor from the transport retry budget. */
     private flushWaitBudgetMs: number
     private fenceWaitBudgetMs: number
@@ -1517,8 +1517,7 @@ export class PersonhogPersonsStore implements PersonsStore {
      * fence to clear. Anything else fails the flush. Passes serialize.
      */
     async flush(): Promise<FlushResult[]> {
-        const queuedAt = Date.now()
-        const run = this.flushChain.then(() => this.flushPass(queuedAt))
+        const run = this.flushChain.then(() => this.flushPass())
         this.flushChain = run.then(
             () => undefined,
             () => undefined
@@ -1526,15 +1525,15 @@ export class PersonhogPersonsStore implements PersonsStore {
         return run
     }
 
-    private async flushPass(queuedAt: number): Promise<FlushResult[]> {
+    private async flushPass(): Promise<FlushResult[]> {
         // Success lets the batch ack, so the pass must not return while any
         // lane holds unwritten segments: claimed lanes are waited out and
         // rewritten, or the pass fails and the batch redelivers.
         let fenceSeen = false
         let deferredRounds = 0
-        const retryBudget: TransientRetryBudget = {
-            disabled: this.transientBudgetSpentAt !== undefined && queuedAt < this.transientBudgetSpentAt,
-        }
+        // A spent budget makes the consumer replay the batch on another worker. A later flush here, such as
+        // the shutdown drain, must not retry, or its older write can land after the replay's newer one.
+        const retryBudget: TransientRetryBudget = { disabled: this.transientBudgetSpent }
         for (;;) {
             const pass: WritePass = { deferrals: 0, fenced: 0, transientFailures: 0 }
             await this.writeEligibleLanes(pass, retryBudget)
@@ -1545,7 +1544,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             }
             if (pass.transientFailures > 0 && this.transientBudgetExpired(retryBudget)) {
                 personhogStoreFlushCounter.inc({ outcome: 'transient_exhausted' })
-                this.transientBudgetSpentAt = Date.now()
+                this.transientBudgetSpent = true
                 throw retryBudget.lastError
             }
             fenceSeen ||= pass.fenced > 0
