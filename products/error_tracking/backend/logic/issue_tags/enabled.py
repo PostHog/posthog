@@ -1,5 +1,8 @@
 from django.db.models import QuerySet
 
+from posthog.hogql.property_access_types import RestrictedProperty
+from posthog.hogql.restricted_properties import PERSON_PROPERTY_CONTAINERS
+
 from posthog.dataclasses import frozen
 from posthog.models import User
 
@@ -44,6 +47,23 @@ def issue_tag_definitions_for_enabled_team(team_id: int) -> tuple[IssueTagDefini
     return _enabled_code_definitions(team_id) + tuple(
         _rule_definition(rule, taggers=(RuleTaggerConfig(rule_id=rule.id, bytecode=rule.bytecode),)) for rule in rules
     )
+
+
+def readable_issue_tag_keys(team_id: int, restrictions: set[RestrictedProperty]) -> frozenset[str] | None:
+    """The keys whose stored tag rows a member with `restrictions` may read, or None when every key is readable.
+
+    A rule's rows follow the visibility of its label, so while issue tags are off no rule's rows are readable. A key
+    that no code tag or active rule owns is left out too: a deleted rule keeps its ClickHouse rows, but its filters are
+    gone, so nothing can show that the member may read them.
+    """
+    if not restrictions:
+        return None
+    code_keys = frozenset(definition.key for definition in registry.ISSUE_TAG_DEFINITIONS)
+    if not issue_tags_enabled(team_id):
+        return code_keys
+    visibility = _RuleVisibility(restricted=split_restricted_property_names(restrictions))
+    rules = _active_rules(team_id).only("key", "filters")
+    return code_keys | frozenset(rule.key for rule in rules if visibility.shows(rule))
 
 
 def get_issue_tag_definition(team_id: int, key: str, user: User) -> IssueTagDefinition:
@@ -103,7 +123,9 @@ def _reads_restricted_property(filters: object, restricted: RestrictedPropertyNa
         return True
     match filters.get("type"):
         case "event":
-            names: frozenset[str] = restricted.event
+            names: frozenset[str] = restricted.event | {
+                f"{container}.{name}" for container in PERSON_PROPERTY_CONTAINERS for name in restricted.person
+            }
         case "person":
             names = restricted.person
         case "group":

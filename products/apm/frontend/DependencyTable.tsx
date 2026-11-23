@@ -35,7 +35,7 @@ export function DependencyTable({
             title: 'Callee',
             key: 'callee',
             render: (_, edge) => (
-                <span className="flex items-center gap-2">
+                <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     {edge.inferred ? (
                         <span className="font-semibold">{edge.callee}</span>
                     ) : (
@@ -75,7 +75,8 @@ export function DependencyTable({
     ]
 
     return (
-        <div className="flex flex-col gap-1">
+        // min-w-0 lets a grid cell shrink below the table's width so LemonTable scrolls instead of clipping.
+        <div className="flex flex-col gap-1 min-w-0">
             <h3 className="mb-0 text-sm font-semibold">{title}</h3>
             <LemonTable
                 columns={columns}

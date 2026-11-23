@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import build_default_sync_settings
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -1107,15 +1108,28 @@ class TestCustomSourceGetSchemas(SimpleTestCase):
                 },
             }
         )
+        manifest["resources"].append(
+            {
+                "name": "events",
+                "endpoint": {
+                    "path": "/events",
+                    "data_selector": "data",
+                    "incremental": {"cursor_path": "seq", "cursor_type": "integer", "start_param": "after"},
+                },
+            }
+        )
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(manifest))
         schemas = source.get_schemas(config, team_id=999)
-        assert {s.name for s in schemas} == {"users", "orders"}
+        assert {s.name for s in schemas} == {"users", "orders", "events"}
 
         orders = next(s for s in schemas if s.name == "orders")
         assert orders.supports_incremental
         assert orders.incremental_fields[0]["field"] == "updated_at"
         assert orders.detected_primary_keys == ["order_id", "line_no"]
+        assert build_default_sync_settings(orders)["sync_type"] == "incremental"
+        events = next(s for s in schemas if s.name == "events")
+        assert build_default_sync_settings(events) == {"sync_type": "full_refresh"}
 
     def test_filters_by_names(self):
         source = CustomSource()

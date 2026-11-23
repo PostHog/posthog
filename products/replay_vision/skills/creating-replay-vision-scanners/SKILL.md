@@ -1,6 +1,6 @@
 ---
 name: creating-replay-vision-scanners
-description: "Guides agents through creating and safely sizing a Replay Vision scanner: choosing the scanner type (monitor/classifier/scorer/summarizer), shaping the RecordingsQuery that selects sessions, and — crucially — estimating the credits it will spend and checking the org's remaining budget before creating, so a broad scanner doesn't exhaust the budget on its first scheduled sweep.\nTRIGGER when: user asks to create, set up, or configure a Replay Vision scanner, OR when you are about to call vision-scanners-create, OR when widening an existing scanner's query or sampling_rate (or moving it to a pricier model) via vision-scanners-update.\nDO NOT TRIGGER when: only reading scanners or observations, deleting a scanner, or running an existing scanner against sessions on demand (vision-scanners-scan-session/-scan-sessions). For a one-off question about sessions you already have, use vision-scanners-inline-scan rather than creating a scanner — the skill's first section covers when that applies."
+description: "Guides agents through creating and safely sizing a Replay Vision scanner: choosing the scanner type (monitor/classifier/scorer/summarizer), shaping the RecordingsQuery that selects sessions, and — crucially — estimating the credits it will spend and checking the org's remaining budget before creating, so a broad scanner doesn't exhaust the budget on its first scheduled sweep.\nTRIGGER when: user asks to create, set up, or configure a Replay Vision scanner, OR when you are about to call vision-scanners-create, OR when widening a scanner's query, sampling_rate or model via vision-scanners-update, OR after an on-demand scan whose question also applies to future recordings, to offer a scanner.\nDO NOT TRIGGER when: only reading scanners or observations, deleting a scanner, or running an existing scanner against sessions on demand (vision-scanners-scan-session/-scan-sessions). For a one-off question about sessions you already have, use vision-scanners-inline-scan rather than creating a scanner."
 ---
 
 # Creating Replay Vision scanners
@@ -31,6 +31,18 @@ Create a scanner only when the user wants recordings that **haven't happened yet
 If you find yourself planning to create a scanner, read its results once, and delete it, stop and run an
 inline scan instead — a throwaway scanner leaves a scheduled sweep running against every future recording that
 matches its query.
+
+### After an on-demand scan: offer the standing watch
+
+Many on-demand questions keep mattering after you answer them: a bug that may come back, a drop-off on a step that ships changes, a check the user wants to repeat.
+When the question you just answered with an inline scan would apply to recordings that haven't happened yet, end your answer by offering once to keep watching for it.
+Say what the scanner would look for, which recordings it would cover, and roughly what it would cost, then wait for a yes.
+On a yes, follow this skill from Step 1, reusing the inline scan's `prompt`, `scanner_type` and `scanner_config`, and build the query from what the scanned sessions have in common.
+
+The same goes for a saved scanner you ran with `vision-scanners-scan-session` or `vision-scanners-scan-sessions` whose `enabled` is false and whose `disabled_reason` is null or `manual`: it only runs when asked.
+Offer to turn on its schedule, size it with Step 3 first, and enable it with `vision-scanners-update` only after the user agrees.
+
+Skip the offer when the question was about one past incident, or when the user has already turned it down.
 
 ## Core principle: size before you ship
 

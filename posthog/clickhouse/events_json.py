@@ -75,6 +75,8 @@ EVENTS_JSON_INSERT_SETTINGS = (
     "json_type_escape_dots_in_keys = 1, type_json_skip_duplicated_paths = 1"
 )
 
+# The export cleaner writes the string paths of both dicts the way the JSON column stores them. It mirrors them in
+# clickhouse-udfs/util/cmd/json_clean_posthog_event_properties_udf/export.go, so update both.
 EVENTS_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES: dict[str, str] = {
     "$browser": "LowCardinality(String)",
     "$browser_language": "LowCardinality(String)",

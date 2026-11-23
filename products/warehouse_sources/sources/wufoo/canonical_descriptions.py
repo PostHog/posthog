@@ -114,4 +114,29 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "Type": "The field type, for example 'text', 'checkbox', or 'radio'.",
         },
     },
+    "form_comments": {
+        "description": "A comment that a user added to an entry of a Wufoo form in the Entry Manager.",
+        "docs_url": "https://wufoo.github.io/docs/#form-comments",
+        "columns": {
+            "form_hash": "The hash of the form that the commented entry belongs to.",
+            "CommentId": "The identifier of the comment.",
+            "EntryId": "The identifier of the entry that the comment is on. Matches EntryId on form_entries.",
+            "Text": "The text of the comment.",
+            "CommentedBy": "The name of the person who wrote the comment.",
+            "DateCreated": "The date and time the comment was made.",
+        },
+    },
+    "report_widgets": {
+        "description": "A chart, graph, or number widget on a Wufoo report. Text and datagrid widgets are not "
+        "included.",
+        "docs_url": "https://wufoo.github.io/docs/#widgets",
+        "columns": {
+            "report_hash": "The hash of the report that the widget is on.",
+            "Hash": "The hash of the widget, used to embed it.",
+            "Name": "The name given to the widget in the Report Builder.",
+            "Size": "The widget size: 'small', 'medium', or 'large' for graphs, and 'fill' for charts and numbers.",
+            "Type": "The widget type identifier, for example 'pie', 'bar', 'line', 'fieldChart', or 'bigNumber'.",
+            "TypeDesc": "A readable name of the widget type, for example 'Pie Graph'.",
+        },
+    },
 }

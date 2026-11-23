@@ -1043,8 +1043,13 @@ export interface VisionQuotaApi {
     readonly scanners_period_credits: number
     /** Committed-but-unspent credits of the organization's active backfills. A one-off charge rather than a rate, so it lands in full regardless of how much of the period is left. */
     readonly backfills_committed_credits: number
-    /** Credits per period included for free. Already counted inside `credit_limit`; only credits beyond this number are billed. */
-    readonly free_monthly_credits: number
+    /**
+     * Credits per period included for free. Already counted inside `credit_limit`; only credits beyond this number are billed. Null when every credit is free.
+     * @nullable
+     */
+    readonly free_monthly_credits: number | null
+    /** True while billing has not yet synced this organization's limit and free credits. Nothing can run until it does, which usually takes seconds; poll this endpoint until it turns false. */
+    readonly awaiting_billing_sync: boolean
 }
 
 export interface VisionSpendDayApi {
@@ -1300,6 +1305,56 @@ export interface ScannerExperimentTargetingApi {
 }
 
 /**
+ * * `experiment` - Experiment
+ */
+export type ScannerScopeKindEnumApi = (typeof ScannerScopeKindEnumApi)[keyof typeof ScannerScopeKindEnumApi]
+
+export const ScannerScopeKindEnumApi = {
+    Experiment: 'experiment',
+} as const
+
+/**
+ * * `all_at_creation` - Every variant the experiment had when the scanner was made
+ * * `user` - A subset someone picked
+ */
+export type VariantsSourceEnumApi = (typeof VariantsSourceEnumApi)[keyof typeof VariantsSourceEnumApi]
+
+export const VariantsSourceEnumApi = {
+    AllAtCreation: 'all_at_creation',
+    User: 'user',
+} as const
+
+/**
+ * An experiment scope: the sessions of people exposed to an experiment, labeled by variant.
+ */
+export interface ScannerExperimentScopeApi {
+    /** The kind of scope. Only `experiment` exists today.
+     *
+     * * `experiment` - Experiment */
+    kind: ScannerScopeKindEnumApi
+    /**
+     * The experiment whose exposed sessions the scanner watches.
+     * @minimum 1
+     */
+    experiment_id: number
+    /**
+     * Every variant the scanner watches, named explicitly, with no repeats. Read them from the experiment first, because a variant added to the experiment later is not watched until it is added here. Absent only on a scope carried over from the older targeting shapes, which watches every variant.
+     * @maxItems 128
+     * @items.maxLength 400
+     */
+    variants?: string[]
+    /** Whether `variants` was the experiment's full variant set when the scanner was made, or a subset someone picked. The launch receiver adds new variants only to the first.
+     *
+     * * `all_at_creation` - Every variant the experiment had when the scanner was made
+     * * `user` - A subset someone picked */
+    variants_source?: VariantsSourceEnumApi
+    /** Whether the budget is spent about evenly across the watched variants. False samples them proportionally to the experiment's rollout. Defaults to true. */
+    balance?: boolean
+    /** Whether a scanner saved off against a draft experiment turns itself on when that experiment launches. Cleared once it starts. Defaults to false. */
+    start_on_launch?: boolean
+}
+
+/**
  * * `manual` - Turned off by a person
  * * `free_credits_used` - Free credits used
  * * `no_ai_consent` - No AI consent
@@ -1403,6 +1458,13 @@ export interface ReplayScannerApi {
     emits_signals?: boolean
     /** The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed. */
     experiment_targeting?: ScannerExperimentTargetingApi | null
+    /** Which sessions the scanner watches beyond its filters, and the label it gives each one. Null watches every session the filters match. Set null to remove the scope. */
+    scope?: ScannerExperimentScopeApi | null
+    /**
+     * What this scanner's scope watches, for a reader that cannot see the experiment.
+     * @nullable
+     */
+    readonly scope_summary: string | null
     /** Increments on every config-changing save. Observations snapshot this value. */
     readonly scanner_version: number
     /**
@@ -1567,6 +1629,13 @@ export interface PatchedReplayScannerApi {
     emits_signals?: boolean
     /** The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed. */
     experiment_targeting?: ScannerExperimentTargetingApi | null
+    /** Which sessions the scanner watches beyond its filters, and the label it gives each one. Null watches every session the filters match. Set null to remove the scope. */
+    scope?: ScannerExperimentScopeApi | null
+    /**
+     * What this scanner's scope watches, for a reader that cannot see the experiment.
+     * @nullable
+     */
+    readonly scope_summary?: string | null
     /** Increments on every config-changing save. Observations snapshot this value. */
     readonly scanner_version?: number
     /**
@@ -2253,6 +2322,17 @@ export interface SignalScoutConfigOptionsApi {
      * @maxItems 16
      */
     write_scopes?: string[]
+    /**
+     * Report actions this scout may start on inbox reports, from `make_it_green` and `resolve_conflicts`. Empty by default. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run.
+     * @maxItems 2
+     */
+    report_actions?: string[]
+    /**
+     * Report actions this scout may start per rolling 24 hours, across all its runs. Defaults to 3. Only the person the scout's runs act as can raise it. A project admin can lower it.
+     * @minimum 0
+     * @maximum 20
+     */
+    max_report_actions_per_day?: number
     /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
     lifecycle_locked?: boolean
     /**
@@ -2586,6 +2666,17 @@ export interface SignalScoutConfigApi {
      * @maxItems 16
      */
     readonly write_scopes: readonly string[]
+    /**
+     * Report actions this scout may start on inbox reports, from `make_it_green` and `resolve_conflicts`. Empty by default. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run.
+     * @maxItems 2
+     */
+    readonly report_actions: readonly string[]
+    /**
+     * Report actions this scout may start per rolling 24 hours, across all its runs. Defaults to 3. Only the person the scout's runs act as can raise it. A project admin can lower it.
+     * @minimum 0
+     * @maximum 20
+     */
+    readonly max_report_actions_per_day: number
     /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
     readonly lifecycle_locked: boolean
     /**
@@ -3493,7 +3584,7 @@ export type VisionScannersListParams = {
      */
     enabled?: string
     /**
-     * Filter to scanners whose targeting watches the given experiment.
+     * Filter to scanners whose scope watches the given experiment.
      */
     experiment_id?: string
     /**
@@ -3513,6 +3604,12 @@ export type VisionScannersListParams = {
      */
     scanner_type?: string
     /**
+     * Filter to scanners whose scope is of this kind.
+     *
+     * * `experiment` - Experiment
+     */
+    scope_kind?: VisionScannersListScopeKind
+    /**
      * Case-insensitive substring match across name, description, and the prompt in scanner_config.
      */
     search?: string
@@ -3521,6 +3618,12 @@ export type VisionScannersListParams = {
      */
     tags?: string
 }
+
+export type VisionScannersListScopeKind = (typeof VisionScannersListScopeKind)[keyof typeof VisionScannersListScopeKind]
+
+export const VisionScannersListScopeKind = {
+    Experiment: 'experiment',
+} as const
 
 export type VisionScannersImpactRetrieveParams = {
     /**

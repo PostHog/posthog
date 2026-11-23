@@ -38,6 +38,7 @@ from .query_complexity import Complexity, measure_complexity
 from .query_format import readable_sql
 from .usage_adjusted import AgentQuery, fetch_agent_queries, in_conversations
 from .usage_judge import JUDGE_MODEL, AIConsentMissing, require_ai_consent
+from .usage_priority import priority
 from .usage_proposed_metrics import (
     QUERY_HASH,
     SAVED_QUERY_PRODUCTS,
@@ -333,25 +334,37 @@ class MeasureFolder:
             group.agent_runs += 1
 
     def groups(self, index: CatalogIndex, max_groups: int = MAX_GROUPS) -> list[UncoveredGroup]:
-        """Classified groups, ranked by complexity, then the people who built them, then built count, then views.
-        A bare or simple measure stays out unless the catalog covers it, so it takes no place on the list and no draft."""
+        """Classified groups, ranked by priority, then complexity, then the people who built them, built count and views.
+        A bare or simple measure stays out unless the catalog covers it, so it takes no place on the list and no draft.
+
+        The drafts go to the top of this list, so the order decides which measures can become proposals."""
         candidates = [group for group in self._groups.values() if not _is_too_simple_and_uncovered(group, index)]
-        people = [group for group in candidates if len(group.people | group.viewers) >= _MIN_PEOPLE]
-        people.sort(
-            key=lambda group: (
-                -measure_complexity(group.fingerprint),
-                -len(group.people),
-                -group.built,
-                -group.seen,
-                group.fingerprint.digest,
+        ranked = [
+            (
+                group,
+                complexity := measure_complexity(group.fingerprint),
+                priority(complexity=complexity, reach=len(group.people | group.viewers)),
+            )
+            for group in candidates
+            if len(group.people | group.viewers) >= _MIN_PEOPLE
+        ]
+        ranked.sort(
+            key=lambda item: (
+                -item[2],
+                -item[1],
+                -len(item[0].people),
+                -item[0].built,
+                -item[0].seen,
+                item[0].fingerprint.digest,
             )
         )
-        return [_classified(group, index, measure_complexity(group.fingerprint)) for group in people[:max_groups]]
+        return [_classified(group, index, complexity, rank) for group, complexity, rank in ranked[:max_groups]]
 
     def evidence(self, digest: str) -> MeasureEvidence:
         group = self._groups[digest]
         return MeasureEvidence(
             people=frozenset(group.people),
+            viewers=frozenset(group.viewers),
             shape_hashes=frozenset(group.shape_hashes),
             agent_people=frozenset(group.agent_people),
             agent_sessions=frozenset(group.agent_sessions),
@@ -377,7 +390,7 @@ class MeasureFolder:
 
 
 def _classified(
-    group: _Accumulator, index: CatalogIndex, complexity: Complexity = Complexity.UNKNOWN
+    group: _Accumulator, index: CatalogIndex, complexity: Complexity = Complexity.UNKNOWN, rank: float = 0.0
 ) -> UncoveredGroup:
     match = index.classify(group.fingerprint)
     return UncoveredGroup(
@@ -392,6 +405,7 @@ def _classified(
         draft_name=None,
         draft_description=None,
         complexity=complexity,
+        priority=rank,
     )
 
 

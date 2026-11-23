@@ -605,6 +605,8 @@ export const KNOWN_LIB_VALUES = new Set([
     'mobile',
     'posthog-php',
     'posthog-laravel',
+    'posthog-rs-ffi',
+    'posthog-electron',
     'zapier',
     'Webflow',
     'posthog-flutter',

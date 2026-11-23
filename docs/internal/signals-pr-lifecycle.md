@@ -8,6 +8,8 @@ Research completion activities update a report only while its locked status is `
 
 Monitoring reports show an eye icon below their priority in the inbox list, aligned with the repository and source metadata. The Monitoring option in the statuses dropdown appears when the current project has monitoring reports across any inbox scope, or when it is already selected. It filters by `status=monitoring`, which returns an empty result when monitoring is disabled. The report list API's `view=monitoring` returns the same reports. Review and merge continues to show reports with an open implementation PR.
 
+A move from Monitoring to Resolved or Closed sets `monitoring_ended_at`, including resolving an archived Monitoring report. Archiving only pauses Monitoring and leaves it unset, and reopening clears it with `monitoring_started_at`. The list API's `view=monitoring_recent` returns the Monitoring reports plus the resolved and closed reports whose Monitoring ended in the last 14 days. Each of those carries a `monitoring_outcome`: `resolved` when every check passed, `resolved_by_assessment` when a report-level assessment decided, `resolved_manually` when a person resolved it, `resolved_unverified` when every check was cancelled, or `closed`. `follow_up` is the report grouping placed that attempt's `monitoring_unresolved` signal in. Their `monitoring_summary.checks` lists each check's final state. The `connected` list parameter keeps the reports the user claimed (`assigned`) or is a suggested reviewer on (`suggested_reviewer`), whichever matches.
+
 A report completes after all linked implementation PRs are closed or merged.
 At least one merged PR completes implementation: applicable follow-up checks enter Monitoring when enabled; otherwise the report resolves directly. All closed PRs without a merge suppress it.
 
@@ -285,6 +287,14 @@ The change appends an attributed `repo_selection` artefact, so the work log keep
 The new row keeps the earlier row's `research_context`.
 It keeps the earlier `autostart_eligible` only when that row named a repository, and is otherwise not autostart eligible, so it changes where work goes without granting or withdrawing an automatic pull request.
 Selecting the current repository adds no row.
+
+A person can change the report's actionability, its already-addressed value, or both with `PUT /api/projects/:id/signals/reports/:report_id/actionability/`.
+The change appends an attributed `actionability_judgment` artefact that keeps the value the request omits, and later research runs keep it.
+A new actionability moves a `ready` or `pending_input` report: `requires_human_input` to `pending_input`, and `immediately_actionable` or `not_actionable` to `ready`.
+A report in any other status keeps its status, and a change to already addressed alone moves no report.
+The change does not re-evaluate autostart, so it does not open a pull request by itself.
+Setting the current values adds no row.
+
 The report detail response returns each decision (repository, priority, actionability, already addressed) under `decisions`, with the stored reason and who set it.
 
 The shared repository selection prompt also asks the agent to check other sources in the supplied context before choosing a repository.
@@ -460,6 +470,20 @@ A human-authored snapshot alone does not prove approval of the complete list.
 Incomplete history stops automatic changes until a person confirms the current list through the API.
 
 ### Write contract
+
+Reviewer attribution records who wrote the artefact and does not grant permission to start implementation.
+Each reviewer version carries separate, server-owned implementation authorization.
+Research, custom-agent, and scout workers authorize automatic selection of an eligible reviewer, subject to the existing autonomy and repository checks.
+Stack layers inherit the parent reviewer version, authorization, and reviewer corrections.
+After creation, each layer keeps its own reviewer state. Later plan edits do not replace an existing layer's reviewers or corrections.
+Reports filed by a person and their stack layers require an explicit implementation request.
+Reviewer API writes authorize only the authenticated caller, even when the write is attributed to a task.
+Sandbox API writes do not grant permission to start implementation.
+An ineligible caller never falls back to a named reviewer or another member.
+Startup reads the authorization and reviewer content from the same version, including on deferred retries.
+Unchanged automatic proposals preserve the current version's authorization.
+Research and scout proposals that retain an existing reviewer also preserve that authorization when they add reviewers or update their evidence.
+Older reviewer versions without authorization pause until a person authorizes a reviewer edit or explicitly requests implementation.
 
 Automatic callers read `reviewer_assignment.state` from the report detail response before selection.
 This is the only API response that includes correction state.

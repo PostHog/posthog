@@ -358,9 +358,8 @@ async fn insert_person_with_derived_uuid(
     let insert_sql = format!(
         r#"
         INSERT INTO {}
-            (created_at, properties, properties_last_updated_at, properties_last_operation,
-             team_id, is_identified, uuid, version)
-        VALUES (now(), '{{}}'::jsonb, '{{}}'::jsonb, '{{}}'::jsonb, $1, false, $2, 0)
+            (created_at, properties, team_id, is_identified, uuid, version)
+        VALUES (now(), '{{}}'::jsonb, $1, false, $2, 0)
         RETURNING id
         "#,
         ctx.tables.person

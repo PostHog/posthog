@@ -165,4 +165,51 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "take_url": "URL of the content in the course player.",
         },
     },
+    "collection_products": {
+        "description": "Products in each collection, one row per collection and product pair.",
+        "docs_url": f"{_DOCS}Collections",
+        "columns": {
+            "id": "Unique identifier for the product.",
+            "collection_id": "Identifier of the collection that contains the product.",
+            "name": "Name of the product.",
+            "productable_id": "Identifier of the course or bundle the product represents.",
+            "productable_type": "Type of item the product represents (e.g. Course, Bundle).",
+            "created_at": "Timestamp when the product was created.",
+        },
+    },
+    "custom_profile_field_definitions": {
+        "description": "Definitions of the custom profile fields collected on user records.",
+        "docs_url": f"{_DOCS}Custom%20Profile%20Field%20Definitions",
+        "columns": {
+            "id": "Unique identifier for the custom profile field definition.",
+            "label": "Label of the custom profile field.",
+            "field_type": "Type of the custom profile field.",
+            "required": "Whether users must fill in the custom profile field.",
+        },
+    },
+    "bundle_courses": {
+        "description": "Courses in each bundle, one row per bundle and course pair.",
+        "docs_url": f"{_DOCS}Bundles",
+        "columns": {
+            "id": "Unique identifier for the course.",
+            "bundle_id": "Identifier of the bundle that contains the course.",
+            "name": "Name of the course.",
+            "product_id": "Identifier of the product this course belongs to.",
+            "instructor_id": "Identifier of the course's primary instructor.",
+        },
+    },
+    "bundle_enrollments": {
+        "description": "Course enrollments that belong to each bundle.",
+        "docs_url": f"{_DOCS}Bundles",
+        "columns": {
+            "id": "Unique identifier for the enrollment.",
+            "bundle_id": "Identifier of the bundle the enrollment belongs to.",
+            "user_id": "Identifier of the enrolled user.",
+            "user_email": "Email address of the enrolled user.",
+            "course_id": "Identifier of the course the user is enrolled in.",
+            "percentage_completed": "Fraction of the course the user has completed (0.0–1.0).",
+            "completed": "Whether the user has completed the course.",
+            "updated_at": "Timestamp when the enrollment was last updated.",
+        },
+    },
 }

@@ -9,6 +9,7 @@ from posthog.temporal.health_checks.detectors import DEFAULT_EXECUTION_POLICY
 from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, Remediation
 from posthog.temporal.health_checks.models import HealthCheckResult
 
+from products.data_warehouse.backend.logic.external_data_source.notifications import SCHEMA_STOPPED_BY_USER
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
@@ -90,6 +91,7 @@ class ExternalDataFailureCheck(HealthCheck):
                 | Q(status=ExternalDataSchemaStatus.BILLING_LIMIT_TOO_LOW)
                 | Q(should_sync=False, latest_error__isnull=False)
             )
+            .exclude(SCHEMA_STOPPED_BY_USER)
             .select_related("source")
         )
 

@@ -1,5 +1,6 @@
 import { IconGithub } from '@posthog/icons'
 
+import { BrandMark } from 'lib/components/BrandMark/BrandMark'
 import { IconGitlab, IconGoogle, IconKey } from 'lib/lemon-ui/icons'
 
 import { SSOProvider } from '~/types'
@@ -22,6 +23,9 @@ export const SocialLoginIcon = ({
         return <IconGithub {...props} viewBox={GITHUB_VIEW_BOX} />
     } else if (provider === 'gitlab') {
         return <IconGitlab {...props} />
+    } else if (provider === 'chatgpt') {
+        // The ChatGPT logo is the OpenAI mark. The Lemon icons size from the font size, so the mark does too.
+        return <BrandMark name="OpenAI" className={props.className ?? 'size-[1em]'} />
     } else if (provider === 'saml' || provider === 'oidc') {
         return <IconKey {...props} />
     }

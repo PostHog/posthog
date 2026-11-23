@@ -86,6 +86,7 @@ Make sure to grant the following read scopes:
 - `read_clusters`
 - `read_teams`
 - `read_suites`
+- `read_audit_events` (only for audit events, which need the Enterprise plan and an organization administrator's token)
 """,
             iconPath="/static/services/buildkite.png",
             fields=cast(

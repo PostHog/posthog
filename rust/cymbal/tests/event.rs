@@ -460,6 +460,71 @@ async fn new_issue_only_infers_confident_severity_without_overwriting_existing_s
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
+async fn issue_change_log_tracks_creation_and_reopen(db: PgPool) {
+    let harness = TestHarness::new(db);
+    for disabled in [false, true] {
+        let mut input = make_event_with_options(
+            vec![make_exception("TypeError", "cannot read property")],
+            Some(if disabled {
+                "change-log-disabled"
+            } else {
+                "change-log-enabled"
+            }),
+            Some(false),
+        );
+        let (status, body): (_, SuccessResponse) = harness
+            .post_event_with_config(&input, |config| config.issue_change_log_enabled = !disabled)
+            .await;
+        assert!(status.is_success());
+        let issue_id = body.take_properties().issue_id();
+        let first_seen: DateTime<Utc> = "2020-02-03T04:05:06Z".parse().unwrap();
+        sqlx::query(
+            "INSERT INTO posthog_errortrackingissuefingerprintv2 (id, team_id, issue_id, fingerprint, version, first_seen) VALUES ($1, 1, $2, $3, 2, $4)",
+        )
+        .bind(Uuid::now_v7())
+        .bind(issue_id)
+        .bind(format!("older-fingerprint-{disabled}"))
+        .bind(first_seen)
+        .execute(&harness.db)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE posthog_errortrackingissue SET status = 'resolved' WHERE id = $1")
+            .bind(issue_id)
+            .execute(&harness.db)
+            .await
+            .unwrap();
+
+        input.uuid = Uuid::now_v7();
+        let (status, body): (_, SuccessResponse) = harness
+            .post_event_with_config(&input, |config| config.issue_change_log_enabled = !disabled)
+            .await;
+        assert!(status.is_success());
+        assert_eq!(body.take_properties().issue_id(), issue_id);
+
+        let rows: Vec<(String, JsonValue, JsonValue, Option<Uuid>)> = sqlx::query_as(
+            "SELECT kind, data, snapshot, event_uuid FROM posthog_errortrackingissuechange WHERE issue_id = $1 ORDER BY id",
+        )
+        .bind(issue_id)
+        .fetch_all(&harness.db)
+        .await
+        .unwrap();
+        if disabled {
+            assert!(rows.is_empty());
+        } else {
+            assert_eq!(rows.len(), 2);
+            assert_eq!(rows[0].0, "created");
+            assert_eq!(rows[0].1, json!({}));
+            assert_eq!(rows[0].2["first_seen"], "2024-01-01T00:00:00+00:00");
+            assert_eq!(rows[1].0, "status_changed");
+            assert_eq!(rows[1].1, json!({"previous": "resolved"}));
+            assert_eq!(rows[1].2["status"], "active");
+            assert_eq!(rows[1].2["first_seen"], "2020-02-03T04:05:06+00:00");
+            assert_eq!(rows[1].3, Some(input.uuid));
+        }
+    }
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
 async fn severity_rule_overrides_inference_only_for_new_issue(db: PgPool) {
     let harness = TestHarness::new(db);
     insert_severity_rule(&harness.db, "critical", json!(["_H", 1, 29, 38])).await;

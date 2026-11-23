@@ -98,7 +98,7 @@ export interface sessionRecordingEventUsageLogicActions {
         playerData: SessionPlayerData
     }
     reportRecordingLoadedFromFile: (data: { error?: string; success: boolean }) => {
-        error?: string | undefined
+        error?: string
         success: boolean
     }
     reportRecordingOpenedFromRecentRecordingList: () => {

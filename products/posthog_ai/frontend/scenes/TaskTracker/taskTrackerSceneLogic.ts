@@ -40,6 +40,7 @@ import {
     type WarmTaskRequestApi,
     WarmTaskRequestOriginProductEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
+import type { TasksUserConfigResponseApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import type { IntegrationType } from '../../../../../frontend/src/types'
 import { runStreamLogic } from '../../api/logics'
@@ -65,6 +66,7 @@ import { taskRunDefaultsLogic } from '../../logics/taskRunDefaultsLogic'
 import { tasksLogic } from '../../logics/tasksLogic'
 import { taskWarmLogic } from '../../logics/taskWarmLogic'
 import type { WarmLease, WarmSubmission } from '../../logics/taskWarmLogic'
+import type { TaskWarmRequest } from '../../logics/taskWarmLogic'
 import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
 import { welcomeOverrideLogic } from '../../logics/welcomeOverrideLogic'
 import type { RepositoryConfig, Task } from '../../types/taskTypes'
@@ -230,6 +232,7 @@ export interface taskTrackerSceneLogicValues {
     autoPublishCloudRuns: boolean
     cloudTargetEnabled: boolean
     composerAdapter: string
+    composerFocused: boolean
     consentBlocked: boolean
     customImages: SandboxCustomImageDTOApi[] | null
     defaultRepositoryConfig: PersistedRepositoryConfig
@@ -312,10 +315,10 @@ export interface taskTrackerSceneLogicActions {
         previous: string | null
     } // taskDefaultsLogic
     loadMyConfigSuccess: (
-        myConfig: null | import('products/tasks/frontend/generated/api.schemas').TasksUserConfigResponseApi,
+        myConfig: TasksUserConfigResponseApi | null,
         payload?: any
     ) => {
-        myConfig: null | import('products/tasks/frontend/generated/api.schemas').TasksUserConfigResponseApi
+        myConfig: TasksUserConfigResponseApi | null
         payload?: any
     } // taskRunDefaultsLogic
     consumeWarm: (
@@ -327,12 +330,14 @@ export interface taskTrackerSceneLogicActions {
     } // taskWarmLogic
     noteDraft: (
         hasText: boolean,
-        request: import('../../logics/taskWarmLogic').TaskWarmRequest,
-        eligible?: boolean | undefined
+        request: TaskWarmRequest,
+        eligible?: boolean | undefined,
+        focused?: boolean | undefined
     ) => {
         eligible: boolean
+        focused: boolean
         hasText: boolean
-        request: import('../../logics/taskWarmLogic').TaskWarmRequest
+        request: TaskWarmRequest
     } // taskWarmLogic
     prepareSubmit: (submission: WarmSubmission) => {
         submission: WarmSubmission
@@ -421,6 +426,9 @@ export interface taskTrackerSceneLogicActions {
     ) => {
         environments: SandboxEnvironmentDTOApi[] | null
         images: SandboxCustomImageDTOApi[] | null
+    }
+    setComposerFocused: (focused: boolean) => {
+        focused: boolean
     }
     setDefaultRepositoryConfig: (config: PersistedRepositoryConfig) => {
         config: PersistedRepositoryConfig
@@ -635,6 +643,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         // Pulls any pending `composerSeedLogic` seed into the composer (prefill + optional auto-submit).
         applyComposerSeed: true,
         noteNewTaskDraft: true,
+        setComposerFocused: (focused: boolean) => ({ focused }),
         pickCloudTarget: (cloudTarget: string | null) => ({ cloudTarget }),
         toggleFavoriteCloudTarget: (cloudTarget: string) => ({ cloudTarget }),
         setCloudTargets: (
@@ -644,6 +653,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
     }),
 
     reducers({
+        composerFocused: [false, { setComposerFocused: (_, { focused }) => focused }],
         newTaskData: [
             EMPTY_TASK_FORM as TaskCreateForm,
             {
@@ -956,8 +966,18 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         setCloudTargets: () => {
             actions.noteNewTaskDraft()
         },
+        setComposerFocused: () => {
+            actions.noteNewTaskDraft()
+        },
         noteNewTaskDraft: () => {
             if (values.activeCreation || !values.dataProcessingAccepted) {
+                return
+            }
+            if (values.effectiveRepositoryConfig.repository) {
+                actions.releaseWarm()
+                return
+            }
+            if (!values.defaultsResolved) {
                 return
             }
             const request = buildWarmRequest(
@@ -968,8 +988,12 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 values.selectedCloudTargetIds
             )
             if (request) {
-                const hasText = values.newTaskData.description.trim().length > 0
-                actions.noteDraft(hasText, request, !usesChatGptPlan(values.composerAdapter))
+                actions.noteDraft(
+                    values.newTaskData.description.trim().length > 0,
+                    request,
+                    !usesChatGptPlan(values.composerAdapter),
+                    values.composerFocused
+                )
             } else if (values.effectiveRepositoryConfig.repositoryIntegrationId) {
                 // A sandbox warmed for an earlier GitHub pick can't serve a GitLab task.
                 actions.releaseWarm()

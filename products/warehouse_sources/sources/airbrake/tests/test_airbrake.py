@@ -13,7 +13,6 @@ from products.warehouse_sources.sources.airbrake._config import AirbrakeSourceCo
 from products.warehouse_sources.sources.airbrake.airbrake import (
     NOTICES_MAX_PAGES_PER_GROUP,
     AirbrakeResumeConfig,
-    AirbrakeRetryableError,
     _build_groups_params,
     _format_start_time,
     _stats_rows_from_response,
@@ -22,6 +21,7 @@ from products.warehouse_sources.sources.airbrake.airbrake import (
 )
 from products.warehouse_sources.sources.airbrake.settings import AIRBRAKE_ENDPOINTS
 from products.warehouse_sources.sources.airbrake.source import AirbrakeSource
+from products.warehouse_sources.sources.sdk import RetryableHTTPError
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
@@ -284,9 +284,8 @@ class TestFetchPageRetries:
 
     @parameterized.expand([("rate_limited", 429), ("server_error", 500)])
     def test_persistent_retryable_status_raises_a_retryable_error(self, _name: str, status_code: int) -> None:
-        # The adapter absorbs one failed try, so only a status that persists reaches the source's own check.
         result = _driver().run("projects", always(ScriptedResponse(status=status_code)))
-        assert isinstance(result.raised, AirbrakeRetryableError)
+        assert isinstance(result.raised, RetryableHTTPError)
 
     def test_auth_error_raises_immediately_without_leaking_key(self) -> None:
         # 401 must surface as HTTPError on the first attempt so get_non_retryable_errors can stop

@@ -28,16 +28,19 @@ from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import SignalScoutConfig, SignalScoutSuggestionSet, SignalSourceConfig
+from products.signals.backend.scout_chat import SCOUT_CHAT_TEMPLATES, SCOUT_REFINE_SUGGESTION_PROMPT
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY
 from products.signals.backend.scout_harness.suggestions import (
     ACTIVITY_READ_MAX_ROWS,
     ACTIVITY_READ_MAX_ROWS_READ,
     MAX_DESCRIPTION_CHARS,
+    FleetContext,
     PlannedSuggestionRun,
     ScoutSuggestionBatch,
     ScoutSuggestionItem,
     SuggestionSettings,
     TeamActivity,
+    build_suggestions_prompt,
     dismiss_suggestion,
     fleet_context,
     mark_generation_failed,
@@ -120,6 +123,27 @@ class TestSuggestionSettings(SimpleTestCase):
     def test_allowlist_ignores_non_int_entries(self):
         settings = parse_suggestion_settings({"enabled": True, "team_allowlist": [2, "3", True, 4]})
         self.assertEqual(settings.team_allowlist, frozenset({2, 4}))
+
+
+class TestBuiltinSkillReads(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "suggestions",
+                build_suggestions_prompt(FleetContext(enabled_skill_names=(), available_canonical=())),
+                "authoring-scouts",
+            ),
+            ("author_scout", SCOUT_CHAT_TEMPLATES["author_scout"][1], "authoring-scouts"),
+            ("fleet_overview", SCOUT_CHAT_TEMPLATES["fleet_overview"][1], "exploring-scouts"),
+            ("recent_signals", SCOUT_CHAT_TEMPLATES["recent_signals"][1], "exploring-scouts"),
+            ("refine", SCOUT_REFINE_SUGGESTION_PROMPT.format(suggestion="draft"), "authoring-scouts"),
+        ]
+    )
+    def test_prompt_reads_the_builtin_skill_locally(self, _name, prompt, skill_name):
+        self.assertIn(f"{skill_name} is a built-in PostHog skill installed in this sandbox", prompt)
+        self.assertIn("do not fetch it with `skill-get`", prompt)
+        self.assertNotIn("from the PostHog MCP", prompt)
+        self.assertNotIn("If the skill is unavailable", prompt)
 
 
 class TestValidateSuggestionItems(SimpleTestCase):

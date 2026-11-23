@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconGear, IconPlusSmall } from '@posthog/icons'
+import { IconChevronDown, IconExternal, IconGear, IconPlusSmall } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
-import { newAccountMenuLogic } from 'lib/components/Account/newAccountMenuLogic'
+import { newAccountMenuLogic, openExternalProject } from 'lib/components/Account/newAccountMenuLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -33,7 +33,8 @@ function nameBesideLogo(name: string, mediaId: string | null | undefined): strin
 export function TodayProjectMenu({ placement = 'top-bar' }: { placement?: 'top-bar' | 'phone-header' }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { currentProject } = useValues(projectLogic)
-    const { isProjectSwitcherOpen, projectSearchValue, projectGroups } = useValues(newAccountMenuLogic)
+    const { isProjectSwitcherOpen, projectSearchValue, projectGroups, externalProjectItems } =
+        useValues(newAccountMenuLogic)
     const { openProjectSwitcher, closeProjectSwitcher, setProjectSearchValue } = useActions(newAccountMenuLogic)
     const { projectMenuActions } = useValues(todayProjectMenuLogic)
     const { runProjectMenuAction, switchProject } = useActions(todayProjectMenuLogic)
@@ -75,20 +76,32 @@ export function TodayProjectMenu({ placement = 'top-bar' }: { placement?: 'top-b
             onSearchChange={setProjectSearchValue}
             searchPlaceholder="Search projects"
             noMatchLabel="No projects match your search"
-            groups={projectGroups.map((group) => ({
-                label: group.name ?? 'Projects',
-                rows: group.projects.map(({ team }) => {
-                    // The org's project list carries no logos, so only the current project shows its upload.
-                    const mediaId = team.project_id === currentProject?.id ? currentProject.logo_media_id : null
-                    return {
+            groups={[
+                ...projectGroups.map((group) => ({
+                    label: group.name ?? 'Projects',
+                    rows: group.projects.map(({ team, logoMediaId }) => ({
                         value: String(team.id),
-                        label: nameBesideLogo(team.name, mediaId),
-                        leading: <TodayLogo name={team.name} mediaId={mediaId} colorSeed={null} size="row" />,
+                        label: nameBesideLogo(team.name, logoMediaId),
+                        leading: <TodayLogo name={team.name} mediaId={logoMediaId} colorSeed={null} size="row" />,
                         dataAttr: 'today-top-bar-project-item',
                         onSelect: () => switchProject(team.id, team.project_id),
-                    }
-                }),
-            }))}
+                    })),
+                })),
+                {
+                    label: 'Other regions',
+                    rows: externalProjectItems.map((item) => ({
+                        value: item.id,
+                        label: item.name,
+                        leading: <TodayLogo name={item.name} mediaId={null} colorSeed={null} size="row" />,
+                        trailing: <IconExternal className="ms-auto shrink-0 text-muted-foreground" />,
+                        dataAttr: 'today-top-bar-external-project',
+                        onSelect: () => {
+                            closeProjectSwitcher()
+                            openExternalProject(item)
+                        },
+                    })),
+                },
+            ]}
             actions={projectMenuActions.map(({ key, disabledReason }) => ({
                 value: key,
                 disabledReason,

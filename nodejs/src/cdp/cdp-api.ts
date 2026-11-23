@@ -32,7 +32,7 @@ import {
     SourceWebhookError,
 } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
-import { IntakeProducer, intakeModeOf } from './intake/intake-producer'
+import { IntakeProducer, intakeClusterOf, intakeModeOf } from './intake/intake-producer'
 import { RunIntake } from './intake/run-intake'
 import { RerunJobManager } from './rerun/rerun-job.manager'
 import { RerunRequest } from './rerun/rerun-job.types'
@@ -55,7 +55,6 @@ import { HogFlowManagerService } from './services/hogflows/hogflow-manager.servi
 import { hogFlowPersonLookup, loadHogFlowPerson } from './services/hogflows/hogflow-person'
 import { HOG_FLOW_QUOTA_LIMITED_MESSAGE } from './services/hogflows/hogflow-quota-limiting'
 import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
-import { IdempotencyKeys } from './services/hogflows/idempotency-keys'
 import {
     SCHEDULED_RUNS_PER_BATCH,
     ScheduledRuns,
@@ -96,7 +95,6 @@ import {
     MessageBodies,
     MessageBodySizing,
     SendRefusal,
-    countUploadRequest,
 } from './services/messaging/attachment-uploads'
 import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
@@ -104,7 +102,6 @@ import { EmailTrackingService } from './services/messaging/email-tracking.servic
 import { EmailValidationService } from './services/messaging/email-validation.service'
 import { utmTagsFor } from './services/messaging/helpers/email-html'
 import { sesHtmlMaxBytes } from './services/messaging/helpers/ses-html-max-bytes'
-import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { UTM_VALUE_LIMIT_CHARS, utmValueOverLimit } from './services/messaging/helpers/utm'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import {
@@ -207,8 +204,8 @@ function canDedupeByEmail(hogFlow: { actions?: unknown }): boolean {
 
 export type CdpApiConfig = PluginsServerConfig
 export type CdpApiDeps = CdpConsumerBaseDeps & {
-    /** Holds caller-supplied idempotency keys. Null or unset makes the store report itself unavailable. */
-    idempotencyValkey?: RedisV2 | null
+    /** Holds the daily upload byte budget. Null or unset makes the upload route answer 503. */
+    emailAttachmentsValkey?: RedisV2 | null
 }
 
 // Null means the cohort asks to wait but its deadline is unreadable. Queuing it unparked would send to a
@@ -297,7 +294,6 @@ const liquidTagsInStep = (emailStep: EmailStep): number =>
 type WorkerRenderContext = { person: CyclotronPerson | undefined; groups: GroupsMap }
 
 const TRANSACTIONAL_SEND_REFUSAL_STATUS: Record<TransactionalSendRefusal, number> = {
-    idempotency_key_in_flight: 409,
     idempotency_key_reused: 422,
     idempotency_unavailable: 503,
     intake_unavailable: 503,
@@ -343,7 +339,6 @@ export class CdpApi {
     private hogflowQueue: IdempotentJobQueue
     private emailTrackingService: EmailTrackingService
     private sandboxFeedbackService: SandboxFeedbackService
-    private emailTrackingCodeSigner: EmailTrackingCodeSigner
     private fingerprintSigner: EncryptedFields
     private recipientTokensService: RecipientTokensService
     private batchExportHogFunctionService: BatchExportHogFunctionService
@@ -361,7 +356,6 @@ export class CdpApi {
     private stepResumeJwt: ScopedServiceJwt
     private transactionalEmailJwt: ScopedServiceJwt
     private manageTransactionalEmailJwt: ScopedServiceJwt
-    private transactionalEmailIdempotencyKeys: IdempotencyKeys
     private attachmentUploads: AttachmentUploads
     private emailSuppressionService: EmailSuppressionService
     private emailValidationService: EmailValidationService
@@ -405,24 +399,11 @@ export class CdpApi {
         })
         this.hogQueue = jobQueues.hogQueue
         this.hogflowQueue = jobQueues.hogflowQueue
-        this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(
-            config,
-            deps,
-            jobQueues,
-            new IdempotencyKeys(
-                deps.idempotencyValkey ?? null,
-                'workflow-webhook',
-                config.CDP_IDEMPOTENCY_VALKEY_ENABLED
-            )
-        )
+        this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(config, deps, jobQueues)
         // A fingerprint hashes the request, login code included, so new ones are signed with the sealed state keys. The
         // shared keys come last, so a claim signed with them before this change still replays.
         this.fingerprintSigner = new EncryptedFields(
             [config.CDP_SEALED_STATE_KEYS, config.ENCRYPTION_SALT_KEYS].filter(Boolean).join(',')
-        )
-        this.emailTrackingCodeSigner = new EmailTrackingCodeSigner(
-            config.ENCRYPTION_SALT_KEYS,
-            config.CDP_EMAIL_TRACKING_URL
         )
         this.emailTrackingService = services.emailTrackingService
         this.sandboxFeedbackService = new SandboxFeedbackService(
@@ -476,12 +457,7 @@ export class CdpApi {
             PosthogJwtAudience.WORKFLOWS_MANAGE_TRANSACTIONAL_EMAIL,
             config.WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET || ''
         )
-        this.transactionalEmailIdempotencyKeys = new IdempotencyKeys(
-            deps.idempotencyValkey ?? null,
-            'transactional-email',
-            config.CDP_IDEMPOTENCY_VALKEY_ENABLED
-        )
-        this.attachmentUploads = new AttachmentUploads(services.attachmentStore, deps.idempotencyValkey ?? null, {
+        this.attachmentUploads = new AttachmentUploads(services.attachmentStore, deps.emailAttachmentsValkey ?? null, {
             teams: config.CDP_EMAIL_ATTACHMENTS_TEAMS,
             maxBytesPerTeamDay: config.CDP_EMAIL_ATTACHMENTS_UPLOAD_MAX_BYTES_PER_TEAM_DAY,
         })
@@ -1698,14 +1674,12 @@ export class CdpApi {
         return sesHtmlMaxBytes(html, {
             utmTags,
             invocation: rendered,
-            signer: this.emailTrackingCodeSigner,
             preheader: typeof preheader === 'string' ? preheader : undefined,
         })
     }
 
     private postAttachmentUploads = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         if (!this.transactionalEmailJwt.enabled) {
-            countUploadRequest('not_configured')
             return res.status(503).json({
                 error: 'Transactional email auth not configured (WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET unset)',
             })
@@ -1719,7 +1693,6 @@ export class CdpApi {
                 ATTACHMENT_UPLOAD_TOKEN_CLAIMS
             )
         ) {
-            countUploadRequest('unauthorized')
             return
         }
         const { status, body } = await this.attachmentUploads.prepare(parseInt(req.params.team_id), req.body)
@@ -1730,13 +1703,17 @@ export class CdpApi {
         return new TransactionalSends({
             siteUrl: this.config.SITE_URL ?? 'http://localhost:8000',
             encryptedFields: this.fingerprintSigner,
-            idempotencyKeys: this.transactionalEmailIdempotencyKeys,
             runIntake: new RunIntake({
                 hogflowQueue: this.hogflowQueue,
                 invocationResultsRowsService: this.invocationResultsService.invocationResultsRowsService,
                 intake: {
                     modeOf: intakeModeOf(this.config),
-                    producer: new IntakeProducer(this.outputs, undefined, createInvocationSanitizer(this.config).seal),
+                    producer: new IntakeProducer(
+                        this.outputs,
+                        undefined,
+                        createInvocationSanitizer(this.config).seal,
+                        intakeClusterOf(this.config)
+                    ),
                     sealsSecrets: this.config.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE,
                 },
             }),
@@ -1791,8 +1768,6 @@ export class CdpApi {
                     return res.status(409).json({ error: 'canceled' })
                 case 'not_found':
                     return res.status(404).json({ error: 'not_found' })
-                case 'idempotency_unavailable':
-                    return res.status(503).json({ error: 'idempotency_unavailable' })
             }
         })
     }
@@ -1827,7 +1802,6 @@ export class CdpApi {
             }
             const sends = new ScheduledTransactionalSends({
                 jobs: this.batchResolverProducer,
-                idempotencyKeys: this.transactionalEmailIdempotencyKeys,
                 hogFlows: this.hogFlowManager,
                 invocationResults: this.invocationResultsService,
                 emailStatus: this.emailStatusService,

@@ -146,7 +146,7 @@ class ComplaintConfirmationRequired(Exception):
 
 
 def remove_suppressions(team_id: int, identifiers: list[str], confirm_complaints: bool) -> list[str]:
-    """Remove `identifiers` from the team's list, and return the ones the team had a row for.
+    """Remove `identifiers` from the team's list, and return the ones that were on it.
 
     Raises `ComplaintConfirmationRequired`, and removes nothing, when a spam complaint is among them unconfirmed.
     """
@@ -155,16 +155,12 @@ def remove_suppressions(team_id: int, identifiers: list[str], confirm_complaints
         # The lock stops a complaint that lands during the check from being removed unconfirmed. A row inserted after
         # the lock is not checked, so only the locked rows are removed.
         locked = list(
-            rows.filter(identifier__in=identifiers)
+            rows.filter(identifier__in=identifiers, suppressed=True, deleted=False)
             .order_by("identifier")
             .select_for_update()
-            .values_list("id", "identifier", "source", "suppressed", "deleted")
+            .values_list("id", "identifier", "source")
         )
-        complaints = sorted(
-            identifier
-            for _, identifier, source, suppressed, deleted in locked
-            if source == SuppressionSource.COMPLAINT and suppressed and not deleted
-        )
+        complaints = sorted(identifier for _, identifier, source in locked if source == SuppressionSource.COMPLAINT)
         if complaints and not confirm_complaints:
             raise ComplaintConfirmationRequired(complaints)
         _remove(rows.filter(id__in=[row_id for row_id, *_ in locked]))
