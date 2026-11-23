@@ -112,9 +112,13 @@ Stores, Categories, and Countries are reference tables that need no data set gra
         }
 
     def get_retryable_errors(self) -> set[str]:
-        # _fetch raises this only after its own backoff runs out on a 429 or 5xx. Temporal then
-        # retries the activity, so log it at warning instead of raising an error tracking issue.
-        return {"Appfigures API error (retryable)"}
+        # "Appfigures API error (retryable)" is _fetch's own backoff running out on a 429 or 5xx.
+        # make_tracked_session's DEFAULT_RETRY can also exhaust first on a dropped connection or read
+        # timeout, surfacing as urllib3's "Max retries exceeded with url: ..." wrapped in a
+        # ConnectionError; _fetch's tenacity retry already treats that as transient too. Either way
+        # Temporal retries the activity next, so log it at warning instead of raising an error
+        # tracking issue. The host is fixed (never user input), so matching on it is safe.
+        return {"Appfigures API error (retryable)", "HTTPSConnectionPool(host='api.appfigures.com', port=443)"}
 
     def get_schemas(
         self,

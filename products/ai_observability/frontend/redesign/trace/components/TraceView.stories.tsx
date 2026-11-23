@@ -23,7 +23,7 @@ import {
     stepFeedbackWithCounts,
 } from '../storyFixtures'
 import { toMatchingNodeIds, toSearchBox } from '../traceSearchBox'
-import { stepLabelsOf } from '../traceTreeLookups'
+import { steppedNodeId, stepLabelsOf } from '../traceTreeLookups'
 import { EvalRollupOutcome, MessagesOpening, NodeDetailTab, TraceMode } from '../types'
 import { SummaryModeView } from './SummaryModeView'
 import { Thread } from './Thread'
@@ -121,6 +121,9 @@ function Playground({
                 tree={fixture.tree}
                 selectedNodeId={selectedNodeId}
                 onSelectNode={setSelectedNodeId}
+                onStepNode={(step) =>
+                    setSelectedNodeId(steppedNodeId(fixture.tree, selectedNodeId, step) ?? selectedNodeId)
+                }
                 onPrefetchNode={() => {}}
                 detail={{
                     ...fixture.details[node.id],

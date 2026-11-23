@@ -1,17 +1,12 @@
 import { Collapsible } from '@base-ui/react/collapsible'
-import type { MouseEvent, ReactNode } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import { IconArrowRight, IconChevronDown } from '@posthog/icons'
 import { IconStack, IconStackItem } from '@posthog/quill'
 
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
-
 import type { TodayRowIcon } from './todayRowIcons'
-import { isPlainClick, navigateWithCrossfade } from './todayViewTransition'
-
-function isExternalHref(href: string): boolean {
-    return /^https?:\/\//.test(href)
-}
+import { TodayRowMeta } from './TodayRowMeta'
+import { TodayRowTitle } from './TodayRowTitle'
 
 export type TodayRowTone = 'risk' | 'neutral' | 'quiet'
 
@@ -27,6 +22,7 @@ interface TodayRowProps {
     title: string
     label?: string
     facts: string[]
+    reason?: string | null
     to?: string
     onOpen?: () => void
     expansion?: TodayRowExpansion
@@ -43,6 +39,7 @@ export function TodayRow({
     title,
     label,
     facts,
+    reason,
     to,
     onOpen,
     expansion,
@@ -52,54 +49,31 @@ export function TodayRow({
     reportId,
     dataAttr,
 }: TodayRowProps): JSX.Element {
-    const external = !!to && isExternalHref(to)
     const expanded = !!expansion?.expanded
-    const openReport = (event: MouseEvent<HTMLElement>): void => {
-        onOpen?.()
-        if (to && reportId && isPlainClick(event)) {
-            event.preventDefault()
-            navigateWithCrossfade(to)
-        }
-    }
+    const [reasonTruncated, setReasonTruncated] = useState(false)
     const content = (
         <>
             <IconStack className="TodayRow__icons">
                 <IconStackItem color={icon.color}>{icon.glyph}</IconStackItem>
             </IconStack>
             <div className="min-w-0">
-                {expansion ? (
-                    <Collapsible.Trigger
-                        className="TodayRow__title TodayRow__link TodayRow__toggle"
-                        data-today-report={reportId}
-                        data-attr={`${dataAttr}-toggle`}
-                    >
-                        {title}
-                    </Collapsible.Trigger>
-                ) : to ? (
-                    <LinkPrimitive
-                        to={to}
-                        target={external ? '_blank' : undefined}
-                        className="TodayRow__title TodayRow__link"
-                        onClick={openReport}
-                        data-today-report={reportId}
-                        data-attr={dataAttr}
-                    >
-                        {title}
-                    </LinkPrimitive>
-                ) : (
-                    <span className="TodayRow__title">{title}</span>
-                )}
-                <p className="TodayRow__meta">
-                    {[label, ...facts].filter(Boolean).map((part, index) => (
-                        <span
-                            key={`${index}-${part}`}
-                            className={index === 0 && label ? 'TodayRow__label' : undefined}
-                            data-tone={index === 0 && label ? tone : undefined}
-                        >
-                            {index === 0 ? part : ` · ${part}`}
-                        </span>
-                    ))}
-                </p>
+                <TodayRowTitle
+                    title={title}
+                    to={to}
+                    onOpen={onOpen}
+                    expandable={!!expansion}
+                    reason={reason}
+                    reasonTruncated={reasonTruncated}
+                    reportId={reportId}
+                    dataAttr={dataAttr}
+                />
+                <TodayRowMeta
+                    tone={tone}
+                    label={label}
+                    facts={facts}
+                    reason={reason}
+                    onTruncatedChange={setReasonTruncated}
+                />
             </div>
             <div className="TodayRow__end">
                 {actions && !done && !expanded && <div className="TodayRow__actions">{actions}</div>}

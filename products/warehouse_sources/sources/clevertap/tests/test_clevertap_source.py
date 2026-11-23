@@ -4,7 +4,12 @@ import pytest
 import time_machine
 
 from products.warehouse_sources.sources.clevertap._config import ClevertapSourceConfig
-from products.warehouse_sources.sources.clevertap.settings import AUTH_ERROR, EXPORT_ERROR, PERMISSION_ERROR
+from products.warehouse_sources.sources.clevertap.settings import (
+    AUTH_ERROR,
+    EXPORT_ERROR,
+    PERMISSION_ERROR,
+    REPORT_ERROR,
+)
 from products.warehouse_sources.sources.clevertap.source import ClevertapSource
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
@@ -81,3 +86,33 @@ def test_unsupported_notification_event_is_rejected_before_export() -> None:
     result = SourceDriver(ClevertapSource(), config(event_name="Notification Sent")).run("events", [])
     assert str(result.raised) == "CleverTap does not export this notification event. Select another event name."
     assert result.requests == []
+
+
+@pytest.mark.parametrize(
+    ("schema_name", "status", "body", "path", "expected"),
+    [
+        ("message_reports", 200, {"status": "success", "targets": []}, "/1/targets/list.json", (True, None)),
+        ("campaign_reports", 401, {}, "/1/targets/list.json", (False, AUTH_ERROR)),
+        (
+            "content_blocks",
+            403,
+            {"status": "fail", "error": "Content Blocks isn't enabled on your account."},
+            "/v1/contentBlock/list",
+            (False, PERMISSION_ERROR),
+        ),
+        (
+            "campaigns",
+            400,
+            {"status": "fail", "error": "Invalid date range", "code": 400},
+            "/1/targets/list.json",
+            (False, REPORT_ERROR),
+        ),
+    ],
+)
+@time_machine.travel("2024-01-04T12:00:00Z", tick=False)
+def test_report_tables_probe_a_cheap_list_request(
+    schema_name: str, status: int, body: dict[str, Any], path: str, expected: tuple[bool, str | None]
+) -> None:
+    with scripted_network([ScriptedResponse(status=status, json=body)]) as network:
+        assert ClevertapSource().validate_credentials(config(), 1, schema_name) == expected
+    assert [request.path for request in network.requests_log] == [path]

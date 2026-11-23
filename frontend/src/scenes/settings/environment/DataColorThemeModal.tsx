@@ -4,13 +4,20 @@ import { Form } from 'kea-forms'
 import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonColorGlyph, LemonInput, LemonLabel, LemonModal, LemonTable } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { dataColorThemesModalLogic } from './dataColorThemeModalLogic'
+import { QuillDataColorThemeModal } from './QuillDataColorThemeModal'
 
 export function DataColorThemeModal(): JSX.Element {
     const { theme, themeChanged, isOpen } = useValues(dataColorThemesModalLogic)
     const { submitTheme, closeModal, addColor, duplicateColor, removeColor } = useActions(dataColorThemesModalLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillDataColorThemeModal />
+    }
 
     const isNew = theme?.id == null
     const isOfficial = theme?.is_global
