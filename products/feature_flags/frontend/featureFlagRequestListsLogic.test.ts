@@ -8,10 +8,10 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import type { TeamType } from '~/types'
 
-import { featureFlagRequestBlocklistLogic } from './featureFlagRequestBlocklistLogic'
+import { featureFlagRequestListsLogic } from './featureFlagRequestListsLogic'
 
-describe('featureFlagRequestBlocklistLogic', () => {
-    let logic: ReturnType<typeof featureFlagRequestBlocklistLogic.build>
+describe('featureFlagRequestListsLogic', () => {
+    let logic: ReturnType<typeof featureFlagRequestListsLogic.build>
     let patchedPayload: Partial<TeamType> | undefined
 
     beforeEach(() => {
@@ -41,7 +41,7 @@ describe('featureFlagRequestBlocklistLogic', () => {
             },
         })
         initKeaTests()
-        logic = featureFlagRequestBlocklistLogic()
+        logic = featureFlagRequestListsLogic()
         logic.mount()
         teamLogic.actions.loadCurrentTeamSuccess({
             ...MOCK_DEFAULT_TEAM,
@@ -65,6 +65,18 @@ describe('featureFlagRequestBlocklistLogic', () => {
             () => logic.actions.setBlockedIps(['203.0.113.7']),
             { blocked_ips: ['203.0.113.7'] },
             { blockedHosts: ['saved.example.com'], blockedIps: ['203.0.113.7'] },
+        ],
+        [
+            'an allowed domain',
+            () => logic.actions.setAllowedHosts(['app.example.org']),
+            { allowed_hosts: ['app.example.org'] },
+            { blockedHosts: ['saved.example.com'], allowedHosts: ['app.example.org'], allowedIps: [] },
+        ],
+        [
+            'an allowed IP address',
+            () => logic.actions.setAllowedIps(['198.51.100.0/24']),
+            { allowed_ips: ['198.51.100.0/24'] },
+            { blockedHosts: ['saved.example.com'], allowedHosts: [], allowedIps: ['198.51.100.0/24'] },
         ],
     ])('saves only the edited list after adding %s and shows what the API stored', async (_, edit, sent, shown) => {
         await expectLogic(logic, edit).toDispatchActions(teamLogic, ['updateCurrentTeamSuccess']).toMatchValues(shown)

@@ -9,12 +9,12 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 
-import { featureFlagRequestBlocklistLogic } from './featureFlagRequestBlocklistLogic'
+import { featureFlagRequestListsLogic } from './featureFlagRequestListsLogic'
 import { QuillFeatureFlagRequestBlocklist } from './QuillFeatureFlagRequestBlocklist'
 
 export function FeatureFlagRequestBlocklist(): JSX.Element {
-    const { currentTeam, currentTeamLoading, blockedHosts, blockedIps } = useValues(featureFlagRequestBlocklistLogic)
-    const { setBlockedHosts, setBlockedIps } = useActions(featureFlagRequestBlocklistLogic)
+    const { currentTeam, currentTeamLoading, blockedHosts, blockedIps } = useValues(featureFlagRequestListsLogic)
+    const { setBlockedHosts, setBlockedIps } = useActions(featureFlagRequestListsLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -34,7 +34,7 @@ export function FeatureFlagRequestBlocklist(): JSX.Element {
                 onBlockedIpsChange={setBlockedIps}
                 disabled={currentTeamLoading}
                 // Chip removal only honors the disabled reason, and a removal during a save would send the old list.
-                disabledReason={restrictedReason ?? (currentTeamLoading ? 'Loading...' : null)}
+                disabledReason={restrictedReason ?? (currentTeamLoading ? 'Loading…' : null)}
             />
         )
     }

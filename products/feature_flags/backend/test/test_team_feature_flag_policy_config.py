@@ -122,6 +122,8 @@ class TestTeamFeatureFlagPolicyConfig(APIBaseTest):
             "require_tags": False,
             "blocked_hosts": [],
             "blocked_ips": [],
+            "allowed_hosts": [],
+            "allowed_ips": [],
         }
 
     def test_admin_can_toggle_require_tags(self) -> None:
@@ -137,7 +139,7 @@ class TestTeamFeatureFlagPolicyConfig(APIBaseTest):
         assert response.json()["feature_flag_policy_config"]["require_tags"] is False
         assert TeamFeatureFlagPolicyConfig.objects.get(team=self.team).require_tags is False
 
-    def test_admin_sets_request_blocklist_normalized_and_logged(self) -> None:
+    def test_admin_sets_request_lists_normalized_and_logged(self) -> None:
         self.client.patch(self.url, {"feature_flag_policy_config": {"require_tags": True}}, format="json")
         other_hosts = [f"host{i}.example.com" for i in range(MAX_LISTED_HOSTS - 2)]
         # Each fills its column exactly. Postgres truncates an entry that is too long for its
@@ -152,6 +154,8 @@ class TestTeamFeatureFlagPolicyConfig(APIBaseTest):
                 "feature_flag_policy_config": {
                     "blocked_hosts": ["https://Example.com/page", "", *other_hosts, longest_host, "EXAMPLE.com"],
                     "blocked_ips": ["198.51.100.42/24", "2001:db8::1", longest_ip],
+                    "allowed_hosts": ["https://App.Example.org/page"],
+                    "allowed_ips": ["203.0.113.9/24"],
                 }
             },
             format="json",
@@ -163,6 +167,8 @@ class TestTeamFeatureFlagPolicyConfig(APIBaseTest):
         config = TeamFeatureFlagPolicyConfig.objects.get(team=self.team)
         assert config.blocked_hosts == expected_hosts
         assert config.blocked_ips == expected_ips
+        assert config.allowed_hosts == ["app.example.org"]
+        assert config.allowed_ips == ["203.0.113.0/24"]
         assert config.require_tags is True
         log = ActivityLog.objects.filter(team_id=self.team.id, scope="Team", activity="updated").latest("created_at")
         assert log.detail is not None
@@ -170,6 +176,8 @@ class TestTeamFeatureFlagPolicyConfig(APIBaseTest):
         assert change["field"] == "feature_flag_policy_config"
         assert change["after"]["blocked_hosts"] == expected_hosts
         assert change["after"]["blocked_ips"] == expected_ips
+        assert change["after"]["allowed_hosts"] == ["app.example.org"]
+        assert change["after"]["allowed_ips"] == ["203.0.113.0/24"]
 
         response = self.client.patch(self.url, {"feature_flag_policy_config": {"blocked_hosts": []}}, format="json")
 
@@ -177,6 +185,8 @@ class TestTeamFeatureFlagPolicyConfig(APIBaseTest):
         config.refresh_from_db()
         assert config.blocked_hosts == []
         assert config.blocked_ips == expected_ips
+        assert config.allowed_hosts == ["app.example.org"]
+        assert config.allowed_ips == ["203.0.113.0/24"]
         assert config.require_tags is True
 
     @parameterized.expand(
@@ -190,13 +200,13 @@ class TestTeamFeatureFlagPolicyConfig(APIBaseTest):
             ),
         ]
     )
-    def test_invalid_blocklist_entry_is_rejected(self, _name: str, policy: dict, message: str) -> None:
+    def test_invalid_request_list_entry_is_rejected(self, _name: str, policy: dict, message: str) -> None:
         response = self.client.patch(self.url, {"feature_flag_policy_config": policy}, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert message in str(response.json())
-        assert not TeamFeatureFlagPolicyConfig.objects.filter(team=self.team).exclude(blocked_hosts=[]).exists()
-        assert not TeamFeatureFlagPolicyConfig.objects.filter(team=self.team).exclude(blocked_ips=[]).exists()
+        for field in policy:
+            assert not TeamFeatureFlagPolicyConfig.objects.filter(team=self.team).exclude(**{field: []}).exists()
 
     def test_member_cannot_change_policy(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.MEMBER

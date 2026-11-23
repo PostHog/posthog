@@ -2212,6 +2212,18 @@ export interface TeamFeatureFlagPolicyConfigApi {
      * @items.maxLength 2000
      */
     blocked_ips?: string[]
+    /**
+     * Domains allowed to make feature flag requests (/flags and /decide), up to 100. When the list is not empty, a request whose Origin or Referer domain is not in it gets no flags. A request with neither header, such as one from a server-side or mobile SDK, is not checked against this list. A request whose Origin and Referer name no domain, such as Origin: null with no Referer, gets no flags. A domain also covers its subdomains, and a blocked domain wins over an allowed one. When allowed_ips is also set, a request must pass both lists. Entries are normalized the same way as blocked_hosts.
+     * @maxItems 1000
+     * @items.maxLength 2000
+     */
+    allowed_hosts?: string[]
+    /**
+     * IPv4 or IPv6 addresses or CIDR ranges allowed to make feature flag requests (/flags and /decide), up to 100. When the list is not empty, a request from any other address gets no flags, including requests from server-side SDKs and from browsers. Only the client address that PostHog's edge records is checked, not addresses in X-Forwarded-For, so a request without that address gets no flags. A blocked address wins over an allowed one. When allowed_hosts is also set, a request must pass both lists. Entries follow the same rules as blocked_ips.
+     * @maxItems 1000
+     * @items.maxLength 2000
+     */
+    allowed_ips?: string[]
 }
 
 /**

@@ -4,17 +4,7 @@ import { Field, FieldDescription, FieldLabel } from '@posthog/quill'
 
 import { TagsCombobox } from 'lib/components/Scenes/TagsCombobox'
 
-// A pasted "a.com, b.com" arrives as one entry, and the API rejects the whole list over it.
-function splitEntries(entries: string[]): string[] {
-    return Array.from(
-        new Set(
-            entries
-                .flatMap((entry) => entry.split(','))
-                .map((entry) => entry.trim())
-                .filter(Boolean)
-        )
-    )
-}
+import { splitRequestListEntries } from './splitRequestListEntries'
 
 export function QuillFeatureFlagRequestBlocklist({
     blockedHosts,
@@ -41,7 +31,7 @@ export function QuillFeatureFlagRequestBlocklist({
                 <TagsCombobox
                     id={hostsId}
                     value={blockedHosts}
-                    onChange={(hosts) => onBlockedHostsChange(splitEntries(hosts))}
+                    onChange={(hosts) => onBlockedHostsChange(splitRequestListEntries(hosts))}
                     customValueNoun="domain"
                     dataAttr="feature-flag-blocked-hosts-select"
                     placeholder="example.com"
@@ -59,7 +49,7 @@ export function QuillFeatureFlagRequestBlocklist({
                 <TagsCombobox
                     id={ipsId}
                     value={blockedIps}
-                    onChange={(ips) => onBlockedIpsChange(splitEntries(ips))}
+                    onChange={(ips) => onBlockedIpsChange(splitRequestListEntries(ips))}
                     customValueNoun="IP address"
                     dataAttr="feature-flag-blocked-ips-select"
                     placeholder="203.0.113.7 or 198.51.100.0/24"

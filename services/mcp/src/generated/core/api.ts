@@ -400,6 +400,14 @@ export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedIpsIte
 
 export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedIpsMax = 1000
 
+export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedHostsItemMax = 2000
+
+export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedHostsMax = 1000
+
+export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedIpsItemMax = 2000
+
+export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedIpsMax = 1000
+
 export const organizationsProjectsCreateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsCreateBodyDefaultDataThemeMax = 2147483647
 
@@ -3026,6 +3034,20 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .describe(
                         'IPv4 or IPv6 addresses or CIDR ranges to block from feature flag requests (\/flags and \/decide), up to 100. Ranges can be \/8 or narrower for IPv4 and \/16 or narrower for IPv6. Entries are stored in canonical form without duplicates, and an IPv4-mapped IPv6 address is stored as IPv4.'
                     ),
+                allowed_hosts: zod
+                    .array(zod.string().max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedHostsItemMax))
+                    .max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedHostsMax)
+                    .optional()
+                    .describe(
+                        'Domains allowed to make feature flag requests (\/flags and \/decide), up to 100. When the list is not empty, a request whose Origin or Referer domain is not in it gets no flags. A request with neither header, such as one from a server-side or mobile SDK, is not checked against this list. A request whose Origin and Referer name no domain, such as Origin: null with no Referer, gets no flags. A domain also covers its subdomains, and a blocked domain wins over an allowed one. When allowed_ips is also set, a request must pass both lists. Entries are normalized the same way as blocked_hosts.'
+                    ),
+                allowed_ips: zod
+                    .array(zod.string().max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedIpsItemMax))
+                    .max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedIpsMax)
+                    .optional()
+                    .describe(
+                        "IPv4 or IPv6 addresses or CIDR ranges allowed to make feature flag requests (\/flags and \/decide), up to 100. When the list is not empty, a request from any other address gets no flags, including requests from server-side SDKs and from browsers. Only the client address that PostHog's edge records is checked, not addresses in X-Forwarded-For, so a request without that address gets no flags. A blocked address wins over an allowed one. When allowed_hosts is also set, a request must pass both lists. Entries follow the same rules as blocked_ips."
+                    ),
             })
             .optional(),
         base_currency: zod
@@ -3340,6 +3362,14 @@ export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlocke
 export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedIpsItemMax = 2000
 
 export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedIpsMax = 1000
+
+export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedHostsItemMax = 2000
+
+export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedHostsMax = 1000
+
+export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedIpsItemMax = 2000
+
+export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedIpsMax = 1000
 
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMax = 2147483647
@@ -5982,6 +6012,26 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .optional()
                     .describe(
                         'IPv4 or IPv6 addresses or CIDR ranges to block from feature flag requests (\/flags and \/decide), up to 100. Ranges can be \/8 or narrower for IPv4 and \/16 or narrower for IPv6. Entries are stored in canonical form without duplicates, and an IPv4-mapped IPv6 address is stored as IPv4.'
+                    ),
+                allowed_hosts: zod
+                    .array(
+                        zod
+                            .string()
+                            .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedHostsItemMax)
+                    )
+                    .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedHostsMax)
+                    .optional()
+                    .describe(
+                        'Domains allowed to make feature flag requests (\/flags and \/decide), up to 100. When the list is not empty, a request whose Origin or Referer domain is not in it gets no flags. A request with neither header, such as one from a server-side or mobile SDK, is not checked against this list. A request whose Origin and Referer name no domain, such as Origin: null with no Referer, gets no flags. A domain also covers its subdomains, and a blocked domain wins over an allowed one. When allowed_ips is also set, a request must pass both lists. Entries are normalized the same way as blocked_hosts.'
+                    ),
+                allowed_ips: zod
+                    .array(
+                        zod.string().max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedIpsItemMax)
+                    )
+                    .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedIpsMax)
+                    .optional()
+                    .describe(
+                        "IPv4 or IPv6 addresses or CIDR ranges allowed to make feature flag requests (\/flags and \/decide), up to 100. When the list is not empty, a request from any other address gets no flags, including requests from server-side SDKs and from browsers. Only the client address that PostHog's edge records is checked, not addresses in X-Forwarded-For, so a request without that address gets no flags. A blocked address wins over an allowed one. When allowed_hosts is also set, a request must pass both lists. Entries follow the same rules as blocked_ips."
                     ),
             })
             .optional(),

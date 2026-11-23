@@ -1,5 +1,6 @@
 """Core project settings serializers and field definitions."""
 
+from collections.abc import Callable
 from typing import Any
 
 from drf_spectacular.utils import extend_schema_field
@@ -508,22 +509,55 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
             "duplicates, and an IPv4-mapped IPv6 address is stored as IPv4."
         ),
     )
+    allowed_hosts = serializers.ListField(
+        child=serializers.CharField(max_length=2000, allow_blank=True),
+        max_length=MAX_REQUEST_LIST_INPUT_ENTRIES,
+        required=False,
+        help_text=(
+            f"Domains allowed to make feature flag requests (/flags and /decide), up to {MAX_LISTED_HOSTS}. "
+            "When the list is not empty, a request whose Origin or Referer domain is not in it gets no flags. "
+            "A request with neither header, such as one from a server-side or mobile SDK, is not checked "
+            "against this list. A request whose Origin and Referer name no domain, such as Origin: null with no "
+            "Referer, gets no flags. A domain also covers its subdomains, and a blocked domain wins over an allowed one. When allowed_ips is "
+            "also set, a request must pass both lists. Entries are normalized the same way as blocked_hosts."
+        ),
+    )
+    allowed_ips = serializers.ListField(
+        child=serializers.CharField(max_length=2000, allow_blank=True),
+        max_length=MAX_REQUEST_LIST_INPUT_ENTRIES,
+        required=False,
+        help_text=(
+            f"IPv4 or IPv6 addresses or CIDR ranges allowed to make feature flag requests (/flags and /decide), "
+            f"up to {MAX_LISTED_IPS}. When the list is not empty, a request from any other address gets no "
+            "flags, including requests from server-side SDKs and from browsers. Only the client address that "
+            "PostHog's edge records is checked, not addresses in X-Forwarded-For, so a request without that "
+            "address gets no flags. A blocked address wins over an allowed one. When allowed_hosts is also set, a request must pass both lists. Entries follow the "
+            "same rules as blocked_ips."
+        ),
+    )
 
     class Meta:
         model = TeamFeatureFlagPolicyConfig
-        fields = ["require_tags", "blocked_hosts", "blocked_ips"]
+        fields = ["require_tags", "blocked_hosts", "blocked_ips", "allowed_hosts", "allowed_ips"]
+
+    @staticmethod
+    def _normalize(normalizer: Callable[[list[str]], list[str]], value: list[str]) -> list[str]:
+        try:
+            return normalizer(value)
+        except RequestListEntryError as error:
+            raise serializers.ValidationError(str(error))
 
     def validate_blocked_hosts(self, value: list[str]) -> list[str]:
-        try:
-            return normalize_listed_hosts(value)
-        except RequestListEntryError as error:
-            raise serializers.ValidationError(str(error))
+        return self._normalize(normalize_listed_hosts, value)
 
     def validate_blocked_ips(self, value: list[str]) -> list[str]:
-        try:
-            return normalize_listed_ips(value)
-        except RequestListEntryError as error:
-            raise serializers.ValidationError(str(error))
+        return self._normalize(normalize_listed_ips, value)
+
+    def validate_allowed_hosts(self, value: list[str]) -> list[str]:
+        return self._normalize(normalize_listed_hosts, value)
+
+    def validate_allowed_ips(self, value: list[str]) -> list[str]:
+        return self._normalize(normalize_listed_ips, value)
 
 
 class TeamCustomerAnalyticsPinnedAccountPropertySerializer(serializers.Serializer):
