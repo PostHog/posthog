@@ -29,6 +29,7 @@ const TREE_ONLY_CONTENT = new Set(['svg', 'math', 'select', 'template', 'framese
 export const BODY_MAX_LENGTH = 1_500_000
 export const UNSUBSCRIBE_TOKENS_CHECKED = 50
 export const TREE_MAX_DEPTH = 128
+export const TREE_MAX_FORMATTING_ELEMENTS = 128
 export const TREE_MAX_ELEMENTS = 200_000
 export const TREE_MAX_SCANS = 4_000_000
 const TAG_MAX_ATTRIBUTES = 64
@@ -47,9 +48,35 @@ class BoundedTokenizer extends Tokenizer {
 }
 
 class BoundedParser extends Parser<DefaultTreeAdapterMap> {
-    constructor(options: ParserOptions<DefaultTreeAdapterMap>) {
+    constructor(
+        options: ParserOptions<DefaultTreeAdapterMap>,
+        private readonly scan: (count: number) => void
+    ) {
         super(options)
         this.tokenizer = new BoundedTokenizer(this.options, this)
+        const list = this.activeFormattingElements
+        const wrap = <Args extends unknown[], Result>(fn: (...args: Args) => Result) => {
+            return (...args: Args): Result => {
+                this.scan(list.entries.length)
+                const result = fn.apply(list, args)
+                if (list.entries.length > TREE_MAX_FORMATTING_ELEMENTS) {
+                    throw new TooComplex()
+                }
+                return result
+            }
+        }
+        list.insertMarker = wrap(list.insertMarker)
+        list.pushElement = wrap(list.pushElement)
+        list.insertElementAfterBookmark = wrap(list.insertElementAfterBookmark)
+        list.removeEntry = wrap(list.removeEntry)
+        list.clearToLastMarker = wrap(list.clearToLastMarker)
+        list.getElementEntryInScopeWithTagName = wrap(list.getElementEntryInScopeWithTagName)
+        list.getElementEntry = wrap(list.getElementEntry)
+    }
+
+    override _reconstructActiveFormattingElements(): void {
+        this.scan(this.activeFormattingElements.entries.length)
+        super._reconstructActiveFormattingElements()
     }
 }
 
@@ -139,7 +166,9 @@ const boundedTree = (body: string): ParentNode | undefined => {
         },
     }
     try {
-        return BoundedParser.parse(body, { treeAdapter })
+        const parser = new BoundedParser({ treeAdapter }, scan)
+        parser.tokenizer.write(body, true)
+        return parser.document
     } catch (error) {
         if (error instanceof TooComplex) {
             return undefined

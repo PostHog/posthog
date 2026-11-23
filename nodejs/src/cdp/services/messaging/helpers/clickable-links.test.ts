@@ -2,6 +2,7 @@ import {
     BODY_MAX_LENGTH,
     TREE_MAX_DEPTH,
     TREE_MAX_ELEMENTS,
+    TREE_MAX_FORMATTING_ELEMENTS,
     TREE_MAX_SCANS,
     clickableHrefs,
     preferencesTokensInBody,
@@ -175,6 +176,15 @@ describe('clickableHrefs', () => {
                 { length: Math.ceil(Math.sqrt(TREE_MAX_SCANS / 8)) },
                 (_, tag) => `<html ${Array.from({ length: 16 }, (_, attribute) => `a${tag}x${attribute}`).join(' ')}>`
             ).join(''),
+        ],
+        [
+            'that leaves more active formatting entries than the parser keeps',
+            '<div><table><object><b></table></div>'.repeat(TREE_MAX_FORMATTING_ELEMENTS),
+        ],
+        [
+            'that scans the active formatting list more than the parser allows',
+            '<div><table><object><b></table></div>'.repeat(TREE_MAX_FORMATTING_ELEMENTS / 2 - 1) +
+                '<i></i>'.repeat(Math.ceil(TREE_MAX_SCANS / (TREE_MAX_FORMATTING_ELEMENTS - 2))),
         ],
     ])('finds no anchor after an SVG drawing in markup %s', (_name, filler) => {
         expect(clickableHrefs('<svg></svg>' + filler + '<a href="https://example.com/bye">Unsubscribe</a>')).toEqual([])
