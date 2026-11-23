@@ -17,6 +17,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_trino_table import DirectTrinoTable
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
+    DecimalDatabaseField,
     ExpressionField,
     IntegerDatabaseField,
     SavedQuery,
@@ -532,9 +533,9 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("countSubstrings(user_id, 'a')", "__hogql_substrings -> IF(length(__hogql_substrings[2])"),
         ("splitByRegexp('-', user_id)", 'regexp_split("users"."user_id"'),
         ("mapContainsKeyLike(mapFromArrays(['a'], [1]), 'a%')", "cardinality(map_filter(map(ARRAY["),
-        ("bitTest(4, 2)", "bitwise_and(4, bitwise_left_shift(BIGINT '1', 2)) <> 0"),
-        ("bitTestAll(6, 1, 2)", "bitwise_and(6, bitwise_left_shift(BIGINT '1', 1)) <> 0 AND"),
-        ("bitShiftRight(-8, 1)", "bitwise_right_shift_arithmetic(-8, 1)"),
+        ("bitTest(4, 2)", "bitwise_and(4, bitwise_left_shift(BIGINT '1', CAST(2 AS INTEGER))) <> 0"),
+        ("bitTestAll(6, 1, 2)", "bitwise_and(6, bitwise_left_shift(BIGINT '1', CAST(1 AS INTEGER))) <> 0 AND"),
+        ("bitShiftRight(-8, 1)", "bitwise_right_shift_arithmetic(CAST(-8 AS BIGINT), CAST(1 AS INTEGER))"),
         ("bitHammingDistance(5, 1)", "bit_count(bitwise_xor(5, 1), 64)"),
         ("L2Distance([1, 2], [3, 4])", "euclidean_distance(ARRAY[1, 2], ARRAY[3, 4])"),
         ("port('https://example.com', 443)", "coalesce(url_extract_port("),
@@ -583,6 +584,49 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("toDate(created_at) - (SELECT max(id) FROM users)", "date_add('day', CAST(-((SELECT max("),
         ("toLastDayOfMonth(created_at) - 1", "date_add('day', CAST(-(1) AS BIGINT), last_day_of_month("),
         ("toMonday(created_at) + 7", "date_add('day', CAST(7 AS BIGINT), CAST(date_trunc('week'"),
+        ("now('UTC')", "SELECT at_timezone(now(), "),
+        (
+            "toDateTime64(id, 3, 'UTC')",
+            'SELECT CAST(at_timezone(from_unixtime_nanos(CAST(CAST("users"."id" AS DECIMAL(38, 9)) * 1000000000 AS BIGINT)), ',
+        ),
+        (
+            "toDateTime64(id, 6)",
+            'CAST(from_unixtime_nanos(CAST(CAST("users"."id" AS DECIMAL(38, 9)) * 1000000000 AS BIGINT)) AS TIMESTAMP(6))',
+        ),
+        (
+            "anyHeavy(id)",
+            'coalesce(element_at(map_keys(approx_most_frequent(1, CAST("users"."id" AS BIGINT), 10)), 1), BIGINT \'0\')',
+        ),
+        (
+            "anyHeavyIf(user_id, id > 1)",
+            'coalesce(element_at(map_keys(approx_most_frequent(1, "users"."user_id", 10) FILTER (WHERE (("users"."id" > 1)))), 1), \'\')',
+        ),
+        (
+            "anyHeavy(user_id) FILTER (WHERE id > 1)",
+            'approx_most_frequent(1, "users"."user_id", 10) FILTER (WHERE (("users"."id" > 1)))',
+        ),
+        (
+            "anyHeavyIf(user_id, id > 1) FILTER (WHERE id > 2)",
+            'FILTER (WHERE (("users"."id" > 1)) AND (("users"."id" > 2)))',
+        ),
+        (
+            "anyHeavy(toNullable(user_id))",
+            'SELECT element_at(map_keys(approx_most_frequent(1, "users"."user_id", 10)), 1) FROM',
+        ),
+        (
+            "multiMatchAnyIndex(max(user_id), ['a', 'b'])",
+            'SELECT element_at(transform(ARRAY[max("users"."user_id")], __hogql_haystack -> '
+            "CASE WHEN __hogql_haystack IS NULL THEN NULL WHEN regexp_like(__hogql_haystack, ",
+        ),
+        (
+            "multiMatchAnyIndex(user_id, [user_id])",
+            'element_at(transform(ARRAY[ROW("users"."user_id", ARRAY["users"."user_id"])], __hogql_match -> IF(__hogql_match[1] IS NULL, NULL, array_position(',
+        ),
+        (
+            "JSONExtract(properties, user_id, 'Nullable(Float64)')",
+            'TRY(CAST(json_extract_scalar(json_extract("users"."properties", concat(\'$[\', json_format(CAST(CAST("users"."user_id" AS VARCHAR) AS JSON)), \']\')), \'$\') AS DOUBLE)), CAST(NULL AS DOUBLE))',
+        ),
+        ("JSONExtract(properties, 'a', 'Float64')", "AS DOUBLE)), CAST(0 AS DOUBLE))"),
     ],
 )
 def test_prints_core_trino_expression_mappings(expression: str, expected: str) -> None:
@@ -735,6 +779,69 @@ def test_drops_clickhouse_global_distribution_modifiers() -> None:
     assert "LEFT JOIN" in join_sql
 
 
+def _context_with_decimal_ledger() -> HogQLContext:
+    database = Database(include_posthog_tables=False)
+    database.tables.add_child(
+        TableNode(
+            name="ledger",
+            table=DirectTrinoTable(
+                name="ledger",
+                fields={
+                    "id": IntegerDatabaseField(name="id", nullable=False),
+                    "amount": DecimalDatabaseField(name="amount", nullable=True, scale=2),
+                    "rate": DecimalDatabaseField(name="rate", nullable=True, scale=8),
+                },
+                external_data_source_id="source-id",
+                trino_catalog="ducklake",
+                trino_schema="finance",
+                trino_table_name="ledger",
+                has_complete_columns=True,
+            ),
+        )
+    )
+    return HogQLContext(
+        database=database,
+        modifiers=_trino_modifiers(),
+        enable_select_queries=True,
+        limit_top_select=False,
+        restricted_properties=set(),
+    )
+
+
+def _shared_projection_chain(depth: int) -> str:
+    layers = ["c0 AS (SELECT amount AS x FROM ledger)"] + [
+        f"c{level} AS (SELECT coalesce(x, x) AS x FROM c{level - 1})" for level in range(1, depth + 1)
+    ]
+    return f"WITH {', '.join(layers)} SELECT multiplyDecimal(x, toDecimal(1, 2)) FROM c{depth}"
+
+
+@pytest.mark.parametrize(
+    ("query", "scale"),
+    [
+        ("SELECT multiplyDecimal(amount, rate) FROM ledger", 8),
+        ("SELECT multiplyDecimal(toDecimal(-1.0, 4), multiplyDecimal(amount, rate)) FROM ledger", 8),
+        ("SELECT multiplyDecimal(divideDecimal(amount, rate), amount) FROM ledger", 8),
+        (
+            "SELECT multiplyDecimal(v, 1) FROM (SELECT amount AS v FROM ledger UNION ALL SELECT rate AS v FROM ledger)",
+            8,
+        ),
+        (_shared_projection_chain(32), 2),
+        ("SELECT multiplyDecimal(coalesce(amount, toDecimal(1, 4)), amount) FROM ledger", 4),
+        ("SELECT multiplyDecimal(if(id > 0, amount, NULL), amount) FROM ledger", 2),
+        ("SELECT multiplyDecimal(a, b) FROM (SELECT amount AS a, rate AS b FROM ledger)", 8),
+        (
+            "WITH c AS (SELECT *, toDecimal(id / 100, 6) AS share FROM ledger) SELECT multiplyDecimal(amount, share) FROM c",
+            6,
+        ),
+        ("SELECT toDecimal(id, 5) AS share, multiplyDecimal(amount, share) FROM ledger", 5),
+    ],
+)
+def test_multiply_decimal_takes_the_largest_operand_scale(query: str, scale: int) -> None:
+    sql, _ = prepare_and_print_ast(parse_select(query), _context_with_decimal_ledger(), "trino")
+
+    assert f"AS DECIMAL(38, {scale}))" in sql
+
+
 def test_tracks_every_registered_function_without_a_trino_mapping(snapshot: SnapshotAssertion) -> None:
     supported = {
         *TRINO_FUNCTION_HANDLERS_LOWER,
@@ -771,6 +878,7 @@ def test_tracks_every_registered_function_without_a_trino_mapping(snapshot: Snap
         ("medianExact(DISTINCT id)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
         ("avgWeighted(id, user_id)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
         ("toNullableString(1.5)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
+        ("anyHeavy(DISTINCT user_id)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
         ("groupUniqArrayArray(0)([1, 2])", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
         ("to_timestamp(1.5)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
         ("lagInFrame(id)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
