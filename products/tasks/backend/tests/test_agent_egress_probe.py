@@ -109,8 +109,11 @@ class TestAgentEgressProbeValidation(SimpleTestCase):
             override_settings(DEBUG=debug, SANDBOX_PROVIDER=provider, AGENT_EGRESS_PROBE_CONFIG_DIR=directory),
             patch.object(Path, "read_bytes", side_effect=AssertionError("File access is disabled")),
         ):
-            with self.assertRaisesRegex(ValueError, "require DEBUG|Set AGENT_EGRESS_PROBE_CONFIG_DIR"):
-                lifecycle(input)
+            with (
+                self.assertRaisesRegex(ValueError, "require DEBUG|Set AGENT_EGRESS_PROBE_CONFIG_DIR"),
+                lifecycle(input),
+            ):
+                pass
 
     @parameterized.expand([("allowed",), ("outside",), ("traversal",), ("symlink",)])
     @override_settings(DEBUG=True, SANDBOX_PROVIDER="MODAL_DOCKER")
