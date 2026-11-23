@@ -34,11 +34,12 @@ ABSENT_ERRORS = (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer)
 _DMARC_VERSION = re.compile(r"[vV][ \t]*=[ \t]*DMARC1[ \t]*(;|\Z)")
 _DMARC_REQUEST = r"none|quarantine|reject"
 _DMARC_URI = re.compile(
-    r"mailto:(?:[^\s,;!@?%.]|%[0-9a-f]{2})+(?:\.(?:[^\s,;!@?%.]|%[0-9a-f]{2})+)*@[a-z0-9-]+(?:\.[a-z0-9-]+)+"
-    r"(?:\?(?:[^\s,;!%=&]|%[0-9a-f]{2})+=(?:[^\s,;!%=&]|%[0-9a-f]{2})*"
-    r"(?:&(?:[^\s,;!%=&]|%[0-9a-f]{2})+=(?:[^\s,;!%=&]|%[0-9a-f]{2})*)*)?(?:!(?P<size>[0-9]+)[kmgt]?)?",
+    r"mailto:(?:[^\s,;!@?%.#]|%[0-9a-f]{2})+(?:\.(?:[^\s,;!@?%.#]|%[0-9a-f]{2})+)*@[a-z0-9-]+(?:\.[a-z0-9-]+)+"
+    r"(?:\?(?:[^\s,;!%=&#]|%[0-9a-f]{2})+=(?:[^\s,;!%=&#]|%[0-9a-f]{2})*"
+    r"(?:&(?:[^\s,;!%=&#]|%[0-9a-f]{2})+=(?:[^\s,;!%=&#]|%[0-9a-f]{2})*)*)?(?:!(?P<size>[0-9]+)[kmgt]?)?",
     re.IGNORECASE,
 )
+_DMARC_TEXT = re.compile(r"[\t\r\n\x20-\x7e]*")
 _DMARC_URI_TAGS = frozenset({"rua", "ruf"})
 _DMARC_TAG_VALUES = {
     name: re.compile(pattern, re.IGNORECASE)
@@ -226,10 +227,13 @@ def _dmarc_policies(answers: list[str]) -> tuple[str, ...]:
 
 
 def _policy_in_force(policy: str) -> str | None:
+    specs = [spec.strip(" \t\r\n") for spec in policy.split(";")[1:]]
+    if not _DMARC_TEXT.fullmatch(policy) or any("\r" in spec or "\n" in spec for spec in specs):
+        return None
     tags = [
-        (name.strip().lower(), value.strip())
-        for name, _, value in (tag.partition("=") for tag in policy.split(";")[1:])
-        if name.strip()
+        (name.strip(" \t").lower(), value.strip(" \t"))
+        for name, _, value in (spec.partition("=") for spec in specs)
+        if name.strip(" \t")
     ]
     names = ["v", *(name for name, _ in tags)]
     if len(names) != len(set(names)):
