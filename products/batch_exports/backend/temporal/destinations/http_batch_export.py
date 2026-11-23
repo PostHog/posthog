@@ -34,7 +34,6 @@ from products.batch_exports.backend.temporal.batch_exports import (
     execute_batch_export_insert_activity,
     get_data_interval,
     iter_records,
-    reads_native_events_table,
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.filters import compose_filters_clause
@@ -228,21 +227,13 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
 
         is_backfill = inputs.get_is_backfill()
 
-        native_source = reads_native_events_table(
-            team_id=inputs.team_id,
-            interval_start=interval_start,
-            interval_end=inputs.data_interval_end,
-            use_new_events_schema=use_native_schema,
-            is_backfill=is_backfill,
-            backfill_details=inputs.backfill_details,
-        )
-        fields = http_default_fields(reads_native_events=native_source)
+        fields = http_default_fields(reads_native_events=use_native_schema)
         columns = [field["alias"] for field in fields]
 
         filters = model.filters
         if filters:
             filters_str, extra_query_parameters = await database_sync_to_async(compose_filters_clause)(
-                filters, team_id=inputs.team_id, values=None, use_new_events_schema=native_source
+                filters, team_id=inputs.team_id, values=None, use_new_events_schema=use_native_schema
             )
         else:
             filters_str = ""

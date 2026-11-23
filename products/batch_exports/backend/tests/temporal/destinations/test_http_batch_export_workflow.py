@@ -339,9 +339,7 @@ async def test_insert_into_http_activity_exports_mutation_properties_from_legacy
     person_properties,
     expected_mutations,
 ):
-    """A recent interval reads a legacy table even on the native schema, and those tables project no
-    mutation columns. The keys come from `properties`, which a legacy table still carries.
-    """
+    """The legacy tables project no mutation columns, so the keys come from `properties`, which they still carry."""
     team_id = randint(1, 1000000)
     interval_end = dt.datetime.now(tz=dt.UTC).replace(microsecond=0) - dt.timedelta(hours=1)
     interval_start = interval_end - dt.timedelta(hours=1)
@@ -374,7 +372,7 @@ async def test_insert_into_http_activity_exports_mutation_properties_from_legacy
     with (
         unittest.mock.patch(
             "products.batch_exports.backend.temporal.destinations.http_batch_export.batch_exports_read_new_events_table",
-            return_value=True,
+            return_value=False,
         ),
         aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as responses,
     ):
