@@ -115,6 +115,7 @@ class TestVercelProvider(SimpleTestCase):
             ("created_at_a_string", None, {"createdAt": "1700000000000"}),
             ("created_at_a_boolean", None, {"createdAt": True}),
             ("created_at_not_finite", None, {"createdAt": float("nan")}),
+            ("created_at_too_large_for_a_float", None, {"createdAt": 10**400}),
             ("id_missing", None, {"id": None}),
             ("id_empty", None, {"id": ""}),
             ("id_not_a_string", None, {"id": 42}),

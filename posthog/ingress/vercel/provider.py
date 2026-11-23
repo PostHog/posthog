@@ -73,11 +73,17 @@ def created_at_is_fresh(created_at: Any, *, now_seconds: float) -> bool:
     A missing or malformed value is not fresh. Vercel sends the field on every event, and a body
     without it would stay acceptable after its dedup mark expires.
     """
-    # `bool` is a subclass of `int`, and `json.loads` accepts `NaN` and `Infinity`.
-    if isinstance(created_at, bool) or not isinstance(created_at, int | float) or not math.isfinite(created_at):
+    # `bool` is a subclass of `int`, and `json.loads` accepts `NaN`, `Infinity` and integers too large for a float.
+    if isinstance(created_at, bool) or not isinstance(created_at, int | float):
+        return False
+    try:
+        created_at_ms = float(created_at)
+    except OverflowError:
+        return False
+    if not math.isfinite(created_at_ms):
         return False
 
-    age_seconds = now_seconds - created_at / MILLISECONDS_PER_SECOND
+    age_seconds = now_seconds - created_at_ms / MILLISECONDS_PER_SECOND
     return -VERCEL_CLOCK_SKEW_SECONDS <= age_seconds <= VERCEL_DELIVERY_MAX_AGE_SECONDS
 
 
