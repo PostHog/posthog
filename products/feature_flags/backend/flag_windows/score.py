@@ -95,11 +95,11 @@ class WindowScore:
     exposed or nobody unexposed, fewer than 5 people in a group, or an edit with watched conditions when
     `condition_match` is None or the exposure or error query doesn't find it. Level 2 is None without exposure, when
     nobody is exposed or nobody is unexposed, without the counts by last value, below the minimum volume, or for an
-    edit with watched conditions. Level 4 is None without an error rise, or with fewer than two rises in exposure share
-    of at least `min_share_step` between two adjacent hours, so a share that climbs slowly can make exposure steps and
-    still leave level 4 None. `proximity` is that of the error rise closest after an exposure step, or that of the
-    latest hour when no error rise comes after an exposure step, and weighs levels 2 and 4. Level 5 is weighed by the
-    proximity of its own error rise.
+    edit with watched conditions. Level 4 is None without an error rise after an exposure step, or with fewer than two
+    rises in exposure share of at least `min_share_step` between two adjacent hours, so a share that climbs slowly can
+    make exposure steps and still leave level 4 None. `proximity` is that of the error rise closest after an exposure
+    step, or that of the latest hour when no error rise comes after an exposure step, and weighs levels 2 and 4. Level 5
+    is weighed by the proximity of its own error rise.
 
     The window is suspicious when level 1 finds the exposed people significantly worse with enough volume, or when the
     volume is enough and `score` reaches the threshold."""
@@ -168,27 +168,25 @@ def score_window(
 
     exposure_steps = _exposure_steps(edit, shares, parameters.min_share_step)
     error_rises = _error_rises(excess, parameters.rise_z)
-    # Without an error rise that the flag can explain, the latest hour stands in for it, so weak evidence counts less as
-    # the window ages.
-    latest_hour_proximity = _proximity(max([*shares, *hours], default=edit.edited_at), exposure_steps, parameters)
+    proximities = {start: _proximity(start, exposure_steps, parameters) for start in error_rises}
+    # Levels 2 and 4 don't come from one hour, so a later rise that the flag didn't cause can't weaken them.
+    rise_proximity = max(proximities.values(), default=0.0)
+    # Without an error rise after an exposure step, the steps of the error rate are noise, and noise steps of similar
+    # size would pass level 4 as errors that rise with exposure.
+    level_4 = _level_4(shares, excess, parameters.min_share_step) if rise_proximity else None
+    # The latest hour then stands in for the error rise, so weak evidence counts less as the window ages.
+    latest_hour = max([*shares, *hours], default=edit.edited_at)
+    proximity = rise_proximity or _proximity(latest_hour, exposure_steps, parameters)
     if error_rises:
-        level_4 = _level_4(shares, excess, parameters.min_share_step)
-        proximities = {start: _proximity(start, exposure_steps, parameters) for start in error_rises}
         # Each rise counts by its own distance, so that a strong rise days later can't lend strength to an early one.
         level_5_rise = max(
             error_rises, key=lambda start: _strength(error_rises[start], parameters) * proximities[start]
         )
         level_5 = _strength(error_rises[level_5_rise], parameters)
         level_5_proximity = proximities[level_5_rise]
-        # Levels 2 and 4 don't come from one hour, so a later rise that the flag didn't cause can't weaken them. When
-        # every rise comes before the first exposure step, the flag explains none of them, so the latest hour stands in.
-        proximity = max(proximities.values()) or latest_hour_proximity
     else:
-        # Without an error rise, the steps of the error rate are noise, and noise steps of similar size would pass
-        # level 4 as errors that rise with exposure.
-        level_4 = None
         level_5 = max([0.0, *(_strength(hour_excess, parameters) for hour_excess in excess.values())])
-        proximity = level_5_proximity = latest_hour_proximity
+        level_5_proximity = proximity
 
     weighted = [parameters.weight_level_5 * level_5 * level_5_proximity]
     if level_2 is not None:

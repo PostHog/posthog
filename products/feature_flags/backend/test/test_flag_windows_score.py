@@ -330,6 +330,7 @@ class TestScoreWindow(SimpleTestCase):
             ("steps_below_the_minimum", [0.1, 0.12, 0.14], [0.02, 0.03, 0.04], None),
             ("errors_within_the_baseline_noise", [0.1, 0.2, 0.3], [0.010, 0.011, 0.012], None),
             ("too_few_active_people_between_steps", [0.1, 0.2, 0.3, 0.4], [0.02, 0.03, 0.04, 0.05], None, [2]),
+            ("an_error_rise_only_before_the_steps", [0.0, 0.0, 0.0, 0.3, 0.6], [0.08, 0.01, 0.01, 0.011, 0.012], None),
         ]
     )
     def test_level_4_compares_the_error_rise_of_each_exposure_step(
