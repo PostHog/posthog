@@ -2706,6 +2706,25 @@ describe('EmailService', () => {
                 }
             )
 
+            it.each([
+                ['retries a small send', 0, retriedLoad, 0],
+                ['sends a send at the size limit', LARGEST_SEND_FILE_BYTES, sent, 1],
+            ])(
+                'given a download slower than the deadline of a small send, %s',
+                async (_case, declaredBytes, expected, deliveries) => {
+                    const emailService = sender({ attachmentSendDeadlineMs: 1_000 })
+                    bucket.downloadDelayMs = 1_500
+                    send([
+                        { ...pdf, metadata: { ...pdf.metadata, sizeBytes: declaredBytes || pdf.metadata.sizeBytes } },
+                    ])
+
+                    const result = await emailService.executeSendEmail(invocation)
+
+                    expect(outcomeOf(result)).toEqual(expected)
+                    expect(deliveredTo(ses, recipient)).toHaveLength(deliveries)
+                }
+            )
+
             it('when a flow sends its next email inline after the email before abandoned a download mid-body, it loads its files and sends', async () => {
                 const emailService = sender({ attachmentSendDeadlineMs: 2_000 })
                 bucket.answer = 'stallFileBodies'

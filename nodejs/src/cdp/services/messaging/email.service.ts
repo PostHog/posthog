@@ -226,9 +226,10 @@ const OWNERSHIP_CHECK_TIMEOUT_MS = 5_000
 
 // A larger message takes longer to load and to hand to SES, so the deadline grows with the files, from that of a
 // small send up to LARGEST_SEND_DEADLINE_MS at the size limit.
-export function sendDeadlineMsFor(fileBytes: number): number {
+export function sendDeadlineMsFor(fileBytes: number, smallestMs = ATTACHMENT_SEND_DEADLINE_MS): number {
+    const largestMs = (smallestMs * LARGEST_SEND_DEADLINE_MS) / ATTACHMENT_SEND_DEADLINE_MS
     const share = Math.min(1, fileBytes / LARGEST_SEND_FILE_BYTES)
-    return Math.round(ATTACHMENT_SEND_DEADLINE_MS + share * (LARGEST_SEND_DEADLINE_MS - ATTACHMENT_SEND_DEADLINE_MS))
+    return Math.round(smallestMs + share * (largestMs - smallestMs))
 }
 
 class EmailSendDeadlineError extends Error {
@@ -903,9 +904,10 @@ export class EmailService {
                   }
                 : paramsWithReplyTo
 
-            const sendDeadlineMs =
-                this.sesConfig.attachmentSendDeadlineMs ??
-                sendDeadlineMsFor(declaredFileBytes(params.attachments ?? []))
+            const sendDeadlineMs = sendDeadlineMsFor(
+                declaredFileBytes(params.attachments ?? []),
+                this.sesConfig.attachmentSendDeadlineMs
+            )
             const sendDeadlineAt = Date.now() + sendDeadlineMs
             const deadline = params.attachments?.length ? AbortSignal.timeout(sendDeadlineMs) : undefined
             const files = deadline ? await this.loadAttachments(invocation.teamId, params.attachments!, deadline) : []

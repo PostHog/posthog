@@ -26,6 +26,7 @@ import { createHogFlowInvocation } from '~/cdp/services/hogflows/hogflow-executo
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
 import { CONSUMER_STOP_DEADLINE_MS } from '~/cdp/services/job-queue/job-queue-postgres-v2'
 import { LONGEST_WAIT_FOR_ROOM_MS } from '~/cdp/services/messaging/attachment-horizon'
+import { sendDeadlineMsFor } from '~/cdp/services/messaging/email.service'
 import {
     InFlightLimits,
     InFlightRegistry,
@@ -45,9 +46,9 @@ import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
 import {
+    CALLS_SETTLE_BEFORE_WRITE_MS,
     CdpCyclotronWorkerEmail,
     EMAIL_STOP_DEADLINE_MS,
-    RESULT_WRITE_MARGIN_MS,
 } from './cdp-cyclotron-worker-email.consumer'
 
 jest.setTimeout(60_000)
@@ -628,7 +629,8 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
     })
 
     describe('with a send whose SES call never settles, not even on abort', () => {
-        const callsCannotOutlast = CONSUMER_STOP_DEADLINE_MS - RESULT_WRITE_MARGIN_MS
+        const callsCannotOutlast = (): number =>
+            sendDeadlineMsFor(invoice.metadata.sizeBytes) + CALLS_SETTLE_BEFORE_WRITE_MS
 
         const stalledSes = (askedForCredentials: () => void = () => undefined): SESv2Client =>
             sesClientFor(ses, {
@@ -700,7 +702,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
                 expect((await jobRow(stuck)).status).toBe('running')
                 expect(callStarted).toBe(true)
             }, clockStarted + 1_000)
-            const earliestWrite = clockStarted + callsCannotOutlast
+            const earliestWrite = clockStarted + callsCannotOutlast()
 
             await jest.advanceTimersByTimeAsync(earliestWrite - 2_000 - Date.now())
             const [next] = await enqueue(
@@ -720,7 +722,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             })
 
             let stopReturned = false
-            const stopDeadline = Date.now() + CONSUMER_STOP_DEADLINE_MS
+            const stopDeadline = Date.now() + EMAIL_STOP_DEADLINE_MS
             void worker.stop().then(() => (stopReturned = true))
             const seen: { at: number; stopReturned: boolean; status: string; retries?: number }[] = []
             await onTheFakeClock(async () => {
@@ -754,7 +756,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             await startWorker(roomFor(1), stalledSes())
             ;(await lostRunFails).drop()
 
-            await waitForExpect(async () => expect(await loopErrors()).toBe(1), callsCannotOutlast + 5_000, 50)
+            await waitForExpect(async () => expect(await loopErrors()).toBe(1), callsCannotOutlast() + 5_000, 50)
             expect((await jobRow(send.id)).queueMetadata?.attachmentLoadRetries).toBe(1)
             expect(await metric('cdp_email_attachments_sends_in_flight')).toBe(1)
         })
