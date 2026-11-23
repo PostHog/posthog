@@ -16,7 +16,6 @@ import type {
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import {
-    AccountSidebarConfig,
     accountSidebarConfigLogic,
     configuratorKeysToPinnedProperties,
     pinnedPropertyToConfiguratorKey,
@@ -57,7 +56,7 @@ const buildRelationship = (
     ...overrides,
 })
 
-const defaultMocks = (config: Partial<AccountSidebarConfig> = {}): Parameters<typeof useMocks>[0] => ({
+const defaultMocks = (config: Partial<UserCustomerAnalyticsConfigApi> = {}): Parameters<typeof useMocks>[0] => ({
     get: {
         [CONFIG_URL]: {
             pinned_properties: [],

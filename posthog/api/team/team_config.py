@@ -14,6 +14,7 @@ from products.access_control.backend.presentation.access_control import UserAcce
 from products.customer_analytics.backend.facade.account_property_pins import (
     InvalidPinnedAccountProperties,
     validate_pinned_account_properties,
+    validate_pinned_account_property_lists,
 )
 from products.customer_analytics.backend.facade.contracts import PinnedAccountProperty
 from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind
@@ -646,8 +647,24 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcc
         known_role_ids = organization_role_names(organization_id=organization_id, role_ids=role_ids).keys()
         if unknown_role_ids := [str(role_id) for role_id in role_ids if role_id not in known_role_ids]:
             raise serializers.ValidationError(f"Roles not found in this organization: {', '.join(unknown_role_ids)}.")
+        try:
+            validated_lists = validate_pinned_account_property_lists(
+                team_id=self.instance.team_id,
+                pinned_property_lists=[
+                    [
+                        PinnedAccountProperty(kind=reference["kind"], id=reference["id"])
+                        for reference in entry["pinned_properties"]
+                    ]
+                    for entry in value
+                ],
+            )
+        except InvalidPinnedAccountProperties as error:
+            raise serializers.ValidationError(error.errors)
         return [
-            {"role_id": str(entry["role_id"]), "pinned_properties": pinned_properties}
-            for entry in value
-            if (pinned_properties := self.validate_default_pinned_properties(entry["pinned_properties"]))
+            {
+                "role_id": str(entry["role_id"]),
+                "pinned_properties": [{"kind": reference.kind, "id": reference.id} for reference in pinned_properties],
+            }
+            for entry, pinned_properties in zip(value, validated_lists)
+            if pinned_properties
         ]

@@ -19,19 +19,18 @@ import * as api from 'products/customer_analytics/frontend/generated/api'
 import type {
     AccountRelationshipDefinitionApi,
     CustomPropertyDefinitionApi,
+    PinnedAccountPropertiesSourceApi,
     PinnedAccountPropertyApi,
     UserCustomerAnalyticsConfigApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import {
     AccountPropertyDefaultOption,
-    FollowedDefaultPinnedProperties,
     AccountPropertyOption,
+    FollowedDefaultPinnedProperties,
     MAX_PINNED_ACCOUNT_PROPERTIES,
     PINNABLE_ACCOUNT_FIELDS,
     PinnableAccountField,
-    PinnedAccountPropertiesRole,
-    PinnedAccountPropertiesSource,
 } from './components/accountPropertyTypes'
 
 export { MAX_PINNED_ACCOUNT_PROPERTIES } from './components/accountPropertyTypes'
@@ -40,27 +39,6 @@ const DEFINITION_PAGE_SIZE = 100
 const CURRENT_USER_CONFIG_ID = '@me'
 
 export type PinnedAccountProperty = PinnedAccountPropertyApi
-
-export type DefaultPinnedAccountPropertiesSourceKind = 'project' | 'role'
-
-export interface DefaultPinnedAccountPropertiesSource {
-    kind: DefaultPinnedAccountPropertiesSourceKind
-    role: PinnedAccountPropertiesRole | null
-}
-
-export interface AvailableDefaultPinnedAccountProperties {
-    source: DefaultPinnedAccountPropertiesSource
-    pinned_properties: PinnedAccountProperty[]
-}
-
-type AccountSidebarConfigUpdate = Parameters<typeof api.userCustomerAnalyticsConfigPartialUpdate>[2] & {
-    followed_default?: FollowedDefaultPinnedProperties
-}
-
-export type AccountSidebarConfig = UserCustomerAnalyticsConfigApi & {
-    pinned_properties_source?: PinnedAccountPropertiesSource
-    available_default_pinned_properties?: AvailableDefaultPinnedAccountProperties[]
-}
 
 export interface AccountSidebarConfigLogicProps {
     projectId: number
@@ -218,14 +196,14 @@ export interface accountSidebarConfigLogicValues {
     availableDefinitionsLoadFailed: boolean
     availableDefinitionsLoading: boolean
     canSavePinnedProperties: boolean
-    config: AccountSidebarConfig | null
+    config: UserCustomerAnalyticsConfigApi | null
     configLoadFailed: boolean
     configLoading: boolean
-    draftPinLimitReached: boolean
     draftFollowedDefault: FollowedDefaultPinnedProperties | null
+    draftPinLimitReached: boolean
     draftPinnedProperties: PinnedAccountProperty[]
     isConfiguring: boolean
-    pinnedPropertiesSource: PinnedAccountPropertiesSource | null
+    pinnedPropertiesSource: PinnedAccountPropertiesSourceApi | null
     pinnedPropertyResolution: PinnedPropertyResolution
     resolvedPinnedProperties: ResolvedPinnedAccountProperty[]
     stalePinnedProperties: PinnedAccountProperty[]
@@ -263,10 +241,10 @@ export interface accountSidebarConfigLogicActions {
         errorObject?: any
     }
     loadConfigSuccess: (
-        config: AccountSidebarConfig,
+        config: UserCustomerAnalyticsConfigApi,
         payload?: any
     ) => {
-        config: AccountSidebarConfig
+        config: UserCustomerAnalyticsConfigApi
         payload?: any
     }
     movePinnedProperty: (
@@ -287,12 +265,12 @@ export interface accountSidebarConfigLogicActions {
         errorObject?: any
     }
     persistFollowedDefaultSuccess: (
-        config: AccountSidebarConfig,
+        config: UserCustomerAnalyticsConfigApi,
         payload?: {
             followedDefault: FollowedDefaultPinnedProperties
         }
     ) => {
-        config: AccountSidebarConfig
+        config: UserCustomerAnalyticsConfigApi
         payload?: {
             followedDefault: FollowedDefaultPinnedProperties
         }
@@ -308,12 +286,12 @@ export interface accountSidebarConfigLogicActions {
         errorObject?: any
     }
     persistPinnedPropertiesSuccess: (
-        config: AccountSidebarConfig,
+        config: UserCustomerAnalyticsConfigApi,
         payload?: {
             pinnedProperties: PinnedAccountProperty[]
         }
     ) => {
-        config: AccountSidebarConfig
+        config: UserCustomerAnalyticsConfigApi
         payload?: {
             pinnedProperties: PinnedAccountProperty[]
         }
@@ -337,13 +315,15 @@ export interface accountSidebarConfigLogicMeta {
     key: number
     __keaTypeGenInternalSelectorTypes: {
         isConfiguring: (activeConfiguratorKey: string | null) => boolean
-        pinnedPropertiesSource: (config: AccountSidebarConfig | null) => PinnedAccountPropertiesSource | null
+        pinnedPropertiesSource: (
+            config: UserCustomerAnalyticsConfigApi | null
+        ) => PinnedAccountPropertiesSourceApi | null
         availableDefaultPinnedProperties: (
-            config: AccountSidebarConfig | null,
+            config: UserCustomerAnalyticsConfigApi | null,
             availableDefinitions: AvailableDefinitions | null
         ) => AccountPropertyDefaultOption[]
         pinnedPropertyResolution: (
-            config: AccountSidebarConfig | null,
+            config: UserCustomerAnalyticsConfigApi | null,
             availableDefinitions: AvailableDefinitions | null
         ) => PinnedPropertyResolution
         resolvedPinnedProperties: (
@@ -353,7 +333,7 @@ export interface accountSidebarConfigLogicMeta {
         draftPinLimitReached: (draftPinnedProperties: PinnedAccountPropertyApi[]) => boolean
         canSavePinnedProperties: (
             isConfiguring: boolean,
-            config: AccountSidebarConfig | null,
+            config: UserCustomerAnalyticsConfigApi | null,
             draftPinnedProperties: PinnedAccountPropertyApi[],
             draftFollowedDefault: FollowedDefaultPinnedProperties | null,
             configLoading: boolean
@@ -391,15 +371,15 @@ export const accountSidebarConfigLogic: LogicWrapper<accountSidebarConfigLogicTy
         }),
         loaders(({ props }) => ({
             config: [
-                null as AccountSidebarConfig | null,
+                null as UserCustomerAnalyticsConfigApi | null,
                 {
-                    loadConfig: async (): Promise<AccountSidebarConfig> =>
+                    loadConfig: async (): Promise<UserCustomerAnalyticsConfigApi> =>
                         await api.userCustomerAnalyticsConfigRetrieve(String(props.projectId), CURRENT_USER_CONFIG_ID),
                     persistPinnedProperties: async ({
                         pinnedProperties,
                     }: {
                         pinnedProperties: PinnedAccountProperty[]
-                    }): Promise<AccountSidebarConfig> =>
+                    }): Promise<UserCustomerAnalyticsConfigApi> =>
                         await api.userCustomerAnalyticsConfigPartialUpdate(
                             String(props.projectId),
                             CURRENT_USER_CONFIG_ID,
@@ -411,14 +391,12 @@ export const accountSidebarConfigLogic: LogicWrapper<accountSidebarConfigLogicTy
                         followedDefault,
                     }: {
                         followedDefault: FollowedDefaultPinnedProperties
-                    }): Promise<AccountSidebarConfig> => {
-                        const body: AccountSidebarConfigUpdate = { followed_default: followedDefault }
-                        return await api.userCustomerAnalyticsConfigPartialUpdate(
+                    }): Promise<UserCustomerAnalyticsConfigApi> =>
+                        await api.userCustomerAnalyticsConfigPartialUpdate(
                             String(props.projectId),
                             CURRENT_USER_CONFIG_ID,
-                            body
-                        )
-                    },
+                            { followed_default: followedDefault }
+                        ),
                 },
             ],
             availableDefinitions: [
@@ -509,13 +487,13 @@ export const accountSidebarConfigLogic: LogicWrapper<accountSidebarConfigLogicTy
             ],
             pinnedPropertiesSource: [
                 (s) => [s.config],
-                (config: AccountSidebarConfig | null): PinnedAccountPropertiesSource | null =>
+                (config: UserCustomerAnalyticsConfigApi | null): PinnedAccountPropertiesSourceApi | null =>
                     config?.pinned_properties_source ?? null,
             ],
             availableDefaultPinnedProperties: [
                 (s) => [s.config, s.availableDefinitions],
                 (
-                    config: AccountSidebarConfig | null,
+                    config: UserCustomerAnalyticsConfigApi | null,
                     definitions: AvailableDefinitions | null
                 ): AccountPropertyDefaultOption[] =>
                     (config?.available_default_pinned_properties ?? []).map((entry) => {
@@ -536,7 +514,7 @@ export const accountSidebarConfigLogic: LogicWrapper<accountSidebarConfigLogicTy
             pinnedPropertyResolution: [
                 (s) => [s.config, s.availableDefinitions],
                 (
-                    config: AccountSidebarConfig | null,
+                    config: UserCustomerAnalyticsConfigApi | null,
                     definitions: AvailableDefinitions | null
                 ): PinnedPropertyResolution =>
                     config && definitions
@@ -559,7 +537,7 @@ export const accountSidebarConfigLogic: LogicWrapper<accountSidebarConfigLogicTy
                 (s) => [s.isConfiguring, s.config, s.draftPinnedProperties, s.draftFollowedDefault, s.configLoading],
                 (
                     isConfiguring: boolean,
-                    config: AccountSidebarConfig | null,
+                    config: UserCustomerAnalyticsConfigApi | null,
                     draft: PinnedAccountProperty[],
                     draftFollowedDefault: FollowedDefaultPinnedProperties | null,
                     saving: boolean

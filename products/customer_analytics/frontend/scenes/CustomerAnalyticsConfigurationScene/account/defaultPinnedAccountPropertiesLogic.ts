@@ -26,9 +26,9 @@ export interface defaultPinnedAccountPropertiesLogicValues {
     relationshipDefinitions: AccountRelationshipDefinitionApi[] // relationshipDefinitionsLogic
     relationshipDefinitionsLoadFailed: boolean // relationshipDefinitionsLogic
     relationshipDefinitionsLoading: boolean // relationshipDefinitionsLogic
-    customerAnalyticsConfig: CustomerAnalyticsConfig // teamLogic
     roles: RoleType[] // rolesLogic
     rolesLoading: boolean // rolesLogic
+    customerAnalyticsConfig: CustomerAnalyticsConfig // teamLogic
     canSave: boolean
     defaultPinnedProperties: PinnedAccountPropertyApi[]
     definitionsLoadFailed: boolean
@@ -323,13 +323,16 @@ export const defaultPinnedAccountPropertiesLogic = kea<defaultPinnedAccountPrope
             actions.startSaving()
             const pinnedProperties = configuratorKeysToPinnedProperties(values.draftPinnedPropertyKeys)
             const { selectedRoleId } = values
+            const activeRoleIds = new Set(values.roles.map(({ id }) => id))
             actions.updateCurrentTeam({
                 customer_analytics_config: (selectedRoleId === null
                     ? { default_pinned_properties: pinnedProperties }
                     : {
                           role_default_pinned_properties: [
                               ...(values.customerAnalyticsConfig.role_default_pinned_properties ?? []).filter(
-                                  ({ role_id }) => role_id !== selectedRoleId
+                                  ({ role_id }) =>
+                                      role_id !== selectedRoleId &&
+                                      (activeRoleIds.size === 0 || activeRoleIds.has(role_id))
                               ),
                               { role_id: selectedRoleId, pinned_properties: pinnedProperties },
                           ],

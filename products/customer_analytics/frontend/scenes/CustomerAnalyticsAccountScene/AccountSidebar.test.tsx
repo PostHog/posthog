@@ -14,10 +14,13 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { AccountApi, CustomPropertyDefinitionApi } from '../../generated/api.schemas'
+import type {
+    AccountApi,
+    CustomPropertyDefinitionApi,
+    PinnedAccountPropertiesSourceApi,
+} from '../../generated/api.schemas'
 import { AccountSidebar } from './AccountSidebar'
 import { accountSidebarPropertiesLogic } from './accountSidebarPropertiesLogic'
-import type { PinnedAccountPropertiesSource } from './components/accountPropertyTypes'
 import { customerAnalyticsAccountSceneLogic } from './customerAnalyticsAccountSceneLogic'
 
 jest.mock('lib/utils/accessControlUtils', () => ({
@@ -226,16 +229,14 @@ describe('AccountSidebar', () => {
             name: string
             todayRailNav: boolean
             pinnedProperties: { kind: 'custom_property'; id: string }[]
-            source: PinnedAccountPropertiesSource
+            source: PinnedAccountPropertiesSourceApi
             expectedLabels: string[]
             expectedChipClass: string | null
         }) => {
             initKeaTests()
-            if (todayRailNav) {
-                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
-                    [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
-                })
-            }
+            featureFlagLogic.actions.setFeatureFlags(todayRailNav ? [FEATURE_FLAGS.TODAY_RAIL_NAV] : [], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: todayRailNav,
+            })
             const definition: CustomPropertyDefinitionApi = {
                 id: 'property-1',
                 name: 'Plan',

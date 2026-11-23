@@ -8,8 +8,10 @@ import { Badge, Tooltip as QuillTooltip, TooltipContent, TooltipTrigger } from '
 import { pngHoggie } from 'lib/brand/hoggies'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
+import type { PinnedAccountPropertiesSourceApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+
 import { AccountPropertyField, AccountPropertyFieldProps } from './AccountPropertyField'
-import type { AccountSidebarProperty, PinnedAccountPropertiesSource } from './accountPropertyTypes'
+import type { AccountSidebarProperty } from './accountPropertyTypes'
 
 const HedgehogBusiness = pngHoggie(businessEvolutionPng)
 
@@ -19,7 +21,7 @@ interface PinnedPropertySourceChip {
     tooltip: string
 }
 
-function getSourceChips(source: PinnedAccountPropertiesSource | null | undefined): PinnedPropertySourceChip[] {
+function getSourceChips(source: PinnedAccountPropertiesSourceApi | null | undefined): PinnedPropertySourceChip[] {
     if (!source || source.kind === 'personal') {
         return []
     }
@@ -35,7 +37,7 @@ function getSourceChips(source: PinnedAccountPropertiesSource | null | undefined
 
 export interface AccountPinnedPropertiesProps {
     properties: AccountSidebarProperty[]
-    pinnedPropertiesSource?: PinnedAccountPropertiesSource | null
+    pinnedPropertiesSource?: PinnedAccountPropertiesSourceApi | null
     layout?: 'vertical' | 'horizontal'
     editingPropertyKey?: string | null
     savingPropertyKey?: string | null

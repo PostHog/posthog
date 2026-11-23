@@ -7,6 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
+import type { CustomerAnalyticsConfig } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import type {
@@ -19,6 +20,7 @@ import { defaultPinnedAccountPropertiesLogic } from './defaultPinnedAccountPrope
 
 const CUSTOM_PROPERTIES_URL = '/api/projects/:team_id/custom_property_definitions/'
 const RELATIONSHIPS_URL = '/api/projects/:team_id/account_relationship_definitions/'
+const ROLES_URL = '/api/organizations/:organization_id/roles/'
 const TEAM_URL = '/api/environments/:team_id/'
 
 interface TeamUpdateBody {
@@ -68,21 +70,44 @@ describe('defaultPinnedAccountPropertiesLogic', () => {
 
     it('loads, cleans stale references, saves order, clears defaults, and saves one role without touching others', async () => {
         const submittedBodies: TeamUpdateBody[] = []
+        let storedCustomerAnalyticsConfig: CustomerAnalyticsConfig = {
+            ...MOCK_DEFAULT_TEAM.customer_analytics_config,
+            default_pinned_properties: [
+                { kind: 'custom_property', id: customProperty.id },
+                { kind: 'custom_property', id: 'missing' },
+            ],
+            role_default_pinned_properties: [
+                { role_id: 'role-other', pinned_properties: [{ kind: 'relationship', id: relationship.id }] },
+                {
+                    role_id: 'role-deleted',
+                    pinned_properties: [{ kind: 'custom_property', id: customProperty.id }],
+                },
+                { role_id: 'role-csm', pinned_properties: [] },
+            ],
+        }
         useMocks({
             get: {
                 [CUSTOM_PROPERTIES_URL]: { count: 1, results: [customProperty] },
                 [RELATIONSHIPS_URL]: { count: 1, results: [relationship] },
+                [ROLES_URL]: {
+                    count: 2,
+                    results: [
+                        { id: 'role-other', name: 'Other' },
+                        { id: 'role-csm', name: 'CSM' },
+                    ],
+                },
             },
             patch: {
                 [TEAM_URL]: async ({ request }) => {
                     const body = (await request.json()) as TeamUpdateBody
                     submittedBodies.push(body)
+                    storedCustomerAnalyticsConfig = {
+                        ...storedCustomerAnalyticsConfig,
+                        ...body.customer_analytics_config,
+                    }
                     return {
                         ...MOCK_DEFAULT_TEAM,
-                        customer_analytics_config: {
-                            ...MOCK_DEFAULT_TEAM.customer_analytics_config,
-                            ...body.customer_analytics_config,
-                        },
+                        customer_analytics_config: storedCustomerAnalyticsConfig,
                     }
                 },
             },
@@ -90,21 +115,12 @@ describe('defaultPinnedAccountPropertiesLogic', () => {
         teamLogic.mount()
         teamLogic.actions.loadCurrentTeamSuccess({
             ...MOCK_DEFAULT_TEAM,
-            customer_analytics_config: {
-                ...MOCK_DEFAULT_TEAM.customer_analytics_config,
-                default_pinned_properties: [
-                    { kind: 'custom_property', id: customProperty.id },
-                    { kind: 'custom_property', id: 'missing' },
-                ],
-                role_default_pinned_properties: [
-                    { role_id: 'role-other', pinned_properties: [{ kind: 'relationship', id: relationship.id }] },
-                    { role_id: 'role-csm', pinned_properties: [] },
-                ],
-            },
+            customer_analytics_config: storedCustomerAnalyticsConfig,
         })
         logic.mount()
 
         await waitFor(() => expect(logic.values.definitionsLoading).toBe(false))
+        await waitFor(() => expect(logic.values.roles).toHaveLength(2))
 
         expect(logic.values.stalePinnedProperties).toEqual([{ kind: 'custom_property', id: 'missing' }])
         logic.actions.openConfigurator()

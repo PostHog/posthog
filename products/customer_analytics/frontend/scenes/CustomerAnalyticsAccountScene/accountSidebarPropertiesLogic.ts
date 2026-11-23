@@ -31,13 +31,15 @@ import {
     ACCOUNTS_TABLE_DATA_NODE_KEY,
 } from 'products/customer_analytics/frontend/constants'
 import * as api from 'products/customer_analytics/frontend/generated/api'
-import type { AccountApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+import type {
+    AccountApi,
+    UserCustomerAnalyticsConfigApi,
+} from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import type { PinnedAccountPropertyApi } from '../../generated/api.schemas'
 import { accountPropertyDataLogic } from './accountPropertyDataLogic'
 import { accountPropertyUpdatesLogic } from './accountPropertyUpdatesLogic'
 import {
-    AccountSidebarConfig,
     accountSidebarConfigLogic,
     AvailableDefinitions,
     ResolvedPinnedAccountProperty,
@@ -80,7 +82,7 @@ export interface accountSidebarPropertiesLogicValues {
     sharedPropertyDataLoadFailed: boolean // accountPropertyDataLogic
     availableDefinitions: AvailableDefinitions | null // accountSidebarConfigLogic
     availableDefinitionsLoadFailed: boolean // accountSidebarConfigLogic
-    config: AccountSidebarConfig | null // accountSidebarConfigLogic
+    config: UserCustomerAnalyticsConfigApi | null // accountSidebarConfigLogic
     configLoadFailed: boolean // accountSidebarConfigLogic
     sidebarPinnedProperties: ResolvedPinnedAccountProperty[] // accountSidebarConfigLogic
     members: OrganizationMemberType[] | null // membersLogic
@@ -288,7 +290,7 @@ export interface accountSidebarPropertiesLogicMeta {
             propertyData: AccountSidebarPropertyData | null
         ) => AccountRelationshipMember[]
         propertiesAvailable: (
-            config: AccountSidebarConfig | null,
+            config: UserCustomerAnalyticsConfigApi | null,
             availableDefinitions: AvailableDefinitions | null,
             needsPropertyData: boolean,
             propertyData: AccountSidebarPropertyData | null,
@@ -599,7 +601,7 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                     s.account,
                 ],
                 (
-                    config: AccountSidebarConfig | null,
+                    config: UserCustomerAnalyticsConfigApi | null,
                     definitions: AvailableDefinitions | null,
                     needsPropertyData: boolean,
                     data: AccountSidebarPropertyData | null,
@@ -783,6 +785,8 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                 [accountSidebarConfigLogic({ projectId: props.projectId }).actionTypes.loadConfigSuccess]: () =>
                     actions.loadPropertyData(),
                 [accountSidebarConfigLogic({ projectId: props.projectId }).actionTypes.persistPinnedPropertiesSuccess]:
+                    () => actions.loadPropertyData(),
+                [accountSidebarConfigLogic({ projectId: props.projectId }).actionTypes.persistFollowedDefaultSuccess]:
                     () => actions.loadPropertyData(),
                 [accountSidebarConfigLogic({ projectId: props.projectId }).actionTypes.loadAvailableDefinitionsSuccess]:
                     () => actions.loadPropertyData(),
