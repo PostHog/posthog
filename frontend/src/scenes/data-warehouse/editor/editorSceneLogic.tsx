@@ -1,4 +1,3 @@
-import { deepEqual as equal } from 'fast-equals'
 import {
     MakeLogicType,
     actions,
@@ -23,7 +22,6 @@ import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { splitQueries } from 'lib/monaco/multiQueryUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { uuid } from 'lib/utils/dom'
-import { removeUndefinedAndNull } from 'lib/utils/objects'
 import { NotebookNodeType, NotebookTarget } from 'scenes/notebooks/types'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -39,7 +37,7 @@ import type { CohortIdentifier, SaveAsTargetId } from 'products/data_warehouse/f
 
 import type { DataWarehouseSavedQuery, LinkBreadcrumb, InsightModel } from '../../../types'
 import type { notebookLogicType } from '../../notebooks/Notebook/notebookLogic'
-import { NEW_QUERY, normalizeFiltersForUrl, sqlEditorLogic, toDataVisualizationNode } from './sqlEditorLogic'
+import { NEW_QUERY, normalizeFiltersForUrl, sqlEditorLogic } from './sqlEditorLogic'
 import type { QueryTab, SqlEditorSource } from './sqlEditorLogic'
 import { SQLEditorMode } from './sqlEditorModes'
 
@@ -114,6 +112,7 @@ export interface editorSceneLogicValues {
     editingView: DataWarehouseSavedQuery | undefined // sqlEditorLogic
     editorSource: SqlEditorSource // sqlEditorLogic
     editorUrl: string // sqlEditorLogic
+    hasEditorChanges: boolean // sqlEditorLogic
     insightLoading: boolean // sqlEditorLogic
     queryInput: string | null // sqlEditorLogic
     sourceQuery: DataVisualizationNode // sqlEditorLogic
@@ -260,10 +259,8 @@ export interface editorSceneLogicMeta {
             secondary: SaveAsMenuItem[]
         }
         updateInsightButtonEnabled: (
-            sourceQuery: DataVisualizationNode,
-            activeTab: QueryTab | null,
             editingInsight: InsightModel<Node<Record<string, any>>> | null,
-            queryInput: string | null
+            hasEditorChanges: boolean
         ) => boolean
     }
 }
@@ -294,6 +291,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                 'editingView',
                 'editorUrl',
                 'editorSource',
+                'hasEditorChanges',
                 'insightLoading',
                 'queryInput',
                 'sourceQuery',
@@ -619,32 +617,9 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             },
         ],
         updateInsightButtonEnabled: [
-            (s) => [s.sourceQuery, s.activeTab, s.editingInsight, s.queryInput],
-            (
-                sourceQuery: DataVisualizationNode,
-                activeTab: null | import('./sqlEditorLogic').QueryTab,
-                editingInsight: null | import('~/types').InsightModel,
-                queryInput: string | null
-            ) => {
-                if (!editingInsight?.query) {
-                    return false
-                }
-
-                const updatedName = activeTab?.name !== editingInsight.name
-                const updatedDescription = (activeTab?.description ?? '') !== (editingInsight.description ?? '')
-                const sourceQueryWithoutUndefinedAndNullKeys = removeUndefinedAndNull({
-                    ...sourceQuery,
-                    source: { ...sourceQuery.source, query: queryInput ?? sourceQuery.source.query },
-                })
-                // Normalize so DataTableNode-based insights don't look "changed" immediately after load.
-                const editingInsightQuery = toDataVisualizationNode(editingInsight.query) ?? editingInsight.query
-
-                return (
-                    updatedName ||
-                    updatedDescription ||
-                    !equal(sourceQueryWithoutUndefinedAndNullKeys, removeUndefinedAndNull(editingInsightQuery))
-                )
-            },
+            (s) => [s.editingInsight, s.hasEditorChanges],
+            (editingInsight: InsightModel | null, hasEditorChanges: boolean): boolean =>
+                !!editingInsight?.query && hasEditorChanges,
         ],
     }),
     listeners(({ actions, values }) => ({

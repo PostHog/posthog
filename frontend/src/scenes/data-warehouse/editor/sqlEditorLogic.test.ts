@@ -1678,6 +1678,11 @@ describe('sqlEditorLogic', () => {
             })
             visualizationLogic.mount()
 
+            logic.actions.setSourceQuery({
+                ...MOCK_INSIGHT_QUERY,
+                source: { ...MOCK_INSIGHT_QUERY.source, variables: {} },
+            })
+            expect(logic.values.hasEditorChanges).toEqual(false)
             expect(editorRootLogic.values.updateInsightButtonEnabled).toEqual(false)
 
             logic.actions.setQueryInput('SELECT count() FROM events WHERE event = $pageview')
