@@ -223,6 +223,9 @@ class TermKeywordStats:
 class Keyword:
     text: str
     campaign_id: str
+    # Read from the campaign table, so a campaign without spend in the selected dates still counts.
+    channel_type: str | None
+    campaign_status: str | None
 
 
 @frozen
@@ -575,9 +578,7 @@ class _Recommender:
         self.worst_campaign_cpa = max(search_cpas, default=None)
         self.account_cpa = self._account_nonbrand_cpa()
         self.search_keywords = {
-            keyword.text
-            for keyword in inputs.keywords
-            if (campaign := self.campaigns.get(keyword.campaign_id)) and _serves_search(campaign)
+            keyword.text for keyword in inputs.keywords if _serves_search(keyword.channel_type, keyword.campaign_status)
         }
 
     def run(self) -> list[MarketingAnalyticsRecommendation]:
@@ -597,7 +598,11 @@ class _Recommender:
         ):
             return False
         # Only Search ads have a keyword to pass.
-        serving = [campaign for campaign in self.campaigns.values() if _serves_search(campaign)]
+        serving = [
+            campaign
+            for campaign in self.campaigns.values()
+            if _serves_search(campaign.channel_type, campaign.primary_status)
+        ]
         # The settings are read as they are now, so an account that just added the parameter drops out at once,
         # while the sessions in the selected dates still lack it.
         if not serving or _passes_keyword(tracking.account_final_url_suffix):
@@ -1284,7 +1289,9 @@ class _Recommender:
         vocabulary: dict[str, dict[str, float]],
         competitors: set[str],
     ) -> list[MarketingAnalyticsRecommendation]:
-        has_search = any(_serves_search(campaign) for campaign in self.campaigns.values())
+        has_search = any(
+            _serves_search(campaign.channel_type, campaign.primary_status) for campaign in self.campaigns.values()
+        )
         channel = "SEARCH" if has_search else "PERFORMANCE_MAX"
         landing_campaigns = self._landing_campaigns()
         impressions = sorted(query.impressions for query in self.organic.values())
@@ -1907,8 +1914,8 @@ class _Recommender:
         return f"${amount:,.0f}" if currency in ("USD", "") else f"{amount:,.0f} {currency}"
 
 
-def _serves_search(campaign: CampaignStats) -> bool:
-    return campaign.channel_type == "SEARCH" and campaign.primary_status not in INACTIVE_STATUSES
+def _serves_search(channel_type: str | None, primary_status: str | None) -> bool:
+    return channel_type == "SEARCH" and primary_status not in INACTIVE_STATUSES
 
 
 def _passes_keyword(url_option: str | None) -> bool:

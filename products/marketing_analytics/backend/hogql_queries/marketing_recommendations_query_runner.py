@@ -611,18 +611,39 @@ class MarketingAnalyticsRecommendationsQueryRunner(
         self, source: MarketingAnalyticsRecommendationsSource, organic_queries: tuple[OrganicQueryStats, ...]
     ) -> list[Keyword]:
         # Only organic queries can become a keyword gap, so the account's other keywords are not read.
-        if not organic_queries or not source.keywordTable or not self._readable(source.keywordTable):
+        if (
+            not organic_queries
+            or not source.keywordTable
+            or not self._readable(source.keywordTable)
+            or not source.campaignTable
+            or not self._readable(source.campaignTable)
+        ):
             return []
         rows = self._select(
             """
-            SELECT DISTINCT lower(trim(ad_group_criterion_keyword_text)) AS text, toString(campaign_id)
-            FROM {table}
-            WHERE toString(ad_group_criterion_status) = 'ENABLED' AND has({queries}, text)
+            SELECT DISTINCT lower(trim(keyword.ad_group_criterion_keyword_text)) AS text, toString(keyword.campaign_id),
+                campaign.channel_type, campaign.status
+            FROM {table} AS keyword
+            INNER JOIN (
+                SELECT toString(campaign_id) AS id, any(campaign_advertising_channel_type) AS channel_type,
+                    any(coalesce(nullIf(toString({primary_status}), ''), toString({serving_status}))) AS status
+                FROM {campaigns}
+                GROUP BY campaign_id
+            ) AS campaign ON campaign.id = toString(keyword.campaign_id)
+            WHERE toString(keyword.ad_group_criterion_status) = 'ENABLED' AND text IN {queries}
             """,
             source.keywordTable,
-            queries=ast.Constant(value=sorted({query.query for query in organic_queries})),
+            campaigns=ast.Field(chain=list[str | int](source.campaignTable.split("."))),
+            primary_status=self._field(source.campaignTable, "campaign_primary_status"),
+            serving_status=self._field(source.campaignTable, "campaign_status"),
+            queries=ast.Tuple(
+                exprs=[ast.Constant(value=query) for query in sorted({q.query for q in organic_queries})]
+            ),
         )
-        return [Keyword(text=row[0], campaign_id=row[1]) for row in rows]
+        return [
+            Keyword(text=row[0], campaign_id=row[1], channel_type=row[2] or None, campaign_status=row[3] or None)
+            for row in rows
+        ]
 
     def _excluded_searches(self, source: MarketingAnalyticsRecommendationsSource) -> frozenset[ExcludedSearch]:
         table = source.searchTermTable

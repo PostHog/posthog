@@ -831,15 +831,15 @@ class TestMarketingRecommendations(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("keyword_in_active_search_campaign", "c1", "keyword_added"),
-            ("keyword_in_paused_campaign", "paused", None),
-            ("keyword_in_unknown_campaign", "gone", None),
+            ("keyword_in_active_search_campaign", "SEARCH", "ENABLED", "keyword_added"),
+            ("keyword_in_paused_campaign", "SEARCH", "PAUSED", None),
+            ("keyword_in_display_campaign", "DISPLAY", "ENABLED", None),
         ]
     )
     def test_keyword_gap_is_applied_once_the_search_is_a_keyword(
-        self, _name: str, keyword_campaign: str, expected: str | None
+        self, _name: str, channel_type: str, campaign_status: str, expected: str | None
     ) -> None:
-        campaigns = (_campaign(), _campaign(id="paused", name="Paused", primary_status="PAUSED"))
+        campaigns = (_campaign(),)
         terms = (_term("funnel tracking", "c1", cost=100, conversions=10),)
         organic = (OrganicQueryStats(query="funnel tracking tool", clicks=1, impressions=5000, position=25),)
 
@@ -848,7 +848,15 @@ class TestMarketingRecommendations(SimpleTestCase):
                 campaigns,
                 terms,
                 organic,
-                keywords=(Keyword(text="funnel tracking tool", campaign_id=keyword_campaign),),
+                # A campaign with no spend in the selected dates, so it is not among the campaigns above.
+                keywords=(
+                    Keyword(
+                        text="funnel tracking tool",
+                        campaign_id="new",
+                        channel_type=channel_type,
+                        campaign_status=campaign_status,
+                    ),
+                ),
             )
         )
 

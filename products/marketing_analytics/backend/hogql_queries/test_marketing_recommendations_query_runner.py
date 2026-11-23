@@ -258,16 +258,26 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
             "2,funnel analysis,PAUSED\n"
             "4,session replay,ENABLED\n",
         )
+        # Campaign 1 has no stats rows, so the keyword reads its campaign without depending on spend.
+        campaigns = self._table(
+            "campaign",
+            {"campaign_id": "Int64", "campaign_advertising_channel_type": "String", "campaign_status": "String"},
+            "campaign_id,campaign_advertising_channel_type,campaign_status\n1,SEARCH,ENABLED\n2,SEARCH,ENABLED\n",
+        )
         runner = MarketingAnalyticsRecommendationsQueryRunner(
             query=MarketingAnalyticsRecommendationsQuery(), team=self.team, user=self.user
         )
 
         found = runner._keywords(
-            MarketingAnalyticsRecommendationsSource(sourceType="GoogleAds", keywordTable=keywords),
+            MarketingAnalyticsRecommendationsSource(
+                sourceType="GoogleAds", keywordTable=keywords, campaignTable=campaigns
+            ),
             (OrganicQueryStats(query="funnel analysis", clicks=1, impressions=100, position=20),),
         )
 
-        assert found == [Keyword(text="funnel analysis", campaign_id="1")]
+        assert found == [
+            Keyword(text="funnel analysis", campaign_id="1", channel_type="SEARCH", campaign_status="ENABLED")
+        ]
 
     def test_reads_the_enabled_ads_of_each_ad_group(self) -> None:
         campaigns = self._table(
