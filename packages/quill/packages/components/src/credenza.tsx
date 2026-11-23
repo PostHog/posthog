@@ -35,9 +35,7 @@ interface CredenzaProps {
     children?: React.ReactNode
 }
 
-/** The props both roots share, so `CredenzaContent` spreads them onto whichever root fits the mode. */
 interface CredenzaRootProps {
-    /** Connects the triggers to whichever root is mounted, so a change of mode never remounts a trigger. */
     handle: ReturnType<typeof createDrawerHandle>
     open: boolean
     onOpenChange: (open: boolean) => void
