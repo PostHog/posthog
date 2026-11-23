@@ -65,6 +65,7 @@ interface FakeDomain {
     confirmed: Set<RecordKind>
     awaitingRecord: boolean
     sendingStopped: boolean
+    sesMailFromSubdomain?: string
 }
 
 interface Hold {
@@ -284,9 +285,18 @@ export class FakeEmailDomainBackend {
         this.senders.forEach((sender) => {
             const { ses_sending_status: _cleared, ...config } = sender.config as Record<string, unknown>
             if (config.domain === domain) {
-                sender.config = { ...config, verified: true }
+                sender.config = {
+                    ...config,
+                    verified: true,
+                    mail_from_subdomain: state.sesMailFromSubdomain ?? config.mail_from_subdomain,
+                }
             }
         })
+    }
+
+    /** SES already uses another MAIL FROM subdomain, so the next verify adopts it on the domain's senders. */
+    sesUsesMailFrom(domain: string, subdomain: string): void {
+        this.domainState(domain).sesMailFromSubdomain = subdomain
     }
 
     /** The sender health check found the domain's records gone: its senders keep `verified` but every send fails. */
