@@ -24,7 +24,6 @@ from products.alerts_platform.backend.facade.contracts import (
     DestinationSend,
     DestinationType,
     EnabledNativeConfiguration,
-    HandbackRefusal,
     HeldAlertSearchMatch,
     HeldDeliveryAddress,
     LegacyAlertHistory,
@@ -48,7 +47,6 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformCheckPage,
     PlatformControlChangePage,
     PlatformControlHistory,
-    PlatformHandback,
     PlatformLastCheck,
     PlatformOwnershipHandover,
     SourceDestination,
@@ -171,14 +169,12 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
     return platform_lifecycle.upsert_configuration(upsert, revive=revive)
 
 
-def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False, admit_new_teams: bool = False) -> None:
+def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> None:
     """Copy one configuration in only when its team already runs that source here.
 
     `revive` says the source alert was just created or turned back on, so the copy starts clean.
-    `admit_new_teams` also admits a team with no enabled copy while the source runs elsewhere and
-    no operator switched that team off.
     """
-    platform_lifecycle.upsert_if_running(upsert, revive=revive, admit_new_teams=admit_new_teams)
+    platform_lifecycle.upsert_if_running(upsert, revive=revive)
 
 
 def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlertUpsert) -> None:
@@ -189,18 +185,6 @@ def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlert
 def take_ownership(handover: PlatformOwnershipHandover) -> bool:
     """Makes the platform the owner of a copied alert, carrying on from the source's state."""
     return platform_lifecycle.take_ownership(handover)
-
-
-def give_back_ownership(
-    *, team_id: int, legacy_configuration_id: UUID, at: datetime, source_runs_calendar_schedules: bool = False
-) -> PlatformHandback | HandbackRefusal:
-    """Hands a copied alert back to its source, or says why the platform keeps it."""
-    return platform_lifecycle.give_back_ownership(
-        team_id=team_id,
-        legacy_configuration_id=legacy_configuration_id,
-        at=at,
-        source_runs_calendar_schedules=source_runs_calendar_schedules,
-    )
 
 
 def reset_broken(*, team_id: int, public_id: UUID, at: datetime) -> int | None:

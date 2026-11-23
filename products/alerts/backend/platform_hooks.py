@@ -64,11 +64,19 @@ def insight_alert_creator(*, team_id: int, alert_id: UUID) -> int | None:
     from products.alerts.backend.models.alert import (
         AlertConfiguration,  # noqa: PLC0415 - keeps alert models off the startup path
     )
-    from products.alerts.backend.platform_insight_alert import native_insight_alert_view  # noqa: PLC0415
+    from products.alerts.backend.platform_insight_alert import (  # noqa: PLC0415
+        moved_alert_settings,
+        native_insight_alert_view,
+    )
+    from products.alerts_platform.backend.facade.enums import PlatformAlertOwner  # noqa: PLC0415
 
-    row = AlertConfiguration.objects.filter(team_id=team_id, id=alert_id).values("created_by_id").first()
-    if row is not None:
+    row = AlertConfiguration.objects.filter(team_id=team_id, id=alert_id).values("created_by_id", "owner").first()
+    if row is not None and row["owner"] != PlatformAlertOwner.PLATFORM:
         return row["created_by_id"]
+    if row is not None:
+        # A moved alert's creator lives on its copy, which an ownership transfer writes.
+        settings = moved_alert_settings(team_id=team_id, alert_ids=[alert_id]).get(alert_id)
+        return settings.created_by_id if settings is not None else row["created_by_id"]
     native = native_insight_alert_view(team_id, alert_id)
     return native.created_by_id if native is not None else None
 
