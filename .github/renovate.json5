@@ -14,12 +14,14 @@
     'nodenv',
     'nvm',
   ],
-  dependencyDashboardTitle: 'Renovate: Dependency Status',
-  dependencyDashboardLabels: [
-    'dependencies',
-  ],
-  dependencyDashboardOSVVulnerabilitySummary: 'all',
-  dependencyDashboardReportAbandonment: false,
+  dependencyDashboard: {
+    title: 'Renovate: Dependency Status',
+    labels: [
+      'dependencies',
+    ],
+    osvVulnerabilitySummary: 'all',
+    reportAbandonment: false,
+  },
   prConcurrentLimit: 5,
   gitIgnoredAuthors: [
     '206114724+posthog[bot]@users.noreply.github.com',
