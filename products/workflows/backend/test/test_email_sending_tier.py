@@ -1,6 +1,7 @@
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
-from posthog.test.base import BaseTest
+import time_machine
+from posthog.test.base import BaseTest, ClickhouseTestMixin, run_clickhouse_statement_in_parallel
 from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
@@ -9,6 +10,8 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
+from posthog.test.fixtures import create_app_metric2
 
 from products.workflows.backend.management.commands.backfill_workflows_email_sending_tiers import (
     Command as BackfillCommand,
@@ -663,6 +666,52 @@ class TestRecomputeEmailSendingTiers(BaseTest):
         self._run({self.team.id: history(team_id=self.team.id, sent=sum(used.values()), daily_sends=used)})
 
         assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == tier
+
+
+@override_settings(**TIER_SETTINGS)
+class TestRecomputeFromAppMetrics(ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        run_clickhouse_statement_in_parallel([TRUNCATE_APP_METRICS2_TABLE_SQL])
+
+    def _metric(self, metric_name: str, count: int, timestamp: datetime) -> None:
+        create_app_metric2(
+            team_id=self.team.pk,
+            app_source="hog_flow",
+            metric_kind="email",
+            metric_name=metric_name,
+            count=count,
+            timestamp=timestamp,
+        )
+
+    @parameterized.expand(
+        [
+            ("complaints already behind the last demotion", 0, 4, "tier_not_used_enough"),
+            ("new complaints after the last demotion", 2, 3, "rates_above_threshold"),
+        ]
+    )
+    def test_one_incident_demotes_once_when_the_cooldown_ends(
+        self, _name: str, days_after_demotion: int, expected_tier: int, expected_reason: str
+    ) -> None:
+        demoted_at = datetime(2026, 1, 10, 6, 0, tzinfo=UTC)
+        TeamWorkflowsConfig.objects.update_or_create(
+            team=self.team,
+            defaults={
+                "email_sending_tier": 4,
+                "email_sending_tier_updated_at": demoted_at,
+                "email_sending_tier_demoted_at": demoted_at,
+            },
+        )
+        for day in range(-7, 7):
+            self._metric("email_sent", 200, demoted_at + timedelta(days=day, hours=5))
+        # Shortly before a sweep, so in the first case they fed the demotion itself.
+        self._metric("email_blocked", 2, demoted_at + timedelta(days=days_after_demotion, minutes=-30))
+
+        with time_machine.travel(demoted_at + timedelta(days=7, minutes=1), tick=False):
+            decisions = recompute_email_sending_tiers(team_ids=[self.team.id])
+
+        assert [(d.new_tier, d.reason) for d in decisions] == [(expected_tier, expected_reason)]
+        assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == expected_tier
 
 
 @override_settings(**TIER_SETTINGS)

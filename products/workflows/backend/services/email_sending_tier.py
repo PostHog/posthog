@@ -389,14 +389,16 @@ def build_sending_history_windows(
     """The full promotion window and the shorter demotion window, from one query.
 
     The recent window is cut on calendar days (UTC), matching the day granularity the metrics are
-    fetched at, so its edge can be up to a day coarser than `recent_after`.
+    fetched at. It starts on the first whole day after `recent_after`, so it never reaches further
+    back than `recent_after`. The demotion cooldown relies on that: once it ends, the day of the
+    last demotion and the incident behind it are out of the window.
     """
     daily_by_team = _fetch_daily_metrics(after=after, before=before, team_ids=team_ids)
     recent_key = recent_after.strftime("%Y-%m-%d")
     return SendingHistoryWindows(
         window={team_id: _history_from_daily(team_id, days) for team_id, days in daily_by_team.items()},
         recent={
-            team_id: _history_from_daily(team_id, {day: counts for day, counts in days.items() if day >= recent_key})
+            team_id: _history_from_daily(team_id, {day: counts for day, counts in days.items() if day > recent_key})
             for team_id, days in daily_by_team.items()
         },
     )
