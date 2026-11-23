@@ -1,27 +1,24 @@
 rules:
     - id: no-at-current-in-api-urls
       message: |
-          `@current` in API URLs is deprecated. Use explicit IDs from
-          `currentTeamLogic` / `currentProjectLogic` / `currentOrganizationLogic`
-          instead — `currentTeamIdStrict` / `currentProjectIdStrict` /
-          `currentOrganizationIdStrict` are non-nullable selectors that throw
-          if accessed before the data is loaded.
+          `@current` in an API path resolves to the project or organization the
+          user last opened, in any tab or device. A call that sends it can act on
+          a different project than the one on screen, and the API is retiring it.
 
-          Why: `@current` is implicit server-side state. The frontend has the
-          resolved ID; sending it explicitly removes a class of bugs caused by
-          frontend/backend disagreement about which project/org is "current".
+          Pass the explicit ID instead: `currentProjectId` from `projectLogic`,
+          `currentTeamId` from `teamLogic`, or `currentOrganization?.id` from
+          `organizationLogic`. Each is null until loaded, so skip the call until
+          then rather than falling back to `'@current'`. Avoid
+          `teamLogic.currentProjectId`, `teamLogic.currentTeamIdStrict` and
+          `organizationLogic.currentOrganizationId`: they return `'@current'`
+          before the data loads.
 
-          Context: PR #51110 migrated the bulk of frontend calls. A small set
-          of bootstrap files (teamLogic, organizationLogic, projectLogic,
-          welcomeDialogLogic, lib/api.ts) and the toolbar still use `@current`
-          intentionally — they're exempted via paths.exclude below.
-
-          This rule is currently informational (WARNING severity). Findings
-          are the backlog of call sites still to migrate. Once the backlog
-          hits zero this rule's severity will be switched to ERROR so
-          regressions get blocked.
+          This covers URLs and IDs passed to generated API clients, such as
+          `fooRetrieve('@current')`. `personal_api_keys/@current` names the key
+          itself and is allowed. A few bootstrap files and the toolbar are
+          exempted in paths.exclude below.
       languages: [typescript, javascript]
-      severity: WARNING
+      severity: ERROR
       paths:
           include:
               - 'frontend/'
@@ -30,6 +27,8 @@ rules:
               # tests and fixtures legitimately exercise the `@current` route
               - '**/*.test.ts'
               - '**/*.test.tsx'
+              - '**/*.spec.ts'
+              - '**/e2e/**'
               - '**/test/**'
               - '**/__tests__/**'
               - '**/*.stories.tsx'
@@ -42,40 +41,15 @@ rules:
               - '/frontend/src/scenes/teamLogic.tsx'
               - '/frontend/src/scenes/organizationLogic.tsx'
               - '/frontend/src/scenes/projectLogic.ts'
-              - '/frontend/src/scenes/welcome/welcomeDialogLogic.ts'
-              - '/frontend/src/lib/api.ts'
-      pattern-either:
-          # api.<verb>($URL, ...) with @current in the URL string/template literal
-          - patterns:
-                - pattern-either:
-                      - pattern: api.get($URL, ...)
-                      - pattern: api.post($URL, ...)
-                      - pattern: api.put($URL, ...)
-                      - pattern: api.patch($URL, ...)
-                      - pattern: api.delete($URL, ...)
-                      - pattern: api.create($URL, ...)
-                      - pattern: api.update($URL, ...)
-                - metavariable-regex:
-                      metavariable: $URL
-                      regex: '.*@current.*'
-          # Semgrep's TypeScript parser treats generic-typed calls
-          # (api.create<T>(...)) as a different AST shape that the patterns above
-          # don't match — same limitation as documented in prefer-codegen-api.yaml.
-          # Fall back to a regex; bounds type args by `(` so nested generics like
-          # api.get<PaginatedResponse<Foo>>(...) still match.
-          - pattern-regex: '\bapi\.(get|post|put|patch|delete|create|update)<[^(]*>\s*\([^)]*@current[^)]*'
-          # raw fetch with full URL
-          - patterns:
-                - pattern: fetch($URL, ...)
-                - metavariable-regex:
-                      metavariable: $URL
-                      regex: '.*@current.*'
-          # combineUrl for query string building
-          - patterns:
-                - pattern: combineUrl($URL, ...)
-                - metavariable-regex:
-                      metavariable: $URL
-                      regex: '.*@current.*'
+      patterns:
+          # Any string or template literal with an `@current` path segment: URLs
+          # handed to api/fetch/combineUrl, `<img src>` URLs, and IDs passed to
+          # generated clients or used as a fallback (`org?.id ?? '@current'`).
+          - pattern: '"$S"'
+          - metavariable-regex:
+                metavariable: $S
+                regex: '^(.*/)?@current([/?#].*)?$'
+          - pattern-not-regex: 'personal_api_keys/@current'
       metadata:
           category: best-practice
           subcategory:

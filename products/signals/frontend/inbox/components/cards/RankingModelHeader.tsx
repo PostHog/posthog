@@ -1,7 +1,7 @@
 const COMPARISON = 'How likely, compared with the average report'
 
 /**
- * The model heading on the ranking hover cards. The Recommended and Personalized cards share it, so
+ * The model heading on the ranking hover cards. The Recommended and personal cards share it, so
  * the two cards describe the scores with the same words. `note` adds a sentence after the comparison.
  */
 export function RankingModelHeader({ note }: { note?: string }): JSX.Element {

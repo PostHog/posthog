@@ -1,6 +1,6 @@
 import uuid
 import threading
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import ClassVar, cast
 
 from posthog.test.base import BaseTest
@@ -16,6 +16,7 @@ from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.error_tracking.backend.logic import team_flags
 from products.error_tracking.backend.logic.issue_tags import registry, runner
+from products.error_tracking.backend.logic.issue_tags.flag import ISSUE_TAGS_FLAG, JEV_ISSUE_TAGS_FLAG
 from products.error_tracking.backend.logic.issue_tags.registry import IssueTagDefinition, JevTaggerConfig
 from products.error_tracking.backend.logic.issue_tags.runner import IssueTaggingSkipReason, TaggerRun, run_issue_taggers
 from products.error_tracking.backend.logic.issue_tags.taggers.base import TagAnswer, TagContext
@@ -23,7 +24,10 @@ from products.error_tracking.backend.logic.issue_tags.taggers.jev import JevTagg
 from products.error_tracking.backend.logic.severity_inference import SEVERITY_INFERENCE_MODEL
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueTag
 from products.error_tracking.backend.temporal.lifecycle.event_properties import IssueCreatedEventNotFoundError
-from products.error_tracking.backend.temporal.lifecycle.issue_created.activities import tag_issue_created_activity
+from products.error_tracking.backend.temporal.lifecycle.issue_created.activities import (
+    tag_issue_created_activity,
+    tag_issue_created_merge_target_activity,
+)
 from products.error_tracking.backend.temporal.lifecycle.issue_created.types import (
     ISSUE_TAGS_UNAVAILABLE_ERROR_TYPE,
     IssueCreatedSnapshot,
@@ -63,7 +67,7 @@ BLOCKS_CHECKOUT = IssueTagDefinition(
     label="Blocks checkout",
     description="The error stops a user from paying.",
     question_version=2,
-    enabled_flag="error-tracking-issue-tags",
+    enabled_flag=ISSUE_TAGS_FLAG,
     taggers=(JevTaggerConfig(instructions="Does this error stop a user from paying?", yes_at=0.8, no_at=0.2),),
 )
 RETRIES_ITSELF = IssueTagDefinition(
@@ -71,7 +75,7 @@ RETRIES_ITSELF = IssueTagDefinition(
     label="Retries itself",
     description="The application retries the failed call by itself.",
     question_version=1,
-    enabled_flag="error-tracking-issue-tags",
+    enabled_flag=ISSUE_TAGS_FLAG,
     taggers=(
         JevTaggerConfig(instructions="Does the application retry the failed call by itself?", yes_at=0.6, no_at=0.4),
     ),
@@ -102,25 +106,26 @@ def _decision(answers: dict[str, NoulAnswer]) -> DecisionResult:
     return DecisionResult(model="jev-model", answers=dict(answers), input_tokens=10)
 
 
+def _flags_on(*flags: str) -> Callable[..., bool]:
+    return lambda flag, *args, **kwargs: flag in flags
+
+
 class TestJevTagger(SimpleTestCase):
     @parameterized.expand(
         [
             ("at_yes_threshold", 0.8, True),
-            ("between_thresholds", 0.5, None),
+            ("just_below_yes_threshold", 0.79, False),
             ("at_no_threshold", 0.2, False),
         ]
     )
-    def test_maps_the_probability_through_the_tag_thresholds(
-        self, _name: str, probability: float, expected: bool | None
+    def test_applies_the_label_only_at_or_above_the_yes_threshold(
+        self, _name: str, probability: float, applied: bool
     ) -> None:
         with patch(DECIDE, return_value=_decision({"blocks_checkout": NoulAnswer(probability=probability)})):
             answers = JevTagger().answer(self._context(), [BLOCKS_CHECKOUT])
 
-        assert answers == {
-            "blocks_checkout": TagAnswer(
-                value=expected, probability=probability, model="jev-model", question_version=2, set_by=None
-            )
-        }
+        label = TagAnswer(value=True, probability=probability, model="jev-model", question_version=2, set_by=None)
+        assert answers == ({"blocks_checkout": label} if applied else {})
 
     def test_asks_every_tag_in_one_private_request_and_leaves_out_an_unanswered_tag(self) -> None:
         with patch(DECIDE, return_value=_decision({"blocks_checkout": NoulAnswer(probability=0.9)})) as decide:
@@ -136,17 +141,17 @@ class TestJevTagger(SimpleTestCase):
             ),
         }
         assert (request.state, request.privacy_mode, request.model) == (
-            "TypeError: cart is undefined",
+            "TypeError: cart is undefined\nsubmitOrder in src/checkout/cart.ts line 42\nLevel: error",
             True,
             SEVERITY_INFERENCE_MODEL,
         )
         assert list(answers) == ["blocks_checkout"]
 
     def _context(self) -> TagContext:
-        return TagContext(issue=ErrorTrackingIssue(team_id=1), state="TypeError: cart is undefined")
+        return TagContext(issue=ErrorTrackingIssue(team_id=1), event_properties=EVENT_PROPERTIES)
 
 
-@patch.object(team_flags, "feature_enabled_or_false", new=lambda *args, **kwargs: True)
+@patch.object(team_flags, "feature_enabled_or_false", new=_flags_on(ISSUE_TAGS_FLAG, JEV_ISSUE_TAGS_FLAG))
 class TestRunIssueTaggers(BaseTest):
     def test_stores_the_jev_answer_to_cause_in_trace(self) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team)
@@ -169,12 +174,18 @@ class TestRunIssueTaggers(BaseTest):
 
     @parameterized.expand(
         [
-            ("issue_tags_off", False, True, IssueTaggingSkipReason.DISABLED),
-            ("ai_data_processing_not_approved", True, False, IssueTaggingSkipReason.NO_TAGGER),
+            ("issue_tags_off", set(), True, IssueTaggingSkipReason.DISABLED),
+            ("jev_tags_off", {ISSUE_TAGS_FLAG}, True, IssueTaggingSkipReason.NO_TAGGER),
+            (
+                "ai_data_processing_not_approved",
+                {ISSUE_TAGS_FLAG, JEV_ISSUE_TAGS_FLAG},
+                False,
+                IssueTaggingSkipReason.NO_TAGGER,
+            ),
         ]
     )
     def test_reads_no_event_and_asks_no_model_when_no_tagger_applies(
-        self, _name: str, flag_on: bool, ai_approved: bool, expected: IssueTaggingSkipReason
+        self, _name: str, flags_on: set[str], ai_approved: bool, expected: IssueTaggingSkipReason
     ) -> None:
         self.organization.is_ai_data_processing_approved = ai_approved
         self.organization.save()
@@ -182,7 +193,7 @@ class TestRunIssueTaggers(BaseTest):
         load_event_properties = MagicMock(return_value=EVENT_PROPERTIES)
 
         with (
-            patch.object(team_flags, "feature_enabled_or_false", return_value=flag_on),
+            patch.object(team_flags, "feature_enabled_or_false", new=_flags_on(*flags_on)),
             patch(DECIDE) as decide,
         ):
             result = run_issue_taggers(self.team.id, issue.id, load_event_properties)
@@ -199,7 +210,7 @@ class TestRunIssueTaggers(BaseTest):
             label="Cause in trace",
             description="The stack trace shows where in your code the error starts.",
             question_version=1,
-            enabled_flag="error-tracking-issue-tags",
+            enabled_flag=ISSUE_TAGS_FLAG,
             taggers=(
                 _NewTaggerConfig(),
                 JevTaggerConfig(instructions="Is the cause in the trace?", yes_at=0.7, no_at=0.3),
@@ -209,7 +220,7 @@ class TestRunIssueTaggers(BaseTest):
         with (
             patch.object(registry, "ISSUE_TAG_DEFINITIONS", (definition,)),
             patch.object(runner, "TAGGERS", (_FailingTagger(error), JevTagger())),
-            patch(DECIDE, return_value=_decision({"cause_in_trace": NoulAnswer(probability=0.1)})),
+            patch(DECIDE, return_value=_decision({"cause_in_trace": NoulAnswer(probability=0.9)})),
         ):
             result = run_issue_taggers(self.team.id, issue.id, lambda team: EVENT_PROPERTIES)
 
@@ -217,7 +228,7 @@ class TestRunIssueTaggers(BaseTest):
             TaggerRun(source=NEW_TAGGER, error=error),
             TaggerRun(source=Source.JEV),
         )
-        assert ErrorTrackingIssueTag.objects.for_team(self.team.id).get(issue=issue).value is False
+        assert ErrorTrackingIssueTag.objects.for_team(self.team.id).get(issue=issue).value is True
 
     def test_returns_cleanly_when_a_merge_removes_the_issue_while_jev_answers(self) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team)
@@ -271,18 +282,35 @@ class TestTagIssueCreatedActivity(BaseTest):
         assert not ErrorTrackingIssueTag.objects.for_team(self.team.id).filter(issue=issue).exists()
         assert slots.acquire(blocking=False)
 
-    def test_skips_without_reading_the_event_when_every_tag_slot_is_in_use(self) -> None:
+    @parameterized.expand(
+        [
+            ("new_issue", tag_issue_created_activity, "ISSUE_TAG_WORKER_SLOTS", "ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES"),
+            (
+                "merge_target",
+                tag_issue_created_merge_target_activity,
+                "MERGE_TARGET_TAG_WORKER_SLOTS",
+                "ERROR_TRACKING_MERGE_TARGET_TAGGER_OUTCOMES",
+            ),
+        ]
+    )
+    def test_skips_without_reading_the_event_when_every_tag_slot_is_in_use(
+        self,
+        _name: str,
+        tag_activity: Callable[[IssueCreatedWorkflowInputs], None],
+        slots_name: str,
+        outcomes_name: str,
+    ) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team)
         slots = threading.BoundedSemaphore(1)
         slots.acquire()
 
         with (
-            patch(f"{ACTIVITIES}.ISSUE_TAG_WORKER_SLOTS", slots),
+            patch(f"{ACTIVITIES}.{slots_name}", slots),
             patch(f"{ACTIVITIES}.fetch_event_properties") as fetch_event_properties,
             patch(DECIDE) as decide,
-            patch(f"{ACTIVITIES}.ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES") as outcomes,
+            patch(f"{ACTIVITIES}.{outcomes_name}") as outcomes,
         ):
-            tag_issue_created_activity(self._inputs(issue))
+            tag_activity(self._inputs(issue))
 
         outcomes.labels.assert_called_once_with(tagger="none", outcome="worker_busy")
         fetch_event_properties.assert_not_called()

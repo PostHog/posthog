@@ -331,6 +331,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "Team",
         "User",
         # --- Instance-level config ---
+        "CIMDProvisioningReview",  # one row per self-registered OAuth partner app, read only by staff
         "DeletionRunLog",  # one row per deletion Dagster run, across all teams
         "AsyncMigration",
         "AsyncMigrationError",
@@ -374,6 +375,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "LinkedIdentityProviderConfig",
         "IdJagIdentity",
         # --- User-scoped (cross-tenant by design) ---
+        "IdentityProviderEmailVerification",
         "NotificationViewed",
         "SCIMProvisionedUser",
         "SCIMRequestLog",
@@ -384,6 +386,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "GlobalRateLimitThresholdConfig",
         "MessagingRecord",
         "UserActivitySummaryQueueCursor",  # one global read position per input source, no rows of a team
+        "MailgunDomainRegistration",  # sending domains this region added to the shared Mailgun account; outlives teams
     }
 
     # Baseline violations — these models SHOULD have team_id but don't yet.

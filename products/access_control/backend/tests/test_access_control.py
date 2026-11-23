@@ -1382,10 +1382,10 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
             f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}", expected_extra_queries=5
         )
 
-        # Project access doesn't double query the object, but roles and access controls load 3 times, 2 queries each
+        # Project access loads the user's roles and the project's access controls once each, which adds 2 queries
         # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
         self._assert_access_control_adds_queries(
-            "/api/projects/@current/is_generating_demo_data", expected_extra_queries=6
+            "/api/projects/@current/is_generating_demo_data", expected_extra_queries=2
         )
 
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
@@ -1423,10 +1423,10 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
     def test_query_counts_stable_for_project_access(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
 
-        # Project access doesn't double query the object, but roles and access controls load 3 times, 2 queries each
+        # Project access loads the user's roles and the project's access controls once each, which adds 2 queries
         # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
         self._assert_access_control_adds_queries(
-            "/api/projects/@current/is_generating_demo_data", expected_extra_queries=6
+            "/api/projects/@current/is_generating_demo_data", expected_extra_queries=2
         )
 
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
@@ -1514,6 +1514,20 @@ class TestAccessControlFiltering(BaseAccessControlTest):
         res = self._get_notebooks()
         assert len(res.json()["results"]) == 2
 
+    @parameterized.expand([("default", "", 1), ("admin_include_all", "?admin_include_all=true", 2)])
+    def test_org_admin_lists_a_restricted_notebook_only_when_asking_for_all(
+        self, _name: str, query: str, expected: int
+    ) -> None:
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        assert (
+            self._put_notebook_access_control(self.other_user_notebook.short_id, {"access_level": "none"}).status_code
+            == status.HTTP_200_OK
+        )
+
+        res = self.client.get(f"/api/projects/@current/notebooks/{query}")
+
+        assert len(res.json()["results"]) == expected
+
     def test_search_results_exclude_restricted_objects(self):
         res = self.client.get("/api/projects/@current/search?q=my notebook")
         assert len(res.json()["results"]) == 2
@@ -1586,6 +1600,37 @@ class TestAccessControlProjectFiltering(BaseAccessControlTest):
         assert len(self.client.get("/api/projects").json()["results"]) == 3
         me_response = self.client.get("/api/users/@me").json()
         assert len(me_response["organization"]["teams"]) == 3
+
+    def test_switching_organization_skips_a_project_the_member_cannot_access(self):
+        self._put_project_access_control_as_admin(self.team.id, {"access_level": "none"})
+
+        response = self.client.patch("/api/users/@me/", {"set_current_organization": str(self.organization.id)})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        self.user.refresh_from_db()
+        assert self.user.current_team_id == self.other_team.id
+
+    def test_switching_organization_refuses_a_scoped_key_whose_project_is_hidden(self):
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Scoped key",
+            secure_value=hash_key_value(token),
+            scopes=["user:write"],
+            scoped_teams=[self.team.id],
+        )
+        self._put_project_access_control_as_admin(self.team.id, {"access_level": "none"})
+        self.client.logout()
+
+        response = self.client.patch(
+            "/api/users/@me/",
+            {"set_current_organization": str(self.organization.id)},
+            headers={"authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        self.user.refresh_from_db()
+        assert self.user.current_team_id == self.team.id
 
     def test_template_render_filters_teams(self):
         app_context = self._get_posthog_app_context()
@@ -2871,9 +2916,8 @@ class TestOrganizationMemberProjectAccess(BaseAccessControlTest):
             team=team, resource="project", resource_id=str(team.id), access_level=access_level, **subject
         )
 
-    def _get(self, member_id=None):
-        url = "/api/organizations/@current/members/project_access"
-        res = self.client.get(url if member_id is None else f"{url}?member_id={member_id}")
+    def _get(self, **query):
+        res = self.client.get("/api/organizations/@current/members/project_access", query)
         assert res.status_code == status.HTTP_200_OK, res.json()
         return res.json()["results"]
 
@@ -2929,15 +2973,35 @@ class TestOrganizationMemberProjectAccess(BaseAccessControlTest):
             str(self.user2_membership.id),
         }
         assert str(hidden_membership.id) not in {m["organization_membership_id"] for m in results}
+        res = self.client.get("/api/organizations/@current/members/project_access", {"email": "hidden@example.com"})
+        assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
 
-    def test_member_id_narrows_to_one_member_and_unknown_member_is_404(self):
-        results = self._get(self.user2_membership.id)
+    @parameterized.expand(
+        [
+            ("member_id", lambda membership: {"member_id": membership.id}),
+            ("email_case_insensitive", lambda membership: {"email": membership.user.email.upper()}),
+        ]
+    )
+    def test_filter_narrows_to_one_member_and_unknown_member_is_404(self, _name, query_for):
+        results = self._get(**query_for(self.user2_membership))
         assert [m["organization_membership_id"] for m in results] == [str(self.user2_membership.id)]
 
         other_org = Organization.objects.create(name="Other org")
         other_user = User.objects.create_and_join(other_org, "other-org-user@posthog.com", None)
         other_membership = OrganizationMembership.objects.get(user=other_user, organization=other_org)
-        res = self.client.get(f"/api/organizations/@current/members/project_access?member_id={other_membership.id}")
+        res = self.client.get("/api/organizations/@current/members/project_access", query_for(other_membership))
+        assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
+
+    @parameterized.expand([("email_alone", {"email": ""}), ("with_member_id", {"email": "", "member_id": None})])
+    def test_blank_email_filter_is_rejected(self, _name, query):
+        if "member_id" in query:
+            query = {**query, "member_id": self.user2_membership.id}
+        res = self.client.get("/api/organizations/@current/members/project_access", query)
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+
+    def test_email_filter_does_not_match_a_homoglyph_address(self):
+        self._create_user("owner@\u0131bm.example")
+        res = self.client.get("/api/organizations/@current/members/project_access", {"email": "owner@ibm.example"})
         assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
 
     def test_membership_level_decides_without_the_entitlement(self):

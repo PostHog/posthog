@@ -19,23 +19,42 @@ use crate::metrics::{
 };
 use crate::seed::{BehavioralShapeHash, PersonShapeHash, ScopeKind, ShapeHashError};
 
-macro_rules! realtime_cohorts_select {
+/// The cohorts the pipeline loads, shared by every statement below so that the shuffler's team index
+/// and the processor's catalog hold the same set. Django keeps `realtime_enabled_at` through a soft
+/// delete, a conversion to static, and an edit that makes the cohort lose realtime support, so being
+/// on implies none of `deleted = false`, `is_static = false` and `cohort_type = 'realtime'`.
+macro_rules! loaded_cohorts_predicate {
     () => {
-        "SELECT c.id, c.team_id, c.filters, \
-                c.behavioral_filters_shape_hash, c.person_filters_shape_hash, t.timezone \
-         FROM posthog_cohort c \
-         JOIN posthog_team t ON t.id = c.team_id \
-         WHERE c.cohort_type = 'realtime' AND c.deleted = false AND c.filters IS NOT NULL"
+        "c.cohort_type = 'realtime' AND c.realtime_enabled_at IS NOT NULL \
+         AND c.is_static = false AND c.deleted = false AND c.filters IS NOT NULL"
     };
 }
 
-/// Realtime cohorts to load, mirroring the Node filter manager's predicate, joined to
-/// `posthog_team` for the team timezone the bucket variants use for calendar-day computation.
+macro_rules! realtime_cohorts_select {
+    () => {
+        concat!(
+            "SELECT c.id, c.team_id, c.filters, \
+                    c.behavioral_filters_shape_hash, c.person_filters_shape_hash, t.timezone \
+             FROM posthog_cohort c \
+             JOIN posthog_team t ON t.id = c.team_id \
+             WHERE ",
+            loaded_cohorts_predicate!()
+        )
+    };
+}
+
+/// The cohorts the pipeline loads, joined to `posthog_team` for the team timezone the bucket
+/// variants use for calendar-day computation.
 pub const REALTIME_COHORTS_SQL: &str = realtime_cohorts_select!();
 
 /// Separate from [`REALTIME_COHORTS_SQL`] so a generic plan keeps the `team_id` index.
 const REALTIME_COHORTS_FOR_TEAMS_SQL: &str =
     concat!(realtime_cohorts_select!(), " AND c.team_id = ANY($1)");
+
+const REALTIME_COHORT_TEAMS_SQL: &str = concat!(
+    "SELECT DISTINCT c.team_id FROM posthog_cohort c WHERE ",
+    loaded_cohorts_predicate!()
+);
 
 /// One realtime cohort row; `filters` is the `jsonb` column decoded to a `Value`.
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -65,6 +84,14 @@ pub async fn load_realtime_cohorts_for_teams(
         .fetch_all(pool)
         .await?;
     Ok(rows)
+}
+
+/// The teams with at least one cohort that [`load_realtime_cohorts`] returns.
+pub async fn load_realtime_cohort_teams(pool: &PgPool) -> Result<Vec<i32>, FilterError> {
+    let teams = sqlx::query_scalar(REALTIME_COHORT_TEAMS_SQL)
+        .fetch_all(pool)
+        .await?;
+    Ok(teams)
 }
 
 /// Group rows by team into a catalog for the teams in `processing`. The catalog keeps the scope, so

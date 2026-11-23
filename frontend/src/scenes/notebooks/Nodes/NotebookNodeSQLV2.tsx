@@ -1,6 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { useComponentPanelState } from 'lib/components/MarkdownNotebook/componentPanelContext'
 import { useNotebookJupyterCommands } from 'lib/components/MarkdownNotebook/jupyterMode'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -149,6 +150,7 @@ const Component = ({
     attributes,
     updateAttributes,
 }: NotebookNodeProps<NotebookNodeSQLV2Attributes>): JSX.Element | null => {
+    const outputOnly = !!useComponentPanelState()?.outputOnly
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { nodeId, notebookLogic, expanded, sqlV2ReturnVariable, sqlV2ReturnVariableUsage, isEditable } =
         useValues(nodeLogic)
@@ -274,12 +276,17 @@ const Component = ({
             // render at 60vh, dwarfing the node.
             uniqueKey={`SQLEditor-notebook-sqlv2-${nodeId}-${attributes.runId ?? 'initial'}`}
             query={vizQuery}
-            setQuery={(query) => {
-                // DataVisualization pushes default settings during its render;
-                // defer the doc write so we don't update Tiptap mid-render.
-                const vizQuery = query as DataVisualizationNode
-                setTimeout(() => updateAttributes({ vizQuery }), 0)
-            }}
+            readOnly={outputOnly}
+            setQuery={
+                outputOnly
+                    ? undefined
+                    : (query) => {
+                          // DataVisualization pushes default settings during its render;
+                          // defer the doc write so we don't update Tiptap mid-render.
+                          const vizQuery = query as DataVisualizationNode
+                          setTimeout(() => updateAttributes({ vizQuery }), 0)
+                      }
+            }
             cachedResults={cachedResults ?? undefined}
             attachTo={notebookLogic}
         />

@@ -32,6 +32,22 @@ from . import base
 tracer = trace.get_tracer(__name__)
 
 
+JOBS_DEFAULT_LIMIT = 50
+JOBS_MAX_LIMIT = 100
+
+
+def _parse_jobs_limit(raw: str | None) -> int:
+    if raw is None or raw == "":
+        return JOBS_DEFAULT_LIMIT
+    try:
+        limit = int(raw)
+    except ValueError:
+        raise ValidationError({"limit": f"Must be an integer from 1 to {JOBS_MAX_LIMIT}."})
+    if not 1 <= limit <= JOBS_MAX_LIMIT:
+        raise ValidationError({"limit": f"Must be an integer from 1 to {JOBS_MAX_LIMIT}."})
+    return limit
+
+
 class WizardResponse(Response):
     def render(self) -> Response:
         with tracer.start_as_current_span("warehouse_sources.wizard.render_response"):
@@ -143,6 +159,16 @@ class ExternalDataSourceJobRunsMixin(base.ExternalDataSourceViewSetBase):
                 required=False,
                 description="Filter jobs by table schema names.",
             ),
+            OpenApiParameter(
+                name="limit",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    f"Maximum number of jobs to return, from 1 to {JOBS_MAX_LIMIT} (default {JOBS_DEFAULT_LIMIT}). "
+                    "Jobs are newest first. To get the next page, pass the `created_at` of the last job as `before`."
+                ),
+            ),
         ],
         responses=ExternalDataJobSerializers(many=True),
     )
@@ -152,6 +178,7 @@ class ExternalDataSourceJobRunsMixin(base.ExternalDataSourceViewSetBase):
         after = request.query_params.get("after", None)
         before = request.query_params.get("before", None)
         schemas = request.query_params.getlist("schemas")
+        limit = _parse_jobs_limit(request.query_params.get("limit"))
 
         try:
             after_date = parser.parse(after) if after else None
@@ -177,7 +204,7 @@ class ExternalDataSourceJobRunsMixin(base.ExternalDataSourceViewSetBase):
         if before_date:
             jobs = jobs.filter(created_at__lt=before_date)
 
-        jobs = jobs[:50]
+        jobs = jobs[:limit]
 
         return Response(
             status=status.HTTP_200_OK,

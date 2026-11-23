@@ -121,7 +121,7 @@
                     ["state", "{state}"],
                     [
                         "optional_scope",
-                        "analytics.behavioral_events.send behavioral_events.event_definitions.read_write crm.objects.leads.read crm.objects.owners.read crm.objects.line_items.read crm.objects.products.read crm.objects.invoices.read crm.objects.orders.read crm.objects.subscriptions.read crm.objects.commercepayments.read crm.objects.forecasts.read conversations.read"
+                        "analytics.behavioral_events.send behavioral_events.event_definitions.read_write crm.objects.leads.read crm.objects.owners.read crm.objects.line_items.read crm.objects.products.read crm.objects.invoices.read crm.objects.orders.read crm.objects.subscriptions.read crm.objects.commercepayments.read crm.objects.forecasts.read conversations.read crm.objects.users.read settings.users.teams.read marketing.campaigns.read"
                     ]
                 ],
                 "scope": "tickets crm.objects.contacts.write sales-email-read crm.objects.companies.read crm.objects.deals.read crm.objects.contacts.read crm.objects.quotes.read crm.objects.companies.write",
@@ -209,13 +209,13 @@
                     ["client_id", "{client_id}"],
                     [
                         "scope",
-                        "app_mentions:read,assistant:write,canvases:write,channels:history,channels:manage,channels:read,chat:write,chat:write.customize,commands,files:read,files:write,groups:history,groups:read,im:history,links:read,links:write,mpim:history,mpim:read,reactions:read,reactions:write,team:read,users:read,users:read.email"
+                        "app_mentions:read,assistant:write,canvases:read,canvases:write,channels:history,channels:join,channels:manage,channels:read,chat:write,chat:write.customize,commands,files:read,files:write,groups:history,groups:read,im:history,links:read,links:write,mpim:history,mpim:read,reactions:read,reactions:write,team:read,users:read,users:read.email"
                     ],
                     ["redirect_uri", "{redirect_uri}"],
                     ["response_type", "code"],
                     ["state", "{state}"]
                 ],
-                "scope": "app_mentions:read,assistant:write,canvases:write,channels:history,channels:manage,channels:read,chat:write,chat:write.customize,commands,files:read,files:write,groups:history,groups:read,im:history,links:read,links:write,mpim:history,mpim:read,reactions:read,reactions:write,team:read,users:read,users:read.email",
+                "scope": "app_mentions:read,assistant:write,canvases:read,canvases:write,channels:history,channels:join,channels:manage,channels:read,chat:write,chat:write.customize,commands,files:read,files:write,groups:history,groups:read,im:history,links:read,links:write,mpim:history,mpim:read,reactions:read,reactions:write,team:read,users:read,users:read.email",
                 "pkce": false,
                 "opaque_state": false,
                 "client_id_key": "SLACK_APP_CLIENT_ID",
@@ -228,13 +228,13 @@
                         ["client_id", "{client_id}"],
                         [
                             "scope",
-                            "app_mentions:read,assistant:write,canvases:write,channels:history,channels:manage,channels:read,chat:write,chat:write.customize,commands,files:read,files:write,groups:history,groups:read,im:history,links:read,links:write,mpim:history,mpim:read,reactions:read,reactions:write,team:read,users:read,users:read.email,canvases:read,channels:join"
+                            "app_mentions:read,assistant:write,canvases:read,canvases:write,channels:history,channels:join,channels:manage,channels:read,chat:write,chat:write.customize,commands,files:read,files:write,groups:history,groups:read,im:history,links:read,links:write,mpim:history,mpim:read,reactions:read,reactions:write,team:read,users:read,users:read.email"
                         ],
                         ["redirect_uri", "{redirect_uri}"],
                         ["response_type", "code"],
                         ["state", "{state}"]
                     ],
-                    "scope": "app_mentions:read,assistant:write,canvases:write,channels:history,channels:manage,channels:read,chat:write,chat:write.customize,commands,files:read,files:write,groups:history,groups:read,im:history,links:read,links:write,mpim:history,mpim:read,reactions:read,reactions:write,team:read,users:read,users:read.email,canvases:read,channels:join",
+                    "scope": "app_mentions:read,assistant:write,canvases:read,canvases:write,channels:history,channels:join,channels:manage,channels:read,chat:write,chat:write.customize,commands,files:read,files:write,groups:history,groups:read,im:history,links:read,links:write,mpim:history,mpim:read,reactions:read,reactions:write,team:read,users:read,users:read.email",
                     "pkce": false,
                     "opaque_state": false,
                     "client_id_key": "SLACK_APP_CLIENT_ID",

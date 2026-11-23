@@ -14,7 +14,7 @@ use arrow_schema::SchemaRef;
 use deltalake::writer::RecordBatchWriter;
 use deltalite_core::errors::Error;
 use deltalite_core::handle::TableHandle;
-use deltalite_core::history::HistoryUpsertOptions;
+use deltalite_core::history::{HistoryUpsertOptions, LateRows};
 use deltalite_core::limits::{Budget, ProcessLimits};
 use deltalite_core::probecache::ProbeCache;
 use deltalite_core::schema::import_column;
@@ -57,6 +57,18 @@ fn runtime() -> &'static tokio::runtime::Runtime {
             // Unreachable outside of catastrophic resource exhaustion at import time;
             // there is no Python-visible fallible path to surface it on.
             .expect("failed to build tokio runtime")
+    })
+}
+
+/// A column name, or a sequence of them, as a list.
+fn column_names(obj: &Bound<'_, PyAny>, arg: &str) -> PyResult<Vec<String>> {
+    if let Ok(name) = obj.extract::<String>() {
+        return Ok(vec![name]);
+    }
+    obj.extract::<Vec<String>>().map_err(|_| {
+        pyo3::exceptions::PyTypeError::new_err(format!(
+            "{arg} must be a column name or a list of column names"
+        ))
     })
 }
 
@@ -162,6 +174,8 @@ pub struct UpsertStats {
     #[pyo3(get)]
     pub rows_inserted: usize,
     #[pyo3(get)]
+    pub rows_older_than_main: usize,
+    #[pyo3(get)]
     pub rows_copied: usize,
     #[pyo3(get)]
     pub source_rows: usize,
@@ -222,6 +236,7 @@ impl From<deltalite_core::upsert::UpsertStats> for UpsertStats {
             files_probe_cached: s.files_probe_cached,
             rows_updated: s.rows_updated,
             rows_inserted: s.rows_inserted,
+            rows_older_than_main: s.rows_older_than_main,
             rows_copied: s.rows_copied,
             source_rows: s.source_rows,
             null_pk_rows: s.null_pk_rows,
@@ -255,6 +270,14 @@ pub struct HistoryUpsertStats {
     pub rows_reread: usize,
     #[pyo3(get)]
     pub rows_backwards: usize,
+    #[pyo3(get)]
+    pub rows_late: usize,
+    #[pyo3(get)]
+    pub versions_split: usize,
+    #[pyo3(get)]
+    pub rows_redelivered: usize,
+    #[pyo3(get)]
+    pub rows_order_mismatch: usize,
     #[pyo3(get)]
     pub versions_opened: usize,
     #[pyo3(get)]
@@ -302,7 +325,8 @@ impl HistoryUpsertStats {
     fn __repr__(&self) -> String {
         format!(
             "HistoryUpsertStats(version={}, committed={}, rows_in={}, rows_deduped={}, \
-             rows_reread={}, rows_backwards={}, versions_opened={}, versions_closed={}, \
+             rows_reread={}, rows_backwards={}, rows_late={}, versions_split={}, \
+             rows_redelivered={}, versions_opened={}, versions_closed={}, \
              chain_rows_closed={}, files_added={}, files_removed={})",
             self.version,
             self.committed,
@@ -310,6 +334,9 @@ impl HistoryUpsertStats {
             self.rows_deduped,
             self.rows_reread,
             self.rows_backwards,
+            self.rows_late,
+            self.versions_split,
+            self.rows_redelivered,
             self.versions_opened,
             self.versions_closed,
             self.chain_rows_closed,
@@ -328,6 +355,10 @@ impl From<deltalite_core::history::HistoryUpsertStats> for HistoryUpsertStats {
             rows_deduped: s.rows_deduped,
             rows_reread: s.rows_reread,
             rows_backwards: s.rows_backwards,
+            rows_late: s.rows_late,
+            versions_split: s.versions_split,
+            rows_redelivered: s.rows_redelivered,
+            rows_order_mismatch: s.rows_order_mismatch,
             versions_opened: s.versions_opened,
             versions_closed: s.versions_closed,
             chain_rows_closed: s.chain_rows_closed,
@@ -552,6 +583,7 @@ impl DeltaLiteTable {
         range_get_concurrency = None,
         read_ahead_row_groups = false,
         use_probe_cache = true,
+        order_column = None,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn upsert(
@@ -581,7 +613,12 @@ impl DeltaLiteTable {
         range_get_concurrency: Option<usize>,
         read_ahead_row_groups: bool,
         use_probe_cache: bool,
+        order_column: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<UpsertStats> {
+        let order_columns = match order_column {
+            Some(c) => column_names(c, "order_column")?,
+            None => Vec::new(),
+        };
         // Import while holding the GIL (it reads a Python object), then release it for
         // all the I/O.
         let ingest_started = std::time::Instant::now();
@@ -619,6 +656,7 @@ impl DeltaLiteTable {
             // process-level memory bound holds regardless of thread count.
             limits: ProcessLimits::global().clone(),
             probe_cache: use_probe_cache.then(|| ProbeCache::global().clone()),
+            order_columns,
         };
         let multipart = MultipartConfig::resolve(
             multipart_threshold,
@@ -670,6 +708,8 @@ impl DeltaLiteTable {
         range_get_part_size = None,
         range_get_concurrency = None,
         read_ahead_row_groups = false,
+        late_rows = "drop",
+        dedupe_column = None,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn history_upsert(
@@ -677,7 +717,7 @@ impl DeltaLiteTable {
         py: Python<'_>,
         data: &Bound<'_, PyAny>,
         key_columns: Vec<String>,
-        order_column: String,
+        order_column: &Bound<'_, PyAny>,
         valid_from_column: String,
         valid_to_column: String,
         partition_column: String,
@@ -699,20 +739,26 @@ impl DeltaLiteTable {
         range_get_part_size: Option<usize>,
         range_get_concurrency: Option<usize>,
         read_ahead_row_groups: bool,
+        late_rows: &str,
+        dedupe_column: Option<String>,
     ) -> PyResult<HistoryUpsertStats> {
         let _ = max_parallel_partitions;
+        let order_columns = column_names(order_column, "order_column")?;
+        let late_rows = late_rows.parse::<LateRows>().map_err(to_py_err)?;
         let ingest_started = std::time::Instant::now();
         let (schema, batches) = read_pyarrow(data)?;
         let ingest_ms = ingest_started.elapsed().as_millis() as u64;
 
         let opts = HistoryUpsertOptions {
             key_columns,
-            order_column,
+            order_columns,
             valid_from_column,
             valid_to_column,
             partition_column,
             current_partition,
             tie_break_column,
+            late_rows,
+            dedupe_column,
             commit_metadata: commit_metadata.map(|m| {
                 m.into_iter()
                     .map(|(k, v)| (k, Value::String(v)))

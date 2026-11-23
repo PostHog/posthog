@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from posthog.clickhouse.client.execute import ClickHouseExternalTable
     from posthog.clickhouse.query_tagging import FlagCallsRead
     from posthog.models import Team, User
-    from posthog.scopes import APIScopeObject
+    from posthog.scopes.catalog import APIScopeObject
 
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
@@ -123,6 +123,7 @@ class HogQLContext:
     # Keyed by (table_id, schema_name) to dedupe when a table is referenced multiple times.
     data_warehouse_sync_warnings: dict[tuple[str, str], "DataWarehouseSyncWarning"] = field(default_factory=dict)
     referenced_saved_query_ids: set[str] = field(default_factory=set)
+    materialized_saved_query_ids: set[str] = field(default_factory=set)
     referenced_warehouse_table_ids: set[str] = field(default_factory=set)
     directly_read_ids: set[str] = field(default_factory=set)
     view_body_depth: int = 0
@@ -237,11 +238,16 @@ class HogQLContext:
         )
 
     def reads_flag_calls_with_union(self) -> bool:
-        """Whether flag calls that a mixed query reads come from events and flag_evaluations together."""
+        """Whether flag calls that a mixed query reads come from events and flag_evaluations together.
+
+        A query whose flag calls are only in flag_evaluations reads the union, unless FLAG_EVALUATIONS_UNION_DISABLED
+        is on. On READ_FLAG_EVALUATIONS, a query reads the union only when the organization's hogql-flag-calls-union
+        flag is on.
+        """
         database = self.database
-        return (
-            database is not None and database.flag_calls_union_enabled and self.reads_flag_calls_from_flag_evaluations()
-        )
+        if database is None or not database.flag_calls_union_enabled:
+            return False
+        return database.flag_calls_union_opted_in or self.flag_calls_only_in_flag_evaluations()
 
     def _reads_native_events_with_flag_evaluations(self) -> bool:
         database = self.database
@@ -299,6 +305,7 @@ class HogQLContext:
 
     def clear_reads(self) -> None:
         self.referenced_saved_query_ids.clear()
+        self.materialized_saved_query_ids.clear()
         self.referenced_warehouse_table_ids.clear()
         self.directly_read_ids.clear()
         self.flag_calls_read.clear()

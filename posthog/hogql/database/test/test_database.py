@@ -4,10 +4,10 @@ import time
 import pickle
 import threading
 import dataclasses
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from contextlib import suppress
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 import pytest
 from posthog.test.base import BaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
@@ -69,6 +69,11 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.database.schema.sessions_v2 import RawSessionsTableV2
+from posthog.hogql.database.schema.traffic_type import (
+    create_is_bot_field,
+    create_traffic_type_field,
+    log_traffic_fields,
+)
 from posthog.hogql.database.sources_cache import (
     SOURCES_CACHE_MAX_ENTRY_WEIGHT,
     SOURCES_CACHE_TTL_SECONDS,
@@ -82,10 +87,11 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.resolver import resolve_types_from_table
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.constants import AvailableFeature
-from posthog.models.group_type_mapping import invalidate_group_types_cache
+from posthog.models.group_type_mapping import get_group_types_for_project, invalidate_group_types_cache
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.scoping import team_scope
@@ -188,6 +194,24 @@ class TestBuildDatabaseRootNode(TestCase):
 
         assert second == ["person", "id"]
         assert parser.call_count == 1
+
+    @parameterized.expand(
+        [
+            ("plain_field", "person.id", ["person", "id"]),
+            ("call_wrapping_field", "JSONExtractString(metadata, 'id')", ["metadata"]),
+            (
+                "if_with_field_in_true_branch",
+                "if(event = 'SaveProduct', properties.merchant_domain, NULL)",
+                ["properties", "merchant_domain"],
+            ),
+            ("comparison_without_field", "'a' = 'b'", None),
+        ]
+    )
+    def test_get_join_field_chain_handles_conditional_calls(
+        self, _name: str, join_key: str, expected_chain: Optional[list[str]]
+    ):
+        _cached_join_field_chain.cache_clear()
+        assert get_join_field_chain(join_key) == expected_chain
 
     def test_slim_pickle_state_falls_back_when_private_or_extra_present(self):
         # Slim path: a plain field round-trips its values.
@@ -308,6 +332,54 @@ class TestTableNodeCaseInsensitiveLookup(TestCase):
 class TestUnknownTableSuggestions(TestCase):
     @parameterized.expand(
         [
+            ("ai_events", False),
+            ("trace_spans", False),
+            ("trace_attributes", False),
+            ("metrics", False),
+            ("metric_samples", False),
+            ("trace_spans", True),
+            ("trace_attributes", True),
+        ]
+    )
+    def test_missing_posthog_namespace(self, table_name: str, direct_query: bool) -> None:
+        database = Database()
+        if direct_query:
+            database._connection_id = "test-connection"
+            database.apply_schema_scope()
+        with self.assertRaises(QueryError) as error:
+            database.get_table(table_name)
+        if direct_query:
+            assert str(error.exception) == f"Unknown table `{table_name}`."
+        else:
+            assert str(error.exception) == f"Unknown table `{table_name}`. Did you mean: posthog.{table_name}?"
+            assert database.get_table(f"posthog.{table_name}") is not None
+
+    @parameterized.expand([("metrics", True), ("error_tracking_recent_issue_state", False)])
+    def test_does_not_suggest_denied_or_hidden_namespaced_tables(self, table_name: str, denied: bool) -> None:
+        database = Database()
+        if denied:
+            del database.tables.children["posthog"].children[table_name]
+            assert database._is_warehouse_table_denied(DataWarehouseTable(name=f"posthog.{table_name}"))
+            with self.assertRaises(TableAccessDeniedError):
+                database.get_table(f"posthog.{table_name}")
+        with self.assertRaises(QueryError) as error:
+            database.get_table(table_name)
+        assert f"posthog.{table_name}" not in str(error.exception)
+
+    @parameterized.expand([("events", "evnts"), ("posthog.metrics", "metrics")])
+    def test_denied_warehouse_name_does_not_hide_a_resolvable_suggestion(
+        self, table_name: str, unknown_name: str
+    ) -> None:
+        database = Database()
+        table = database.get_table(table_name)
+        assert database._is_warehouse_table_denied(DataWarehouseTable(name=table_name))
+        assert database.get_table(table_name) is table
+        with self.assertRaises(QueryError) as error:
+            database.get_table(unknown_name)
+        assert str(error.exception) == f"Unknown table `{unknown_name}`. Did you mean: {table_name}?"
+
+    @parameterized.expand(
+        [
             (
                 "cross_namespace_candidate_is_not_suggested",
                 [],
@@ -368,6 +440,26 @@ class TestUnknownTableSuggestions(TestCase):
             database.get_table(missing_table)
 
         assert str(error.exception) == expected_message
+
+
+class TestResolveTypesFromTable(TestCase):
+    @parameterized.expand(
+        [
+            ("logs", log_traffic_fields()["$virt_traffic_type"], ast.StringType(nullable=True)),
+            ("events", create_traffic_type_field("$virt_traffic_type"), ast.StringType(nullable=False)),
+            ("events", create_is_bot_field("$virt_is_bot"), ast.BooleanType(nullable=True)),
+        ]
+    )
+    def test_traffic_field_resolves_to_its_declared_type_without_expanding(
+        self, table_name: str, field: ExpressionField, expected_type: ast.ConstantType
+    ):
+        context = HogQLContext(team_id=1, database=Database())
+
+        resolved = resolve_types_from_table(field.expr, [table_name], context, "hogql")
+
+        assert resolved.type is not None
+        assert resolved.type.resolve_constant_type(context) == expected_type
+        assert resolved.to_hogql() == field.expr.to_hogql()
 
 
 class TestDatabase(BaseTest, QueryMatchingTest):
@@ -450,6 +542,16 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                     pretty=False,
                 )
 
+    def test_survey_response_keeps_the_type_of_its_expansion(self):
+        context = HogQLContext(team_id=self.team.pk, team=self.team, database=Database())
+
+        resolved = resolve_types_from_table(
+            parse_expr("getSurveyResponse(0, 'question-id', true)"), ["events"], context, "hogql"
+        )
+
+        assert resolved.type is not None
+        assert isinstance(resolved.type.resolve_constant_type(context), ast.ArrayType)
+
     def test_serialize_database_posthog_table(self):
         database = Database.create_for(team=self.team)
         serialized_database = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
@@ -508,6 +610,18 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 reads_forced_to_events=True,
             ),
             ("only_mode", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, True),
+            param(
+                "only_mode_with_the_union_flag_off",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                True,
+                union_flag_enabled=False,
+            ),
+            param(
+                "only_mode_with_the_union_disabled",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                True,
+                union_disabled=True,
+            ),
             # The switch skips FLAG_EVALUATIONS_ONLY, whose flag calls are no longer in events.
             param(
                 "only_mode_with_reads_forced_to_events",
@@ -535,6 +649,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         include_flag_evaluations_table: bool | None = None,
         union_flag_enabled: bool = True,
         table_in_catalog: bool = True,
+        union_disabled: bool = False,
     ) -> None:
         enabled_flags = {"hogql-flag-calls-union"} if union_flag_enabled else set()
         OrganizationFeatureFlagsConfig.objects.update_or_create(
@@ -545,6 +660,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             override_settings(DEBUG=debug),
             self.is_cloud(cloud),
             override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", reads_forced_to_events),
+            override_instance_config("FLAG_EVALUATIONS_UNION_DISABLED", union_disabled),
             patch(
                 "posthog.hogql.database.database.feature_enabled_or_false",
                 side_effect=lambda key, *args, **kwargs: key in enabled_flags,
@@ -556,12 +672,23 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         assert database.organization_reads_flag_calls_from_flag_evaluations is expected
         assert database.has_table(["posthog", "flag_evaluations"]) is table_in_catalog
-        # The build reads the union flag only when the table gate is on, and the override skips that gate.
-        union_expected = table_in_catalog and union_flag_enabled and include_flag_evaluations_table is None
+        # The build adds the union table only when the table gate is on. The override skips that gate.
+        union_expected = table_in_catalog and include_flag_evaluations_table is None and not union_disabled
         assert database.flag_calls_union_enabled is union_expected
         assert database.has_table(["posthog", "events_with_flag_calls"]) is union_expected
+        assert database.flag_calls_union_opted_in is (
+            union_expected and union_flag_enabled and expected and mode == FlagEvaluationsMode.READ_FLAG_EVALUATIONS
+        )
         context = HogQLContext(team_id=self.team.pk, database=database)
         assert "posthog.events_with_flag_calls" not in database.serialize(context, include_hidden_posthog_tables=True)
+
+    def test_serialize_database_skips_hidden_tables(self):
+        database = Database.create_for(team=self.team, user=self.user)
+        context = HogQLContext(team_id=self.team.pk, database=database)
+        serialized = database.serialize(context, include_hidden_posthog_tables=True)
+
+        assert "posthog.error_tracking_recent_issue_state" not in serialized
+        assert database.has_table("posthog.error_tracking_recent_issue_state")
 
     def test_serialize_database_without_fields_matches_full_metadata(self):
         credential = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
@@ -607,15 +734,34 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             url_pattern="https://bucket.s3/data/*",
             columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
         )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="acme",
+            connection_id="acme",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.HUBSPOT,
+            prefix="acme",
+        )
+        sourced_table = DataWarehouseTable.objects.create(
+            name="acme_contacts",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            external_data_source=source,
+            url_pattern="https://bucket.s3/contacts/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        sourced_key = get_data_warehouse_table_name(source, sourced_table.name)
 
         database = Database.create_for(team=self.team, user=self.user)
         context = HogQLContext(team_id=self.team.pk, database=database)
         full = database.serialize(context, include_hidden_posthog_tables=True)
         subset = database.serialize(
-            context, include_only={"events", "warehouse_table"}, include_hidden_posthog_tables=True
+            context, include_only={"events", "warehouse_table", sourced_key}, include_hidden_posthog_tables=True
         )
 
-        assert set(subset.keys()) == {"events", "warehouse_table"}
+        assert sourced_key != sourced_table.name
+        assert set(subset.keys()) == {"events", "warehouse_table", sourced_key}
         for table_name, subset_table in subset.items():
             assert subset_table == full[table_name], table_name
 
@@ -1061,6 +1207,45 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert cast(HogQLDataWarehouseTable, database.get_table("self_managed")).url == "s3://self/*"
         assert serialized["self_managed"].id == str(table.id)
 
+    def test_table_with_another_teams_credential_does_not_print(self):
+        other_team = Team.objects.create(organization=Organization.objects.create(name="other_org"))
+        credential = DataWarehouseCredential.objects.create(team=other_team, access_key="k", access_secret="s")
+        self._create_warehouse_table(
+            name="self_managed", url_pattern="https://bucket.example.com/data/*", credential=credential
+        )
+
+        database = Database.create_for(team=self.team)
+        context = HogQLContext(team_id=self.team.pk, database=database)
+
+        with self.assertRaises(ExposedHogQLError):
+            database.get_table("self_managed").to_printed_clickhouse(context)
+
+    def test_view_does_not_resolve_to_another_teams_backing_table(self):
+        other_team = Team.objects.create(organization=Organization.objects.create(name="other_org"))
+        backing_table = DataWarehouseTable.objects.create(
+            name="backing_table",
+            format="Parquet",
+            team=other_team,
+            url_pattern="https://bucket.example.com/other/*",
+            columns={"id": "String"},
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="a_view",
+            query={"query": "SELECT 1 AS id"},
+            columns={"id": "String"},
+            table=backing_table,
+            is_materialized=True,
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+        )
+
+        modifiers = create_default_modifiers_for_team(
+            self.team, modifiers=HogQLQueryModifiers(useMaterializedViews=True)
+        )
+        database = Database.create_for(team=self.team, modifiers=modifiers)
+
+        assert isinstance(database.get_table("a_view"), SavedQuery)
+
     def test_create_hogql_database_resolves_duplicate_live_table_names_to_newest(self):
         # Two live tables share a name (e.g. a re-sync produced a duplicate): newest wins.
         credential = DataWarehouseCredential.objects.create(team=self.team, access_key="k", access_secret="s")
@@ -1072,8 +1257,10 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         DataWarehouseTable.objects.filter(pk=newer.pk).update(created_at="2024-06-01T00:00:00+00:00")
 
         database = Database.create_for(team=self.team)
+        serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
         assert cast(HogQLDataWarehouseTable, database.get_table("pull_requests")).url == "s3://newer/*"
+        assert serialized["pull_requests"].id == str(newer.id)
 
     def test_serialize_database_warehouse_table_source_query_count(self):
         source = ExternalDataSource.objects.create(
@@ -1104,7 +1291,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         database = Database.create_for(team=self.team)
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(2):
             database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
         for i in range(5):
@@ -1138,7 +1325,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         database = Database.create_for(team=self.team)
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(2):
             database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))
@@ -1244,12 +1431,23 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             )
             Database.create_for(team=self.team, modifiers=modifiers)
 
-    def test_database_group_type_mappings(self):
+    @parameterized.expand(
+        [
+            ("full", lambda team: Database.create_for(team=team)),
+            (
+                "posthog_tables",
+                lambda team: Database.create_for_posthog_tables(
+                    team, group_types=get_group_types_for_project(team.project_id)
+                ),
+            ),
+        ]
+    )
+    def test_database_group_type_mappings(self, _name: str, build: Callable[[Team], Database]):
         create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="test", group_type_index=0
         )
         invalidate_group_types_cache(self.team.project_id)
-        db = Database.create_for(team=self.team)
+        db = build(self.team)
 
         assert db.get_table("events").fields["test"] == FieldTraverser(chain=["group_0"])
 
@@ -4465,7 +4663,6 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             "session_replay_events",
             "cohort_people",
             "static_cohort_people",
-            "cohort_membership",
             "precalculated_events",
             "precalculated_person_properties",
             "log_entries",

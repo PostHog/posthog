@@ -1,12 +1,13 @@
 import { IconBolt, IconInfo } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 
 import { CohortHistoryBuildPhaseEnumApi, CohortRealtimeReadinessApi } from '../generated/api.schemas'
+import { RealtimeCohortsUsage } from './RealtimeCohortsUsage'
+import { RealtimePlanLimitsLink } from './RealtimePlanLimitsLink'
 
 // Partial, so the fallback below stays reachable for a phase this bundle predates.
 const PHASE_DETAIL: Partial<Record<CohortHistoryBuildPhaseEnumApi, string>> = {
@@ -16,6 +17,8 @@ const PHASE_DETAIL: Partial<Record<CohortHistoryBuildPhaseEnumApi, string>> = {
 }
 
 type RowContent = { label: JSX.Element; tooltip: JSX.Element }
+
+export type CohortRealtimeSwitchAction = 'turn_on' | 'turn_off'
 
 /** The label shown beside "Flag targeting:", and the sentence its ⓘ carries. */
 function rowContent(realtime: CohortRealtimeReadinessApi): RowContent | null {
@@ -78,8 +81,34 @@ function rowContent(realtime: CohortRealtimeReadinessApi): RowContent | null {
                 label: <span className="text-secondary">Unavailable</span>,
                 tooltip: (
                     <div>
-                        Feature flags can't target this cohort yet because PostHog hasn't prepared it. Contact support
-                        if this doesn't change.
+                        {realtime.reason === 'too_large_to_build'
+                            ? "Feature flags can't target this cohort yet. The events in its criteria happen too often for PostHog to prepare it automatically. Contact support to have it prepared."
+                            : "Feature flags can't target this cohort yet because PostHog hasn't prepared it. Contact support if this doesn't change."}
+                    </div>
+                ),
+            }
+        case 'off':
+            if (realtime.reason === 'history_over_limit' && realtime.history_limit_days !== null) {
+                return {
+                    label: (
+                        <span className="flex items-center gap-x-2 flex-wrap">
+                            <span className="text-secondary">Off</span>
+                            <RealtimePlanLimitsLink limit="history_days" location="cohort_page" />
+                        </span>
+                    ),
+                    tooltip: (
+                        <div>
+                            {`Realtime is off for this cohort, so feature flags can't target it. Realtime cohorts on your plan can look back at most ${realtime.history_limit_days} days, and its criteria look back further. Shorten the time range in its criteria to turn realtime on.`}
+                        </div>
+                    ),
+                }
+            }
+            return {
+                label: <span className="text-secondary">Off</span>,
+                tooltip: (
+                    <div>
+                        Realtime is off for this cohort, so feature flags can't target it. When you turn it on, PostHog
+                        prepares the cohort from past events. This usually takes under 30 minutes.
                     </div>
                 ),
             }
@@ -89,7 +118,7 @@ function rowContent(realtime: CohortRealtimeReadinessApi): RowContent | null {
                 tooltip: (
                     <div>
                         {realtime.reason === 'history_over_limit' && realtime.history_limit_days !== null
-                            ? `Feature flags can't target this cohort. Realtime cohorts can look back at most ${realtime.history_limit_days} days, and its criteria look back further. Its members come from the once-a-day calculation, which feature flags can't read.`
+                            ? `Feature flags can't target this cohort. Realtime cohorts on your plan can look back at most ${realtime.history_limit_days} days, and its criteria look back further. Its members come from the once-a-day calculation, which feature flags can't read.`
                             : "Feature flags can't target this cohort. Its criteria are matched in the once-a-day calculation, which feature flags can't read."}
                     </div>
                 ),
@@ -118,12 +147,17 @@ function rowContent(realtime: CohortRealtimeReadinessApi): RowContent | null {
  */
 export function CohortRealtimeStatus({
     realtime,
+    switchAction,
+    switching,
+    onSwitch,
 }: {
     realtime: CohortRealtimeReadinessApi | null | undefined
+    switchAction: CohortRealtimeSwitchAction | null
+    switching: boolean
+    onSwitch: (enabled: boolean) => void
 }): JSX.Element | null {
-    const realtimeTargetingEnabled = useFeatureFlag('REALTIME_COHORT_FLAG_TARGETING')
     const content = realtime ? rowContent(realtime) : null
-    if (!realtimeTargetingEnabled || !content) {
+    if (!content) {
         return null
     }
 
@@ -137,7 +171,45 @@ export function CohortRealtimeStatus({
                     <IconInfo className="text-secondary text-base" />
                 </Tooltip>
                 {content.label}
+                {switchAction === 'turn_on' && (
+                    <LemonButton
+                        type="secondary"
+                        size="xsmall"
+                        loading={switching}
+                        onClick={() => onSwitch(true)}
+                        data-attr="cohort-realtime-turn-on"
+                    >
+                        Turn on realtime
+                    </LemonButton>
+                )}
+                {switchAction === 'turn_off' && (
+                    <LemonButton
+                        type="tertiary"
+                        size="xsmall"
+                        loading={switching}
+                        onClick={() =>
+                            LemonDialog.open({
+                                title: 'Turn off realtime for this cohort?',
+                                description:
+                                    realtime?.state === 'person_properties'
+                                        ? "Workflows won't see membership changes for this cohort as they happen. Feature flags read its person properties directly, so they keep targeting it."
+                                        : "Feature flags won't be able to target this cohort. If you turn realtime on again, PostHog prepares the cohort from past events again.",
+                                primaryButton: {
+                                    children: 'Turn off',
+                                    status: 'danger',
+                                    onClick: () => onSwitch(false),
+                                    'data-attr': 'cohort-realtime-turn-off-confirm',
+                                },
+                                secondaryButton: { children: 'Cancel' },
+                            })
+                        }
+                        data-attr="cohort-realtime-turn-off"
+                    >
+                        Turn off realtime
+                    </LemonButton>
+                )}
             </div>
+            {switchAction !== null && <RealtimeCohortsUsage location="cohort_page" />}
             {percent !== null && (
                 <LemonProgress
                     percent={percent}

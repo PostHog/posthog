@@ -300,6 +300,26 @@ describe('maxLogic', () => {
             ])
             expect(logic.values.question).toBe('')
         })
+
+        it.each([
+            ['sql', AgentMode.SQL],
+            ['sandbox', null],
+            ['not-a-mode', null],
+        ])('sends the prompt in the mode that the link names (%s)', async (mode, expectedMode) => {
+            initKeaTests(true, undefined, undefined, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: true,
+            })
+            useMocks(maxMocks)
+            router.actions.push(urls.ai(undefined, 'Explore my traces', mode))
+
+            logic = maxLogic({ panelId: 'test' })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions([
+                logic.actionCreators.askMax('Explore my traces', true, undefined, expectedMode),
+            ])
+        })
     })
 
     it('does not reset conversation when 404 occurs during active message generation', async () => {

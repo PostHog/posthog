@@ -1,3 +1,4 @@
+import { rewriteEmaSetupEndpointInResponse } from '@/handlers/ema'
 import { type Region, proxyOrigin } from '@/lib/constants'
 import { type SigningKeyEnv } from '@/lib/idtoken'
 import {
@@ -74,7 +75,10 @@ export async function handleToken(request: Request, kv: KVNamespace, env: Signin
         audience: clientId,
         permittedUpstreamAudiences: response.ok && clientId ? await permittedUpstreamAudiences(kv, clientId) : [],
         env,
-    })
+    }).then((reissued) =>
+        // Only a code exchange can return an EMA setup token, so refreshes skip the extra body read.
+        grantType === 'authorization_code' ? rewriteEmaSetupEndpointInResponse(reissued, request) : reissued
+    )
 }
 
 /** A client registered through the proxy is known to each region under its own id. */

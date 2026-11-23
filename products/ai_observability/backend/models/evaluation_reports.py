@@ -205,6 +205,10 @@ def validate_report_rrule(rrule_string: str) -> None:
 
 
 class EvaluationReportRun(UUIDTModel):
+    class DestinationType(models.TextChoices):
+        SLACK = "slack"
+        EMAIL = "email"
+
     class DeliveryStatus(models.TextChoices):
         PENDING = "pending"
         GENERATED = "generated"
@@ -235,4 +239,5 @@ class EvaluationReportRun(UUIDTModel):
         default=DeliveryStatus.PENDING,
     )
     delivery_errors = models.JSONField(default=list)
+    delivery_destinations = models.JSONField(default=list, db_default=[])
     created_at = models.DateTimeField(auto_now_add=True)

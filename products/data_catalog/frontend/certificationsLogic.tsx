@@ -8,6 +8,7 @@ import { createFuseSearch } from 'lib/utils/fuseSearch'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
 
+import { refreshDataCatalogAttention } from './dataCatalogAttentionLogic'
 import {
     dataCatalogCertificationsCertifyCreate,
     dataCatalogCertificationsCreate,
@@ -324,7 +325,10 @@ export const certificationsLogic = kea<certificationsLogicType>([
                 actions.setFilters(DEFAULT_CERTIFICATIONS_FILTERS)
                 showHighlightedPage()
             },
-            loadCertificationsSuccess: () => showHighlightedPage(),
+            loadCertificationsSuccess: () => {
+                showHighlightedPage()
+                refreshDataCatalogAttention()
+            },
             suggestionAccepted: () => {
                 actions.loadCertifications()
                 actions.refreshDatabaseSchema()

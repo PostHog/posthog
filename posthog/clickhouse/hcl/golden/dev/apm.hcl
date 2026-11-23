@@ -364,99 +364,6 @@ database "posthog" {
     }
   }
 
-  table "writable_metrics1" {
-    column "time_bucket" {
-      type         = "DateTime"
-      materialized = "toStartOfDay(timestamp)"
-    }
-    column "uuid" {
-      type = "String"
-    }
-    column "team_id" {
-      type = "Int32"
-    }
-    column "trace_id" {
-      type = "String"
-    }
-    column "span_id" {
-      type = "String"
-    }
-    column "trace_flags" {
-      type = "Int32"
-    }
-    column "timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "observed_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "created_at" {
-      type         = "DateTime64(6)"
-      materialized = "now()"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "metric_name" {
-      type = "LowCardinality(String)"
-    }
-    column "metric_type" {
-      type = "LowCardinality(String)"
-    }
-    column "value" {
-      type = "Float64"
-    }
-    column "count" {
-      type    = "UInt64"
-      default = "1"
-    }
-    column "histogram_bounds" {
-      type = "Array(Float64)"
-    }
-    column "histogram_counts" {
-      type = "Array(UInt64)"
-    }
-    column "unit" {
-      type = "LowCardinality(String)"
-    }
-    column "aggregation_temporality" {
-      type = "LowCardinality(String)"
-    }
-    column "is_monotonic" {
-      type    = "Bool"
-      default = "false"
-    }
-    column "resource_attributes" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    column "resource_fingerprint" {
-      type         = "UInt64"
-      materialized = "cityHash64(resource_attributes)"
-    }
-    column "instrumentation_scope" {
-      type = "String"
-    }
-    column "attributes_map_str" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    column "attributes_map_float" {
-      type = "Map(LowCardinality(String), Float64)"
-    }
-    column "time_minute" {
-      type  = "DateTime"
-      alias = "toStartOfMinute(timestamp)"
-    }
-    column "attributes" {
-      type  = "Map(String, String)"
-      alias = "mapApply((k, v) -> (left(k, -5), v), attributes_map_str)"
-    }
-    engine "distributed" {
-      cluster_name    = "logs"
-      remote_database = "posthog"
-      remote_table    = "metrics1"
-    }
-  }
-
   table "writable_query_log_archive_v3" {
     column "initial_query_start_time" {
       type = "DateTime64(6, 'UTC')"
@@ -805,6 +712,9 @@ database "posthog" {
     }
     column "lc_estimated_bytes" {
       type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "log_comment" {
+      type = "SimpleAggregateFunction(max, String)"
     }
     engine "distributed" {
       cluster_name    = "ops"
@@ -1317,7 +1227,25 @@ SELECT
   lc.precompute_window_end AS lc_precompute_window_end,
   lc.plan_fingerprint AS lc_plan_fingerprint,
   lc.estimated_rows AS lc_estimated_rows,
-  lc.estimated_bytes AS lc_estimated_bytes
+  lc.estimated_bytes AS lc_estimated_bytes,
+  if(
+    ql.is_initial_query AND notEmpty(ql.log_comment),
+    concat(
+      '{',
+      arrayStringConcat(
+        arrayMap(
+          kv -> concat(toJSONString(kv.1), ':', kv.2),
+          arrayFilter(
+            kv -> ((kv.1) NOT IN ('timings', 'query')),
+            JSONExtractKeysAndValuesRaw(ql.log_comment)
+          )
+        ),
+        ','
+      ),
+      '}'
+    ),
+    ''
+  ) AS log_comment
 FROM system.query_log AS ql
 WHERE ql.type != 'QueryStart'
 SQL
@@ -1669,6 +1597,9 @@ SQL
     }
     column "lc_estimated_bytes" {
       type = "SimpleAggregateFunction(max, Int64)"
+    }
+    column "log_comment" {
+      type = "SimpleAggregateFunction(max, String)"
     }
   }
 

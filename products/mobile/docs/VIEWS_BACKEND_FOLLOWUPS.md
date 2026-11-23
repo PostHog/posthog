@@ -481,7 +481,7 @@ None. The empty Pinned copy can then mention the web.
 
 - The Views tab needs `dashboard:read`, `insight:read` and `file_system_shortcut:write`, which covers `:read`.
   The app already has `query:read`.
-  All three are unprivileged scopes that an OAuth app can request (`posthog/scopes.py:288-313`).
+  All three are unprivileged scopes that an OAuth app can request (`UNPRIVILEGED_SCOPES` in `posthog/scopes/exposure.py`).
 - Each OAuth application has a scope ceiling: `OAuthApplication.scopes` plus `optional_scopes`, two Postgres array columns (`posthog/models/oauth.py:144-172`).
   These are data rows, not code.
 - `/authorize` drops a scope outside the ceiling without an error (`posthog/api/oauth/views.py:765-806`).
@@ -502,7 +502,7 @@ Agree the change with the desktop team before anyone edits a row.
 1. Open Django admin at `/admin/posthog/oauthapplication/`. Find the row by client id.
 2. Read `is_first_party` (`posthog/models/oauth.py:129`), `scopes` and `optional_scopes`. Write the values down.
 3. If `scopes` and `optional_scopes` are both empty, or contain `@default`, change nothing.
-   Every unprivileged scope is then grantable (`posthog/scopes.py:401-428, 561-562`).
+   Every unprivileged scope is then grantable (`effective_ceiling` in `posthog/scopes/ceilings.py`).
 
 **To edit**, when the ceiling is an explicit list:
 
@@ -513,7 +513,7 @@ Agree the change with the desktop team before anyone edits a row.
     If the row has optional scopes, use Django admin.
 - Other rows: every entry in `scopes` is required, and the consent screen grants all of them to every client of the row (`views.py:1678-1684, 1796-1829`).
   Add the scopes to `optional_scopes` in Django admin instead.
-- `file_system_shortcut:write` alone is enough. An explicit ceiling also allows the read half of each listed `:write` scope (`posthog/scopes.py:559`).
+- `file_system_shortcut:write` alone is enough. An explicit ceiling also allows the read half of each listed `:write` scope (`grantable_ceiling` in `posthog/scopes/ceilings.py`).
 - Write down the values after the change, per region.
 
 **Order:**

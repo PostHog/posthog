@@ -7,14 +7,15 @@ import { WizardReview } from 'lib/components/WizardReview'
 
 import { AlertEditorFormDetails } from 'products/alerts/frontend/components/AlertEditor'
 import { AlertWizard, AlertWizardStep } from 'products/alerts/frontend/components/AlertWizard'
+import { platformAlertDestinationsLogic } from 'products/alerts_platform/frontend/destinations/platformAlertDestinationsLogic'
+import { PlatformAlertCreateDestinationApi } from 'products/alerts_platform/frontend/generated/api.schemas'
 
+import { logsAlertDestinationsLogicProps } from './logsAlertDestinations'
+import { buildLogsAlertReviewItems, getLogsAlertCreateValidation } from './logsAlertEditorModel'
 import { LogsAlertFilters, LogsAlertTrigger } from './LogsAlertForm'
 import { logsAlertFormLogic, LogsAlertFormType } from './logsAlertFormLogic'
-import { GROUP_BY_LABELS } from './logsAlertGrouping'
-import { logsAlertNotificationLogic } from './logsAlertNotificationLogic'
 import { LogsAlertNotifications } from './LogsAlertNotifications'
 import { LogsAlertSimulation } from './LogsAlertSimulation'
-import { hasAnyFilter, PendingLogsAlertNotification } from './logsAlertUtils'
 
 interface LogsAlertCreateModalProps {
     isOpen: boolean
@@ -35,17 +36,12 @@ function LogsAlertCreateModalContent({ onClose }: { onClose: () => void }): JSX.
         logsAlertFormLogic(formLogicProps)
     )
     const { touchAlertFormField } = useActions(logsAlertFormLogic(formLogicProps))
-    const { pendingNotifications } = useValues(logsAlertNotificationLogic({}))
-    const hasLogFilter = hasAnyFilter(alertForm.severityLevels, alertForm.serviceNames, alertForm.filterGroup)
-    const nameError = alertForm.name.trim() ? undefined : 'Enter an alert name.'
-    const filterError = hasLogFilter
-        ? undefined
-        : 'Select at least one severity or service, or add an attribute filter.'
-    const configurationCannotAdvanceReason = nameError ?? filterError
-    const triggerCannotAdvanceReason = alertFormValidationErrors.maxInstances as string | undefined
+    const { pendingDestinations } = useValues(platformAlertDestinationsLogic(logsAlertDestinationsLogicProps()))
+    const { nameError, filterError, configurationCannotAdvanceReason, triggerCannotAdvanceReason } =
+        getLogsAlertCreateValidation(alertForm, alertFormValidationErrors)
     const steps = buildLogsAlertWizardSteps({
         alertForm,
-        pendingNotifications,
+        pendingDestinations,
         configurationCannotAdvanceReason,
         triggerCannotAdvanceReason,
         nameError,
@@ -55,31 +51,29 @@ function LogsAlertCreateModalContent({ onClose }: { onClose: () => void }): JSX.
 
     return (
         <BindLogic logic={logsAlertFormLogic} props={formLogicProps}>
-            <BindLogic logic={logsAlertNotificationLogic} props={{}}>
-                <Form
-                    logic={logsAlertFormLogic}
-                    props={formLogicProps}
-                    formKey="alertForm"
-                    enableFormOnSubmit
-                    className="LemonModal__layout"
-                >
-                    <AlertWizard
-                        title="New alert"
-                        steps={steps}
-                        isSubmitting={isAlertFormSubmitting}
-                        hasChanges={alertFormChanged}
-                        onBack={onClose}
-                        onSubmitAttempted={() => touchAlertFormField('name')}
-                    />
-                </Form>
-            </BindLogic>
+            <Form
+                logic={logsAlertFormLogic}
+                props={formLogicProps}
+                formKey="alertForm"
+                enableFormOnSubmit
+                className="LemonModal__layout"
+            >
+                <AlertWizard
+                    title="New alert"
+                    steps={steps}
+                    isSubmitting={isAlertFormSubmitting}
+                    hasChanges={alertFormChanged}
+                    onBack={onClose}
+                    onSubmitAttempted={() => touchAlertFormField('name')}
+                />
+            </Form>
         </BindLogic>
     )
 }
 
 function buildLogsAlertWizardSteps({
     alertForm,
-    pendingNotifications,
+    pendingDestinations,
     configurationCannotAdvanceReason,
     triggerCannotAdvanceReason,
     nameError,
@@ -87,7 +81,7 @@ function buildLogsAlertWizardSteps({
     canGroup,
 }: {
     alertForm: LogsAlertFormType
-    pendingNotifications: PendingLogsAlertNotification[]
+    pendingDestinations: PlatformAlertCreateDestinationApi[]
     configurationCannotAdvanceReason: string | undefined
     triggerCannotAdvanceReason: string | undefined
     nameError: string | undefined
@@ -136,11 +130,7 @@ function buildLogsAlertWizardSteps({
             title: 'Review',
             description: 'Confirm the alert before you create it.',
             content: (
-                <LogsAlertReview
-                    alertForm={alertForm}
-                    pendingNotifications={pendingNotifications}
-                    canGroup={canGroup}
-                />
+                <LogsAlertReview alertForm={alertForm} pendingDestinations={pendingDestinations} canGroup={canGroup} />
             ),
         },
     ]
@@ -148,61 +138,23 @@ function buildLogsAlertWizardSteps({
 
 function LogsAlertReview({
     alertForm,
-    pendingNotifications,
+    pendingDestinations,
     canGroup,
 }: {
     alertForm: LogsAlertFormType
-    pendingNotifications: PendingLogsAlertNotification[]
+    pendingDestinations: PlatformAlertCreateDestinationApi[]
     canGroup: boolean
 }): JSX.Element {
-    const severity = alertForm.severityLevels.length ? alertForm.severityLevels.join(', ') : 'all severities'
-    const services = alertForm.serviceNames.length ? alertForm.serviceNames.join(', ') : 'all services'
-    const attributeCount = alertForm.filterGroup.values.length
-    const notificationSummary = pendingNotifications.length
-        ? `${pendingNotifications.length} notification destination${pendingNotifications.length === 1 ? '' : 's'}`
-        : 'No notification destinations'
-
     return (
         <WizardReview
             notice={
-                pendingNotifications.length === 0 ? (
+                pendingDestinations.length === 0 ? (
                     <LemonBanner type="warning">
                         This alert will run without notifications. Go back to Notify to add a destination.
                     </LemonBanner>
                 ) : undefined
             }
-            items={[
-                { label: 'Name', value: alertForm.name },
-                { label: 'Severity', value: severity },
-                { label: 'Service', value: services },
-                {
-                    label: 'Attributes',
-                    value: attributeCount
-                        ? `${attributeCount} attribute filter${attributeCount === 1 ? '' : 's'}`
-                        : 'None',
-                },
-                {
-                    label: 'Fires when',
-                    value: `log count is ${alertForm.thresholdOperator} ${alertForm.thresholdCount} in ${alertForm.windowMinutes} minutes`,
-                },
-                ...(canGroup
-                    ? [
-                          {
-                              label: 'Group by',
-                              value:
-                                  alertForm.groupBy === 'none'
-                                      ? GROUP_BY_LABELS.none
-                                      : `${GROUP_BY_LABELS[alertForm.groupBy]}, up to ${alertForm.maxInstances} groups`,
-                          },
-                      ]
-                    : []),
-                {
-                    label: 'Noise reduction',
-                    value: `${alertForm.datapointsToAlarm} of ${alertForm.evaluationPeriods} checks must match`,
-                },
-                { label: 'Notification cooldown', value: `${alertForm.cooldownMinutes} minutes` },
-                { label: 'Notifies', value: notificationSummary },
-            ]}
+            items={buildLogsAlertReviewItems(alertForm, pendingDestinations, canGroup)}
         />
     )
 }

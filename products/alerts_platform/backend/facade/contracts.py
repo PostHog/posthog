@@ -7,12 +7,13 @@ contract check watches this file to decide whether they must retest.
 
 from __future__ import annotations
 
+import re
 import hashlib
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import asdict, field
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Final, NotRequired, Protocol, TypedDict
+from typing import TYPE_CHECKING, Any, Final, Literal, NotRequired, Protocol, TypedDict
 from uuid import UUID
 
 from posthog.dataclasses import frozen
@@ -127,8 +128,10 @@ DEFAULT_MAX_INSTANCES: Final = 100
 MAX_INSTANCES_CEILING: Final = 100
 # The largest value a Postgres `integer` column holds, which bounds every stored count and duration.
 MAX_STORED_INTEGER: Final = 2_147_483_647
-# The most recent checks an N-of-M decision can look back over.
+# The most recent checks an N-of-M decision can look back over, unless the kind sets its own.
 MAX_EVALUATION_PERIODS: Final = 10
+# The largest window any kind allows. The API publishes it, and each kind enforces its own.
+MAX_SOURCE_EVALUATION_PERIODS: Final = 1441
 
 
 @frozen
@@ -275,6 +278,10 @@ class PlatformAlertCheckInput:
     recurrence_unit: str | None = None
     anchor_time: str | None = None
     created_by_id: int | None = None
+    # When the owner last changed, so a source can tell its own history from the platform's.
+    owner_changed_at: datetime | None = None
+    # The label names the team's routes match on, which a group keeps first when its labels are cut.
+    routed_label_names: frozenset[str] = frozenset()
 
     @property
     def destination_alert_id(self) -> UUID:
@@ -376,6 +383,11 @@ class PlatformAlertUpsert:
     # edits set, because a source row stores none.
     grouping: Grouping = Grouping()
     created_by_id: int | None = None
+    # None keeps the copy's own, so a source that records no first enable leaves the copy's alone.
+    first_enabled_at: datetime | None = None
+    # When the source alert was created. The copy keeps it, so readers that sort a copy beside alerts
+    # with no source row order it by the alert's age rather than by when it was copied.
+    created_at: datetime | None = None
 
 
 @frozen
@@ -503,6 +515,7 @@ class PlatformCheckEvent:
     error_message: str | None
     # The group the check moved. Empty for an alert that does not group.
     grouping_key: str = ""
+    source_detail: dict[str, Any] = field(default_factory=dict)
 
 
 @frozen
@@ -526,6 +539,13 @@ class ControlChangeKind(StrEnum):
     UNSNOOZE = "unsnooze"
     RESET = "reset"
     CONFIG_CHANGE = "config_change"
+    # An operator handed a logs alert back from the platform to the logs stack. The platform never
+    # records one itself: only a copy of the logs stack's history carries it.
+    HANDBACK = "handback"
+
+    @property
+    def recorded_by_platform(self) -> bool:
+        return self is not ControlChangeKind.HANDBACK
 
 
 @frozen
@@ -561,6 +581,94 @@ class PlatformControlHistory:
     changes: tuple[PlatformControlChange, ...]
     oldest_at: datetime
     toggle_before: ControlChangeKind | None
+
+
+@frozen
+class LegacyHistoryEntry:
+    """One row of a source's own history, to be copied into the platform's history before the source
+    deletes it. Either a control-plane change, stored on the configuration's row, or a check of the
+    ungrouped instance."""
+
+    legacy_id: UUID
+    kind: ControlChangeKind | Literal[AlertEventKind.CHECK]
+    occurred_at: datetime
+    previous_state: PlatformAlertState
+    state: PlatformAlertState
+    value: float | None = None
+    error_message: str | None = None
+    query_duration_ms: int | None = None
+    source_detail: dict[str, Any] = field(default_factory=dict)
+
+
+@frozen
+class LegacyAlertHistory:
+    """One alert's own history rows, and how many of its rows carry a field the copy leaves out, by field."""
+
+    entries: tuple[LegacyHistoryEntry, ...]
+    left_out: dict[str, int] = field(default_factory=dict)
+    # False when the source shows only the platform's checks since the cutover, not its parallel run.
+    platform_checks_replace_source: bool = True
+
+
+@frozen
+class LegacyHistoryCopy:
+    """What copying one alert's legacy history did, or would do on a dry run.
+
+    Every entry lands in exactly one count, so `legacy == already_copied + covered + to_copy`.
+    `covered` counts the rows the platform recorded itself, and `copied` is zero on a dry run.
+    """
+
+    configuration_id: UUID
+    legacy: int
+    already_copied: int
+    covered: int
+    to_copy: int
+    copied: int
+
+
+@frozen
+class LegacyAlertHistoryCopy:
+    """One alert's copy, with how many of its rows carry a field the copy leaves out, by field."""
+
+    team_id: int
+    alert_id: UUID
+    copy: LegacyHistoryCopy
+    left_out: dict[str, int]
+
+    @property
+    def unfinished(self) -> bool:
+        return self.copy.to_copy > self.copy.copied
+
+    @property
+    def summary(self) -> str:
+        counts = self.copy
+        dropped = "".join(f", {count} without their {name}" for name, count in self.left_out.items() if count)
+        return (
+            f"Team {self.team_id} alert {self.alert_id}: {counts.legacy} legacy, {counts.already_copied} copied "
+            f"before, {counts.covered} recorded by the platform, {counts.to_copy} to copy, {counts.copied} copied"
+            f"{dropped}"
+        )
+
+
+@frozen
+class LegacyHistoryCopyRun:
+    alerts: tuple[LegacyAlertHistoryCopy, ...]
+    failed_team_ids: tuple[int, ...]
+
+    @property
+    def unfinished(self) -> tuple[LegacyAlertHistoryCopy, ...]:
+        return tuple(alert for alert in self.alerts if alert.unfinished)
+
+    def report(self, source: SourceKind, *, applied: bool, unfinished_only: bool) -> tuple[str, ...]:
+        copies = [alert.copy for alert in self.alerts]
+        totals = (
+            f"{source.value}: {len(copies)} alerts, {sum(c.legacy for c in copies)} legacy rows, "
+            f"{sum(c.already_copied for c in copies)} copied before, {sum(c.covered for c in copies)} recorded by "
+            f"the platform, {sum(c.to_copy for c in copies)} to copy, {sum(c.copied for c in copies)} copied now"
+            + ("" if applied else " (dry run)")
+        )
+        alerts = self.unfinished if unfinished_only else self.alerts
+        return (*(alert.summary for alert in alerts), totals)
 
 
 @frozen
@@ -910,6 +1018,14 @@ class AnnouncedTransition:
 
 
 @frozen
+class RuleMetadata:
+    """The labels and annotations the alert's author set, as stored. Annotation templates are not rendered yet."""
+
+    labels: dict[str, str] = field(default_factory=dict)
+    annotations: dict[str, str] = field(default_factory=dict)
+
+
+@frozen
 class EvaluationAnnouncement:
     """What one evaluation left for a destination to say.
 
@@ -929,6 +1045,26 @@ class EvaluationAnnouncement:
     # a group without anyone being told.
     overflowed: int = 0
     overflow_is_lower_bound: bool = False
+    # Read when the delivery runs, unlike the transition snapshots, so a retry shows a later edit.
+    rule: RuleMetadata = field(default_factory=RuleMetadata)
+
+
+@frozen
+class HandoffSend:
+    """One send a routing or destination edit owes a destination about a group that is firing.
+
+    A destination that gains the firing hears it now, so its later resolve has something to close. An
+    incident manager that loses it hears the resolve, so the incident does not stay open. The
+    destination is named by id and read when the send runs, so no credential travels on the payload.
+    """
+
+    grouping_key: str
+    # The firing the send concerns, which names the incident and the Slack thread.
+    episode_started_at: datetime
+    # An `AlertDestination` id, or an `AlertReceiver` id when `routed`.
+    destination_id: str
+    routed: bool
+    gained: bool
 
 
 @frozen
@@ -976,6 +1112,9 @@ class AlertDeliveryRequest:
     # and which of them one activity sends. The workflow sets `part`.
     parts: int = 1
     part: int = 0
+    # Set on a request for the hand-over workflow, after an edit moved firings between incident
+    # managers. It reads the rows that opened those firings, and writes no history.
+    handoff: tuple[HandoffSend, ...] = ()
 
     def to_stored(self) -> dict[str, Any]:
         return asdict(self)
@@ -1079,11 +1218,26 @@ class NativeConfigurationMatch:
     # that orders matches, on the same scale a source's own searched rows have.
     is_exact: bool | None = None
     search_score: float | None = None
+    # Set for a copy, whose source row's id stays its public id.
+    legacy_configuration_id: UUID | None = None
+
+    @property
+    def public_id(self) -> UUID:
+        return self.legacy_configuration_id or self.id
+
+
+@frozen
+class OwnedCopyKey:
+    """One copy the platform owns, with what a source sorts and filters it on beside its own rows."""
+
+    created_at: datetime
+    legacy_configuration_id: UUID
+    created_by_id: int | None
 
 
 @frozen
 class EnabledNativeConfiguration:
-    """One enabled alert of a kind with no source row, with what a source's own readers of its
+    """One enabled alert of a kind with no source row, or a copy the platform owns, with what a source's own readers of its
     enabled alerts need, such as the insight an insight alert watches."""
 
     id: UUID
@@ -1092,6 +1246,29 @@ class EnabledNativeConfiguration:
     created_at: datetime
     created_by_id: int | None
     source_config: dict[str, Any]
+    # Set for a copy the platform owns, whose source row's id stays its public id.
+    legacy_configuration_id: UUID | None = None
+
+    @property
+    def public_id(self) -> UUID:
+        return self.legacy_configuration_id or self.id
+
+
+@frozen
+class HeldAlertSearchMatch:
+    """One alert the platform holds the settings of, as a source's search shows it: an alert with no
+    source row, or a copy the platform owns."""
+
+    public_id: UUID
+    team_id: int
+    name: str
+    enabled: bool
+    # What the source's own read gates check, such as the insight an insight alert watches.
+    source_config: dict[str, Any]
+    check_interval_minutes: int
+    snooze_until: datetime | None
+    # The full-text rank of the name, or None when the search had no query.
+    rank: float | None
 
 
 @frozen
@@ -1233,8 +1410,9 @@ class SourceAdmission(Protocol):
     """Decides whether a team may add an alert of the kind, or turn one on. The platform calls it on a
     create, where `current` is None, and on an edit that turns the alert on, and on no other edit.
 
-    `check_interval_minutes` is the alert's stored cadence on an edit, and the kind's fixed cadence on
-    a native create. It is None on a create through the source, which sets the cadence itself.
+    `check_interval_minutes` is the cadence the alert will run on: the stored one or the one an edit
+    chooses, and on a native create the one it chose or the kind's default. It is None on a create
+    through the source, which sets the cadence itself.
 
     It runs in the write's transaction, after the platform takes a lock for the team and kind, so two
     concurrent writes cannot both pass a count. It raises `PlatformAlertCreateRefused` to refuse a
@@ -1290,21 +1468,25 @@ class NativeAlertLifecycle:
     """
 
     check_interval_minutes: int
+    # True when every destination of the kind's alerts is an `AlertDestination` row, which delivery sends
+    # to alone. False when the source keeps HogFunction destinations, which `remove_destinations` removes.
+    platform_destinations: bool
     # Each cadence a create may choose, with the calendar unit it repeats on, since a month is not a fixed
     # number of minutes. None for a kind with one fixed cadence.
     check_intervals: Mapping[int, str | None] | None = None
     # The most alerts of the kind a team can have, or None for no cap.
     max_per_team: int | None = None
-    # Removes the HogFunction destinations of any deleted alert the platform owns. None for a kind
-    # whose destinations are `AlertDestination` rows, which go with the configuration.
+    # Removes the HogFunction destinations of any deleted alert the platform owns. Required when
+    # `platform_destinations` is False. A kind with rows needs none: its rows go with the configuration,
+    # and the platform retires the HogFunctions they link to.
     remove_destinations: NativeAlertRemoveDestinations | None = None
     # False for a kind whose alerts without a source row the platform deletes but does not create
     # yet. The API then neither publishes nor accepts a create of the kind.
     creates: bool = True
 
-    @property
-    def platform_destinations(self) -> bool:
-        return self.remove_destinations is None
+    def __post_init__(self) -> None:
+        if not self.platform_destinations and self.remove_destinations is None:
+            raise ValueError("A kind whose destinations are HogFunctions needs `remove_destinations`.")
 
 
 @frozen
@@ -1332,7 +1514,8 @@ class SourceConfigSpec:
 
     A kind can have both. `mirror` and `delete` then serve the alerts that have a source row, and
     `native` serves the ones that have none. A create goes through `create`, unless `native_create`
-    says the team's new alerts get no source row.
+    says the team's new alerts get no source row. A kind with no `mirror` keeps none of an alert's
+    settings on its source row, so an edit treats a copy as an alert with no source row.
     """
 
     model: type[BaseModel]
@@ -1355,6 +1538,8 @@ class SourceConfigSpec:
     # A new kind names its own flag, so it opens on its own schedule while the others stay generally
     # available.
     rollout_flag: str | None = None
+    # The most recent checks an alert of the kind may look back over, up to `MAX_SOURCE_EVALUATION_PERIODS`.
+    max_evaluation_periods: int = MAX_EVALUATION_PERIODS
     # A PostHog feature flag that opens every API action on this kind in place of `platform-alerts`.
     # The source product can then release its alerts on its own flag, while `platform-alerts` keeps
     # the other kinds and the platform's own pages closed.
@@ -1379,6 +1564,22 @@ class SourceConfigSpec:
 
 
 SourceConfigLoader = Callable[[], SourceConfigSpec]
+
+
+@frozen
+class LegacyCopyExpectation:
+    """What the copy of one platform-owned alert should store, built from its source row."""
+
+    legacy_configuration_id: UUID
+    team_id: int
+    # None when the row has no platform form, such as an insight cadence the platform never runs.
+    upsert: PlatformAlertUpsert | None
+    extra_columns: Mapping[str, Any] = field(default_factory=dict)
+
+
+# One page of a source's platform-owned rows, ordered by id: `(team_id or None for every team,
+# after this id, limit)`.
+LegacyDriftSource = Callable[[int | None, UUID | None, int], Sequence[LegacyCopyExpectation]]
 
 
 @frozen
@@ -1436,6 +1637,7 @@ class DestinationType(LabeledStrEnum):
     WEBHOOK = "webhook", "Webhook"
     TEAMS = "teams", "Microsoft Teams"
     PAGERDUTY = "pagerduty", "PagerDuty"
+    INCIDENT_IO = "incident_io", "incident.io"
     EMAIL = "email", "Email"
     IN_APP = "in_app", "In-app notification"
 
@@ -1464,6 +1666,11 @@ class IncidentAction(StrEnum):
     RESOLVE = "resolve"
 
 
+# The ID goes into the URL path of every send, so delivery checks it again rather than trust the stored value.
+# Anchored because DRF's RegexField searches rather than matches the whole value.
+INCIDENT_IO_ALERT_SOURCE_CONFIG_ID_RE: Final = re.compile(r"\A[0-9A-Za-z]{26}\Z")
+
+
 class AlertDestinationData(TypedDict):
     type: DestinationType
     slack_workspace_id: NotRequired[int]
@@ -1476,6 +1683,9 @@ class AlertDestinationData(TypedDict):
     pagerduty_routing_key: NotRequired[str]
     pagerduty_severity: NotRequired[str]
     pagerduty_region: NotRequired[str]
+    incident_io_alert_source_config_id: NotRequired[str]
+    # Secret-bearing: reads show only its last four characters.
+    incident_io_secret: NotRequired[str]
     email_addresses: NotRequired[list[str]]
     # Users rather than addresses, so a send reaches each one's current address, and only while they have access.
     email_user_ids: NotRequired[list[int]]
@@ -1494,13 +1704,14 @@ DESTINATION_EVENT_KINDS: Final = frozenset(
 
 # Turns on team-wide receivers and routes for a team, in delivery and in the API that edits them.
 ROUTING_FLAG: Final = "platform-alerts-routing"
-# The types routed delivery sends to. It skips incident managers, and email and in-app need
-# recipients that belong to one alert.
+# The types routed delivery sends to. Email and in-app need recipients that belong to one alert.
 ROUTABLE_DESTINATION_TYPES: Final = (
     DestinationType.SLACK,
     DestinationType.WEBHOOK,
     DestinationType.TEAMS,
     DestinationType.DISCORD,
+    DestinationType.PAGERDUTY,
+    DestinationType.INCIDENT_IO,
 )
 
 
@@ -1512,6 +1723,7 @@ class NewAlertDestination:
     event_kinds: tuple[AlertEventKind, ...]
     enabled: bool = True
     legacy_hog_function_ids: tuple[UUID, ...] = ()
+    keeps_legacy_webhook_body: bool = False
 
 
 @frozen
@@ -1525,6 +1737,44 @@ class StoredAlertDestination:
     enabled: bool
     consecutive_failures: int
     legacy_hog_function_ids: tuple[UUID, ...]
+    keeps_legacy_webhook_body: bool = False
+
+
+@frozen
+class DeliveryTestOutcome:
+    """What sending a test message to an alert's destinations did: how many took it, and how many refused or failed."""
+
+    sent: int
+    failed: int
+
+
+@frozen
+class SourceDestination:
+    """One destination on the page of an alert whose source keeps HogFunctions for it.
+
+    Until a source's rollback window ends, a destination added there is both an `AlertDestination`
+    row and the HogFunctions it copies, and the HogFunctions send. An older one is HogFunctions
+    only, and one whose HogFunctions were deleted elsewhere is a row only.
+    """
+
+    # The `AlertDestination` row, or None for HogFunctions no row copies.
+    destination_id: UUID | None
+    hog_function_ids: tuple[UUID, ...]
+    data: AlertDestinationData
+    enabled: bool
+    # For a row whose HogFunctions are gone, the ids it still copies. A client that recorded the
+    # destination by its HogFunction ids, such as Terraform, finds and deletes it by these.
+    retired_hog_function_ids: tuple[UUID, ...] = ()
+
+
+@frozen
+class DeletedSourceDestinations:
+    """What a source destination delete removed on the platform side."""
+
+    # The type of each deleted row, by row id.
+    row_types: Mapping[UUID, str]
+    # The HogFunctions the rows named by id copied, which the source deletes too.
+    copied_hog_function_ids: frozenset[UUID]
 
 
 class AlertDestinationValidationError(Exception):
@@ -1663,6 +1913,17 @@ class AlertDelivery:
     template: str | None = None  # "slack" | "discord" | "webhook" | "teams" | "pagerduty"
     status: str = "accepted"
     at: str  # ISO-8601 timestamp
+
+
+class LinkedHogFunctionRetirer(Protocol):
+    """Switches off and soft-deletes the named HogFunctions of one alert, which `AlertDestination` rows
+    linked to when a person customized them. `alert_id` is the alert's public id. The product that owns
+    HogFunctions registers it.
+
+    It runs in the caller's transaction, so a delete that fails keeps them.
+    """
+
+    def __call__(self, *, team_id: int, alert_id: UUID, hog_function_ids: Collection[UUID]) -> None: ...
 
 
 class LiveHogFunctionLookup(Protocol):

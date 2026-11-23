@@ -12,20 +12,21 @@ import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors } from '@/ui/theme'
 import { type } from '@/ui/tokens'
 
-import { LiveCard, LiveCardNote, NOT_LOADED_TEXT } from './LiveCard'
+import { LiveCard, LiveCardLoading, LiveCardNote } from './LiveCard'
 import { agoText } from './liveFormat'
 
 const HIGHLIGHT_MS = 1500
 const SLIDE_PX = 10
 
 interface LiveEventsCardProps {
+    audience?: 'web' | 'mobile' | 'mixed'
     events: LiveEventRow[] | null
     screenActive: boolean
     onOpen: (event: LiveEventRow) => void
 }
 
 /** The newest 50 events, newest first. Events that arrive after the first read slide in with a short highlight. */
-export function LiveEventsCard({ events, onOpen, screenActive }: LiveEventsCardProps): ReactElement {
+export function LiveEventsCard({ events, onOpen, screenActive, audience = 'web' }: LiveEventsCardProps): ReactElement {
     const now = useNow(screenActive ? 10_000 : null).getTime()
     const seen = useRef<Set<string> | null>(null)
     const previous = seen.current
@@ -36,7 +37,7 @@ export function LiveEventsCard({ events, onOpen, screenActive }: LiveEventsCardP
     }, [events])
     let body: ReactElement
     if (!events) {
-        body = <LiveCardNote text={NOT_LOADED_TEXT} testID="live-events-not-loaded" />
+        body = <LiveCardLoading testID="live-events-loading" />
     } else if (events.length === 0) {
         body = <LiveCardNote text="Waiting for events…" testID="live-events-empty" />
     } else {
@@ -56,7 +57,12 @@ export function LiveEventsCard({ events, onOpen, screenActive }: LiveEventsCardP
         )
     }
     return (
-        <LiveCard title="Live events" meta="Newest first" flush testID="live-events">
+        <LiveCard
+            title={audience === 'mobile' ? 'Live mobile events' : 'Live events'}
+            meta={audience === 'mixed' ? 'Web + mobile · newest first' : 'Newest first'}
+            flush
+            testID="live-events"
+        >
             {body}
         </LiveCard>
     )
@@ -132,7 +138,7 @@ function EventRow({
                     <Text style={styles.when} numberOfLines={1}>
                         {when}
                     </Text>
-                    <MonoText size={11} color={colors.tertiary} numberOfLines={1} style={styles.person}>
+                    <MonoText size={12} color={colors.tertiary} numberOfLines={1} style={styles.person}>
                         {event.distinctId}
                     </MonoText>
                 </View>
@@ -162,7 +168,8 @@ const useStyles = createStyles(({ colors }) => ({
         gap: 2,
     },
     name: {
-        ...type.bodySmallStrong,
+        ...type.metaSmall,
+        fontWeight: '600',
         color: colors.ink,
     },
     place: {

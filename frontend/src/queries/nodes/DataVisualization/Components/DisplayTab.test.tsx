@@ -60,7 +60,7 @@ describe('DisplayTab', () => {
         expect(screen.queryByText('Show labels')).not.toBeInTheDocument()
     })
 
-    it('keeps annotations off by default and persists the toggle', async () => {
+    it('saves annotations and a moving average on the same SQL line chart', async () => {
         initKeaTests()
 
         const key = 'display-tab-annotations-test'
@@ -116,6 +116,12 @@ describe('DisplayTab', () => {
 
         await waitFor(() => {
             expect(query.chartSettings?.showAnnotations).toBe(true)
+        })
+
+        await userEvent.click(screen.getByText('Lines'))
+        await userEvent.click(await screen.findByText('Show moving average'))
+        await waitFor(() => {
+            expect(query.chartSettings).toMatchObject({ showAnnotations: true, showMovingAverage: true })
         })
     })
 

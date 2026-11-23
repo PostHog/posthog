@@ -130,8 +130,6 @@ describe('CDP hog invocation rerun e2e', () => {
                     uuid: 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1',
                     team_id: team.id,
                     properties: { email: 'rerun-e2e@posthog.com' },
-                    properties_last_updated_at: {},
-                    properties_last_operation: null,
                     created_at: DateTime.utc(),
                     version: 1,
                     is_identified: true,

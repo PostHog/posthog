@@ -40,6 +40,7 @@ class TestPipelinePlumbing:
             ("tickets", "tickets", ["id"]),
             # Fan-out children carry the parent id in their composite key so rows stay unique table-wide.
             ("contact_notes", "contact_notes", ["contact_id", "id"]),
+            ("contact_documents", "contact_documents", ["contact_id", "id"]),
             ("ticket_notes", "ticket_notes", ["ticket_id", "id"]),
         ]
     )

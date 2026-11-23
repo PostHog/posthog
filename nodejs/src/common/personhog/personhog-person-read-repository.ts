@@ -1,4 +1,8 @@
-import { InternalPersonWithDistinctId, PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import {
+    ConsistentPersonReader,
+    InternalPersonWithDistinctId,
+    PersonReadRepository,
+} from '~/common/persons/repositories/person-repository'
 import { InternalPerson, TeamId } from '~/types'
 
 import { PersonHogClient } from './client'
@@ -10,7 +14,7 @@ import { timedGrpc } from './metrics'
  * dependency — all reads go through personhog with automatic retries
  * on transient errors.
  */
-export class PersonHogPersonReadRepository implements PersonReadRepository {
+export class PersonHogPersonReadRepository implements PersonReadRepository, ConsistentPersonReader {
     constructor(
         private grpcClient: PersonHogClient,
         private clientLabel: string = 'unknown'
@@ -56,6 +60,13 @@ export class PersonHogPersonReadRepository implements PersonReadRepository {
                 ),
             this.clientLabel,
             method
+        )
+    }
+
+    /** Not retried, because a caller that can fall back to the replica gains only delay from a retry. */
+    fetchPersonById(teamId: TeamId, personId: string, callerTag?: string): Promise<InternalPerson | null> {
+        return timedGrpc(this.clientLabel, 'fetchPersonById', () =>
+            this.grpcClient.persons.fetchPersonById(teamId, personId, callerTag, { consistency: 'strong' })
         )
     }
 

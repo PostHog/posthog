@@ -15,6 +15,9 @@ const check = (
     rows,
 })
 
+const PRO = { properties: [{ key: 'plan', value: ['pro'], operator: 'exact', type: 'person' }] }
+const TEAM = { properties: [{ key: 'plan', value: ['team'], operator: 'exact', type: 'person' }] }
+
 describe('healthCheckRows', () => {
     it.each([
         {
@@ -33,9 +36,90 @@ describe('healthCheckRows', () => {
             effect: 'Saved after users were exposed',
         },
     ])('healthCheckRowsTable: $name', ({ row, effect }) => {
-        const table = healthCheckRowsTable(check('release_conditions_changed_mid_run', [row]), 'users')
+        const before = 'Set 1: 100%'
+        const after = 'Set 1: 50%'
+        const table = healthCheckRowsTable(
+            check('release_conditions_changed_mid_run', [{ ...row, before, after }]),
+            'users'
+        )
 
-        expect(table?.rows).toEqual([{ saved: { time: row.changed_at }, effect: { text: effect } }])
+        expect(table?.rows.map(({ cells }) => cells)).toEqual([
+            {
+                saved: { time: row.changed_at },
+                before: { text: before },
+                after: { text: after },
+                effect: { text: effect },
+            },
+        ])
+    })
+
+    it.each([
+        {
+            name: 'carries the conditions as saved for the diff',
+            filters: { before_filters: { groups: [PRO], aggregation_group_type_index: null } },
+            expanded: true,
+        },
+        {
+            name: 'expands to nothing when they were too large to send',
+            filters: { before_filters: null },
+            expanded: false,
+        },
+    ])('healthCheckRowsTable: a release condition change $name', ({ filters, expanded }) => {
+        const after = { groups: [TEAM], aggregation_group_type_index: null }
+        const changedAt = '2026-10-24T12:10:00Z'
+        const table = healthCheckRowsTable(
+            check('release_conditions_changed_mid_run', [
+                {
+                    changed_at: changedAt,
+                    before: 'Set 1: 100%, filters on plan',
+                    after: 'Set 1: 100%, filters on plan',
+                    before_exposure: false,
+                    after_filters: after,
+                    ...filters,
+                },
+            ]),
+            'users'
+        )
+
+        expect(table?.rows[0].conditionsChange).toEqual(
+            expanded ? { changedAt, before: filters.before_filters, after } : undefined
+        )
+    })
+
+    it('healthCheckRowsTable: a bucketing change names its setting', () => {
+        const table = healthCheckRowsTable(
+            check('bucketing_changed_mid_run', [
+                {
+                    changed_at: '2026-10-24T12:10:00Z',
+                    changed_setting: 'Match by',
+                    before: 'user ID',
+                    after: 'device ID',
+                    before_exposure: false,
+                },
+            ]),
+            'users'
+        )
+
+        expect(table?.columns.map(({ title }) => title)).toEqual(['Saved', 'Setting', 'Before', 'After', 'Effect'])
+        expect(table?.rows[0].cells.setting).toEqual({ text: 'Match by' })
+    })
+
+    it('healthCheckRowsTable: a metric event without a record reads as unknown', () => {
+        const metric = { metric_name: 'Checkout', metric_role: 'primary', ratio_side: null }
+        const table = healthCheckRowsTable(
+            check('metric_event_not_ingested', [
+                { ...metric, event: 'cart', event_received: true },
+                { ...metric, event: 'pay', event_received: false },
+                { ...metric, event: 'refund', event_received: null },
+            ]),
+            'users'
+        )
+
+        expect(table?.rows.map(({ cells: { metric, event, received } }) => [metric, event, received])).toEqual([
+            [{ text: 'Checkout (primary)' }, { text: 'cart' }, { text: 'Yes' }],
+            [{ text: 'Checkout (primary)' }, { text: 'pay' }, { text: 'No' }],
+            [{ text: 'Checkout (primary)' }, { text: 'refund' }, { text: 'Unknown' }],
+        ])
     })
 
     it('healthCheckRowsTable: a difference carries its sign', () => {
@@ -57,7 +141,7 @@ describe('healthCheckRows', () => {
             'users'
         )
 
-        expect(table?.rows.map((row) => [row.difference, row.significant])).toEqual([
+        expect(table?.rows.map(({ cells }) => [cells.difference, cells.significant])).toEqual([
             [{ text: '+14.2%' }, { text: 'Yes' }],
             [{ text: '-3.1%' }, { text: 'No' }],
         ])

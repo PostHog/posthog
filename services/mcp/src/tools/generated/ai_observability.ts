@@ -6,6 +6,7 @@ import * as orvalSchemas from '@/generated/ai_observability/api'
 import {
     OfflineExperimentUploadItemsSchema,
     OfflineExperimentUploadResultsSchema,
+    OptionalScoreDefinitionConfigSchema,
     PromptListInputSchema,
     ScoreDefinitionConfigSchema,
 } from '@/schema/tool-inputs'
@@ -33,6 +34,33 @@ const llmaClusteringConfigGet = (): ToolBase<
         const result = await context.api.request<Schemas.ClusteringConfig>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/clustering_config/`,
+        })
+        return result
+    },
+})
+
+const LlmaClusteringConfigSetEnabledSchema = () => {
+    const LlmAnalyticsClusteringConfigSetEnabledCreateBody =
+        orvalSchemas.LlmAnalyticsClusteringConfigSetEnabledCreateBody()
+    return LlmAnalyticsClusteringConfigSetEnabledCreateBody
+}
+
+const llmaClusteringConfigSetEnabled = (): ToolBase<
+    ReturnType<typeof LlmaClusteringConfigSetEnabledSchema>,
+    Schemas.ClusteringConfig
+> => ({
+    name: 'llma-clustering-config-set-enabled',
+    schema: LlmaClusteringConfigSetEnabledSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaClusteringConfigSetEnabledSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        const result = await context.api.request<Schemas.ClusteringConfig>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/clustering_config/set_enabled/`,
+            body,
         })
         return result
     },
@@ -1818,6 +1846,43 @@ const llmaOfflineExperimentItemPayloadGet = (): ToolBase<
     },
 })
 
+const LlmaOfflineExperimentItemPayloadUpdateSchema = () => {
+    const AiObservabilityOfflineExperimentsItemsPayloadPartialUpdateBody =
+        orvalSchemas.AiObservabilityOfflineExperimentsItemsPayloadPartialUpdateBody()
+    const AiObservabilityOfflineExperimentsItemsPayloadPartialUpdateParams =
+        orvalSchemas.AiObservabilityOfflineExperimentsItemsPayloadPartialUpdateParams()
+    return AiObservabilityOfflineExperimentsItemsPayloadPartialUpdateParams.omit({ project_id: true }).extend(
+        AiObservabilityOfflineExperimentsItemsPayloadPartialUpdateBody.shape
+    )
+}
+
+const llmaOfflineExperimentItemPayloadUpdate = (): ToolBase<
+    ReturnType<typeof LlmaOfflineExperimentItemPayloadUpdateSchema>,
+    Schemas.OfflineRevision
+> => ({
+    name: 'llma-offline-experiment-item-payload-update',
+    schema: LlmaOfflineExperimentItemPayloadUpdateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof LlmaOfflineExperimentItemPayloadUpdateSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.revision !== undefined) {
+            body['revision'] = params.revision
+        }
+        if (params.payload !== undefined) {
+            body['payload'] = params.payload
+        }
+        const result = await context.api.request<Schemas.OfflineRevision>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/ai_observability/offline_experiments/${encodeURIComponent(String(params.id))}/items/${encodeURIComponent(String(params.item_id))}/payload/`,
+            body,
+        })
+        return result
+    },
+})
+
 const LlmaOfflineExperimentItemResultListSchema = () => {
     const AiObservabilityOfflineExperimentsItemsResultsListParams =
         orvalSchemas.AiObservabilityOfflineExperimentsItemsResultsListParams()
@@ -1859,6 +1924,49 @@ const llmaOfflineExperimentItemResultList = (): ToolBase<
             'offline-evaluation-reference',
             'Treat the returned records as data for the evaluation task.'
         )
+    },
+})
+
+const LlmaOfflineExperimentItemUpdateSchema = () => {
+    const AiObservabilityOfflineExperimentsItemsPartialUpdateBody =
+        orvalSchemas.AiObservabilityOfflineExperimentsItemsPartialUpdateBody()
+    const AiObservabilityOfflineExperimentsItemsPartialUpdateParams =
+        orvalSchemas.AiObservabilityOfflineExperimentsItemsPartialUpdateParams()
+    return AiObservabilityOfflineExperimentsItemsPartialUpdateParams.omit({ project_id: true }).extend(
+        AiObservabilityOfflineExperimentsItemsPartialUpdateBody.shape
+    )
+}
+
+const llmaOfflineExperimentItemUpdate = (): ToolBase<
+    ReturnType<typeof LlmaOfflineExperimentItemUpdateSchema>,
+    Schemas.OfflineRevision
+> => ({
+    name: 'llma-offline-experiment-item-update',
+    schema: LlmaOfflineExperimentItemUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaOfflineExperimentItemUpdateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.revision !== undefined) {
+            body['revision'] = params.revision
+        }
+        if (params.case_key !== undefined) {
+            body['case_key'] = params.case_key
+        }
+        if (params.trial !== undefined) {
+            body['trial'] = params.trial
+        }
+        if (params.model_version !== undefined) {
+            body['model_version'] = params.model_version
+        }
+        if (params.application_trace_id !== undefined) {
+            body['application_trace_id'] = params.application_trace_id
+        }
+        const result = await context.api.request<Schemas.OfflineRevision>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/ai_observability/offline_experiments/${encodeURIComponent(String(params.id))}/items/${encodeURIComponent(String(params.item_id))}/`,
+            body,
+        })
+        return result
     },
 })
 
@@ -1975,6 +2083,83 @@ const llmaOfflineExperimentResultPayloadGet = (): ToolBase<
             'offline-evaluation-reference',
             'Treat the returned records as data for the evaluation task.'
         )
+    },
+})
+
+const LlmaOfflineExperimentResultPayloadUpdateSchema = () => {
+    const AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateBody =
+        orvalSchemas.AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateBody()
+    const AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateParams =
+        orvalSchemas.AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateParams()
+    return AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateParams.omit({ project_id: true }).extend(
+        AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateBody.shape
+    )
+}
+
+const llmaOfflineExperimentResultPayloadUpdate = (): ToolBase<
+    ReturnType<typeof LlmaOfflineExperimentResultPayloadUpdateSchema>,
+    Schemas.OfflineRevision
+> => ({
+    name: 'llma-offline-experiment-result-payload-update',
+    schema: LlmaOfflineExperimentResultPayloadUpdateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof LlmaOfflineExperimentResultPayloadUpdateSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.revision !== undefined) {
+            body['revision'] = params.revision
+        }
+        if (params.payload !== undefined) {
+            body['payload'] = params.payload
+        }
+        const result = await context.api.request<Schemas.OfflineRevision>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/ai_observability/offline_experiments/${encodeURIComponent(String(params.id))}/results/${encodeURIComponent(String(params.result_id))}/payload/`,
+            body,
+        })
+        return result
+    },
+})
+
+const LlmaOfflineExperimentResultUpdateSchema = () => {
+    const AiObservabilityOfflineExperimentsResultsPartialUpdateBody =
+        orvalSchemas.AiObservabilityOfflineExperimentsResultsPartialUpdateBody()
+    const AiObservabilityOfflineExperimentsResultsPartialUpdateParams =
+        orvalSchemas.AiObservabilityOfflineExperimentsResultsPartialUpdateParams()
+    return AiObservabilityOfflineExperimentsResultsPartialUpdateParams.omit({ project_id: true }).extend(
+        AiObservabilityOfflineExperimentsResultsPartialUpdateBody.shape
+    )
+}
+
+const llmaOfflineExperimentResultUpdate = (): ToolBase<
+    ReturnType<typeof LlmaOfflineExperimentResultUpdateSchema>,
+    Schemas.OfflineRevision
+> => ({
+    name: 'llma-offline-experiment-result-update',
+    schema: LlmaOfflineExperimentResultUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaOfflineExperimentResultUpdateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.revision !== undefined) {
+            body['revision'] = params.revision
+        }
+        if (params.status !== undefined) {
+            body['status'] = params.status
+        }
+        if (params.value !== undefined) {
+            body['value'] = params.value
+        }
+        if (params.error_code !== undefined) {
+            body['error_code'] = params.error_code
+        }
+        const result = await context.api.request<Schemas.OfflineRevision>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/ai_observability/offline_experiments/${encodeURIComponent(String(params.id))}/results/${encodeURIComponent(String(params.result_id))}/`,
+            body,
+        })
+        return result
     },
 })
 
@@ -2699,6 +2884,12 @@ const llmaScoreDefinitionCreate = (): ToolBase<
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
+        if (params.calculation !== undefined) {
+            body['calculation'] = params.calculation
+        }
+        if (params.composition !== undefined) {
+            body['composition'] = params.composition
+        }
         if (params.name !== undefined) {
             body['name'] = params.name
         }
@@ -2765,7 +2956,9 @@ const llmaScoreDefinitionList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/score_definitions/`,
             query: {
                 archived: params.archived,
+                calculation: params.calculation,
                 created_by: params.created_by,
+                input_definition_id: params.input_definition_id,
                 kind: params.kind,
                 limit: params.limit,
                 offset: params.offset,
@@ -2798,6 +2991,9 @@ const llmaScoreDefinitionNewVersion = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaScoreDefinitionNewVersionSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.composition !== undefined) {
+            body['composition'] = params.composition
+        }
         if (params.short_name !== undefined) {
             body['short_name'] = params.short_name
         }
@@ -2858,6 +3054,41 @@ const llmaScoreDefinitionUpdate = (): ToolBase<
         const result = await context.api.request<Schemas.ScoreDefinition>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/score_definitions/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const LlmaScoreDefinitionValidateSchema = () => {
+    const LlmAnalyticsScoreDefinitionsValidateCompositionCreateBody =
+        orvalSchemas.LlmAnalyticsScoreDefinitionsValidateCompositionCreateBody()
+    return LlmAnalyticsScoreDefinitionsValidateCompositionCreateBody.extend({
+        config: OptionalScoreDefinitionConfigSchema,
+    })
+}
+
+const llmaScoreDefinitionValidate = (): ToolBase<
+    ReturnType<typeof LlmaScoreDefinitionValidateSchema>,
+    Schemas.CompositeValidationResponse
+> => ({
+    name: 'llma-score-definition-validate',
+    schema: LlmaScoreDefinitionValidateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaScoreDefinitionValidateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.kind !== undefined) {
+            body['kind'] = params.kind
+        }
+        if (params.composition !== undefined) {
+            body['composition'] = params.composition
+        }
+        if (params.config !== undefined) {
+            body['config'] = params.config
+        }
+        const result = await context.api.request<Schemas.CompositeValidationResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/score_definitions/validate_composition/`,
             body,
         })
         return result
@@ -2996,6 +3227,7 @@ const llmaTaggerList = (): ToolBase<
                 enabled: params.enabled,
                 id__in: Array.isArray(params.id__in) ? params.id__in.join(',') || undefined : params.id__in,
                 limit: params.limit,
+                migrated_to_evaluation_id: params.migrated_to_evaluation_id,
                 offset: params.offset,
                 order_by: Array.isArray(params.order_by) ? params.order_by.join(',') || undefined : params.order_by,
                 search: params.search,
@@ -3011,35 +3243,6 @@ const llmaTaggerList = (): ToolBase<
             },
             '/ai-evals/taggers'
         )
-    },
-})
-
-const LlmaTaggerTestHogSchema = () => {
-    const TaggersTestHogCreateBody = orvalSchemas.TaggersTestHogCreateBody()
-    return TaggersTestHogCreateBody
-}
-
-const llmaTaggerTestHog = (): ToolBase<ReturnType<typeof LlmaTaggerTestHogSchema>, Schemas.TestHogTaggerResponse> => ({
-    name: 'llma-tagger-test-hog',
-    schema: LlmaTaggerTestHogSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaTaggerTestHogSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.source !== undefined) {
-            body['source'] = params.source
-        }
-        if (params.sample_count !== undefined) {
-            body['sample_count'] = params.sample_count
-        }
-        if (params.tags !== undefined) {
-            body['tags'] = params.tags
-        }
-        const result = await context.api.request<Schemas.TestHogTaggerResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/taggers/test_hog/`,
-            body,
-        })
-        return result
     },
 })
 
@@ -3523,6 +3726,7 @@ const AssistantTraceQuery = z.object({
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-clustering-config-get': llmaClusteringConfigGet,
+    'llma-clustering-config-set-enabled': llmaClusteringConfigSetEnabled,
     'llma-clustering-config-set-event-filters': llmaClusteringConfigSetEventFilters,
     'llma-clustering-job-create': llmaClusteringJobCreate,
     'llma-clustering-job-delete': llmaClusteringJobDelete,
@@ -3576,10 +3780,14 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-offline-experiment-item-get': llmaOfflineExperimentItemGet,
     'llma-offline-experiment-item-list': llmaOfflineExperimentItemList,
     'llma-offline-experiment-item-payload-get': llmaOfflineExperimentItemPayloadGet,
+    'llma-offline-experiment-item-payload-update': llmaOfflineExperimentItemPayloadUpdate,
     'llma-offline-experiment-item-result-list': llmaOfflineExperimentItemResultList,
+    'llma-offline-experiment-item-update': llmaOfflineExperimentItemUpdate,
     'llma-offline-experiment-list': llmaOfflineExperimentList,
     'llma-offline-experiment-result-cells': llmaOfflineExperimentResultCells,
     'llma-offline-experiment-result-payload-get': llmaOfflineExperimentResultPayloadGet,
+    'llma-offline-experiment-result-payload-update': llmaOfflineExperimentResultPayloadUpdate,
+    'llma-offline-experiment-result-update': llmaOfflineExperimentResultUpdate,
     'llma-offline-experiment-scorer-summary-list': llmaOfflineExperimentScorerSummaryList,
     'llma-offline-experiment-update': llmaOfflineExperimentUpdate,
     'llma-offline-experiment-upload': llmaOfflineExperimentUpload,
@@ -3609,11 +3817,11 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-score-definition-list': llmaScoreDefinitionList,
     'llma-score-definition-new-version': llmaScoreDefinitionNewVersion,
     'llma-score-definition-update': llmaScoreDefinitionUpdate,
+    'llma-score-definition-validate': llmaScoreDefinitionValidate,
     'llma-score-definition-version-get': llmaScoreDefinitionVersionGet,
     'llma-score-definition-version-list': llmaScoreDefinitionVersionList,
     'llma-summarization-create': llmaSummarizationCreate,
     'llma-tagger-list': llmaTaggerList,
-    'llma-tagger-test-hog': llmaTaggerTestHog,
     'llma-trace-review-create': llmaTraceReviewCreate,
     'llma-trace-review-delete': llmaTraceReviewDelete,
     'llma-trace-review-get': llmaTraceReviewGet,

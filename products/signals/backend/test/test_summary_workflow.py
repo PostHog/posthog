@@ -19,6 +19,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
+from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import SignalReport
@@ -84,7 +85,7 @@ async def aorganization():
         name=f"SummaryWorkflowOrg-{random.randint(1, 99999)}",
     )
     yield organization
-    await sync_to_async(organization.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(organization)
 
 
 @pytest_asyncio.fixture
@@ -94,7 +95,7 @@ async def ateam(aorganization):
         name=f"SummaryWorkflowTeam-{random.randint(1, 99999)}",
     )
     yield team
-    await sync_to_async(team.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(team)
 
 
 # ---------------------------------------------------------------------------

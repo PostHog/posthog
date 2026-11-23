@@ -116,7 +116,9 @@ MINTABLE_PRODUCTS = frozenset(
     }
 )
 
-BACKGROUND_AGENTS_ORIGINS = frozenset({"autoresearch", "business_knowledge", "context_layer", "task_analysis"})
+BACKGROUND_AGENTS_ORIGINS = frozenset(
+    {"autoresearch", "business_knowledge", "context_layer", "knowledge_writer", "task_analysis"}
+)
 
 # Exempt from the background run-duration cap, so their tokens need the longer interactive
 # ceiling. Mirrors the stages `Task.create_run` stamps.
@@ -290,7 +292,7 @@ def mint_refusal(
         return _team_credit_refusal(team_id, bucket)
     except Exception:
         logger.warning(
-            "ai_gateway_token: credit lookup failed, run stays on the Python gateway",
+            "ai_gateway_token: credit lookup failed",
             extra={"team_id": team_id, "bucket": bucket},
             exc_info=True,
         )

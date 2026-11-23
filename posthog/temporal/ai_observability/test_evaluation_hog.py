@@ -7,8 +7,9 @@ from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.ai_observability.evaluation_errors import is_terminal_user_error_result
-from posthog.temporal.ai_observability.evaluation_hog import execute_hog_eval_bytecode, finalize_hog_eval_result
+from posthog.temporal.ai_observability.evaluation_hog import finalize_hog_eval_result
 
+from products.ai_observability.backend.facade.evaluation_runtime import execute_hog_eval_bytecode
 from products.ai_observability.backend.hog import compile_ai_observability_hog
 
 # The failure shape these tests exercise: an operator applied to a property the source assumes is a
@@ -312,7 +313,7 @@ class TestFinalizeHogEvalResult:
     ]
 )
 def test_printed_output_stops_growing_at_its_cap(_name: str, source: str, expected: str) -> None:
-    with patch("posthog.temporal.ai_observability.evaluation_hog.MAX_HOG_OUTPUT_CHARS", 20):
+    with patch("products.ai_observability.backend.logic.evaluations.hog_runtime.MAX_HOG_OUTPUT_CHARS", 20):
         raw = execute_hog_eval_bytecode(compile_ai_observability_hog(source, "destination"), {}, False)
 
     assert (raw["verdict"], raw["reasoning"]) == (True, expected)
