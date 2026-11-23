@@ -11,7 +11,7 @@ import type {
 } from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalReportArtefact } from '../../types'
-import { prettifyScoutSkillName } from '../../utils/scoutRunsWindow'
+import { scoutNameForSkill, withScoutNoun } from '../../utils/scoutRunsWindow'
 import type {
     CheckCancelledContent,
     CheckExpiredContent,
@@ -83,24 +83,37 @@ function soakLabel(minutes: number): string {
     return hours ? `${plural(days, 'day')} ${plural(hours, 'hour')}` : plural(days, 'day')
 }
 
+/** Skill name → the scout's display name, from `scoutFleetLogic.scoutNamesBySkill`. */
+type ScoutNames = Readonly<Record<string, string>>
+
 /** Which scout answers an `agent` check. A `metric_threshold` check has no lane: the coordinator measures it. */
-function scoutLaneLabel(kind: string | undefined, skillName: string | null | undefined): string | null {
+function scoutLaneLabel(
+    kind: string | undefined,
+    skillName: string | null | undefined,
+    scoutNames: ScoutNames | undefined
+): string | null {
     if (kind !== 'agent') {
         return null
     }
-    return skillName ? prettifyScoutSkillName(skillName) : FALLBACK_LANE_LABEL
+    return skillName ? scoutNameForSkill(scoutNames, skillName) : FALLBACK_LANE_LABEL
 }
 
 /** The lane as a clause: "Error tracking scout runs it", or "The follow-up scout runs it". */
-function laneRunsIt(kind: string | undefined, skillName: string | null | undefined): string | null {
+function laneRunsIt(
+    kind: string | undefined,
+    skillName: string | null | undefined,
+    scoutNames: ScoutNames | undefined
+): string | null {
     if (kind !== 'agent') {
         return null
     }
-    return skillName ? `${prettifyScoutSkillName(skillName)} scout runs it` : `${FALLBACK_LANE_LABEL} runs it`
+    return skillName
+        ? `${withScoutNoun(scoutNameForSkill(scoutNames, skillName))} runs it`
+        : `${FALLBACK_LANE_LABEL} runs it`
 }
 
-function laneLabel(check: SignalReportCheckApi): string | null {
-    return scoutLaneLabel(check.kind, 'skill_name' in check.config ? check.config.skill_name : null)
+function laneLabel(check: SignalReportCheckApi, scoutNames: ScoutNames | undefined): string | null {
+    return scoutLaneLabel(check.kind, 'skill_name' in check.config ? check.config.skill_name : null, scoutNames)
 }
 
 function shortDate(value: string): string {
@@ -200,7 +213,8 @@ function runningCheckRow(check: SignalReportCheckApi, lane: string | null): Pick
 
 function openCheckRow(
     check: SignalReportCheckApi,
-    reportStatus: SignalReportStatusEnumApi
+    reportStatus: SignalReportStatusEnumApi,
+    scoutNames: ScoutNames | undefined
 ): Pick<ReportCheckRowData, 'tag' | 'detail'> {
     if (reportStatus !== 'monitoring') {
         return {
@@ -211,7 +225,7 @@ function openCheckRow(
     if (check.monitoring_timing) {
         return MONITORING_CHECK_ROWS[check.monitoring_timing.final_verification_state ?? check.monitoring_timing.state]
     }
-    const lane = laneLabel(check)
+    const lane = laneLabel(check, scoutNames)
 
     if (check.status === 'pending') {
         return pendingCheckRow(check, lane)
@@ -314,7 +328,8 @@ export function latestCheckExplanations(artefacts: SignalReportArtefact[]): Map<
 export function buildReportCheckRows(
     checks: SignalReportCheckApi[],
     explanations: Map<string, string>,
-    reportStatus: SignalReportStatusEnumApi
+    reportStatus: SignalReportStatusEnumApi,
+    scoutNames?: ScoutNames
 ): ReportCheckRowData[] {
     return [...checks]
         .sort((a, b) => {
@@ -327,7 +342,9 @@ export function buildReportCheckRows(
             return {
                 check,
                 reportStatus,
-                ...(open ? openCheckRow(check, reportStatus) : terminalCheckRow(check, explanations.get(check.id))),
+                ...(open
+                    ? openCheckRow(check, reportStatus, scoutNames)
+                    : terminalCheckRow(check, explanations.get(check.id))),
                 cancelled: check.status === 'cancelled',
                 cancellable: open,
             }
@@ -417,8 +434,12 @@ function pendingCheckTiming(content: CheckScheduledContent, monitoringEnabled: b
  * The entry written when a check is attached. A check on an open report has no date to give yet,
  * so it says what starts the clock instead of naming a day it cannot keep.
  */
-export function checkScheduledEntry(content: CheckScheduledContent, monitoringEnabled = false): CheckLifecycleEntry {
-    const lane = laneRunsIt(content.kind, content.skill_name)
+export function checkScheduledEntry(
+    content: CheckScheduledContent,
+    monitoringEnabled = false,
+    scoutNames?: ScoutNames
+): CheckLifecycleEntry {
+    const lane = laneRunsIt(content.kind, content.skill_name, scoutNames)
     const runs = content.runs && content.runs > 1 ? `${content.runs} runs` : null
 
     if (content.arms_on_resolve) {
@@ -467,7 +488,7 @@ export function checkCancelledEntry(content: CheckCancelledContent): CheckLifecy
 /** Which builder reads each lifecycle entry, so the renderer needs one arm rather than three. */
 export const CHECK_LIFECYCLE_ENTRIES: Record<
     string,
-    (content: CheckLifecycleContent, monitoringEnabled?: boolean) => CheckLifecycleEntry
+    (content: CheckLifecycleContent, monitoringEnabled?: boolean, scoutNames?: ScoutNames) => CheckLifecycleEntry
 > = {
     check_scheduled: checkScheduledEntry,
     check_expired: checkExpiredEntry,

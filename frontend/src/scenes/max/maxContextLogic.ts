@@ -165,7 +165,7 @@ export interface maxContextLogicActions {
     addOrUpdateContextErrorTrackingIssue: (data: { id: string; name?: string | null }) => {
         data: {
             id: string
-            name?: string | null | undefined
+            name?: string | null
         }
     }
     addOrUpdateContextEvaluation: (data: {
@@ -176,11 +176,11 @@ export interface maxContextLogicActions {
         name?: string | null
     }) => {
         data: {
-            description?: string | null | undefined
+            description?: string | null
             evaluation_type: EvaluationRuntime
-            hog_source?: string | null | undefined
+            hog_source?: string | null
             id: string
-            name?: string | null | undefined
+            name?: string | null
         }
     }
     addOrUpdateContextEvent: (data: EventDefinition) => {
@@ -198,7 +198,7 @@ export interface maxContextLogicActions {
     addOrUpdateContextNotebook: (data: { short_id: string; title?: string | null }) => {
         data: {
             short_id: string
-            title?: string | null | undefined
+            title?: string | null
         }
     }
     handleTaxonomicFilterChange: (

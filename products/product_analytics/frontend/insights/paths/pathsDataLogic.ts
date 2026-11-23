@@ -103,9 +103,9 @@ export interface pathsDataLogicActions {
         querySource: QuerySourceUpdate
     } // insightVizDataLogic
     openPersonsModal: (props: { path_dropoff_key?: string; path_end_key?: string; path_start_key?: string }) => {
-        path_dropoff_key?: string | undefined
-        path_end_key?: string | undefined
-        path_start_key?: string | undefined
+        path_dropoff_key?: string
+        path_end_key?: string
+        path_start_key?: string
     }
     viewPathToFunnel: (pathItemCard: PathNodeData) => {
         pathItemCard: PathNodeData

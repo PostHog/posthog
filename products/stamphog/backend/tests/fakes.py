@@ -180,6 +180,8 @@ class GitHubRecorder:
         # Set to make posting a COMMENT review blow up, e.g. a rate limit on the failure notice.
         self.comment_review_side_effect: Exception | None = None
         self.teams_by_login: dict[str, list[str]] = {}
+        # Answer the team lookup with GraphQL errors, as GitHub does when the App lacks "Members: read".
+        self.team_lookup_refused = False
         # The merge base the compare API reports for every PR, and the familiarity GraphQL answers:
         # path -> blame ranges, and path -> the author's history nodes. Unscripted paths answer empty.
         self.merge_base_sha = "mergebase000"
@@ -200,6 +202,8 @@ class GitHubRecorder:
         self.check_runs: dict[tuple[str, str], list[dict]] = {}
         self.default_branch_blob_shas: dict[str, str] = {}
         self.shed_batch = False
+        # (path, priority) of every request, in order, so a test can check the egress lane of each read.
+        self.request_priorities: list[tuple[str, Priority | None]] = []
         # Repositories with no commits at all. GitHub answers their head lookup with a null
         # defaultBranchRef, which is what a freshly created connected repo looks like.
         self.empty_repositories: set[str] = set()
@@ -241,6 +245,7 @@ class GitHubRecorder:
         path = url[len(_API_PREFIX) :] if url.startswith(_API_PREFIX) else url
         json_body = kwargs.get("json")
         params = kwargs.get("params") or {}
+        self.request_priorities.append((path, kwargs.get("priority")))
 
         if self.shed_batch and kwargs.get("priority") is Priority.BATCH:
             raise GitHubEgressBudgetExhausted("the installation budget is spent")
@@ -411,6 +416,8 @@ class GitHubRecorder:
                 }
             }
             return FakeResponse(200, json_data=data)
+        if self.team_lookup_refused:
+            return FakeResponse(200, json_data={"errors": [{"message": "Resource not accessible by integration"}]})
         login = str(variables.get("login") or "")
         slugs = self.teams_by_login.get(login, [])
         teams_data = {"data": {"organization": {"teams": {"nodes": [{"slug": s} for s in slugs]}}}}

@@ -14,7 +14,7 @@ interface ColorInputProps {
 }
 
 // Survey-appropriate preset colors
-const SURVEY_PRESET_COLORS = [
+export const SURVEY_PRESET_COLORS = [
     '#ffffff',
     '#f5f5f5',
     '#e5e5e5',
@@ -34,7 +34,7 @@ const SURVEY_PRESET_COLORS = [
     '#7c3aed',
 ]
 
-const isCssVariable = (value: string): boolean => {
+export const isCssVariable = (value: string): boolean => {
     return value.trim().startsWith('var(') || value.trim().startsWith('--')
 }
 

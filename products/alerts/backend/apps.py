@@ -21,6 +21,7 @@ class AlertsConfig(AppConfig):
             choose_delivery_path,
             list_delivery_destination_groups,
             live_hog_function_ids,
+            retire_linked_hog_functions,
         )
         from products.alerts.backend.legacy_config_drift import insight_copy_expectations  # noqa: PLC0415
         from products.alerts.backend.platform_alert_wording import describe_insight_transition  # noqa: PLC0415
@@ -39,6 +40,7 @@ class AlertsConfig(AppConfig):
             register_destination_resolver,
             register_image_resolver,
             register_legacy_event_emitter,
+            register_linked_hog_function_retirer,
             register_live_hog_function_lookup,
             register_source_alert_creator,
             register_source_describer,
@@ -54,6 +56,7 @@ class AlertsConfig(AppConfig):
         register_destination_resolver(list_delivery_destination_groups)
         register_delivery_path_chooser(choose_delivery_path)
         register_live_hog_function_lookup(live_hog_function_ids)
+        register_linked_hog_function_retirer(retire_linked_hog_functions)
         register_legacy_event_emitter(SourceKind.INSIGHT, emit_insight_legacy_events)
         register_source_describer(SourceKind.INSIGHT, describe_insight_transition)
         register_image_resolver(SourceKind.INSIGHT, insight_chart_image)

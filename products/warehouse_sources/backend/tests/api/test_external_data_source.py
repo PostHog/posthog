@@ -1,6 +1,7 @@
 import json
 import uuid
 import typing as t
+import contextlib
 from datetime import date, timedelta
 from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
@@ -174,13 +175,23 @@ _PH_HISTORY_NAMING_FLAG = (
 )
 
 
-def _test_team_not_allowlisted_for_internal_hosts():
+def _test_team_not_allowlisted_for_internal_hosts() -> contextlib.ExitStack:
     # The test team's id depends on which tests ran before it in the same database. The allowlist exempts
     # team 2 in the US region and team 1 in the EU region from the internal-host check.
-    return patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.is_team_allowlisted_for_internal_hosts",
-        return_value=False,
+    stack = contextlib.ExitStack()
+    stack.enter_context(
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.is_team_allowlisted_for_internal_hosts",
+            return_value=False,
+        )
     )
+    stack.enter_context(
+        patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_source.source_setup.is_team_allowlisted_for_internal_hosts",
+            return_value=False,
+        )
+    )
+    return stack
 
 
 def _mock_source_without_oauth_fields(mock_get_source) -> None:
@@ -13818,15 +13829,26 @@ class TestCDCStatus(APIBaseTest):
         assert body["slot_exists"] is False
         assert body["lag_bytes"] is None
 
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
-        side_effect=psycopg.OperationalError("connection refused"),
+    @parameterized.expand(
+        [
+            ("connection_refused", psycopg.OperationalError("connection refused"), False),
+            ("ssl_required", SSLRequiredError("SSL/TLS connection is required"), False),
+            ("unexpected_bug", ValueError("unexpected status shape"), True),
+        ]
     )
-    def test_returns_400_when_source_unreachable(self, _mock_get_status) -> None:
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.capture_exception")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status"
+    )
+    def test_returns_400_when_status_read_fails(
+        self, _name: str, exc: Exception, should_capture: bool, mock_get_status, mock_capture_exception
+    ) -> None:
+        mock_get_status.side_effect = exc
         source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/")
         assert response.status_code == 400
         assert "Could not connect to source" in response.json()["message"]
+        assert mock_capture_exception.called is should_capture
 
 
 class TestResumeCDC(APIBaseTest):

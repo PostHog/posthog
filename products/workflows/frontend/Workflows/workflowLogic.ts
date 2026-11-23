@@ -34,6 +34,7 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { objectsEqual } from 'lib/utils/objects'
 import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { selectedSenderIds } from 'scenes/hog-functions/email-templater/emailSenderFields'
+import { emailTemplaterLogic, latestEmailEditSaved } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import type { EmailFieldErrors, EmailTemplateFrom } from 'scenes/hog-functions/email-templater/types'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -630,6 +631,25 @@ export interface workflowLogicActions {
     ) => {
         hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
         payload?: any
+    }
+    loadMissingHogFunctionTemplates: (templateIds: string[]) => string[]
+    loadMissingHogFunctionTemplatesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadMissingHogFunctionTemplatesSuccess: (
+        hogFunctionTemplatesById: {
+            [x: string]: HogFunctionTemplateType
+        },
+        payload?: string[]
+    ) => {
+        hogFunctionTemplatesById: {
+            [x: string]: HogFunctionTemplateType
+        }
+        payload?: string[]
     }
     loadWorkflow: () => any
     loadWorkflowFailure: (
@@ -1401,7 +1421,7 @@ export interface workflowLogicActions {
                         }
                       | undefined
                   created_at: string
-                  created_by?: UserBasicType | null | undefined
+                  created_by?: UserBasicType | null
                   description?: string | undefined
                   edges: {
                       from: string
@@ -2354,7 +2374,7 @@ export interface workflowLogicActions {
                         }
                       | undefined
                   created_at: string
-                  created_by?: UserBasicType | null | undefined
+                  created_by?: UserBasicType | null
                   description?: string | undefined
                   edges: {
                       from: string
@@ -3719,6 +3739,24 @@ function unusableSenderError(action: HogFlowAction, integrations: IntegrationTyp
     return undefined
 }
 
+/** Templates the workflow's steps use that the loaded list lacks. Empty until the list has loaded. */
+function missingStepTemplateIds(
+    workflow: HogFlow | null | undefined,
+    templatesById: Record<string, HogFunctionTemplateType>
+): string[] {
+    if (!workflow || Object.keys(templatesById).length === 0) {
+        return []
+    }
+    const missing = new Set<string>()
+    for (const action of workflow.actions ?? []) {
+        const templateId = (action.config as { template_id?: unknown } | undefined)?.template_id
+        if (typeof templateId === 'string' && !templatesById[templateId]) {
+            missing.add(templateId)
+        }
+    }
+    return [...missing]
+}
+
 // Edits typed while a publish request runs must survive the reload, so they get the conflict banner instead.
 function reloadKeepingEdits(
     hasUnsavedChanges: boolean,
@@ -4086,7 +4124,7 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         ],
     })),
-    lazyLoaders(() => ({
+    lazyLoaders(({ values }) => ({
         hogFunctionTemplatesById: [
             {} as Record<string, HogFunctionTemplateType>,
             {
@@ -4104,6 +4142,27 @@ export const workflowLogic = kea<workflowLogicType>([
                     )
 
                     return allTemplatesById
+                },
+                // The list stops at one page, so a step whose template sorts past it would read as "Template not found".
+                loadMissingHogFunctionTemplates: async (templateIds: string[]) => {
+                    const fetched = await Promise.all(
+                        templateIds.map((templateId) =>
+                            api.hogFunctions.getTemplate(encodeURIComponent(templateId)).catch((error) => {
+                                // Only a template that really doesn't exist reads as missing. Other failures surface.
+                                if (error?.status === 404) {
+                                    return null
+                                }
+                                throw error
+                            })
+                        )
+                    )
+                    const added = { ...values.hogFunctionTemplatesById }
+                    for (const template of fetched) {
+                        if (template) {
+                            added[template.id] = template
+                        }
+                    }
+                    return added
                 },
             },
         ],
@@ -4869,6 +4928,19 @@ export const workflowLogic = kea<workflowLogicType>([
             if (!props.id || props.id === 'new' || values.draftActionPending) {
                 return
             }
+            // The open email editor hands over its last edit first, so the unsaved-changes check below sees it.
+            if (emailTemplaterLogic.findMounted()) {
+                actions.setDraftActionPending('publish')
+                let emailEditSaved: boolean
+                try {
+                    emailEditSaved = await latestEmailEditSaved()
+                } finally {
+                    actions.setDraftActionPending(null)
+                }
+                if (!emailEditSaved) {
+                    return
+                }
+            }
             // The "Draft saved" toast offers Publish too, while auto-save may still hold edits. The step
             // check below reads the form, so it describes the staged draft only once the form is saved.
             if (values.publishDisabledReason) {
@@ -5135,7 +5207,17 @@ export const workflowLogic = kea<workflowLogicType>([
             cache.nextSaveKeepsFormEdits = keepsFormEdits
             actions.saveWorkflow(merged)
         },
+        loadHogFunctionTemplatesByIdSuccess: () => {
+            const missing = missingStepTemplateIds(values.originalWorkflow, values.hogFunctionTemplatesById)
+            if (missing.length) {
+                actions.loadMissingHogFunctionTemplates(missing)
+            }
+        },
         loadWorkflowSuccess: async ({ originalWorkflow }, _, __, previousState) => {
+            const missingTemplates = missingStepTemplateIds(originalWorkflow, values.hogFunctionTemplatesById)
+            if (missingTemplates.length) {
+                actions.loadMissingHogFunctionTemplates(missingTemplates)
+            }
             // This response is now the save baseline. Discarding a draft moves its stamp backwards,
             // so a copy kept from an earlier save would fence later saves too loosely.
             cache.lastSavedWorkflow = undefined
