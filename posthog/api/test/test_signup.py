@@ -2044,6 +2044,30 @@ class TestSignupChallengeAPI(APIBaseTest):
         assert mock_put.call_args[0][0] == "https://api.workos.com/radar/attempts/radar_att_01ABC"
         assert mock_put.call_args[1]["json"] == {"attempt_status": "success", "challenge_status": "success"}
 
+    @parameterized.expand([("string", "signals_abc", "signals_abc"), ("not_a_string", {"id": 1}, "")])
+    @pytest.mark.skip_on_multitenancy
+    @patch("posthog.workos_radar._call_radar_api")
+    @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
+    def test_signup_sends_the_browser_signals_token_to_radar(self, _name, token, expected, mock_call_api):
+        from posthog.workos_radar import RadarAttempt, RadarVerdict
+
+        mock_call_api.return_value = RadarAttempt(verdict=RadarVerdict.ALLOW)
+
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "John",
+                "email": "signals@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "Test Org",
+                "radar_signals_id": token,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert mock_call_api.call_args[1]["signals_id"] == expected
+
     @pytest.mark.skip_on_multitenancy
     @patch("posthog.workos_radar._call_radar_api")
     @patch("posthoganalytics.capture")
@@ -2107,6 +2131,37 @@ class TestInviteSignupChallengeAPI(APIBaseTest):
         self.assertEqual(data["code"], "challenge_required")
         self.assertEqual(data["extra"]["challenge_nonce"], "challenge:invite123:uuid")
         self.assertEqual(data["extra"]["turnstile_site_key"], "site_key_123")
+
+    @parameterized.expand([("set_up", True, "client_123"), ("not_set_up", False, None)])
+    def test_signup_pages_name_the_radar_client_while_radar_is_set_up(self, _name, enabled, expected):
+        invite = OrganizationInvite.objects.create(target_email="invitee@posthog.com", organization=self.organization)
+
+        with override_settings(
+            WORKOS_RADAR_ENABLED=enabled, WORKOS_RADAR_API_KEY="test_key", WORKOS_RADAR_CLIENT_ID="client_123"
+        ):
+            precheck = self.client.post("/api/signup/precheck", {"email": "new@posthog.com"}).json()
+            invite_page = self.client.get(f"/api/signup/{invite.id}/").json()
+
+        assert precheck.get("radar_client_id") == expected
+        assert invite_page.get("radar_client_id") == expected
+
+    @patch("posthog.workos_radar._call_radar_api")
+    @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
+    def test_invite_signup_sends_the_browser_signals_token_to_radar(self, mock_call_api):
+        from posthog.workos_radar import RadarAttempt, RadarVerdict
+
+        mock_call_api.return_value = RadarAttempt(verdict=RadarVerdict.ALLOW)
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="invite+signals@posthog.com", organization=self.organization
+        )
+
+        response = self.client.post(
+            f"/api/signup/{invite.id}/",
+            {"first_name": "Jane", "password": VALID_TEST_PASSWORD, "radar_signals_id": "signals_abc"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert mock_call_api.call_args[1]["signals_id"] == "signals_abc"
 
 
 class TestPasskeySignupAPI(APIBaseTest):

@@ -179,15 +179,28 @@ def _radar_mode_for(action: RadarAction, auth_method: RadarAuthMethod, sample_ke
     return RadarMode.OFF
 
 
+def _radar_client_id() -> str:
+    if not settings.WORKOS_RADAR_CLIENT_ID or not _is_radar_configured():
+        return ""
+    return settings.WORKOS_RADAR_CLIENT_ID
+
+
+def radar_client_id_for_signup() -> str:
+    """WorkOS client ID for the signup pages' Radar browser script, or "" while Radar is not set up."""
+    # Radar checks every signup, so the script runs whenever Radar is set up
+    return _radar_client_id()
+
+
 def radar_client_id_for_login() -> str:
     """WorkOS client ID for the login page's Radar browser script, or "" while Radar checks no logins."""
-    if not settings.WORKOS_RADAR_CLIENT_ID or not _is_radar_configured():
+    client_id = _radar_client_id()
+    if not client_id:
         return ""
     # The precheck needs no authentication, so every address gets the same answer and the
     # response does not show which accounts are outside the sample
     if _login_mode_for(None) == RadarMode.OFF:
         return ""
-    return settings.WORKOS_RADAR_CLIENT_ID
+    return client_id
 
 
 def _client_ip_for_radar(request: HttpRequest) -> str:
