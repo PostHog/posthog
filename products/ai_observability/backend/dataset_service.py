@@ -15,6 +15,7 @@ import posthoganalytics
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
+from posthog.synthetic_user import SyntheticUser
 
 from products.ai_observability.backend.dataset_limits import (
     MAX_DATASET_ITEM_PAYLOAD_BYTES,
@@ -447,7 +448,9 @@ def _create_item_version(
     return version
 
 
-def max_datasets_for_team(*, team: Team, user: User | None, caller_properties: dict[str, str] | None = None) -> int:
+def max_datasets_for_team(
+    *, team: Team, user: User | SyntheticUser | None, caller_properties: dict[str, str] | None = None
+) -> int:
     """The project's dataset limit: its override in the flag payload, or `MAX_DATASETS_PER_TEAM`.
 
     The payload is evaluated for the requesting user with the groups and caller properties

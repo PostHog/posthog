@@ -12,7 +12,6 @@ from rest_framework.response import Response
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.auth import is_mcp_request
 from posthog.event_usage import report_user_action
-from posthog.permissions import is_service_auth
 
 from products.ai_observability.backend.api.analytics import report_on_commit
 from products.ai_observability.backend.api.offline_experiment_reads import (
@@ -113,7 +112,7 @@ class OfflineExperimentMutationViewSet(OfflineExperimentReadViewSet):
 
     def _mutate_resource(self, request: ValidatedRequest, target: Target) -> Response:
         deleting = request.method == "DELETE"
-        if is_service_auth(request) or (deleting and is_mcp_request(request)):
+        if deleting and is_mcp_request(request):
             raise PermissionDenied("Use the direct project API with an evaluation editor credential.")
         data = dict(request.validated_query_data if deleting else request.validated_data)
         expected_revision = data.pop("revision")
@@ -124,7 +123,7 @@ class OfflineExperimentMutationViewSet(OfflineExperimentReadViewSet):
             target=target,
             expected_revision=expected_revision,
             changes=None if deleting else cast(dict[str, JSONValue], data),
-            access=self.user_access_control,
+            access=self.reference_access_control,
         )
         if deleting or current_revision != expected_revision:
             report_on_commit(

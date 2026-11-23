@@ -24,9 +24,8 @@ from posthog.api.documentation import extend_schema
 from posthog.api.fields import RepeatedOrCommaSeparatedListField
 from posthog.api.monitoring import monitor
 from posthog.api.pagination import BoundedLimitOffsetPagination
-from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.auth import InternalAPIAuthentication
+from posthog.auth import InternalAPIAuthentication, ProjectSecretAPIKeyUser
 from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
@@ -37,7 +36,11 @@ from posthog.permissions import (
     TeamMemberAccessPermission,
     get_authenticator_client,
 )
-from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
+from posthog.rate_limit import (
+    PersonalApiKeyOrUserRateThrottle,
+    PersonalOrProjectSecretApiKeyRateThrottle,
+    ProjectSecretApiKeyTeamRateThrottle,
+)
 
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
@@ -97,6 +100,7 @@ from products.ai_observability.backend.dataset_service import (
     update_dataset_item,
 )
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItemVersion, DatasetRevision
+from products.ai_observability.backend.presentation.project_keys import AIObservabilityProjectKeyMixin, attribution_user
 from products.ai_observability.backend.resource_tags import ResourceTags
 from products.exports.backend.facade.api import get_export_asset_content_response
 
@@ -574,9 +578,14 @@ class DatasetItemVersionPagination(BoundedLimitOffsetPagination):
     max_limit = 100
 
 
-class DatasetExportRateThrottle(PersonalApiKeyOrUserRateThrottle):
+class DatasetExportRateThrottle(PersonalOrProjectSecretApiKeyRateThrottle, PersonalApiKeyOrUserRateThrottle):
     scope = "dataset_export"
     rate = "10/day"
+
+
+class DatasetExportTeamRateThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    scope = "dataset_export"
+    rate = DatasetExportRateThrottle.rate
 
 
 def _parse_dataset_export_id(export_id: str | None) -> int:
@@ -693,7 +702,7 @@ def _current_item_version_queryset() -> QuerySet[DatasetItemVersion, DatasetItem
     )
 
 
-class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericViewSet):
+class DatasetViewSet(AIObservabilityProjectKeyMixin, AccessControlViewSetMixin, GenericViewSet):
     scope_object = "dataset"
     scope_object_read_actions = [
         "list",
@@ -706,6 +715,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
         "extend_retention",
     ]
     scope_object_write_actions = ["create", "partial_update", "archive", "restore"]
+    psak_allowed_actions = [*scope_object_read_actions, *scope_object_write_actions]
     permission_classes = [PostHogFeatureFlagPermission]
     posthog_feature_flag = "llm-analytics-datasets"
     pagination_class = DatasetPagination
@@ -720,7 +730,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
         return queryset.filter(team_id=self.team.id)
 
     def _filter_queryset_by_access_level(self, queryset: QuerySet[Dataset, Dataset]) -> QuerySet[Dataset, Dataset]:
-        if self.action not in ("list", "retention"):
+        if self.action not in ("list", "retention") or self.reference_access_control is None:
             return queryset
         return self.user_access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
 
@@ -899,14 +909,14 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
         data = serializer.validated_data
         max_datasets = max_datasets_for_team(
             team=self.team,
-            user=cast(User, request.user),
+            user=cast(User | ProjectSecretAPIKeyUser, request.user),
             caller_properties=get_authenticator_client(request.successful_authenticator),
         )
         try:
             with transaction.atomic():
                 dataset = create_dataset(
                     team=self.team,
-                    created_by=cast(User, request.user),
+                    created_by=attribution_user(request),
                     max_datasets=max_datasets,
                     name=data["name"],
                     description=data["description"],
@@ -1029,7 +1039,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
         detail=True,
         methods=["post"],
         url_path="exports",
-        throttle_classes=[DatasetExportRateThrottle],
+        throttle_classes=[DatasetExportRateThrottle, DatasetExportTeamRateThrottle],
     )
     def exports(self, request: Request, *args: object, **kwargs: object) -> Response:
         dataset = self.get_object()
@@ -1039,7 +1049,8 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
             asset = create_dataset_export(
                 dataset=dataset,
                 team=self.team,
-                created_by=cast(User, request.user),
+                created_by=attribution_user(request),
+                project_key_id=self._export_project_key_id(request),
                 was_impersonated=is_impersonated(request),
                 revision=serializer.validated_data.get("revision"),
             )
@@ -1070,7 +1081,8 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
         asset = get_dataset_export(
             dataset=dataset,
             team_id=self.team.id,
-            user_id=cast(User, request.user).id,
+            user_id=request.user.id,
+            project_key_id=self._export_project_key_id(request),
             asset_id=_parse_dataset_export_id(export_id),
         )
         if asset is None:
@@ -1098,7 +1110,8 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
         asset = get_dataset_export(
             dataset=dataset,
             team_id=self.team.id,
-            user_id=cast(User, request.user).id,
+            user_id=request.user.id,
+            project_key_id=self._export_project_key_id(request),
             asset_id=_parse_dataset_export_id(export_id),
         )
         if asset is None:
@@ -1123,11 +1136,17 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
         )
         return response
 
+    @staticmethod
+    def _export_project_key_id(request: Request) -> str | None:
+        user = request.user
+        return user.project_secret_api_key.id if isinstance(user, ProjectSecretAPIKeyUser) else None
 
-class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
+
+class DatasetItemViewSet(AIObservabilityProjectKeyMixin, GenericViewSet):
     scope_object = "dataset"
     scope_object_read_actions = ["list", "retrieve", "versions"]
     scope_object_write_actions = ["create", "partial_update", "archive", "restore"]
+    psak_allowed_actions = [*scope_object_read_actions, *scope_object_write_actions]
     permission_classes = [PostHogFeatureFlagPermission]
     posthog_feature_flag = "llm-analytics-datasets"
     pagination_class = DatasetItemPagination
@@ -1155,10 +1174,8 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         queryset: QuerySet[DatasetItemVersion, DatasetItemVersion],
     ) -> QuerySet[DatasetItemVersion, DatasetItemVersion]:
         accessible_datasets: QuerySet[Dataset, Dataset] = Dataset.objects.for_team(self.team.id, canonical=True)
-        accessible_datasets = self.user_access_control.filter_queryset_by_access_level(
-            accessible_datasets,
-            include_all_if_admin=True,
-        )
+        if access := self.reference_access_control:
+            accessible_datasets = access.filter_queryset_by_access_level(accessible_datasets, include_all_if_admin=True)
         return queryset.filter(
             team_id=self.team.id,
             dataset_id__in=Subquery(accessible_datasets.values("id")),
@@ -1329,7 +1346,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             result = create_dataset_item(
                 team_id=self.team.id,
                 dataset_id=dataset.id,
-                created_by=cast(User, request.user),
+                created_by=attribution_user(request),
                 input=data["input"],
                 expected_output=data["expected_output"],
                 source_output=data["source_output"],
@@ -1367,7 +1384,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 team_id=self.team.id,
                 dataset_id=current.dataset_item.dataset_id,
                 item_id=current.dataset_item_id,
-                created_by=cast(User, request.user),
+                created_by=attribution_user(request),
                 base_version=data["base_version"],
                 input=data.get("input", UNSET),
                 expected_output=data.get("expected_output", UNSET),
@@ -1398,7 +1415,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 team_id=self.team.id,
                 dataset_id=current.dataset_item.dataset_id,
                 item_id=current.dataset_item_id,
-                created_by=cast(User, request.user),
+                created_by=attribution_user(request),
                 base_version=serializer.validated_data["base_version"],
             )
         except (DatasetMutationConflict, DatasetLimitExceeded) as error:
@@ -1426,7 +1443,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 team_id=self.team.id,
                 dataset_id=current.dataset_item.dataset_id,
                 item_id=current.dataset_item_id,
-                created_by=cast(User, request.user),
+                created_by=attribution_user(request),
                 base_version=serializer.validated_data["base_version"],
                 source_version=serializer.validated_data.get("source_version"),
             )

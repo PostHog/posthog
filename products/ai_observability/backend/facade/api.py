@@ -77,7 +77,11 @@ from ..logic.traces.person import person_label
 from ..logic.traces.preview_queries import load_preview_sources
 from ..logic.traces.previews import page_turns
 from ..logic.traces.review import HumanReview, QueueAssignment, TraceReviewState
-from ..logic.traces.review_queries import load_trace_review_state, load_trace_review_states
+from ..logic.traces.review_queries import (
+    load_project_trace_review_state,
+    load_trace_review_state,
+    load_trace_review_states,
+)
 from ..logic.traces.sentiment_queries import TraceSentimentRow, load_sentiments
 from ..logic.traces.step_content import StepReading, read_step, step_content
 from ..logic.traces.summary import (
@@ -735,6 +739,10 @@ def get_trace_review_status(team: Team, user: User, trace_id: str) -> contracts.
     """The trace's human review and the review queue it waits in, as far as the user may see them. An unknown trace
     has neither."""
     return _to_review_status(load_trace_review_state(team, user, trace_id))
+
+
+def get_project_trace_review_status(team: Team, trace_id: str) -> contracts.TraceReviewStatus:
+    return _to_review_status(load_project_trace_review_state(team, trace_id))
 
 
 def _to_review_status(state: TraceReviewState) -> contracts.TraceReviewStatus:

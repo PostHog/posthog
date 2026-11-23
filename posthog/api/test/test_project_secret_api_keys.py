@@ -266,7 +266,13 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
     @parameterized.expand(
         [
             (scope, mirrors_legacy_token, expected_status)
-            for scope in ["business_knowledge:read", "person:write"]
+            for scope in [
+                "business_knowledge:read",
+                "person:write",
+                "dataset:read",
+                "evaluation:write",
+                "ai_observability:write",
+            ]
             for mirrors_legacy_token, expected_status in [(True, 400), (False, 200)]
         ]
     )
@@ -287,7 +293,7 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
 
         assert response.status_code == expected_status, response.json()
         key.refresh_from_db()
-        assert (scope in key.scopes) == (expected_status == 200)
+        assert (scope.replace("ai_observability:", "llm_analytics:") in key.scopes) == (expected_status == 200)
 
     @parameterized.expand([("other_scope", ["endpoint:read"]), ("null_scopes", None)])
     def test_staff_update_adding_llm_gateway_scope(self, _name, existing_scopes):
@@ -727,6 +733,8 @@ class TestProjectSecretAPIKeysViaPersonalAPIKey(APIBaseTest):
                 ["account:read", "loop:write"],
             ),
             ("holds_scope", ["project:write", "endpoint:read"], ["endpoint:read"], []),
+            ("grants_ai_observability", ["project:write", "llm_analytics:write"], ["ai_observability:read"], []),
+            ("lacks_ai_observability", ["project:write"], ["ai_observability:write"], ["llm_analytics:write"]),
             ("write_covers_read", ["project:write", "feature_flag:write"], ["feature_flag:read"], []),
             ("wildcard", ["*"], ["account:read", "loop:write"], []),
         ]

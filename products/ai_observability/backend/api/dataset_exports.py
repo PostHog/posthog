@@ -79,7 +79,8 @@ def create_dataset_export(
     *,
     dataset: Dataset,
     team: Team,
-    created_by: User,
+    created_by: User | None,
+    project_key_id: str | None = None,
     was_impersonated: bool,
     revision: int | None,
 ) -> ExportedAsset:
@@ -99,6 +100,7 @@ def create_dataset_export(
             "kind": DATASET_EXPORT_KIND,
             "dataset_id": str(dataset.id),
             "dataset_revision": selected_revision,
+            **({"project_key_id": project_key_id} if project_key_id else {}),
             "filename": f"{dataset.name}-r{selected_revision}",
         },
     )
@@ -130,13 +132,16 @@ def get_dataset_export(
     *,
     dataset: Dataset,
     team_id: int,
-    user_id: int,
+    user_id: int | None,
+    project_key_id: str | None = None,
     asset_id: int,
 ) -> ExportedAsset | None:
     asset = get_export_asset(team_id=team_id, asset_id=asset_id)
     if asset is None or asset.created_by_id != user_id or not asset.is_dataset_export:
         return None
     context = asset.export_context or {}
+    if (user_id is None and project_key_id is None) or context.get("project_key_id") != project_key_id:
+        return None
     if str(context.get("dataset_id")) != str(dataset.id):
         return None
     return asset

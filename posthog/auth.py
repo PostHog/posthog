@@ -79,6 +79,7 @@ from posthog.models.workload_trust_policy import (
 from posthog.passkey import verify_passkey_authentication_response
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 from posthog.scopes.checks import LEGACY_SCOPE_FALLBACKS
+from posthog.scopes.project_secret_api_key import project_key_scope_name
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
 from posthog.utils import get_safe_cache, get_trusted_client_ip, safe_cache_set
@@ -489,6 +490,12 @@ class ProjectSecretAPIKeyAuthentication(ActivityCredentialMixin, authentication.
 
     keyword = "Bearer"
     activity_credential_type = "project_secret_key"
+
+    def insufficient_scope_error(self, view: Any, required_scopes: list[str], missing_scopes: list[str]) -> Exception:
+        return InsufficientScope(
+            [project_key_scope_name(scope) for scope in required_scopes],
+            detail=f"API key missing required scope '{project_key_scope_name(missing_scopes[0])}'",
+        )
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         token = _extract_phs_token(request)

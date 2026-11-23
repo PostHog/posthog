@@ -38,6 +38,7 @@ const GATEWAY_SCOPE = 'llm_gateway:read'
 // Rows that differ from API_SCOPES here. PAKs label llm_gateway "LLM gateway", but here it is the AI gateway
 // service credential. messaging_preference is OAuth-hidden, so it has no API_SCOPES row and only this picker offers it.
 const PROJECT_SECRET_SCOPE_ROWS: Record<string, { label: string; info?: string }> = {
+    ai_observability: { label: 'AI observability', info: 'Scorers, offline evaluation scores, and trace reviews.' },
     llm_gateway: { label: 'AI gateway' },
     messaging_preference: {
         label: 'Recipient preference',

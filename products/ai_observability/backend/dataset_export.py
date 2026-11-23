@@ -9,7 +9,10 @@ from uuid import UUID
 
 from django.db.models import Q, QuerySet
 
+from posthog.auth import ProjectSecretAPIKeyUser
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.permissions import posthog_feature_flag_value
+from posthog.scopes.checks import scopes_not_covered
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.ai_observability.backend.dataset_limits import MAX_DATASET_EXPORT_BYTES, MAX_DATASET_EXPORT_MEGABYTES
@@ -94,7 +97,7 @@ def export_dataset_jsonl(asset: ExportedAsset) -> None:
     except (KeyError, TypeError, ValueError) as error:
         raise DatasetExportError("The dataset export configuration is invalid.", reportable=True) from error
 
-    if not asset.is_dataset_export or revision < 1 or asset.created_by is None:
+    if not asset.is_dataset_export or revision < 1:
         raise DatasetExportError("The dataset export configuration is invalid.", reportable=True)
 
     dataset = (
@@ -102,11 +105,22 @@ def export_dataset_jsonl(asset: ExportedAsset) -> None:
     )
     if dataset is None:
         raise DatasetExportError("The dataset is no longer available.")
-    if not UserAccessControl(user=asset.created_by, team=asset.team).check_access_level_for_object(dataset, "viewer"):
-        raise DatasetExportError("You no longer have access to this dataset.")
+    if key_id := context.get("project_key_id"):
+        key = ProjectSecretAPIKey.objects.filter(pk=key_id, team_id=asset.team_id, secure_value__isnull=False).first()
+        if asset.created_by_id is not None or key is None or scopes_not_covered(key.scopes or [], ["dataset:read"]):
+            raise DatasetExportError("You no longer have access to this dataset.")
+        distinct_id = ProjectSecretAPIKeyUser(key).distinct_id
+    else:
+        if asset.created_by is None:
+            raise DatasetExportError("The dataset export configuration is invalid.", reportable=True)
+        if not UserAccessControl(user=asset.created_by, team=asset.team).check_access_level_for_object(
+            dataset, "viewer"
+        ):
+            raise DatasetExportError("You no longer have access to this dataset.")
+        distinct_id = asset.created_by.distinct_id
     feature_flag_value = posthog_feature_flag_value(
         DATASETS_FEATURE_FLAG,
-        str(asset.created_by.distinct_id),
+        str(distinct_id),
         organization_id=asset.team.organization_id,
         team_id=asset.team_id,
     )

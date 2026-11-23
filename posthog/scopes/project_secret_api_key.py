@@ -1,9 +1,18 @@
 """The scopes a project secret API key may carry."""
 
+from typing import Literal
+
 from . import catalog
 
+
+def project_key_scope_name(scope: str) -> str:
+    return scope.replace("llm_analytics:", "ai_observability:", 1)
+
+
 # llm_gateway:read is staff-only, so ProjectSecretAPIKeySerializer adds it per request.
-PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[catalog.APIScopeObject, catalog.APIScopeActions]] = [
+PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[
+    tuple[catalog.APIScopeObject | Literal["ai_observability"], catalog.APIScopeActions]
+] = [
     ("endpoint", "read"),
     ("person", "write"),
     # SDK local evaluation and remote config. The Rust feature-flags service already
@@ -22,6 +31,12 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[catalog.APIScopeObje
     # experiments into a warehouse don't need a credential tied to one person's account.
     ("experiment", "read"),
     ("offline_evaluation_ingestion", "write"),
+    ("dataset", "read"),
+    ("dataset", "write"),
+    ("evaluation", "read"),
+    ("evaluation", "write"),
+    ("ai_observability", "read"),
+    ("ai_observability", "write"),
     # A project's own usage and share of spend, for a service that watches one project's billing.
     # Only someone with full billing access may grant it (see the key serializer).
     ("billing", "read"),

@@ -54,7 +54,7 @@ EXPORT_WORKFLOW_TIMEOUT = timedelta(minutes=35)
 def create_export_asset_async(
     *,
     team: Team,
-    created_by: User,
+    created_by: User | None,
     export_format: str,
     export_context: dict[str, object],
     expires_after: datetime | None = None,

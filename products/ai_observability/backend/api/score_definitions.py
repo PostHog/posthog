@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 from uuid import UUID
 
 from django.db import transaction
@@ -19,10 +19,8 @@ from rest_framework.response import Response
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import PageLinksSerializer, page_link
-from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.models import User
 from posthog.models.integer_field_bounds import INTEGER_FIELD_MAX
 from posthog.permissions import AccessControlPermission
 
@@ -40,6 +38,7 @@ from products.ai_observability.backend.models.score_definitions import (
     ScoreDefinitionVersion,
     StaleScoreDefinitionVersion,
 )
+from products.ai_observability.backend.presentation.project_keys import AIObservabilityProjectKeyMixin, attribution_user
 from products.ai_observability.backend.read_pagination import CursorPage, cursor_page, decode_cursor, encode_cursor
 from products.ai_observability.backend.resource_tags import ResourceTags
 from products.ai_observability.backend.score_definition_configs import ScoreDefinitionConfigField
@@ -390,7 +389,7 @@ class ScoreDefinitionFilter(django_filters.FilterSet):
 
 
 class ScoreDefinitionViewSet(
-    TeamAndOrgViewSetMixin,
+    AIObservabilityProjectKeyMixin,
     AccessControlViewSetMixin,
     mixins.CreateModelMixin,
     mixins.ListModelMixin,
@@ -400,6 +399,7 @@ class ScoreDefinitionViewSet(
 ):
     scope_object = "llm_analytics"
     scope_object_read_actions = ["list", "retrieve", "versions", "retrieve_version", "validate_composition"]
+    psak_allowed_actions = [*scope_object_read_actions, "create", "partial_update", "new_version"]
     permission_classes = [AccessControlPermission]
     serializer_class = ScoreDefinitionSerializer
     queryset = ScoreDefinition.objects.all()
@@ -415,12 +415,18 @@ class ScoreDefinitionViewSet(
             .order_by("alias"),
         )
 
+    def _visible_definitions(self) -> QuerySet[ScoreDefinition]:
+        definitions = ScoreDefinition.objects.filter(team_id=self.team_id)
+        if access := self.reference_access_control:
+            return access.filter_queryset_by_access_level(
+                definitions, include_all_if_admin=True, resource="llm_analytics"
+            )
+        return definitions
+
     def safely_get_queryset(
         self, queryset: QuerySet[ScoreDefinition, ScoreDefinition]
     ) -> QuerySet[ScoreDefinition, ScoreDefinition]:
-        accessible = self.user_access_control.filter_queryset_by_access_level(
-            ScoreDefinition.objects.filter(team_id=self.team_id), include_all_if_admin=True, resource="llm_analytics"
-        )
+        accessible = self._visible_definitions()
         queryset = (
             queryset.filter(team_id=self.team_id)
             .filter(
@@ -454,7 +460,7 @@ class ScoreDefinitionViewSet(
             if archived_param not in {"true", "false", "1", "0"}:
                 queryset = queryset.filter(archived=False)
         elif self.action in {"versions", "retrieve_version"}:
-            queryset = self.user_access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
+            queryset = queryset.filter(id__in=accessible.values("id"))
 
         if self.action == "list":
             tag_query = ResourceTagFilterSerializer(data=self.request.query_params)
@@ -489,7 +495,7 @@ class ScoreDefinitionViewSet(
             kind=definition_data["kind"],
             config=config,
             team_id=self.team_id,
-            user_access_control=self.user_access_control,
+            user_access_control=self.reference_access_control,
         )
         tags = definition_data.pop("tags", [])
         definition_data.pop("archived", None)
@@ -497,10 +503,10 @@ class ScoreDefinitionViewSet(
 
         definition = ScoreDefinition.objects.create(
             team=self.team,
-            created_by=cast(User, self.request.user),
+            created_by=attribution_user(self.request),
             **definition_data,
         )
-        definition.create_new_version(config=config, composition=composition, created_by=cast(User, self.request.user))
+        definition.create_new_version(config=config, composition=composition, created_by=attribution_user(self.request))
         ResourceTags.set(definition, tags)
         return definition
 
@@ -525,7 +531,7 @@ class ScoreDefinitionViewSet(
         if not changed_fields:
             return
 
-        definition.updated_by = cast(User, self.request.user)
+        definition.updated_by = attribution_user(self.request)
         definition.save(
             update_fields=[*[field for field in changed_fields if field != "tags"], "updated_at", "updated_by"]
         )
@@ -557,11 +563,11 @@ class ScoreDefinitionViewSet(
             kind=definition.kind,
             config=validated_data["config"],
             team_id=self.team_id,
-            user_access_control=self.user_access_control,
+            user_access_control=self.reference_access_control,
         )
         definition.create_new_version(
             config=validated_data["config"],
-            created_by=cast(User, self.request.user),
+            created_by=attribution_user(self.request),
             base_version=validated_data.get("base_version"),
             composition=composition,
         )
@@ -649,7 +655,7 @@ class ScoreDefinitionViewSet(
             kind=request.validated_data["kind"],
             config=request.validated_data.get("config"),
             team_id=self.team_id,
-            user_access_control=self.user_access_control,
+            user_access_control=self.reference_access_control,
         )
         return Response(CompositeValidationResponseSerializer({"valid": True}).data)
 
@@ -661,9 +667,7 @@ class ScoreDefinitionViewSet(
     @action(detail=True, methods=["get"], pagination_class=None)
     def versions(self, request: ValidatedRequest, **kwargs: object) -> Response:
         definition = self.get_object()
-        accessible = self.user_access_control.filter_queryset_by_access_level(
-            ScoreDefinition.objects.filter(team_id=self.team_id), include_all_if_admin=True, resource="llm_analytics"
-        )
+        accessible = self._visible_definitions()
         page = _score_definition_version_page(
             definition,
             allowed_versions=CompositeScorers.accessible_versions(accessible, team_id=self.team_id),
@@ -685,9 +689,7 @@ class ScoreDefinitionViewSet(
             identity = serializers.UUIDField().run_validation(version_id)
         except serializers.ValidationError as error:
             raise serializers.ValidationError({"version_id": error.detail}) from error
-        accessible = self.user_access_control.filter_queryset_by_access_level(
-            ScoreDefinition.objects.filter(team_id=self.team_id), include_all_if_admin=True, resource="llm_analytics"
-        )
+        accessible = self._visible_definitions()
         version = (
             CompositeScorers.accessible_versions(accessible, team_id=self.team_id)
             .select_related("definition", "created_by")

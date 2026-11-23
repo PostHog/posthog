@@ -125,6 +125,15 @@ describe('<ProjectSecretAPIKeys />', () => {
         expect(logic.values.editingKeyHasErrors).toBe(false)
     })
 
+    it('offers AI observability, dataset, and evaluation scopes on project keys', () => {
+        for (const key of ['ai_observability', 'dataset', 'evaluation']) {
+            expect(logic.values.filteredScopes.find((row) => row.key === key)).toMatchObject({ disabledActions: [] })
+        }
+        expect(logic.values.filteredScopes.find((row) => row.key === 'ai_observability')?.label).toBe(
+            'AI observability'
+        )
+    })
+
     it('names the recipient preference row and says it cannot send email', () => {
         expect(logic.values.filteredScopes.find(({ key }) => key === 'messaging_preference')).toMatchObject({
             label: 'Recipient preference',

@@ -1,6 +1,6 @@
 from dataclasses import asdict
 from functools import partial
-from typing import TYPE_CHECKING, cast
+from typing import cast
 from uuid import UUID
 
 from django.shortcuts import get_object_or_404
@@ -22,12 +22,6 @@ from posthog.permissions import is_service_auth, scopes_caller_lacks
 from products.ai_observability.backend.api.analytics import report_on_commit
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.api.offline_evaluation_base import OfflineEvaluationViewSet
-from products.ai_observability.backend.api.offline_experiment_access import (
-    OfflineEvaluationIngestionBurstThrottle,
-    OfflineEvaluationIngestionSustainedThrottle,
-    OfflineEvaluationIngestionTeamBurstThrottle,
-    OfflineEvaluationIngestionTeamSustainedThrottle,
-)
 from products.ai_observability.backend.api.offline_experiment_errors import OfflineEvaluationErrorSerializer
 from products.ai_observability.backend.api.offline_experiment_mutations import (
     MUTATION_SCOPES,
@@ -51,10 +45,13 @@ from products.ai_observability.backend.offline_evaluation_service import (
     OfflineExperimentService,
 )
 from products.ai_observability.backend.offline_evaluation_types import ExperimentSubmission, UploadSubmission
+from products.ai_observability.backend.presentation.throttles import (
+    OfflineEvaluationIngestionBurstThrottle,
+    OfflineEvaluationIngestionSustainedThrottle,
+    OfflineEvaluationIngestionTeamBurstThrottle,
+    OfflineEvaluationIngestionTeamSustainedThrottle,
+)
 from products.ai_observability.backend.resource_tags import ResourceTags
-
-if TYPE_CHECKING:
-    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 OFFLINE_UPLOAD_RESULTS = Counter(
     "aio_offline_upload_results_total", "Acknowledged offline evaluation results", labelnames=["outcome"]
@@ -136,8 +133,13 @@ class OfflineExperimentMetadataSerializer(serializers.Serializer):
 
 
 class OfflineExperimentViewSet(OfflineExperimentMutationViewSet):
-    scope_object_write_actions = ["create", "upload", "complete", "fail", "partial_update"]
-    psak_allowed_actions = ["create", "upload", "complete", "fail"]
+    ingestion_actions = ["create", "upload", "complete", "fail"]
+    scope_object_write_actions = [*ingestion_actions, "partial_update"]
+    psak_allowed_actions = [
+        *OfflineExperimentMutationViewSet.scope_object_read_actions,
+        *scope_object_write_actions,
+        *MUTATION_SCOPES,
+    ]
     parser_classes = [OfflineEvaluationJSONParser]
     ingestion_throttle_classes = [
         OfflineEvaluationIngestionBurstThrottle,
@@ -156,12 +158,9 @@ class OfflineExperimentViewSet(OfflineExperimentMutationViewSet):
         return super().dangerously_get_required_scopes(request, view)
 
     def get_throttles(self) -> list[BaseThrottle]:
-        if self.action in self.psak_allowed_actions or self.action in MUTATION_SCOPES:
+        if self.action in self.ingestion_actions or self.action in MUTATION_SCOPES:
             return [throttle() for throttle in self.ingestion_throttle_classes]
         return super().get_throttles()
-
-    def _reference_access_control(self) -> "UserAccessControl | None":
-        return None if is_service_auth(self.request) else self.user_access_control
 
     def _report_experiment_action(self, event: str, receipt: ExperimentReceipt) -> None:
         experiment = receipt.experiment
@@ -235,7 +234,7 @@ class OfflineExperimentViewSet(OfflineExperimentMutationViewSet):
     @monitor(feature=None, endpoint="aio_offline_experiment_create", method="POST")
     def create(self, request: TypedRequest[ExperimentSubmission], **kwargs: object) -> Response:
         receipt = OfflineExperimentService(
-            team_id=self.team_id, user_access_control=self._reference_access_control()
+            team_id=self.team_id, user_access_control=self.reference_access_control
         ).create(
             request.validated_data,
             created_by_id=None if is_service_auth(request) else request.user.pk,
@@ -259,9 +258,8 @@ class OfflineExperimentViewSet(OfflineExperimentMutationViewSet):
         experiment_id = self._experiment_id()
         receipt = OfflineEvaluationIngestionService(
             team_id=self.team_id,
-            user_access_control=self._reference_access_control(),
-            can_read_results=not is_service_auth(request)
-            and not scopes_caller_lacks(request, ["evaluation:read", "llm_analytics:read"]),
+            user_access_control=self.reference_access_control,
+            can_read_results=not scopes_caller_lacks(request, ["evaluation:read", "llm_analytics:read"]),
         ).upload(experiment_id, request.validated_data)
         for created in (True, False):
             OFFLINE_UPLOAD_RESULTS.labels(outcome="created" if created else "duplicate").inc(
@@ -296,7 +294,7 @@ class OfflineExperimentViewSet(OfflineExperimentMutationViewSet):
     @monitor(feature=None, endpoint="aio_offline_experiment_complete", method="POST")
     def complete(self, request: Request, **kwargs: object) -> Response:
         receipt = OfflineExperimentService(
-            team_id=self.team_id, user_access_control=self._reference_access_control()
+            team_id=self.team_id, user_access_control=self.reference_access_control
         ).close(self._experiment_id(), status="completed")
         if receipt.status_changed:
             self._report_experiment_action("llma offline experiment completed", receipt)
@@ -312,7 +310,7 @@ class OfflineExperimentViewSet(OfflineExperimentMutationViewSet):
     @monitor(feature=None, endpoint="aio_offline_experiment_fail", method="POST")
     def fail(self, request: Request, **kwargs: object) -> Response:
         receipt = OfflineExperimentService(
-            team_id=self.team_id, user_access_control=self._reference_access_control()
+            team_id=self.team_id, user_access_control=self.reference_access_control
         ).close(self._experiment_id(), status="failed")
         if receipt.status_changed:
             self._report_experiment_action("llma offline experiment failed", receipt)

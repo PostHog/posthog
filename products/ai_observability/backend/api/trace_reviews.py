@@ -18,10 +18,9 @@ from rest_framework.viewsets import ModelViewSet
 
 from posthog.api.documentation import extend_schema
 from posthog.api.monitoring import monitor
-from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.models import Team, User
+from posthog.models import Team
 from posthog.permissions import AccessControlPermission
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
@@ -29,6 +28,7 @@ from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.models.review_queues import ReviewQueueItem
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition
 from products.ai_observability.backend.models.trace_reviews import TraceReview, TraceReviewScore
+from products.ai_observability.backend.presentation.project_keys import AIObservabilityProjectKeyMixin, attribution_user
 from products.ai_observability.backend.score_definition_configs import (
     ScoreDefinitionConfigField,
     normalize_score_definition_key,
@@ -354,7 +354,7 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
                     categorical_values=score_payload["categorical_values"],
                     numeric_value=score_payload["numeric_value"],
                     boolean_value=score_payload["boolean_value"],
-                    created_by=cast(User, self.context["request"].user),
+                    created_by=attribution_user(self.context["request"]),
                 )
                 for score_payload in resolved_scores
             ]
@@ -373,7 +373,7 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
     def create(self, validated_data: dict[str, Any]) -> TraceReview:
         request = cast(Request, self.context["request"])
         team = cast(Team, self.context["team"])
-        review_user = cast(User, request.user)
+        review_user = attribution_user(request)
         resolved_scores = cast(list[dict[str, Any]], validated_data.pop("_resolved_scores", []))
         validated_data.pop("scores", None)
         queue_id = str(validated_data.pop("queue_id", "") or "") or None
@@ -400,7 +400,7 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
     def update(self, instance: TraceReview, validated_data: dict[str, Any]) -> TraceReview:
         request = cast(Request, self.context["request"])
         team = cast(Team, self.context["team"])
-        review_user = cast(User, request.user)
+        review_user = attribution_user(request)
         resolved_scores = cast(list[dict[str, Any]] | None, validated_data.pop("_resolved_scores", None))
         validated_data.pop("scores", None)
         queue_id = str(validated_data.pop("queue_id", "") or "") or None
@@ -484,8 +484,9 @@ class TraceReviewFilter(django_filters.FilterSet):
         return queryset
 
 
-class TraceReviewViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ModelViewSet):
+class TraceReviewViewSet(AIObservabilityProjectKeyMixin, AccessControlViewSetMixin, ModelViewSet):
     scope_object = "llm_analytics"
+    psak_allowed_actions = ["list", "retrieve", "create", "partial_update", "destroy"]
     permission_classes = [AccessControlPermission]
     serializer_class = TraceReviewSerializer
     queryset = TraceReview.objects.all()

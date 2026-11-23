@@ -23,12 +23,19 @@ def load_trace_review_state(team: Team, user: User, trace_id: str) -> TraceRevie
     return load_trace_review_states(team, user, [trace_id])[trace_id]
 
 
+def load_project_trace_review_state(team: Team, trace_id: str) -> TraceReviewState:
+    return _load_states(team, None, [trace_id])[trace_id]
+
+
 def load_trace_review_states(team: Team, user: User, trace_ids: Sequence[str]) -> dict[str, TraceReviewState]:
     """The state `load_trace_review_state` gives for each requested trace, from two reads however many traces there are."""
+    return _load_states(team, UserAccessControl(user=user, team=team), trace_ids)
+
+
+def _load_states(team: Team, access: UserAccessControl | None, trace_ids: Sequence[str]) -> dict[str, TraceReviewState]:
     unique_ids = list(dict.fromkeys(trace_ids))
     if not unique_ids:
         return {}
-    access = UserAccessControl(user=user, team=team)
     reviews = _load_reviews(team, access, unique_ids)
     queues = _load_queue_assignments(team, access, unique_ids)
     return {
@@ -36,14 +43,12 @@ def load_trace_review_states(team: Team, user: User, trace_ids: Sequence[str]) -
     }
 
 
-def _load_reviews(team: Team, access: UserAccessControl, trace_ids: Sequence[str]) -> dict[str, HumanReview]:
+def _load_reviews(team: Team, access: UserAccessControl | None, trace_ids: Sequence[str]) -> dict[str, HumanReview]:
     scores = TraceReviewScore.objects.select_related("definition").order_by("definition__name", "id")
     reviews = TraceReview.objects.filter(team_id=team.id, trace_id__in=trace_ids, deleted=False)
-    visible = (
-        access.filter_queryset_by_access_level(reviews, resource=RESOURCE, include_all_if_admin=True)
-        .select_related("reviewed_by")
-        .prefetch_related(Prefetch("scores", queryset=scores))
-    )
+    if access is not None:
+        reviews = access.filter_queryset_by_access_level(reviews, resource=RESOURCE, include_all_if_admin=True)
+    visible = reviews.select_related("reviewed_by").prefetch_related(Prefetch("scores", queryset=scores))
     by_trace: dict[str, HumanReview] = {}
     for review in visible:
         if review.trace_id not in by_trace:
@@ -74,17 +79,17 @@ def _human_review(review: TraceReview) -> HumanReview:
 
 
 def _load_queue_assignments(
-    team: Team, access: UserAccessControl, trace_ids: Sequence[str]
+    team: Team, access: UserAccessControl | None, trace_ids: Sequence[str]
 ) -> dict[str, QueueAssignment]:
-    queues = access.filter_queryset_by_access_level(
-        ReviewQueue.objects.filter(team_id=team.id), resource=RESOURCE, include_all_if_admin=True
-    )
+    queues = ReviewQueue.objects.filter(team_id=team.id)
+    if access is not None:
+        queues = access.filter_queryset_by_access_level(queues, resource=RESOURCE, include_all_if_admin=True)
     items = ReviewQueueItem.objects.filter(
         team_id=team.id, trace_id__in=trace_ids, deleted=False, queue__deleted=False, queue__in=queues
     )
-    visible = access.filter_queryset_by_access_level(
-        items, resource=RESOURCE, include_all_if_admin=True
-    ).select_related("queue")
+    if access is not None:
+        items = access.filter_queryset_by_access_level(items, resource=RESOURCE, include_all_if_admin=True)
+    visible = items.select_related("queue")
     by_trace: dict[str, QueueAssignment] = {}
     for item in visible:
         by_trace.setdefault(

@@ -24,7 +24,10 @@ from posthog.models.utils import ai_credential_value, generate_random_token_secr
 from posthog.permissions import TeamMemberStrictManagementPermission, TimeSensitiveActionPermission, scopes_caller_lacks
 from posthog.scopes.catalog import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS
 from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
-from posthog.scopes.project_secret_api_key import PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION
+from posthog.scopes.project_secret_api_key import (
+    PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION,
+    project_key_scope_name,
+)
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.email import send_feature_flags_secure_api_key_exposed, send_project_secret_api_key_exposed
 from posthog.utils import get_trusted_client_ip
@@ -175,6 +178,7 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
         if holds_gateway_scope or self.context["request"].user.is_staff:
             allowed.add(("llm_gateway", "read"))
 
+        canonical_scopes = []
         for scope in scopes:
             if scope == "*":
                 raise serializers.ValidationError(
@@ -183,7 +187,7 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
             scope_parts = scope.split(":")
             if (
                 len(scope_parts) != 2
-                or scope_parts[0] not in API_SCOPE_OBJECTS
+                or (scope_parts[0] != "ai_observability" and scope_parts[0] not in API_SCOPE_OBJECTS)
                 or scope_parts[0] in INTERNAL_API_SCOPE_OBJECTS
                 or scope_parts[1] not in API_SCOPE_ACTIONS
             ):
@@ -194,28 +198,38 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     f"Scope '{scope}' can not be assigned to a project secret API key. Allowed scopes: {allowed_scopes}"
                 )
+            canonical_scopes.append(scope.replace("ai_observability:", "llm_analytics:", 1))
 
         # An update may keep or remove a scope the caller lacks, because only an added scope widens the key.
         existing = set(self.instance.scopes or []) if self.instance is not None else set()
-        added = [scope for scope in scopes if scope not in existing]
+        added = [scope for scope in canonical_scopes if scope not in existing]
         _enforce_caller_holds_scopes(self.context["request"], added)
         _enforce_caller_may_grant_billing_read(self.context["request"], self.context["view"].team.organization, added)
         _enforce_caller_may_grant_business_knowledge_read(self.context["request"], self.context["view"].team, added)
         # Every project member can read the legacy secret token, so the check on the person who grants
         # the scope does not limit who ends up holding this key.
-        restricted_legacy_scopes = set(added) & {"business_knowledge:read", "person:write"}
+        restricted_legacy_scopes = set(added) & {
+            "business_knowledge:read",
+            "person:write",
+            "dataset:read",
+            "dataset:write",
+            "evaluation:read",
+            "evaluation:write",
+            "llm_analytics:read",
+            "llm_analytics:write",
+        }
         if restricted_legacy_scopes and self.instance is not None and _mirrors_legacy_team_token(self.instance):
             raise serializers.ValidationError(
                 "This key is the project's legacy secret token, which every project member can read. "
-                f"Create a new key for these scopes: {', '.join(sorted(restricted_legacy_scopes))}."
+                f"Create a new key for these scopes: {', '.join(sorted(map(project_key_scope_name, restricted_legacy_scopes)))}."
             )
         if "llm_gateway:read" in added:
             _enforce_gateway_bans(self.context["request"], self.context["view"].team)
-        return scopes
+        return canonical_scopes
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)
-        ret["scopes"] = ret["scopes"] or []
+        ret["scopes"] = [project_key_scope_name(scope) for scope in ret["scopes"] or []]
         return ret
 
     def create(self, validated_data: dict, **kwargs) -> ProjectSecretAPIKey:

@@ -2,8 +2,6 @@ from rest_framework import viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 
-from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.permissions import AccessControlPermission
 
 from products.ai_observability.backend.api.offline_experiment_errors import validation_errors
@@ -11,12 +9,12 @@ from products.ai_observability.backend.offline_evaluation_service import (
     OfflineEvaluationNotFound,
     OfflineEvaluationValidationError,
 )
+from products.ai_observability.backend.presentation.project_keys import AIObservabilityProjectKeyMixin
 
 
-class OfflineEvaluationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+class OfflineEvaluationViewSet(AIObservabilityProjectKeyMixin, viewsets.GenericViewSet):
     scope_object = "evaluation"
     requires_resource_level_access = True
-    authentication_classes = [ProjectSecretAPIKeyAuthentication]
     psak_allowed_actions: list[str] = []
     permission_classes = [AccessControlPermission]
 
