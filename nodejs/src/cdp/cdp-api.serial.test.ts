@@ -215,6 +215,7 @@ describe('CDP API', () => {
         await resetTestDatabase()
         hub = await createHub({
             SITE_URL: 'http://localhost:8000',
+            CDP_INTAKE_KAFKA_ASYNC_TEAMS: '',
         })
         hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN = 'ADWORDS_TOKEN'
         team = await getFirstTeam(hub.postgres)
