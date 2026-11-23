@@ -42,6 +42,16 @@ describe('integrations-email-create', () => {
         ['integrations-email-create', 'POST', '/api/projects/42/integrations/'],
         ['integrations-email-partial-update', 'PATCH', '/api/projects/42/integrations/7/email/'],
     ])('%s sends addresses as given and leaves out the setup method', async (name, method, path) => {
+        const sender = GENERATED_TOOLS[name]!()
+        const params = sender.schema.parse({
+            id: 7,
+            config: {
+                email: 'sales&ops@mail.example.com',
+                name: 'Example',
+                reply_to: 'billing=alerts@mail.example.com',
+                setup_method: 'auto',
+            },
+        })
         const received: { method: string; path: string; body: any }[] = []
         const server = createServer((request, reply) => {
             let raw = ''
@@ -64,16 +74,6 @@ describe('integrations-email-create', () => {
             }),
             stateManager: { getProjectId: async () => '42' },
         } as unknown as Context
-        const sender = GENERATED_TOOLS[name]!()
-        const params = sender.schema.parse({
-            id: 7,
-            config: {
-                email: 'sales&ops@mail.example.com',
-                name: 'Example',
-                reply_to: 'billing=alerts@mail.example.com',
-                setup_method: 'auto',
-            },
-        })
 
         try {
             await sender.handler(context, params)

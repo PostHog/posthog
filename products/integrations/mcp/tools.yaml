@@ -79,9 +79,9 @@ tools:
             pending, such as an organization TXT record, confirm at the DNS host that the record is missing, since a
             lookup can lag and a second SPF or DMARC record breaks both. Then poll integrations-email-status-retrieve
             until its status is verified, and call integrations-email-verify-create once. If the status is failed or
-            not_started, call integrations-email-verify-create to restart setup instead of polling. Stop polling after
-            about 15 minutes and tell the person which records are still pending. If this tool returns an error, fall
-            back to adding the records from integrations-email-status-retrieve by hand.
+            not_started, or is not verified after about 15 minutes, follow the setting-up-an-email-domain skill to
+            recover instead of polling. If this tool returns an error, fall back to adding the records from
+            integrations-email-status-retrieve by hand.
         exclude_params:
             - context
             - proxy_record_id
