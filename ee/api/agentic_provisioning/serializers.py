@@ -16,11 +16,15 @@ from django.utils.dateparse import parse_datetime
 from rest_framework import serializers
 
 from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER
+from posthog.models.team.team import Team
 from posthog.scopes.catalog import translate_renamed_scopes
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.credentials import validate_label_prefix
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
+
+PROJECT_NAME_MAX_LENGTH = Team._meta.get_field("name").max_length
+INVALID_PROJECT_NAME_MESSAGE = f"project_name must be a string of 1 to {PROJECT_NAME_MAX_LENGTH} characters"
 
 
 def first_error_message(errors: Any) -> str:
@@ -166,6 +170,12 @@ class ResourceCreateSerializer(serializers.Serializer):
         attrs["project_id"] = attrs.get("project_id") or ""
         if not isinstance(attrs.get("configuration"), dict):
             attrs["configuration"] = {}
+
+        project_name = attrs["configuration"].get("project_name")
+        if project_name is not None and (
+            not isinstance(project_name, str) or not 0 < len(project_name) <= PROJECT_NAME_MAX_LENGTH
+        ):
+            raise serializers.ValidationError({"configuration": INVALID_PROJECT_NAME_MESSAGE})
 
         return attrs
 

@@ -139,6 +139,32 @@ class TestProvisioningResources(ProvisioningTestBase):
 
     @parameterized.expand(
         [
+            ("not_a_string", 123),
+            ("empty", ""),
+            ("too_long", "x" * 201),
+        ]
+    )
+    def test_create_resource_rejects_invalid_project_name_without_claiming(
+        self, _name: str, project_name: object
+    ) -> None:
+        TeamProvisioningConfig.objects.create(team=self.team, application=self.partner)
+        token = self._get_bearer_token()
+
+        res = self._post_with_bearer(
+            RESOURCES_URL,
+            data={"project_id": "proj_named", "configuration": {"project_name": project_name}},
+            token=token,
+        )
+
+        assert res.status_code == 400
+        assert res.json()["error"] == {
+            "code": "invalid_request",
+            "message": "configuration: project_name must be a string of 1 to 200 characters",
+        }
+        assert TeamProvisioningConfig.objects.get(team=self.team).stripe_project_id is None
+
+    @parameterized.expand(
+        [
             ("claimed_by_another_project_id", "proj_existing", None),
             ("provisioned_by_another_partner", None, "other_partner"),
             ("not_provisioned_by_a_partner", None, "none"),
