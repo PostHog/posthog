@@ -207,7 +207,6 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
 
             <ContentAutopilotEngineTopicHeatmap
                 grid={engineTopicGrid(overview)}
-                days={overview.days}
                 selectedTopic={topic}
                 onSelectTopic={selectOverviewTopic}
             />

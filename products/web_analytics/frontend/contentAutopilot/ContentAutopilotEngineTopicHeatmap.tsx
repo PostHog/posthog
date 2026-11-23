@@ -48,12 +48,10 @@ const HeatCell = ({ cell }: { cell: EngineTopicCell }): JSX.Element =>
  *  filters the page to that topic, and picking it again clears the filter. */
 export const ContentAutopilotEngineTopicHeatmap = ({
     grid,
-    days,
     selectedTopic,
     onSelectTopic,
 }: {
     grid: EngineTopicGrid
-    days: number
     selectedTopic: string | null
     onSelectTopic: (topic: string) => void
 }): JSX.Element => {
@@ -89,7 +87,7 @@ export const ContentAutopilotEngineTopicHeatmap = ({
         <PagePerformanceCard className="min-w-0">
             <PagePerformanceCardHeader
                 title="Mentions by engine and topic"
-                description={`Share of each engine's answers that name your brand, for each topic, over the last ${days} days. A darker cell is a higher share. Failed checks are left out. Pick a topic to filter this page to it.`}
+                description="Share of each engine's answers that name your brand, for each topic, in this date range. A darker cell is a higher share. Failed checks are left out. Pick a topic to filter this page to it."
             />
             <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-heatmap">
                 <LemonTable
