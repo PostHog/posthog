@@ -277,8 +277,7 @@ export type CyclotronV2WorkerConfig = {
 
 export type CyclotronV2SendsWithFiles = {
     room: () => number
-    // True once a send has held its slot longer than any send can take. The files poll then stops counting as
-    // live, so a pod whose slots stay taken fails health instead of leaving its share of sends with files unpolled.
+    // True once every slot stays taken far past any send, so the pod fails health instead of leaving files unpolled.
     stalled: () => boolean
 }
 

@@ -3462,9 +3462,7 @@ describe('Cyclotron V2', () => {
                     PARAMETERIZED_SQL_PLANS,
                     async (dbUrl) => {
                         const { polled, markPolled } = pollSignal()
-                        // Both bounded poll settings stay off, so the poll for sends with files has to stay bounded on its
-                        // own. The main poll's legacy count would read through the rows with files scheduled later, so it
-                        // reports no work without a query, and the buffer count measures only the poll for sends with files.
+                        // The main poll's legacy count would read the backlog, so only the files poll gets measured.
                         class FilesPollOnly extends CyclotronV2RateLimitedWorker {
                             protected override countWork(): Promise<number> {
                                 return Promise.resolve(0)
