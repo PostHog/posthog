@@ -37,7 +37,11 @@ describe('<RunLinkTagSwitch />', () => {
             const changes: boolean[] = []
 
             const { container } = render(
-                <RunLinkTagSwitch checked={checked} onChange={(value) => changes.push(value)} />
+                <RunLinkTagSwitch
+                    checked={checked}
+                    onChange={(value) => changes.push(value)}
+                    data-attr="workflow-email-run-link-tag-toggle"
+                />
             )
             const toggle = container.querySelector('[data-attr="workflow-email-run-link-tag-toggle"]') as HTMLElement
             fireEvent.click(toggle)

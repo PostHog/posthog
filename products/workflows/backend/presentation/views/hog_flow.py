@@ -2524,6 +2524,8 @@ class HogFlowActionSerializer(serializers.Serializer):
             fixed_template_id = _FIXED_TEMPLATE_IDS.get(data.get("type", ""))
             if fixed_template_id:
                 template_id = _apply_fixed_template_id(config, template_id, fixed_template_id, strict=strict)
+            if data.get("type") == "function_email" and not isinstance(config.get("run_link_tag_enabled", True), bool):
+                raise serializers.ValidationError({"run_link_tag_enabled": "Must be true or false."})
             # After the fixed-id coercion, so a library UUID sent as template_id (the dominant
             # authoring mistake) lands in template_uuid first and still gets materialized.
             if data.get("type") == "function_email" and config.get("template_uuid"):

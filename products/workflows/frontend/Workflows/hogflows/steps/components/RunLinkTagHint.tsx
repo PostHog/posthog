@@ -17,7 +17,6 @@ export function RunLinkTagHint(): JSX.Element | null {
             <span>Tracked link clicks aren't connected to sessions or session replays in this project.</span>{' '}
             <Link
                 to={urls.settings('environment-workflows', 'workflows-email-run-link-tag')}
-                target="_blank"
                 data-attr="workflows-run-link-tag-settings-link"
             >
                 Turn it on in settings

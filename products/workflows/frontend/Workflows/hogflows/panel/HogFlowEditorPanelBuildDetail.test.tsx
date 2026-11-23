@@ -132,19 +132,22 @@ describe('HogFlowEditorPanelBuildDetail', () => {
         expect(screen.queryByText('Select message type')).not.toBeInTheDocument()
     })
 
-    it('turns off connecting clicks to sessions for this email, and hides the switch while tracking is off', async () => {
+    it('turns off connecting clicks to sessions for this email', async () => {
         useMocks(emailStepMocks('cat-billing'))
         const { container } = await renderEmailStep()
-        const runLinkTagSwitch = (): Element | null =>
-            container.querySelector('[data-attr="workflow-email-run-link-tag-toggle"]')
 
-        fireEvent.click(runLinkTagSwitch() as HTMLElement)
+        fireEvent.click(container.querySelector('[data-attr="workflow-email-run-link-tag-toggle"]') as HTMLElement)
 
         const emailStep = logic.values.workflow.actions.find((action) => action.id === EMAIL_NODE_ID)
         expect(emailStep?.config).toMatchObject({ run_link_tag_enabled: false })
+    })
+
+    it('hides the connect clicks to sessions switch while tracking is off', async () => {
+        useMocks(emailStepMocks('cat-billing'))
+        const { container } = await renderEmailStep()
 
         fireEvent.click(container.querySelector('[data-attr="workflow-email-tracking-toggle"]') as HTMLElement)
 
-        expect(runLinkTagSwitch()).not.toBeInTheDocument()
+        expect(container.querySelector('[data-attr="workflow-email-run-link-tag-toggle"]')).not.toBeInTheDocument()
     })
 })

@@ -10,7 +10,14 @@ export type OwnEmailAction = Extract<HogFlowAction, { type: 'function_email' }>
 export type SandboxEmailAction = Extract<HogFlowAction, { type: 'email_sandbox' }>
 export type EmailStepAction = OwnEmailAction | SandboxEmailAction
 
-export type OwnOnlySetting = 'sender_override' | 'several_senders' | 'reply_to' | 'cc_bcc' | 'tracking_off' | 'utm_tags'
+export type OwnOnlySetting =
+    | 'sender_override'
+    | 'several_senders'
+    | 'reply_to'
+    | 'cc_bcc'
+    | 'tracking_off'
+    | 'utm_tags'
+    | 'run_link_tag_off'
 
 type EmailValue = Record<string, any>
 type Templating = 'hog' | 'liquid'
@@ -137,6 +144,9 @@ export function ownOnlySettings(action: OwnEmailAction): OwnOnlySetting[] {
     }
     if (action.config.utm_tags_enabled) {
         settings.push('utm_tags')
+    }
+    if (action.config.run_link_tag_enabled === false) {
+        settings.push('run_link_tag_off')
     }
     return settings
 }

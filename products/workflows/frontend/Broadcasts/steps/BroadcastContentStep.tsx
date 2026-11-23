@@ -199,6 +199,7 @@ export function BroadcastContentStep(): JSX.Element {
                         checked={emailSettings.runLinkTagEnabled}
                         onChange={(runLinkTagEnabled) => setEmailSettings({ runLinkTagEnabled })}
                         bordered
+                        data-attr="broadcast-run-link-tag-toggle"
                     />
                 )}
                 <LemonSwitch

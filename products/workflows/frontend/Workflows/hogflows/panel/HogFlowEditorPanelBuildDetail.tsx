@@ -29,7 +29,7 @@ import { workflowLogic } from '../../workflowLogic'
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { RunLinkTagHint } from '../steps/components/RunLinkTagHint'
-import { RunLinkTagSwitch } from '../steps/components/RunLinkTagSwitch'
+import { RUN_LINK_TAG_INFO, RunLinkTagSwitch } from '../steps/components/RunLinkTagSwitch'
 import { utmKeysFromDefaultAfterEdit } from '../steps/components/utmDefaults'
 import { UtmTagFields } from '../steps/components/UtmTagFields'
 import { UtmTeamDefaultControls } from '../steps/components/UtmTeamDefaultControls'
@@ -185,9 +185,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                             {action.config.tracking_enabled !== false && (
                                 <>
                                     <div className="flex gap-2 justify-between items-center px-2 py-1">
-                                        <LemonLabel info="Connects each tracked link click in this email to the session it starts on your site, including its session replay when recording is on. It works for links to the domain you send from. When off, this email's links don't get the extra URL parameter that makes the connection.">
-                                            Connect clicks to sessions
-                                        </LemonLabel>
+                                        <LemonLabel info={RUN_LINK_TAG_INFO}>Connect clicks to sessions</LemonLabel>
                                         <RunLinkTagSwitch
                                             checked={action.config.run_link_tag_enabled !== false}
                                             onChange={(checked) => {
@@ -196,6 +194,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                     config: { ...action.config, run_link_tag_enabled: checked },
                                                 })
                                             }}
+                                            data-attr="workflow-email-run-link-tag-toggle"
                                         />
                                     </div>
                                     <div className="px-2 empty:hidden">

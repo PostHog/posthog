@@ -19,6 +19,7 @@ const DROPPED_SETTING_LABELS: Record<OwnOnlySetting, string> = {
     cc_bcc: 'CC and BCC recipients',
     tracking_off: 'Open and click tracking turned off',
     utm_tags: 'UTM tags on links',
+    run_link_tag_off: 'Connecting clicks to sessions turned off',
 }
 
 export function SandboxSenderChoiceProvider({

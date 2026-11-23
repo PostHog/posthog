@@ -558,15 +558,21 @@ describe('broadcastWizardLogic', () => {
     it.each([
         { stored: {}, connected: true },
         { stored: { run_link_tag_enabled: false }, connected: false },
-    ])('reads $stored from a saved email as connecting clicks to sessions: $connected', ({ stored, connected }) => {
-        const broadcast = savedBroadcast({ name: 'Spring sale', subject: 'Hi', updatedAt: '2026-09-24T10:00:00Z' })
-        const emailStep = broadcast.actions[1]
-        broadcast.actions[1] = { ...emailStep, config: { ...emailStep.config, ...stored } }
+    ])(
+        'reads $stored from a saved email as connecting clicks to sessions: $connected',
+        async ({ stored, connected }) => {
+            latest = savedBroadcast({ name: 'Spring sale', subject: 'Hi', updatedAt: '2026-09-24T10:00:00Z' })
+            const emailStep = latest.actions[1]
+            latest.actions[1] = { ...emailStep, config: { ...emailStep.config, ...stored } }
+            router.actions.push('/broadcasts/broadcast-1')
+            const draftLogic = broadcastWizardLogic({ id: 'broadcast-1' })
+            draftLogic.mount()
+            await expectLogic(draftLogic).toFinishAllListeners()
 
-        logic.actions.hydrateFromBroadcast(broadcast)
-
-        expect(logic.values.emailSettings).toMatchObject({ runLinkTagEnabled: connected })
-    })
+            expect(draftLogic.values.emailSettings).toMatchObject({ runLinkTagEnabled: connected })
+            draftLogic.unmount()
+        }
+    )
 
     it('moves a new broadcast onto its draft URL once the draft is created', async () => {
         router.actions.push('/broadcasts/new')

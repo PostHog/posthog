@@ -1134,6 +1134,31 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert 'is not on the verified domain "posthog.com"' in response.json()["detail"]
 
+    @parameterized.expand(
+        [
+            ("off", False, 201),
+            ("on", True, 201),
+            ("null", None, 400),
+            ("string", "false", 400),
+            ("number", 0, 400),
+        ]
+    )
+    def test_email_run_link_tag_switch_takes_only_a_boolean(self, _name, sent, expected_status) -> None:
+        # The editor refuses to publish a step whose switch holds anything but a boolean.
+        sync_template_to_db(_email_function_template())
+        hog_flow, action = self._create_hog_flow_with_action(
+            {"template_id": "template-email", "inputs": _valid_email_inputs(), "run_link_tag_enabled": sent}
+        )
+        action["type"] = "function_email"
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, HTTP_X_POSTHOG_CLIENT="mcp")
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == 400:
+            assert "run_link_tag_enabled" in str(response.json())
+        else:
+            assert response.json()["actions"][1]["config"]["run_link_tag_enabled"] is sent
+
     def test_stored_off_domain_sender_override_survives_a_resave(self):
         # Workflows written before June 2026 carry a placeholder address the author never typed.
         # Re-sending the stored graph unchanged must not fail on it, or every edit to an affected

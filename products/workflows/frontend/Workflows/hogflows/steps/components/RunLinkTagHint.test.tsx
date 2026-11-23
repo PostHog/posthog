@@ -43,9 +43,12 @@ describe('<RunLinkTagHint />', () => {
 
         render(<RunLinkTagHint />)
 
-        expect(screen.getByText('Turn it on in settings').closest('a')).toHaveAttribute(
+        const link = screen.getByText('Turn it on in settings').closest('a')
+        expect(link).toHaveAttribute(
             'href',
             expect.stringMatching(/\/settings\/environment-workflows#workflows-email-run-link-tag$/)
         )
+        // A second tab keeps the setting this editor loaded, so the switch would stay disabled there.
+        expect(link).not.toHaveAttribute('target')
     })
 })
