@@ -24,6 +24,7 @@ from posthog.egress.limiter.policies import Priority
 from posthog.models import PersonalAPIKey
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
 from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT
+from posthog.models.project_secret_api_key import RevokedTeamSecretToken
 from posthog.models.utils import (
     generate_random_token_personal,
     generate_random_token_secret,
@@ -31,6 +32,8 @@ from posthog.models.utils import (
     mask_key_value,
 )
 from posthog.test.api_keys import create_project_secret_api_key
+
+from products.conversations.backend.models import SigningSecret
 
 
 class TestGitHubSignatureVerification(TestCase):
@@ -533,11 +536,14 @@ class TestProjectSecretAPIKeySecretAlert(APIBaseTest):
     @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")
     def test_leaked_legacy_team_token_rolls_its_mirror_row(self, mock_psak_exposed, mock_verify):
         # A legacy Team.secret_api_token value exists only as its backfilled PSAK mirror
-        # row (#63111); the leak report must still revoke it through that row.
+        # row (#63111); the leak report must still revoke it through that row, and it must
+        # stop verifying widget identity: migration 0056 copied the same value into
+        # SigningSecret, so a never-rotated team still holds it there.
         mock_verify.return_value = None
         token = "phs_legacy_team_secret_token_123"
         row, _ = create_project_secret_api_key(team=self.team, label="Migrated legacy secret API key", value=token)
         old_secure_value = row.secure_value
+        signing_secret = SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret=token)
 
         response = self._post_alert([token])
 
@@ -545,6 +551,13 @@ class TestProjectSecretAPIKeySecretAlert(APIBaseTest):
         self.assertEqual(response.json()[0]["label"], "true_positive")
         row.refresh_from_db()
         self.assertNotEqual(row.secure_value, old_secure_value)
+        signing_secret.refresh_from_db()
+        self.assertNotEqual(signing_secret.secret, token)
+        # Recorded so a rerun of the #63111 backfill cannot re-mint a mirror row for the
+        # value, which the rolled PSAK no longer carries.
+        self.assertTrue(
+            RevokedTeamSecretToken.objects.for_team(self.team.id).filter(secure_value=hash_key_value(token)).exists()
+        )
         mock_psak_exposed.assert_called_once()
 
     @patch("posthog.api.github.verify_github_signature")

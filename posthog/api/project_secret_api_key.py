@@ -19,7 +19,7 @@ from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.exceptions import InsufficientScope
 from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
 from posthog.models import Organization, Team, User
-from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey, RevokedTeamSecretToken
 from posthog.models.utils import ai_credential_value, generate_random_token_secret, hash_key_value, mask_key_value
 from posthog.permissions import TeamMemberStrictManagementPermission, TimeSensitiveActionPermission, scopes_caller_lacks
 from posthog.scopes.catalog import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS
@@ -249,9 +249,21 @@ def roll_project_secret_api_key_and_notify(project_secret_api_key: ProjectSecret
     The key is rolled even when no admin can be emailed: invalidating the leaked value
     takes priority over notification delivery.
     """
-    old_mask_value = project_secret_api_key.mask_value
+    # Lazy: conversations imports posthog.api modules at load time.
+    from products.conversations.backend.services.signing_secrets import retire_leaked_signing_secret
+
+    old_mask_value = project_secret_api_key.mask_value or ""
+    old_secure_value = project_secret_api_key.secure_value
     serializer = ProjectSecretAPIKeySerializer(instance=project_secret_api_key)
     serializer.roll(project_secret_api_key)
+    if old_secure_value is not None:
+        team_id = project_secret_api_key.team_id
+        # The leaked value must stop verifying widget identity too: migration 0056 copied
+        # legacy team tokens into SigningSecret, so a never-rotated team still holds it there.
+        retire_leaked_signing_secret(team_id, old_secure_value, old_mask_value)
+        # Recorded so a rerun of the #63111 backfill cannot re-mint a mirror row for a
+        # plaintext column value whose rolled PSAK no longer carries its hash.
+        RevokedTeamSecretToken.objects.for_team(team_id).get_or_create(team_id=team_id, secure_value=old_secure_value)
     send_project_secret_api_key_exposed(
         project_secret_api_key.team_id, project_secret_api_key.id, old_mask_value, more_info
     )
