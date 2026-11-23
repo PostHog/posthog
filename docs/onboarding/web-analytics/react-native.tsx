@@ -16,9 +16,11 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                 <>
                     {MobileFinalSteps && <MobileFinalSteps />}
                     <Markdown>
-                        To capture screen views with React Navigation, set `autocapture={{ captureScreens: false }}` on
-                        `PostHogProvider` and call `posthog.screen()` when the route changes. Get the client with the
-                        `usePostHog` hook, and render this component inside `PostHogProvider`:
+                        {dedent`
+                            To capture screen views with React Navigation, set \`autocapture={{ captureScreens: false }}\` on
+                            \`PostHogProvider\` and call \`posthog.screen()\` when the route changes. Get the client with the
+                            \`usePostHog\` hook, and render this component inside \`PostHogProvider\`:
+                        `}
                     </Markdown>
                     <CodeBlock
                         blocks={[
