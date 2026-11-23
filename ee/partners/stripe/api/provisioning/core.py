@@ -608,7 +608,17 @@ def resolve_or_create_project_team(
     if not user_can_access_team(user, base_team):
         return None, scoped_teams
 
-    _assert_organization_can_add_project(base_team.organization)
+    try:
+        _assert_organization_can_add_project(base_team.organization)
+    except ProjectLimitReachedError as refused:
+        capture_provisioning_event(
+            "resource_created",
+            "error",
+            partner=access_token.application,
+            error_code=PROJECT_LIMIT_REACHED_CODE,
+            project_id=project_id,
+        )
+        raise SpecError(PROJECT_LIMIT_REACHED_CODE, refused.message, status=403)
 
     # TODO: latent bug - project_name is unvalidated; a non-string or over-long
     # value fails at the DB layer (500) where the spec calls for a 400
