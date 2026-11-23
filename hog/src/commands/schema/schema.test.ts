@@ -116,21 +116,25 @@ describe('hog schema', () => {
     })
 
     test.each([
-        ['the project', [], '/work/README.md', '/work/posthog-typed.ts'],
-        ['the --file folder', ['--file', 'src/'], '/work/src/README.md', '/work/src/posthog-typed.ts'],
-    ])('pull refuses a default module file that links out of %s', async (_name, args, folderFile, planted) => {
-        const result = await runHog(['schema', 'pull', '--language', 'typescript', ...args], {
-            env: AGENT,
-            files: { [folderFile]: '', '/home/ana/.bashrc': 'keep' },
-            links: { [planted]: '/home/ana/.bashrc' },
-            respond: definitions('generated'),
-        })
+        ['the default path', [], '/work/README.md', '/work/posthog-typed.ts'],
+        ['a --file folder', ['--file', 'src/'], '/work/src/README.md', '/work/src/posthog-typed.ts'],
+        ['a --file path', ['--file', 'src/typed.ts'], '/work/src/README.md', '/work/src/typed.ts'],
+    ])(
+        'pull refuses a module file inside the project that links out of it, at %s',
+        async (_name, args, folderFile, planted) => {
+            const result = await runHog(['schema', 'pull', '--language', 'typescript', ...args], {
+                env: AGENT,
+                files: { [folderFile]: '', '/home/ana/.bashrc': 'keep' },
+                links: { [planted]: '/home/ana/.bashrc' },
+                respond: definitions('generated'),
+            })
 
-        expect(result.exitCode).toBe(EXIT_FAILURE)
-        expect(result.error()).toMatchObject({ code: 'unsafe_output_path' })
-        expect(result.files['/home/ana/.bashrc']).toBe('keep')
-        expect(result.files['/work/posthog.json']).toBeUndefined()
-    })
+            expect(result.exitCode).toBe(EXIT_FAILURE)
+            expect(result.error()).toMatchObject({ code: 'unsafe_output_path' })
+            expect(result.files['/home/ana/.bashrc']).toBe('keep')
+            expect(result.files['/work/posthog.json']).toBeUndefined()
+        }
+    )
 
     test('pull refuses to write a posthog.json that links out of its folder', async () => {
         const result = await runHog(['schema', 'pull', '--language', 'typescript'], {

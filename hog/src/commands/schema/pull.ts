@@ -1,10 +1,8 @@
-import { basename, dirname } from 'node:path'
-
 import { defineCommand } from '@/core/command'
 import { TYPESCRIPT_SDKS, updateConfig, type SchemaLanguage, type TypeScriptSdk } from '@/core/config'
 import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
-import { absolutePath, confinedWritePath, storedPath } from '@/core/paths'
+import { absolutePath, confinedWritePath, isInside, storedPath } from '@/core/paths'
 import { plural } from '@/core/text'
 
 import {
@@ -112,19 +110,9 @@ export default defineCommand({
             const saved = configured[language]
             const sdk = language === 'typescript' ? await typescriptSdk(ctx, options.sdk, saved) : undefined
             let file: string
-            // posthog.json and repository files can come from someone else, so only a typed path may leave the project.
             let target: string | undefined
             if (options.file !== undefined) {
                 file = await chosenFile(ctx, options.file, language, sdk)
-                if (file !== absolutePath(ctx.runtime.cwd(), options.file)) {
-                    target = await confinedOutput(
-                        ctx,
-                        dirname(file),
-                        file,
-                        `${basename(file)} in ${options.file} links to a file outside that folder, so hog won't write there.`,
-                        'Remove the link, or pass the file path to --file.'
-                    )
-                }
             } else if (saved) {
                 file = absolutePath(root, saved.output_path)
                 target = await confinedOutput(
@@ -141,17 +129,18 @@ export default defineCommand({
                           initialValue: info.defaultFile,
                       })
                     : info.defaultFile
-                const chosen = answer || info.defaultFile
-                file = await chosenFile(ctx, chosen, language, sdk)
-                if (chosen === info.defaultFile) {
-                    target = await confinedOutput(
-                        ctx,
-                        root,
-                        file,
-                        `${info.defaultFile} links to a file outside the project, so hog won't write there.`,
-                        'Remove the link, or pass --file to choose where hog writes the module.'
-                    )
-                }
+                file = await chosenFile(ctx, answer || info.defaultFile, language, sdk)
+            }
+            // The repository can plant a link at any path inside the project, including one the person typed. A path
+            // the person typed outside the project is their own choice.
+            if (target === undefined && isInside(root, file)) {
+                target = await confinedOutput(
+                    ctx,
+                    root,
+                    file,
+                    `${storedPath(root, file)} links to a file outside the project, so hog won't write there.`,
+                    'Remove the link, or pass --file with the path the link points to.'
+                )
             }
 
             const definitions = await fetchDefinitions(ctx, language, sdk)
