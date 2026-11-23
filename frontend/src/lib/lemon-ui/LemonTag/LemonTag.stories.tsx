@@ -74,7 +74,7 @@ export const CloseOnClick: Story = {
                         onClose={() => alert('Info tag closed!')}
                         type="highlight"
                     >
-                        Info tag
+                        Info tag (canary)
                     </LemonTagComponent>
                     <LemonTagComponent
                         icon={<IconFlag />}
