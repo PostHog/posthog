@@ -758,6 +758,7 @@ class CloningVisitor(Visitor[Any]):
             type=None if self.clear_types else node.type,
             expr=self.visit(node.expr),
             keys=list(node.keys),
+            map_subcolumn=node.map_subcolumn,
         )
 
     def visit_lambda(self, node: ast.Lambda):
