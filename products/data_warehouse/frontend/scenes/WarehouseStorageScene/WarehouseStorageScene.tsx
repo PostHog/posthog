@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { Skeleton } from '@posthog/quill'
 
-import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 
@@ -10,11 +9,12 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { formatBytes } from '../WarehouseConsole/warehouseConsoleFormat'
+import { formatBytes, formatCount } from '../WarehouseConsole/warehouseConsoleFormat'
 import { WarehouseConsoleGate } from '../WarehouseConsole/WarehouseConsoleGate'
 import { warehouseConsoleLogic } from '../WarehouseConsole/warehouseConsoleLogic'
 import { WarehouseConsoleState } from '../WarehouseConsole/WarehouseConsoleState'
 import { WarehouseResourceError } from '../WarehouseConsole/WarehouseResourceError'
+import { WarehouseStatStrip } from '../WarehouseConsole/WarehouseStatStrip'
 import { WarehouseStatTile } from '../WarehouseConsole/WarehouseStatTile'
 import { warehouseStorageLogic } from './warehouseStorageLogic'
 import { WarehouseStorageMaintenance } from './WarehouseStorageMaintenance'
@@ -27,7 +27,7 @@ export const scene: SceneExport = {
 
 function WarehouseStorageContent(): JSX.Element {
     const { consoleState } = useValues(warehouseConsoleLogic)
-    const { storage, storageLoading, storageFailed, tableRows } = useValues(warehouseStorageLogic)
+    const { storage, storageLoading, storageFailed, tableRows, totalRows } = useValues(warehouseStorageLogic)
     const { retryStorage } = useActions(warehouseStorageLogic)
 
     if (consoleState !== 'ready') {
@@ -47,7 +47,7 @@ function WarehouseStorageContent(): JSX.Element {
     }
     return (
         <>
-            <div className="grid grid-cols-1 gap-3 @lg/warehouse-storage:grid-cols-3">
+            <WarehouseStatStrip>
                 <WarehouseStatTile
                     label="Total stored"
                     value={formatBytes(storage.total_bytes)}
@@ -56,15 +56,20 @@ function WarehouseStorageContent(): JSX.Element {
                 />
                 <WarehouseStatTile
                     label="Tables"
-                    value={humanFriendlyNumber(tableRows.length)}
+                    value={formatCount(tableRows.length)}
                     data-attr="warehouse-storage-tile-tables"
                 />
                 <WarehouseStatTile
+                    label="Rows"
+                    value={formatCount(totalRows)}
+                    data-attr="warehouse-storage-tile-rows"
+                />
+                <WarehouseStatTile
                     label="Files pending deletion"
-                    value={humanFriendlyNumber(storage.pending_deletion_files)}
+                    value={formatCount(storage.pending_deletion_files)}
                     data-attr="warehouse-storage-tile-pending"
                 />
-            </div>
+            </WarehouseStatStrip>
             <WarehouseStorageTables />
             <WarehouseStorageMaintenance />
         </>

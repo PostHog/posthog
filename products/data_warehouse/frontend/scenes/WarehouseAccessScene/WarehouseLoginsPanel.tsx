@@ -1,30 +1,30 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle } from '@posthog/quill'
+import { Button } from '@posthog/quill'
 
+import { WarehouseSection } from '../WarehouseConsole/WarehouseSection'
 import { WarehouseDeleteLoginDialog } from './WarehouseDeleteLoginDialog'
 import { WarehouseLoginsBody } from './WarehouseLoginsBody'
 import { warehouseLoginsLogic } from './warehouseLoginsLogic'
 import { WarehouseNewLoginDialog } from './WarehouseNewLoginDialog'
+import { WarehouseResetPasswordDialog } from './WarehouseResetPasswordDialog'
 import { WarehouseRevealedPasswordDialog } from './WarehouseRevealedPasswordDialog'
 
 // pinned: the data-attr values and analytics event names in this file feed autocapture and dashboards, so renaming them breaks both.
 
-/** The logins card. Mounted only for organization admins. */
+/** The logins section. Mounted only for organization admins. */
 export function WarehouseLoginsPanel(): JSX.Element {
     const { isCreating } = useValues(warehouseLoginsLogic)
     const { openNewLogin } = useActions(warehouseLoginsLogic)
+
     return (
-        <Card>
-            <CardHeader>
-                <CardTitle>Logins</CardTitle>
-                <CardDescription>
-                    A project login can query that project's tables through Trino. Anyone with its password can use it.
-                </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3">
-                <div>
+        <>
+            <WarehouseSection
+                flush
+                title="Logins"
+                description="Anyone with a login's password can use it. A project login can query that project's tables."
+                controls={
                     <Button
                         variant="primary"
                         loading={isCreating}
@@ -36,12 +36,14 @@ export function WarehouseLoginsPanel(): JSX.Element {
                     >
                         New login
                     </Button>
-                </div>
+                }
+            >
                 <WarehouseLoginsBody />
-            </CardContent>
+            </WarehouseSection>
             <WarehouseNewLoginDialog />
             <WarehouseDeleteLoginDialog />
+            <WarehouseResetPasswordDialog />
             <WarehouseRevealedPasswordDialog />
-        </Card>
+        </>
     )
 }

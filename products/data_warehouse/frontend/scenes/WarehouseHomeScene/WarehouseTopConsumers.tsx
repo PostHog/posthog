@@ -1,15 +1,18 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
-import { Button, Card, CardContent, CardHeader, CardTitle, Skeleton, Text } from '@posthog/quill'
+import { Skeleton, Text } from '@posthog/quill'
 
 import { urls } from 'scenes/urls'
 
 import { formatBytes, formatUsd, parseDecimal } from '../WarehouseConsole/warehouseConsoleFormat'
 import { WarehouseResourceError } from '../WarehouseConsole/WarehouseResourceError'
+import { WarehouseSection } from '../WarehouseConsole/WarehouseSection'
+import { WarehouseSectionLink } from '../WarehouseConsole/WarehouseSectionLink'
+import { WarehouseShareBar } from '../WarehouseConsole/WarehouseShareBar'
 import { warehouseConsoleOverviewLogic } from './warehouseConsoleOverviewLogic'
-import { WarehouseHomeLink } from './WarehouseHomeLink'
 
-// pinned: the data-attr values in this file feed autocapture and dashboards, so renaming them breaks both.
+// pinned: the data-attr values and analytics event names in this file feed autocapture and dashboards, so renaming them breaks both.
 
 export function WarehouseTopConsumers(): JSX.Element {
     const { consumers, overviewUsage, overviewFailed } = useValues(warehouseConsoleOverviewLogic)
@@ -33,14 +36,20 @@ export function WarehouseTopConsumers(): JSX.Element {
             </Text>
         )
     } else {
+        const totalBytes = Math.max(overviewUsage.compute.billable_bytes, 1)
         body = (
-            <ul className="m-0 flex list-none flex-col gap-1 p-0">
+            <ul className="m-0 flex list-none flex-col gap-2 p-0">
                 {consumers.map((row) => (
-                    <li key={row.key} className="flex min-w-0 items-baseline justify-between gap-3">
-                        <Text size="sm" className="min-w-0 truncate">
+                    <li key={row.key} className="flex min-w-0 items-center gap-3">
+                        <Text size="sm" className="min-w-0 flex-1 truncate" title={row.key}>
                             {row.label}
                         </Text>
-                        <Text size="xs" variant="muted" className="shrink-0 whitespace-nowrap">
+                        <WarehouseShareBar fraction={row.billable_bytes / totalBytes} label={`${row.label} share`} />
+                        <Text
+                            size="xs"
+                            variant="muted"
+                            className="w-44 shrink-0 whitespace-nowrap text-right tabular-nums"
+                        >
                             {formatBytes(row.billable_bytes)} ·{' '}
                             {parseDecimal(row.estimated_cost_share_usd) > 0
                                 ? `${formatUsd(row.estimated_cost_share_usd)} est.`
@@ -53,28 +62,20 @@ export function WarehouseTopConsumers(): JSX.Element {
     }
 
     return (
-        <Card data-attr="warehouse-home-top-consumers">
-            <CardHeader>
-                <CardTitle>Top logins this month</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3">
-                {body}
-                <div>
-                    <Button
-                        size="sm"
-                        nativeButton={false}
-                        render={
-                            <WarehouseHomeLink
-                                to={`${urls.warehouseUsage()}?group_by=principal`}
-                                section="top_consumers"
-                                data-attr="warehouse-home-open-usage-by-login"
-                            >
-                                See usage by login
-                            </WarehouseHomeLink>
-                        }
-                    />
-                </div>
-            </CardContent>
-        </Card>
+        <WarehouseSection
+            title="Top logins this month"
+            data-attr="warehouse-home-top-consumers"
+            controls={
+                <WarehouseSectionLink
+                    to={`${urls.warehouseUsage()}?group_by=principal`}
+                    onClick={() => posthog.capture('warehouse home link clicked', { section: 'top_consumers' })}
+                    data-attr="warehouse-home-open-usage-by-login"
+                >
+                    View usage
+                </WarehouseSectionLink>
+            }
+        >
+            {body}
+        </WarehouseSection>
     )
 }

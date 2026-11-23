@@ -1,11 +1,11 @@
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Field, FieldLabel } from '@posthog/quill'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@posthog/quill'
 
 export interface FilterOption {
     value: string
     label: string
 }
 
-/** A labeled single choice. The first option is the "no filter" choice and has the value `all`. */
+/** A compact single choice with its name inside the control: "Status: All". The first option is the "no filter" choice. */
 export function WarehouseFilterSelect({
     label,
     value,
@@ -20,28 +20,26 @@ export function WarehouseFilterSelect({
     'data-attr': string
 }): JSX.Element {
     return (
-        <Field className="w-auto min-w-0">
-            <FieldLabel>{label}</FieldLabel>
-            <Select
-                items={options}
-                value={value}
-                onValueChange={(next) => {
-                    if (typeof next === 'string' && next !== value) {
-                        onChange(next)
-                    }
-                }}
-            >
-                <SelectTrigger className="w-44 max-w-full" data-attr={dataAttr}>
-                    <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                    {options.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                        </SelectItem>
-                    ))}
-                </SelectContent>
-            </Select>
-        </Field>
+        <Select
+            items={options}
+            value={value}
+            onValueChange={(next) => {
+                if (typeof next === 'string' && next !== value) {
+                    onChange(next)
+                }
+            }}
+        >
+            <SelectTrigger size="sm" className="max-w-48" aria-label={label} data-attr={dataAttr}>
+                <span className="text-muted-foreground">{label}:</span>
+                <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+                {options.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                    </SelectItem>
+                ))}
+            </SelectContent>
+        </Select>
     )
 }

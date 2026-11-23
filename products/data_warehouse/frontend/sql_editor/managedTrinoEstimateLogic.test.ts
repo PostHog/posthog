@@ -137,8 +137,8 @@ describe('estimateWarnings', () => {
         })
 
         expect(warnings.map((w) => [w.tone, w.text])).toEqual([
-            ['danger', 'Over your 50.00 GiB per-query limit. This query will be stopped.'],
-            ['warning', 'No filter on events (175.00 GiB). Add a time filter to scan less.'],
+            ['danger', 'Over your 50 GiB per-query limit. This query will be stopped.'],
+            ['warning', 'No filter on events (175 GiB). Add a time filter to scan less.'],
             ['muted', 'Size unknown for 2 tables'],
         ])
     })

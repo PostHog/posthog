@@ -15,6 +15,7 @@ import {
     TableRow,
 } from '@posthog/quill'
 
+import { orderLogins } from './orderLogins'
 import { WarehouseLoginRow } from './WarehouseLoginRow'
 import { warehouseLoginsLogic } from './warehouseLoginsLogic'
 
@@ -64,8 +65,8 @@ export function WarehouseLoginsBody(): JSX.Element {
                         <TableHead>Username</TableHead>
                         <TableHead>Access</TableHead>
                         <TableHead>Status</TableHead>
-                        <TableHead>Queries, 30 days</TableHead>
-                        <TableHead>Scanned, 30 days</TableHead>
+                        <TableHead className="text-right">Queries (30 d)</TableHead>
+                        <TableHead className="text-right">Scanned (30 d)</TableHead>
                         <TableHead>Created</TableHead>
                         <TableHead>
                             <span className="sr-only">Actions</span>
@@ -73,7 +74,7 @@ export function WarehouseLoginsBody(): JSX.Element {
                     </TableRow>
                 </TableHeader>
                 <TableBody>
-                    {logins.map((login) => (
+                    {orderLogins(logins).map((login) => (
                         <WarehouseLoginRow key={login.username} login={login} />
                     ))}
                 </TableBody>

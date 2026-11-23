@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { Skeleton, ToggleGroup, ToggleGroupItem } from '@posthog/quill'
+import { Skeleton } from '@posthog/quill'
 
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -13,6 +13,7 @@ import { WarehouseConsoleGate } from '../WarehouseConsole/WarehouseConsoleGate'
 import { warehouseConsoleLogic } from '../WarehouseConsole/warehouseConsoleLogic'
 import { WarehouseConsoleState } from '../WarehouseConsole/WarehouseConsoleState'
 import { WarehouseResourceError } from '../WarehouseConsole/WarehouseResourceError'
+import { type SegmentedOption, WarehouseSegmentedControl } from '../WarehouseConsole/WarehouseSegmentedControl'
 import { WarehouseSpendControls } from './WarehouseSpendControls'
 import { WarehouseUsageBreakdown } from './WarehouseUsageBreakdown'
 import { WarehouseUsageCharts } from './WarehouseUsageCharts'
@@ -26,9 +27,9 @@ export const scene: SceneExport = {
     productKey: ProductKey.DATA_WAREHOUSE,
 }
 
-const PERIOD_OPTIONS: { value: UsagePeriod; label: string }[] = [
-    { value: 'current_month', label: 'This month' },
-    { value: 'last_month', label: 'Last month' },
+const PERIOD_OPTIONS: SegmentedOption<UsagePeriod>[] = [
+    { value: 'current_month', label: 'This month', 'data-attr': 'warehouse-usage-period-current_month' },
+    { value: 'last_month', label: 'Last month', 'data-attr': 'warehouse-usage-period-last_month' },
 ]
 
 function WarehouseUsageContent(): JSX.Element {
@@ -43,29 +44,13 @@ function WarehouseUsageContent(): JSX.Element {
     return (
         <>
             <div className="flex flex-wrap items-center justify-between gap-2">
-                <ToggleGroup
-                    variant="outline"
-                    size="sm"
-                    value={[period]}
-                    onValueChange={(value) => {
-                        const next = value[0] as UsagePeriod | undefined
-                        if (next && next !== period) {
-                            setPeriod(next)
-                        }
-                    }}
-                    aria-label="Usage period"
-                >
-                    {PERIOD_OPTIONS.map((option) => (
-                        <ToggleGroupItem
-                            key={option.value}
-                            value={option.value}
-                            disabled={usageLoading}
-                            data-attr={`warehouse-usage-period-${option.value}`}
-                        >
-                            {option.label}
-                        </ToggleGroupItem>
-                    ))}
-                </ToggleGroup>
+                <WarehouseSegmentedControl
+                    value={period}
+                    options={PERIOD_OPTIONS}
+                    onChange={setPeriod}
+                    label="Usage period"
+                    disabled={usageLoading}
+                />
             </div>
             {usageFailed ? (
                 <WarehouseResourceError

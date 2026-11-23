@@ -32,7 +32,7 @@ function usage(
 }
 
 const FULL_SETTINGS: ConsoleSettingsApi = { max_scan_bytes_per_query: 10 * GIB, monthly_budget_usd: '10.00' }
-const keys = (items: ReturnType<typeof buildRecommendations>): string[] => items.map((item) => item.key)
+const keys_ = (items: ReturnType<typeof buildRecommendations>): string[] => items.map((item) => item.key)
 
 describe('buildRecommendations', () => {
     it('suggests nothing when limits are set and usage is healthy', () => {
@@ -45,7 +45,7 @@ describe('buildRecommendations', () => {
     ])('handles %s', (_name, isAdmin, expected) => {
         const settings = { max_scan_bytes_per_query: null, monthly_budget_usd: null }
         expect(
-            keys(
+            keys_(
                 buildRecommendations(
                     usage({ budget: { monthly_budget_usd: null, share_used: null } }),
                     settings,
@@ -56,11 +56,11 @@ describe('buildRecommendations', () => {
     })
 
     it('flags a forecast above the budget only when both exist', () => {
-        expect(keys(buildRecommendations(usage({ forecast_total_usd: '12.00' }), FULL_SETTINGS, false))).toEqual([
+        expect(keys_(buildRecommendations(usage({ forecast_total_usd: '12.00' }), FULL_SETTINGS, false))).toEqual([
             'forecast_over_budget',
         ])
-        expect(keys(buildRecommendations(usage({ forecast_total_usd: '10.00' }), FULL_SETTINGS, false))).toEqual([])
-        expect(keys(buildRecommendations(usage({ forecast_total_usd: null }), FULL_SETTINGS, false))).toEqual([])
+        expect(keys_(buildRecommendations(usage({ forecast_total_usd: '10.00' }), FULL_SETTINGS, false))).toEqual([])
+        expect(keys_(buildRecommendations(usage({ forecast_total_usd: null }), FULL_SETTINGS, false))).toEqual([])
     })
 
     it('links a high failed share to the failed queries filter', () => {
@@ -68,7 +68,7 @@ describe('buildRecommendations', () => {
         expect(items).toHaveLength(1)
         expect(items[0].to).toContain('?status=failed')
         expect(
-            keys(buildRecommendations(usage({}, { failed_billable_bytes: 0.1 * TIB }), FULL_SETTINGS, false))
+            keys_(buildRecommendations(usage({}, { failed_billable_bytes: 0.1 * TIB }), FULL_SETTINGS, false))
         ).toEqual([])
     })
 
@@ -78,9 +78,32 @@ describe('buildRecommendations', () => {
             { key: 'b', label: 'B', queries: 1, billable_bytes: 1 * TIB, estimated_cost_share_usd: '0' },
         ]
         const past = usage({ breakdown: dominant }, { billable_bytes: 5 * TIB })
-        expect(keys(buildRecommendations(past, FULL_SETTINGS, false))).toEqual(['dominant_login'])
+        expect(keys_(buildRecommendations(past, FULL_SETTINGS, false))).toEqual(['dominant_login'])
         const within = usage({ breakdown: dominant }, { billable_bytes: 3.9 * TIB })
-        expect(keys(buildRecommendations(within, FULL_SETTINGS, false))).toEqual([])
+        expect(keys_(buildRecommendations(within, FULL_SETTINGS, false))).toEqual([])
+    })
+})
+
+describe('connect a tool recommendation', () => {
+    const row = (key: string): UsageSummaryApi['breakdown'][number] => ({
+        key,
+        label: key,
+        queries: 1,
+        billable_bytes: GIB,
+        estimated_cost_share_usd: '0',
+    })
+
+    it.each([
+        [
+            'only PostHog logins',
+            ['posthog:materialization:team:1', 'posthog:sql-editor:team:1:user:2', 'endpoints'],
+            true,
+        ],
+        ['a login of an outside tool', ['posthog:materialization:team:1', 'hl_metabase'], false],
+        ['no usage at all', [], true],
+    ])('with %s', (_name, keys, shown) => {
+        const items = buildRecommendations(usage({ breakdown: keys.map(row) }), FULL_SETTINGS, false)
+        expect(keys_(items).includes('connect_tool')).toBe(shown)
     })
 })
 

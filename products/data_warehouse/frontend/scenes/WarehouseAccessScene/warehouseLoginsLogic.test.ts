@@ -18,12 +18,12 @@ jest.mock('products/data_warehouse/frontend/generated/api', () => ({
 
 describe('warehouse logins', () => {
     it.each([
-        ['root', false],
-        ['other', false],
-        ['project_reader', true],
-        ['project_user', true],
-    ] as const)('offers actions for a %s login: %s', (kind, expected) => {
-        expect(warehouseLoginActions(kind)).toEqual({ canRotate: expected, canDisable: expected, canDelete: expected })
+        ['root', { canRotate: false, canDisable: false, canDelete: false, canReset: true }],
+        ['other', { canRotate: false, canDisable: false, canDelete: false, canReset: false }],
+        ['project_reader', { canRotate: true, canDisable: true, canDelete: true, canReset: false }],
+        ['project_user', { canRotate: true, canDisable: true, canDelete: true, canReset: false }],
+    ] as const)('offers the right actions for a %s login', (kind, expected) => {
+        expect(warehouseLoginActions(kind)).toEqual(expected)
     })
 
     it.each([

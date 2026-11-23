@@ -1,17 +1,7 @@
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
-import {
-    Card,
-    CardContent,
-    CardHeader,
-    CardTitle,
-    Empty,
-    EmptyDescription,
-    EmptyHeader,
-    EmptyTitle,
-    Text,
-} from '@posthog/quill'
+import { Text } from '@posthog/quill'
 import {
     ReferenceLine,
     TimeSeriesBarChart,
@@ -25,6 +15,7 @@ import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { dayjs } from 'lib/dayjs'
 
 import { chartByteUnit, formatAxisBytes, formatBytes } from '../WarehouseConsole/warehouseConsoleFormat'
+import { WarehouseSection } from '../WarehouseConsole/WarehouseSection'
 import { warehouseUsageLogic } from './warehouseUsageLogic'
 
 const X_AXIS = { timezone: 'UTC', interval: 'day' } as const
@@ -82,65 +73,52 @@ export function WarehouseUsageCharts(): JSX.Element | null {
     }
     if (chartData.labels.length === 0) {
         return (
-            <Card>
-                <CardContent>
-                    <Empty>
-                        <EmptyHeader>
-                            <EmptyTitle>No usage yet</EmptyTitle>
-                            <EmptyDescription>Daily usage appears here after your first queries.</EmptyDescription>
-                        </EmptyHeader>
-                    </Empty>
-                </CardContent>
-            </Card>
+            <WarehouseSection title="Daily usage">
+                <Text size="sm" variant="muted">
+                    Daily usage appears here after your first queries.
+                </Text>
+            </WarehouseSection>
         )
     }
 
     return (
         <div className="grid grid-cols-1 gap-3 @3xl/warehouse-usage:grid-cols-2">
-            <Card data-attr="warehouse-usage-scanned-chart">
-                <CardHeader>
-                    <CardTitle>Billable data scanned per day</CardTitle>
-                </CardHeader>
-                <CardContent className="flex flex-col gap-2">
-                    <div className="flex h-56 w-full flex-col">
-                        <TimeSeriesBarChart
-                            series={scannedSeries}
-                            labels={chartData.labels}
-                            theme={theme}
-                            config={scannedConfig}
-                        >
-                            {freeAllowanceCrossingDate ? (
-                                <ReferenceLine
-                                    value={freeAllowanceCrossingDate}
-                                    orientation="vertical"
-                                    variant="alert"
-                                />
-                            ) : null}
-                        </TimeSeriesBarChart>
-                    </div>
-                    {freeAllowanceCrossingDate ? (
-                        <Text size="xs" variant="muted">
-                            The running total passed the free {formatBytes(usage.compute.free_bytes)} on{' '}
-                            {dayjs.utc(freeAllowanceCrossingDate).format('MMM D')}.
-                        </Text>
-                    ) : null}
-                </CardContent>
-            </Card>
-            <Card data-attr="warehouse-usage-storage-chart">
-                <CardHeader>
-                    <CardTitle>Average stored per day</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <div className="flex h-56 w-full flex-col">
-                        <TimeSeriesLineChart
-                            series={storageSeries}
-                            labels={chartData.labels}
-                            theme={theme}
-                            config={storageConfig}
-                        />
-                    </div>
-                </CardContent>
-            </Card>
+            <WarehouseSection
+                title="Billable data scanned per day"
+                description={
+                    freeAllowanceCrossingDate
+                        ? `Dashed line: passed the free ${formatBytes(usage.compute.free_bytes)} on ${dayjs.utc(freeAllowanceCrossingDate).format('MMM D')}`
+                        : 'Billable bytes read by queries each day'
+                }
+                data-attr="warehouse-usage-scanned-chart"
+            >
+                <div className="flex h-56 w-full flex-col">
+                    <TimeSeriesBarChart
+                        series={scannedSeries}
+                        labels={chartData.labels}
+                        theme={theme}
+                        config={scannedConfig}
+                    >
+                        {freeAllowanceCrossingDate ? (
+                            <ReferenceLine value={freeAllowanceCrossingDate} orientation="vertical" variant="marker" />
+                        ) : null}
+                    </TimeSeriesBarChart>
+                </div>
+            </WarehouseSection>
+            <WarehouseSection
+                title="Average stored per day"
+                description="Daily average of data in storage"
+                data-attr="warehouse-usage-storage-chart"
+            >
+                <div className="flex h-56 w-full flex-col">
+                    <TimeSeriesLineChart
+                        series={storageSeries}
+                        labels={chartData.labels}
+                        theme={theme}
+                        config={storageConfig}
+                    />
+                </div>
+            </WarehouseSection>
         </div>
     )
 }

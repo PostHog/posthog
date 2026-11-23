@@ -1,53 +1,47 @@
-import { Card, CardContent, Progress, Text } from '@posthog/quill'
+import { Card, CardContent, Text } from '@posthog/quill'
+
+import { WarehouseMeter, type WarehouseMeterProps } from './WarehouseMeter'
 
 export interface WarehouseStatTileProps {
     label: string
     value: string
-    /** Smaller line under the value. */
+    /** One muted line under the value. */
     detail?: string
-    /** Extra detail line, such as the part of the figure that comes from failed queries. */
+    /** A second muted line, for a caveat about the figure. */
     note?: string
-    /** A 0 to 100 meter under the figure. Values above 100 fill the bar. */
-    meterPercent?: number | null
-    meterVariant?: 'default' | 'warning' | 'destructive'
+    meter?: Omit<WarehouseMeterProps, 'label'>
     'data-attr'?: string
 }
 
+/** One figure: label, value, one muted detail line and an optional meter. Place tiles in a `WarehouseStatStrip`. */
 export function WarehouseStatTile({
     label,
     value,
     detail,
     note,
-    meterPercent,
-    meterVariant = 'default',
+    meter,
     'data-attr': dataAttr,
 }: WarehouseStatTileProps): JSX.Element {
     return (
-        <Card size="sm" data-attr={dataAttr}>
-            <CardContent className="flex min-w-0 flex-col gap-1">
+        <Card size="sm" className="h-full" data-attr={dataAttr}>
+            <CardContent className="flex h-full min-w-0 flex-col gap-1 px-3">
                 <Text size="xs" variant="muted" render={<div />}>
                     {label}
                 </Text>
-                <Text size="lg" weight="semibold" className="truncate" render={<div />}>
+                <Text size="lg" weight="semibold" className="truncate tabular-nums" render={<div />}>
                     {value}
                 </Text>
-                {meterPercent != null && (
-                    <Progress
-                        value={Math.min(100, Math.max(0, meterPercent))}
-                        variant={meterVariant}
-                        aria-label={label}
-                    />
-                )}
-                {detail && (
-                    <Text size="xs" variant="muted" render={<div />}>
+                {meter ? <WarehouseMeter {...meter} label={label} /> : null}
+                {detail ? (
+                    <Text size="xs" variant="muted" className="truncate" title={detail} render={<div />}>
                         {detail}
                     </Text>
-                )}
-                {note && (
+                ) : null}
+                {note ? (
                     <Text size="xs" variant="muted" render={<div />}>
                         {note}
                     </Text>
-                )}
+                ) : null}
             </CardContent>
         </Card>
     )

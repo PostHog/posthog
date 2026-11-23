@@ -1,5 +1,5 @@
 import type { QueryEstimateResponseApi } from '../generated/api.schemas'
-import { formatBytes } from '../scenes/WarehouseConsole/warehouseConsoleFormat'
+import { formatBytes, formatUsd } from '../scenes/WarehouseConsole/warehouseConsoleFormat'
 
 export type EstimateWarningTone = 'danger' | 'warning' | 'muted'
 
@@ -10,14 +10,7 @@ export interface EstimateWarning {
 }
 
 export function formatEstimateCost(usd: string | null): string | null {
-    if (usd === null) {
-        return null
-    }
-    const value = Number(usd)
-    if (!Number.isFinite(value)) {
-        return null
-    }
-    return value > 0 && value < 0.01 ? 'est. < $0.01' : `est. $${value.toFixed(2)}`
+    return usd === null || !Number.isFinite(Number(usd)) ? null : `est. ${formatUsd(usd)}`
 }
 
 /** One line for the toolbar, for example "Scans up to 120 GiB · est. $0.29". */

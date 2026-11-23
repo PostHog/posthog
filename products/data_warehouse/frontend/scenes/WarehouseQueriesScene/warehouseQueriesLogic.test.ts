@@ -139,7 +139,7 @@ describe('warehouseQueriesLogic', () => {
         logic.actions.loadRunningSuccess(snapshot([own, 'trino-login']))
 
         expect(logic.values.runningRows.map((row) => [row.query_id, row.canCancel, row.loginLabel])).toEqual([
-            ['run0', true, 'You'],
+            ['run0', true, 'SQL editor · You'],
             ['run1', false, 'trino-login'],
         ])
 

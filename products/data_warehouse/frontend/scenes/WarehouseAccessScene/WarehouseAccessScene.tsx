@@ -10,7 +10,6 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { WarehouseConsoleGate } from '../WarehouseConsole/WarehouseConsoleGate'
 import { warehouseConsoleLogic } from '../WarehouseConsole/warehouseConsoleLogic'
 import { WarehouseConsoleState } from '../WarehouseConsole/WarehouseConsoleState'
-import { WarehouseLoginCard } from './WarehouseLoginCard'
 import { WarehouseLoginsSection } from './WarehouseLoginsSection'
 
 export const scene: SceneExport = {
@@ -24,12 +23,7 @@ function WarehouseAccessContent(): JSX.Element {
     if (consoleState !== 'ready') {
         return <WarehouseConsoleState page="access" />
     }
-    return (
-        <>
-            <WarehouseLoginCard />
-            <WarehouseLoginsSection />
-        </>
-    )
+    return <WarehouseLoginsSection />
 }
 
 export function WarehouseAccessScene(): JSX.Element {

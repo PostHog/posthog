@@ -26,7 +26,7 @@ interface StepAction {
 }
 
 interface WarehouseGettingStartedStepProps {
-    step: 'connect_source' | 'create_view' | 'connect_tool' | 'create_login'
+    step: 'connect_source' | 'create_view'
     index: number
     state: WarehouseStepState
     title: string

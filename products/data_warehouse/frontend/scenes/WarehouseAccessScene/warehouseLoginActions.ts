@@ -4,10 +4,17 @@ export interface WarehouseLoginActions {
     canRotate: boolean
     canDisable: boolean
     canDelete: boolean
+    canReset: boolean
 }
 
-// Only a project login belongs to PostHog's console. The root login and any other login are listed read-only.
+// Project logins belong to PostHog's console: they can be rotated, switched off and deleted.
+// The root login only has its password reset. Any other login is listed read-only.
 export function warehouseLoginActions(kind: LoginKindEnumApi): WarehouseLoginActions {
     const isProjectLogin = kind === 'project_reader' || kind === 'project_user'
-    return { canRotate: isProjectLogin, canDisable: isProjectLogin, canDelete: isProjectLogin }
+    return {
+        canRotate: isProjectLogin,
+        canDisable: isProjectLogin,
+        canDelete: isProjectLogin,
+        canReset: kind === 'root',
+    }
 }

@@ -1,12 +1,9 @@
 import { useValues } from 'kea'
-import posthog from 'posthog-js'
 
-import { Button, Card, CardContent, CardHeader, CardTitle, Text } from '@posthog/quill'
+import { Text } from '@posthog/quill'
 
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -38,27 +35,6 @@ function WarehouseConnectContent(): JSX.Element {
         <>
             <WarehouseConnectDetails connection={trinoConnection} schemaName={teamSchemaName} />
             <WarehouseConnectSnippets connection={trinoConnection} schemaName={teamSchemaName} />
-            <Card>
-                <CardHeader>
-                    <CardTitle>Password</CardTitle>
-                </CardHeader>
-                <CardContent className="flex flex-col gap-2">
-                    <Text size="sm">
-                        Your password comes from warehouse setup, where it is shown once. If you lost it, reset it on
-                        the Access page. Admins can also create project logins there.
-                    </Text>
-                    <div>
-                        <Button
-                            nativeButton={false}
-                            render={<LinkPrimitive to={urls.warehouseAccess()} />}
-                            onClick={() => posthog.capture('warehouse connect access clicked')}
-                            data-attr="warehouse-connect-open-access"
-                        >
-                            Open Access
-                        </Button>
-                    </div>
-                </CardContent>
-            </Card>
         </>
     )
 }

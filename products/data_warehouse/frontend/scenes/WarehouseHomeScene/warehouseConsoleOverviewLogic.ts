@@ -26,7 +26,7 @@ export const FAILED_SHARE_THRESHOLD = 0.1
 export const DOMINANT_LOGIN_SHARE_THRESHOLD = 0.5
 
 export interface Recommendation {
-    key: 'set_budget' | 'set_scan_cap' | 'forecast_over_budget' | 'failed_queries' | 'dominant_login'
+    key: 'set_budget' | 'set_scan_cap' | 'forecast_over_budget' | 'failed_queries' | 'dominant_login' | 'connect_tool'
     title: string
     description: string
     actionLabel: string
@@ -39,6 +39,9 @@ export interface WorkloadCounts {
 }
 
 const OTHER_LABEL = 'Other'
+
+// Logins that PostHog itself uses. Any other login in the usage is a tool the customer connected.
+const OWN_LOGIN_PATTERN = /^(posthog([:-]|$)|endpoints$)/i
 
 /** The biggest named groups by billable bytes. The API's catch-all "Other" row is not a consumer. */
 export function topConsumers(breakdown: UsageBreakdownApi[], limit: number = TOP_CONSUMERS_LIMIT): UsageBreakdownApi[] {
@@ -113,6 +116,21 @@ export function buildRecommendations(
                     'One login accounts for more than half of the billed data, and you are past the free allowance.',
                 actionLabel: 'See usage by login',
                 to: `${urls.warehouseUsage()}?group_by=principal`,
+            })
+        }
+    }
+
+    if (usage) {
+        const connectsExternalTool = usage.breakdown.some(
+            (row) => row.label !== OTHER_LABEL && !OWN_LOGIN_PATTERN.test(row.key)
+        )
+        if (!connectsExternalTool) {
+            items.push({
+                key: 'connect_tool',
+                title: 'Connect a tool',
+                description: 'Query your warehouse from a SQL client, a notebook or a BI tool.',
+                actionLabel: 'See how to connect',
+                to: urls.warehouseConnect(),
             })
         }
     }

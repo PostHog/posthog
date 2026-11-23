@@ -1,7 +1,6 @@
 import { Heading } from '@posthog/quill'
 
 import { WarehouseConsoleReady } from '../WarehouseConsole/WarehouseConsoleReady'
-import { WarehouseLiveWorkload } from './WarehouseLiveWorkload'
 import { WarehouseRecommendations } from './WarehouseRecommendations'
 import { WarehouseTopConsumers } from './WarehouseTopConsumers'
 import { WarehouseUsageStrip } from './WarehouseUsageStrip'
@@ -15,11 +14,10 @@ export function WarehouseConsoleOverview(): JSX.Element {
                     Usage
                 </Heading>
                 <WarehouseUsageStrip />
-                <div className="grid gap-3 @3xl/warehouse-home:grid-cols-2">
-                    <WarehouseLiveWorkload />
+                <div className="grid gap-3 @3xl/warehouse-home:grid-cols-2 [&>*:only-child]:col-span-full">
                     <WarehouseTopConsumers />
+                    <WarehouseRecommendations />
                 </div>
-                <WarehouseRecommendations />
             </section>
         </WarehouseConsoleReady>
     )
