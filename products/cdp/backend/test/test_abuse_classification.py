@@ -400,14 +400,20 @@ class TestAbuseClassification(AbuseClassificationTestCase):
 
         assert len(self.gateway.requests) == 1
 
-    @parameterized.expand([("flag_off", False, 0), ("already_scored", True, 1)])
+    @parameterized.expand(
+        [
+            ("flag_off", False, 0, {}),
+            ("already_scored", True, 1, {}),
+            ("already_scored_with_enabled_hash", True, 1, {"enabled_content_hash": "a" * 64}),
+        ]
+    )
     def test_a_queued_task_skips_work_that_is_no_longer_due(
-        self, _name: str, flag_on: bool, expected_requests: int
+        self, _name: str, flag_on: bool, expected_requests: int, task_kwargs: dict[str, Any]
     ) -> None:
         self.flags.enabled[TEAM_FLAG] = flag_on
         hog_function = self.create_destination()
 
-        classify_hog_function_for_abuse(team_id=self.team.id, hog_function_id=str(hog_function.id))
+        classify_hog_function_for_abuse(team_id=self.team.id, hog_function_id=str(hog_function.id), **task_kwargs)
 
         assert len(self.gateway.requests) == expected_requests
 
