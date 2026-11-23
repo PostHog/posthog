@@ -229,6 +229,27 @@ function describeSyncFrequencyReset(
     }
 }
 
+function describePlanFloorClamp(logItem: ActivityLogItem, viewName: JSX.Element): HumanizedChange {
+    const freqChange = (logItem.detail?.changes ?? []).find((c) => c.field === 'sync_frequency_interval')
+    const before = humanizeInterval(freqChange?.before as string | null)
+    const after = humanizeInterval(freqChange?.after as string | null)
+    return {
+        summary: activityLogSummary(
+            logItem,
+            <>Slowed sync frequency to {after} to match your organization's plan</>,
+            viewName,
+            undefined,
+            <>PostHog</>
+        ),
+        description: (
+            <>
+                PostHog changed sync frequency from <strong>{before}</strong> to <strong>{after}</strong> on {viewName},
+                the fastest your organization's plan allowed
+            </>
+        ),
+    }
+}
+
 const WAREHOUSE_SUGGESTION_TRIGGER_JOB_TYPE = 'warehouse_suggestion'
 
 const SAVED_QUERY_EVENTS = new Map([
@@ -280,6 +301,10 @@ export function dataWarehouseSavedQueryActivityDescriber(
 
     if (logItem.activity === 'materialization_enabled') {
         return describeMaterializationEnabled(logItem, user, viewName)
+    }
+
+    if (logItem.activity === 'sync_frequency_plan_floor') {
+        return describePlanFloorClamp(logItem, viewName)
     }
 
     if (logItem.activity === 'sync_frequency_reset') {
