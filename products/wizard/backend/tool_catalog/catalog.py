@@ -108,3 +108,12 @@ def _classifications() -> dict[str, ToolClassification]:
 
 def classify_tool(kind: str) -> ToolClassification | None:
     return _classifications().get(kind)
+
+
+@cache
+def _labels() -> dict[str, str]:
+    return {tool["kind"]: tool["label"] for tool in _catalog_document()["tools"]}
+
+
+def tool_label(kind: str) -> str:
+    return _labels().get(kind, kind)

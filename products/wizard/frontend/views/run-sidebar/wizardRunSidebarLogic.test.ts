@@ -7,13 +7,15 @@ import posthog from 'posthog-js'
 import { initKeaTests } from '~/test/init'
 
 import { wizardScansDetectedSourcesRetrieve } from '../../generated/api'
-import type { WizardRunApi } from '../../generated/api.schemas'
+import type { WizardRunApi, WizardRunArtifactApi } from '../../generated/api.schemas'
+import { loadWizardRunArtifacts } from '../../lib/wizardApi'
 import { wizardRunSyncLogic } from '../../logics/wizardRunSyncLogic'
 import { wizardRunSidebarLogic } from './wizardRunSidebarLogic'
 
 jest.mock('../../generated/api', () => ({
     wizardRunsList: jest.fn().mockResolvedValue({ results: [], next: null }),
     getWizardRunsStreamRetrieveUrl: (_: string, id: string) => `/stream/${id}`,
+    wizardRunsTasksRetrieve: jest.fn().mockResolvedValue({ tasks: [] }),
     wizardScansDetectedSourcesRetrieve: jest.fn().mockResolvedValue([
         { kind: 'Stripe', warehouse_source_type: 'Stripe', first_seen_at: '', last_seen_at: '2026-05-19T10:05:00Z' },
         {
@@ -25,9 +27,13 @@ jest.mock('../../generated/api', () => ({
     ]),
 }))
 
+jest.mock('../../lib/wizardApi', () => ({
+    loadWizardRunArtifacts: jest.fn().mockResolvedValue([]),
+}))
+
 const props = { projectId: '1', userId: MOCK_DEFAULT_USER.id }
 function run(id: string): WizardRunApi {
-    return { id, status: 'completed', created_by_id: props.userId } as WizardRunApi
+    return { id, team_id: 1, status: 'completed', created_by_id: props.userId } as WizardRunApi
 }
 
 describe('wizardRunSidebarLogic', () => {
@@ -127,6 +133,27 @@ describe('wizardRunSidebarLogic', () => {
     test.each([
         { name: 'no runs', runs: [], dismissedBeforeLoad: [], visible: false },
         {
+            name: 'a run that finished 23 hours ago and whose pull request merged',
+            runs: [{ ...run('a'), finished_at: '2026-05-19T11:00:00Z' }],
+            dismissedBeforeLoad: [],
+            artifacts: [{ artifact_type: 'pull_request', state: 'merged' }],
+            visible: false,
+        },
+        {
+            name: 'a run that finished 23 hours ago and whose pull request is open',
+            runs: [{ ...run('a'), finished_at: '2026-05-19T11:00:00Z' }],
+            dismissedBeforeLoad: [],
+            artifacts: [{ artifact_type: 'pull_request', state: 'open' }],
+            visible: true,
+        },
+        {
+            name: 'a run that finished 23 hours ago whose artifacts failed to load',
+            runs: [{ ...run('a'), finished_at: '2026-05-19T11:00:00Z' }],
+            dismissedBeforeLoad: [],
+            artifacts: new Error('offline'),
+            visible: true,
+        },
+        {
             name: 'a running run',
             runs: [{ ...run('a'), status: 'running', finished_at: null }],
             dismissedBeforeLoad: [],
@@ -150,13 +177,19 @@ describe('wizardRunSidebarLogic', () => {
             dismissedBeforeLoad: ['a'],
             visible: false,
         },
-    ])('shows the rail tile with $name: $visible', async ({ runs, dismissedBeforeLoad, visible }) => {
+    ])('shows the rail tile with $name: $visible', async ({ runs, dismissedBeforeLoad, artifacts, visible }) => {
         const now = jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-05-20T10:00:00Z'))
+        if (artifacts instanceof Error) {
+            jest.mocked(loadWizardRunArtifacts).mockRejectedValueOnce(artifacts)
+        } else if (artifacts) {
+            jest.mocked(loadWizardRunArtifacts).mockResolvedValueOnce(artifacts as WizardRunArtifactApi[])
+        }
         try {
             await expectLogic(logic).toFinishAllListeners()
 
             logic.actions.dismissRuns(dismissedBeforeLoad)
             wizardRunSyncLogic({ projectId: '1' }).actions.runsLoaded(runs as WizardRunApi[])
+            await expectLogic(wizardRunSyncLogic({ projectId: '1' })).toFinishAllListeners()
 
             expect(logic.values.railVisible).toBe(visible)
         } finally {
