@@ -17,6 +17,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_trino_table import DirectTrinoTable
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
+    DecimalDatabaseField,
     ExpressionField,
     IntegerDatabaseField,
     SavedQuery,
@@ -140,6 +141,20 @@ def test_star_projection_preserves_logical_name_for_physical_column_alias(expose
         "trino",
     )
     assert 'PARTITION BY "subscriptions"."customer" ORDER BY "subscriptions"."customer" ASC' in window_sql
+
+    where_sql, _ = prepare_and_print_ast(
+        parse_select("SELECT customer_id AS c FROM subscriptions WHERE c != ''"),
+        context,
+        "trino",
+    )
+    assert 'WHERE ("subscriptions"."customer" != ' in where_sql
+
+    order_sql, _ = prepare_and_print_ast(
+        parse_select("SELECT customer_id AS c, 0 AS s FROM subscriptions AS s ORDER BY c"),
+        context,
+        "trino",
+    )
+    assert order_sql.endswith("ORDER BY 1 ASC")
 
     join_sql, _ = prepare_and_print_ast(
         parse_select(
@@ -532,9 +547,9 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("countSubstrings(user_id, 'a')", "__hogql_substrings -> IF(length(__hogql_substrings[2])"),
         ("splitByRegexp('-', user_id)", 'regexp_split("users"."user_id"'),
         ("mapContainsKeyLike(mapFromArrays(['a'], [1]), 'a%')", "cardinality(map_filter(map(ARRAY["),
-        ("bitTest(4, 2)", "bitwise_and(4, bitwise_left_shift(BIGINT '1', 2)) <> 0"),
-        ("bitTestAll(6, 1, 2)", "bitwise_and(6, bitwise_left_shift(BIGINT '1', 1)) <> 0 AND"),
-        ("bitShiftRight(-8, 1)", "bitwise_right_shift_arithmetic(-8, 1)"),
+        ("bitTest(4, 2)", "bitwise_and(4, bitwise_left_shift(BIGINT '1', CAST(2 AS INTEGER))) <> 0"),
+        ("bitTestAll(6, 1, 2)", "bitwise_and(6, bitwise_left_shift(BIGINT '1', CAST(1 AS INTEGER))) <> 0 AND"),
+        ("bitShiftRight(-8, 1)", "bitwise_right_shift_arithmetic(CAST(-8 AS BIGINT), CAST(1 AS INTEGER))"),
         ("bitHammingDistance(5, 1)", "bit_count(bitwise_xor(5, 1), 64)"),
         ("L2Distance([1, 2], [3, 4])", "euclidean_distance(ARRAY[1, 2], ARRAY[3, 4])"),
         ("port('https://example.com', 443)", "coalesce(url_extract_port("),
@@ -583,6 +598,49 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("toDate(created_at) - (SELECT max(id) FROM users)", "date_add('day', CAST(-((SELECT max("),
         ("toLastDayOfMonth(created_at) - 1", "date_add('day', CAST(-(1) AS BIGINT), last_day_of_month("),
         ("toMonday(created_at) + 7", "date_add('day', CAST(7 AS BIGINT), CAST(date_trunc('week'"),
+        ("now('UTC')", "SELECT at_timezone(now(), "),
+        (
+            "toDateTime64(id, 3, 'UTC')",
+            'SELECT CAST(at_timezone(from_unixtime_nanos(CAST(CAST("users"."id" AS DECIMAL(38, 9)) * 1000000000 AS BIGINT)), ',
+        ),
+        (
+            "toDateTime64(id, 6)",
+            'CAST(from_unixtime_nanos(CAST(CAST("users"."id" AS DECIMAL(38, 9)) * 1000000000 AS BIGINT)) AS TIMESTAMP(6))',
+        ),
+        (
+            "anyHeavy(id)",
+            'coalesce(element_at(map_keys(approx_most_frequent(1, CAST("users"."id" AS BIGINT), 10)), 1), BIGINT \'0\')',
+        ),
+        (
+            "anyHeavyIf(user_id, id > 1)",
+            'coalesce(element_at(map_keys(approx_most_frequent(1, "users"."user_id", 10) FILTER (WHERE (("users"."id" > 1)))), 1), \'\')',
+        ),
+        (
+            "anyHeavy(user_id) FILTER (WHERE id > 1)",
+            'approx_most_frequent(1, "users"."user_id", 10) FILTER (WHERE (("users"."id" > 1)))',
+        ),
+        (
+            "anyHeavyIf(user_id, id > 1) FILTER (WHERE id > 2)",
+            'FILTER (WHERE (("users"."id" > 1)) AND (("users"."id" > 2)))',
+        ),
+        (
+            "anyHeavy(toNullable(user_id))",
+            'SELECT element_at(map_keys(approx_most_frequent(1, "users"."user_id", 10)), 1) FROM',
+        ),
+        (
+            "multiMatchAnyIndex(max(user_id), ['a', 'b'])",
+            'SELECT element_at(transform(ARRAY[max("users"."user_id")], __hogql_haystack -> '
+            "CASE WHEN __hogql_haystack IS NULL THEN NULL WHEN regexp_like(__hogql_haystack, ",
+        ),
+        (
+            "multiMatchAnyIndex(user_id, [user_id])",
+            'element_at(transform(ARRAY[ROW("users"."user_id", ARRAY["users"."user_id"])], __hogql_match -> IF(__hogql_match[1] IS NULL, NULL, array_position(',
+        ),
+        (
+            "JSONExtract(properties, user_id, 'Nullable(Float64)')",
+            'TRY(CAST(json_extract_scalar(json_extract("users"."properties", concat(\'$[\', json_format(CAST(CAST("users"."user_id" AS VARCHAR) AS JSON)), \']\')), \'$\') AS DOUBLE)), CAST(NULL AS DOUBLE))',
+        ),
+        ("JSONExtract(properties, 'a', 'Float64')", "AS DOUBLE)), CAST(0 AS DOUBLE))"),
     ],
 )
 def test_prints_core_trino_expression_mappings(expression: str, expected: str) -> None:
@@ -735,6 +793,69 @@ def test_drops_clickhouse_global_distribution_modifiers() -> None:
     assert "LEFT JOIN" in join_sql
 
 
+def _context_with_decimal_ledger() -> HogQLContext:
+    database = Database(include_posthog_tables=False)
+    database.tables.add_child(
+        TableNode(
+            name="ledger",
+            table=DirectTrinoTable(
+                name="ledger",
+                fields={
+                    "id": IntegerDatabaseField(name="id", nullable=False),
+                    "amount": DecimalDatabaseField(name="amount", nullable=True, scale=2),
+                    "rate": DecimalDatabaseField(name="rate", nullable=True, scale=8),
+                },
+                external_data_source_id="source-id",
+                trino_catalog="ducklake",
+                trino_schema="finance",
+                trino_table_name="ledger",
+                has_complete_columns=True,
+            ),
+        )
+    )
+    return HogQLContext(
+        database=database,
+        modifiers=_trino_modifiers(),
+        enable_select_queries=True,
+        limit_top_select=False,
+        restricted_properties=set(),
+    )
+
+
+def _shared_projection_chain(depth: int) -> str:
+    layers = ["c0 AS (SELECT amount AS x FROM ledger)"] + [
+        f"c{level} AS (SELECT coalesce(x, x) AS x FROM c{level - 1})" for level in range(1, depth + 1)
+    ]
+    return f"WITH {', '.join(layers)} SELECT multiplyDecimal(x, toDecimal(1, 2)) FROM c{depth}"
+
+
+@pytest.mark.parametrize(
+    ("query", "scale"),
+    [
+        ("SELECT multiplyDecimal(amount, rate) FROM ledger", 8),
+        ("SELECT multiplyDecimal(toDecimal(-1.0, 4), multiplyDecimal(amount, rate)) FROM ledger", 8),
+        ("SELECT multiplyDecimal(divideDecimal(amount, rate), amount) FROM ledger", 8),
+        (
+            "SELECT multiplyDecimal(v, 1) FROM (SELECT amount AS v FROM ledger UNION ALL SELECT rate AS v FROM ledger)",
+            8,
+        ),
+        (_shared_projection_chain(32), 2),
+        ("SELECT multiplyDecimal(coalesce(amount, toDecimal(1, 4)), amount) FROM ledger", 4),
+        ("SELECT multiplyDecimal(if(id > 0, amount, NULL), amount) FROM ledger", 2),
+        ("SELECT multiplyDecimal(a, b) FROM (SELECT amount AS a, rate AS b FROM ledger)", 8),
+        (
+            "WITH c AS (SELECT *, toDecimal(id / 100, 6) AS share FROM ledger) SELECT multiplyDecimal(amount, share) FROM c",
+            6,
+        ),
+        ("SELECT toDecimal(id, 5) AS share, multiplyDecimal(amount, share) FROM ledger", 5),
+    ],
+)
+def test_multiply_decimal_takes_the_largest_operand_scale(query: str, scale: int) -> None:
+    sql, _ = prepare_and_print_ast(parse_select(query), _context_with_decimal_ledger(), "trino")
+
+    assert f"AS DECIMAL(38, {scale}))" in sql
+
+
 def test_tracks_every_registered_function_without_a_trino_mapping(snapshot: SnapshotAssertion) -> None:
     supported = {
         *TRINO_FUNCTION_HANDLERS_LOWER,
@@ -771,6 +892,7 @@ def test_tracks_every_registered_function_without_a_trino_mapping(snapshot: Snap
         ("medianExact(DISTINCT id)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
         ("avgWeighted(id, user_id)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
         ("toNullableString(1.5)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
+        ("anyHeavy(DISTINCT user_id)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
         ("groupUniqArrayArray(0)([1, 2])", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
         ("to_timestamp(1.5)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
         ("lagInFrame(id)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
@@ -1278,17 +1400,29 @@ def test_lowers_event_property_backed_fields_to_the_physical_json_column() -> No
         database=Database(include_posthog_tables=True),
         modifiers=_trino_modifiers(),
         enable_select_queries=True,
-        trino_table_locators={"events": ("tenant", "posthog", "events")},
+        trino_table_locators={
+            "events": ("tenant", "posthog", "events"),
+            "raw_groups": ("tenant", "posthog", "groups"),
+        },
     )
 
     sql, _ = prepare_and_print_ast(
-        parse_select("SELECT events.`$session_id`, events.`$window_id`, events.`$group_0` FROM events"),
+        parse_select(
+            "SELECT events.`$session_id`, events.`$window_id`, events.`$group_0`, cityHash64(`$group_2`), group_1.key"
+            " FROM events"
+        ),
         context,
         "trino",
     )
 
     for key in ("$session_id", "$window_id", "$group_0"):
         assert f'json_extract_scalar("tenant"."posthog"."events"."properties", \'$["{key}"]\')' in sql
+    assert 'ch_cityhash64(json_extract_scalar("tenant"."posthog"."events"."properties", \'$["$group_2"]\'))' in sql
+    assert (
+        'json_extract_scalar("tenant"."posthog"."events"."properties", \'$["$group_1"]\') = "events__group_1"."key"'
+        in sql
+    )
+    assert 'WHERE ("tenant"."posthog"."groups"."group_type_index" = 1)' in sql
     assert context.values == {}
 
 
@@ -1308,6 +1442,36 @@ def test_lowers_event_element_materializations_to_the_physical_chain() -> None:
 
     assert 'regexp_extract("tenant"."posthog"."events"."elements_chain", \'(?::|")href="(.*?)"\', 1)' in sql
     assert 'array_distinct(regexp_extract_all("tenant"."posthog"."events"."elements_chain"' in sql
+
+
+@pytest.mark.parametrize(
+    "right_column, backing_column",
+    [
+        ("r.elements_chain_href", "elements_chain"),
+        ("r.$session_id", "properties"),
+        ("elements_chain_href", "elements_chain"),
+        ("$session_id", "properties"),
+    ],
+)
+def test_any_join_keeps_the_backing_column_of_a_lowered_event_field(right_column: str, backing_column: str) -> None:
+    database = Database(include_posthog_tables=True)
+    assert (trino_database := _context_with_trino_table().database) is not None
+    database.tables.add_child(trino_database.tables.children["users"])
+    context = HogQLContext(
+        database=database,
+        modifiers=_trino_modifiers(),
+        enable_select_queries=True,
+        trino_table_locators={"events": ("tenant", "posthog", "events")},
+    )
+
+    sql, _ = prepare_and_print_ast(
+        parse_select(f"SELECT {right_column} FROM users l LEFT ANY JOIN events r ON l.user_id = r.distinct_id"),
+        context,
+        "trino",
+    )
+
+    assert f'"r"."{backing_column}"' in sql
+    assert f'"__hogql_any_ranked_0"."{backing_column}"' in sql
 
 
 def test_uuid_comparison_on_exported_table_compares_as_varchar() -> None:
@@ -2221,6 +2385,32 @@ def test_percentage_limit_rounds_up(percentage: int, offset: int, expected: list
             "SELECT l.live, r.v FROM l ANY INNER JOIN right_view AS r ON and(equals(l.k, r.k), equals(l.live, r.live)) "
             "ORDER BY l.live",
             [(0, 10), (1, 20)],
+        ),
+        (
+            "WITH excluded AS (SELECT 'b' AS v UNION ALL SELECT 'c'), rows AS (SELECT ['a', 'b', 'd'] AS items) "
+            "SELECT arrayFilter(x -> x NOT IN (SELECT v FROM excluded), items), "
+            "arrayFilter(x -> x IN (SELECT v FROM excluded), items), "
+            "arrayFilter(x -> x NOT IN (SELECT v FROM excluded WHERE v = 'z'), items) FROM rows",
+            [(["a", "d"], ["b"], ["a", "b", "d"])],
+        ),
+        ("SELECT arrayFilter(x -> x NOT IN (SELECT 2 WHERE false), [NULL, 1])", [([None, 1],)]),
+        (
+            "WITH excluded AS (SELECT 'b' AS v UNION ALL SELECT NULL) "
+            "SELECT arrayFilter(x -> x IN (SELECT v FROM excluded), ['a', NULL]), "
+            "arrayFilter(x -> x NOT IN (SELECT v FROM excluded), ['a', NULL])",
+            [([None], ["a"])],
+        ),
+        ("SELECT arrayFilter(x -> x IN (SELECT 1), ['1', '2'])", [(["1"],)]),
+        ("SELECT arrayFilter(x -> x IN (SELECT arrayFilter(x -> x > 1, [1, 2])), [[2], [3]])", [([[2]],)]),
+        (
+            "WITH rows AS (SELECT 1 AS k, 1 AS v UNION ALL SELECT 1, 2) "
+            "SELECT k, arrayFilter(x -> x IN (SELECT 1), groupArray(v)) FROM rows GROUP BY k",
+            [(1, [1])],
+        ),
+        (
+            "WITH rows AS (SELECT 1 AS v UNION ALL SELECT 1) "
+            "SELECT arrayFilter(x -> x IN (SELECT v FROM rows LIMIT 1 BY v), [1, 2])",
+            [([1],)],
         ),
         ("SELECT 7 AS n, arrayFilter(n -> n > 1, [1, 2]) AS vals", [(7, [2])]),
         # ClickHouse lets a projection name a part of itself, and inlining the projection must not redefine that name.
@@ -3224,6 +3414,16 @@ def test_lowers_left_any_join_by_deduplicating_the_right_relation() -> None:
     assert ') AS "other" ON ("users"."user_id" = "other"."user_id")' in sql
 
 
+def test_lowers_any_join_that_reads_no_right_column() -> None:
+    sql, _ = prepare_and_print_ast(
+        parse_select("SELECT l.id FROM users l LEFT ANY JOIN users r ON 1 = 1"),
+        _context_with_trino_table(),
+        "trino",
+    )
+
+    assert "LEFT ANY JOIN" not in sql
+
+
 def test_lowers_multi_key_any_join_with_a_right_expression() -> None:
     sql, _ = prepare_and_print_ast(
         parse_select(
@@ -3239,14 +3439,14 @@ def test_lowers_multi_key_any_join_with_a_right_expression() -> None:
 
 
 @pytest.mark.parametrize(
-    "people_column, expected, unread_hidden_columns",
+    "people_column, expected, unread_columns",
     [
-        ("people.created_at", '"people"."created_at"', ["_sync_id", "_raw"]),
+        ("people.created_at", '"people"."created_at"', ["_sync_id", "_raw", "plan"]),
         # A property read through a derived table reads the hidden column by its logical name.
-        ("people.raw.key", 'json_extract_scalar("people"."raw", \'$["key"]\')', ["_sync_id"]),
+        ("people.raw.key", 'json_extract_scalar("people"."raw", \'$["key"]\')', ["_sync_id", "plan"]),
     ],
 )
-def test_lowers_unaliased_left_any_join(people_column: str, expected: str, unread_hidden_columns: list[str]) -> None:
+def test_lowers_unaliased_left_any_join(people_column: str, expected: str, unread_columns: list[str]) -> None:
     context = _context_with_trino_table()
     assert context.database is not None
     context.database.tables.add_child(
@@ -3257,6 +3457,7 @@ def test_lowers_unaliased_left_any_join(people_column: str, expected: str, unrea
                 fields={
                     "user_id": StringDatabaseField(name="user_id", nullable=False),
                     "created_at": DateTimeDatabaseField(name="created_at", nullable=False),
+                    "plan": StringDatabaseField(name="plan", nullable=True),
                     "__sync_id": StringDatabaseField(name="_sync_id", hidden=True),
                     "raw": StringJSONDatabaseField(name="_raw", hidden=True),
                 },
@@ -3275,7 +3476,7 @@ def test_lowers_unaliased_left_any_join(people_column: str, expected: str, unrea
 
     assert "LEFT ANY JOIN" not in sql
     assert expected in sql
-    assert not [column for column in unread_hidden_columns if column in sql]
+    assert not [column for column in unread_columns if column in sql]
     assert ') AS "people" ON ("users"."user_id" = "people"."user_id")' in sql
 
 
@@ -3487,10 +3688,30 @@ def test_removes_noop_sample_one_for_trino() -> None:
     assert "SAMPLE" not in sql
 
 
+def test_nested_lambda_subquery_memberships_grow_linearly() -> None:
+    membership = "x"
+    for _ in range(15):
+        membership = f"({membership} IN (SELECT true))"
+
+    sql, _ = prepare_and_print_ast(
+        parse_select(f"SELECT arrayMap(x -> {membership}, [true])"), _context_with_trino_table(), "trino"
+    )
+
+    assert len(sql) < 20_000
+
+
 @pytest.mark.parametrize(
     ("query", "feature_code"),
     [
         ("SELECT user_id FROM users SAMPLE 0.5", "TRINO_SAMPLE_UNSUPPORTED"),
+        (
+            "SELECT arrayFilter(x -> x IN (SELECT user_id FROM users WHERE id = x), [user_id]) FROM users",
+            "TRINO_LAMBDA_SUBQUERY_CORRELATED",
+        ),
+        (
+            "SELECT arrayFilter(x -> x IN (SELECT 1), groupArray(user_id)) FROM users",
+            "TRINO_LAMBDA_SUBQUERY_IN_GLOBAL_AGGREGATE",
+        ),
         (
             "SELECT * FROM users PIVOT(uniq(user_id) FOR created_at IN ('2026-01-01'))",
             "TRINO_PIVOT_AGGREGATE_UNSUPPORTED",
@@ -3725,6 +3946,23 @@ def test_grouping_does_not_replace_different_or_nested_expressions(query: str, s
         (
             "WITH items AS (SELECT JSONExtractArrayRaw(properties, 'items') AS xs FROM users) SELECT empty(xs) FROM items",
             'cardinality("items"."xs")',
+        ),
+        (
+            "WITH items AS (SELECT [1, 2] AS xs) SELECT arrayFirst(x -> x > 1, xs) FROM items",
+            'coalesce(element_at(filter("items"."xs", "x" -> ("x" > 1)), 1), 0)',
+        ),
+        (
+            "WITH items AS (SELECT [1, 2] AS xs) SELECT arrayMap(x -> intDiv(x, 2), xs) FROM items",
+            'transform("items"."xs", "x" -> (CAST("x" AS BIGINT) / CAST(2 AS BIGINT)))',
+        ),
+        (
+            "WITH items AS (SELECT tuple(1, 'a') AS pair) SELECT intDiv(pair.1, 2) FROM items",
+            '(CAST(("items"."pair")[1] AS BIGINT) / CAST(2 AS BIGINT))',
+        ),
+        (
+            "WITH items(xs, flag) AS (SELECT [1] AS flag, true AS xs UNION ALL SELECT [2], false)"
+            " SELECT arrayFirst(x -> x > 0, xs) FROM items",
+            'filter("items"."xs", "x" -> ("x" > 0))',
         ),
     ],
 )

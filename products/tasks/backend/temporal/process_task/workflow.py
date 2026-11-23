@@ -2846,6 +2846,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         error_type: Optional[str] = None,
         timeout_marker: Optional[str] = None,
     ) -> None:
+        if (
+            status in ("completed", "cancelled", "failed")
+            and self._agent_egress_observation_task is not None
+            and workflow.patched("agent-egress-stop-before-terminal-status")
+        ):
+            await self._stop_egress_observation()
         seconds_since_last_agent_heartbeat = (
             (workflow.now() - self._last_agent_heartbeat_at).total_seconds() if self._last_agent_heartbeat_at else None
         )

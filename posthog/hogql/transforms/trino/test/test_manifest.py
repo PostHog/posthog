@@ -21,6 +21,7 @@ from posthog.hogql.transforms.trino.manifest import (
     transpile_hogql_to_trino,
 )
 
+from posthog.models.instance_setting import get_instance_setting
 from posthog.schema_enums import DatabaseSerializedFieldType, PersonsOnEventsMode
 
 pytestmark = pytest.mark.django_db
@@ -49,6 +50,7 @@ def test_transpiles_core_table_with_values_without_django_queries(
     query: str,
     snapshot: SnapshotAssertion,
 ) -> None:
+    get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA")
     with django_assert_num_queries(0):
         result = transpile_hogql_to_trino(
             query,

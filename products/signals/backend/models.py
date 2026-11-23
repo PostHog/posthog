@@ -3,7 +3,7 @@ import uuid
 import logging
 import builtins
 from collections import defaultdict
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import ExitStack, contextmanager
 from datetime import datetime, timedelta
 from typing import Any, TypeVar, cast
@@ -216,6 +216,9 @@ class InboxOnboardingSetupMode(models.TextChoices):
 # What GitHub accepts as a label name. Duplicated from the GitHub client rather than imported,
 # because that module pulls the HTTP stack in and this one is loaded on every Django start.
 GITHUB_LABEL_NAME_MAX_LENGTH = 50
+
+# The `(product, type)` a claim records for the claiming task (`report_assignments._associate_task_with_claim`).
+_CLAIM_TASK_RUN_IDENTIFIER = ("tasks", "agent_run")
 
 
 class SignalFirstReportNotification(UUIDModel):
@@ -1223,6 +1226,57 @@ class SignalReport(UUIDModel):
             | models.Q(id__in=legacy_report_ids)
             | models.Q(id__in=assignment_report_ids)
         )
+
+    @staticmethod
+    def pr_target_report_ids_for_tasks(team_id: int, task_ids: Iterable[Any]) -> set[str]:
+        """The reports the tasks' pull requests link to: each task's source report and its
+        pipeline, legacy and assignment associations.
+
+        A claim alone associates a task with a report, so a triage task that claims many reports
+        would link its PR to all of them, and the PR's merge or close would then resolve or
+        suppress them all. Claim-only reports are targets only when the task has no other report;
+        otherwise the agent attaches the PR to the report it fixes explicitly.
+        """
+        from products.tasks.backend.facade.api import get_task_signal_report_source_ids  # noqa: PLC0415
+
+        task_ids = {str(task_id) for task_id in task_ids}
+        if not task_ids:
+            return set()
+        direct: dict[str, set[str]] = defaultdict(set)
+        claim_only: dict[str, set[str]] = defaultdict(set)
+
+        def add(task_id: Any, report_id: Any, identifier: tuple[str, str] | None) -> None:
+            associations = claim_only if identifier == _CLAIM_TASK_RUN_IDENTIFIER else direct
+            associations[str(task_id)].add(str(report_id))
+
+        for task_id, report_id, content in SignalReportArtefact.objects.filter(
+            team_id=team_id, type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id__in=task_ids
+        ).values_list("task_id", "report_id", "content"):
+            try:
+                run = TaskRunArtefact.model_validate_json(content)
+            except ValidationError:
+                add(task_id, report_id, None)
+                continue
+            add(task_id, report_id, (run.product, run.type))
+        for task_id, report_id, relationship in SignalReportTask.objects.filter(
+            team_id=team_id, task_id__in=task_ids
+        ).values_list("task_id", "report_id", "relationship"):
+            add(task_id, report_id, task_run_identifier_for_legacy_relationship(relationship))
+        for actor_task_id, report_id in SignalReportAssignment.all_teams.filter(
+            team_id=team_id, actor_kind=SignalActorKind.TASK, actor_task_id__in=task_ids
+        ).values_list("actor_task_id", "report_id"):
+            add(actor_task_id, report_id, None)
+        for source_task_id, source_id in get_task_signal_report_source_ids(task_ids=task_ids, team_id=team_id).items():
+            add(source_task_id, source_id, None)
+
+        targets: set[str] = set()
+        for task_id in task_ids:
+            associated = direct[task_id] | claim_only[task_id]
+            targets |= associated if len(associated) == 1 else direct[task_id]
+        return {
+            str(report_id)
+            for report_id in SignalReport.objects.filter(team_id=team_id, id__in=targets).values_list("id", flat=True)
+        }
 
     @staticmethod
     def reports_for_task_ids_filter(task_ids: Any, *, team_id: int | None = None) -> "models.Q":

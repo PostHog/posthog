@@ -1054,6 +1054,8 @@ filters:
         - 'posthog/clickhouse/**'
     dataWarehouseWorker:
         - *sharedWorkerBase
+        # The prod CronJob track-pending-workflows-data-warehouse runs this command from the worker image.
+        - posthog/management/commands/get_temporal_workflow_count.py
         - 'products/warehouse_sources/backend/temporal/data_imports/**'
         - '!products/warehouse_sources/backend/temporal/data_imports/**/tests/**'
         - '!products/warehouse_sources/backend/temporal/data_imports/**/test/**'
