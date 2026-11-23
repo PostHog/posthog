@@ -25,8 +25,7 @@ export function PlatformAlertStateSummary({
     return (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             {configurationStateCounts(configuration).map(({ status, count }) => {
-                // A state added on the backend before this map knows it still renders.
-                const { label, icon } = STATUS_CONFIG[status] ?? { label: status, icon: <IconCircleDashed /> }
+                const { label, icon } = STATUS_CONFIG[status]
                 return (
                     <span
                         key={status}

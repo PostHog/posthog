@@ -73,11 +73,7 @@ const CALENDAR_UNIT_LABELS: Record<CalendarUnitEnumApi, string> = {
 }
 
 export function configurationStatus(configuration: PlatformAlertConfigurationApi): PlatformAlertConfigurationStatus {
-    if (!configuration.enabled) {
-        return 'disabled'
-    }
-    const states = new Set(configuration.alerts.map((alert) => alert.state))
-    return STATE_PRIORITY.find((state) => states.has(state)) ?? 'not_checked'
+    return configurationStateCounts(configuration)[0].status
 }
 
 export interface PlatformAlertStateCount {
