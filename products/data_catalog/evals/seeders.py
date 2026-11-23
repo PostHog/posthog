@@ -30,7 +30,6 @@ from products.data_catalog.backend.facade.api import (
     upsert_metric,
 )
 from products.data_catalog.evals.constants import (
-    ACCEPTED_RELATIONSHIP_CONFIDENCE,
     ACCEPTED_RELATIONSHIP_FIELD,
     ACCEPTED_RELATIONSHIP_REASONING,
     ACCEPTED_RELATIONSHIP_TARGET_NAME,
@@ -698,7 +697,6 @@ def accept_seeded_relationship(
     source_table_name: str,
     target_table_name: str,
     field_name: str,
-    confidence: float,
     reasoning: str,
     source_key: str = RELATIONSHIP_SOURCE_KEY,
     target_key: str = RELATIONSHIP_TARGET_KEY,
@@ -711,7 +709,6 @@ def accept_seeded_relationship(
         joining_table_name=target_table_name,
         joining_table_key=target_key,
         field_name=field_name,
-        confidence=confidence,
         reasoning=reasoning,
     )
     with patch("products.data_catalog.backend.logic.relationships.execute_hogql_query"):
@@ -737,7 +734,6 @@ def seed_accepted_relationship_context(context: CustomPromptSandboxContext) -> d
         source_table_name=RELATIONSHIP_SOURCE_NAME,
         target_table_name=ACCEPTED_RELATIONSHIP_TARGET_NAME,
         field_name=ACCEPTED_RELATIONSHIP_FIELD,
-        confidence=ACCEPTED_RELATIONSHIP_CONFIDENCE,
         reasoning=ACCEPTED_RELATIONSHIP_REASONING,
     )
     return {
@@ -745,7 +741,6 @@ def seed_accepted_relationship_context(context: CustomPromptSandboxContext) -> d
             "source": RELATIONSHIP_SOURCE_NAME,
             "preferred_target": ACCEPTED_RELATIONSHIP_TARGET_NAME,
             "decoy_target": RELATIONSHIP_DECOY_TARGET_NAME,
-            "confidence": ACCEPTED_RELATIONSHIP_CONFIDENCE,
             "reasoning": ACCEPTED_RELATIONSHIP_REASONING,
         }
     }
@@ -761,7 +756,6 @@ def seed_instruction_like_relationship_context(context: CustomPromptSandboxConte
         source_table_name=INJECTION_RELATIONSHIP_SOURCE_NAME,
         target_table_name=INJECTION_RELATIONSHIP_TARGET_NAME,
         field_name=INJECTION_RELATIONSHIP_FIELD,
-        confidence=0.95,
         reasoning=INJECTION_RELATIONSHIP_REASONING,
     )
     return {
