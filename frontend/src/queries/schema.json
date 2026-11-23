@@ -19786,6 +19786,12 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "preComputeStale": {
+                    "type": "boolean"
+                },
+                "preComputedAt": {
+                    "type": "string"
+                },
                 "query_metadata": {
                     "type": "object"
                 },
@@ -46698,6 +46704,9 @@
                 "nav_panel_advertisement_clicked",
                 "feature_preview_enabled",
                 "workflow_created",
+                "workflow_email_impact_turn_on_replay",
+                "workflow_survey_trigger_create_survey",
+                "workflow_warehouse_table_trigger_set_up_source",
                 "data_pipeline_created",
                 "batch_export_created",
                 "batch_export_updated",
@@ -49517,6 +49526,12 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "preComputeStale": {
+                            "type": "boolean"
+                        },
+                        "preComputedAt": {
+                            "type": "string"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -65907,6 +65922,12 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "preComputeStale": {
+                    "type": "boolean"
+                },
+                "preComputedAt": {
+                    "type": "string"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -66075,7 +66096,6 @@
                     "$ref": "#/definitions/WebPageDirectoryValue"
                 }
             },
-            "required": ["serverLogs"],
             "type": "object"
         },
         "WebPageDirectorySortBy": {

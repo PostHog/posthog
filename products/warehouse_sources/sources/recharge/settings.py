@@ -13,6 +13,8 @@ DEFAULT_PAGE_SIZE = 250
 # returns well within the timeout.
 PAYMENT_METHODS_PAGE_SIZE = 50
 
+METAFIELD_OWNER_RESOURCES = ("address", "store", "customer", "subscription", "order", "charge")
+
 
 @dataclass(frozen=False)
 class RechargeEndpointConfig:
@@ -46,6 +48,9 @@ class RechargeEndpointConfig:
     # Records requested per page. Capped at 250 by Recharge; lower it for
     # endpoints whose pages are too slow to generate within the read timeout.
     page_size: int = DEFAULT_PAGE_SIZE
+    accepts_bare_list: bool = False
+    # Values of the required `owner_resource` param. The table reads one request series per value.
+    owner_resources: tuple[str, ...] = ()
 
 
 def _timestamp_field(name: str) -> IncrementalField:
@@ -162,6 +167,23 @@ RECHARGE_ENDPOINTS: dict[str, RechargeEndpointConfig] = {
         path="/bundle_selections",
         incremental_fields=[],
         supports_incremental=False,
+    ),
+    # No timestamp filter or `sort_by`. The docs show a bare array in the response example but
+    # document cursor pagination, which needs the envelope, so both shapes are read.
+    "customer_entitlements": RechargeEndpointConfig(
+        name="customer_entitlements",
+        path="/customer_entitlements",
+        incremental_fields=[],
+        supports_incremental=False,
+        supports_sort=False,
+        accepts_bare_list=True,
+    ),
+    "metafields": RechargeEndpointConfig(
+        name="metafields",
+        path="/metafields",
+        incremental_fields=[],
+        supports_incremental=False,
+        owner_resources=METAFIELD_OWNER_RESOURCES,
     ),
 }
 

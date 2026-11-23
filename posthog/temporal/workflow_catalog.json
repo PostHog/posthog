@@ -690,6 +690,11 @@
     "task_queues": "ANALYTICS_PLATFORM_TASK_QUEUE"
   },
   {
+    "temporal_workflow_type": "export-recordings",
+    "product": "replay",
+    "task_queues": "SESSION_REPLAY_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "external-data-job",
     "product": "warehouse_sources",
     "task_queues": "DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE,DATA_WAREHOUSE_TASK_QUEUE"

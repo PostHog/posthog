@@ -2099,6 +2099,8 @@ export interface SyncFrequencyBoundApi {
     label: string
     /** Node that set this bound. Null when nothing identifiable set it, and also when it sits outside the caller's access grants: the bound still applies, it just goes unnamed. */
     blocker: SyncFrequencyBlockerApi | null
+    /** True when an upstream view held at its pinned cadence sets this bound, so unpinning or speeding up that view lifts it. False when a source sync sets it, and also when the pinned view sits outside the caller's access grants, like `blocker`. Always false for `plan_floor` and `ceiling`. */
+    pinned: boolean
 }
 
 export interface SyncFrequencyBoundsApi {
@@ -2110,7 +2112,7 @@ export interface SyncFrequencyBoundsApi {
     frequency_mode: FrequencyModeEnumApi
     /** Every cadence a picker may show, coarsest-last, each marked allowed or blocked with its cause. Empty outside 'tiered' mode. */
     options: SyncFrequencyOptionApi[]
-    /** The fastest bound: no cadence finer than this is allowed, because the source named here does not sync more often. Null when no source withholds a cadence. */
+    /** The fastest bound: no cadence finer than this is allowed, because no upstream source syncs more often, or because the upstream view named here is pinned to this cadence (see `pinned`). Null when nothing upstream withholds a cadence. */
     floor: SyncFrequencyBoundApi | null
     /** The fastest cadence the organization's plan allows: no cadence finer than this can be saved. `blocker` is always null. Null when the plan withholds no cadence. */
     plan_floor: SyncFrequencyBoundApi | null
