@@ -17,6 +17,7 @@ from prometheus_client import REGISTRY
 
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team import Team
 from posthog.settings import ses as ses_settings
 from posthog.test.fixtures import create_app_metric2
 
@@ -30,6 +31,7 @@ from products.workflows.backend.services.transactional_email_workflows import (
 from products.workflows.backend.services.workflow_email_health import (
     PAUSED_BY_STAFF,
     StaffPausedError,
+    _transactional_by_flow,
     find_workflow_email_pauses,
     pause_workflow_email_sending,
     resume_workflow_email_sending,
@@ -428,7 +430,6 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
             ),
         ]
     )
-    @patch("products.workflows.backend.services.workflow_email_health._TRANSACTIONAL_LOOKUP_BATCH_SIZE", 1)
     def test_a_transactional_workflow_is_warned_instead_of_paused(
         self,
         _name: str,
@@ -889,3 +890,22 @@ def test_a_malformed_exempt_workflow_id_stops_startup(raw: str):
                 importlib.reload(ses_settings)
     finally:
         importlib.reload(ses_settings)
+
+
+class TestTransactionalLookup(BaseTest):
+    @patch("products.workflows.backend.services.workflow_email_health._TRANSACTIONAL_LOOKUP_BATCH_SIZE", 2)
+    def test_reads_every_workflow_across_batches_and_projects(self):
+        other_team = Team.objects.create(organization=self.organization)
+        marketing = [{"id": "step_0", "type": "function_email", "config": {"message_category_type": "marketing"}}]
+        flows = [
+            (HogFlow.objects.create(name=name, team=team, actions=actions), transactional)
+            for name, team, actions, transactional in (
+                ("Code send", self.team, code_email_actions("password-reset"), True),
+                ("Marketing blast", self.team, marketing, False),
+                ("Other project code send", other_team, code_email_actions("sign-in"), True),
+            )
+        ]
+
+        assert _transactional_by_flow({str(flow.id): flow.team_id for flow, _ in flows}) == {
+            str(flow.id): transactional for flow, transactional in flows
+        }
