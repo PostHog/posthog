@@ -1,6 +1,6 @@
 """Marketing analytics project settings schemas."""
 
-from typing import Literal
+from typing import Any, Literal
 
 from django.db import transaction
 
@@ -195,7 +195,7 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
     )
     recommendation_conversion_actions = serializers.ListField(
         child=serializers.RegexField(
-            r"^customers/\d+/conversionActions/\d+$",
+            r"^customers/[0-9]+/conversionActions/[0-9]+$",
             help_text="A Google Ads conversion action resource name, such as customers/123/conversionActions/456.",
         ),
         required=False,
@@ -235,6 +235,13 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
         if "campaign_field_preferences" in internal_value:
             internal_value["_campaign_field_preferences"] = internal_value["campaign_field_preferences"]
         return internal_value
+
+    def to_representation(self, instance: TeamMarketingAnalyticsConfig) -> dict[str, Any]:
+        representation = super().to_representation(instance)
+        # The column is nullable so a rolling deploy can add it, and a null would fail validation when sent back.
+        if representation.get("recommendation_conversion_actions") is None:
+            representation["recommendation_conversion_actions"] = []
+        return representation
 
     @transaction.atomic
     def update(self, instance, validated_data):
