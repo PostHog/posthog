@@ -78,7 +78,9 @@ Pick the first path that works:
    If `supported` is true, call `integrations-domain-connect-apply-url-create` with the `integration_id`.
    You cannot approve it yourself. Give the URL to the person and say what will happen: they sign in at their DNS host (for example Cloudflare), review the records and approve. Nothing changes until they approve.
    If the domain already has a DMARC record, the URL leaves it out and keeps the existing policy.
-   The URL publishes the email provider's records only. After the person approves, call `integrations-email-status-retrieve` with `refresh=true` and publish any record that is still `pending`, such as an `organization` TXT record, through path 2 or 3.
+   The URL publishes the email provider's records only. After the person approves, call `integrations-email-status-retrieve` with `refresh=true`.
+   If it lists an `organization` TXT record, publish it through path 2 or 3.
+   A lookup can lag behind the approval, so before you add any other record that is still `pending`, confirm at the DNS host that it is missing: a second SPF or DMARC record breaks both.
 2. **Your own DNS tools.**
    If you can manage the domain's DNS (a DNS provider MCP server, CLI or API you are authorized to use), add the missing records yourself.
    Read [references/publishing-records.md](references/publishing-records.md) first: it covers the records that must be merged, not duplicated.
@@ -106,6 +108,7 @@ Call `integrations-email-status-retrieve` with `refresh=true` after the records 
 - `verified`: call `integrations-email-verify-create` once. When it returns `success`, every sender on this domain in the project can send.
 
 After about 15 minutes without `verified`, stop polling.
+If the status is `not_started`, the email provider has no setup to check: go back to step 3 and start it.
 If a record is still `pending`, tell the person which one and the exact name it must be published at, since a record under the wrong name never resolves.
 Otherwise tell them the records are in place and propagating, and that they can ask you to check again later or watch the sender's status in PostHog.
 

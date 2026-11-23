@@ -36,9 +36,15 @@ describe('integrations-email-create', () => {
     })
 
     it.each(['integrations-email-create', 'integrations-email-partial-update'])(
-        '%s leaves address syntax to the API and drops the setup method',
-        (name) => {
-            const params = GENERATED_TOOLS[name]!().schema.parse({
+        '%s sends addresses as given and leaves out the setup method',
+        async (name) => {
+            const request = vi.fn().mockResolvedValue({ id: 7 })
+            const context = {
+                api: { request },
+                stateManager: { getProjectId: async () => '42' },
+            } as unknown as Context
+            const sender = GENERATED_TOOLS[name]!()
+            const params = sender.schema.parse({
                 id: 7,
                 config: {
                     email: 'sales&ops@mail.example.com',
@@ -48,7 +54,9 @@ describe('integrations-email-create', () => {
                 },
             })
 
-            expect(params.config).toEqual({
+            await sender.handler(context, params)
+
+            expect(request.mock.calls[0]![0].body.config).toEqual({
                 email: 'sales&ops@mail.example.com',
                 name: 'Example',
                 reply_to: 'billing=alerts@mail.example.com',
