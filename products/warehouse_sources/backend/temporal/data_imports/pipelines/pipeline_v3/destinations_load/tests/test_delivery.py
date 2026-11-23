@@ -397,6 +397,18 @@ class TestExternalOnlyRunCompletion(DeliveryTestCase):
         assert self.schema.initial_sync_complete is False
         assert self.schema.last_synced_at is None
 
+    def test_a_job_that_already_failed_leaves_the_schema_unsynced(self) -> None:
+        self.job.status = ExternalDataJob.Status.FAILED
+        self.job.save()
+
+        self._process_final_batch()
+
+        self.schema.refresh_from_db()
+        self.job.refresh_from_db()
+        assert self.job.status == ExternalDataJob.Status.FAILED
+        assert self.schema.initial_sync_complete is False
+        assert self.schema.last_synced_at is None
+
 
 class TestAbortDestinations(DeliveryTestCase):
     @parameterized.expand(

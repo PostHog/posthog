@@ -724,7 +724,8 @@ def _refuse_unloaded_continued_jobs(export_signal: ExportSignalMessage) -> None:
     raise IncompleteRunError()
 
 
-def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
+def _mark_job_completed(export_signal: ExportSignalMessage, after_completion: Callable[[], None] | None = None) -> None:
+    """Complete the run's job. ``after_completion`` runs only when the Completed write landed."""
     _refuse_incomplete_run(export_signal)
 
     # Reconnect stale connections before the transaction; close_old_connections must never
@@ -760,6 +761,9 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
                 )
 
     if job_completed:
+        if after_completion is not None:
+            # Before the lock release below, so the next run starts with what this writes.
+            after_completion()
         async_to_sync(finish_row_tracking)(export_signal.team_id, export_signal.schema_id)
         if (model.schema_snapshot or {}).get("sync_type") == ExternalDataSchema.SyncType.WEBHOOK:
             _delete_consumed_webhook_files(export_signal)
@@ -1454,10 +1458,11 @@ def _process_external_destinations_only(
     report_phase("finalize")
     # Sources read initial_sync_complete to switch from a full read to an incremental one, so
     # without it every run extracts the whole table again. The flag also moves a CDC table to
-    # streaming, so a run with an undelivered batch must fail before the flag is set.
-    _refuse_incomplete_run(export_signal)
-    async_to_sync(finalize_sync_bookkeeping)(job, schema, None, None, logger)
-    _mark_job_completed(export_signal)
+    # streaming, so only a run whose completion landed may set it.
+    _mark_job_completed(
+        export_signal,
+        after_completion=lambda: async_to_sync(finalize_sync_bookkeeping)(job, schema, None, None, logger),
+    )
 
 
 def _read_constituents(constituents: list[ExportSignalMessage]) -> pa.Table:
