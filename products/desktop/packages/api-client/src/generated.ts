@@ -11969,6 +11969,10 @@ export namespace Schemas {
         live_query_unavailable_reason: string | null;
         last_synced_at: string | null;
         /**
+         * When a sync last checked the source successfully, including runs that found no new rows. Use this, not `last_synced_at`, to judge whether a table is stale: `last_synced_at` can stay put while every run succeeds because the source has nothing new. Null until the first successful sync.
+         */
+        last_checked_at: string | null;
+        /**
          * The latest error that occurred when syncing this schema.
          */
         latest_error: string | null;
