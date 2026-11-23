@@ -13,7 +13,7 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit, urlunsplit
 
 DOCS_SOURCE_EXTENSIONS = (".md", ".mdx")
 MIN_QUOTE_CHARACTERS = 12
@@ -31,7 +31,9 @@ PRE_COMMIT_VERSION = "4.7.0"
 PRE_COMMIT_CONFIG_PATH = ".pre-commit-config.yaml"
 COREPACK_VERSION = "0.34.0"
 LINT_STAGED_RUN = ("node_modules/.bin/lint-staged", "--no-stash")
-MISSING_TOOL_PATTERN = re.compile(r"Executable `[^`]+` not found|ENOENT|command not found")
+MISSING_TOOL_PATTERN = re.compile(r"Executable `[^`]+` not found|\bENOENT\b|command not found")
+ENFORCER_SECRET_NAME_PATTERN = re.compile(r"TOKEN|SECRET|PASSWORD|API_KEY|PRIVATE_KEY|CREDENTIAL", re.IGNORECASE)
+ENFORCER_SHELL_STARTUP_NAMES = frozenset({"BASH_ENV", "ENV", "PROMPT_COMMAND"})
 LOCKFILE_BY_PACKAGE_MANAGER = {"pnpm": "pnpm-lock.yaml", "yarn": "yarn.lock", "npm": "package-lock.json"}
 MAX_COMPANION_PATCH_CHARACTERS = 16_384
 PAGE_CHANGING_STATUSES = frozenset({"added", "removed"})
@@ -998,6 +1000,35 @@ def stage_change() -> None:
 
 
 def run_enforcers(base_sha: str, edited_paths: frozenset[str]) -> tuple[list[dict], list[str]]:
+    origin_url = remote_origin_url()
+    credential_free_origin_url = url_without_credentials(origin_url) if origin_url else origin_url
+    if origin_url == credential_free_origin_url:
+        return run_enforcer_runners(base_sha, edited_paths)
+    set_remote_origin_url(credential_free_origin_url)
+    try:
+        return run_enforcer_runners(base_sha, edited_paths)
+    finally:
+        set_remote_origin_url(origin_url)
+
+
+def remote_origin_url() -> str | None:
+    lookup = subprocess.run(["git", "remote", "get-url", "origin"], capture_output=True, text=True)
+    return lookup.stdout.strip() if lookup.returncode == 0 else None
+
+
+def url_without_credentials(url: str) -> str:
+    parts = urlsplit(url)
+    if parts.username is None and parts.password is None:
+        return url
+    host = parts.netloc.rpartition("@")[2]
+    return urlunsplit(parts._replace(netloc=host))
+
+
+def set_remote_origin_url(url: str | None) -> None:
+    subprocess.run(["git", "remote", "set-url", "origin", str(url)], check=True)
+
+
+def run_enforcer_runners(base_sha: str, edited_paths: frozenset[str]) -> tuple[list[dict], list[str]]:
     entries: list[dict] = []
     problems: list[str] = []
     for runner in (lint_staged_runner(), pre_commit_runner()):
@@ -1152,7 +1183,7 @@ def run_with_timeout(argv: Sequence[str]) -> tuple[int | None, str]:
             text=True,
             errors="replace",
             start_new_session=True,
-            env={**os.environ, "CI": "1", "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0"},
+            env=enforcer_environment(),
         )
     except FileNotFoundError:
         return 127, f"{argv[0]} is not installed"
@@ -1163,6 +1194,21 @@ def run_with_timeout(argv: Sequence[str]) -> tuple[int | None, str]:
         process.communicate()
         return None, ""
     return process.returncode, output
+
+
+def enforcer_environment() -> dict[str, str]:
+    inherited = {
+        name: value
+        for name, value in os.environ.items()
+        if not ENFORCER_SECRET_NAME_PATTERN.search(name) and name not in ENFORCER_SHELL_STARTUP_NAMES
+    }
+    return {
+        **inherited,
+        "CI": "1",
+        "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0",
+        "PIP_ONLY_BINARY": ":all:",
+        "UV_NO_BUILD": "1",
+    }
 
 
 def paths_changed_since(base_sha: str) -> frozenset[str]:

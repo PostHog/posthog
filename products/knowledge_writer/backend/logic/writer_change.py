@@ -83,7 +83,7 @@ def parse_writer_change(raw: bytes) -> WriterChange:
         written=written,
         deleted=frozenset(deleted_entries),
         patches=patch_entries,
-        unrun_enforcers=unrun_enforcers(manifest.get("enforcers")),
+        unrun_enforcers=unrun_enforcers(manifest.get("enforcers", [])),
     )
 
 
@@ -91,10 +91,21 @@ def unrun_enforcers(enforcer_entries: object) -> tuple[str, ...]:
     if not isinstance(enforcer_entries, list) or not all(is_enforcer_entry(entry) for entry in enforcer_entries):
         raise WriterChangeRefused("manifest_unreadable")
     return tuple(
-        f"{entry['runner']}: {entry.get('not_run_reason')}"
+        f"{entry['runner']}: {reason}"
         for entry in enforcer_entries
-        if entry.get("not_run_reason") is not None
+        if (reason := enforcer_unrun_reason(entry)) is not None
     )
+
+
+def enforcer_unrun_reason(entry: dict) -> str | None:
+    if entry.get("not_run_reason") is not None:
+        return entry["not_run_reason"]
+    exit_code = entry.get("exit_code")
+    if exit_code == 0:
+        return None
+    if exit_code is None:
+        return "it did not report finishing"
+    return f"it exited with {exit_code}"
 
 
 def is_enforcer_entry(entry: object) -> bool:
@@ -102,6 +113,7 @@ def is_enforcer_entry(entry: object) -> bool:
         isinstance(entry, dict)
         and isinstance(entry.get("runner"), str)
         and (entry.get("not_run_reason") is None or isinstance(entry.get("not_run_reason"), str))
+        and (entry.get("exit_code") is None or type(entry.get("exit_code")) is int)
     )
 
 

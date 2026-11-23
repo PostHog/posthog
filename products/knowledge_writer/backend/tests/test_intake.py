@@ -30,6 +30,7 @@ from products.knowledge_writer.backend.facade.enums import DocsChangeKind, DocsR
 from products.knowledge_writer.backend.feature_flags import AGENT_LAUNCH_FLAG, OPEN_PULL_REQUESTS_FLAG
 from products.knowledge_writer.backend.logic import caps, intake
 from products.knowledge_writer.backend.logic.docs_pages import (
+    MISSING_TOOL_PATTERN,
     PRE_COMMIT_CONFIG_PATH,
     SOURCE_DIFF_ATTACHMENT_NAME,
     WRITER_QUOTES_PATH,
@@ -102,6 +103,7 @@ BASE_FILES = {
     SIBLING_OF_DOCS_PATH: "build()\n",
     "AGENTS.md": "Docs follow the style guide.\n",
 }
+OVERSIZED_RULES_TEXT = "Follow the style guide.\n" * 20_000
 REGULAR_FILE_MODE = 0o100644
 SYMLINK_MODE = 0o120000
 TREE_MODE = 0o040000
@@ -183,7 +185,7 @@ def _change(
     git_patches = {path: _git_patch(base_files[path], text) for path, text in written.items() if path in base_files}
     shipped_patches = git_patches if patches is None else patches
     manifest = {"written": encoded, "deleted": list(deleted), "patches": shipped_patches}
-    return json.dumps({**manifest, "enforcers": [enforcer_entry] if enforcer_entry else []}).encode()
+    return json.dumps({**manifest, **({"enforcers": [enforcer_entry]} if enforcer_entry else {})}).encode()
 
 
 DOCS_CHANGE = _change({DOCS_PAGE_PATH: "Retention lasts 90 days.\n"})
@@ -205,6 +207,8 @@ UNRUN_ENFORCER = {
     "not_run_reason": "installing its tools exited with 1",
 }
 UNRUN_ENFORCER_LINE = "lint-staged: installing its tools exited with 1"
+FAILED_ENFORCER = {**UNRUN_ENFORCER, "exit_code": 1, "not_run_reason": None}
+FAILED_ENFORCER_LINE = "lint-staged: it exited with 1"
 UNRELATED_NAV_EDIT_FLAGS = [
     f"{NAV_PATH}: changes a link to /pricing, which is not a page this change adds or removes",
     f"{NAV_PATH}: changes a link to /plans, which is not a page this change adds or removes",
@@ -361,7 +365,13 @@ class DocsGitHub:
         text = self.base_files[path]
         limit = self.graphql_text_limit
         is_truncated = limit is not None and len(text) > limit
-        return {"oid": _blob_oid(path), "text": text[:limit], "isBinary": False, "isTruncated": is_truncated}
+        return {
+            "oid": _blob_oid(path),
+            "byteSize": len(text.encode()),
+            "text": text[:limit],
+            "isBinary": False,
+            "isTruncated": is_truncated,
+        }
 
     def tree_entry(self, directory: str, name: str) -> dict:
         path = f"{directory}/{name}" if directory else name
@@ -597,6 +607,7 @@ def test_a_request_starts_one_read_only_writer_task_and_a_repeat_even_after_a_fa
         patch(FLAG_CHECK, return_value=True),
         patch(START_WORKFLOW) as start_workflow,
         patch.object(intake, "read_source_diff", return_value=SOURCE_DIFF_BACKING_RETENTION),
+        patch(GITHUB_REQUEST, side_effect=DocsGitHub(base_files={**BASE_FILES, "CLAUDE.md": OVERSIZED_RULES_TEXT})),
     ):
         started = intake.submit(verdict, team_id=team.id)
         assert started.task_id is not None
@@ -635,6 +646,7 @@ def test_a_request_starts_one_read_only_writer_task_and_a_repeat_even_after_a_fa
     diff_attachment = attachment_by_name[SOURCE_DIFF_ATTACHMENT_NAME]
     assert object_storage.read(diff_attachment["storage_path"]) == SOURCE_DIFF_BACKING_RETENTION
     assert object_storage.read(attachment_by_name["rules-1-AGENTS.md"]["storage_path"]) == BASE_FILES["AGENTS.md"]
+    assert not any(name.endswith("CLAUDE.md") for name in attachment_by_name)
     assert "`AGENTS.md` as `rules-1-AGENTS.md`" in task.description
     dispatch_options = start_workflow.call_args.kwargs["options"]
     assert (dispatch_options.create_pr, dispatch_options.posthog_mcp_scopes) == (False, [])
@@ -845,6 +857,19 @@ REFUSED_CHANGES: tuple[tuple[bytes, dict, str], ...] = (
             (True, [ADDED_RULES_LINE], [], [RULES_FILE_EDIT_FLAG]),
             id="rules_file_edit_and_an_enforcer_that_could_not_run_open_a_draft_listing_both",
         ),
+        pytest.param(
+            "octo-person",
+            {},
+            OPENED,
+            ("octo-person", None, None),
+            {**NEW_PAGE_FILES, "AGENTS.md": f"{ADDED_RULES_LINE}\n"},
+            FAILED_ENFORCER,
+            SUPPORTED_QUOTES,
+            True,
+            [RULES_FILE_EDIT_FLAG, FAILED_ENFORCER_LINE],
+            (True, [ADDED_RULES_LINE], [], [RULES_FILE_EDIT_FLAG]),
+            id="an_uploaded_enforcer_that_failed_opens_a_draft_listing_it",
+        ),
     ],
 )
 @pytest.mark.django_db
@@ -962,6 +987,7 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
         *UNRELATED_NAV_EDIT_FLAGS,
         RULES_FILE_EDIT_FLAG,
         UNRUN_ENFORCER_LINE,
+        FAILED_ENFORCER_LINE,
     )
     assert [flag for flag in flaggable if flag in body] == expected_body_flags
     assert "node_modules/.bin/lint-staged" not in body
@@ -1494,13 +1520,24 @@ NAV_HEAD_TEXT = """export const docsMenu = [
 """
 
 
+CREDENTIALED_ORIGIN_URL = "https://x-access-token:ghs_example@github.com/acme/docs.git"
 FAKE_UVX = """#!/bin/sh
+[ -z "$GH_TOKEN" ] && [ -z "$BASH_ENV" ] && [ "$PIP_ONLY_BINARY" = ":all:" ] || exit 3
+git remote get-url origin | grep -q ghs_ && exit 3
 case "$*" in *install-hooks*) exit 0 ;; esac
 [ -f .git/fake-uvx-ran ] && exit 0
 touch .git/fake-uvx-ran
 printf '// formatted\\n' >> src/navs/index.js
 exit 1
 """
+
+
+@pytest.mark.parametrize(
+    "enforcer_output",
+    ["[FAILED] prettier [ENOENT]", "prettier failed without output (ENOENT)."],
+)
+def test_a_missing_tool_in_enforcer_output_counts_as_not_run(enforcer_output: str) -> None:
+    assert MISSING_TOOL_PATTERN.search(enforcer_output) is not None
 
 
 def _fake_uvx_folder(tmp_path_factory: pytest.TempPathFactory) -> Path:
@@ -1570,6 +1607,8 @@ def test_the_sandbox_change_check_runs_without_posthog_on_the_path(
             if name not in ("PYTHONPATH", "DJANGO_SETTINGS_MODULE") and not name.startswith("GIT_")
         },
         "HOME": str(tmp_path),
+        "GH_TOKEN": "ghs_example",
+        "BASH_ENV": str(tmp_path / "bash-env.sh"),
         "PATH": f"{_fake_uvx_folder(tmp_path_factory)}{os.pathsep}{os.environ['PATH']}",
         **{
             f"GIT_{role}_{field}": value
@@ -1590,6 +1629,7 @@ def test_the_sandbox_change_check_runs_without_posthog_on_the_path(
     if is_editing_rules_with_pre_commit_fixing_files:
         (tmp_path / PRE_COMMIT_CONFIG_PATH).write_text("repos: []\n")
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, env=git_env, check=True)
+    subprocess.run(["git", "remote", "add", "origin", CREDENTIALED_ORIGIN_URL], cwd=tmp_path, env=git_env, check=True)
     subprocess.run(["git", "add", "-A"], cwd=tmp_path, env=git_env, check=True)
     tree = subprocess.run(["git", "write-tree"], cwd=tmp_path, env=git_env, check=True, capture_output=True, text=True)
     base = subprocess.run(
@@ -1628,6 +1668,10 @@ def test_the_sandbox_change_check_runs_without_posthog_on_the_path(
     )
 
     assert (check.returncode, check.stderr) == (0, "")
+    origin_after_check = subprocess.run(
+        ["git", "remote", "get-url", "origin"], cwd=tmp_path, env=git_env, check=True, capture_output=True, text=True
+    )
+    assert origin_after_check.stdout.strip() == CREDENTIALED_ORIGIN_URL
     assert [line for line in check.stdout.splitlines() if line.startswith("warning:")] == expected_warnings
     assert "rules: AGENTS.md" in check.stdout.splitlines()
     manifest = json.loads((tmp_path / ".git" / WRITER_CHANGE_ARTIFACT_NAME).read_text())

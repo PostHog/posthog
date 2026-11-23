@@ -48,6 +48,8 @@ from .server_commit import DocsCommitFailed, base_tree, docs_branch_head
 logger = structlog.get_logger(__name__)
 
 VERDICT_EVENT = "knowledge_writer verdict"
+MAX_RULES_FILE_BYTES = 256 * 1024
+MAX_RULES_TOTAL_BYTES = 1024 * 1024
 
 _verdict_validator = TypeAdapter(AdapterVerdict)
 
@@ -248,8 +250,16 @@ def docs_rules_texts(writer: WriterSettings, base_sha: str, rules_paths: frozens
     github = docs_github(writer.team_id, writer.docs_repository.split("/", 1)[0], priority=Priority.NORMAL)
     if github is None:
         return {}
-    texts = base_tree(github, writer.docs_repository, base_sha, rules_paths).texts
-    return {path: text for path, text in texts.items() if text is not None}
+    texts = base_tree(github, writer.docs_repository, base_sha, rules_paths, max_text_bytes=MAX_RULES_FILE_BYTES).texts
+    kept_texts: dict[str, str] = {}
+    kept_bytes = 0
+    for path in sorted(texts, key=lambda rules_path: (rules_path.count("/"), rules_path)):
+        text = texts[path]
+        if text is None or kept_bytes + len(text.encode()) > MAX_RULES_TOTAL_BYTES:
+            continue
+        kept_texts[path] = text
+        kept_bytes += len(text.encode())
+    return kept_texts
 
 
 def capture_verdict(verdict: AdapterVerdict, *, team_id: int) -> None:
