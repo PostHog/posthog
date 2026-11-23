@@ -53,7 +53,9 @@ export function EvaluationLivePreview({
         checkPastTraffic,
     } = useValues(llmEvaluationLogic)
     const { setCheckPastTraffic } = useActions(llmEvaluationLogic)
-    const { configDraft, cooldownMinutes } = useValues(evaluationReportLogic({ evaluationId: props.evaluationId }))
+    const { configDraft, cooldownMinutes, draftReportsEnabled } = useValues(
+        evaluationReportLogic({ evaluationId: props.evaluationId })
+    )
     const previewLogic = evaluationPreviewLogic(props)
     const { rows, samplesLoading, samplesError, testResults, testResultsLoading, testError, testDiscarded } =
         useValues(previewLogic)
@@ -75,7 +77,7 @@ export function EvaluationLivePreview({
     const cadence = reportText({
         ...configDraft,
         cooldownMinutes,
-        enabled: configDraft.enabled && isReportableEvaluation,
+        enabled: draftReportsEnabled && isReportableEvaluation,
     })
     const missing: Partial<Record<ChecklistKey, string>> = Object.fromEntries(
         checklist.filter((item) => !item.done).map((item) => [item.key, item.todo])

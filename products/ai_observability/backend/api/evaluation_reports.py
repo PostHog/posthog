@@ -272,8 +272,15 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Invalid recurrence rule.") from exc
         return value
 
+    def _enable_if_approved(self) -> bool:
+        if not self.context["get_team"]().organization.is_ai_data_processing_approved:
+            raise serializers.ValidationError({"enabled": [AI_DATA_PROCESSING_NOT_APPROVED_ERROR]})
+        return True
+
     def validate(self, attrs):
         attrs = super().validate(attrs)
+        if attrs.get("enabled"):
+            self._enable_if_approved()
         if (
             self.instance is not None
             and isinstance(self.initial_data, dict)
@@ -296,11 +303,6 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
                         )
                     }
                 )
-        # A new config is enabled unless the request says otherwise.
-        if attrs.get("enabled", self.instance is None) and not (
-            self.context["get_team"]().organization.is_ai_data_processing_approved
-        ):
-            raise serializers.ValidationError({"enabled": AI_DATA_PROCESSING_NOT_APPROVED_ERROR})
         # Numeric bounds for trigger_threshold / cooldown_minutes / daily_run_cap are enforced
         # by the field-level min_value / max_value validators. This block only handles the
         # cross-field "required" rules that the field validators can't express on their own.
@@ -362,7 +364,8 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         team = self.context["get_team"]()
         evaluation = validated_data["evaluation"]
-        defaults = {**validated_data, "created_by": request.user}
+        # get_or_create evaluates callable defaults only when it inserts a new row.
+        defaults = {"enabled": self._enable_if_approved, **validated_data, "created_by": request.user}
         report, created = EvaluationReport.objects.get_or_create(
             evaluation=evaluation,
             team_id=team.id,

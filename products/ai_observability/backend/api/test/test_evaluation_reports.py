@@ -406,13 +406,20 @@ class TestEvaluationReportApi(APIBaseTest):
             format="json",
         )
         patch_response = self.client.patch(f"{self.base_url}{report.id}/", {"enabled": False}, format="json")
+        upsert_response = self.client.post(
+            self.base_url,
+            self._scheduled_payload(evaluation=str(report.evaluation_id), rrule="FREQ=WEEKLY;BYDAY=MO"),
+            format="json",
+        )
         enable_response = self.client.patch(f"{self.base_url}{report.id}/", {"enabled": True}, format="json")
 
         self.assertEqual(create_response.status_code, status.HTTP_201_CREATED, create_response.json())
         self.assertEqual(patch_response.status_code, status.HTTP_200_OK, patch_response.json())
+        self.assertEqual(upsert_response.status_code, status.HTTP_200_OK, upsert_response.json())
         self.assertEqual(enable_response.status_code, status.HTTP_400_BAD_REQUEST, enable_response.json())
         report.refresh_from_db()
         self.assertFalse(report.enabled)
+        self.assertEqual(report.rrule, "FREQ=WEEKLY;BYDAY=MO")
 
     @patch("posthog.temporal.common.client.sync_connect")
     def test_generate_rejects_without_ai_data_processing_approval(self, mock_sync_connect: MagicMock) -> None:

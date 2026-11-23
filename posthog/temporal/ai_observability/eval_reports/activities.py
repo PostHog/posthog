@@ -731,12 +731,7 @@ async def prepare_report_context_activity(
             raise ApplicationError(
                 "This evaluation report no longer exists.", type="ReportNotFound", non_retryable=True
             )
-        if not report.team.organization.is_ai_data_processing_approved:
-            raise ApplicationError(
-                "Evaluation reports need AI data processing to be approved in organization settings.",
-                type="AIDataProcessingNotApproved",
-                non_retryable=True,
-            )
+        _require_ai_data_processing_approval(report.team.organization.is_ai_data_processing_approved)
         evaluation = report.evaluation
         now = dt.datetime.now(tz=dt.UTC)
         if not evaluation_supports_reports(evaluation.output_type, evaluation.target, evaluation.output_config):
@@ -826,7 +821,7 @@ async def run_eval_report_agent_activity(
         def run_agent():
             from posthog.temporal.ai_observability.eval_reports.report_agent import run_eval_report_agent
 
-            evaluation_target = _load_evaluation_target(inputs.team_id, inputs.evaluation_id)
+            evaluation_target = _load_approved_evaluation_target(inputs.team_id, inputs.evaluation_id)
             evaluation_output_configs = _load_evaluation_output_configs(inputs.team_id)
             agent_inputs = inputs
             if inputs.output_type in ("numeric", "categorical") and not inputs.output_config:
@@ -859,10 +854,23 @@ async def run_eval_report_agent_activity(
         )
 
 
-def _load_evaluation_target(team_id: int, evaluation_id: str) -> str:
+def _require_ai_data_processing_approval(approved: bool | None) -> None:
+    if not approved:
+        raise ApplicationError(
+            "Evaluation reports need AI data processing to be approved in organization settings.",
+            type="AIDataProcessingNotApproved",
+            non_retryable=True,
+        )
+
+
+def _load_approved_evaluation_target(team_id: int, evaluation_id: str) -> str:
     from products.ai_observability.backend.models.evaluations import Evaluation
 
-    return Evaluation.objects.values_list("target", flat=True).get(id=evaluation_id, team_id=team_id)
+    target, approved = Evaluation.objects.values_list(
+        "target", "team__organization__is_ai_data_processing_approved"
+    ).get(id=evaluation_id, team_id=team_id)
+    _require_ai_data_processing_approval(approved)
+    return target
 
 
 def _load_evaluation_output_configs(team_id: int) -> dict[str, dict[str, Any]]:

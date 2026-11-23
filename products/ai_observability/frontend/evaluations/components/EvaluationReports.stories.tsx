@@ -1,10 +1,16 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
+import { fireEvent, within } from '@testing-library/dom'
 
 import { App } from 'scenes/App'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { toPaginatedResponse } from '~/mocks/handlers'
+
+import { expect } from 'storybook/test'
 
 import type { EvaluationConfig, EvaluationReport, EvaluationReportRun } from '../types'
 
@@ -164,5 +170,24 @@ export const ReportDrawer: Story = {
     parameters: {
         pageUrl: `${urls.aiObservabilityEvaluation(EVALUATION_ID)}?evaluation_tab=reports&report_run=run-2`,
         testOptions: { snapshotBrowsers: [], waitForSelector: '[data-attr="llma-evaluation-report-drawer"]' },
+    },
+}
+
+export const ApprovalRevoked: Story = {
+    ...ReportDrawer,
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const page = within(canvasElement.ownerDocument.body)
+        const drawer = within(await page.findByLabelText('Evaluation report', {}, { timeout: 10000 }))
+        const moreActions = await drawer.findByRole('button', { name: 'More actions' })
+        organizationLogic.actions.loadCurrentOrganizationSuccess({
+            ...MOCK_DEFAULT_ORGANIZATION,
+            is_ai_data_processing_approved: false,
+        })
+        await canvas.findByText(/^Reports are off/)
+        await expect(canvas.getByRole('button', { name: 'Generate now' })).toHaveAttribute('aria-disabled', 'true')
+        fireEvent.click(moreActions)
+        const generate = await page.findByRole('menuitem', { name: 'Generate a new report' })
+        await expect(generate).toHaveAttribute('aria-disabled', 'true')
     },
 }

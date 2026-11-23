@@ -10,7 +10,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { AI_DATA_PROCESSING_REQUIRED_REASON, reportText } from '../create/evaluationSummary'
+import { reportText } from '../create/evaluationSummary'
 import { REPORT_RUN_PARAM, evaluationReportDrawerLogic } from '../evaluationReportDrawerLogic'
 import { draftFromReport, evaluationReportLogic } from '../evaluationReportLogic'
 import { evaluationReportRunsLogic } from '../evaluationReportRunsLogic'
@@ -98,10 +98,10 @@ export function EvaluationReportsTab({
             evaluationReportTracking.tabViewed({
                 report_count: reportRuns.length,
                 has_destination: activeReport.delivery_targets.length > 0,
-                enabled: activeReport.enabled,
+                enabled: activeReport.enabled && dataProcessingAccepted,
             })
         }
-    }, [activeReport, reportRunsLoading, reportRuns.length])
+    }, [activeReport, dataProcessingAccepted, reportRunsLoading, reportRuns.length])
 
     if (reportsLoadFailed) {
         return (
@@ -141,7 +141,7 @@ export function EvaluationReportsTab({
                 <div className="flex flex-col gap-3">
                     <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
                         <p className="m-0 min-w-0 flex-1 basis-64 text-sm text-secondary">
-                            {activeReport.enabled
+                            {activeReport.enabled && dataProcessingAccepted
                                 ? `Reports ${reportText({ ...savedDraft, cooldownMinutes: activeReport.cooldown_minutes })}`
                                 : 'Reports are off'}
                             {' · '}
@@ -174,10 +174,7 @@ export function EvaluationReportsTab({
                                 size="small"
                                 onClick={() => generateReport(activeReport.id)}
                                 loading={isWriting}
-                                disabledReason={
-                                    generationDisabledReason ??
-                                    (!dataProcessingAccepted ? AI_DATA_PROCESSING_REQUIRED_REASON : undefined)
-                                }
+                                disabledReason={generationDisabledReason}
                                 data-attr="llma-evaluation-report-generate"
                             >
                                 Generate now
@@ -296,7 +293,7 @@ export function EvaluationReportsTab({
                         },
                     ]}
                     emptyState={
-                        activeReport?.enabled && activeReport.frequency === 'every_n'
+                        dataProcessingAccepted && activeReport?.enabled && activeReport.frequency === 'every_n'
                             ? `No report yet. The first one arrives after ${activeReport.trigger_threshold ?? 100} new results.`
                             : 'No report yet.'
                     }

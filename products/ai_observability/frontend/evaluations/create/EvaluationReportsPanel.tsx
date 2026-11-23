@@ -20,8 +20,15 @@ export function EvaluationReportsPanel(): JSX.Element | null {
     const { props } = useMountedLogic(llmEvaluationLogic)
     const [guidanceOpen, setGuidanceOpen] = useState(false)
     const { evaluation, isReportableEvaluation } = useValues(llmEvaluationLogic)
-    const { configDraft, configErrors, shownDestinations, reportsLoading, activeReport, dataProcessingAccepted } =
-        useValues(evaluationReportLogic({ evaluationId: props.evaluationId }))
+    const {
+        configDraft,
+        configErrors,
+        shownDestinations,
+        reportsLoading,
+        activeReport,
+        dataProcessingAccepted,
+        draftReportsEnabled,
+    } = useValues(evaluationReportLogic({ evaluationId: props.evaluationId }))
     const {
         setDraftFrequency,
         setDraftScheduleCadence,
@@ -49,7 +56,7 @@ export function EvaluationReportsPanel(): JSX.Element | null {
         )
     }
     const unavailableReason = reportsUnavailableReason(evaluation, isReportableEvaluation)
-    const enabled = configDraft.enabled && !unavailableReason && dataProcessingAccepted
+    const enabled = draftReportsEnabled && !unavailableReason
     const cadence: Cadence = configDraft.frequency === 'scheduled' ? configDraft.scheduleCadence : 'every_n'
     const setCadence = (next: Cadence): void => {
         if (next === 'every_n') {

@@ -1745,7 +1745,11 @@ def update_evaluation(
             and not instance.deleted
             and evaluation_supports_reports(instance.output_type, instance.target, instance.output_config)
         ):
-            report, created = EvaluationReport.objects.get_or_create(evaluation=instance, team_id=team.id)
+            report, created = EvaluationReport.objects.get_or_create(
+                evaluation=instance,
+                team_id=team.id,
+                defaults={"enabled": bool(team.organization.is_ai_data_processing_approved)},
+            )
             if not created:
                 report.restart_reporting()
 
@@ -1799,10 +1803,11 @@ def create_evaluation(
         instance = serializer.save()
 
         if evaluation_supports_reports(instance.output_type, instance.target, instance.output_config):
-            # Auto-create a default report config so reports are generated from the start.
-            # Defaults to count-triggered (frequency=every_n), so rrule/starts_at stay empty
-            # and users add email/Slack delivery targets later if they want notifications.
-            EvaluationReport.objects.get_or_create(evaluation=instance, team_id=team.id)
+            EvaluationReport.objects.get_or_create(
+                evaluation=instance,
+                team_id=team.id,
+                defaults={"enabled": bool(team.organization.is_ai_data_processing_approved)},
+            )
 
     conditions = instance.conditions or []
     report_user_action(

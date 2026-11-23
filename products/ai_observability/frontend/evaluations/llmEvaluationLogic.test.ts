@@ -1,8 +1,11 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -2359,6 +2362,46 @@ return result`,
     })
 
     describe('saveEvaluation report persistence', () => {
+        it('preserves an enabled report when renaming an evaluation after AI approval is revoked', async () => {
+            const savedReport = { ...mockEvaluationReport }
+            useMocks({
+                get: {
+                    '/api/projects/:teamId/llm_analytics/evaluation_reports/': { results: [savedReport] },
+                },
+                patch: {
+                    '/api/projects/:teamId/evaluations/:id/': async ({ request }) => ({
+                        ...mockEvaluation,
+                        ...((await request.json()) as Partial<EvaluationConfig>),
+                    }),
+                    '/api/projects/:teamId/llm_analytics/evaluation_reports/:id/': async ({ request }) =>
+                        Object.assign(savedReport, await request.json()),
+                },
+            })
+            const reportLogic = evaluationReportLogic({ evaluationId: mockEvaluation.id })
+            logic = llmEvaluationLogic({ evaluationId: mockEvaluation.id })
+            logic.mount()
+            reportLogic.mount()
+            try {
+                await expectLogic(logic).toFinishAllListeners()
+                await expectLogic(reportLogic).toFinishAllListeners()
+                expect(reportLogic.values.activeReport?.enabled).toBe(true)
+                organizationLogic.actions.loadCurrentOrganizationSuccess({
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                    is_ai_data_processing_approved: false,
+                })
+                expect(reportLogic.values.draftReportsEnabled).toBe(false)
+
+                logic.actions.setEvaluationName('Renamed')
+                logic.actions.saveEvaluation()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.originalEvaluation?.name).toBe('Renamed')
+                expect(savedReport.enabled).toBe(true)
+            } finally {
+                reportLogic.unmount()
+            }
+        })
+
         it('does not create an evaluation when the report threshold is invalid', async () => {
             let evaluationCreateCount = 0
             useMocks({

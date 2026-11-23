@@ -1496,7 +1496,12 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 // the components that render the report config or history mount
                 // evaluationReportLogic, so skip when none of them is on screen —
                 // reading .values on an unmounted keyed logic would throw.
-                if (response?.id && evaluationSupportsReports(response) && reportLogic.isMounted()) {
+                if (
+                    response?.id &&
+                    evaluationSupportsReports(response) &&
+                    reportLogic.isMounted() &&
+                    reportLogic.values.dataProcessingAccepted
+                ) {
                     const reportConfigStillLoading =
                         !isNew && reportLogic.values.reportsLoading && !reportLogic.values.activeReport
                     if (reportConfigStillLoading) {
@@ -1505,12 +1510,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     }
 
                     try {
-                        // Without AI data processing approval the switch shows off, so saving must not turn reports on.
-                        const { configDraft, dataProcessingAccepted } = reportLogic.values
                         await persistReportDraft(
                             teamId,
                             response.id,
-                            { ...configDraft, enabled: configDraft.enabled && dataProcessingAccepted },
+                            reportLogic.values.configDraft,
                             reportLogic.values.activeReport
                         )
                     } catch (reportError) {
