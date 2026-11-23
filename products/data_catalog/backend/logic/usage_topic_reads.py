@@ -904,8 +904,8 @@ def _load_saved_views(team: Team) -> _SavedViews:
     rows = DataWarehouseSavedQuery.objects.filter(team_id=team.id).values_list(
         "name", "deleted_name", "query", "created_at", "query_updated_at", "deleted_at", "updated_at"
     )
-    views = []
-    saves = []
+    views: list[SavedView] = []
+    saves: list[datetime] = []
     for name, deleted_name, query, created_at, query_updated_at, deleted_at, updated_at in rows:
         times = [time for time in (created_at, query_updated_at, deleted_at) if time is not None]
         saves.extend(time for time in (created_at, updated_at) if time is not None)
