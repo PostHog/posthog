@@ -5666,29 +5666,39 @@ class TestSignalReportTaskAssociationViaArtefacts(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("all_associations", True, "", {"claimed", "implemented"}),
-            ("pr_targets_drop_claim_beside_other_report", True, "&pr_targets=true", {"implemented"}),
-            ("pr_targets_keep_sole_claim", False, "&pr_targets=true", {"claimed"}),
+            ("all_associations", "implementation", "", {"claimed", "linked"}),
+            ("pr_targets_drop_claim_beside_other_report", "implementation", "&pr_targets=true", {"linked"}),
+            ("pr_targets_keep_sole_claim", None, "&pr_targets=true", {"claimed"}),
+            ("pr_targets_keep_claim_with_attached_pr", "attached_pr", "&pr_targets=true", {"linked"}),
         ]
     )
-    def test_reports_list_filters_by_task_id(self, _name, with_implementation, extra_params, expected):
-        reports = {"claimed": self._create_report(), "implemented": self._create_report()}
+    def test_reports_list_filters_by_task_id(self, _name, link, extra_params, expected):
+        reports = {"claimed": self._create_report(), "linked": self._create_report()}
         self._create_report()
         task = self._create_task()
-        append_task_run_artefact(
-            team_id=self.team.id,
-            report_id=str(reports["claimed"].id),
-            product="tasks",
-            type="agent_run",
-            task_id=str(task.id),
-        )
-        if with_implementation:
+        claimed_reports = ["claimed", "linked"] if link == "attached_pr" else ["claimed"]
+        for name in claimed_reports:
             append_task_run_artefact(
                 team_id=self.team.id,
-                report_id=str(reports["implemented"].id),
+                report_id=str(reports[name].id),
+                product="tasks",
+                type="agent_run",
+                task_id=str(task.id),
+            )
+        if link == "implementation":
+            append_task_run_artefact(
+                team_id=self.team.id,
+                report_id=str(reports["linked"].id),
                 product="signals",
                 type=TASK_RUN_TYPE_IMPLEMENTATION,
                 task_id=str(task.id),
+            )
+        elif link == "attached_pr":
+            SignalReportArtefact.add_log(
+                team_id=self.team.id,
+                report_id=str(reports["linked"].id),
+                content=PullRequestLink(url="https://github.com/example/repo/pull/1"),
+                attribution=ArtefactAttribution.from_task(str(task.id)),
             )
 
         response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?task_id={task.id}{extra_params}")
