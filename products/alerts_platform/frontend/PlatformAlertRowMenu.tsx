@@ -11,7 +11,7 @@ import { GROUP_SNOOZE_DURATIONS } from './platformAlertLogic'
 import { platformAlertsLogic } from './platformAlertsLogic'
 
 export function PlatformAlertRowMenu({ configuration }: { configuration: PlatformAlertConfigurationApi }): JSX.Element {
-    const { updatingAlertId } = useValues(platformAlertsLogic)
+    const { updatingAlertIds } = useValues(platformAlertsLogic)
     const { snoozeAlert, unsnoozeAlert, setAlertEnabled } = useActions(platformAlertsLogic)
 
     const snoozed = listRowMute({ kind: 'alert', configuration }, new Date())?.until != null
@@ -64,7 +64,7 @@ export function PlatformAlertRowMenu({ configuration }: { configuration: Platfor
             <LemonButton
                 size="xsmall"
                 icon={<IconEllipsis />}
-                loading={updatingAlertId === configuration.id}
+                loading={updatingAlertIds.has(configuration.id)}
                 aria-label={`More options for ${configuration.name}`}
                 data-attr="platform-alerts-row-menu"
             />
