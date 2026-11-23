@@ -7,10 +7,11 @@ from django.test import override_settings
 
 from rest_framework import status
 
+from posthog.api.test.test_signup import _store_social_signup_partial
 from posthog.models import Organization, User
 
 
-@override_settings(DEMO=True)
+@override_settings(DEMO=True, CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
 @pytest.mark.ee
 class TestDemoSignupAPI(APIBaseTest):
     """Demo environment signup tests - signup and login are unified."""
@@ -92,6 +93,7 @@ class TestDemoSignupAPI(APIBaseTest):
         # Simulate SSO process started
         session = self.client.session
         session.update({"backend": "google-oauth2", "email": "charlie@tech-r-us.com"})
+        _store_social_signup_partial(session)
         session.save()
 
         # Staff sign up for demo securely via Google, which should grant is_staff privileges
@@ -132,6 +134,7 @@ class TestDemoSignupAPI(APIBaseTest):
         # Simulate SSO process started
         session = self.client.session
         session.update({"backend": "google-oauth2", "email": "charlie@tech-r-us.com"})
+        _store_social_signup_partial(session)
         session.save()
 
         # Staff log into demo securely via Google, which should grant is_staff privileges

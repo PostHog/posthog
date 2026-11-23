@@ -140,6 +140,12 @@ _ALLOWED_AGGREGATIONS: frozenset[str] = frozenset(
 
 _ALLOWED_RANGE_FUNCTIONS: frozenset[str] = frozenset({"rate", "increase"})
 
+# Range functions over the observation count of a histogram or summary, not its running sum.
+_COUNT_RANGE_FUNCTIONS: dict[str, str] = {"count_rate": "rate", "count_increase": "increase"}
+_COUNTED_METRIC_TYPES: frozenset[str] = frozenset(
+    {MetricType.HISTOGRAM.value, MetricType.EXPONENTIAL_HISTOGRAM.value, MetricType.SUMMARY.value}
+)
+
 # Derive this from the contract enum to match ingestion values.
 _ALLOWED_METRIC_TYPES: frozenset[str] = frozenset(t.value for t in MetricType)
 
@@ -687,12 +693,25 @@ class MetricQueryRunner:
         quantile: float | None = None,
         metric_type: str | None = None,
         range_function: str | None = None,
+        max_series_fingerprints: int | None = None,
     ) -> None:
         """`aggregation=None` returns one row per series and bucket, for at most `MAX_RAW_SERIES` series.
 
+        `max_series_fingerprints` caps each row's `series_fingerprints` to its smallest values, so a caller that
+        only needs a sample does not receive every series of a bucket.
+
         The legacy `rate` and `increase` aggregations mean a range function with a sum across series.
+        `count_rate` and `count_increase` are the same over the `count` column of histogram and summary rows.
         """
-        if aggregation in _ALLOWED_RANGE_FUNCTIONS:
+        self.counter_column = "value"
+        if aggregation in _COUNT_RANGE_FUNCTIONS:
+            if range_function is not None:
+                raise ValueError(f"range_function cannot combine with the {aggregation} aggregation")
+            if metric_type is not None and metric_type not in _COUNTED_METRIC_TYPES:
+                raise ValueError(f"{aggregation} needs a histogram or summary metric, not {metric_type!r}")
+            aggregation, range_function = "sum", _COUNT_RANGE_FUNCTIONS[aggregation]
+            self.counter_column = "count"
+        elif aggregation in _ALLOWED_RANGE_FUNCTIONS:
             if range_function is not None:
                 raise ValueError("range_function cannot combine with the rate or increase aggregation")
             aggregation, range_function = "sum", aggregation
@@ -726,6 +745,7 @@ class MetricQueryRunner:
         self.group_by = tuple(group_by)
         self.quantile = quantile
         self.metric_type = metric_type
+        self.max_series_fingerprints = max_series_fingerprints
 
     @property
     def scan_from(self) -> dt.datetime:
@@ -775,19 +795,26 @@ class MetricQueryRunner:
 
     def _run_histogram_quantile(self) -> list[dict[str, Any]]:
         """Calculate quantiles from the distributions that ClickHouse sums."""
-        assert self.quantile is not None
-        query = self._build_histogram_query()
+        return self.quantile_rows(self.histogram_rows())
+
+    def histogram_rows(self) -> list[Any]:
+        """The summed distributions, one row per (time, *group labels, bounds, metric type):
+        `(time, *group labels, bounds, counts, series_fingerprints, metric_type)`."""
         response = execute_hogql_query(
             query_type="MetricQuery",
-            query=query,
+            query=self._bound_series_fingerprints(self._build_histogram_query()),
             team=self.team,
             workload=Workload.METRICS,
             settings=_QUERY_SETTINGS,
         )
         self._raise_on_truncation(response.results)
+        return response.results
 
+    def quantile_rows(self, results: list[Any]) -> list[dict[str, Any]]:
+        """Bucketed quantile rows from rows shaped like `histogram_rows`."""
+        assert self.quantile is not None
         rows: list[dict[str, Any]] = []
-        for key, merged in self.merged_distributions(response.results).items():
+        for key, merged in self.merged_distributions(results).items():
             bounds, counts = merged.bounds, merged.counts
             if sum(counts) <= 0:
                 # The bucket has no computable increase. Return a gap, not zero.
@@ -878,6 +905,12 @@ class MetricQueryRunner:
             query.group_by.append(ast.Field(chain=[alias]))
 
     def _type_filter_expr(self) -> ast.Expr:
+        if self.counter_column == "count" and self.metric_type is None:
+            # Every other type stores count = 1 per point, which would count samples, not observations.
+            return parse_expr(
+                "metric_type IN {types}",
+                placeholders={"types": ast.Tuple(exprs=[ast.Constant(value=t) for t in sorted(_COUNTED_METRIC_TYPES)])},
+            )
         return type_filter_expr(self.metric_type)
 
     def _series_scope_expr(self) -> ast.Expr:
@@ -949,6 +982,21 @@ class MetricQueryRunner:
         assert isinstance(query, ast.SelectQuery) and query.select_from is not None
         query.select_from.table = per_series
         self._splice_group_columns(query)
+        return self._bound_series_fingerprints(query)
+
+    def _bound_series_fingerprints(self, query: ast.SelectQuery) -> ast.SelectQuery:
+        if self.max_series_fingerprints is None:
+            return query
+        for column in query.select:
+            if isinstance(column, ast.Alias) and column.alias == "series_fingerprints":
+                column.expr = ast.Call(
+                    name="arraySlice",
+                    args=[
+                        ast.Call(name="arraySort", args=[column.expr]),
+                        ast.Constant(value=1),
+                        ast.Constant(value=self.max_series_fingerprints),
+                    ],
+                )
         return query
 
     def _build_simple_query(self) -> ast.SelectQuery:
@@ -1022,14 +1070,14 @@ class MetricQueryRunner:
                         SELECT
                             timestamp,
                             series_fingerprint,
-                            value,
+                            {counter_value} AS value,
                             aggregation_temporality,
-                            lagInFrame(toNullable(value)) OVER (
+                            lagInFrame(toNullable({counter_value})) OVER (
                                 PARTITION BY {series_key}
                                 ORDER BY timestamp ASC
                                 ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
                             ) AS prev_value,
-                            leadInFrame(toNullable(value)) OVER (
+                            leadInFrame(toNullable({counter_value})) OVER (
                                 PARTITION BY {series_key}
                                 ORDER BY timestamp ASC
                                 ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING
@@ -1045,7 +1093,14 @@ class MetricQueryRunner:
                 "interval": _interval_expr(self.interval),
                 "divisor": ast.Constant(value=divisor),
                 "series_key": _series_key_expr(),
-                "points": self._points_query(("timestamp", "series_fingerprint", "value", "aggregation_temporality")),
+                "counter_value": (
+                    ast.Call(name="toFloat", args=[ast.Field(chain=["count"])])
+                    if self.counter_column == "count"
+                    else ast.Field(chain=["value"])
+                ),
+                "points": self._points_query(
+                    ("timestamp", "series_fingerprint", self.counter_column, "aggregation_temporality")
+                ),
                 "date_from": ast.Constant(value=self.date_from),
             },
         )

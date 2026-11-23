@@ -71,4 +71,43 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "lines-of-code exclusions and the stats time zone.",
         },
     },
+    "TeamMembers": {
+        "description": "A developer's membership in a Waydev team, one row per team and developer.",
+        "docs_url": "https://api-docs.waydev.co/retrieves-all-members-for-a-specific-team-in-your-account",
+        "columns": {
+            "id": "Identifier of the developer.",
+            "team_id": "Identifier of the team the developer belongs to.",
+            "username": "Username of the developer.",
+            "name": "Name of the developer.",
+            "email": "Email address of the developer.",
+        },
+    },
+    "PullRequests": {
+        "description": "A pull request in a repository selected for processing in Waydev.",
+        "docs_url": "https://api-docs.waydev.co/retrieves-pull-requests-that-belong-to-the-given-repository",
+        "columns": {
+            "id": "Identifier of the pull request in Waydev.",
+            "repository_id": "Identifier of the repository the pull request belongs to.",
+            "title": "Title of the pull request.",
+            "body": "Description of the pull request.",
+            "state": "State of the pull request, such as merged.",
+            "uuid": "Identifier of the pull request at its Git provider.",
+            "created_date": "Date and time the pull request was opened.",
+            "merged_date": "Date and time the pull request was merged, if any.",
+            "closed_date": "Date and time the pull request was closed, if any.",
+        },
+    },
+    "Commits": {
+        "description": "A commit in a repository selected for processing in Waydev.",
+        "docs_url": "https://api-docs.waydev.co/retrieves-commits-that-belong-to-the-given-repository",
+        "columns": {
+            "id": "Identifier of the commit in Waydev.",
+            "repository_id": "Identifier of the repository the commit belongs to.",
+            "message": "Commit message.",
+            "sha": "Git SHA of the commit.",
+            "date": "Date and time of the commit.",
+            "date_local": "Date and time of the commit in local time.",
+            "type": "Type of change Waydev assigned to the commit, such as code.",
+        },
+    },
 }

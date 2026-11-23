@@ -4,6 +4,7 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, JsonResponse
+from django.urls import reverse
 from django.utils.cache import patch_cache_control
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import ensure_csrf_cookie
@@ -12,6 +13,7 @@ from posthog.api.oauth.device import pending_device_connection
 from posthog.api.oauth.views import login_required_with_pending_connection
 from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
+from posthog.helpers.sso import IDP_SIGNUP_CONTINUATION_SESSION_KEY, IDP_SSO_BACKENDS
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.user import User
 from posthog.templatetags.posthog_filters import TolerantJSONEncoder
@@ -157,6 +159,26 @@ def _render_home(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpRespons
 _login_required_render_home = login_required(_render_home)
 
 
+def _social_signup_continuation(request: HttpRequest) -> HttpResponseRedirect | None:
+    """Older frontend bundles navigate home instead of following the social signup continuation URL."""
+    session = getattr(request, "session", {})
+    token = session.pop(IDP_SIGNUP_CONTINUATION_SESSION_KEY, None)
+    backend = session.get("backend")
+    if (
+        not token
+        or token != session.get("partial_pipeline_token")
+        or backend not in IDP_SSO_BACKENDS
+        or request.user.is_authenticated
+        or request.GET.get("error_code")
+    ):
+        return None
+    from posthog.helpers.two_factor_session import CODE_BASED_VERIFICATION_SSO_SESSION_KEY
+
+    if session.get(CODE_BASED_VERIFICATION_SSO_SESSION_KEY):
+        return None
+    return HttpResponseRedirect(reverse("social:complete", args=[backend]))
+
+
 def home(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
     """Entrypoint for the unauthenticated frontend routes (login, signup, …). Runs the
     cross-region redirect before rendering so `app.posthog.com` visitors land on their
@@ -164,6 +186,9 @@ def home(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
     region_redirect = app_region_redirect(request)
     if region_redirect is not None:
         return region_redirect
+    continuation = _social_signup_continuation(request)
+    if continuation is not None:
+        return continuation
     return _render_home(request, *args, **kwargs)
 
 
@@ -175,6 +200,9 @@ def home_with_region_redirect(request: HttpRequest, *args: Any, **kwargs: Any) -
     region_redirect = app_region_redirect(request)
     if region_redirect is not None:
         return region_redirect
+    continuation = _social_signup_continuation(request)
+    if continuation is not None:
+        return continuation
     return _login_required_render_home(request, *args, **kwargs)
 
 

@@ -8,12 +8,12 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { UUID, UUIDT } from '~/common/utils/utils'
 
 import { HealthCheckResult, HealthCheckResultOk, PluginsServerConfig } from '../../types'
-import { RunIntake } from '../intake/run-intake'
+import { IntakeProducer, intakeClusterOf, intakeModeOf } from '../intake/intake-producer'
+import { Claim, Produced, Recalled, Run, RunIntake, carriesSecret, keyedRunId } from '../intake/run-intake'
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
 import { HOG_FLOW_QUOTA_LIMITED_MESSAGE } from '../services/hogflows/hogflow-quota-limiting'
 import { actionIdForLogging } from '../services/hogflows/hogflow-utils'
-import { IdempotencyKeys } from '../services/hogflows/idempotency-keys'
-import { JobQueue } from '../services/job-queue/job-queue.interface'
+import { IdempotentJobQueue, JobQueue } from '../services/job-queue/job-queue.interface'
 import { HogWatcherFunctionState, HogWatcherState, sameWatcherState } from '../services/monitoring/hog-watcher.service'
 import {
     CyclotronJobInvocationHogFunction,
@@ -44,6 +44,13 @@ const DISALLOWED_HEADERS = [
 ]
 
 const IDEMPOTENCY_KEY_MAX_LENGTH = 255
+
+// A sender retries on 503, so a run the broker did not ack gets another attempt.
+const INTAKE_FAILURE_STATUS: Record<Exclude<Produced, 'accepted'>, number> = {
+    unavailable: 503,
+    too_large: 413,
+    invalid: 400,
+}
 
 const getFirstHeaderValue = (value: string | string[] | undefined): string | undefined => {
     return Array.isArray(value) ? value[0] : value
@@ -121,15 +128,14 @@ export function isUnexpectedWebhookError(error: unknown): boolean {
 export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConfig> {
     protected name = 'CdpSourceWebhooksConsumer'
     private hogQueue: JobQueue
-    private hogflowQueue: JobQueue
+    private hogflowQueue: IdempotentJobQueue
     private runIntake: RunIntake
     private promiseScheduler: PromiseScheduler
 
     constructor(
         config: PluginsServerConfig,
         deps: CdpConsumerBaseDeps,
-        jobQueues: { hogQueue: JobQueue; hogflowQueue: JobQueue },
-        private idempotencyKeys: IdempotencyKeys = new IdempotencyKeys(null, 'workflow-webhook')
+        jobQueues: { hogQueue: JobQueue; hogflowQueue: IdempotentJobQueue }
     ) {
         super(config, deps)
         this.promiseScheduler = new PromiseScheduler()
@@ -138,6 +144,13 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         this.runIntake = new RunIntake({
             hogflowQueue: this.hogflowQueue,
             invocationResultsRowsService: this.invocationResultsService.invocationResultsRowsService,
+            // Read on each launch, so a team-list change in the settings reaches the next webhook.
+            intake: {
+                modeOf: (teamId) => intakeModeOf(this.config)(teamId),
+                producer: new IntakeProducer(this.outputs, undefined, undefined, (teamId) =>
+                    intakeClusterOf(this.config)(teamId)
+                ),
+            },
         })
     }
 
@@ -265,15 +278,15 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         hogFunction: HogFunctionType
     ): Promise<HogFlowTriggerOutcome> {
         const idempotencyKey = this.getIdempotencyKey(request, hogFlow)
-        // A key belongs to one workflow, so the same key on two workflows starts a run on each.
-        const scopedIdempotencyKey = idempotencyKey ? `${hogFlow.id}/${idempotencyKey}` : null
 
         logger.info('Executing hog flow trigger', {
             id: hogFlow.id,
             template_id: hogFunction.template_id,
             team_id: hogFlow.team_id,
         })
-        const invocationId = new UUIDT().toString()
+        const invocationId = idempotencyKey
+            ? keyedRunId(hogFlow.team_id, hogFlow.id, idempotencyKey)
+            : new UUIDT().toString()
         const triggerActionId = hogFlow.actions.find((action) => action.type === 'trigger')?.id ?? 'trigger_node'
 
         const addLog = (level: LogEntryLevel, message: string) => {
@@ -364,48 +377,18 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                 )
 
                 hogFlowInvocation.id = invocationId // Keep the IDs consistent
-
-                if (scopedIdempotencyKey) {
-                    // Every repeat of a key on the workflow is the same request, so the fingerprint is the workflow.
-                    const reservation = await this.idempotencyKeys.reserve(
-                        hogFlow.team_id,
-                        scopedIdempotencyKey,
-                        hogFlow.id,
-                        invocationId
-                    )
-                    if (reservation.status === 'replayed') {
-                        addLog('info', `Skipped duplicate request for Idempotency-Key "${idempotencyKey}"`)
-                        functionResult.finished = false
-                        functionResult.execResult = { httpResponse: { status: 200, body: { status: 'duplicate' } } }
-                        return { result: functionResult, queuedInvocationId: null }
-                    }
-                    if (reservation.status === 'in_flight') {
-                        // The first request can still fail to queue, so this one must not report a duplicate.
-                        functionResult.finished = false
-                        functionResult.execResult = { httpResponse: { status: 409, body: { status: 'in_flight' } } }
-                        return { result: functionResult, queuedInvocationId: null }
-                    }
-                    if (reservation.status === 'unavailable') {
-                        // A webhook run matters more than its deduplication, so the run queues without a claim.
-                        logger.warn('Idempotency store unavailable, queueing the hog flow run anyway', {
-                            team_id: hogFlow.team_id,
-                            hog_flow_id: hogFlow.id,
-                        })
-                    }
+                // Every repeat of a key on the workflow is the same request, so the fingerprint is the workflow.
+                const run: Run = idempotencyKey
+                    ? { kind: 'workflow-webhook', invocation: hogFlowInvocation, claim: { fingerprint: hogFlow.id } }
+                    : { kind: 'workflow-webhook', invocation: hogFlowInvocation }
+                const answerDuplicate = (): HogFlowTriggerOutcome => {
+                    addLog('info', `Skipped duplicate request for Idempotency-Key "${idempotencyKey}"`)
+                    functionResult.finished = false
+                    functionResult.execResult = { httpResponse: { status: 200, body: { status: 'duplicate' } } }
+                    return { result: functionResult, queuedInvocationId: null }
                 }
 
-                const releaseReservation = async (): Promise<void> => {
-                    if (scopedIdempotencyKey) {
-                        await this.idempotencyKeys.release(hogFlow.team_id, scopedIdempotencyKey, invocationId)
-                    }
-                }
-
-                const quotaLimited = await this.isHogFlowQuotaLimited(hogFlow).catch(async (error) => {
-                    await releaseReservation()
-                    throw error
-                })
-                if (quotaLimited) {
-                    await releaseReservation()
+                const answerQuotaLimited = (): HogFlowTriggerOutcome => {
                     addLog('warn', `Started no run: ${HOG_FLOW_QUOTA_LIMITED_MESSAGE}`)
                     functionResult.finished = false
                     if (hogFlow.trigger?.type !== 'tracking_pixel') {
@@ -416,29 +399,38 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     return { result: functionResult, queuedInvocationId: null }
                 }
 
+                if (this.runIntake.modeOf(hogFlow.team_id) === 'async' && !carriesSecret(run.invocation)) {
+                    return await this.produceRun(run, functionResult, {
+                        answerDuplicate,
+                        answerQuotaLimited,
+                        isQuotaLimited: () => this.isHogFlowQuotaLimited(hogFlow),
+                        addLog,
+                        addMetric,
+                    })
+                }
+
+                if (idempotencyKey) {
+                    const recalled = await this.recallQuietly({ runId: invocationId, fingerprint: hogFlow.id }, hogFlow)
+                    if (recalled.status !== 'absent') {
+                        return answerDuplicate()
+                    }
+                }
+
+                const quotaLimited = await this.isHogFlowQuotaLimited(hogFlow)
+                if (quotaLimited) {
+                    return answerQuotaLimited()
+                }
+
+                const committed = (await this.runIntake.launch([run], { wait: 'committed' }))[0]
+                if (committed.outcome !== 'created') {
+                    return answerDuplicate()
+                }
                 addMetric({
                     metric_kind: 'other',
                     metric_name: 'triggered',
                     count: 1,
                 })
-
-                try {
-                    const [committed] = await this.runIntake.launch([{ invocation: hogFlowInvocation }], {
-                        wait: 'committed',
-                    })
-                    queuedInvocationId = committed.runId
-                } catch (error) {
-                    await releaseReservation()
-                    throw error
-                }
-                if (scopedIdempotencyKey) {
-                    await this.idempotencyKeys.markQueued(
-                        hogFlow.team_id,
-                        scopedIdempotencyKey,
-                        hogFlow.id,
-                        invocationId
-                    )
-                }
+                queuedInvocationId = committed.runId
             } else {
                 addMetric({
                     metric_kind: 'failure',
@@ -452,9 +444,6 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             return { result: functionResult, queuedInvocationId }
         } catch (error) {
             logger.error('Error triggering hog flow', { error })
-            // The 'running' row is queued before the invocation reaches cyclotron, so a throw after
-            // that point leaves a row for a run that does not exist and would never terminate.
-            this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor([invocationId])
             addMetric({
                 metric_kind: 'failure',
                 metric_name: 'trigger_failed',
@@ -475,6 +464,55 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                 ),
                 queuedInvocationId: null,
             }
+        }
+    }
+
+    private async produceRun(
+        run: Run,
+        functionResult: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        hooks: {
+            answerDuplicate: () => HogFlowTriggerOutcome
+            answerQuotaLimited: () => HogFlowTriggerOutcome
+            isQuotaLimited: () => Promise<boolean>
+            addLog: (level: LogEntryLevel, message: string) => void
+            addMetric: (metric: Pick<MinimalAppMetric, 'metric_kind' | 'metric_name' | 'count'>) => void
+        }
+    ): Promise<HogFlowTriggerOutcome> {
+        if (run.claim) {
+            const claim = { runId: run.invocation.id, fingerprint: run.claim.fingerprint }
+            const recalled = await this.runIntake.recallWithin(claim, 'workflow-webhook')
+            if (recalled.status !== 'absent') {
+                return hooks.answerDuplicate()
+            }
+        }
+        if (await hooks.isQuotaLimited()) {
+            return hooks.answerQuotaLimited()
+        }
+        // A retry can produce a run again before the consumer deduplicates it, so the worker counts the run instead.
+        run.invocation.state.triggerMetricPending = true
+        const produced = await this.runIntake.produce(run)
+        functionResult.finished = false
+        if (produced !== 'accepted') {
+            const status = INTAKE_FAILURE_STATUS[produced]
+            hooks.addLog('error', `Could not queue the run (${status}): ${produced}`)
+            hooks.addMetric({ metric_kind: 'failure', metric_name: 'trigger_failed', count: 1 })
+            functionResult.execResult = { httpResponse: { status, body: { status: `intake_${produced}` } } }
+            return { result: functionResult, queuedInvocationId: null }
+        }
+        return { result: functionResult, queuedInvocationId: run.invocation.id }
+    }
+
+    // The claim made at launch still deduplicates the run, so a failed lookup only costs an earlier answer.
+    private async recallQuietly(claim: Claim, hogFlow: HogFlow): Promise<Recalled> {
+        try {
+            return await this.runIntake.recall(claim)
+        } catch (error) {
+            logger.warn('Hog flow run claim lookup failed, deduplicating at launch instead', {
+                team_id: hogFlow.team_id,
+                hog_flow_id: hogFlow.id,
+                error: error instanceof Error ? error.message : String(error),
+            })
+            return { status: 'absent' }
         }
     }
 

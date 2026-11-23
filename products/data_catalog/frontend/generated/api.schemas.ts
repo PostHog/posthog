@@ -136,6 +136,11 @@ export interface CertificationCreateApi {
     proposed_status?: ProposedStatusEnumApi
 }
 
+export interface MetricAvailabilityApi {
+    /** Whether the project has any live metric, counted before per-table access checks. */
+    has_metrics: boolean
+}
+
 /**
  * * `user` - user
  * * `ai_generated` - ai_generated
@@ -992,6 +997,8 @@ export interface UncoveredGroupApi {
     draft_definition: string | null
     /** How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse. */
     complexity: number
+    /** Rank score from complexity and the people who built or viewed the measure. A higher score ranks first. 0 on scans before the score existed. */
+    priority: number
 }
 
 export interface ChartSourceApi {
@@ -1056,6 +1063,8 @@ export interface ProposedMetricApi {
     agents: AgentSourceApi | null
     /** How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse. */
     complexity: number
+    /** Rank score from complexity, the people who built or viewed the measures, and how many measures the proposal merges. A higher score ranks first. 0 on scans before the score existed. */
+    priority: number
 }
 
 export interface UsageSnapshotPayloadApi {
@@ -1161,7 +1170,7 @@ export type DataCatalogMetricsListParams = {
      */
     offset?: number
     /**
-     * Find metrics for a measure instead of reading the whole catalog. Send the user's words, the likely metric name, and the spelled-out form of an acronym, separated by commas, such as 'mrr, monthly recurring revenue'. Results come best match first, 10 by default, and match_reason says why each one matched. Words match by stem in the name, display name, description, and definition. Synonyms do not match unless the metric's text contains them.
+     * Find metrics for a measure instead of reading the whole catalog. Send the user's words, the likely metric name, and the spelled-out form of an acronym, separated by commas, such as 'mrr, monthly recurring revenue'. Results come best match first, 20 by default, and match_reason says why each one matched. Words match by stem in the name, display name, description, and definition. Synonyms do not match unless the metric's text contains them.
      */
     search?: string
     /**

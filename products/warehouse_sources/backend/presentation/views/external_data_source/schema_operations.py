@@ -6,9 +6,10 @@ import uuid
 from collections.abc import Callable, Iterable
 from typing import Any, cast
 
-from django.db import connection, transaction
+from django.db import connection, models, transaction
+from django.db.models import Q
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework.request import Request
@@ -24,13 +25,20 @@ from posthog.permissions import is_service_auth
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 from products.data_warehouse.backend.facade.api import get_direct_query_engine, get_namespaced_resource_adapter
+from products.warehouse_sources.backend.facade.added_tables import added_table_access_refusal
 from products.warehouse_sources.backend.facade.column_sensitivity import classify_column_sensitivity
+from products.warehouse_sources.backend.facade.contracts import AddedTableLocationError
 from products.warehouse_sources.backend.facade.incremental_field_model import (
+    MAX_COLUMNS_PER_CALL,
     MAX_TABLES_PER_CALL,
+    WIZARD_PATH,
+    fits_one_call,
     recommend_for_candidates,
 )
 from products.warehouse_sources.backend.facade.models import (
     MAX_FULL_REFRESH_INTERVAL_DAYS,
+    SCHEMA_PINNED_METADATA_KEY,
+    SCHEMA_SELF_MANAGED_TABLE_METADATA_KEY,
     ExternalDataSchema,
     ExternalDataSource,
     auto_enable_new_schemas,
@@ -47,8 +55,10 @@ from products.warehouse_sources.backend.facade.source_management import (
     PostgresSource,
     SQLSource,
     build_default_sync_settings,
+    define_added_table_metadata,
     known_source_key,
     new_source_requires_ssl,
+    supports_adding_tables,
 )
 from products.warehouse_sources.backend.presentation.sync_frequency_field import SYNC_FREQUENCY_HELP_TEXT
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
@@ -70,6 +80,66 @@ class RefreshSchemasResponseSerializer(serializers.Serializer):
         help_text="Number of new schemas auto-enabled because the source has auto_sync_new_schemas on."
     )
     total_tables_seen = serializers.IntegerField(help_text="Total tables the source reported, before filtering.")
+
+
+class ObjectStorageTableFileFormat(models.TextChoices):
+    INFER = "infer", "Infer from the file names"
+    CSV = "csv", "CSV with a header row"
+    CSV_NO_HEADER = "csv_no_header", "CSV without a header row"
+    JSONL = "jsonl", "JSON Lines"
+    PARQUET = "parquet", "Parquet"
+    DELTA = "delta", "Delta table"
+
+
+ADDED_TABLE_NAME_PATTERN = r"^[a-zA-Z_][a-zA-Z0-9_]*$"
+MAX_ADDED_TABLE_NAME_LENGTH = 128
+MAX_ADDED_TABLE_PATH_LENGTH = 2048
+
+
+class AddTableRequestSerializer(serializers.Serializer):
+    name = serializers.RegexField(
+        regex=ADDED_TABLE_NAME_PATTERN,
+        max_length=MAX_ADDED_TABLE_NAME_LENGTH,
+        error_messages={
+            "invalid": "Table names must start with a letter or underscore, and contain only letters, numbers and "
+            "underscores."
+        },
+        help_text=(
+            "Name of the new table in the source. Starts with a letter or underscore, and contains only letters, "
+            "numbers and underscores. Must not be the name of another table in the source."
+        ),
+    )
+    path = serializers.CharField(
+        max_length=MAX_ADDED_TABLE_PATH_LENGTH,
+        allow_blank=True,
+        help_text=(
+            "Where the table's files are. Use a path inside the folder of the source's files URL, such as "
+            "`events/`, `events/2026/*.parquet` or `data/file.csv`, or a full URL inside that folder. A folder "
+            "reads every file under it. Wildcards use ClickHouse glob syntax. An empty path reads the whole "
+            "folder. A source whose files URL names one file or a pattern can't add tables."
+        ),
+    )
+    file_format = serializers.ChoiceField(
+        choices=ObjectStorageTableFileFormat.choices,
+        default=ObjectStorageTableFileFormat.INFER,
+        help_text=(
+            "The format of the files. `infer` reads each file by its extension, and reads a folder that holds a "
+            "`_delta_log` folder as a Delta table. `delta` needs the folder of a Delta table, without wildcards."
+        ),
+    )
+    csv_allow_double_quotes = serializers.BooleanField(
+        default=True,
+        help_text="For CSV files: whether a double quote encloses a field. When false, it is an ordinary character.",
+    )
+
+
+ADDED_TABLE_READ_ERROR_MESSAGE = (
+    "PostHog couldn't read this path. Check the path and the source's credentials, then try again."
+)
+BUCKET_WIDE_REFRESH_MESSAGE = (
+    "This source reads tables from anywhere in its bucket, so PostHog can't find new tables on its own. "
+    "Add each table by its path instead."
+)
 
 
 # Long enough for a nested document field path. The model reads a shorter prefix of each name.
@@ -126,8 +196,20 @@ class IncrementalFieldRecommendationsRequestSerializer(serializers.Serializer):
     tables = LengthFirstListField(
         child=IncrementalFieldTableSerializer(),
         max_length=MAX_TABLES_PER_CALL,
-        help_text="Tables from database_schema to get a recommended incremental field for.",
+        help_text=(
+            "Tables from database_schema to get a recommended incremental field for. One request is one "
+            f"model call: up to {MAX_TABLES_PER_CALL} tables with up to {MAX_COLUMNS_PER_CALL} candidate "
+            "fields in total, or a single table of any size."
+        ),
     )
+
+    def validate_tables(self, tables: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not fits_one_call([len(table["incremental_fields"]) for table in tables]):
+            raise serializers.ValidationError(
+                f"Send at most {MAX_COLUMNS_PER_CALL} candidate fields across the tables of one request, "
+                "or one table on its own."
+            )
+        return tables
 
 
 class IncrementalFieldRecommendationsResponseSerializer(serializers.Serializer):
@@ -295,6 +377,8 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
     def refresh_schemas(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Fetch current schema/table list from the source and create any new ExternalDataSchema rows (no data sync)."""
         instance: ExternalDataSource = self.get_object()
+        if instance.is_self_managed_migration:
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": BUCKET_WIDE_REFRESH_MESSAGE})
         base.logger.debug(
             "refresh_schemas called",
             source_id=str(instance.id),
@@ -436,6 +520,106 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         )
 
     @validated_request(
+        request_serializer=AddTableRequestSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=ExternalDataSchemaSerializer, description="The new table, turned off. Turn it on to sync it."
+            )
+        },
+        summary="Add a table to an object storage source by its path",
+        description=(
+            "Creates a table in an object storage source (Amazon S3, Google Cloud Storage, Azure Blob Storage or "
+            "Cloudflare R2) from a folder, a file or a wildcard pattern in the source's bucket. PostHog reads only "
+            "that location to check the files, and does not sync data. The new table is turned off. Turn it on "
+            "with a schema update to start syncing it."
+        ),
+    )
+    @action(methods=["POST"], detail=True)
+    def add_table(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        instance: ExternalDataSource = self.get_object()
+        data = request.validated_data
+        name: str = data["name"]
+        if not supports_adding_tables(instance.source_type):
+            raise ValidationError("Only object storage sources can add a table by path.")
+        source_inputs = SourceInputsStore.load(instance)
+        if not source_inputs:
+            raise ValidationError("Source has no configuration.")
+        if (refusal := added_table_access_refusal(instance)) is not None:
+            raise PermissionDenied(refusal)
+        self._refuse_taken_table_name(instance, name)
+
+        # The storage requests run before the row lock, so a slow bucket can't hold the source row.
+        schema_metadata = self._define_added_table(instance, source_inputs, data)
+        with transaction.atomic():
+            ExternalDataSource._base_manager.filter(pk=instance.pk).select_for_update().get()
+            self._refuse_taken_table_name(instance, name)
+            schema = ExternalDataSchema.objects.create(
+                name=name,
+                team_id=self.team_id,
+                source=instance,
+                should_sync=False,
+                sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+                sync_type_config={"schema_metadata": {**schema_metadata, SCHEMA_PINNED_METADATA_KEY: True}},
+            )
+        base.logger.info(
+            "add_table created a schema",
+            source_id=str(instance.id),
+            team_id=self.team_id,
+            source_type=instance.source_type,
+            schema_id=str(schema.id),
+            table_kind=schema_metadata.get("kind"),
+        )
+        return Response(
+            ExternalDataSchemaSerializer(schema, context=self.get_serializer_context()).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    def _refuse_taken_table_name(self, instance: ExternalDataSource, name: str) -> None:
+        # A deleted migration schema records that its table stays self-managed, so its name stays taken.
+        taken = ExternalDataSchema.objects.filter(
+            ~Q(deleted=True) | Q(sync_type_config__schema_metadata__has_key=SCHEMA_SELF_MANAGED_TABLE_METADATA_KEY),
+            team_id=self.team_id,
+            source_id=instance.pk,
+            name__iexact=name,
+        ).exists()
+        if taken:
+            raise ValidationError({"name": f"A table named {name} already exists in this source."})
+
+    def _define_added_table(
+        self, instance: ExternalDataSource, source_inputs: dict[str, Any], data: dict[str, Any]
+    ) -> dict[str, Any]:
+        try:
+            return define_added_table_metadata(
+                instance.source_type,
+                source_inputs,
+                data["name"],
+                data["path"],
+                data["file_format"],
+                data["csv_allow_double_quotes"],
+            )
+        except AddedTableLocationError as e:
+            raise ValidationError({"path": str(e)}) from e
+        except Exception as e:
+            source = base.SourceRegistry.get_source(known_source_key(instance.source_type))
+            error_message, is_expected_source_error = helpers._classify_refresh_schemas_error(source, e)
+            base.logger.exception(
+                "Could not read the location of an added table",
+                exc_info=e,
+                source_id=str(instance.id),
+                team_id=self.team_id,
+                source_type=instance.source_type,
+                error_type=type(e).__name__,
+                is_expected_source_error=is_expected_source_error,
+            )
+            if not is_expected_source_error:
+                base.capture_exception(
+                    e, {"source_id": str(instance.id), "source_type": instance.source_type, "team_id": self.team_id}
+                )
+            if not is_expected_source_error or error_message == helpers.REFRESH_SCHEMAS_FALLBACK_ERROR_MESSAGE:
+                error_message = ADDED_TABLE_READ_ERROR_MESSAGE
+            raise ValidationError({"path": error_message}) from e
+
+    @validated_request(
         request_serializer=IncrementalFieldRecommendationsRequestSerializer,
         responses={200: IncrementalFieldRecommendationsResponseSerializer},
         summary="Recommend incremental fields with the decision model",
@@ -450,6 +634,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         picks = recommend_for_candidates(
             [(table["table"], table["incremental_fields"]) for table in request.validated_data["tables"]],
             team=self.team,
+            path=WIZARD_PATH,
         )
         return Response(
             IncrementalFieldRecommendationsResponseSerializer(
@@ -575,6 +760,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 "supports_webhooks": schema.supports_webhooks,
                 "webhook_only": schema.webhook_only,
                 "prefers_full_refresh": schema.prefers_full_refresh,
+                "declares_primary_keys": schema.declares_primary_keys,
                 "description": schema.description,
                 "should_sync_default": schema.should_sync_default,
                 "available_columns": [

@@ -1782,13 +1782,15 @@ class TestScoutReportAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("inferred_target_follows_the_rewrite", None, "acme/gadgets"),
+            ("inferred_target_follows_the_rewrite", None, False, "acme/gadgets"),
             # A repo the scout named is a decision, not a reading of the prose, so a rewrite never moves it.
-            ("scout_named_target_is_not_overturned", "acme/widgets", "acme/widgets"),
+            ("scout_named_target_is_not_overturned", "acme/widgets", False, "acme/widgets"),
+            # A person's pick is stored manual-only like an inferred target, so only its author tells them apart.
+            ("person_picked_target_is_not_overturned", None, True, "acme/widgets"),
         ]
     )
     def test_content_rewrite_refreshes_only_an_inferred_repository(
-        self, _name: str, repository: str | None, expected: str
+        self, _name: str, repository: str | None, person_picked: bool, expected: str
     ) -> None:
         run = _make_run(self.team)
         payload = self._payload(summary="Traced to https://github.com/acme/widgets/pull/7")
@@ -1800,6 +1802,15 @@ class TestScoutReportAPI(APIBaseTest):
             patch(CONNECTED_REPOS_PATH, return_value=_CONNECTED_REPOS),
         ):
             created = self.client.post(self._emit_url(str(run.id)), data=payload, format="json").json()
+            if person_picked:
+                SignalReportArtefact.append_status(
+                    team_id=self.team.id,
+                    report_id=created["report_id"],
+                    content=RepoSelectionResult(
+                        repository="acme/widgets", reason="Selected by the user.", autostart_eligible=False
+                    ),
+                    attribution=ArtefactAttribution.from_user(self.user.id),
+                )
             response = self.client.post(
                 self._edit_url(str(run.id)),
                 data={"report_id": created["report_id"], "summary": "Actually https://github.com/acme/gadgets/pull/2"},
@@ -3565,7 +3576,8 @@ class TestUserReportCreateAPI(APIBaseTest):
         body.update(overrides)
         return body
 
-    def test_user_report_never_autostarts_on_create_or_on_a_later_reevaluation(self) -> None:
+    @parameterized.expand([False, True])
+    def test_user_report_never_autostarts_on_create_or_on_a_later_reevaluation(self, writer_enabled: bool) -> None:
         payload = self._payload(
             repository="acme/widgets",
             priority="P1",
@@ -3574,6 +3586,7 @@ class TestUserReportCreateAPI(APIBaseTest):
         )
         with (
             _safe_judge(),
+            patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=writer_enabled),
             patch(EMBED_PATH) as embed,
             patch(
                 "products.signals.backend.auto_start.maybe_autostart_implementation_task", new=AsyncMock()
@@ -3591,6 +3604,12 @@ class TestUserReportCreateAPI(APIBaseTest):
         dispatch.assert_not_called()
         report = SignalReport.objects.get(id=report_id)
         assert (report.user_authored, report.created_by_id) == (True, self.user.id)
+        assert (
+            SignalReportArtefact.objects.get(
+                team=self.team, report=report, type="suggested_reviewers"
+            ).implementation_authorization
+            is None
+        )
         assert {call.kwargs["metadata"]["source_product"] for call in embed.call_args_list} == {"user_authored"}
 
     def test_reviewer_named_in_a_filed_report_reads_as_added_by_teammate(self) -> None:

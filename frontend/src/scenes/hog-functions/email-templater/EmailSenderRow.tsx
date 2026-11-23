@@ -11,12 +11,13 @@ import { objectsEqual } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
 
 import { EmailHeaderRow } from './EmailHeaderRow'
-import { selectedSenders, senderAddressError, senderFrom } from './emailSenderFields'
+import { fromRowError, selectedSenders, senderAddressError, senderFrom } from './emailSenderFields'
 import { EmailSenderForm } from './EmailSenderForm'
 import { EmailSenderPicker } from './EmailSenderPicker'
 import { emailTemplaterLogic } from './emailTemplaterLogic'
 import { SandboxSenderChoiceContext } from './SandboxSenderChoiceContext'
 import { sandboxSenderHint } from './sandboxSenderOptions'
+import { TestSenderRow } from './TestSenderRow'
 
 /** The From row: pick senders in one click, and set a custom name, address, or reply-to only when needed. */
 export function EmailSenderRow(): JSX.Element {
@@ -76,6 +77,10 @@ export function EmailSenderRow(): JSX.Element {
         setIsEditing(visible)
     }
 
+    if (sandbox?.selected && sandbox.onlySender) {
+        return <TestSenderRow sandbox={sandbox} senders={senders} />
+    }
+
     if (!sandbox && !integrationsLoading && senders.length === 0) {
         return (
             <EmailHeaderRow label="From" className="py-1">
@@ -95,7 +100,11 @@ export function EmailSenderRow(): JSX.Element {
     }
 
     return (
-        <EmailHeaderRow label="From" error={logicProps.fieldErrors?.from || addressError} className="py-1">
+        <EmailHeaderRow
+            label="From"
+            error={fromRowError(logicProps.fieldErrors?.from || addressError, selected)}
+            className="py-1"
+        >
             <div className="flex-1 min-w-0">
                 <EmailSenderPicker
                     from={from}
@@ -108,8 +117,8 @@ export function EmailSenderRow(): JSX.Element {
                 />
                 {notes.length > 0 ? (
                     <div className="flex flex-wrap gap-x-3 mt-0.5 text-xs text-secondary">
-                        {notes.map((note) => (
-                            <span key={note} className="min-w-0 truncate">
+                        {notes.map((note, index) => (
+                            <span key={index} className="min-w-0 truncate">
                                 {note}
                             </span>
                         ))}

@@ -394,6 +394,18 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # and retries forever. Matched on BigQuery's stable "failed to parse view" wording rather
             # than the volatile view/column names.
             "failed to parse view": "BigQuery couldn't read a view it was importing because its definition no longer matches the underlying data — a column it references was renamed or removed (for federated query views, in the upstream database). Please update the view definition (or restore the column), then reconnect the source.",
+            # Raised as a 400 BadRequest from job polling (the same `_wait_for_job` in `bigquery.py`
+            # that "failed to parse view" above covers) when a BigQuery external table backed by
+            # CSV files in Cloud Storage hits a line with more fields than the table's schema
+            # declares, e.g. "Error while reading table: <project>.<dataset>.<table>, error message:
+            # Too many values in line. Found 23 column(s) when expecting 21.; line_number: 2
+            # byte_offset_to_start_of_line: 291 File: gs://<bucket>/<object>". This is a malformed
+            # row in the customer's underlying CSV export, not anything our query shapes — retrying
+            # the same file fails identically every time, so it just spams error tracking. The
+            # customer must fix or remove the offending file (or widen the external table's schema)
+            # before the table can be read again. Matched on BigQuery's stable "Too many values in
+            # line" wording, not the volatile column counts, line/byte offsets, or GCS object path.
+            "Too many values in line": "BigQuery couldn't read an external table because one of its underlying CSV files in Cloud Storage has a line with more columns than the table's schema expects (\"Too many values in line\"). Please fix or remove the malformed file in the external table's source data (or widen the table's schema to match), then re-enable the source.",
             # Raised from the Storage Read API's `create_read_session` (see `get_rows` in
             # `bigquery.py`) when the service account is missing the `bigquery.readsessions.create`
             # permission the Read API requires. The google.api_core PermissionDenied stringifies as
@@ -414,6 +426,16 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # Read Session User role grants both. Matched on the stable permission name rather than the
             # volatile session/stream ids.
             "bigquery.readsessions.getData": "BigQuery denied access to the Storage Read API: your service account is missing the bigquery.readsessions.getData permission needed to read data from a read session. Please grant it (for example via the BigQuery Read Session User role) on the project you're syncing, then reconnect the source.",
+            # Raised from the Storage Read API's `create_read_session` (see `get_rows` in
+            # `bigquery.py`) when the BigQuery Storage API itself is disabled on the project the read
+            # bills to — a project-level setting, distinct from the IAM permission denials above,
+            # which all assume the API is already enabled. The google.api_core PermissionDenied
+            # stringifies as "403 BigQuery Storage API has not been used in project <id> before or it
+            # is disabled. Enable it by visiting https://console.developers.google.com/apis/api/
+            # bigquerystorage.googleapis.com/overview?project=<id> then retry. ...", so match only the
+            # stable prefix before the volatile project id. Retrying can't enable the API; the
+            # customer must enable it in the Google Cloud console.
+            "BigQuery Storage API has not been used in project": "BigQuery denied access because the BigQuery Storage API is disabled on the project your read bills to. Enable the BigQuery Storage API for that project in the Google Cloud console, then reconnect the source.",
             # Raised from query jobs when the configured dataset/table doesn't exist in the location
             # we query — the dataset was deleted or renamed, or it lives in a different region than the
             # one we run against. The google exception stringifies as "404 Not found: Dataset ... was

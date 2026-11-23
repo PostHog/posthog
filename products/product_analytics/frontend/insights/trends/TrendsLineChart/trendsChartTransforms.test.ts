@@ -6,6 +6,7 @@ import { ciRanges } from 'lib/statistics'
 import type { GoalLine as SchemaGoalLine, TrendsFilter as SchemaTrendsFilter } from '~/queries/schema/schema-general'
 
 import type { GoalLineLike, YFormatterFields } from '../shared/trendsChartDisplayOptions'
+import { buildTrendsBarTimeSeries, buildTrendsBarTimeSeriesConfig } from '../TrendsBarChart/trendsBarChartTransforms'
 import {
     buildDerivedConfigs,
     buildMainTrendsSeries,
@@ -32,6 +33,28 @@ const makeResult = (overrides: Partial<TrendsResultLike> = {}): TrendsResultLike
 })
 
 describe('trendsChartTransforms', () => {
+    it.each(['line', 'bar'] as const)(
+        'shares explicitly assigned %s axes regardless of series order or magnitude',
+        (kind) => {
+            const results = [
+                makeResult({ id: 'a', data: [2, 3] }),
+                makeResult({ id: 'b', data: [20000, 30000] }),
+                makeResult({ id: 'c', data: [7, 8] }),
+            ]
+            const yAxisPositions = ['right', 'right', 'left'] as const
+            const opts = { getColor: () => RED, showMultipleYAxes: true, yAxisPositions }
+            const series = kind === 'line' ? buildTrendsSeries(results, opts) : buildTrendsBarTimeSeries(results, opts)
+            const config =
+                kind === 'line'
+                    ? buildTrendsLineTimeSeriesConfig({ results, isPercentStackView: false, yAxisPositions })
+                    : buildTrendsBarTimeSeriesConfig({ isPercentStackView: false, isGrouped: true, yAxisPositions })
+            expect(series.map((item) => item.yAxisId)).toEqual(['right', 'right', DEFAULT_Y_AXIS_ID])
+            expect(config.yAxis).toEqual([
+                expect.objectContaining({ id: DEFAULT_Y_AXIS_ID, position: 'left' }),
+                expect.objectContaining({ id: 'right', position: 'right', showGrid: false }),
+            ])
+        }
+    )
     describe('schema type firewall', () => {
         it('keeps the schema GoalLine / TrendsFilter assignable to the neutral structural types', () => {
             // Assignment is checked at compile time by the return types above; the runtime assertions
@@ -63,6 +86,17 @@ describe('trendsChartTransforms', () => {
             })
 
             expect(series.color).toBe(RED)
+        })
+
+        it.each([
+            ['previous', 'Previous'],
+            ['current', undefined],
+        ])('tags a compare-%s series in the legend with %s', (compare_label, expected) => {
+            const series = buildMainTrendsSeries(makeResult({ compare: true, compare_label }), 0, {
+                getColor: () => RED,
+            })
+
+            expect(series.legendTag).toBe(expected)
         })
 
         it('sets a dashed in-progress tail on active series and skips it on compare-previous', () => {

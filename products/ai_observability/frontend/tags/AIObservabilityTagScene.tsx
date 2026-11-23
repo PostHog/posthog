@@ -11,13 +11,13 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { AIObservabilityTag } from './AIObservabilityTag'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<{ id: string }> = {
     component: AIObservabilityTagScene,
-    paramsToProps: ({ params }): { id: string } => ({ id: params.id || 'new' }),
+    paramsToProps: ({ params: { id } }) => ({ id }),
     productKey: ProductKey.AI_OBSERVABILITY,
 }
 
-export function AIObservabilityTagScene({ id }: { id?: string }): JSX.Element {
+export function AIObservabilityTagScene({ id }: { id: string }): JSX.Element {
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
 
     if (!receivedFeatureFlags) {

@@ -125,9 +125,9 @@ def load_property_metadata(
 
         prop_type = type_overrides.get(prop_def.name, prop_def.property_type)
         prop_info: dict[str, str | None] = {"type": prop_type}
-        slot = prop_def.materialized_column_slots.first()
-        if slot:
-            prop_info["dmat"] = f"{DMAT_STRING_COLUMN_NAME_PREFIX}{slot.slot_index}"
+        prefetched_slots = prop_def.materialized_column_slots.all()
+        if prefetched_slots:
+            prop_info["dmat"] = f"{DMAT_STRING_COLUMN_NAME_PREFIX}{prefetched_slots[0].slot_index}"
 
         event_properties[prop_def.name] = prop_info
 

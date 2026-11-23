@@ -8,9 +8,10 @@ import { SegmentedPill } from '@/ui/SegmentedPill'
 import { createStyles, useTheme } from '@/ui/theme'
 import { radii, type } from '@/ui/tokens'
 
-import { LiveCard, LiveCardNote, NOT_LOADED_TEXT } from './LiveCard'
+import { LiveCard, LiveCardLoading, LiveCardNote } from './LiveCard'
 
 const TABS: readonly { key: LiveBreakdownKind; label: string; empty: string }[] = [
+    { key: 'platforms', label: 'Platforms', empty: 'No iOS or Android activity in the last 30 minutes' },
     { key: 'devices', label: 'Devices', empty: 'No device data' },
     { key: 'browsers', label: 'Browsers', empty: 'No browser data' },
     { key: 'countries', label: 'Countries', empty: 'No country data' },
@@ -32,7 +33,7 @@ export function LiveBreakdownCard({ kinds, kind, breakdown, onChange }: LiveBrea
     const tab = TABS.find((entry) => entry.key === kind) ?? TABS[0]
     let body: ReactElement
     if (!breakdown) {
-        body = <LiveCardNote text={NOT_LOADED_TEXT} testID="live-breakdown-not-loaded" />
+        body = <LiveCardLoading testID="live-breakdown-loading" />
     } else if (breakdown.rows.length === 0) {
         body = <LiveCardNote text={tab?.empty ?? ''} testID="live-breakdown-empty" />
     } else {
@@ -110,9 +111,7 @@ const useStyles = createStyles(({ colors }) => ({
         paddingVertical: 6,
     },
     totalValue: {
-        fontSize: 32,
-        lineHeight: 38,
-        fontWeight: '700',
+        ...type.screenTitle,
         color: colors.ink,
         fontVariant: ['tabular-nums'],
     },
@@ -147,7 +146,7 @@ const useStyles = createStyles(({ colors }) => ({
         borderRadius: radii.pill,
     },
     percent: {
-        ...type.metaSmall,
+        ...type.meta,
         width: 44,
         textAlign: 'right',
         color: colors.secondary,

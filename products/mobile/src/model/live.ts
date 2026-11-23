@@ -1,4 +1,17 @@
-export type LiveBreakdownKind = 'devices' | 'browsers' | 'countries'
+export interface LiveProjectProfile {
+    kind: 'web' | 'mobile' | 'mixed' | 'unknown'
+}
+
+export interface LiveMobileMetrics {
+    dailyActiveUsers: number | null
+    weeklyActiveUsers: number | null
+    installs: number | null
+    weeklyInstalls: number | null
+    sessions: number | null
+    updatedAt: number
+}
+
+export type LiveBreakdownKind = 'devices' | 'browsers' | 'countries' | 'platforms'
 
 /** The device and browser jobs' value for events without the property, such as app events without `$browser`. */
 export const UNKNOWN_BREAKDOWN = 'Unknown'
@@ -21,12 +34,14 @@ export interface LiveMinute {
     /** Ids the window already showed in an earlier minute. */
     returningUsers: number
     pageviews: number
+    screenviews?: number
 }
 
 export interface LiveActivity {
     minutes: LiveMinute[]
     uniqueVisitors: number
     pageviews: number
+    screenviews?: number
 }
 
 export interface LiveRankedRow {
@@ -82,6 +97,11 @@ export interface LiveEventRow {
 
 /** Each part is null until its first good read, and keeps its last good value when a later read of it fails. */
 export interface LiveSnapshot {
+    preference?: 'all' | 'web' | 'mobile'
+    profile?: LiveProjectProfile
+    topScreens?: LiveRankedRow[] | null
+    platforms?: LiveBreakdown | null
+    mobileMetrics?: LiveMobileMetrics | null
     activity: LiveActivity | null
     topPages: LiveRankedRow[] | null
     /** What `topPages` counts. Null until the first answer. */

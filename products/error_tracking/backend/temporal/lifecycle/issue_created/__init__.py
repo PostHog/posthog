@@ -8,6 +8,7 @@ from products.error_tracking.backend.temporal.lifecycle.issue_created.activities
     merge_issue_created_fingerprint_activity,
     persist_issue_created_embedding_activity,
     tag_issue_created_activity,
+    tag_issue_created_merge_target_activity,
 )
 from products.error_tracking.backend.temporal.lifecycle.issue_created.workflow import ErrorTrackingIssueCreatedWorkflow
 
@@ -26,4 +27,5 @@ __all__ = [
     "merge_issue_created_fingerprint_activity",
     "persist_issue_created_embedding_activity",
     "tag_issue_created_activity",
+    "tag_issue_created_merge_target_activity",
 ]

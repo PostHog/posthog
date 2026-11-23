@@ -44,9 +44,9 @@ export function browseEntryPin(entry: BrowseEntry): NavPin | null {
     return PINS[entry] ?? null
 }
 
-/** False for Sessions and Errors, which have no demo data. */
+/** Errors still requires a signed-in project. */
 export function browseEntryInDemo(entry: BrowseEntry): boolean {
-    return entry !== 'replay' && entry !== 'errors'
+    return entry !== 'errors'
 }
 
 function EntryIcon({ entry }: { entry: BrowseEntry }): ReactElement {

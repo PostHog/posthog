@@ -206,11 +206,14 @@ class ExperimentMetricDefinitionField(serializers.JSONField):
     pass
 
 
+_HEALTH_VALUE_SCHEMAS = ({"type": "string"}, {"type": "number"}, {"type": "boolean"})
+
+
 @extend_schema_field(
     {
         "type": "object",
         "additionalProperties": {
-            "oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}],
+            "oneOf": [*_HEALTH_VALUE_SCHEMAS],
             "nullable": True,
         },
     }
@@ -223,12 +226,39 @@ class ExperimentHealthEvidenceField(serializers.DictField):
     {
         "type": "object",
         "additionalProperties": {
-            "oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}],
+            "oneOf": [*_HEALTH_VALUE_SCHEMAS],
             "nullable": True,
         },
     }
 )
 class ExperimentHealthCheckValuesField(serializers.DictField):
+    pass
+
+
+@extend_schema_field(
+    {
+        "type": "object",
+        "additionalProperties": {
+            "oneOf": [
+                *_HEALTH_VALUE_SCHEMAS,
+                {
+                    "type": "object",
+                    "description": (
+                        "A feature flag's release conditions as the flag stores them, in before_filters and "
+                        "after_filters."
+                    ),
+                    "properties": {
+                        "groups": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+                        "aggregation_group_type_index": {"type": "integer", "nullable": True},
+                    },
+                    "required": ["groups", "aggregation_group_type_index"],
+                },
+            ],
+            "nullable": True,
+        },
+    }
+)
+class ExperimentHealthCheckRowField(serializers.DictField):
     pass
 
 
@@ -367,11 +397,12 @@ class ExperimentHealthCheckResultSerializer(serializers.Serializer):
         ),
     )
     rows = serializers.ListField(
-        child=ExperimentHealthCheckValuesField(),
+        child=ExperimentHealthCheckRowField(),
         help_text=(
             "What the check read per variant, metric or feature flag change, one object each, with the keys and "
             "units of `values`. For example, the significance check gives each variant's difference and the smallest "
-            "difference its sample can detect. Empty when the check reads no such list."
+            "difference its sample can detect. A release condition change also gives the conditions as the flag "
+            "stores them, in before_filters and after_filters. Empty when the check reads no such list."
         ),
     )
 
@@ -388,6 +419,41 @@ class ExperimentHealthReleaseConditionSerializer(serializers.Serializer):
         help_text=(
             "The group type the condition set assigns variants by: its own, or the flag's when it sets none. Null when "
             "it assigns them by user."
+        ),
+    )
+    variant = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The key of the variant that the condition set serves to every user it matches, its variant override. Null "
+            "when the flag's split picks the variant, or when the override names no variant of the flag, which the "
+            "flag service ignores."
+        ),
+    )
+    reachable = serializers.BooleanField(
+        allow_null=True,
+        help_text=(
+            "Whether the condition set can serve anyone. False when its rollout is 0%, or when an earlier set without "
+            "filters ends the flag's evaluation before it, so its rollout and variant override apply to nobody. Null "
+            "when the flag buckets by device ID, because a request without a device ID skips the earlier sets that "
+            "need the bucketing hash and can reach this set anyway."
+        ),
+    )
+
+
+class ExperimentHealthExposureSetupSerializer(serializers.Serializer):
+    event = serializers.CharField(
+        allow_null=True,
+        help_text="The event that the exposure criteria count. Null when they count the flag's calls or an action.",
+    )
+    action = serializers.CharField(
+        allow_null=True,
+        help_text="The name of the action that the exposure criteria count. Null when they count an event.",
+    )
+    activation = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The event, or the name of the action, that has to follow a user's flag call before the user counts as "
+            "exposed. Null without one."
         ),
     )
 
@@ -431,6 +497,13 @@ class ExperimentHealthSetupSerializer(serializers.Serializer):
     )
     ensure_experience_continuity = serializers.BooleanField(
         help_text="The flag's 'Persist flag across authentication steps' setting.",
+    )
+    exposure = ExperimentHealthExposureSetupSerializer(
+        allow_null=True,
+        help_text=(
+            "What the exposure criteria count as an exposure. Null when they can't be read, or when the exposures come "
+            "from a data warehouse table."
+        ),
     )
 
 
@@ -3695,6 +3768,12 @@ class ExperimentHealthInputsConditionSetTrafficSerializer(serializers.Serializer
             "The people who got a variant from a call without a flag version that is no local evaluation in a server "
             "SDK, from an hour after the start of the window: a bootstrap or the caller's own assignment. With a 0% "
             "rollout, 10 or more of them turn `running_but_no_rollout` into `assigned_outside_flag_service`."
+        )
+    )
+    filters_test_accounts = serializers.BooleanField(
+        help_text=(
+            "Whether the counts leave out the calls that the project's filter for internal and test users excludes, "
+            "because the experiment applies that filter."
         )
     )
 

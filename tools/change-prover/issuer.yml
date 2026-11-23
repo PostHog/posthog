@@ -1,0 +1,12 @@
+# The default-branch paths every lane of the change prover runs from. The prover pins each one in its
+# stamphog marker, and stamphog reads this file from the default branch and ignores a proof that
+# does not pin every path here. A path that ends in `/` is a directory, pinned by its git tree id.
+# See change_prover/core/issuer.py for the rules this file must meet.
+paths:
+    - tools/change-prover/
+    - .github/actions/setup-uv/
+    - .github/workflows/dependency-proof.yml
+    - .github/workflows/dependency-proof-trigger.yml
+    - .github/workflows/revert-proof.yml
+    - .github/workflows/revert-proof-trigger.yml
+    - .nvmrc

@@ -1,9 +1,12 @@
 import json
 import time
 import datetime
+import threading
+import contextvars
 import dataclasses
-from collections.abc import Iterator
-from typing import Any, Optional
+from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Optional, TypeVar
 from urllib.parse import quote, urlparse
 
 from django.core.cache import cache
@@ -23,6 +26,7 @@ from products.warehouse_sources.sources.firebase.settings import (
     FIRESTORE_COLLECTION_IDS_PAGE_SIZE,
     FIRESTORE_CREATE_TIME_COLUMN,
     FIRESTORE_DISCOVERY_CACHE_TTL_SECONDS,
+    FIRESTORE_DISCOVERY_CONCURRENCY,
     FIRESTORE_DOCUMENT_ID_FIELD,
     FIRESTORE_ID_COLUMN,
     FIRESTORE_INCREMENTAL_DISCOVERY_LIMIT,
@@ -72,10 +76,14 @@ from products.warehouse_sources.sources.sdk import (
     incremental_field,
     make_tracked_session,
     rank_incremental_fields,
+    request_deadline,
 )
 from products.warehouse_sources.sources.sdk.internals import NamingConvention, incremental_type_to_initial_value
 
 LOGGER: FilteringBoundLogger = structlog.get_logger(__name__)
+
+_T = TypeVar("_T")
+_R = TypeVar("_R")
 
 
 class FirebaseAuthError(Exception):
@@ -235,13 +243,35 @@ class AccessTokenProvider:
         self._credentials = credentials
         self._token: Optional[str] = None
         self._expires_at: float = 0.0
+        # Discovery shares one provider across its worker threads.
+        self._lock = threading.Lock()
 
     def token(self, force_refresh: bool = False) -> str:
-        if force_refresh or self._token is None or time.time() >= self._expires_at:
-            token, expires_in = mint_access_token(self._session, self._credentials)
-            self._token = token
-            self._expires_at = time.time() + max(expires_in - TOKEN_EXPIRY_SKEW_SECONDS, 0)
-        return self._token
+        with self._lock:
+            if force_refresh or self._token is None or time.time() >= self._expires_at:
+                token, expires_in = mint_access_token(self._session, self._credentials)
+                self._token = token
+                self._expires_at = time.time() + max(expires_in - TOKEN_EXPIRY_SKEW_SECONDS, 0)
+            return self._token
+
+
+def _map_concurrently(fn: Callable[[_T], _R], items: list[_T]) -> list[_R]:
+    """Apply `fn` to every item on a small thread pool, returning results in input order.
+
+    The first exception raised by `fn` propagates, and items not yet started are cancelled.
+    """
+    if not items:
+        return []
+    # Pool threads start with an empty context, which would strip the team and job labels the HTTP
+    # observer reads. Each call runs in its own copy, because one context can't be entered twice at once.
+    context = contextvars.copy_context()
+    pool = ThreadPoolExecutor(
+        max_workers=min(FIRESTORE_DISCOVERY_CONCURRENCY, len(items)), thread_name_prefix="firebase-discovery"
+    )
+    try:
+        return list(pool.map(lambda item: context.copy().run(fn, item), items))
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
 
 
 def _read_capped_body(response: requests.Response, cap: int) -> bytes:
@@ -538,18 +568,17 @@ def get_incremental_fields(
     tokens = AccessTokenProvider(_auth_session(credentials), credentials)
     api_session = _api_session(credentials)
 
-    fields: dict[str, list[IncrementalField]] = {}
-    for table, collection_id in collections:
+    def _sample(collection_id: str) -> list[IncrementalField]:
         try:
-            candidates = sample_firestore_incremental_fields(api_session, tokens, credentials, collection_id)
+            return sample_firestore_incremental_fields(api_session, tokens, credentials, collection_id)
         except requests.HTTPError as e:
             # One unreadable collection must not empty the whole schema picker. That table offers
             # full refresh, and the sync itself still reports the failure.
             LOGGER.warning(f"Skipping incremental field discovery for Firestore collection {collection_id}: {e}")
-            continue
-        if candidates:
-            fields[table] = candidates
-    return fields
+            return []
+
+    sampled = _map_concurrently(_sample, [collection_id for _, collection_id in collections])
+    return {table: candidates for (table, _), candidates in zip(collections, sampled) if candidates}
 
 
 def _rfc3339(value: Any) -> str:
@@ -627,6 +656,31 @@ def _document_cursor(document: dict[str, Any], field_name: str) -> Optional[tupl
     return value, name
 
 
+def _read_firestore_page(
+    session: requests.Session,
+    tokens: AccessTokenProvider,
+    url: str,
+    *,
+    params: Optional[dict[str, Any]] = None,
+    query: Optional[dict[str, Any]] = None,
+) -> tuple[Any, int]:
+    page_size = FIRESTORE_PAGE_SIZE
+    with request_deadline():
+        while True:
+            try:
+                if query is None:
+                    payload = _request(session, tokens, "GET", url, params={**(params or {}), "pageSize": page_size})
+                else:
+                    payload = _request(
+                        session, tokens, "POST", url, json_body={"structuredQuery": {**query, "limit": page_size}}
+                    )
+                return payload, page_size
+            except FirebaseResponseTooLargeError:
+                if page_size == 1:
+                    raise
+                page_size = max(1, page_size // 2)
+
+
 def iter_firestore_documents_incremental(
     session: requests.Session,
     tokens: AccessTokenProvider,
@@ -652,7 +706,6 @@ def iter_firestore_documents_incremental(
             {"field": {"fieldPath": field_name}, "direction": "ASCENDING"},
             {"field": {"fieldPath": FIRESTORE_DOCUMENT_ID_FIELD}, "direction": "ASCENDING"},
         ],
-        "limit": FIRESTORE_PAGE_SIZE,
     }
     cursor = _resume_incremental_cursor(resumable_source_manager, logger, collection_id)
 
@@ -661,18 +714,18 @@ def iter_firestore_documents_incremental(
         if cursor is not None:
             value, name = cursor
             page_query["startAt"] = {"values": [value, {"referenceValue": name}], "before": False}
-        payload = _request(session, tokens, "POST", url, json_body={"structuredQuery": page_query}) or []
+        payload, page_size = _read_firestore_page(session, tokens, url, query=page_query)
 
         # A `runQuery` stream also carries entries that only report read progress and hold no document.
         documents = [
             entry["document"]
-            for entry in payload
+            for entry in payload or []
             if isinstance(entry, dict) and isinstance(entry.get("document"), dict)
         ]
         if documents:
             yield [flatten_firestore_document(document) for document in documents]
 
-        if len(documents) < FIRESTORE_PAGE_SIZE:
+        if len(documents) < page_size:
             break
 
         cursor = _document_cursor(documents[-1], field_name)
@@ -716,10 +769,11 @@ def iter_firestore_documents(
     page_token = _resume_cursor(resumable_source_manager, logger, f"Firestore collection {collection_id}")
 
     for _ in range(MAX_PAGES):
-        params: dict[str, Any] = {"pageSize": FIRESTORE_PAGE_SIZE}
+        params: dict[str, Any] = {}
         if page_token:
             params["pageToken"] = page_token
-        payload = _request(session, tokens, "GET", url, params=params) or {}
+        payload, _ = _read_firestore_page(session, tokens, url, params=params)
+        payload = payload or {}
 
         documents = [doc for doc in payload.get("documents") or [] if isinstance(doc, dict)]
         if documents:
@@ -766,17 +820,16 @@ def iter_firestore_collection_group(
         query: dict[str, Any] = {
             "from": [{"collectionId": collection_id, "allDescendants": True}],
             "orderBy": [{"field": {"fieldPath": "__name__"}, "direction": "ASCENDING"}],
-            "limit": FIRESTORE_PAGE_SIZE,
         }
         if cursor:
             query["startAt"] = {"values": [{"referenceValue": cursor}], "before": False}
-        results = _request(session, tokens, "POST", url, json_body={"structuredQuery": query}) or []
+        results, page_size = _read_firestore_page(session, tokens, url, query=query)
 
-        documents = _run_query_documents(results)
+        documents = _run_query_documents(results or [])
         if documents:
             yield [flatten_firestore_document(document) for document in documents]
 
-        if len(documents) < FIRESTORE_PAGE_SIZE:
+        if len(documents) < page_size:
             break
         next_cursor = documents[-1].get("name")
         if not next_cursor:
@@ -1166,19 +1219,23 @@ def discover_firestore_collections(
     # Each frontier entry is (collection id, whether it is sampled as a collection group).
     frontier: list[tuple[str, bool]] = [(collection_id, False) for collection_id in root_ids]
 
+    def _child_collection_ids(entry: tuple[str, bool]) -> set[str]:
+        collection_id, as_collection_group = entry
+        child_ids: set[str] = set()
+        for document_path in _sample_firestore_document_paths(
+            session,
+            tokens,
+            credentials,
+            collection_id,
+            as_collection_group=as_collection_group,
+            limit=FIRESTORE_SUBCOLLECTION_SAMPLE_DOCUMENTS,
+        ):
+            child_ids.update(list_collection_ids(session, tokens, credentials, parent_document_path=document_path))
+        return child_ids
+
     for _ in range(FIRESTORE_MAX_SUBCOLLECTION_DEPTH):
         next_frontier: list[tuple[str, bool]] = []
-        for collection_id, as_collection_group in frontier:
-            child_ids: set[str] = set()
-            for document_path in _sample_firestore_document_paths(
-                session,
-                tokens,
-                credentials,
-                collection_id,
-                as_collection_group=as_collection_group,
-                limit=FIRESTORE_SUBCOLLECTION_SAMPLE_DOCUMENTS,
-            ):
-                child_ids.update(list_collection_ids(session, tokens, credentials, parent_document_path=document_path))
+        for child_ids in _map_concurrently(_child_collection_ids, frontier):
             for child_id in sorted(child_ids):
                 if child_id in seen_subcollection_ids:
                     continue

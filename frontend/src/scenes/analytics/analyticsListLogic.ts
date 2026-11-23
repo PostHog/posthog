@@ -12,14 +12,17 @@ import { AnalyticsListUrlParams, urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import type { MovedItem } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { isPathUnder, joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
+import { dashboardsModel } from '~/models/dashboardsModel'
 import {
     AnalyticsListDisplayConfiguration,
     FileSystemEntry,
     UserUIConfiguration,
 } from '~/queries/schema/schema-general'
 import type { UserBasicType, UserType } from '~/types'
+import type { DashboardType } from '~/types'
 
 import { todayAnalyticsLogic } from 'products/today/frontend/analytics/todayAnalyticsLogic'
 
@@ -32,8 +35,11 @@ import {
     isAnalyticsOrderBy,
     analyticsSourceKey,
 } from './analyticsFeed'
+import type { AnalyticsSourcePage } from './analyticsFeed'
 import { analyticsFeedLogic, selectAnalyticsFeed } from './analyticsFeedLogic'
+import { analyticsItemActionsLogic } from './analyticsItemActionsLogic'
 import { analyticsShareLogic } from './analyticsShareLogic'
+import { analyticsTagsLogic } from './analyticsTagsLogic'
 import {
     ANALYTICS_FILE_SYSTEM_TYPES,
     AnalyticsItem,
@@ -47,6 +53,17 @@ import {
 export const ANALYTICS_PREFETCH_COUNT = ANALYTICS_FEED_PAGE_SIZE
 // A folder lists its direct children in one request. Deeper folders are opened by drilling in.
 const FOLDER_PAGE_SIZE = ANALYTICS_FEED_PAGE_SIZE
+
+function folderListParams(folder: string, search: string): Parameters<typeof api.fileSystem.list>[0] {
+    return {
+        parent: folder,
+        depth: splitPath(folder).length + 1,
+        search: search.trim() || undefined,
+        limit: FOLDER_PAGE_SIZE,
+        // A row's tags seed its tag editor, which would otherwise save over them.
+        includeTags: true,
+    }
+}
 export const DEFAULT_ANALYTICS_SORT: NonNullable<AnalyticsListDisplayConfiguration['default_sort']> = '-last_viewed_at'
 
 export interface AnalyticsListFilters {
@@ -145,7 +162,7 @@ export function filterAnalytics(
     const createdBy = filters.createdBy
     return items.filter(
         (item) =>
-            filters.tags.every((tag) => item.tags.includes(tag)) &&
+            (!filters.tags.length || filters.tags.some((tag) => item.tags.includes(tag))) &&
             (filters.types.length ? filters.types.includes(item.type) : !insightsHidden || item.type !== 'insight') &&
             (!needle || item.name.toLowerCase().includes(needle)) &&
             (!createdBy.length || (!!item.createdBy && createdBy.includes(item.createdBy.uuid)))
@@ -204,20 +221,43 @@ export interface analyticsListLogicActions {
     sourceRefreshed: (
         key: string,
         generation: number,
-        page: null | import('./analyticsFeed').AnalyticsSourcePage
+        page: AnalyticsSourcePage | null
     ) => {
         generation: number
         key: string
-        page: null | import('./analyticsFeed').AnalyticsSourcePage
+        page: AnalyticsSourcePage | null
     } // analyticsFeedLogic
+    itemChanged: () => {
+        value: true
+    } // analyticsItemActionsLogic
     shareToSpaceDone: () => {
         value: true
     } // analyticsShareLogic
+    tagsSaved: () => {
+        value: true
+    } // analyticsTagsLogic
+    deleteDashboardSuccess: (
+        dashboard: DashboardType,
+        payload?: any
+    ) => {
+        dashboard: DashboardType
+        payload?: any
+    } // dashboardsModel
+    restoreDashboardSuccess: (
+        dashboard: DashboardType,
+        payload?: any
+    ) => {
+        dashboard: DashboardType
+        payload?: any
+    } // dashboardsModel
     deleteSavedItem: (savedItem: FileSystemEntry) => {
         savedItem: FileSystemEntry
     } // projectTreeDataLogic
-    movesSettled: (moved: import('~/layout/panel-layout/ProjectTree/projectTreeDataLogic').MovedItem[]) => {
-        moved: import('~/layout/panel-layout/ProjectTree/projectTreeDataLogic').MovedItem[]
+    movesSettled: (moved: MovedItem[]) => {
+        moved: MovedItem[]
+    } // projectTreeDataLogic
+    restoredItems: () => {
+        value: true
     } // projectTreeDataLogic
     folderCreated: () => {
         value: true
@@ -421,10 +461,16 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             ['ensureFeed', 'refreshFeed', 'sourceRefreshed'],
             analyticsShareLogic,
             ['shareToSpaceDone'],
+            analyticsTagsLogic,
+            ['tagsSaved'],
+            analyticsItemActionsLogic,
+            ['itemChanged'],
             todayAnalyticsLogic,
             ['folderCreated'],
             projectTreeDataLogic,
-            ['movesSettled', 'deleteSavedItem'],
+            ['movesSettled', 'deleteSavedItem', 'restoredItems'],
+            dashboardsModel,
+            ['deleteDashboardSuccess', 'restoreDashboardSuccess'],
         ],
     })),
     actions({
@@ -453,12 +499,7 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                     if (folder === null) {
                         return null
                     }
-                    const response = await api.fileSystem.list({
-                        parent: folder,
-                        depth: splitPath(folder).length + 1,
-                        search: values.filters.search.trim() || undefined,
-                        limit: FOLDER_PAGE_SIZE,
-                    })
+                    const response = await api.fileSystem.list(folderListParams(folder, values.filters.search))
                     breakpoint()
                     return {
                         folder,
@@ -473,10 +514,7 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                         return current
                     }
                     const response = await api.fileSystem.list({
-                        parent: current.folder,
-                        depth: splitPath(current.folder).length + 1,
-                        search: values.filters.search.trim() || undefined,
-                        limit: FOLDER_PAGE_SIZE,
+                        ...folderListParams(current.folder, values.filters.search),
                         offset: current.entries.length,
                     })
                     breakpoint()
@@ -945,8 +983,13 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             },
             // A move or a new folder changes what this list holds, so it reads again.
             shareToSpaceDone: () => actions.loadList(),
+            tagsSaved: () => actions.loadList(),
+            itemChanged: () => actions.loadList(),
             folderCreated: () => actions.loadList(),
             // Drags and folder deletes go through the project tree, which reports here once they land.
+            deleteDashboardSuccess: () => actions.loadList(),
+            restoreDashboardSuccess: () => actions.loadList(),
+            restoredItems: () => actions.loadList(),
             movesSettled: () => actions.loadList(),
             deleteSavedItem: ({ savedItem }) => {
                 const folder = values.filters.folder

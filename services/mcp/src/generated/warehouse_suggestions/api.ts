@@ -73,7 +73,15 @@ export const WarehouseSuggestionsAcceptCreateParams = () => zod.object({
         ),
 })
 
+export const warehouseSuggestionsAcceptCreateQueryBulkDefault = false
+
 export const WarehouseSuggestionsAcceptCreateQueryParams = () => zod.object({
+    bulk: zod
+        .boolean()
+        .default(warehouseSuggestionsAcceptCreateQueryBulkDefault)
+        .describe(
+            'Whether the decision was part of one action on several selected suggestions. Only recorded on the analytics event.'
+        ),
     surface: zod
         .enum(['models', 'catalog'])
         .optional()
@@ -172,7 +180,15 @@ export const WarehouseSuggestionsDismissCreateParams = () => zod.object({
         ),
 })
 
+export const warehouseSuggestionsDismissCreateQueryBulkDefault = false
+
 export const WarehouseSuggestionsDismissCreateQueryParams = () => zod.object({
+    bulk: zod
+        .boolean()
+        .default(warehouseSuggestionsDismissCreateQueryBulkDefault)
+        .describe(
+            'Whether the decision was part of one action on several selected suggestions. Only recorded on the analytics event.'
+        ),
     surface: zod
         .enum(['models', 'catalog'])
         .optional()
@@ -185,10 +201,12 @@ export const warehouseSuggestionsDismissCreateBodyNoteMax = 1000
 
 export const WarehouseSuggestionsDismissCreateBody = () => zod.object({
     reason: zod
-        .enum(['not_useful', 'not_now', 'other'])
-        .describe('\* `not_useful` - Not useful\n\* `not_now` - Not now\n\* `other` - Other')
+        .enum(['not_useful', 'not_now', 'wrong_estimate', 'already_handled', 'not_owner', 'other'])
         .describe(
-            'Why the suggestion is dismissed.\n\n\* `not_useful` - Not useful\n\* `not_now` - Not now\n\* `other` - Other'
+            '\* `not_useful` - Not useful\n\* `not_now` - Not now\n\* `wrong_estimate` - Wrong estimate\n\* `already_handled` - Already handled\n\* `not_owner` - Someone else decides\n\* `other` - Other'
+        )
+        .describe(
+            'Why the suggestion is dismissed.\n\n\* `not_useful` - Not useful\n\* `not_now` - Not now\n\* `wrong_estimate` - Wrong estimate\n\* `already_handled` - Already handled\n\* `not_owner` - Someone else decides\n\* `other` - Other'
         ),
     note: zod
         .string()

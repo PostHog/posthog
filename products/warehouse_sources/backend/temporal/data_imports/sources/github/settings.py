@@ -216,6 +216,7 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         path="/repos/{repository}/stargazers",
         partition_key="starred_at",
         incremental_fields=[],  # No incremental support
+        should_sync_default=False,
     ),
     "releases": GithubEndpointConfig(
         name="releases",
@@ -601,6 +602,7 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         path="/repos/{repository}/subscribers",
         incremental_fields=[],
         param_style="plain",
+        should_sync_default=False,
     ),
     "forks": GithubEndpointConfig(
         name="forks",
@@ -930,6 +932,8 @@ ENDPOINT_REQUIRED_PERMISSION: dict[str, str] = {
 # those wordings would match no key and the job would retry a denial forever instead of disabling
 # the schema.
 GRANT_DENIAL_PREFIX = "GitHub can't read this table"
+
+COLLABORATOR_ONLY_ENDPOINTS: frozenset[str] = frozenset({"stargazers", "subscribers"})
 
 # What to ask for, as (name on a fine-grained token or app installation, scope on a classic token).
 # The three name the same grant differently, so the message carries both rather than making the

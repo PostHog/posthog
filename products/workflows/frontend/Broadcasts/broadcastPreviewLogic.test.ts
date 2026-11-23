@@ -1,10 +1,11 @@
+import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
-import { Scene } from 'scenes/sceneTypes'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
+import schema from '~/queries/schema.json'
 import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
@@ -24,6 +25,22 @@ const SAVED_DRAFT = {
     status: 'draft',
     actions: [{ id: 'trigger_node', type: 'trigger', config: { type: 'batch', filters: { properties: PRO_PLAN } } }],
 }
+
+const ACCEPTED_FILTER_KEYS: Record<string, string[]> = {
+    cohort: Object.keys(schema.definitions.CohortPropertyFilter.properties),
+    person: Object.keys(schema.definitions.PersonPropertyFilter.properties),
+}
+const savedCondition = (filter: Record<string, unknown>, negation: boolean): Record<string, unknown> => ({
+    ...filter,
+    negation,
+    bytecode: ['_H', 1, 29],
+    conditionHash: 'hash',
+})
+const savedBroadcast = (properties: Record<string, unknown>[]): Record<string, unknown> => ({
+    id: 'broadcast-1',
+    status: 'draft',
+    actions: [{ id: 'trigger_node', type: 'trigger', config: { type: 'batch', filters: { properties } } }],
+})
 
 describe('broadcastPreviewLogic', () => {
     let wizard: ReturnType<typeof broadcastWizardLogic.build>
@@ -63,7 +80,7 @@ describe('broadcastPreviewLogic', () => {
         expect(query.mock.calls.map(([sent]) => sent)).toEqual(
             [[], PRO_PLAN].map((properties) => ({
                 kind: NodeKind.ActorsQuery,
-                tags: { productKey: ProductKey.WORKFLOWS, scene: Scene.Broadcast },
+                tags: { productKey: ProductKey.WORKFLOWS },
                 properties,
                 select: ['id', 'person_display_name -- Person', 'properties'],
                 limit: 25,
@@ -73,16 +90,72 @@ describe('broadcastPreviewLogic', () => {
 
     it('looks up preview people in the audience a saved draft resumes with', async () => {
         useMocks({ get: { '/api/projects/:team_id/hog_flows/:id/': () => [200, SAVED_DRAFT] } })
-        query.mockResolvedValueOnce({ results: [NO_EMAIL] }).mockResolvedValue({ results: [ADA] })
+        query.mockImplementation(async (sent: any) => ({ results: sent.properties.length ? [ADA] : [NO_EMAIL] }))
         wizard.unmount()
         wizard = broadcastWizardLogic({ id: 'broadcast-1' })
         wizard.mount()
         logic = broadcastPreviewLogic({ id: 'broadcast-1' })
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadPersonsSuccess', 'loadPersonsSuccess'])
-
+        await waitFor(() => expect(logic.values.persons.map((person) => person.id)).toEqual(['person-ada']))
         expect(query.mock.lastCall?.[0].properties).toEqual(PRO_PLAN)
-        expect(logic.values.persons.map((person) => person.id)).toEqual(['person-ada'])
+    })
+
+    describe('a saved broadcast with a cohort audience', () => {
+        let saved: Record<string, unknown>[]
+        let received: Record<string, unknown>[][]
+
+        beforeEach(() => {
+            received = []
+            useMocks({
+                get: { '/api/projects/:team_id/hog_flows/:id/': () => [200, savedBroadcast(saved)] },
+                post: {
+                    '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                        const sent: Record<string, unknown>[] = ((await request.json()) as any).query.properties
+                        received.push(sent)
+                        const rejected = sent.flatMap((filter) =>
+                            Object.keys(filter).filter(
+                                (key) => !ACCEPTED_FILTER_KEYS[String(filter.type)]?.includes(key)
+                            )
+                        )
+                        return rejected.length
+                            ? [400, { type: 'validation_error', detail: `Extra inputs: ${rejected.join(', ')}` }]
+                            : [200, { results: sent.length ? [ADA] : [] }]
+                    },
+                },
+            })
+        })
+
+        const resume = async (properties: Record<string, unknown>[]): Promise<void> => {
+            saved = properties
+            silenceKeaLoadersErrors()
+            wizard.unmount()
+            wizard = broadcastWizardLogic({ id: 'broadcast-1' })
+            wizard.mount()
+            logic = broadcastPreviewLogic({ id: 'broadcast-1' })
+            logic.mount()
+        }
+        const previewPeople = (): string[] => logic.values.persons.map((person) => person.id)
+
+        const COHORT = { key: 'id', type: 'cohort', value: 42, operator: 'in' }
+        const PRO = { key: 'plan', type: 'person', value: ['pro'], operator: 'exact' }
+
+        it.each([
+            [
+                'an included cohort and sends it to the query as in',
+                [savedCondition(COHORT, false), savedCondition(PRO, false)],
+                [COHORT, PRO],
+            ],
+            [
+                'an excluded cohort and sends it to the query as not_in',
+                [savedCondition(COHORT, true), savedCondition(PRO, false)],
+                [{ ...COHORT, operator: 'not_in' }, PRO],
+            ],
+        ])('loads preview people for %s', async (_name, conditions, sent) => {
+            await resume(conditions)
+
+            await waitFor(() => expect(previewPeople()).toEqual(['person-ada']))
+            expect(received.at(-1)).toEqual(sent)
+        })
     })
 
     it.each([
@@ -131,11 +204,15 @@ describe('broadcastPreviewLogic', () => {
         expect(logic.values.previewPerson?.id).toBe(expected)
     })
 
-    it('drops the pick when the audience reloads', async () => {
+    it.each([
+        ['a new audience', PRO_PLAN],
+        ['the same audience applied again', []],
+    ])('drops the pick when %s reloads the people', async (_name, audience) => {
         await mountWith([NO_EMAIL, ADA])
         logic.actions.selectPerson('person-anon')
-        wizard.actions.setAudienceProperties(PRO_PLAN)
-        await expectLogic(logic).toDispatchActions(['loadPersonsSuccess'])
+        await expectLogic(logic, () => wizard.actions.setAudienceProperties([...audience])).toDispatchActions([
+            'loadPersonsSuccess',
+        ])
 
         expect(logic.values.selectedPersonId).toBeNull()
         expect(logic.values.previewPerson?.id).toBe('person-ada')
@@ -156,6 +233,28 @@ describe('broadcastPreviewLogic', () => {
         respond({ results: [ADA] })
         await expectLogic(logic).toDispatchActions(['loadPersonsSuccess'])
         expect(logic.values).toMatchObject({ personsFailed: false, personsLoading: false })
+    })
+
+    it('keeps loading when a replaced lookup fails after a newer one starts', async () => {
+        await mountWith([ADA])
+        silenceKeaLoadersErrors()
+        let rejectOld: (error: Error) => void = () => {}
+        let resolveNew: (value: unknown) => void = () => {}
+        query
+            .mockReturnValueOnce(new Promise((_, reject) => (rejectOld = reject)))
+            .mockReturnValueOnce(new Promise((resolve) => (resolveNew = resolve)))
+        logic.actions.loadPersons()
+        await waitFor(() => expect(query).toHaveBeenCalledTimes(2))
+        logic.actions.loadPersons()
+        await waitFor(() => expect(query).toHaveBeenCalledTimes(3))
+
+        rejectOld(new Error('query failed'))
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        expect(logic.values).toMatchObject({ personsLoading: true, personsFailed: false })
+
+        resolveNew({ results: [GRACE] })
+        await expectLogic(logic).toDispatchActions(['loadPersonsSuccess'])
+        expect(logic.values.persons.map((person) => person.id)).toEqual(['person-grace'])
     })
 
     it('re-renders the email and push merge tags when the person or the message changes', async () => {

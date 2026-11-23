@@ -226,6 +226,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 WRITE_PATH_LATENCY_BUCKETS_MS,
             ),
             (
+                Matcher::Full("personhog_leader_pg_fallback_duration_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
                 Matcher::Full("personhog_leader_fenced_producer_window_ms".into()),
                 WRITE_PATH_LATENCY_BUCKETS_MS,
             ),
@@ -579,7 +583,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&fenced),
         Arc::clone(&authority),
         Arc::clone(&emitted_versions),
-    );
+    )
+    .with_fill(config.cache_fill());
     let advertise_address =
         personhog_leader::config::derive_advertise_address(&config.grpc_address, &config.pod_ip)
             .expect("Invalid advertise address configuration");

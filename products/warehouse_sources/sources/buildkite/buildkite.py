@@ -1,8 +1,13 @@
-from datetime import UTC, date, datetime
+from collections.abc import Callable
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional, cast
+
+from dateutil.relativedelta import relativedelta
+from requests import Request, Response
 
 from products.warehouse_sources.sources.buildkite.settings import BUILDKITE_ENDPOINTS, BuildkiteEndpointConfig
 from products.warehouse_sources.sources.sdk import (
+    BasePaginator,
     ClientConfig,
     Endpoint,
     EndpointResource,
@@ -12,8 +17,10 @@ from products.warehouse_sources.sources.sdk import (
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
+    coerce_date,
     frozen,
     make_tracked_session,
+    parse_datetime_or_epoch,
     rename_parent_fields,
     rest_api_resources,
     validate_via_probe,
@@ -27,7 +34,28 @@ PAGE_SIZE = 100
 SUITE_CHILD_ENDPOINTS = ("test_suite_runs", "test_suite_tests")
 
 # Builds are the fan-out parent for every per-build child table.
-BUILD_CHILD_ENDPOINTS = ("jobs", "artifacts", "annotations")
+BUILD_CHILD_ENDPOINTS = ("jobs", "artifacts", "annotations", "build_tests")
+
+# The Pipelines children address a build by pipeline and number, the Test Engine one by build id.
+BUILD_CHILD_PATH_FIELDS: dict[str, dict[str, str]] = {
+    "jobs": {"pipeline_slug": "pipeline_slug", "build_number": "number"},
+    "artifacts": {"pipeline_slug": "pipeline_slug", "build_number": "number"},
+    "annotations": {"pipeline_slug": "pipeline_slug", "build_number": "number"},
+    "build_tests": {"build_id": "id"},
+}
+
+# Unlike the other list endpoints, these answer with an envelope and paginate on a cursor URL in
+# the body rather than a Link header.
+ENVELOPE_ENDPOINTS = ("jobs", "audit_events")
+
+# Buildkite only serves usage from today minus three calendar months on.
+USAGE_LOOKBACK = relativedelta(months=3)
+
+# Test Engine keeps adding results to a build until it finishes, so an incremental sync of these
+# children also walks back over builds created this long before the watermark. Of those, it
+# fetches again only the builds that were not finished at the watermark.
+UNFINISHED_BUILD_RESCAN_ENDPOINTS = ("build_tests",)
+UNFINISHED_BUILD_RESCAN = timedelta(days=1)
 
 # Without `scope=all` the annotations listing returns only build-scoped annotations and drops the
 # job-scoped ones.
@@ -70,6 +98,13 @@ FANOUT_ENDPOINTS: dict[str, BuildkiteFanoutConfig] = {
         parent_field_renames={"id": "team_id", "slug": "team_slug"},
     ),
     "team_members": BuildkiteFanoutConfig(
+        parent_name="teams",
+        parent_path=BUILDKITE_ENDPOINTS["teams"].path,
+        resolve_param="team_id",
+        resolve_field="id",
+        parent_field_renames={"id": "team_id", "slug": "team_slug"},
+    ),
+    "team_suites": BuildkiteFanoutConfig(
         parent_name="teams",
         parent_path=BUILDKITE_ENDPOINTS["teams"].path,
         resolve_param="team_id",
@@ -157,16 +192,103 @@ def _bind_organization(path: str, organization: str) -> str:
     return path.replace("{organization}", organization)
 
 
+def _apply_envelope(endpoint: str, endpoint_config: Endpoint) -> None:
+    if endpoint in ENVELOPE_ENDPOINTS:
+        endpoint_config["data_selector"] = "items"
+        endpoint_config["paginator"] = JSONResponsePaginator(next_url_path="links.next")
+
+
 def _list_endpoint_resource(endpoint: str, organization: str, params: dict[str, Any]) -> EndpointResource:
+    endpoint_config: Endpoint = {
+        "path": _bind_organization(BUILDKITE_ENDPOINTS[endpoint].path, organization),
+        "params": params,
+        # Buildkite list endpoints return a top-level JSON array; a non-list 200 body
+        # means the response shape changed — fail loud instead of syncing garbage.
+        "data_selector_required": True,
+    }
+    _apply_envelope(endpoint, endpoint_config)
+    return {"name": endpoint, "endpoint": endpoint_config}
+
+
+@frozen
+class UsageWindow:
+    start: date
+    end: date
+
+
+class BuildkiteUsagePaginator(BasePaginator):
+    """Requests the usage summary once per calendar month window."""
+
+    def __init__(self, windows: list[UsageWindow]) -> None:
+        super().__init__()
+        self.windows = windows
+        self.index = 0
+        self._has_next_page = bool(windows)
+
+    def init_request(self, request: Request) -> None:
+        self.update_request(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        self.index += 1
+        self._has_next_page = self.index < len(self.windows)
+
+    def update_request(self, request: Request) -> None:
+        if self.index >= len(self.windows):
+            return
+        window = self.windows[self.index]
+        if request.params is None:
+            request.params = {}
+        request.params["from"] = window.start.isoformat()
+        request.params["to"] = window.end.isoformat()
+
+
+def _today() -> date:
+    return datetime.now(UTC).date()
+
+
+def _usage_windows(today: date, last_value: Any = None) -> list[UsageWindow]:
+    """Whole calendar months the API still serves, from the month before the watermark's on.
+
+    A month the lookback limit cuts in half is left out, because its row would cover only part of
+    the month and key on a date other than the month start. The month before the watermark's is
+    read again, because the first sync after a month ends can see a cached or incomplete total.
+    """
+    earliest = today - USAGE_LOOKBACK
+    month = earliest.replace(day=1)
+    if month < earliest:
+        month += relativedelta(months=1)
+
+    watermark = coerce_date(last_value)
+    if watermark is not None:
+        month = max(month, watermark.replace(day=1) - relativedelta(months=1))
+
+    windows: list[UsageWindow] = []
+    while month <= today:
+        month_end = month + relativedelta(months=1, days=-1)
+        windows.append(UsageWindow(start=month, end=min(month_end, today)))
+        month += relativedelta(months=1)
+    return windows
+
+
+def _flatten_reporting_period(row: dict[str, Any]) -> dict[str, Any]:
+    # The primary key has to be a top-level column, and the period only arrives nested.
+    period = row.get("reporting_period")
+    row["reporting_period_from"] = period.get("from") if isinstance(period, dict) else None
+    row["reporting_period_to"] = period.get("to") if isinstance(period, dict) else None
+    return row
+
+
+def _usage_resource(organization: str, windows: list[UsageWindow]) -> EndpointResource:
     return {
-        "name": endpoint,
+        "name": "organization_usage",
         "endpoint": {
-            "path": _bind_organization(BUILDKITE_ENDPOINTS[endpoint].path, organization),
-            "params": params,
-            # Buildkite list endpoints return a top-level JSON array; a non-list 200 body
-            # means the response shape changed — fail loud instead of syncing garbage.
+            "path": _bind_organization(BUILDKITE_ENDPOINTS["organization_usage"].path, organization),
+            "paginator": BuildkiteUsagePaginator(windows),
+            # The summary is one object per window, which becomes one row.
+            "data_selector": "$",
             "data_selector_required": True,
         },
+        "data_map": _flatten_reporting_period,
     }
 
 
@@ -238,33 +360,50 @@ def _flatten_pipeline_slug(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
-def _builds_parent_resource(organization: str, created_from: str | None) -> EndpointResource:
-    params: dict[str, Any] = {"per_page": PAGE_SIZE}
+def _skip_builds_finished_before(watermark: datetime) -> Callable[[dict[str, Any]], list[dict[str, Any]]]:
+    # A build created before the watermark is in the window only because of the rescan. Its
+    # children are complete if it had finished by then, so only an unfinished build is fetched again.
+    def keep(row: dict[str, Any]) -> list[dict[str, Any]]:
+        row = _flatten_pipeline_slug(row)
+        created_at = parse_datetime_or_epoch(row.get("created_at"))
+        finished_at = parse_datetime_or_epoch(row.get("finished_at"))
+        if created_at is not None and created_at < watermark and finished_at is not None and finished_at < watermark:
+            return []
+        return [row]
+
+    return keep
+
+
+def _builds_parent_resource(
+    organization: str, created_from: str | None, rescan_watermark: datetime | None = None
+) -> EndpointResource:
+    # The children read only the build metadata, so the embedded jobs are left out of the listing.
+    params: dict[str, Any] = {"per_page": PAGE_SIZE, "exclude_jobs": "true"}
     if created_from is not None:
         params["created_from"] = created_from
     resource = _list_endpoint_resource("builds", organization, params)
-    resource["data_map"] = _flatten_pipeline_slug
+    resource["data_map"] = (
+        _flatten_pipeline_slug if rescan_watermark is None else _skip_builds_finished_before(rescan_watermark)
+    )
     return resource
 
 
 def _build_child_resource(endpoint: str, organization: str) -> EndpointResource:
+    path_params: dict[str, Any] = {
+        param: {"type": "resolve", "resource": "builds", "field": field}
+        for param, field in BUILD_CHILD_PATH_FIELDS[endpoint].items()
+    }
     endpoint_config: Endpoint = {
         "path": _bind_organization(BUILDKITE_ENDPOINTS[endpoint].path, organization),
         "params": {
-            # Both path params bind fields of the same parent build row.
-            "pipeline_slug": {"type": "resolve", "resource": "builds", "field": "pipeline_slug"},
-            "build_number": {"type": "resolve", "resource": "builds", "field": "number"},
+            **path_params,
             "per_page": PAGE_SIZE,
             **BUILD_CHILD_EXTRA_PARAMS.get(endpoint, {}),
         },
         "data_selector_required": True,
         "response_actions": [{"status_code": 404, "action": "ignore"}],
     }
-    if endpoint == "jobs":
-        # Unlike the other list endpoints, jobs answers with an envelope and paginates on a
-        # cursor URL in the body rather than a Link header.
-        endpoint_config["data_selector"] = "items"
-        endpoint_config["paginator"] = JSONResponsePaginator(next_url_path="links.next")
+    _apply_envelope(endpoint, endpoint_config)
     return {
         "name": endpoint,
         "include_from_parent": ["id", "number", "pipeline_slug", "created_at"],
@@ -394,14 +533,24 @@ def buildkite_source(
         ]
     elif endpoint in BUILD_CHILD_ENDPOINTS:
         created_from = _build_created_from(should_use_incremental_field, db_incremental_field_last_value)
+        rescan_watermark = (
+            parse_datetime_or_epoch(db_incremental_field_last_value)
+            if created_from is not None and endpoint in UNFINISHED_BUILD_RESCAN_ENDPOINTS
+            else None
+        )
+        if rescan_watermark is not None:
+            created_from = _format_incremental_value(rescan_watermark - UNFINISHED_BUILD_RESCAN)
         resources = [
-            _builds_parent_resource(organization, created_from),
+            _builds_parent_resource(organization, created_from, rescan_watermark),
             _build_child_resource(endpoint, organization),
         ]
         # Resume is deliberately off here: the framework rewrites the full set of completed child
         # paths on every parent, which an organization's build list makes quadratic. A retry
         # re-walks the window and merge dedupes on the primary key.
         manager = None
+    elif endpoint == "organization_usage":
+        windows = _usage_windows(_today(), db_incremental_field_last_value if should_use_incremental_field else None)
+        resources = [_usage_resource(organization, windows)]
     else:
         params = _build_initial_params(
             config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
