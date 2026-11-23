@@ -198,6 +198,8 @@ WORKOS_RADAR_ENABLED = get_from_env("WORKOS_RADAR_ENABLED", False, type_cast=str
 # Public WorkOS client ID. The login page loads the Radar browser script with it, and the
 # script's token lets Radar link device signals to the attempt.
 WORKOS_RADAR_CLIENT_ID = get_from_env("WORKOS_RADAR_CLIENT_ID", "")
+# Stays under the 1,000 requests per minute that WorkOS allows each API key on /radar/*, see posthog/egress/workos_radar/
+WORKOS_RADAR_EGRESS_PER_MINUTE_BUDGET = get_from_env("WORKOS_RADAR_EGRESS_PER_MINUTE_BUDGET", 800, type_cast=int)
 
 # Cloudflare Turnstile (challenge verification for Radar "challenge" verdict)
 CLOUDFLARE_TURNSTILE_SECRET_KEY = get_from_env("CLOUDFLARE_TURNSTILE_SECRET_KEY", "")

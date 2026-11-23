@@ -6,6 +6,7 @@ import requests
 import structlog
 from celery import Task, shared_task
 
+from posthog.egress.workos_radar import WorkosRadarEgressBudgetExhausted
 from posthog.workos_radar import RadarAttempt, RadarReportFailed, send_attempt_success
 
 logger = structlog.get_logger(__name__)
@@ -25,7 +26,7 @@ def retry_countdown(retries: int, retry_after: Optional[int]) -> int:
 def report_radar_attempt_success(self: Task, attempt_id: str, challenge_completed: bool = False) -> None:
     try:
         send_attempt_success(attempt_id, challenge_completed)
-    except (RadarReportFailed, requests.ConnectionError, requests.Timeout) as error:
+    except (RadarReportFailed, WorkosRadarEgressBudgetExhausted, requests.ConnectionError, requests.Timeout) as error:
         retry_after = error.retry_after if isinstance(error, RadarReportFailed) else None
         raise self.retry(exc=error, countdown=retry_countdown(self.request.retries, retry_after))
 

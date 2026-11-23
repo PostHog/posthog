@@ -30,6 +30,8 @@ import posthoganalytics
 from rest_framework.exceptions import APIException
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
+from posthog.egress.workos_radar import WorkosRadarEgressBudgetExhausted, workos_radar_request
 from posthog.models.instance_setting import get_instance_setting
 from posthog.turnstile import consume_challenge_nonce, create_challenge_nonce, verify_turnstile_token
 from posthog.utils import _normalize_ip, get_ip_address, get_short_user_agent, get_trusted_client_ip
@@ -380,15 +382,17 @@ def _decide_outcome(verdict: RadarVerdict, email: str, action: RadarAction = Rad
     return "allow"
 
 
-def _post_attempt(payload: dict[str, str], timeout: float) -> requests.Response:
-    return requests.post(
+def _post_attempt(payload: dict[str, str], timeout: float, action: RadarAction) -> requests.Response:
+    # A person waits on the check, so it runs ahead of the success reports when the budget runs low
+    return workos_radar_request(
+        "POST",
         WORKOS_RADAR_API_URL,
-        headers={
-            "Authorization": f"Bearer {settings.WORKOS_RADAR_API_KEY}",
-            "Content-Type": "application/json",
-        },
-        json=payload,
+        api_key=settings.WORKOS_RADAR_API_KEY,
+        source=action.value,
+        endpoint="attempts",
+        priority=Priority.NORMAL,
         timeout=timeout,
+        json=payload,
     )
 
 
@@ -414,7 +418,7 @@ def _call_radar_api(
         }
         if signals_id:
             payload["signals_id"] = signals_id
-        response = _post_attempt(payload, timeout)
+        response = _post_attempt(payload, timeout, action)
 
         # The browser sends the signals token, so a caller can send one that WorkOS refuses. An
         # API error lets the attempt through, so the check runs again without the token rather
@@ -425,7 +429,9 @@ def _call_radar_api(
                 status_code=response.status_code,
                 email_hash=_hash_email(email),
             )
-            response = _post_attempt({key: value for key, value in payload.items() if key != "signals_id"}, timeout)
+            response = _post_attempt(
+                {key: value for key, value in payload.items() if key != "signals_id"}, timeout, action
+            )
 
         if response.status_code == 200:
             data = response.json()
@@ -460,6 +466,10 @@ def _call_radar_api(
             email_hash=_hash_email(email),
         )
         return RadarAttempt(verdict=RadarVerdict.ERROR)
+    except WorkosRadarEgressBudgetExhausted:
+        # The same outcome as a 429 from WorkOS, reached before the call spends any of its limit
+        logger.warning("workos_radar_budget_exhausted", action=action.value, email_hash=_hash_email(email))
+        return RadarAttempt(verdict=RadarVerdict.ERROR)
     except Exception as e:
         logger.exception(
             "workos_radar_exception",
@@ -476,14 +486,16 @@ def send_attempt_success(attempt_id: str, challenge_completed: bool = False) -> 
     body = {"attempt_status": "success"}
     if challenge_completed:
         body["challenge_status"] = "success"
-    response = requests.put(
+    # Raises WorkosRadarEgressBudgetExhausted when the budget runs low, so the report waits for the checks
+    response = workos_radar_request(
+        "PUT",
         f"{WORKOS_RADAR_API_URL}/{attempt_id}",
-        headers={
-            "Authorization": f"Bearer {settings.WORKOS_RADAR_API_KEY}",
-            "Content-Type": "application/json",
-        },
-        json=body,
+        api_key=settings.WORKOS_RADAR_API_KEY,
+        source="success_report",
+        endpoint="attempts/:id",
+        priority=Priority.BATCH,
         timeout=WORKOS_RADAR_TIMEOUT,
+        json=body,
     )
     if response.status_code == 429 or response.status_code >= 500:
         raise RadarReportFailed(response.status_code, retry_after=_retry_after_seconds(response))

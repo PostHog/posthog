@@ -255,7 +255,7 @@ class TestAccountRequests(ProvisioningTestBase):
         self.partner.is_verified = partner_verified
         self.partner.save(update_fields=["is_verified"])
 
-        with patch("posthog.workos_radar.requests.post") as mock_radar:
+        with patch("posthog.workos_radar.workos_radar_request") as mock_radar:
             mock_radar.return_value.status_code = 200
             mock_radar.return_value.json.return_value = {"verdict": verdict}
             res = self._post_account_request(self._account_request_payload(email=email))
