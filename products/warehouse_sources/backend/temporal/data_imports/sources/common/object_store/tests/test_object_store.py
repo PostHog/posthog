@@ -20,6 +20,7 @@ import boto3
 import pyarrow as pa
 import structlog
 import pyarrow.parquet as pq
+from azure.core.exceptions import ResourceNotFoundError
 from botocore.awsrequest import AWSResponse
 from botocore.compat import HTTPHeaders
 from botocore.exceptions import ClientError
@@ -837,6 +838,41 @@ class TestReadTable:
             read_rows(store, table)
 
         # Self-heals on the next sync's fresh listing, so it must stay out of error tracking.
+        assert error_message_matches(str(error.value), FakeObjectStorageSource().get_retryable_errors())
+
+    def test_a_blob_deleted_during_the_read_is_a_translated_retryable_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "orders.csv").write_bytes(b"id\n1\n")
+        store = local_store(tmp_path)
+        [table] = group_tables(store.list_objects("", 10), DiscoveryOptions(), root_name="root")
+
+        # adlfs only turns a deleted Azure blob into FileNotFoundError from the `open()` call
+        # itself (which reads its size); a blob deleted during the first ranged read raises the
+        # Azure SDK's own ResourceNotFoundError straight from `download_blob`, uncaught by adlfs.
+        # Not reproducible with real timing or without live Azure credentials, so the read call
+        # is the mocked boundary.
+        class _DeletedDuringRead:
+            def readable(self) -> bool:
+                return True
+
+            def read(self, size: int = -1) -> bytes:
+                raise ResourceNotFoundError("The specified blob does not exist.")
+
+            def readline(self) -> bytes:
+                raise ResourceNotFoundError("The specified blob does not exist.")
+
+            def __enter__(self) -> "_DeletedDuringRead":
+                return self
+
+            def __exit__(self, *args: Any) -> None:
+                pass
+
+        monkeypatch.setattr(store.fs, "open", lambda *args, **kwargs: _DeletedDuringRead())
+
+        with pytest.raises(ObjectStorageError, match=FILE_REMOVED_ERROR) as error:
+            read_rows(store, table)
+
         assert error_message_matches(str(error.value), FakeObjectStorageSource().get_retryable_errors())
 
     def test_corrupt_gzip_is_a_parse_error(self, tmp_path: Path) -> None:

@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from typing import Any, ClassVar, Generic, NoReturn, Optional, cast
 
 import pyarrow as pa
+from azure.core.exceptions import ResourceNotFoundError
 from botocore.exceptions import ClientError
 from structlog.types import FilteringBoundLogger
 
@@ -655,9 +656,12 @@ def _iter_files(
                 yield from iter_file_tables(stream, stored, file_format, resolved.csv, logger)
         except PermissionError as e:
             _raise_translated(e, store.root)
-        except FileNotFoundError as e:
+        except (FileNotFoundError, ResourceNotFoundError) as e:
             # Listed moments earlier by `_resolve_files`; gone by the time it's opened here. A bare
             # FileNotFoundError would otherwise escape untranslated, with only its path as the
             # message, and `translate_storage_error`'s FileNotFoundError branch means something
             # else here (a missing bucket from a listing call), so this is raised directly.
+            # adlfs only translates a deleted blob to FileNotFoundError from the `open()` call
+            # itself (which reads its size); a blob deleted during a later ranged read raises the
+            # Azure SDK's own ResourceNotFoundError straight from `download_blob`, uncaught by adlfs.
             raise ObjectStorageError(f"{FILE_REMOVED_ERROR} '{store.path(stored.path)}'") from e
