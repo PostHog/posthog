@@ -13,6 +13,7 @@ export type EmailDomainSetupEntry =
     | 'configure'
     | 'sandbox_sender_banner'
     | 'sandbox_sender_banner_repair'
+    | 'stopped_sender_banner'
 
 export const emailDomainSetupPath = (
     id: number | 'new',
