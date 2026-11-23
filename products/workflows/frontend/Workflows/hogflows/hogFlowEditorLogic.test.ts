@@ -367,10 +367,24 @@ describe('hogFlowEditorLogic', () => {
             expect(insertEmail()?.type).toEqual('email_sandbox')
         })
 
-        it.each<[string, IntegrationType[], Partial<HogFlowAction>]>([
+        const savedSenderlessEmail = {
+            id: 'email-saved',
+            type: 'function_email',
+            name: 'Email',
+            description: '',
+            created_at: 0,
+            updated_at: 0,
+            config: {
+                template_id: 'template-email',
+                inputs: { email: { value: { to: { email: '{person.properties.email}' }, from: {} } } },
+            },
+        } as unknown as HogFlowAction
+
+        it.each<[string, IntegrationType[], HogFlowAction | null, Partial<HogFlowAction>]>([
             [
-                'the project has no verified sender',
+                'a new email step on the test sender when the project has no verified sender',
                 [],
+                null,
                 {
                     type: 'email_sandbox',
                     config: expect.objectContaining({
@@ -379,11 +393,23 @@ describe('hogFlowEditorLogic', () => {
                 },
             ],
             [
-                'the default sender stopped and another can send',
+                'a copied email step on the test sender with its Hog templating when the project has no verified sender',
+                [],
+                savedSenderlessEmail,
+                {
+                    type: 'email_sandbox',
+                    config: expect.objectContaining({
+                        inputs: { email: expect.objectContaining({ templating: 'hog' }) },
+                    }),
+                },
+            ],
+            [
+                'a new email step from the sender that can send when the default sender stopped',
                 [
                     { ...ownSender, config: { verified: true, ses_sending_status: 'failed' } } as IntegrationType,
                     { ...ownSender, id: 8 },
                 ],
+                null,
                 {
                     type: 'function_email',
                     config: expect.objectContaining({
@@ -395,7 +421,7 @@ describe('hogFlowEditorLogic', () => {
                     }),
                 },
             ],
-        ])('saves a new email step with a sender that can send when %s', async (_, integrations, expected) => {
+        ])('saves %s', async (_, integrations, copied, expected) => {
             const created: Partial<HogFlow>[] = []
             useMocks({
                 get: {
@@ -441,11 +467,26 @@ describe('hogFlowEditorLogic', () => {
             integrationsLogic.actions.loadIntegrationsSuccess(integrations)
             sandboxSenderLogic.actions.loadSandboxStatusSuccess(status)
 
-            insertEmail()
+            if (copied) {
+                workflowLogic().actions.setWorkflowInfo({
+                    actions: [NEW_WORKFLOW.actions[0], copied, NEW_WORKFLOW.actions[1]],
+                    edges: [edge(TRIGGER_NODE_ID, copied.id, 'continue'), edge(copied.id, EXIT_NODE_ID, 'continue')],
+                })
+                logic.actions.startCopyingNode({
+                    id: copied.id,
+                    type: copied.type,
+                    data: copied,
+                    position: { x: 0, y: 0 },
+                } as HogFlowActionNode)
+                logic.actions.onDrop(undefined, edge(copied.id, EXIT_NODE_ID, 'continue'))
+            } else {
+                insertEmail()
+            }
             workflowLogic().actions.saveWorkflow(workflowLogic().values.workflow)
 
             await waitFor(() => expect(created).toHaveLength(1))
-            expect(created[0].actions?.find((action) => action.name === 'Email')).toMatchObject(expected)
+            const inserted = created[0].actions?.find((action) => action.name === 'Email' && action.id !== copied?.id)
+            expect(inserted).toMatchObject(expected)
         })
 
         it('keeps the sandbox step and shows a retry when setting up the sender fails', async () => {
