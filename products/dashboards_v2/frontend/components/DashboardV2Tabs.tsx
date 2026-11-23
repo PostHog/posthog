@@ -93,6 +93,10 @@ export function DashboardV2Tabs(): JSX.Element | null {
                                     onChange={(event) => setDraft({ id: tab.id, title: event.target.value })}
                                     onBlur={commitRename}
                                     onKeyDown={(event) => {
+                                        // The tab list moves focus on these keys, which would blur and end the rename.
+                                        if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+                                            event.stopPropagation()
+                                        }
                                         if (event.key === 'Enter') {
                                             commitRename()
                                         } else if (event.key === 'Escape') {

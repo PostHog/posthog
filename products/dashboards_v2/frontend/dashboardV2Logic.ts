@@ -186,10 +186,14 @@ export const dashboardV2Logic = kea<dashboardV2LogicType>([
             if (values.disabledReasonFor(edit.edit)) {
                 return
             }
-            const next = applyEdit(values.dashboard, edit)
+            const next = applyEdit(values.dashboard, edit, (dashboard) => withFolds(dashboard, values.folds))
             // A press that moved nothing must not add an undo step or clear what could be redone.
             if (objectsEqual(next, values.dashboard)) {
                 return
+            }
+            // With no tab in the URL the first tab shows, so a reorder would switch tabs unless the shown one is pinned.
+            if (edit.edit === 'moveTab' && values.activeTabId === null) {
+                actions.setActiveTab(values.activeTab.id)
             }
             actions.commitDashboard(next)
             if (edit.edit === 'addTab') {

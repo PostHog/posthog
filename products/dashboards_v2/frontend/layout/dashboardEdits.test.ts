@@ -148,6 +148,21 @@ describe('dashboardEdits', () => {
         ])
     })
 
+    it('drops a tile from another tab into the row the folded view showed, below the folded section', () => {
+        const board = dashboard(
+            [section('group', 0, 0, 24, [text('inside', 0, 0, 24, 4)]), text('below', 0, 6, 24, 2)],
+            [text('other', 0, 0, 6, 3)]
+        )
+        const edit = { edit: 'moveTile' as const, id: 'other', grid: 'first', x: 0, y: 1 }
+
+        expect(allPlaces(applyEdit(board, edit, (shown) => withFolds(shown, { group: true })))).toEqual([
+            'group@first: 0,0,24,5',
+            'inside@group: 0,0,24,4',
+            'below@first: 5,5,19,2',
+            'other@first: 0,5,5,3',
+        ])
+    })
+
     test.each<{ name: string; id: string; before: string | null; expected: string[] }>([
         {
             name: 'right, in front of a later tab',
