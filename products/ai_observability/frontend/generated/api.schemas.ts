@@ -3210,6 +3210,16 @@ export interface EvalSuggestionDismissApi {
     reason?: EvalSuggestionDismissReasonEnumApi | null
 }
 
+export interface EvalSuggestionSettingsApi {
+    /** Whether the project gets suggestions. While false, the list returns none and the weekly run skips the project. */
+    enabled: boolean
+}
+
+export interface PatchedEvalSuggestionSettingsApi {
+    /** Whether the project gets suggestions. While false, the list returns none and the weekly run skips the project. */
+    enabled?: boolean
+}
+
 /**
  * * `active` - Active
  * * `paused` - Paused

@@ -37,6 +37,9 @@ Outcome = Literal[
     "prepare_failed",
     "prepare_retry",
     "prepare_timeout",
+    "run_cancelled",
+    "run_completed",
+    "run_failed",
 ]
 
 
@@ -81,6 +84,13 @@ class EgressActivities:
         assert input == self.execution
         if self.outcome == "renewal_failed":
             raise ApplicationError("Execution lease expired", non_retryable=True)
+        if self.outcome in ("run_cancelled", "run_completed", "run_failed"):
+            raise ApplicationError(
+                "The task run has ended",
+                self.outcome.removeprefix("run_"),
+                type="AgentEgressRunEnded",
+                non_retryable=True,
+            )
         if self.outcome == "renewal_retry":
             if activity.info().attempt == 1:
                 raise ApplicationError("Registry temporarily unavailable")
@@ -122,6 +132,9 @@ class EgressActivities:
         "prepare_failed",
         "prepare_retry",
         "prepare_timeout",
+        "run_cancelled",
+        "run_completed",
+        "run_failed",
     ],
 )
 @pytest.mark.parametrize("cleanup_fails", [False, True])
@@ -156,16 +169,20 @@ async def test_workflow_cleans_up_its_execution(
                     await asyncio.wait_for(activities.probing.wait(), timeout=15)
                 if outcome == "cancelled":
                     await handle.cancel()
-                elif outcome in ("renewal_failed", "renewal_retry"):
+                elif outcome in ("renewal_failed", "renewal_retry", "run_cancelled", "run_completed", "run_failed"):
                     await environment.sleep(11)
-                if outcome in ("completed", "renewal_retry", "prepare_retry", "prepare_timeout") and not cleanup_fails:
+                if outcome in ("run_completed", "run_failed") and (not cleanup_fails or outcome == "run_failed"):
+                    assert await asyncio.wait_for(handle.result(), timeout=15) == {}
+                elif (
+                    outcome in ("completed", "renewal_retry", "prepare_retry", "prepare_timeout") and not cleanup_fails
+                ):
                     assert await asyncio.wait_for(handle.result(), timeout=15) == {204: 3}
                 else:
                     with pytest.raises(WorkflowFailureError) as failure:
                         await asyncio.wait_for(handle.result(), timeout=15)
-                    expected = CancelledError if outcome == "cancelled" else ActivityError
+                    expected = CancelledError if outcome in ("cancelled", "run_cancelled") else ActivityError
                     assert isinstance(failure.value.cause, expected)
-                    if outcome != "cancelled":
+                    if outcome not in ("cancelled", "run_cancelled"):
                         assert isinstance(failure.value.cause, ActivityError)
                         assert isinstance(failure.value.cause.cause, ApplicationError)
                         expected_message = {
@@ -185,9 +202,9 @@ async def test_workflow_cleans_up_its_execution(
                     execution=activities.execution,
                     sandbox_id=None if outcome == "prepare_failed" else "sb-egress-test",
                     reason="failed"
-                    if outcome in ("renewal_failed", "probe_rejected", "prepare_failed")
+                    if outcome in ("renewal_failed", "probe_rejected", "prepare_failed", "run_failed")
                     else "cancelled"
-                    if outcome == "cancelled"
+                    if outcome in ("cancelled", "run_cancelled")
                     else "completed",
                 )
             finally:
