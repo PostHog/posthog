@@ -1,6 +1,6 @@
 import time
 import threading
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import ExitStack, contextmanager
 from typing import Any, Literal
 
@@ -21,6 +21,9 @@ from dns.rdtypes.ANY.TXT import TXT
 
 from posthog.dataclasses import frozen
 
+from products.workflows.backend.facade.contracts import EmailDomainStatusRecord
+from products.workflows.backend.facade.enums import EmailDomainSetupRecordKind
+from products.workflows.backend.services.email_domain_dns import PublishedRecords
 from products.workflows.backend.tests.fakes.faults import DnsFault, FaultInjector
 
 PUBLIC_RESOLVER_ADDRESS = "8.8.8.8"
@@ -30,6 +33,15 @@ TTL = 300
 
 RecordKey = tuple[dns.name.Name, dns.rdatatype.RdataType]
 Lookup = Literal["zone", "public"]
+
+
+def every_record_published(domain: str, records: Sequence[EmailDomainStatusRecord]) -> PublishedRecords:
+    return PublishedRecords(
+        records=frozenset(records),
+        dmarc_policies={
+            record: (record.value,) for record in records if record.kind == EmailDomainSetupRecordKind.DMARC
+        },
+    )
 
 
 def dns_operation(name: str, rdtype: str, *, at: Lookup | None = None) -> str:

@@ -37,7 +37,6 @@ from products.workflows.backend.facade.enums import (
 )
 from products.workflows.backend.services.email_domain_dns import (
     PublishedRecords,
-    dmarc_hostnames,
     dmarc_record_in_force,
     find_published_records,
     inherited_dmarc_record,
@@ -339,36 +338,12 @@ def _find_published_records(
     return tuple(in_force if record == dmarc else record for record in records), published
 
 
-@frozen
-class _DmarcRecord:
-    hostname: str
-    value: str
-
-
-def _find_dmarc_record(domain: str) -> _DmarcRecord | None:
-    resolver = dns.resolver.Resolver()
-    resolver.lifetime = 5  # seconds — keep the request path responsive
-    for hostname in dmarc_hostnames(domain):
-        try:
-            value = _dmarc_value(resolver.resolve(hostname, "TXT"))
-        except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
-            continue
-        except (dns.resolver.NoNameservers, dns.resolver.Timeout):
-            return None
-        except Exception:
-            logger.exception("Unexpected error during DMARC lookup for %s", hostname)
-            return None
-        if value is not None:
-            return _DmarcRecord(hostname=hostname, value=value)
-    return None
-
-
-def _dmarc_value(answers: Iterable[Any]) -> str | None:
-    for rdata in answers:
-        txt_value = "".join(s.decode("utf-8") if isinstance(s, bytes) else s for s in rdata.strings).strip()
-        if txt_value.lower().startswith("v=dmarc1"):
-            return txt_value
-    return None
+def _find_published_dmarc_record(
+    domain: str, records: Sequence[EmailDomainStatusRecord]
+) -> EmailDomainStatusRecord | None:
+    dmarc = [record for record in records if record.kind == EmailDomainSetupRecordKind.DMARC]
+    in_force, published = _find_published_records(domain, dmarc)
+    return next((record for record in in_force if record in published.records), None)
 
 
 _UNKNOWN = "Unknown"
@@ -842,7 +817,7 @@ class SESProvider:
             logger.info("security.oob_domain_seen guard=ses_domain_status")
 
         # DMARC: check via direct DNS lookup since AWS SES doesn't track it
-        dmarc_record = None if refuses_lookups else _find_dmarc_record(domain)
+        dmarc_record = None if refuses_lookups else _find_published_dmarc_record(domain, records)
 
         # Normalize overall status
         overall: EmailDomainVerificationStatus

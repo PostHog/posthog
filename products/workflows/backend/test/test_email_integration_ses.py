@@ -13,6 +13,7 @@ from posthog.models.team.team import Team
 from products.workflows.backend.providers import SESProvider
 from products.workflows.backend.providers.ses import AWS_ACCOUNT_ID_CACHE_KEY
 from products.workflows.backend.services.email_domain_dns import PublishedRecords
+from products.workflows.backend.tests.fakes.fake_dns import every_record_published
 
 
 class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
@@ -58,13 +59,10 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
             "MailFromDomainAttributes": {domain: {"MailFromDomainStatus": "Success"}}
         }
 
-    @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
-    def test_verify_email_domain_requires_team_tenant_association(self, mock_resolver_cls):
+    @patch("products.workflows.backend.providers.ses.find_published_records", side_effect=every_record_published)
+    def test_verify_email_domain_requires_team_tenant_association(self, _find_published_records):
         provider = self._build_ses_provider(tenants_for_domain={"partner.com": ["team-1"]})
         self._set_global_ses_success(provider, "partner.com")
-        dmarc_answer = MagicMock()
-        dmarc_answer.strings = [b"v=DMARC1; p=none;"]
-        mock_resolver_cls.return_value.resolve.return_value = [dmarc_answer]
 
         result_team_a = provider.verify_email_domain("partner.com", "feedback", team_id=1)
         result_team_b = provider.verify_email_domain("partner.com", "feedback", team_id=999)

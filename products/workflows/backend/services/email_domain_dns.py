@@ -1,3 +1,4 @@
+import re
 import logging
 import ipaddress
 from collections.abc import Mapping, Sequence
@@ -31,6 +32,7 @@ MAX_AUTHORITATIVE_NAMESERVERS = 2
 MAX_PARALLEL_LOOKUPS = 8
 ABSENT_ERRORS = (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer)
 _DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_domains=True)
+_DMARC_VERSION = re.compile(r"v\s*=\s*dmarc1\s*(;|$)", re.IGNORECASE)
 
 
 @frozen
@@ -43,7 +45,7 @@ class _Lookup:
 class PublishedRecords:
     records: frozenset[EmailDomainStatusRecord]
     unanswered: frozenset[EmailDomainStatusRecord] = frozenset()
-    dmarc_values: Mapping[EmailDomainStatusRecord, str] = field(default_factory=dict)
+    dmarc_policies: Mapping[EmailDomainStatusRecord, tuple[str, ...]] = field(default_factory=dict)
 
     @property
     def every_lookup_answered(self) -> bool:
@@ -66,12 +68,8 @@ def find_published_records(domain: str, records: Sequence[EmailDomainStatusRecor
     return PublishedRecords(
         records=from_zone.records | from_public.records,
         unanswered=from_public.unanswered,
-        dmarc_values={**from_zone.dmarc_values, **from_public.dmarc_values},
+        dmarc_policies={**from_zone.dmarc_policies, **from_public.dmarc_policies},
     )
-
-
-def dmarc_hostnames(domain: str) -> tuple[str, ...]:
-    return tuple(f"_dmarc.{name}" for name in dict.fromkeys((domain, _organizational_domain(domain))))
 
 
 def inherited_dmarc_record(domain: str, record: EmailDomainStatusRecord) -> EmailDomainStatusRecord | None:
@@ -88,7 +86,7 @@ def dmarc_record_in_force(
     own = replace(published, records=published.records - probe, unanswered=published.unanswered - probe)
     if record in published.records:
         return _with_published_value(record, own)
-    if inherited is None or record in published.unanswered:
+    if inherited is None or record in published.unanswered or record in published.dmarc_policies:
         return record, own
     if inherited in published.records:
         return _with_published_value(inherited, own)
@@ -100,7 +98,7 @@ def dmarc_record_in_force(
 def _with_published_value(
     record: EmailDomainStatusRecord, published: PublishedRecords
 ) -> tuple[EmailDomainStatusRecord, PublishedRecords]:
-    in_force = replace(record, value=published.dmarc_values[record])
+    in_force = replace(record, value=published.dmarc_policies[record][0])
     return in_force, replace(published, records=(published.records - {record}) | {in_force})
 
 
@@ -118,10 +116,10 @@ def _published_with(resolver: dns.resolver.Resolver, records: Sequence[EmailDoma
     return PublishedRecords(
         records=published,
         unanswered=frozenset(record for record in records if answers[_lookup_for(record)] is None),
-        dmarc_values={
-            record: value
-            for record in published
-            if record.kind == Kind.DMARC and (value := _dmarc_value(answers[_lookup_for(record)] or [])) is not None
+        dmarc_policies={
+            record: policies
+            for record in records
+            if record.kind == Kind.DMARC and (policies := _dmarc_policies(answers[_lookup_for(record)] or []))
         },
     )
 
@@ -191,7 +189,7 @@ def _normalized_hostname(hostname: str) -> str:
 def _is_published(record: EmailDomainStatusRecord, answers: list[str]) -> bool:
     match record.kind, record.type:
         case Kind.DMARC, _:
-            return _dmarc_value(answers) is not None
+            return len(_dmarc_policies(answers)) == 1
         case Kind.SPF | Kind.MAIL_FROM_SPF, _:
             # A second SPF record at the same name makes SPF fail for all mail from it (RFC 7208, 4.5).
             spf_records = [answer for answer in answers if _is_spf(answer)]
@@ -206,8 +204,8 @@ def _is_published(record: EmailDomainStatusRecord, answers: list[str]) -> bool:
             return record.value in answers
 
 
-def _dmarc_value(answers: list[str]) -> str | None:
-    return next((answer for answer in answers if answer.lower().startswith("v=dmarc1")), None)
+def _dmarc_policies(answers: list[str]) -> tuple[str, ...]:
+    return tuple(answer for answer in answers if _DMARC_VERSION.match(answer))
 
 
 def _is_spf(answer: str) -> bool:
