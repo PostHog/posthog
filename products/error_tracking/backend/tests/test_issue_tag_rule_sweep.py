@@ -32,7 +32,6 @@ from products.error_tracking.backend.models import (
 Source = ErrorTrackingIssueTag.Source
 
 QUERY = "products.error_tracking.backend.logic.issue_tags.sweep.execute_hogql_query"
-LABEL_WRITE_BATCH_SIZE = "products.error_tracking.backend.logic.issue_tags.sweep.LABEL_WRITE_BATCH_SIZE"
 WINDOW = timedelta(hours=25)
 
 
@@ -153,7 +152,7 @@ class TestSweepTeamTagRules(ClickhouseTestMixin, BaseTest):
             ("deleted", lambda rules: rules.delete(), 0),
             ("edited", lambda rules: rules.update(version=F("version") + 1), 0),
             ("disabled", lambda rules: rules.update(disabled_data={"message": "broken"}), 0),
-            ("deleted_between_label_batches", lambda rules: rules.delete(), 1),
+            ("deleted_between_labels", lambda rules: rules.delete(), 1),
         ]
     )
     def test_a_rule_changed_during_the_run_stops_its_labels(
@@ -170,8 +169,7 @@ class TestSweepTeamTagRules(ClickhouseTestMixin, BaseTest):
             if next(progress) == labels_before_change:
                 change(rules)
 
-        with patch(LABEL_WRITE_BATCH_SIZE, 1):
-            result = self._sweep(on_progress=on_progress)
+        result = self._sweep(on_progress=on_progress)
 
         assert result == self._result(dry_run=False, matching=2, to_write=2, written=labels_before_change)
         assert len(self._answers()) == labels_before_change

@@ -5,6 +5,7 @@ from enum import StrEnum
 from itertools import batched
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import Q
 
 import structlog
@@ -21,7 +22,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
-from products.error_tracking.backend.logic.issue_tags.enabled import _active_rules, active_rule_definition
+from products.error_tracking.backend.logic.issue_tags.enabled import _active_rules, lock_active_rule_definition
 from products.error_tracking.backend.logic.issue_tags.gate import issue_tags_enabled
 from products.error_tracking.backend.logic.issue_tags.rules import _read_properties
 from products.error_tracking.backend.logic.issue_tags.taggers.base import TagAnswer
@@ -40,9 +41,6 @@ QUERY_MAX_EXECUTION_SECONDS = 300
 # retry of a run then cuts the same issues, and the next day's run cuts different issues.
 MAX_ISSUES = MAX_SELECT_RETURNED_ROWS
 TAG_READ_BATCH_SIZE = 1000
-# The sweep reads the rule again before each batch of this many labels, so that an edit or a delete stops the writes
-# within one batch.
-LABEL_WRITE_BATCH_SIZE = 100
 # How many ids of matching issues with no answer for the rule's tag each error_tracking_tag_rule_sweep_rule log line
 # lists, so that a person can check some labels by hand.
 SAMPLE_ISSUES = 10
@@ -243,22 +241,22 @@ def _write_labels(
 ) -> int:
     answer = TagAnswer(value=True, probability=None, model=str(rule.id), question_version=rule.version, set_by=None)
     written = 0
-    for batch in batched(issue_ids, LABEL_WRITE_BATCH_SIZE, strict=False):
+    for issue_id in issue_ids:
         # A person can edit or delete the rule while the query or the writes run. A label from the edited rule would
         # carry an answer to the old filters, and a label from the deleted rule would stay after the delete removed the
-        # rule's tags.
-        definition = active_rule_definition(team.id, rule.id)
-        if definition is None or definition.question_version != rule.version or definition.key != rule.key:
-            logger.info("error_tracking_tag_rule_sweep_rule_changed", team_id=team.id, rule_id=str(rule.id))
-            return written
-        for issue_id in batch:
+        # rule's tags. The rule lock lasts until the label commits, so each label checks the rule as it stands.
+        with transaction.atomic():
+            definition = lock_active_rule_definition(team.id, rule.id)
+            if definition is None or definition.question_version != rule.version or definition.key != rule.key:
+                logger.info("error_tracking_tag_rule_sweep_rule_changed", team_id=team.id, rule_id=str(rule.id))
+                return written
             try:
                 if set_issue_tag(team.id, issue_id, definition, answer, ErrorTrackingIssueTag.Source.RULE):
                     written += 1
             except ErrorTrackingIssue.DoesNotExist:
                 # A merge or a delete removed the issue after ClickHouse read the fingerprint's issue.
                 pass
-            on_progress()
+        on_progress()
     return written
 
 
