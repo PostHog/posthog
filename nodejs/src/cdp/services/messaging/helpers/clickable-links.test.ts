@@ -4,6 +4,7 @@ import {
     TREE_MAX_ELEMENTS,
     TREE_MAX_FORMATTING_ELEMENTS,
     TREE_MAX_SCANS,
+    UNSUBSCRIBE_TOKENS_CHECKED,
     clickableHrefs,
     preferencesTokensInBody,
 } from './clickable-links'
@@ -141,7 +142,7 @@ describe('clickableHrefs', () => {
             '<svg></svg><div><a href="https://example.com/a"></div>' +
                 '<div>x</div>'.repeat(100) +
                 '<a href="https://example.com/bye">Unsubscribe</a>',
-            ['https://example.com/bye', 'https://example.com/a'],
+            ['https://example.com/a', 'https://example.com/bye'],
         ],
     ])('returns the hrefs a reader can click in %s', (_name, html, hrefs) => {
         expect(clickableHrefs(html)).toEqual(hrefs)
@@ -214,5 +215,19 @@ describe('preferencesTokensInBody', () => {
             '<div>x</div>'.repeat(20_000) +
             '<a href="https://app.posthog.com/messaging-preferences/tok-1/">Unsubscribe</a>'
         expect(preferencesTokensInBody({ html }, 'https://app.posthog.com')).toEqual(['tok-1'])
+    })
+
+    it('keeps the same first 50 tokens in document order with and without an SVG drawing', () => {
+        const paragraphs = [
+            '<p><a href="https://app.posthog.com/messaging-preferences/tok-first/">Unsubscribe</a></p>',
+            ...Array.from(
+                { length: UNSUBSCRIBE_TOKENS_CHECKED },
+                (_, i) => `<p><a href="https://app.posthog.com/messaging-preferences/tok-other-${i}/">Other</a></p>`
+            ),
+        ].join('')
+        const plain = preferencesTokensInBody({ html: paragraphs }, 'https://app.posthog.com')
+        const withSvg = preferencesTokensInBody({ html: `<svg></svg>${paragraphs}` }, 'https://app.posthog.com')
+        expect(plain).toContain('tok-first')
+        expect(withSvg).toEqual(plain)
     })
 })

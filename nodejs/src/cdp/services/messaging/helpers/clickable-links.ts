@@ -180,21 +180,21 @@ const boundedTree = (body: string): ParentNode | undefined => {
 const treeHrefs = (body: string): Set<string> => {
     const document = boundedTree(body)
     const hrefs = new Set<string>()
-    const parents: ParentNode[] = document ? [document] : []
-    for (let parent = parents.pop(); parent; parent = parents.pop()) {
-        for (const child of parent.childNodes) {
-            if (!('tagName' in child)) {
-                continue
-            }
+    const nodes: ParentNode[] = document ? [document] : []
+    for (let node = nodes.pop(); node; node = nodes.pop()) {
+        if ('tagName' in node && node.tagName === 'a') {
             const href =
-                child.tagName === 'a'
-                    ? (child.attrs.find(({ name, namespace }) => name === 'href' && !namespace) ??
-                      child.attrs.find(({ name }) => name === 'href'))
-                    : undefined
+                node.attrs.find(({ name, namespace }) => name === 'href' && !namespace) ??
+                node.attrs.find(({ name }) => name === 'href')
             if (href) {
                 hrefs.add(href.value)
             }
-            parents.push(child)
+        }
+        for (let i = node.childNodes.length - 1; i >= 0; i--) {
+            const child = node.childNodes[i]
+            if ('tagName' in child) {
+                nodes.push(child)
+            }
         }
     }
     return hrefs
