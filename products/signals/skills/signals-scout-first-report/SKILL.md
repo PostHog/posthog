@@ -8,6 +8,7 @@ description: >
 allowed_tools:
   - emit_report
 metadata:
+  audience: internal
   owner_team: signals
 ---
 

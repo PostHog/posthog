@@ -122,7 +122,7 @@ deny:
         exempt_author_teams:
             - 'team-workflows'
     mcp_core:
-        description: 'The MCP exec tool, server instructions, core instruction templates and guidance rules.'
+        description: 'The MCP exec tool, server instructions, core instruction templates, guidance rules, and the list of skills that learn serves.'
         rationale: "Owner-only: stamphog approves team-context-and-mcp changes here and refuses everyone else's. These files write the text that every customer's agent reads before its first call and mid-session, and exec parses and rejects every call those agents make. A required CODEOWNERS review blocked the team on its own diffs, so this category gates other teams only. A change from outside the team needs a human approval, and services/mcp/AGENTS.md tells agents to send the author to #team-context-and-mcp first."
         match:
             paths:
@@ -131,6 +131,7 @@ deny:
                 - '^services/mcp/src/lib/instructions-formatter\.ts$'
                 - '^services/mcp/src/hono/guidance/'
                 - '^services/mcp/src/templates/sections/(cli-[^/]*|exec-[^/]*|basic-functionality|compact-instructions|skills-first|tool-search)\.md$'
+                - '^services/mcp/src/skills/served-skills\.json$'
         exempt_author_teams:
             - 'team-context-and-mcp'
 deny_exceptions:

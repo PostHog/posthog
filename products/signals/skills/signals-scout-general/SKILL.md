@@ -15,6 +15,7 @@ allowed_tools:
   - emit_report
   - edit_report
 metadata:
+  audience: internal
   owner_team: signals
 ---
 

@@ -16,6 +16,7 @@ compatibility: >
   Task text is read via the tasks-* MCP tools (which enforce task visibility), never from the system tables.
   The SQL cookbook lives in references/queries.md.
 metadata:
+  audience: internal
   owner_team: signals
   scope: tasks
 scout-precheck-query: |

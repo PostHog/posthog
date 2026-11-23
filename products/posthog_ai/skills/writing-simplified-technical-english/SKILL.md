@@ -1,5 +1,7 @@
 ---
 name: writing-simplified-technical-english
+metadata:
+  audience: internal
 description: 'Write English that a reader cannot misread: one meaning per word, active voice, simple tenses, one idea per sentence, short sentences. Based on ASD-STE100 (Simplified Technical English), the controlled-language standard written for aircraft maintenance manuals. Use it for any prose an agent produces that someone else acts on. That covers reports and findings, PR descriptions and commit messages, instructions handed to another agent, tool descriptions, error messages, status summaries, and prompts. Also use it on request, with triggers like "simplify this", "make this readable", "too dense", "rewrite in STE", "simplified technical english", "ASD-STE100".'
 ---
 

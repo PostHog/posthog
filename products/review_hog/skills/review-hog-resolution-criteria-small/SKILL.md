@@ -4,6 +4,7 @@ description: >
   Fixes small bugs, typos, wording, and outdated documentation. Leaves changes that need a design
   decision to the author.
 metadata:
+  audience: internal
   owner_team: review_hog
   skill_type: resolution_criteria
 ---
