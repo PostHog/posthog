@@ -928,6 +928,230 @@ class _UnnestedQueryReader(CloningVisitor):
         return ast.Field(chain=[self.source_alias, name], start=node.start, end=node.end)
 
 
+_NUMERIC_TYPES = (ast.IntegerType, ast.FloatType, ast.DecimalType)
+_NEGATED_SUBQUERY_MEMBERSHIP = {
+    ast.CompareOperationOp.In: False,
+    ast.CompareOperationOp.GlobalIn: False,
+    ast.CompareOperationOp.NotIn: True,
+    ast.CompareOperationOp.GlobalNotIn: True,
+}
+
+
+@frozen
+class _LambdaSet:
+    alias: str
+
+    @property
+    def items_column(self) -> str:
+        return f"{self.alias}_items"
+
+    @property
+    def has_null_column(self) -> str:
+        return f"{self.alias}_has_null"
+
+
+class TrinoLambdaSubqueryLowerer(CloningVisitor):
+    def __init__(self, context: HogQLContext) -> None:
+        super().__init__(clear_types=False)
+        self.context = context
+        self.lambda_args: list[list[str]] = []
+        self.pending_sets: list[ast.JoinExpr] = []
+        self.set_index = 0
+
+    def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
+        outer_lambda_args, outer_pending_sets = self.lambda_args, self.pending_sets
+        self.lambda_args, self.pending_sets = [], []
+        try:
+            lowered = super().visit_select_query(node)
+            pending_sets = self.pending_sets
+        finally:
+            self.lambda_args, self.pending_sets = outer_lambda_args, outer_pending_sets
+        for join in pending_sets:
+            _append_cross_join(lowered, join)
+            _group_by_set_read_after_aggregation(lowered, join)
+        return lowered
+
+    def visit_lambda(self, node: ast.Lambda) -> ast.Lambda:
+        self.lambda_args.append(node.args)
+        try:
+            return super().visit_lambda(node)
+        finally:
+            self.lambda_args.pop()
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
+        negated = _NEGATED_SUBQUERY_MEMBERSHIP.get(node.op)
+        if not self.lambda_args or negated is None or not isinstance(node.right, (ast.SelectQuery, ast.SelectSetQuery)):
+            return super().visit_compare_operation(node)
+        if len(self.lambda_args) > 1:
+            raise TrinoLoweringError(
+                "TRINO_LAMBDA_SUBQUERY_NESTED", "a subquery inside a lambda nested in another lambda", node
+            )
+        if _read_lambda_arguments(node.right) & set(self.lambda_args[0]):
+            raise TrinoLoweringError(
+                "TRINO_LAMBDA_SUBQUERY_CORRELATED", "a subquery inside a lambda that reads a lambda argument", node
+            )
+        lambda_set = _LambdaSet(alias=f"__trino_lambda_set_{self.set_index}")
+        self.set_index += 1
+        value = _membership_value(self.visit(node.left), node.right, self.context)
+        self.pending_sets.append(ast.JoinExpr(table=self._set_query(node.right, lambda_set), alias=lambda_set.alias))
+        membership = ast.Call(
+            name="coalesce",
+            args=[
+                ast.Call(name="has", args=[ast.Field(chain=[lambda_set.alias, lambda_set.items_column]), value]),
+                ast.Field(chain=[lambda_set.alias, lambda_set.has_null_column]),
+            ],
+        )
+        return ast.Not(expr=membership) if negated else membership
+
+    def _set_query(self, subquery: ast.SelectQuery | ast.SelectSetQuery, lambda_set: _LambdaSet) -> ast.SelectQuery:
+        lowered = self.visit(subquery)
+        source_alias = f"{lambda_set.alias}_source"
+        column = ast.Field(chain=[source_alias, _name_single_column(lowered, lambda_set.alias)])
+        values = ast.Call(name="groupUniqArrayIf", args=[column, ast.Call(name="isNotNull", args=[clone_expr(column)])])
+        has_null = ast.CompareOperation(
+            op=ast.CompareOperationOp.Gt,
+            left=ast.Call(name="countIf", args=[ast.Call(name="isNull", args=[clone_expr(column)])]),
+            right=ast.Constant(value=0),
+        )
+        return ast.SelectQuery(
+            select=[
+                ast.Alias(
+                    alias=lambda_set.items_column, expr=ast.Call(name="coalesce", args=[values, ast.Array(exprs=[])])
+                ),
+                ast.Alias(alias=lambda_set.has_null_column, expr=has_null),
+            ],
+            select_from=ast.JoinExpr(table=lowered, alias=source_alias),
+        )
+
+
+def _first_select_query(subquery: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery:
+    first = subquery
+    while isinstance(first, ast.SelectSetQuery):
+        first = first.initial_select_query
+    if len(first.select) != 1:
+        raise TrinoLoweringError(
+            "TRINO_LAMBDA_SUBQUERY_SHAPE_UNSUPPORTED", "a subquery inside a lambda with more than one column", subquery
+        )
+    return first
+
+
+def _name_single_column(subquery: ast.SelectQuery | ast.SelectSetQuery, alias: str) -> str:
+    first = _first_select_query(subquery)
+    projection = first.select[0]
+    if isinstance(projection, ast.Alias):
+        return projection.alias
+    name = f"{alias}_value"
+    first.select = [ast.Alias(alias=name, expr=projection)]
+    if isinstance(first.type, ast.SelectQueryType):
+        first.type = dataclasses.replace(first.type, columns={name: projection.type or ast.UnknownType()})
+    return name
+
+
+def _membership_value(
+    value: ast.Expr, subquery: ast.SelectQuery | ast.SelectSetQuery, context: HogQLContext
+) -> ast.Expr:
+    value_type = _constant_type(value, context)
+    set_type = _constant_type(_first_select_query(subquery).select[0], context)
+    if isinstance(value_type, ast.StringType) and isinstance(set_type, _NUMERIC_TYPES):
+        return ast.Call(name="toInt" if isinstance(set_type, ast.IntegerType) else "toFloat", args=[value])
+    if isinstance(value_type, _NUMERIC_TYPES) and isinstance(set_type, ast.StringType):
+        return ast.Call(name="toString", args=[value])
+    return value
+
+
+def _constant_type(node: ast.Expr, context: HogQLContext) -> ast.ConstantType | None:
+    return node.type.resolve_constant_type(context) if node.type is not None else None
+
+
+def _group_by_set_read_after_aggregation(query: ast.SelectQuery, join: ast.JoinExpr) -> None:
+    assert join.alias is not None
+    finder = _ReadOutsideAggregatesFinder(join.alias)
+    for clause in [*query.select, query.having, *(order.expr for order in query.order_by or [])]:
+        finder.visit(clause)
+    if not finder.found or not _aggregates(query):
+        return
+    if not query.group_by or query.group_by_mode is not None:
+        raise TrinoLoweringError(
+            "TRINO_LAMBDA_SUBQUERY_IN_GLOBAL_AGGREGATE",
+            "a subquery inside a lambda that runs after an aggregation without a plain GROUP BY",
+            query,
+        )
+    lambda_set = _LambdaSet(alias=join.alias)
+    query.group_by.extend(
+        ast.Field(chain=[join.alias, column]) for column in [lambda_set.items_column, lambda_set.has_null_column]
+    )
+
+
+def _aggregates(query: ast.SelectQuery) -> bool:
+    if query.group_by:
+        return True
+    finder = _AggregateFunctionFinder()
+    for clause in [*query.select, query.having, *(order.expr for order in query.order_by or [])]:
+        finder.visit(clause)
+    return finder.found
+
+
+class _ReadOutsideAggregatesFinder(TraversingVisitor):
+    def __init__(self, alias: str) -> None:
+        super().__init__()
+        self.alias = alias
+        self.found = False
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        return
+
+    def visit_call(self, node: ast.Call) -> None:
+        if not find_hogql_aggregation(node.name):
+            super().visit_call(node)
+
+    def visit_field(self, node: ast.Field) -> None:
+        if node.chain and node.chain[0] == self.alias:
+            self.found = True
+
+
+class _LambdaArgumentFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.names: set[str] = set()
+        self.bound: list[list[str]] = []
+
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        self.bound.append(node.args)
+        try:
+            super().visit_lambda(node)
+        finally:
+            self.bound.pop()
+
+    def visit_field(self, node: ast.Field) -> None:
+        field_type = node.type
+        while isinstance(field_type, ast.FieldAliasType):
+            field_type = field_type.type
+        name = node.chain[0]
+        if (
+            isinstance(field_type, (ast.LambdaArgumentType, ast.UnresolvedFieldType))
+            and isinstance(name, str)
+            and not any(name in args for args in self.bound)
+        ):
+            self.names.add(name)
+
+
+def _read_lambda_arguments(node: ast.Expr) -> set[str]:
+    finder = _LambdaArgumentFinder()
+    finder.visit(node)
+    return finder.names
+
+
+def _append_cross_join(query: ast.SelectQuery, join: ast.JoinExpr) -> None:
+    if query.select_from is None:
+        query.select_from = join
+        return
+    final_join = query.select_from
+    while final_join.next_join is not None:
+        final_join = final_join.next_join
+    join.join_type = "CROSS JOIN"
+    final_join.next_join = join
+
+
 class TrinoNormalizer(TraversingVisitor):
     def __init__(self, context: HogQLContext) -> None:
         self.context = context
@@ -1093,6 +1317,7 @@ def normalize_trino_ast(node: ast.AST, context: HogQLContext, *, physical_names:
     budget.visit(node)
     lowered = TrinoScalarCTELowerer(budget).visit(node)
     lowered = TrinoUnpivotLowerer(context).visit(lowered)
+    lowered = TrinoLambdaSubqueryLowerer(context).visit(lowered)
     lowered = TrinoArrayJoinFunctionLowerer(context).visit(lowered)
     lowered = TrinoPhysicalFieldLowerer(context, physical_names=physical_names).visit(lowered)
     lowered = TrinoSemanticCallLowerer().visit(lowered)
