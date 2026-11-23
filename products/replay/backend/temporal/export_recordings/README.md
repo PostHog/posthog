@@ -68,7 +68,7 @@ PostHog assumes the role from its own recording-exports role, so the role trusts
   - US: `arn:aws:iam::309986977637:role/posthog-external-recording-exports`
   - EU: `arn:aws:iam::623789312881:role/posthog-external-recording-exports`
 - The trust policy requires `sts:ExternalId` equal to `posthog-<organization id>`.
-  Each shard checks this before it writes, and fails without retrying on a role that does not enforce it.
+  The run checks the role before any shard starts and fails at once on a role that does not enforce it or cannot be assumed.
 - The role allows `s3:PutObject` and `s3:AbortMultipartUpload` on the bucket and prefix.
 - With `--kms-key-id`, the role also allows `kms:GenerateDataKey` and `kms:Decrypt` on the key, and the key policy allows the role.
   Pass the flag even when the bucket encrypts with that key by default: the session policy caps the role to the actions it lists.

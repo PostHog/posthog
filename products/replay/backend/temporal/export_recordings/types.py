@@ -69,6 +69,13 @@ class ExportShardInput:
 
 
 @frozen
+class CheckDestinationInput:
+    team_id: int
+    destination: ExportDestination
+    run_id: str
+
+
+@frozen
 class WriteSummaryInput:
     team_id: int
     destination: ExportDestination

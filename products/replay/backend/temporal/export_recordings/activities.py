@@ -44,6 +44,7 @@ from products.batch_exports.backend.facade.destinations.s3 import (
     s3_client,
 )
 from products.replay.backend.temporal.export_recordings.types import (
+    CheckDestinationInput,
     ExportDestination,
     ExportShardInput,
     ExportTotals,
@@ -321,15 +322,10 @@ class RoleCredentials:
 async def resolve_s3_credentials(team_id: int, destination: ExportDestination, run_id: str) -> RoleCredentials:
     """Assume the customer's role, scoped to this run's folder in their bucket."""
     team = await Team.objects.aget(id=team_id)
-    external_id = f"posthog-{team.organization_id}"
-    # Refuses a role that another organization could make us assume, because it lacks the external ID condition.
-    await asyncio.to_thread(
-        validate_aws_role_arn, destination.role_arn, settings.RECORDING_EXPORT_S3_EXTERNAL_ROLE_ARN, external_id
-    )
     refresh_using = functools.partial(
         get_credentials_using_user_aws_role,
         destination.role_arn,
-        external_id,
+        external_id(team.organization_id),
         session_name=f"PostHog-replay-export-{team_id}",
         policy_statements=policy_statements(destination, team_id, run_id),
         # Recording exports have their own external-access role, separate from batch exports.
@@ -340,6 +336,10 @@ async def resolve_s3_credentials(team_id: int, destination: ExportDestination, r
         refresh_using=refresh_using,
         owner_account_id=role_account_id(destination.role_arn),
     )
+
+
+def external_id(organization_id: object) -> str:
+    return f"posthog-{organization_id}"
 
 
 def role_account_id(aws_role_arn: str) -> str:
@@ -622,6 +622,23 @@ async def export_session(
 def count(lines: list[ManifestLine]) -> ExportTotals:
     statuses: collections.Counter[str] = collections.Counter(manifest_line.status for manifest_line in lines)
     return ExportTotals(**statuses, bytes=sum(manifest_line.bytes for manifest_line in lines))
+
+
+@activity.defn
+async def check_destination(input: CheckDestinationInput) -> None:
+    """Fails the run before any shard starts when the customer's role is unsafe or cannot be assumed."""
+    team = await Team.objects.aget(id=input.team_id)
+    try:
+        # Refuses a role that another organization could make us assume, because it lacks the external ID condition.
+        await asyncio.to_thread(
+            validate_aws_role_arn,
+            input.destination.role_arn,
+            settings.RECORDING_EXPORT_S3_EXTERNAL_ROLE_ARN,
+            external_id(team.organization_id),
+        )
+        await resolve_s3_credentials(input.team_id, input.destination, input.run_id)
+    except NON_RETRYABLE_ERRORS as e:
+        raise ApplicationError(str(e), non_retryable=True) from e
 
 
 @activity.defn

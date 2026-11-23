@@ -29,6 +29,7 @@ from products.replay.backend.temporal.export_recordings.activities import (
     ByteBudget,
     CustomerBucket,
     SessionRow,
+    check_destination,
     destination_error,
     export_session,
     export_shard,
@@ -48,6 +49,7 @@ from products.replay.backend.temporal.export_recordings.quote import (
     select_sessions,
 )
 from products.replay.backend.temporal.export_recordings.types import (
+    CheckDestinationInput,
     ExportDestination,
     ExportShardInput,
     ExportTotals,
@@ -195,17 +197,17 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
 
     def test_a_role_that_fails_validation_is_never_assumed(self) -> None:
         assume = AsyncMock()
+        check = CheckDestinationInput(team_id=self.team.pk, destination=self.destination, run_id="run-1")
 
-        async def open_bucket() -> None:
-            async with activities.customer_bucket(self.team.pk, self.destination, "run-1"):
-                pass
+        async def run_check() -> None:
+            await ActivityEnvironment().run(check_destination, check)
 
         with (
             patch(f"{ACTIVITIES}.validate_aws_role_arn", side_effect=IntegrationError("no external id condition")),
             patch(f"{ACTIVITIES}.get_credentials_using_user_aws_role", assume),
             pytest.raises(ApplicationError) as raised,
         ):
-            async_to_sync(open_bucket)()
+            async_to_sync(run_check)()
 
         assert raised.value.non_retryable
         assume.assert_not_called()
