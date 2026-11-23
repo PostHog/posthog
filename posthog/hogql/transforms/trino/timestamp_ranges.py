@@ -1,7 +1,7 @@
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.events import EventsTable
-from posthog.hogql.visitor import TraversingVisitor, clone_expr
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.dataclasses import frozen
 
@@ -13,6 +13,7 @@ class _Period:
 
 
 _DAY = _Period(interval_function="toIntervalDay", count=1)
+_TIME_ZONE_SLACK = _Period(interval_function="toIntervalDay", count=2)
 _PERIODS_BY_UNIT = {
     "second": _Period(interval_function="toIntervalSecond", count=1),
     "minute": _Period(interval_function="toIntervalMinute", count=1),
@@ -155,23 +156,30 @@ class TrinoEventsTimestampRangeAdder(TraversingVisitor):
             op=ast.CompareOperationOp.GtEq,
             left=clone_expr(truncated.timestamp),
             right=ast.ArithmeticOperation(
-                op=ast.ArithmeticOperationOp.Sub, left=_to_datetime(truncated, bound), right=_interval(_DAY)
+                op=ast.ArithmeticOperationOp.Sub, left=_to_datetime(truncated, bound), right=_interval(_TIME_ZONE_SLACK)
             ),
         )
 
     def _upper_bound(self, truncated: _TruncatedTimestamp, bound: ast.Expr) -> ast.Expr:
-        end_of_period = ast.ArithmeticOperation(
-            op=ast.ArithmeticOperationOp.Add, left=_to_datetime(truncated, bound), right=_interval(truncated.period)
+        latest_bound = ast.ArithmeticOperation(
+            op=ast.ArithmeticOperationOp.Add, left=_to_datetime(truncated, bound), right=_interval(_TIME_ZONE_SLACK)
         )
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Lt,
             left=clone_expr(truncated.timestamp),
-            right=ast.ArithmeticOperation(op=ast.ArithmeticOperationOp.Add, left=end_of_period, right=_interval(_DAY)),
+            right=ast.ArithmeticOperation(
+                op=ast.ArithmeticOperationOp.Add, left=latest_bound, right=_interval(truncated.period)
+            ),
         )
 
 
+class _AliasDefinitionRemover(CloningVisitor):
+    def visit_alias(self, node: ast.Alias) -> ast.Expr:
+        return self.visit(node.expr)
+
+
 def _to_datetime(truncated: _TruncatedTimestamp, bound: ast.Expr) -> ast.Expr:
-    bound = clone_expr(bound)
+    bound = _AliasDefinitionRemover().visit(bound)
     if truncated.returns_date and isinstance(bound, ast.Constant):
         bound = ast.Call(name="toDate", args=[bound])
     return ast.Call(name="toDateTime", args=[bound])
