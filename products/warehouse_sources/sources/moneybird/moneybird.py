@@ -97,12 +97,13 @@ def _list_resource(name: str, endpoint: MoneybirdEndpoint, use_incremental: bool
     return {
         "name": name,
         "table_name": name,
-        "primary_key": ["id"],
+        "primary_key": list(endpoint.primary_key),
         "write_disposition": {"disposition": "merge", "strategy": "upsert"} if use_incremental else "replace",
         "endpoint": {
             "path": f"{endpoint.path}.json",
             "params": params,
             "paginator": MoneybirdPaginator() if endpoint.fetch_mode == "paged" else SinglePagePaginator(),
+            "data_selector": endpoint.data_selector,
             "data_selector_required": True,
         },
         "table_format": "delta",
@@ -226,7 +227,7 @@ def moneybird_source(
     return SourceResponse(
         name=name,
         items=items,
-        primary_keys=["id"],
+        primary_keys=list(endpoint.primary_key),
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if endpoint.partition_key else None,
