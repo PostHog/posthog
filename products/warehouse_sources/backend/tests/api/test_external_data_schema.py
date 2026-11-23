@@ -6055,6 +6055,8 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         # Every run found nothing new, so only the check stamp exists.
         schema.last_synced_at = None
         schema.last_checked_at = datetime(2026, 11, 20, 8, 0, tzinfo=UTC)
+        # A completion time, later than the stored check; it must not replace it.
+        schema.sync_type_config = {"last_full_run_at": "2026-11-20T08:10:00+00:00"}
         schema.save()
 
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{query}")

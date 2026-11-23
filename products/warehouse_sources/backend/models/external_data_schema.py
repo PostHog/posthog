@@ -688,11 +688,12 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         """When a sync last ran, whether or not it moved any rows.
 
         `last_checked_at` covers every successful run. The older stamps cover rows whose last run
-        predates that column.
+        predates that column. `last_full_run_at` is a completion time, so it would read as a later
+        empty run when `last_checked_at` is set.
         """
-        stamps = [
-            stamp for stamp in (self.last_checked_at, self.last_synced_at, self.last_full_run) if stamp is not None
-        ]
+        if self.last_checked_at is not None:
+            return self.last_checked_at
+        stamps = [stamp for stamp in (self.last_synced_at, self.last_full_run) if stamp is not None]
         return max(stamps) if stamps else None
 
     @property
