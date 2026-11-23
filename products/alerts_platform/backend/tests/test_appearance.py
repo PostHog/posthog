@@ -56,7 +56,9 @@ class TestAppearanceAlerts(BaseTest):
             next_check_at=T0,
             owner=PlatformAlertConfiguration.Owner.PLATFORM,
         )
-        PlatformAlertConfiguration.objects.for_team(self.team.id).filter(id=self.configuration.id).update(created_at=T0)
+        PlatformAlertConfiguration.objects.for_team(self.team.id).filter(id=self.configuration.id).update(
+            created_at=T0, updated_at=T0
+        )
 
     def _feed_seen(self, team_id: int, since: datetime, until: datetime, limit: int) -> list[SeenIdentity]:
         if self.max_read_span is not None and until - since > self.max_read_span:
@@ -152,20 +154,27 @@ class TestAppearanceAlerts(BaseTest):
 
     @parameterized.expand(
         [
-            ("registrar_stopped_advancing", True),
-            ("registrar_never_ran", False),
+            ("registrar_stopped_advancing", True, None, True),
+            ("registrar_never_ran", False, None, True),
+            # Its only alert was off, so the registrar stopped serving the project until it came back on.
+            ("alert_enabled_after_the_cursor_stopped", True, T0 + timedelta(minutes=20), False),
         ]
     )
     def test_a_stalled_registrar_fails_the_check_instead_of_reporting_nothing_new(
-        self, _name: str, registered: bool
+        self, _name: str, registered: bool, enabled_at: datetime | None, fails: bool
     ) -> None:
         if registered:
             self._register(T0 + timedelta(minutes=5))
+        if enabled_at is not None:
+            PlatformAlertConfiguration.objects.for_team(self.team.id).filter(id=self.configuration.id).update(
+                updated_at=enabled_at
+            )
 
         outcome, _ = self._tick(T0 + timedelta(minutes=21))
 
-        assert outcome.failure is not None
-        assert outcome.error_message is not None and "not being recorded" in outcome.error_message
+        assert (outcome.failure is not None) == fails
+        if fails:
+            assert outcome.error_message is not None and "not being recorded" in outcome.error_message
 
     def test_a_source_s_own_alert_readers_and_caps_leave_its_appearance_alerts_out(self) -> None:
         # A source's API presents these as its own alerts, and an appearance config has no condition to present.
