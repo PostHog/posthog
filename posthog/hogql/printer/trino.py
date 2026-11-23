@@ -1807,8 +1807,6 @@ class TrinoPrinter(PostgresPrinter):
             return bool(select_type.types) and all(
                 self._is_boolean_column(branch, name) for branch in select_type.types
             )
-        if not isinstance(select_type, ast.SelectQueryType):
-            return False
         projected = self._projected_expression(select_type, name)
         return projected is not None and isinstance(self._resolve_type(projected), ast.BooleanType)
 
