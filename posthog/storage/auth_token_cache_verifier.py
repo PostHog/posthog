@@ -26,9 +26,8 @@ from prometheus_client import Counter
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import TOMBSTONE_COUNTER
 from posthog.models.organization import OrganizationMembership
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
-from posthog.models.team.team import Team
 from posthog.storage.team_access_cache import TOKEN_CACHE_PREFIX
 
 # Number of characters to log from a cache key (prefix + 8 chars of hash for correlation)
@@ -42,7 +41,8 @@ AUTH_TOKEN_VERIFY_ERRORS_COUNTER = Counter(
 )
 
 
-@dataclass
+# frozen=False: the verifier mutates the counters in place while it scans.
+@dataclass(frozen=False)
 class AuthTokenVerificationResult:
     total_scanned: int = 0
     valid: int = 0
@@ -52,7 +52,6 @@ class AuthTokenVerificationResult:
     db_errors: int = 0
     stale_by_type: dict[str, int] = field(
         default_factory=lambda: {
-            "secret": 0,
             "personal": 0,
             "project_secret": 0,
             "unknown": 0,
@@ -181,7 +180,6 @@ def _verify_batch(
     values = redis_client.mget(keys)
 
     # Parse and group entries by type
-    secret_entries: list[tuple[str, dict]] = []
     personal_entries: list[tuple[str, dict]] = []
     project_secret_entries: list[tuple[str, dict]] = []
     stale_keys: list[str] = []
@@ -205,9 +203,7 @@ def _verify_batch(
             continue
 
         token_type = data.get("type")
-        if token_type == "secret":
-            secret_entries.append((key, data))
-        elif token_type == "personal":
+        if token_type == "personal":
             personal_entries.append((key, data))
         elif token_type == "project_secret":
             project_secret_entries.append((key, data))
@@ -218,89 +214,12 @@ def _verify_batch(
             logger.warning("Unknown auth token cache type", cache_key=key[:_LOG_KEY_PREFIX_LEN], token_type=token_type)
 
     # Verify each group against DB
-    stale_keys.extend(_verify_secret_entries(secret_entries, result))
     stale_keys.extend(_verify_personal_entries(personal_entries, result))
     stale_keys.extend(_verify_project_secret_entries(project_secret_entries, result))
 
     # Delete stale entries
     if stale_keys:
         _delete_stale_keys(redis_client, stale_keys, result)
-
-
-def _verify_secret_entries(
-    entries: list[tuple[str, dict]],
-    result: AuthTokenVerificationResult,
-) -> list[str]:
-    """Verify Secret token entries. Returns cache keys that are stale."""
-    if not entries:
-        return []
-
-    stale_keys: list[str] = []
-
-    # Filter out entries missing team_id and collect team_ids for batch query
-    valid_entries: list[tuple[str, dict]] = []
-    team_ids: set[int] = set()
-    for key, data in entries:
-        raw_team_id = data.get("team_id")
-        if raw_team_id is None:
-            stale_keys.append(key)
-            _record_stale("secret", result)
-            logger.warning("Secret token cache entry missing team_id", cache_key=key[:_LOG_KEY_PREFIX_LEN])
-        else:
-            try:
-                team_id = int(raw_team_id)
-            except (ValueError, TypeError):
-                result.parse_errors += 1
-                stale_keys.append(key)
-                _record_stale("secret", result)
-                logger.warning(
-                    "Secret token cache entry has non-integer team_id",
-                    cache_key=key[:_LOG_KEY_PREFIX_LEN],
-                    team_id=raw_team_id,
-                )
-                continue
-            valid_entries.append((key, data))
-            team_ids.add(team_id)
-
-    if not valid_entries:
-        return stale_keys
-    try:
-        teams = Team.objects.filter(id__in=team_ids).only("id", "secret_api_token", "secret_api_token_backup")
-        teams_by_id: dict[int, Team] = {t.id: t for t in teams}
-    except Exception as e:
-        AUTH_TOKEN_VERIFY_ERRORS_COUNTER.inc()
-        capture_exception(e)
-        logger.exception("Error querying teams for auth token verification")
-        result.db_errors += len(valid_entries)
-        return stale_keys
-
-    # Build set of valid token hashes per team
-    valid_hashes_by_team: dict[int, set[str]] = {}
-    for team_id, team in teams_by_id.items():
-        hashes: set[str] = set()
-        for token in (team.secret_api_token, team.secret_api_token_backup):
-            if token:
-                hashes.add(hash_key_value(token, mode="sha256"))
-        valid_hashes_by_team[team_id] = hashes
-
-    for key, data in valid_entries:
-        team_id = int(data["team_id"])  # already validated as int-castable above
-        token_hash = key[len(TOKEN_CACHE_PREFIX) :]
-
-        if team_id not in teams_by_id:
-            stale_keys.append(key)
-            _record_stale("secret", result)
-            continue
-
-        valid_hashes = valid_hashes_by_team.get(team_id, set())
-        if token_hash not in valid_hashes:
-            stale_keys.append(key)
-            _record_stale("secret", result)
-            continue
-
-        result.valid += 1
-
-    return stale_keys
 
 
 def _verify_personal_entries(

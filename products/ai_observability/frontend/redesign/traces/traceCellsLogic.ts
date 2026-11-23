@@ -16,6 +16,7 @@ import type {
     TraceSentimentApi,
     TraceSentimentItemApi,
 } from '../../generated/api.schemas'
+import type { AiObservabilityTracesListParams, TraceListApi } from '../../generated/api.schemas'
 import { noEntries, readOrFailure } from '../shared/readOrFailure'
 import { tracesListLogic } from './tracesListLogic'
 import { tracesListTracking } from './tracesListTracking'
@@ -81,11 +82,11 @@ export interface traceCellsLogicActions {
         errorObject?: any
     } // tracesListLogic
     loadTracesPageSuccess: (
-        page: import('../../generated/api.schemas').TraceListApi,
-        payload?: import('../../generated/api.schemas').AiObservabilityTracesListParams | undefined
+        page: TraceListApi,
+        payload?: AiObservabilityTracesListParams | undefined
     ) => {
-        page: import('../../generated/api.schemas').TraceListApi
-        payload?: import('../../generated/api.schemas').AiObservabilityTracesListParams
+        page: TraceListApi
+        payload?: AiObservabilityTracesListParams
     } // tracesListLogic
     reload: () => {
         value: true

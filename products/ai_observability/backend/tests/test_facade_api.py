@@ -115,6 +115,11 @@ def test_totals_are_partial_when_the_read_may_have_missed_events(
     assert (trace.totals_partial, trace.cost_and_latency_partial) == partial
 
 
+@pytest.mark.django_db
+def test_starting_a_run_for_a_deleted_team_does_not_start_it() -> None:
+    assert api.start_eval_suggestions_run(999_999_999, "scheduled", "batch", "run") is None
+
+
 def test_missing_trace_raises_not_found() -> None:
     with patch.object(api, "load_trace", return_value=LoadedTrace(rows=(), person=None)):
         with pytest.raises(api.TraceNotFoundError):

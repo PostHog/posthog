@@ -1,6 +1,12 @@
 import { z } from 'zod'
 
-import { buildForwardedContext, resolveConnectionTarget, seedForwardedContext } from '@/lib/connection-forwarding'
+import { hasScope } from '@/lib/api'
+import {
+    buildForwardedContext,
+    type ConnectionTarget,
+    resolveConnectionTarget,
+    seedForwardedContext,
+} from '@/lib/connection-forwarding'
 import { ExecCommandError } from '@/lib/errors'
 import { formatInputValidationError, repairArgumentNesting } from '@/tools/exec'
 import { getToolDefinition } from '@/tools/toolDefinitions'
@@ -66,6 +72,37 @@ async function assertTargetApprovedAiProcessing(forwarded: Context, toolName: st
 }
 
 /**
+ * Refuse a tool that needs a scope the connection was not granted, before anything is forwarded.
+ *
+ * The connected project refuses such a request with a 403 anyway. Checking here gives the agent a
+ * message that names the missing scopes and the fix, which is to reconnect with those scopes. An
+ * empty `granted_scopes` means the scopes are not known, so the call goes through and the target
+ * decides.
+ */
+function assertConnectionGrantsToolScopes(target: ConnectionTarget, toolName: string): void {
+    const grantedScopes = target.granted_scopes ?? []
+    if (grantedScopes.length === 0) {
+        return
+    }
+
+    let requiredScopes: string[]
+    try {
+        requiredScopes = getToolDefinition(toolName).required_scopes
+    } catch {
+        // No catalogued definition, so nothing to compare against.
+        return
+    }
+
+    const missingScopes = requiredScopes.filter((scope) => !hasScope(grantedScopes, scope))
+    if (missingScopes.length > 0) {
+        throw new ExecCommandError(
+            `\`${toolName}\` needs the scope(s) ${missingScopes.join(', ')}, and this PostHog connection was not granted them. Reconnect the connection and grant these scopes, or use a tool that the connection's scopes cover.`,
+            'missing_scope'
+        )
+    }
+}
+
+/**
  * Run a PostHog tool against a project reached through a `posthog` connection.
  *
  * The connected project runs the same PostHog build this one does, so its tool catalog is identical
@@ -114,6 +151,7 @@ export function createConnectionCallTool(
             const connectionId = String(params.connection_id)
             const localProjectId = await context.stateManager.getProjectId()
             const connectionTarget = await resolveConnectionTarget(context, localProjectId, connectionId)
+            assertConnectionGrantsToolScopes(connectionTarget, params.tool)
             const forwarded = buildForwardedContext(context, {
                 connectionId,
                 localProjectId,

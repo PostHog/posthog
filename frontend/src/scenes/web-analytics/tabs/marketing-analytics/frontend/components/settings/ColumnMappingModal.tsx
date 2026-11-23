@@ -7,6 +7,7 @@ import { LemonButton, LemonModal, Spinner } from '@posthog/lemon-ui'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { CURRENCY_SYMBOL_TO_NAME_MAP, IMPORTANT_CURRENCIES, OTHER_CURRENCIES } from 'lib/utils/currency'
 
@@ -24,6 +25,9 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ExternalTable } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
+import { fieldLabel } from './fieldLabel'
+import { QuillColumnMappingModal } from './QuillColumnMappingModal'
+import { QuillMappingCombobox } from './QuillMappingCombobox'
 
 interface ColumnMappingModalProps {
     table: ExternalTable | null
@@ -65,6 +69,7 @@ function ColumnMappingCombobox({
     const options = useMemo(() => buildColumnOptions(fieldName, tableColumns), [fieldName, tableColumns])
 
     const columnNames = useMemo(() => new Set(tableColumns.map((c) => c.name)), [tableColumns])
+    const quillSurface = useQuillSurface()
 
     const handleChange = (values: string[]): void => {
         let newValue = values.length > 0 ? values[values.length - 1] : null
@@ -79,6 +84,19 @@ function ColumnMappingCombobox({
             newValue = `${MarketingAnalyticsConstants.ConstantValuePrefix}${newValue}`
         }
         onChange(newValue)
+    }
+
+    if (quillSurface) {
+        return (
+            <QuillMappingCombobox
+                value={currentValue}
+                onChange={(value) => handleChange(value ? [value] : [])}
+                options={options}
+                placeholder="Select or type..."
+                ariaLabel={fieldLabel(fieldName)}
+                className="w-full"
+            />
+        )
     }
 
     return (
@@ -192,6 +210,7 @@ export function ColumnMappingModal({ table, isOpen, onClose }: ColumnMappingModa
         useRestrictedArea({ scope: RestrictionScope.Project, minimumAccessLevel: TeamMembershipLevel.Admin }) ??
         getAccessControlDisabledReason(AccessControlResourceType.MarketingAnalytics, AccessControlLevel.Editor)
     const { sources_map, testMappingResults } = useValues(marketingAnalyticsSettingsLogic)
+    const quillSurface = useQuillSurface()
 
     const requiredFields = Object.values(MarketingAnalyticsColumnsSchemaNames).filter(
         (field) => MARKETING_ANALYTICS_SCHEMA[field].required
@@ -251,6 +270,25 @@ export function ColumnMappingModal({ table, isOpen, onClose }: ColumnMappingModa
 
     const handleTestMapping = (): void => {
         testMapping(table.id, currentSourceMap as SourceMap)
+    }
+
+    if (quillSurface) {
+        return (
+            <QuillColumnMappingModal
+                tableName={table.name}
+                isOpen={isOpen}
+                onClose={onClose}
+                requiredFields={requiredFields}
+                optionalFields={optionalFields}
+                requiredFieldsConfigured={requiredFieldsConfigured}
+                testResult={testResult}
+                editDisabledReason={editDisabledReason}
+                isFieldMapped={(fieldName) => getFieldStatus(fieldName) === FieldStatus.Complete}
+                renderColumnMappingCombobox={renderColumnMappingCombobox}
+                onClearAllMappings={clearAllMappings}
+                onTestMapping={handleTestMapping}
+            />
+        )
     }
 
     return (

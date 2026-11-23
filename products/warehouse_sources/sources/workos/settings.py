@@ -45,6 +45,22 @@ WORKOS_ENDPOINTS: dict[str, WorkOSEndpointConfig] = {
             child_params={"limit": 100, "order": "desc"},
         ),
     ),
+    # The list call refuses a request with neither `user_id` nor `organization_id`, so it fans out
+    # over organizations. WorkOS returns only active memberships unless `statuses` asks for more,
+    # and its SDKs send the list as one comma-joined value.
+    "organization_memberships": WorkOSEndpointConfig(
+        name="organization_memberships",
+        path="/user_management/organization_memberships?organization_id={organization_id}",
+        fanout=DependentEndpointConfig(
+            parent_name="organizations",
+            resolve_param="organization_id",
+            resolve_field="id",
+            # Memberships already carry their own `organization_id`.
+            include_from_parent=[],
+            parent_params={"limit": 100, "order": "desc"},
+            child_params={"limit": 100, "order": "desc", "statuses": "active,inactive,pending"},
+        ),
+    ),
 }
 
 ENDPOINTS = tuple(WORKOS_ENDPOINTS.keys())

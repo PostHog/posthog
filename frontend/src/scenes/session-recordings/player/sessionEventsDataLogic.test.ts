@@ -10,6 +10,7 @@ import { initKeaTests } from '~/test/init'
 import { RecordingEventType, SessionRecordingType } from '~/types'
 
 import { sessionEventsDataLogic } from './sessionEventsDataLogic'
+import { sessionRecordingMetaLogic } from './sessionRecordingMetaLogic'
 
 describe('sessionEventsDataLogic', () => {
     let logic: ReturnType<typeof sessionEventsDataLogic.build>
@@ -99,6 +100,24 @@ describe('sessionEventsDataLogic', () => {
     afterEach(() => {
         logic.unmount()
         jest.restoreAllMocks()
+    })
+
+    it('resolves viewports from a loaded file that has no events', () => {
+        sessionRecordingMetaLogic({ sessionRecordingId: 'test-session' }).actions.loadRecordingFromFile({
+            id: 'test-session',
+            person: undefined,
+            snapshots: [{ type: 3, data: {}, timestamp: 1000, windowId: 1 } as any],
+            viewports: [
+                { timestamp: 1000, width: '1280', height: '720', href: 'https://example.com/a' },
+                { timestamp: 5000, width: '800', height: '600', href: 'https://example.com/b' },
+            ],
+        })
+
+        expect(logic.values.viewportForTimestamp(6000)).toEqual({
+            width: '800',
+            height: '600',
+            href: 'https://example.com/b',
+        })
     })
 
     // Regression test: a second loadFullEventData call supersedes the first via kea's

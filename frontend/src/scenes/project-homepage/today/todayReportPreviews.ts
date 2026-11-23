@@ -36,9 +36,12 @@ function worthShowing(preview: TodayReportPreview): TodayReportPreview | null {
     return preview.lead || preview.metric || preview.pullRequest ? preview : null
 }
 
-export function reportPreview(report: SignalReport): TodayReportPreview | null {
+export function reportPreview(
+    report: SignalReport,
+    scoutNames?: Readonly<Record<string, string>>
+): TodayReportPreview | null {
     return worthShowing({
-        sources: report.source_products?.length || report.scout_name ? reportSourceLine(report).line : null,
+        sources: report.source_products?.length || report.scout_name ? reportSourceLine(report, scoutNames).line : null,
         lead: distinctLead(report.summary_lead, reportTitle(report)),
         metric: previewMetric(report.metrics),
         pullRequest: report.implementation_pr_url

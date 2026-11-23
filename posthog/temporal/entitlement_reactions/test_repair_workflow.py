@@ -1,3 +1,4 @@
+from collections.abc import AsyncIterator
 from datetime import timedelta
 
 import pytest
@@ -5,9 +6,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
 
+import pytest_asyncio
 from temporalio.api.enums.v1 import EventType
 from temporalio.client import ScheduleIntervalSpec, ScheduleOverlapPolicy
+from temporalio.runtime import MetricBuffer, Runtime, TelemetryConfig
 from temporalio.service import RPCError, RPCStatusCode
+from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.entitlements import repair
@@ -24,6 +28,59 @@ from posthog.temporal.entitlement_reactions.test_workflow import (
 )
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
+
+
+@pytest.fixture(scope="module")
+def sdk_metrics() -> MetricBuffer:
+    return MetricBuffer(1000)
+
+
+@pytest.fixture(scope="module")
+def runtime(sdk_metrics: MetricBuffer) -> Runtime:
+    return Runtime(telemetry=TelemetryConfig(metrics=sdk_metrics))
+
+
+@pytest_asyncio.fixture
+async def metrics_environment(runtime: Runtime) -> AsyncIterator[WorkflowEnvironment]:
+    async with await WorkflowEnvironment.start_time_skipping(runtime=runtime) as env:
+        yield env
+
+
+@pytest.mark.usefixtures("integration")
+@pytest.mark.parametrize("behind_count", [0, 2])
+async def test_repair_run_reports_organizations_behind_across_pages(
+    metrics_environment: WorkflowEnvironment,
+    sdk_metrics: MetricBuffer,
+    monkeypatch: pytest.MonkeyPatch,
+    behind_count: int,
+) -> None:
+    await setup_organization(baseline=True)
+    for _ in range(behind_count):
+        await set_source(await setup_organization(baseline=True), 2)
+    monkeypatch.setattr(repair, "CANDIDATE_PAGE_SIZE", 1)
+    monkeypatch.setattr(repair_workflow, "MAX_PAGES_PER_RUN", 2)
+    sdk_metrics.retrieve_updates()
+    with patch("posthog.entitlements.dispatch.async_connect", AsyncMock(side_effect=RuntimeError("handoff"))):
+        async with Worker(
+            metrics_environment.client,
+            task_queue=settings.BILLING_TASK_QUEUE,
+            workflows=WORKFLOWS,
+            activities=ACTIVITIES,
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            await metrics_environment.client.execute_workflow(
+                EntitlementRepairWorkflow.run,
+                EntitlementRepairInputs(),
+                id="repair-gauge",
+                task_queue=settings.BILLING_TASK_QUEUE,
+                execution_timeout=timedelta(seconds=30),
+            )
+    counted = sum(
+        update.value
+        for update in sdk_metrics.retrieve_updates()
+        if update.metric.name == "entitlement_reactions_organizations_behind"
+    )
+    assert counted == behind_count
 
 
 async def test_repair_retries_failed_handoff_on_later_sweep(temporal_environment, integration, monkeypatch) -> None:

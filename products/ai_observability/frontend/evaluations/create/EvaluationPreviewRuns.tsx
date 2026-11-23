@@ -24,7 +24,7 @@ export interface EvaluationPreviewRunsProps {
     unit: EvaluationTarget
     runs: PreviewRun[]
     loading: boolean
-    loadFailed: boolean
+    loadError: string | null
     /** True when filters matched traffic and the sampling percentage left none of it to show. */
     noneInSample: boolean
     live: boolean
@@ -36,13 +36,13 @@ export function EvaluationPreviewRuns({
     unit,
     runs,
     loading,
-    loadFailed,
+    loadError,
     noneInSample,
     live,
     testing,
     rowProps,
 }: EvaluationPreviewRunsProps): JSX.Element {
-    const summary = loadFailed ? null : previewSummary(runs)
+    const summary = loadError ? null : previewSummary(runs)
 
     return (
         <div className="flex flex-col gap-2">
@@ -75,8 +75,8 @@ export function EvaluationPreviewRuns({
             </div>
             {loading ? (
                 <LemonSkeleton className="h-6" repeat={3} />
-            ) : loadFailed ? (
-                <p className="mb-0 text-xs text-danger">Couldn't load matching traffic.</p>
+            ) : loadError ? (
+                <p className="mb-0 break-words text-xs text-danger">{loadError}</p>
             ) : runs.length === 0 ? (
                 <p className="mb-0 text-xs text-secondary" data-attr="llma-evaluation-create-preview-empty">
                     {noneInSample
