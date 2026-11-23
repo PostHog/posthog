@@ -17,7 +17,7 @@ import { TODAY_USER_PERSIST_OPTIONS } from '~/layout/today/todayUserPersistOptio
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 // pinned: persisted section ids and the `section` property of `data section toggled`.
-export type TodayDataSection = 'pinned' | 'recents' | 'warehouse' | 'definitions' | 'setup'
+export type TodayDataSection = 'pinned' | 'recents' | 'warehouse' | 'definitions' | 'outgoing' | 'setup'
 
 export function activeDataRow(
     pathname: string,
@@ -153,6 +153,7 @@ export const todayDataLogic = kea<todayDataLogicType>([
                 pipeline: matchingProducts(products.pipeline, searchQuery),
                 warehouse: matchingProducts(products.warehouse, searchQuery),
                 definitions: matchingProducts(products.definitions, searchQuery),
+                outgoing: matchingProducts(products.outgoing, searchQuery),
                 setup: matchingProducts(products.setup, searchQuery),
             }),
         ],

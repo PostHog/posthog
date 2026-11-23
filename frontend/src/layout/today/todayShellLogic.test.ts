@@ -216,7 +216,8 @@ describe('todayShellLogic', () => {
         ['/project/1/data-management/properties', 'data', 'products'],
         ['/project/1/models/0190-model', 'data', 'products'],
         ['/project/1/data-catalog', 'data', 'products'],
-        ['/project/1/data-management/destinations', 'products', 'products'],
+        ['/project/1/data-management/destinations', 'data', 'products'],
+        ['/project/1/pipeline/batch-exports/0190-export', 'data', null],
         ['/project/1/sql', 'products', 'products'],
     ])('puts %s under %s with data-area on, and under %s with it off', (pathname, pane, paneWithoutData) => {
         expect(railPaneForPath(pathname, { [FEATURE_FLAGS.DATA_AREA]: true })).toBe(pane)

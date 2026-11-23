@@ -30,7 +30,7 @@ export const TODAY_PANE_INTROS: Record<TodayIntroPane, TodayPaneIntroCopy> = {
     },
     data: {
         title: "What's coming in, and what does it mean?",
-        description: 'Sources, pipelines, the warehouse and the definitions that describe your data.',
+        description: 'Sources, pipelines, the warehouse, the definitions that describe your data, and where it goes.',
     },
     products: {
         title: 'Every product in one place',

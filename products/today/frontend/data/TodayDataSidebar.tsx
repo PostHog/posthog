@@ -10,12 +10,15 @@ import { TodayPaneProductRow } from '../TodayPaneProductRow'
 import { TodayDataSection, todayDataLogic } from './todayDataLogic'
 import { TodayDataRecentRow } from './TodayDataRecentRow'
 
-const PRODUCT_SECTIONS: { section: Extract<TodayDataSection, 'warehouse' | 'definitions' | 'setup'>; label: string }[] =
-    [
-        { section: 'warehouse', label: 'Warehouse' },
-        { section: 'definitions', label: 'Definitions' },
-        { section: 'setup', label: 'Setup' },
-    ]
+const PRODUCT_SECTIONS: {
+    section: Extract<TodayDataSection, 'warehouse' | 'definitions' | 'outgoing' | 'setup'>
+    label: string
+}[] = [
+    { section: 'warehouse', label: 'Warehouse' },
+    { section: 'definitions', label: 'Definitions' },
+    { section: 'outgoing', label: 'Outgoing' },
+    { section: 'setup', label: 'Setup' },
+]
 
 export function TodayDataSidebar(): JSX.Element {
     const { matching, matchingPinnedRows, matchingRecentRows, activeRow, isSectionOpen, noMatches, searchQuery } =
