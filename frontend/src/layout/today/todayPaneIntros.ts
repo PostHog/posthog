@@ -13,11 +13,11 @@ export const TODAY_PANE_INTROS: Record<TodayIntroPane, TodayPaneIntroCopy> = {
         description: 'Ask questions, run tasks and pick up past chats.',
     },
     analytics: {
-        title: "What's happening, and why?",
+        title: 'Understand product usage',
         description: 'Dashboards, insights, SQL and replays of what your users do.',
     },
     people: {
-        title: 'Who are your users?',
+        title: 'Understand your users',
         description: 'Persons, cohorts and accounts, plus tickets to reach them.',
     },
     release: {
@@ -29,7 +29,7 @@ export const TODAY_PANE_INTROS: Record<TodayIntroPane, TodayPaneIntroCopy> = {
         description: 'Track errors, logs, traces and metrics across your systems.',
     },
     data: {
-        title: "What's coming in, and what does it mean?",
+        title: 'Connect your data',
         description: 'Sources, pipelines, the warehouse, the definitions that describe your data, and where it goes.',
     },
     products: {
