@@ -26,7 +26,7 @@ export const TODAY_PANE_INTROS: Record<TodayIntroPane, TodayPaneIntroCopy> = {
     },
     monitor: {
         title: 'Keep an eye on your systems',
-        description: 'Track errors, logs, metrics and uptime across your systems.',
+        description: 'Track errors, logs, traces and metrics across your systems.',
     },
     data: {
         title: "What's coming in, and what does it mean?",
