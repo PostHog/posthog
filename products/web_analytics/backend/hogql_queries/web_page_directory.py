@@ -40,6 +40,7 @@ from products.web_analytics.backend.hogql_queries.web_dimensional_read import (
     classify_dimensional_read_failure,
     dimensional_precompute_stale,
     dimensional_precomputed_at,
+    reads_dimensional,
     ready_dimensional_job_ids,
 )
 from products.web_analytics.backend.hogql_queries.web_page_directory_dimensional import (
@@ -490,9 +491,16 @@ class WebPageDirectoryQueryRunner(WebAnalyticsQueryRunner[WebPageDirectoryQueryR
             target["aiCrawlers"] = int(values.extra or 0) if values else 0
             target["aiCrawlerNames"] = list(values.names) if values else []
 
-    def _ready_dimensional_builder(self) -> Optional[DimensionalPageDirectoryQueryBuilder]:
+    def get_cache_key_variant(self) -> str:
+        variant = super().get_cache_key_variant()
+        return f"{variant}_dim" if self._opted_into_dimensional() and reads_dimensional(self) else variant
+
+    def _opted_into_dimensional(self) -> bool:
         web_query_modifiers = self.query.webQueryModifiers
-        if not (web_query_modifiers and web_query_modifiers.useDimensionalTables):
+        return bool(web_query_modifiers and web_query_modifiers.useDimensionalTables)
+
+    def _ready_dimensional_builder(self) -> Optional[DimensionalPageDirectoryQueryBuilder]:
+        if not self._opted_into_dimensional():
             return None
         metrics = set(self.requested_metrics)
         if self.query.pageKeys is None or self.query.includeSiteTotals:

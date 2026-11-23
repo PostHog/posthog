@@ -23,7 +23,9 @@ from posthog.schema import (
     PersonPropertyFilter,
     PropertyOperator,
     SessionPropertyFilter,
+    WebAnalyticsQueryModifiers,
     WebOverviewQuery,
+    WebPageDirectoryQuery,
     WebStatsBreakdown,
     WebStatsTableQuery,
 )
@@ -39,6 +41,7 @@ from products.data_tools.backend.models.expression import DataWarehouseExpressio
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import compute_shape_key
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
+from products.web_analytics.backend.hogql_queries.web_page_directory import WebPageDirectoryQueryRunner
 from products.web_analytics.backend.warming.read_history import shape_read_hours
 
 _DIMENSIONAL_RANGE = DateRange(date_from="2023-12-08", date_to="2023-12-15")
@@ -192,6 +195,15 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "stats_table",
                 WebStatsTableQueryRunner,
                 WebStatsTableQuery(dateRange=_DIMENSIONAL_RANGE, properties=[], breakdownBy=WebStatsBreakdown.PAGE),
+            ),
+            (
+                "page_directory",
+                WebPageDirectoryQueryRunner,
+                WebPageDirectoryQuery(
+                    dateRange=_DIMENSIONAL_RANGE,
+                    properties=[],
+                    webQueryModifiers=WebAnalyticsQueryModifiers(useDimensionalTables=True),
+                ),
             ),
         ]
     )

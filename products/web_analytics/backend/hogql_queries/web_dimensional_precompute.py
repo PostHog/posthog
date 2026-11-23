@@ -54,9 +54,8 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
 WEB_STATS_DIMENSIONAL_READ_TABLE = "web_stats_dimensional_preaggregated"
 WEB_BOUNCES_DIMENSIONAL_READ_TABLE = "web_bounces_dimensional_preaggregated"
 
-# The teams the dimensional writer fills, keyed by Cloud region. Their web analytics tiles also read the
-# dimensional tables by default, so one list decides both. Region-keyed because team IDs are not unique across
-# US and EU, so a flat list would enroll an unrelated same-ID team in the other region.
+# One list decides which teams the writer fills and which teams read the dimensional tables by default. Team IDs
+# are not unique across US and EU, so a flat list would enroll an unrelated same-ID team in the other region.
 DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION: dict[str, list[int]] = {
     "US": [2, 39058, 47074, 55348],
     "EU": [1, 1589, 126918],

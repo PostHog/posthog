@@ -54,8 +54,7 @@ logger = structlog.get_logger(__name__)
 
 # The same flag gates the frontend toggle, so a request that sets the modifier without the flag is ignored.
 WEB_ANALYTICS_QUERY_MODIFIERS_FLAG = "web-analytics-query-modifiers"
-# Turns dimensional reads off for every team without a deploy. The writer keeps filling the tables, so turning
-# reads back on serves at once.
+# Kill switch for dimensional reads. The writer keeps filling the tables, so turning reads back on serves at once.
 WEB_ANALYTICS_DIMENSIONAL_READS_DISABLED_FLAG = "web-analytics-dimensional-reads-disabled"
 
 # The tables have no column for these keys, or store a session-level value that differs from what the
@@ -166,7 +165,6 @@ def reads_dimensional(runner: "DimensionalReadRunner") -> bool:
 
 
 def _team_enrolled(runner: "DimensionalReadRunner") -> bool:
-    # The writer fills the same teams, so an enrolled team has its tables.
     return runner.team.pk in dimensional_team_ids()
 
 
