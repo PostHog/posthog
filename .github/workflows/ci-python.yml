@@ -135,9 +135,10 @@ jobs:
                           - '.github/actions/paths-filter/**'
                           - '.github/workflows/ci-python.yml'
                       python:
-                        # ruff/mypy/ty run repo-wide (`.`) in code-quality, so any Python
-                        # file anywhere must trigger this workflow — otherwise an unformatted
-                        # file lands undetected and trips the next unrelated PR that does run.
+                        # ruff and ty run repo-wide (`.`) in code-quality, and mypy runs
+                        # in its own job, so any Python file anywhere must trigger this
+                        # workflow — otherwise an unformatted or untyped file lands
+                        # undetected and trips the next unrelated PR that does run.
                         - '**/*.py'
                         - '*.py' # root-level scripts (e.g. manage.py); '**/' alone may not match root
                         - 'pyproject.toml'
@@ -173,6 +174,8 @@ jobs:
                         - 'packages/agent/packages/agent-contracts/src/model-catalog.generated.ts'
                         - 'services/mcp/src/lib/oauth-scopes.generated.ts'
                         - 'frontend/src/lib/oauthScopes.generated.ts'
+                        - 'frontend/src/queries/schema/latest-versions.json'
+                        - 'products/warehouse_sources/backend/temporal/data_imports/sources/field_classification.csv'
                         - 'frontend/src/lib/scopeDocs.generated.ts'
                         - 'products/commands/commands.generated.json'
                         - 'products/commands/COMMANDS.generated.md'
@@ -301,8 +304,10 @@ jobs:
         timeout-minutes: 30
 
         name: Python code quality (depot-ubuntu-24.04)
-        # Master and the merge queue run mypy cold after a dependency change, which needs more than 8 GB. A pull
-        # request that changes the cache key can also run nearly cold, so it gets the big runner too.
+        # The type check is its own job, so the mypy worker count no longer sizes this runner.
+        # This one keeps the big runner wherever the type check job does, because a cold
+        # dependency set (master, the merge queue, a cache-key change) makes ty, ruff and the
+        # gated pytest suites heavier than a pull request's warm tree.
         runs-on: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && needs.changes.outputs.mypy_cache_key != 'true' && 'depot-ubuntu-24.04' || 'depot-ubuntu-24.04-4' }}
         # Read by shell guards on the pytest steps below. Those steps sit in a
         # `parallel:` block, where step-level `if:` is untested in this repo.
@@ -371,49 +376,6 @@ jobs:
               run: |
                   echo "📊 Feedback welcome in #team-devex"
                   UV_PROJECT_ENVIRONMENT="$pythonLocation" uv run --no-sync ty check --python "$pythonLocation"
-
-            - name: Add mypy Problem Matcher
-              shell: bash
-              run: |
-                  echo "::add-matcher::.github/mypy-problem-matcher.json"
-
-            - name: Compute mypy cache prefix
-              id: mypy-cache-key
-              shell: bash
-              run: |
-                  python_version=$(python -c 'import platform; print(platform.python_version())')
-                  mypy_version=$(python -c 'from importlib.metadata import version; print(version("mypy"))')
-                  toolchain_prefix="mypy-v3-${{ runner.os }}-${{ runner.arch }}-${python_version}-${mypy_version}"
-                  echo "toolchain_prefix=${toolchain_prefix}" >> "$GITHUB_OUTPUT"
-                  echo "prefix=${toolchain_prefix}-${{ hashFiles('uv.lock', '**/pyproject.toml', '**/mypy.ini') }}" >> "$GITHUB_OUTPUT"
-
-            - name: Restore mypy cache
-              id: mypy-cache
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: .mypy_cache
-                  key: ${{ steps.mypy-cache-key.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
-                  # A pull request may start from a cache of another dependency set, because mypy
-                  # validates each entry. The master run may not, so each saved cache starts clean.
-                  restore-keys: |
-                      ${{ steps.mypy-cache-key.outputs.prefix }}-
-                      ${{ github.event_name == 'pull_request' && format('{0}-', steps.mypy-cache-key.outputs.toolchain_prefix) || '' }}
-
-            - name: Check static typing
-              shell: bash -e {0}
-              env:
-                  # Each worker holds its own copy of the build graph, so the worker count follows
-                  # the runner's memory. Keep this condition in sync with the job's runs-on: the
-                  # 8 GB depot-ubuntu-24.04 fits one worker on a cold cache, the 16 GB -4 fits two.
-                  MYPY_NUM_WORKERS: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && needs.changes.outputs.mypy_cache_key != 'true' && 1 || 2 }}
-              run: mypy --version && mypy .
-
-            - name: Save mypy cache
-              if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: .mypy_cache
-                  key: ${{ steps.mypy-cache.outputs.cache-primary-key }}
 
             - name: Check if "schema.py" is up to date
               if: github.event_name != 'pull_request' || startsWith(github.head_ref, 'trunk-merge/') || needs.changes.outputs.schema_python != 'false'
@@ -604,6 +566,106 @@ jobs:
                   if-no-files-found: ignore
                   path: junit-granian-shared-socket.xml
 
+    # The whole-repo type check runs in its own job, beside code-quality instead of
+    # inside it. mypy is CPU-bound and saturates both cores of the 2-vCPU runner, so
+    # inside code-quality it added its whole 165 s to the job wall and could not be
+    # overlapped with the other checks on that runner (see "Run the python static
+    # checks in a `parallel:` block" in docs/internal/ci-things-already-tried.md).
+    # Two jobs get two runners, so the type check and the rest of the checks run at
+    # the same time and their walls stop adding up. The cost is one extra 2-vCPU job
+    # on each pull request that touches Python.
+    mypy:
+        needs: changes
+        if: needs.changes.outputs.python == 'true' && github.event_name != 'push'
+        timeout-minutes: 20
+
+        name: Python static typing (depot-ubuntu-24.04)
+        # Same rule as code-quality: a pull request checks a cache from master with one
+        # worker, while master, the merge queue and a dependency change run nearly cold
+        # and need the 16 GB runner for a second worker.
+        runs-on: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && needs.changes.outputs.mypy_cache_key != 'true' && 'depot-ubuntu-24.04' || 'depot-ubuntu-24.04-4' }}
+
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 1
+
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: 3.14.7
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+
+            - name: Install uv
+              id: setup-uv
+              uses: ./.github/actions/setup-uv
+
+            - name: Install SAML (python3-saml) dependencies
+              if: steps.setup-uv.outputs.cache-hit != 'true'
+              shell: bash
+              run: |
+                  sudo rm -f /etc/apt/sources.list.d/*twingate*
+                  sudo apt-get update
+                  sudo apt-get install libxml2-dev libxmlsec1 libxmlsec1-dev libxmlsec1-openssl
+
+            - name: Install Python dependencies
+              shell: bash
+              run: |
+                  UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Add mypy Problem Matcher
+              shell: bash
+              run: |
+                  echo "::add-matcher::.github/mypy-problem-matcher.json"
+
+            - name: Compute mypy cache prefix
+              id: mypy-cache-key
+              shell: bash
+              run: |
+                  python_version=$(python -c 'import platform; print(platform.python_version())')
+                  mypy_version=$(python -c 'from importlib.metadata import version; print(version("mypy"))')
+                  toolchain_prefix="mypy-v3-${{ runner.os }}-${{ runner.arch }}-${python_version}-${mypy_version}"
+                  echo "toolchain_prefix=${toolchain_prefix}" >> "$GITHUB_OUTPUT"
+                  echo "prefix=${toolchain_prefix}-${{ hashFiles('uv.lock', '**/pyproject.toml', '**/mypy.ini') }}" >> "$GITHUB_OUTPUT"
+
+            - name: Restore mypy cache
+              id: mypy-cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .mypy_cache
+                  key: ${{ steps.mypy-cache-key.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
+                  # A pull request may start from a cache of another dependency set, because mypy
+                  # validates each entry. The master run may not, so each saved cache starts clean.
+                  restore-keys: |
+                      ${{ steps.mypy-cache-key.outputs.prefix }}-
+                      ${{ github.event_name == 'pull_request' && format('{0}-', steps.mypy-cache-key.outputs.toolchain_prefix) || '' }}
+
+            - name: Check static typing
+              shell: bash -e {0}
+              env:
+                  # Each worker holds its own copy of the build graph, so the worker count follows
+                  # the runner's memory. Keep this condition in sync with the job's runs-on: the
+                  # 8 GB depot-ubuntu-24.04 fits one worker on a cold cache, the 16 GB -4 fits two.
+                  MYPY_NUM_WORKERS: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && needs.changes.outputs.mypy_cache_key != 'true' && 1 || 2 }}
+              run: mypy --version && mypy .
+
+            - name: Save mypy cache
+              if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .mypy_cache
+                  key: ${{ steps.mypy-cache.outputs.cache-primary-key }}
+
     api-ratchet:
         needs: changes
         # Its own filter output, so an api.ts-only pull request pays for this job
@@ -651,7 +713,7 @@ jobs:
     # The warehouse source vendors under products/warehouse_sources/sources/ need no service:
     # no Postgres, ClickHouse, Redis or Kafka. So a pull request that changes only vendors
     # runs this job, and Backend CI does not start (its `backend` filter excludes that
-    # directory). code-quality already runs ruff, mypy and ty on the vendors.
+    # directory). code-quality and mypy already run ruff, ty and mypy on the vendors.
     warehouse-sources:
         needs: changes
         # Skipped on master push: the merge queue already ran this for every landed commit,
@@ -774,6 +836,7 @@ jobs:
                       test_feature_flag_raw_reads.py
                       test_local_kafka_consumers.py
                       test_rbac_shadow_resolver_callers.py
+                      test_warehouse_source_generated_config_inputs.py
                   )
                   pytest -p no:cacheprovider -n auto "${full_invariants[@]/#/posthog/test/repo_invariants/}"
 
@@ -795,9 +858,9 @@ jobs:
                   fi
                   pytest -p no:cacheprovider "${targets[@]}" --tb=short "${narrow[@]}"
 
-            # The committed credential kind and auth type maps hold one line per vendor. A vendors
-            # run skips Backend CI, so these suites run in both modes, or a vendor change that
-            # makes the maps stale would merge. They need no database.
+            # These suites check that every vendor declares a valid, unique credential kind and an
+            # auth type. A vendors run skips Backend CI, so they run in both modes. The check that
+            # the committed maps are current is `hogli build:projections --check` in code-quality.
             - name: Run credential map tests
               # The catalog's vendor filter would deselect credential cases in a shared session.
               if: steps.select.outputs.mode == 'vendors'
@@ -832,7 +895,7 @@ jobs:
     # The code-quality job skips when no Python changes, but this job always
     # runs and reports success, allowing PRs to merge.
     python_tests:
-        needs: [changes, code-quality, api-ratchet, warehouse-sources]
+        needs: [changes, code-quality, mypy, api-ratchet, warehouse-sources]
         name: Python code quality checks
         runs-on: ubuntu-24.04
         timeout-minutes: 5
@@ -857,6 +920,12 @@ jobs:
                   # has its own filter, and a vendor change with no Python file still runs it.
                   if [[ "${{ needs.warehouse-sources.result }}" != "success" && "${{ needs.warehouse-sources.result }}" != "skipped" ]]; then
                     echo "Warehouse sources checks and tests did not succeed (result: ${{ needs.warehouse-sources.result }})."
+                    exit 1
+                  fi
+
+                  # The type check shares the python filter, so it skips whenever code-quality does.
+                  if [[ "${{ needs.mypy.result }}" != "success" && "${{ needs.mypy.result }}" != "skipped" ]]; then
+                    echo "Python static typing did not succeed (result: ${{ needs.mypy.result }})."
                     exit 1
                   fi
 

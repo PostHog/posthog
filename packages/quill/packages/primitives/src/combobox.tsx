@@ -11,7 +11,7 @@ import { cn } from './lib/utils'
 import { MenuEmpty } from './menu-empty'
 import { MenuItemBody } from './menu-item-body'
 import { MenuLabel } from './menu-label'
-import { hasTooltipContent, withTooltip } from './with-tooltip'
+import { hasTooltipContent, withDisabledReason, withTooltip } from './with-tooltip'
 
 const ComboboxAnchorContext = React.createContext<React.RefObject<HTMLDivElement> | null>(null)
 
@@ -70,30 +70,41 @@ const ComboboxInput = React.forwardRef<
     ComboboxPrimitive.Input.Props & {
         showTrigger?: boolean
         showClear?: boolean
+        /** Disables the field and says why in a tooltip. The field stays focusable, so the reason is reachable. */
+        disabledReason?: React.ReactNode
     }
 >(function ComboboxInput(
-    { className, children, disabled = false, showTrigger = true, showClear = false, ...props },
+    { className, children, disabled = false, showTrigger = true, showClear = false, disabledReason, ...props },
     ref
 ) {
     const anchorRef = React.useContext(ComboboxAnchorContext)
+    const hasDisabledReason = hasTooltipContent(disabledReason)
+    const isDisabled = disabled || hasDisabledReason
+
     return (
         <div data-slot="combobox-input-group-wrapper">
-            <InputGroup ref={anchorRef} className={cn('w-auto', className)}>
-                <ComboboxPrimitive.Input ref={ref} render={<InputGroupInput disabled={disabled} />} {...props} />
-                <InputGroupAddon align="inline-end">
-                    {showTrigger && (
-                        <InputGroupButton
-                            size="icon-xs"
-                            render={<ComboboxTrigger />}
-                            data-slot="input-group-button"
-                            className="group-has-data-[slot=combobox-clear]/input-group:hidden data-pressed:bg-transparent rounded-xs"
-                            disabled={disabled}
-                        />
-                    )}
-                    {showClear && <ComboboxClear disabled={disabled} />}
-                </InputGroupAddon>
-                {children}
-            </InputGroup>
+            {/* The group is the visible field, and it stays hoverable while its input ignores the pointer. The
+                tooltip trigger passes its own data-slot, so the group restates its slot to keep it. */}
+            {withDisabledReason(
+                <InputGroup ref={anchorRef} data-slot="input-group" className={cn('w-auto', className)}>
+                    <ComboboxPrimitive.Input ref={ref} render={<InputGroupInput disabled={isDisabled} />} {...props} />
+                    <InputGroupAddon align="inline-end">
+                        {showTrigger && (
+                            <InputGroupButton
+                                size="icon-xs"
+                                render={<ComboboxTrigger />}
+                                data-slot="input-group-button"
+                                className="group-has-data-[slot=combobox-clear]/input-group:hidden data-pressed:bg-transparent rounded-xs"
+                                disabled={isDisabled}
+                            />
+                        )}
+                        {showClear && <ComboboxClear disabled={isDisabled} />}
+                    </InputGroupAddon>
+                    {children}
+                </InputGroup>,
+                disabledReason,
+                { target: 'self', focusable: true }
+            )}
         </div>
     )
 })
@@ -275,17 +286,39 @@ const ComboboxSeparator = React.forwardRef<
     )
 })
 
+const ComboboxChipsDisabledContext = React.createContext(false)
+
 const ComboboxChips = React.forwardRef<
     React.ComponentRef<typeof ComboboxPrimitive.Chips>,
-    React.ComponentPropsWithRef<typeof ComboboxPrimitive.Chips> & ComboboxPrimitive.Chips.Props
->(function ComboboxChips({ className, ...props }, ref) {
+    React.ComponentPropsWithRef<typeof ComboboxPrimitive.Chips> &
+        ComboboxPrimitive.Chips.Props & {
+            /** Disables the chips input and each chip's remove button, and says why in a tooltip on the field. */
+            disabledReason?: React.ReactNode
+        }
+>(function ComboboxChips({ className, disabledReason, onMouseDown, ...props }, ref) {
+    const hasDisabledReason = hasTooltipContent(disabledReason)
+
     return (
-        <ComboboxPrimitive.Chips
-            ref={ref}
-            data-slot="combobox-chips"
-            className={cn('quill-combobox__chips flex flex-wrap items-center gap-1 py-1', className)}
-            {...props}
-        />
+        <ComboboxChipsDisabledContext.Provider value={hasDisabledReason}>
+            {withDisabledReason(
+                <ComboboxPrimitive.Chips
+                    ref={ref}
+                    data-slot="combobox-chips"
+                    data-disabled={hasDisabledReason ? '' : undefined}
+                    className={cn('quill-combobox__chips flex flex-wrap items-center gap-1 py-1', className)}
+                    onMouseDown={(event) => {
+                        // A press on the container opens the popup unless the whole combobox is disabled.
+                        if (hasDisabledReason) {
+                            event.preventBaseUIHandler()
+                        }
+                        onMouseDown?.(event)
+                    }}
+                    {...props}
+                />,
+                disabledReason,
+                { target: 'self', focusable: true }
+            )}
+        </ComboboxChipsDisabledContext.Provider>
     )
 })
 
@@ -295,18 +328,27 @@ const ComboboxChip = React.forwardRef<
         showRemove?: boolean
         title?: string
     }
->(function ComboboxChip({ className, children, title, showRemove = true, ...props }, ref) {
+>(function ComboboxChip({ className, children, title, showRemove = true, onKeyDown, ...props }, ref) {
+    const chipsDisabled = React.useContext(ComboboxChipsDisabledContext)
+
     return (
         <ComboboxPrimitive.Chip
             ref={ref}
             render={<Chip title={title ?? (typeof children === 'string' ? children : undefined)} />}
             data-slot="combobox-chip"
             className={cn(className)}
+            onKeyDown={(event) => {
+                // A chip focused before the reason applied would still remove itself on Backspace or move focus.
+                if (chipsDisabled) {
+                    event.preventBaseUIHandler()
+                }
+                onKeyDown?.(event)
+            }}
             {...props}
         >
             <span className="truncate flex-1">{children}</span>
             {showRemove && (
-                <ComboboxPrimitive.ChipRemove render={<ChipClose />}>
+                <ComboboxPrimitive.ChipRemove render={<ChipClose />} disabled={chipsDisabled}>
                     <XIcon className="pointer-events-none" />
                 </ComboboxPrimitive.ChipRemove>
             )}
@@ -317,11 +359,14 @@ const ComboboxChip = React.forwardRef<
 const ComboboxChipsInput = React.forwardRef<
     React.ComponentRef<typeof ComboboxPrimitive.Input>,
     ComboboxPrimitive.Input.Props
->(function ComboboxChipsInput({ className, ...props }, ref) {
+>(function ComboboxChipsInput({ className, disabled, ...props }, ref) {
+    const chipsDisabled = React.useContext(ComboboxChipsDisabledContext)
+
     return (
         <ComboboxPrimitive.Input
             ref={ref}
             data-slot="combobox-chip-input"
+            disabled={disabled || chipsDisabled}
             className={cn('quill-combobox__chips-input', className)}
             {...props}
         />

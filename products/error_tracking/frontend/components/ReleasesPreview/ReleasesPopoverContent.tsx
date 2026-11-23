@@ -148,13 +148,13 @@ function PropertyDisplay({
     return maybeWrapWithTooltip(renderContent(), tooltip)
 }
 
-function versionDisplay(version: string): { display: string; truncated: boolean } {
+export function versionDisplay(version: string): { display: string; truncated: boolean } {
     const MAX_LENGTH = 10
     return version.length > MAX_LENGTH
         ? { display: version.slice(0, MAX_LENGTH) + '…', truncated: true }
         : { display: version, truncated: false }
 }
 
-function commitDisplay(commit: string): string {
+export function commitDisplay(commit: string): string {
     return commit.slice(0, 7)
 }

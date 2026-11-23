@@ -16,6 +16,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.routers import DefaultRouter
 from rest_framework.viewsets import GenericViewSet
 
+from posthog.api.scope_resolution import CURRENT_ALIAS, is_flat_route, note_flat_route, record_scope_resolution
 from posthog.api.utils import get_token
 from posthog.auth import (
     DelegatedOAuthAccessTokenAuthentication,
@@ -370,7 +371,15 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         Path parameters are parsed after super().initial(), so an
         authentication or permission error wins over a 404 for a malformed id.
         """
-        super().initial(request, *args, **kwargs)
+        # Read per request rather than per class, because a view can clear it for a request that names its scope.
+        if self.param_derived_from_user_current_team:
+            note_flat_route(request)
+        try:
+            super().initial(request, *args, **kwargs)
+        finally:
+            # Recorded even when a permission check refuses the call, the case a caller following the user hits most.
+            if is_flat_route(request) or CURRENT_ALIAS in self.kwargs.values():
+                record_scope_resolution(request, token_team=self._get_team_from_request)
         self._parse_path_parameters()
         self._team_scope_token = None
         if self._is_team_view or self._is_project_view:

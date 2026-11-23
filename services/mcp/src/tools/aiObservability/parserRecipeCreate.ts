@@ -132,10 +132,12 @@ export const parserRecipeCreateHandler: ToolBase<typeof schema, ParserRecipeCrea
         // the path that normally surfaces 5xx-class failures to observability.
         try {
             const apiKey = await context.stateManager.getApiKey()
-            getPostHogClient().captureException(error, undefined, {
-                tag: 'mcp',
-                tool: 'llma-parser-recipe-create',
-                suppress_analytics: apiKey.suppress_analytics === true,
+            getPostHogClient().captureException(error, {
+                properties: {
+                    tag: 'mcp',
+                    tool: 'llma-parser-recipe-create',
+                    suppress_analytics: apiKey.suppress_analytics === true,
+                },
             })
         } catch {
             // Observability must never break the request.

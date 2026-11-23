@@ -26,6 +26,7 @@ import { urls } from 'scenes/urls'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { EmailMetricsIncidentBanner } from '../EmailMetricsIncidentBanner'
+import { ImportFromAnotherToolPrompt } from '../OptOuts/ImportFromAnotherToolPrompt'
 import { CodeBadge } from './code/CodeBadge'
 import { SendFromCodeBanner } from './sendFromCode/SendFromCodeBanner'
 import { SendFromCodeEmptyState } from './sendFromCode/SendFromCodeEmptyState'
@@ -69,14 +70,21 @@ export function TransactionalEmailsTable(): JSX.Element {
         return sendFromCodeEnabled ? (
             <SendFromCodeEmptyState />
         ) : (
-            <ProductIntroduction
-                thingName="transactional email"
-                description="Send emails from your code with one API call. Use them for emails a person triggers, like password resets, receipts and sign-in codes. This tab shows how many were sent, delivered and failed in the last 7 days."
-                docsURL="https://posthog.com/docs/workflows"
-                action={() => router.actions.push(urls.transactionalNew())}
-                disabledReason={editDisabledReason ?? undefined}
-                isEmpty
-            />
+            <div className="flex flex-col gap-2">
+                <ProductIntroduction
+                    thingName="transactional email"
+                    description="Send emails from your code with one API call. Use them for emails a person triggers, like password resets, receipts and sign-in codes. This tab shows how many were sent, delivered and failed in the last 7 days."
+                    docsURL="https://posthog.com/docs/workflows"
+                    action={() => router.actions.push(urls.transactionalNew())}
+                    disabledReason={editDisabledReason ?? undefined}
+                    isEmpty
+                />
+                <ImportFromAnotherToolPrompt
+                    entryPoint="transactional"
+                    linkText="Import your templates."
+                    dataAttr="transactional-empty-state-import"
+                />
+            </div>
         )
     }
 

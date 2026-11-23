@@ -20,6 +20,7 @@ from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration, GitLabIntegration, GitLabIntegrationError
 from posthog.models.user_integration import ReauthorizationRequired
+from posthog.temporal.common.activity_context import current_activity_attempt
 from posthog.temporal.common.utils import asyncify
 
 from products.context_layer.backend.facade import api as context_layer_facade
@@ -29,6 +30,7 @@ from products.tasks.backend.exceptions import (
     CredentialUnavailableError,
     GitHubAuthenticationError,
     GitHubRateLimitedError,
+    GitHubTokenRetryError,
     OAuthTokenError,
     ProcessTaskError,
     ProcessTaskTransientError,
@@ -124,6 +126,7 @@ logger = logging.getLogger(__name__)
 SANDBOX_CREATION_CANCELLATION_WAIT_SECONDS = 10
 SANDBOX_CREATION_HEARTBEAT_SECONDS = 1
 REPOSITORY_CLONE_RETRY_DELAYS_SECONDS = (1, 2, 16, 32, 64)
+GITHUB_TOKEN_RETRY_DELAYS_SECONDS = (1, 2, 16, 32, 64)
 
 NETWORK_RESTRICTED_AGENT_ENV = {
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
@@ -417,6 +420,24 @@ def _repository_snapshot_integration_id(ctx: TaskProcessingContext, *, has_repo:
     return ctx.github_integration_id
 
 
+def _retry_delay(delays: tuple[int, ...], attempt: int) -> timedelta | None:
+    if attempt <= len(delays):
+        return timedelta(seconds=delays[attempt - 1])
+    return None
+
+
+def _is_last_activity_attempt(next_retry_delay: timedelta | None) -> bool:
+    if not activity.in_activity():
+        return True
+    info = activity.info()
+    policy = info.retry_policy
+    if policy is None or not policy.maximum_attempts or info.attempt >= policy.maximum_attempts:
+        return True
+    if info.schedule_to_close_timeout is None or next_retry_delay is None:
+        return False
+    return timezone.now() + next_retry_delay > info.scheduled_time + info.schedule_to_close_timeout
+
+
 def _github_token_error(error: Exception, message: str, context: dict[str, Any]) -> ProcessTaskError:
     if isinstance(error, CredentialUnavailableError):
         return error
@@ -428,7 +449,10 @@ def _github_token_error(error: Exception, message: str, context: dict[str, Any])
         if isinstance(cause, requests.ConnectionError | requests.Timeout) or (
             isinstance(cause, GitHubIntegrationError) and cause.status_code is not None and cause.status_code >= 500
         ):
-            return ProcessTaskTransientError(message, context, cause=error)
+            retry_delay = _retry_delay(GITHUB_TOKEN_RETRY_DELAYS_SECONDS, current_activity_attempt())
+            if _is_last_activity_attempt(retry_delay):
+                return ProcessTaskTransientError(message, context, cause=error, capture=False)
+            return GitHubTokenRetryError(message, context, cause=error, capture=False, next_retry_delay=retry_delay)
         cause = cause.__cause__
     return GitHubAuthenticationError(message, context, cause=error)
 
@@ -1391,9 +1415,7 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
 
 
 def _clone_retry_delay(attempt: int) -> timedelta | None:
-    if attempt <= len(REPOSITORY_CLONE_RETRY_DELAYS_SECONDS):
-        return timedelta(seconds=REPOSITORY_CLONE_RETRY_DELAYS_SECONDS[attempt - 1])
-    return None
+    return _retry_delay(REPOSITORY_CLONE_RETRY_DELAYS_SECONDS, attempt)
 
 
 def _log_repository_clone_denied(ctx: TaskProcessingContext, repository: str, stderr: str, *, confirmed: bool) -> None:

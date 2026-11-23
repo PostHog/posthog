@@ -2055,13 +2055,13 @@ class TestModalSandboxCreateAllowlist:
             "vm_runtime": True,
             "agent_egress_probe": True,
         }
-        with pytest.raises(ValueError, match="fresh, credential-free development VM"):
+        with pytest.raises(ValueError, match="fresh, credential-free development or staging VM"):
             SandboxConfig(**(values | override))
 
     @override_settings(DEBUG=False, TEST=False)
     @pytest.mark.parametrize("observation", [False, True])
     def test_egress_profiles_reject_production_launch(self, observation: bool) -> None:
-        with pytest.raises(ValueError, match="development VM"):
+        with pytest.raises(ValueError, match="development( or staging)? VM"):
             SandboxConfig(
                 name="probe",
                 template=SandboxTemplate.SLIM_BASE,

@@ -1,6 +1,6 @@
 import datetime
 import dataclasses
-from collections.abc import Iterable
+from collections.abc import Callable
 from typing import Any, Optional, cast
 
 from products.warehouse_sources.sources.harvest.settings import HARVEST_ENDPOINTS
@@ -8,6 +8,7 @@ from products.warehouse_sources.sources.sdk import (
     ClientConfig,
     IncrementalConfig,
     JSONResponsePaginator,
+    Resource,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
@@ -57,6 +58,16 @@ def _to_iso8601(value: Any) -> Optional[str]:
     if isinstance(value, datetime.date):
         return value.isoformat()
     return str(value)
+
+
+def _lift_nested_ids(keys: tuple[str, ...]) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    def _map(row: dict[str, Any]) -> dict[str, Any]:
+        for key in keys:
+            nested = row.get(key)
+            row[f"{key}_id"] = nested.get("id") if isinstance(nested, dict) else None
+        return row
+
+    return _map
 
 
 def _build_headers(account_id: str) -> dict[str, str]:
@@ -129,7 +140,7 @@ def _fanout_source(
     # The parent listing always walks the full collection: a child can change without its
     # parent's `updated_at` moving, so the child's own `updated_since` does the narrowing.
     child = cast(
-        Iterable[Any],
+        Resource,
         build_dependent_resource(
             endpoint_configs=HARVEST_ENDPOINTS,
             child_endpoint=endpoint,
@@ -142,13 +153,15 @@ def _fanout_source(
             should_use_incremental_field=use_incremental,
             incremental_field="updated_at",
             incremental_config_factory=_updated_since,
-            page_size_param="per_page",
+            page_size_param="per_page" if config.paginated else None,
             parent_endpoint_extra={"data_selector": parent_config.data_key, "data_selector_required": True},
             child_endpoint_extra={"data_selector": config.data_key, "data_selector_required": True},
             resume_hook=save_checkpoint,
             initial_paginator_state=initial_state,
         ),
     )
+    if config.nested_id_keys:
+        child.add_map(_lift_nested_ids(config.nested_id_keys))
 
     return SourceResponse(
         name=endpoint,

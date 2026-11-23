@@ -215,4 +215,15 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "choices": "Possible choices for multiple_choice and select_box fields.",
         },
     },
+    "company_fields": {
+        "description": "Definitions of the custom fields configured for companies.",
+        "docs_url": "https://developer.onepagecrm.com/api/reference/company-fields/get-company_fields/",
+        "columns": {
+            "id": "Unique identifier of the company field, referenced by company custom field values.",
+            "name": "Name of the company field.",
+            "type": "Data type of the company field (for example date, number, select_box, external_id, or section_divider).",
+            "position": "Position of the company field in the list.",
+            "choices": "Possible choices for multiple_choice and select_box fields.",
+        },
+    },
 }

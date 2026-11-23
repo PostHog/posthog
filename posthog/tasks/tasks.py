@@ -505,6 +505,7 @@ def process_query_task(
     limit_context: Optional[LimitContext] = None,
     analytics_props: Optional["AnalyticsProps"] = None,
     sharing_configuration_id: Optional[int] = None,
+    staff_rights_withheld: bool = False,
 ) -> None:
     """
     Kick off query
@@ -529,6 +530,7 @@ def process_query_task(
             is_query_service=is_query_service,
             analytics_props=analytics_props,
             sharing_configuration_id=sharing_configuration_id,
+            staff_rights_withheld=staff_rights_withheld,
         )
     except ClickHouseAtCapacity as exc:
         # A remote capacity failure can arrive after other shards have done expensive work.

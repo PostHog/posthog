@@ -6,7 +6,7 @@
 
 | Path                  | Holds                                                                                                                                                                                     |
 | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/commands/`       | One file per command. `index.ts` is the tree of every command                                                                                                                             |
+| `src/commands/`       | One file per command. `index.ts` is the tree of every command, and `shortcuts.ts` gives a command in a group a top-level name, as `hog whoami` for `hog auth status`                      |
 | `src/core/`           | The shared parts every command uses: command definitions, context and global options, output, agent detection, errors, runtime, the manifest                                              |
 | `src/posthog/`        | The PostHog API client, the pagination helpers every list uses, and credentials                                                                                                           |
 | `src/ci/`             | CI setup. `providers/registry.ts` lists the providers whose OIDC tokens hog exchanges, and each provider has its own folder                                                               |

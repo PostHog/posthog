@@ -182,6 +182,52 @@ def _fanout_rows(api_key: str, endpoint_config: HeyReachEndpointConfig) -> Itera
                 yield rows
 
 
+_SEQUENCE_BRANCHES = (("unconditionalNode", "unconditional"), ("conditionalNode", "conditional"))
+_SEQUENCE_CHILD_KEYS = frozenset(key for key, _ in _SEQUENCE_BRANCHES)
+
+
+def _sequence_node_rows(campaign_id: Any, root: Any) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    # Iterative walk, so a deep sequence can't hit the recursion limit.
+    stack: list[tuple[Any, str, str | None, str | None, int]] = [(root, "root", None, None, 0)]
+    while stack:
+        node, path, parent_path, branch, depth = stack.pop()
+        if not isinstance(node, dict) or not node:
+            continue
+        rows.append(
+            {
+                **{key: value for key, value in node.items() if key not in _SEQUENCE_CHILD_KEYS},
+                "campaignId": campaign_id,
+                "path": path,
+                "parentPath": parent_path,
+                "branch": branch,
+                "depth": depth,
+            }
+        )
+        for key, branch_name in reversed(_SEQUENCE_BRANCHES):
+            stack.append((node.get(key), f"{path}.{branch_name}", path, branch_name, depth + 1))
+    return rows
+
+
+def _sequence_rows(
+    api_key: str,
+    endpoint_config: HeyReachEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[HeyReachResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    fanout = endpoint_config.fanout
+    assert fanout is not None
+    client = _make_client(api_key)
+
+    for parent_id in _parent_ids(client, fanout):
+        # A campaign without a sequence answers with an empty 200 body, which paginate turns into an empty page.
+        for page in client.paginate(path=endpoint_config.path, method="get", params={fanout.body_param: parent_id}):
+            rows = [row for tree in page for row in _sequence_node_rows(parent_id, tree)]
+            if rows:
+                yield rows
+        # One request per campaign and many campaigns have no sequence; nothing is buffered or staged here.
+        resumable_source_manager.safe_point()
+
+
 def _stats_windows(window_days: int | None) -> Iterator[StatsWindow]:
     now = datetime.now(tz=UTC)
     if window_days is None:
@@ -289,6 +335,11 @@ def heyreach_source(
     if endpoint_config.daily_stats:
         return _build_response(
             endpoint_config, partial(_daily_stats_rows, api_key, endpoint_config, resumable_source_manager)
+        )
+
+    if endpoint_config.sequence_tree:
+        return _build_response(
+            endpoint_config, partial(_sequence_rows, api_key, endpoint_config, resumable_source_manager)
         )
 
     if endpoint_config.fanout is not None:

@@ -6,7 +6,9 @@ import type { StoreChoice } from '@/posthog/credential-store/types'
 import type { CredentialSource } from '@/posthog/credentials'
 import { currentVersionInfo, updateChecksOff } from '@/updates/check'
 
-function sourceLabel(
+// Where the credentials come from, as a person reads it: what kind of login, and where hog keeps it.
+function loginLabel(
+    kind: 'oauth' | 'personal_api_key' | 'workload',
     source: CredentialSource,
     store: StoreChoice | null,
     path: string | null,
@@ -14,14 +16,38 @@ function sourceLabel(
 ): string {
     switch (source) {
         case 'env':
-            return 'the HOG_PERSONAL_API_KEY environment variable'
+            return 'Personal API key from HOG_PERSONAL_API_KEY'
         case 'dotenv-file':
-            return `HOG_PERSONAL_API_KEY in ${path}`
-        case 'store':
-            return store === 'keychain' ? 'the system keychain' : `${path}`
+            return `Personal API key from HOG_PERSONAL_API_KEY in ${path}`
         case 'workload':
-            return `this job's ${provider} OIDC token`
+            return `This job's ${provider} OIDC token`
+        case 'store': {
+            const where = store === 'keychain' ? 'the system keychain' : `${path}`
+            return kind === 'oauth'
+                ? `Browser login in ${where}, renewed automatically`
+                : `Personal API key in ${where}`
+        }
     }
+}
+
+// A login holds dozens of scopes, so a person sees how many it can write and read. Only a short
+// list is spelled out.
+const IDENTITY_SCOPES = new Set(['openid', 'profile', 'email'])
+const LISTED_SCOPES = 4
+
+function accessLabel(scopes: readonly string[]): string {
+    const data = scopes.filter((scope) => !IDENTITY_SCOPES.has(scope))
+    if (data.includes('*')) {
+        return 'Every scope'
+    }
+    if (data.length <= LISTED_SCOPES) {
+        // The scopes come from the host's token response, so escape sequences in them must not reach the terminal.
+        return data.length ? data.map(escapeControls).join(', ') : 'No data scopes'
+    }
+    const writes = data.filter((scope) => scope.endsWith(':write')).length
+    const reads = data.length - writes
+    const counts = [writes ? `${writes} write` : '', reads ? `${reads} read` : ''].filter(Boolean).join(' and ')
+    return `${counts} scopes. hog api access lists them`
 }
 
 export default defineCommand({
@@ -52,26 +78,27 @@ export default defineCommand({
         }
         // The email and project name come from PostHog, and anyone who can rename the project sets the name.
         const who = result.user ? ` as ${out.style(escapeControls(result.user.email), 'bold')}` : ''
-        out.line(`${out.style('Logged in', 'green', 'bold')} to ${escapeControls(result.host)}${who}.`)
         const name = result.projectName ? escapeControls(result.projectName) : null
-        out.line(`Project: ${name ? `${name} (${result.projectId})` : result.projectId}`)
-        const what = { oauth: 'Token', personal_api_key: 'Personal API key', workload: 'Workload token' }[result.kind]
-        const source = sourceLabel(result.source, result.store, result.credentialsPath, result.provider)
-        out.line(out.style(`${what} from ${source}`, 'dim'))
-        if (result.scopes) {
-            out.line(out.style(`Scopes: ${result.scopes.join(', ')}`, 'dim'))
+        const rows: [string, string | null][] = [
+            ['Host', escapeControls(result.host)],
+            ['Project', name ? `${name} (${result.projectId})` : result.projectId],
+            ['Login', loginLabel(result.kind, result.source, result.store, result.credentialsPath, result.provider)],
+            ['Access', result.scopes ? accessLabel(result.scopes) : null],
+            ['Config', result.config ? escapeControls(result.config) : 'No posthog.json'],
+        ]
+
+        out.line(`${out.style('✓', 'green', 'bold')} Logged in${who}`)
+        out.line()
+        for (const [label, value] of rows) {
+            if (value !== null) {
+                out.line(`  ${out.style(label.padEnd(10), 'bold')}${value}`)
+            }
         }
-        if (result.expiresAt) {
-            out.line(out.style(`Expires ${result.expiresAt}. hog renews it before then.`, 'dim'))
-        }
-        out.line(
-            out.style(
-                result.config ? `Config: ${escapeControls(result.config)}` : 'Config: no posthog.json found',
-                'dim'
-            )
-        )
-        if (result.login) {
-            out.line(out.style(`Login picked because ${escapeControls(result.login.reason)}.`, 'dim'))
+        // posthog.json naming the project explains itself. Any other pick says why.
+        if (result.login && result.login.match !== 'exact') {
+            out.notes({
+                notes: [out.style(`hog picked this login because ${escapeControls(result.login.reason)}.`, 'dim')],
+            })
         }
     },
 

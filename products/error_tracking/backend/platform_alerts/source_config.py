@@ -97,8 +97,11 @@ ERROR_TRACKING_ALERT_CONFIG: Final = SourceConfigSpec(
     model=ErrorTrackingPlatformAlertConfig,
     validate=validate_error_tracking_edit,
     check_in_team=check_filters_in_team,
-    # No `remove_destinations`, so the alert's destinations are `AlertDestination` rows from the start.
-    native=NativeAlertLifecycle(check_interval_minutes=CHECK_INTERVAL_MINUTES, max_per_team=MAX_ALERTS_PER_TEAM),
+    native=NativeAlertLifecycle(
+        check_interval_minutes=CHECK_INTERVAL_MINUTES,
+        platform_destinations=True,
+        max_per_team=MAX_ALERTS_PER_TEAM,
+    ),
     alert_url=alert_url,
     rollout_flag=ROLLOUT_FLAG,
 )

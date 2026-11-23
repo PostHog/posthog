@@ -40,7 +40,7 @@ describe('alertNotificationLogic', () => {
         initKeaTests()
         jest.clearAllMocks()
         jest.mocked(alertsDestinationsList).mockResolvedValue([])
-        jest.mocked(alertsDestinationsWebhookCreate).mockResolvedValue({ hog_function_ids: ['hf-1'] })
+        jest.mocked(alertsDestinationsWebhookCreate).mockResolvedValue({ id: 'row-1', hog_function_ids: [] })
     })
 
     afterEach(() => {
@@ -195,7 +195,7 @@ describe('alertNotificationLogic', () => {
     })
 
     it('creates and removes a PagerDuty destination through the alert API', async () => {
-        jest.mocked(alertsDestinationsPagerdutyCreate).mockResolvedValue({ hog_function_ids: ['hf-open', 'hf-close'] })
+        jest.mocked(alertsDestinationsPagerdutyCreate).mockResolvedValue({ id: 'row-1', hog_function_ids: [] })
         jest.mocked(alertsDestinationsDeleteCreate).mockResolvedValue(undefined)
         logic = alertNotificationLogic({ alertId: 'alert-123' })
         logic.mount()

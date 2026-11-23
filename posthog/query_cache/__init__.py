@@ -3,7 +3,7 @@ from posthog.query_cache.failures import FailureKind, QueryFailureRecord
 from posthog.query_cache.freshness_index import clean_up_stale_insights, get_stale_insights, last_refreshes, stale_among
 from posthog.query_cache.metrics import count_query_cache_hit
 from posthog.query_cache.read_history import days_read_at_this_time, last_read_hours, read_since
-from posthog.query_cache.results import EntryFreshness
+from posthog.query_cache.results import EntryFreshness, prefetched_entries
 from posthog.query_cache.serialization import CachedEntry
 
 __all__ = [
@@ -15,6 +15,7 @@ __all__ = [
     "QueryFailureRecord",
     "clean_up_stale_insights",
     "count_query_cache_hit",
+    "prefetched_entries",
     "days_read_at_this_time",
     "get_stale_insights",
     "last_read_hours",
