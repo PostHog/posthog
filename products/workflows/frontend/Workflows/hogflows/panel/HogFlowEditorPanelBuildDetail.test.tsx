@@ -132,13 +132,19 @@ describe('HogFlowEditorPanelBuildDetail', () => {
         expect(screen.queryByText('Select message type')).not.toBeInTheDocument()
     })
 
-    it('shows the run link tag hint only while tracking is on', async () => {
+    it('turns off connecting clicks to sessions for this email, and hides the switch while tracking is off', async () => {
         useMocks(emailStepMocks('cat-billing'))
         const { container } = await renderEmailStep()
-        expect(screen.getByText(/are connected to the sessions they start/)).toBeInTheDocument()
+        const runLinkTagSwitch = (): Element | null =>
+            container.querySelector('[data-attr="workflow-email-run-link-tag-toggle"]')
+
+        fireEvent.click(runLinkTagSwitch() as HTMLElement)
+
+        const emailStep = logic.values.workflow.actions.find((action) => action.id === EMAIL_NODE_ID)
+        expect(emailStep?.config).toMatchObject({ run_link_tag_enabled: false })
 
         fireEvent.click(container.querySelector('[data-attr="workflow-email-tracking-toggle"]') as HTMLElement)
 
-        expect(container.querySelector('[data-attr="workflows-run-link-tag-hint"]')).not.toBeInTheDocument()
+        expect(runLinkTagSwitch()).not.toBeInTheDocument()
     })
 })

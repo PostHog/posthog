@@ -29,6 +29,7 @@ import { workflowLogic } from '../../workflowLogic'
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { RunLinkTagHint } from '../steps/components/RunLinkTagHint'
+import { RunLinkTagSwitch } from '../steps/components/RunLinkTagSwitch'
 import { utmKeysFromDefaultAfterEdit } from '../steps/components/utmDefaults'
 import { UtmTagFields } from '../steps/components/UtmTagFields'
 import { UtmTeamDefaultControls } from '../steps/components/UtmTeamDefaultControls'
@@ -182,9 +183,25 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                 />
                             </div>
                             {action.config.tracking_enabled !== false && (
-                                <div className="px-2 pb-1">
-                                    <RunLinkTagHint />
-                                </div>
+                                <>
+                                    <div className="flex gap-2 justify-between items-center px-2 py-1">
+                                        <LemonLabel info="Connects each tracked link click in this email to the session it starts on your site, including its session replay when recording is on. It works for links to the domain you send from. When off, this email's links don't get the extra URL parameter that makes the connection.">
+                                            Connect clicks to sessions
+                                        </LemonLabel>
+                                        <RunLinkTagSwitch
+                                            checked={action.config.run_link_tag_enabled !== false}
+                                            onChange={(checked) => {
+                                                setWorkflowAction(action.id, {
+                                                    ...action,
+                                                    config: { ...action.config, run_link_tag_enabled: checked },
+                                                })
+                                            }}
+                                        />
+                                    </div>
+                                    <div className="px-2 empty:hidden">
+                                        <RunLinkTagHint />
+                                    </div>
+                                </>
                             )}
                             <div className="flex gap-2 justify-between items-center px-2 py-1">
                                 <LemonLabel info="Adds UTM tags to each link, so visits from this email show up as their own campaign in web analytics. Tags already on a link are kept. Links to PostHog, such as the unsubscribe link, are not changed. Add data-ph-no-utm to a link to leave it as is.">

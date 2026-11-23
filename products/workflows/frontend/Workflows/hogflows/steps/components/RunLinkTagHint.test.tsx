@@ -20,10 +20,7 @@ describe('<RunLinkTagHint />', () => {
         cleanup()
     })
 
-    it.each([
-        { stored: undefined, text: /are connected to the sessions they start/, link: 'Turn it off in settings' },
-        { stored: false, text: /aren't connected to sessions/, link: 'Turn it on in settings' },
-    ])('stored $stored says "$link" and links to the setting', ({ stored, text, link }) => {
+    const loadTeam = (stored: boolean | undefined): void => {
         teamLogic.actions.loadCurrentTeamSuccess({
             ...MOCK_DEFAULT_TEAM,
             workflows_config: {
@@ -31,11 +28,22 @@ describe('<RunLinkTagHint />', () => {
                 ...(stored === undefined ? {} : { email_workflow_run_link_tag_enabled: stored }),
             },
         })
+    }
+
+    it.each([undefined, true])('shows nothing while the project setting is %s', (stored) => {
+        loadTeam(stored)
+
+        const { container } = render(<RunLinkTagHint />)
+
+        expect(container).toBeEmptyDOMElement()
+    })
+
+    it('links to the setting while the project setting is off', () => {
+        loadTeam(false)
 
         render(<RunLinkTagHint />)
 
-        expect(screen.getByText(text)).toBeInTheDocument()
-        expect(screen.getByText(link).closest('a')).toHaveAttribute(
+        expect(screen.getByText('Turn it on in settings').closest('a')).toHaveAttribute(
             'href',
             expect.stringMatching(/\/settings\/environment-workflows#workflows-email-run-link-tag$/)
         )
