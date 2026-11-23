@@ -170,11 +170,17 @@ class TestAppearanceAlerts(BaseTest):
                 updated_at=enabled_at
             )
 
-        outcome, _ = self._tick(T0 + timedelta(minutes=21))
+        # More checks than the default policy allows failures before it breaks an alert.
+        ticks = [self._tick(T0 + timedelta(minutes=21 + minute)) for minute in range(6)]
+        self.configuration.refresh_from_db()
 
-        assert (outcome.failure is not None) == fails
+        assert [outcome.failure is not None for outcome, _ in ticks] == [fails] * 6
         if fails:
-            assert outcome.error_message is not None and "not being recorded" in outcome.error_message
+            assert all("not being recorded" in (outcome.error_message or "") for outcome, _ in ticks)
+            assert [len(deliveries) for _, deliveries in ticks] == [1, 0, 0, 0, 0, 0]
+            assert self.configuration.check_status == PlatformAlertConfiguration.CheckStatus.ERRORED
+        else:
+            assert self.configuration.check_status == PlatformAlertConfiguration.CheckStatus.OK
 
     def test_a_source_s_own_alert_readers_and_caps_leave_its_appearance_alerts_out(self) -> None:
         # A source's API presents these as its own alerts, and an appearance config has no condition to present.
