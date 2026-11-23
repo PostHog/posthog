@@ -121,6 +121,8 @@ describe('inFlightLimitsFor', () => {
         ['the budget cannot hold one message', settings, machine({ constrainedBytes: 768 * MIB }), 'memory budget'],
         ['the heap cannot hold one message', settings, machine({ heapLimitBytes: 64 * MIB }), 'heap limit'],
         ['the cap is zero', { ...settings, maxInFlight: 0 }, machine(), 'cap'],
+        ['the cap is a fraction', { ...settings, maxInFlight: 1.5 }, machine(), 'cap'],
+        ['the cap is unbounded', { ...settings, maxInFlight: Infinity }, machine(), 'cap'],
         ['no attachment store is set', { ...settings, attachmentStoreBucket: '' }, machine(), 'attachment store'],
     ])('refuses sends with files when %s', (_, given, memory, reason) => {
         expect(inFlightLimitsFor(given, memory)).toEqual({ refusal: expect.stringContaining(reason) })

@@ -321,6 +321,7 @@ export class CyclotronV2Worker {
     private pool: Pool
     protected isConsuming = false
     protected lastPollTime = new Date()
+    private lastFilesPollTime = new Date()
     private consumerLoopPromise: Promise<void> | null = null
 
     protected readonly queueName: string
@@ -403,6 +404,7 @@ export class CyclotronV2Worker {
     ): Promise<void> {
         while (this.isConsuming) {
             try {
+                this.lastFilesPollTime = new Date()
                 const decision = await this.filesBatchLimit(sendsWithFiles.room())
                 const rows = decision.limit > 0 ? await this.dequeueFiles(decision.limit) : []
                 if (rows.length === 0) {
@@ -931,7 +933,12 @@ export class CyclotronV2Worker {
     }
 
     isHealthy(): boolean {
-        return this.isConsuming && Date.now() - this.lastPollTime.getTime() < this.heartbeatTimeoutMs
+        const polledRecently = (at: Date): boolean => Date.now() - at.getTime() < this.heartbeatTimeoutMs
+        return (
+            this.isConsuming &&
+            polledRecently(this.lastPollTime) &&
+            (!this.sendsWithFiles || polledRecently(this.lastFilesPollTime))
+        )
     }
 
     async stopConsuming(): Promise<void> {

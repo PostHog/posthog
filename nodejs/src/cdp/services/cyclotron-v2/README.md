@@ -64,6 +64,9 @@ The main poll then skips rows with `file_bytes` set, and the second poll dequeue
 A worker with no room spends no SES tokens on them, and a plain send never waits behind them.
 Each poll has its own email index, `idx_cyclotron_jobs_email_plain_due` and `idx_cyclotron_jobs_email_files_fair_dequeue`, so a backlog of one kind of send does not slow the poll for the other.
 Check that both indexes are valid (`pg_index.indisvalid`) before turning the gate on: an interrupted `CREATE INDEX CONCURRENTLY` leaves an invalid index that a retry with `IF NOT EXISTS` does not rebuild.
+Turn the gate on only once the email jobs queued before the `file_bytes` writers deployed have run.
+Such a job has files but no `file_bytes`, so the main poll claims it and can take a slot the files poll already spent a token on.
+A delayed workflow step keeps such a job queued for as long as its delay.
 
 Every release write (`ack`, `fail`, `reschedule`, `defer`, `cancel`) matches the row on `lock_id`, so a write from a worker that lost its claim changes nothing.
 With `CDP_CYCLOTRON_RELEASE_WRITE_RETRY` on, a release write that loses its Postgres connection runs once more on a fresh connection, within what is left of the heartbeat limit.

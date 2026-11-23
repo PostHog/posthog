@@ -72,8 +72,8 @@ export function inFlightLimitsFor(
     if (settings.heartbeatIntervalMs <= 0) {
         return { refusal: 'the job heartbeat is off, so a send that outlives its batch would be reset and sent twice' }
     }
-    if (settings.maxInFlight < 1) {
-        return { refusal: 'the in-flight cap is below one send' }
+    if (!Number.isSafeInteger(settings.maxInFlight) || settings.maxInFlight < 1) {
+        return { refusal: 'the in-flight cap is not a whole number of sends of at least one' }
     }
     if (budgetBytes < largest.reservedBytes) {
         return { refusal: `the memory budget of ${budgetBytes} bytes cannot hold one message at the size limit` }

@@ -2862,6 +2862,28 @@ describe('Cyclotron V2', () => {
             })
         })
 
+        it('turns unhealthy when its poll for sends with files stops while the plain poll keeps going', async () => {
+            await manager.bulkCreateJobs([{ teamId: 1, queueName: 'email', fileBytes: 1000 }])
+            const worker = createWorker('email', { heartbeatTimeoutMs: 300, sendsWithFiles: { room: () => 1 } })
+            const filesBatch = createPromise()
+            const stuck = createPromise()
+            await worker.connect((batch) => {
+                if (batch.length === 0) {
+                    return Promise.resolve()
+                }
+                filesBatch.resolve()
+                return stuck.promise
+            })
+            await filesBatch.promise
+
+            try {
+                await waitForExpect(() => expect(worker.isHealthy()).toBe(false), 2_000, 50)
+            } finally {
+                stuck.resolve()
+                await worker.stopConsuming()
+            }
+        })
+
         it.each([
             ['ack', 'completed'],
             ['fail', 'failed'],
