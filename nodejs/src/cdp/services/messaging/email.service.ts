@@ -224,9 +224,7 @@ export const ATTACHMENT_SEND_DEADLINE_MS = 17_000
 export const LARGEST_SEND_DEADLINE_MS = 45_000
 const OWNERSHIP_CHECK_TIMEOUT_MS = 5_000
 
-// A larger message takes longer to load and to hand to SES, so the deadline grows with the files, from that of a
-// small send up to LARGEST_SEND_DEADLINE_MS at the size limit. No deadline passes LARGEST_SEND_DEADLINE_MS, which the
-// worker's stop deadline is sized for.
+// No deadline passes LARGEST_SEND_DEADLINE_MS, because the worker's stop deadline is sized for it.
 export function sendDeadlineMsFor(fileBytes: number, smallestMs = ATTACHMENT_SEND_DEADLINE_MS): number {
     const largestMs = Math.min(
         LARGEST_SEND_DEADLINE_MS,
