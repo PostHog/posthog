@@ -419,10 +419,18 @@ class ContextSelector:
         named = [c for c in candidates if c.kind == "skill" and c.id in names]
         self.explicit = frozenset(c.id for c in named)
         rest = [c for c in candidates if c not in named]
-        scored = [(c, 1.0) for c in named] + self.timed("rerank", lambda: self.rerank(rest, deadline))
+        scored = [(c, 1.0) for c in named]
+        error_type = None
+        try:
+            scored += self.timed("rerank", lambda: self.rerank(rest, deadline))
+        except Exception as error:
+            if not named:
+                raise
+            error_type = type(error).__name__
+            logger.warning("context_selection_rerank_failed", selection_id=self.selection_id, error_type=error_type)
         context = self.render(scored)
         reason = "selected" if context else "empty"
-        self.capture_outcome(reason, scored)
+        self.capture_outcome(reason, scored, error_type)
         return PreparedContext(
             selection_id=self.selection_id,
             mode=self.mode,

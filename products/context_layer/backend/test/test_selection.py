@@ -277,20 +277,25 @@ class TestSelection(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("named", "see /phs activation-guide", True),
-            ("named_in_a_list", "use activation-guide,retention-guide", True),
-            ("not_named", "how is activation defined?", False),
+            ("named", "see /phs activation-guide", True, False),
+            ("named_in_a_list", "use activation-guide,retention-guide", True, False),
+            ("named_and_the_rerank_fails", "see /phs activation-guide", True, True),
+            ("not_named", "how is activation defined?", False, False),
         ]
     )
     def test_a_skill_named_in_the_request_is_injected_without_the_rerank(
-        self, name: str, prompt: str, named: bool
+        self, name: str, prompt: str, named: bool, rerank_fails: bool
     ) -> None:
+        if rerank_fails:
+            self.rows["llm_skills/search/"] = [self.skill, {**self.skill, "name": "slow-guide"}]
         self.selector = ContextSelector(
             self.run_record, self.selector.actor, SelectionInput(message_id="m", prompt=prompt), "Bearer fake"
         )
 
         def decide(*, state: dict[str, JsonValue], questions: dict[str, Question]) -> SystemOneResult:
             self.states.append(state)
+            if rerank_fails and "useful" not in questions:
+                raise httpx.ReadTimeout("Timed out")
             answers = {key: {"noul": 0.95 if key == "useful" else 0.1} for key in questions}
             return parse_system_one_response({"model": "test", "answers": answers}, questions)
 
@@ -302,6 +307,7 @@ class TestSelection(SimpleTestCase):
         self.assertEqual("activation-guide" in reranked, not named)
         explicit = [c["score"] for c in capture.call_args.kwargs["properties"]["candidates"] if c.get("explicit")]
         self.assertEqual(explicit, [1.0] if named else [])
+        self.assertEqual(capture.call_args.kwargs["properties"]["error_type"], "ReadTimeout" if rerank_fails else None)
 
     @parameterized.expand([(403,), (404,), (429,), (503,), (302,)])
     def test_denied_or_failed_sources_preserve_other_results(self, status: int) -> None:
