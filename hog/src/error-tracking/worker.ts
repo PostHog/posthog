@@ -7,8 +7,11 @@ import { parseJson, parseJsonOrUndefined } from '@/core/json'
 import { canonical } from '@/core/paths'
 import { FROM_SOURCE, type Runtime } from '@/core/runtime'
 import { parseOrThrow, type Schema } from '@/core/schema'
+import { classifyPath, type InstallMethod, upgradeAdvice, upgradeCommand } from '@/updates/install-method'
+import { workerName } from '@/updates/targets'
+import { BUILD_DATE, VERSION } from '@/version'
 
-import type { ReleaseMode } from './kinds/js'
+import type { ReleaseMode } from './session'
 
 // hog-worker is the Rust program in hog/worker/ that reads, rewrites and writes build output with
 // the code posthog-cli runs, so the bytes match. hog/worker/src/main.rs describes the requests.
@@ -17,20 +20,27 @@ import type { ReleaseMode } from './kinds/js'
 // that replaced only one of them is caught here instead of in a request the other can't read.
 export const WORKER_PROTOCOL = 1
 
-const WORKER_NAME = 'hog-worker'
-const WINDOWS_SUFFIX = '.exe'
+// A first run of a signed binary can wait on the system's notarization check.
+const WORKER_CHECK_TIMEOUT_MS = 30_000
+
 // Where `pnpm --filter hog build:worker` puts the worker, for a hog that runs from source.
 const SOURCE_BUILD = join(import.meta.dir, '..', '..', 'worker', 'target', 'release')
 
 // The worker sits next to the hog binary, and hog never looks anywhere else: a `hog-worker` found
 // through PATH could be any program. A symlinked hog, as Homebrew installs it, resolves first.
 export function workerPath(runtime: Pick<Runtime, 'isDevelopment' | 'execPath' | 'platform'>): string {
-    const name = runtime.platform === 'win32' ? `${WORKER_NAME}${WINDOWS_SUFFIX}` : WORKER_NAME
+    const name = workerName(runtime.platform)
     if (runtime.isDevelopment) {
         return join(SOURCE_BUILD, name)
     }
     const path = runtime.platform === 'win32' ? win32 : posix
     return path.join(path.dirname(canonical(runtime.execPath)), name)
+}
+
+function upgradeHint(path: string): string {
+    const method: InstallMethod = { kind: 'standalone', ...classifyPath(path), path }
+    const command = upgradeCommand(method)
+    return command ? `Run \`${command}\`.` : upgradeAdvice(method, '<command>')
 }
 
 const Hello = z.object({ type: z.literal('hello'), protocol: z.number(), version: z.string() })
@@ -190,13 +200,15 @@ interface Running {
 
 export class Worker {
     private running: Promise<Running> | undefined
+    private child: Running['child'] | undefined
 
     constructor(
         private readonly path: string = workerPath({
             isDevelopment: FROM_SOURCE,
             execPath: process.execPath,
             platform: process.platform,
-        })
+        }),
+        private readonly build: Runtime['build'] = { version: VERSION, date: BUILD_DATE }
     ) {}
 
     // Started by the first request, so a command that fails on its arguments never starts one.
@@ -205,27 +217,33 @@ export class Worker {
             let child: Running['child']
             try {
                 child = Bun.spawn([this.path], { stdin: 'pipe', stdout: 'pipe', stderr: 'inherit' })
+                this.child = child
             } catch (error) {
                 throw new HogError(
                     'worker_missing',
                     `hog couldn't start hog-worker at ${this.path}: ${(error as Error).message}`,
                     FROM_SOURCE
                         ? 'Run `pnpm --filter hog build:worker` to build it.'
-                        : 'hog-worker ships next to hog. Install hog again to get both.'
+                        : `hog-worker ships next to hog. ${upgradeHint(this.path)}`
                 )
             }
             const lines = readLines(child.stdout)
 
             const first = await lines.next()
             const hello = first.done ? undefined : parseJsonOrUndefined(first.value, Hello)
-            if (hello?.protocol !== WORKER_PROTOCOL) {
+            // A released hog and its worker carry one version. A dev build has only the protocol to compare.
+            const released = this.build.date !== undefined
+            const matches = released ? hello?.version === this.build.version : hello?.protocol === WORKER_PROTOCOL
+            if (!hello || !matches) {
                 child.kill()
                 throw new HogError(
                     'worker_mismatch',
-                    hello
-                        ? `hog-worker ${hello.version} at ${this.path} speaks protocol ${hello.protocol}, and this hog needs protocol ${WORKER_PROTOCOL}.`
-                        : `The program at ${this.path} didn't answer like hog-worker.`,
-                    'hog and hog-worker must come from the same release. Install hog again to replace both.'
+                    !hello
+                        ? `The program at ${this.path} didn't answer like hog-worker.`
+                        : released
+                          ? `hog-worker ${hello.version} at ${this.path} isn't from this release of hog, ${this.build.version}.`
+                          : `hog-worker ${hello.version} at ${this.path} speaks protocol ${hello.protocol}, and this hog needs protocol ${WORKER_PROTOCOL}.`,
+                    `hog and hog-worker must come from the same release. ${upgradeHint(this.path)}`
                 )
             }
             return { child, lines }
@@ -374,6 +392,17 @@ export class Worker {
         })
     }
 
+    // A worker that never answers or never exits counts as broken, so `hog upgrade` can repair it.
+    async check(timeoutMs: number = WORKER_CHECK_TIMEOUT_MS): Promise<void> {
+        const timer = setTimeout(() => this.child?.kill(), timeoutMs)
+        try {
+            await this.start()
+        } finally {
+            await this.close()
+            clearTimeout(timer)
+        }
+    }
+
     async close(): Promise<void> {
         const running = await this.running?.catch(() => undefined)
         if (running) {
@@ -381,6 +410,12 @@ export class Worker {
             await running.child.exited
         }
     }
+}
+
+export function checkWorker(
+    runtime: Pick<Runtime, 'isDevelopment' | 'execPath' | 'platform' | 'build'>
+): Promise<void> {
+    return new Worker(workerPath(runtime), runtime.build).check()
 }
 
 const workers = new WeakMap<Context, Worker>()

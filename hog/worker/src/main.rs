@@ -29,8 +29,10 @@
 // and answers one `unreadable` list for it, and one container per item.
 // `prepare`, `prepare_maps` and `pack_native` write symbol sets to files for hog to send and let
 // their pairs, maps and binaries go. The others stay in memory until hog closes stdin, which ends
-// the worker. PROTOCOL changes whenever a request or an answer does, because hog and the worker
-// ship as two files.
+// the worker. A dry run sends a null `folder`, and the worker then writes no file and answers a
+// null `path`. PROTOCOL changes whenever a request or an answer does, because hog and
+// the worker ship as two files, and WORKER_PROTOCOL in hog/src/error-tracking/worker.ts must
+// equal it.
 
 mod cleanup;
 mod constant;
@@ -63,6 +65,13 @@ use store::Store;
 use trace::Trace;
 
 const PROTOCOL: u32 = 1;
+
+// A release build carries hog's version, which release/build-worker.ts passes in this variable,
+// so the two binaries of a release name the same version. Any other build is a dev build.
+const VERSION: &str = match option_env!("HOG_RELEASE_VERSION") {
+    Some(version) => version,
+    None => env!("CARGO_PKG_VERSION"),
+};
 
 const MILLIS_PER_SECOND: u64 = 1000;
 const NANOS_PER_MILLI: u32 = 1_000_000;
@@ -1126,7 +1135,7 @@ fn main() -> io::Result<()> {
     send(&Hello {
         r#type: "hello",
         protocol: PROTOCOL,
-        version: env!("CARGO_PKG_VERSION"),
+        version: VERSION,
     })?;
 
     let mut worker = Worker {

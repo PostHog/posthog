@@ -502,7 +502,7 @@ fn node_join(folder: &Path, relative: &str) -> PathBuf {
     out.iter().collect()
 }
 
-// `findSourceMap` in kinds/js.ts. Err means the decoded reference is not valid UTF-8.
+// Err means the decoded reference is not valid UTF-8.
 pub fn find_sourcemap(
     source_path: &Path,
     reference: Option<&str>,
