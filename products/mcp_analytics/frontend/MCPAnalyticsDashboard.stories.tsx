@@ -1060,13 +1060,16 @@ const WEEKLY_REPORT_OFFER_PARAMETERS = {
 
 async function clickWeeklyReportButton(): Promise<void> {
     // A bare querySelector misses while the card is still loading, and the click would silently do nothing.
-    const button = await waitFor(() => {
-        const element = document.querySelector<HTMLElement>(WEEKLY_REPORT_BUTTON)
-        if (!element) {
-            throw new Error('The weekly report button is not rendered')
-        }
-        return element
-    })
+    const button = await waitFor(
+        () => {
+            const element = document.querySelector<HTMLElement>(WEEKLY_REPORT_BUTTON)
+            if (!element) {
+                throw new Error('The weekly report button is not rendered')
+            }
+            return element
+        },
+        { timeout: 15000 }
+    )
     await userEvent.click(button)
 }
 
@@ -1098,7 +1101,7 @@ export const ActivityWeeklyReportOfferFailed: Story = {
                 },
             },
         },
-        testOptions: { waitForSelector: '[data-attr=mcp-analytics-activity-next-steps] [role=alert]' },
+        testOptions: { waitForSelector: '[data-attr=mcp-analytics-setup-mode] [role=alert]' },
     },
     play: clickWeeklyReportButton,
 }

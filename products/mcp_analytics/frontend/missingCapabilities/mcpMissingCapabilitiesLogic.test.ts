@@ -10,6 +10,7 @@ import { MCPMissingCapabilitiesItem } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { mcpAnalyticsFiltersLogic } from '../mcpAnalyticsFiltersLogic'
+import { mcpFacetsLogic } from '../mcpFacetsLogic'
 import {
     MISSING_CAPABILITIES_PAGE_SIZE,
     isUnidentifiedClient,
@@ -30,6 +31,9 @@ const report = (intent: string, overrides: Partial<MCPMissingCapabilitiesItem> =
     session_id: 's1',
     distinct_id: 'd1',
     person_properties: '{}',
+    model: '',
+    suggested_improvement: '',
+    outcome: 'not_reported',
     ...overrides,
 })
 
@@ -63,9 +67,13 @@ describe('mcpMissingCapabilitiesLogic', () => {
         return logic
     }
 
-    beforeEach(() => {
+    beforeEach(async () => {
         initKeaTests()
         mockApi.query.mockResolvedValue({ results: [], has_next: false } as any)
+        // The shared filters mount the facets, which also go through api.query, so settle them before each test.
+        mcpFacetsLogic.mount()
+        await expectLogic(mcpFacetsLogic).toDispatchActions(['loadFacetsSuccess'])
+        mockApi.query.mockClear()
     })
 
     afterEach(() => {

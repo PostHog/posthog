@@ -5,11 +5,13 @@ import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { mcpAnalyticsFiltersLogic } from './mcpAnalyticsFiltersLogic'
+import { DEFAULT_FACET_FILTERS, mcpAnalyticsFiltersLogic } from './mcpAnalyticsFiltersLogic'
 import { type DailyToolStat, buildDailyChartData, mcpAnalyticsToolDetailLogic } from './mcpAnalyticsToolDetailLogic'
+import type { ExampleCall } from './tool-quality/toolReportQueries'
 
 jest.mock('lib/api')
 
@@ -103,166 +105,6 @@ describe('incompleteTail', () => {
     })
 })
 
-describe('failure drill-down', () => {
-    beforeEach(() => {
-        jest.clearAllMocks()
-        initKeaTests()
-        jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] })
-    })
-
-    // The occurrences query must receive the bucket's RAW parts (not the composed display
-    // label), and the no-status bucket must omit errorStatus so the backend's
-    // "only events without a status" branch applies.
-    it.each([
-        ['statused bucket', '500', '500'],
-        ['no-status bucket', '', undefined],
-    ])(
-        'selecting a %s queries occurrences with raw bucket params and stores the results',
-        async (_label, bucketStatus, expectedStatus) => {
-            const logic = mcpAnalyticsToolDetailLogic({ toolName: 'query_run' })
-            logic.mount()
-            const occurrence = {
-                timestamp: '2026-07-15 00:00:00',
-                distinct_id: 'd1',
-                session_id: 's1',
-                harness: 'Claude Code',
-                intent: '',
-                error_message: 'boom: table not found',
-                error_status: bucketStatus,
-            }
-            mockApi.query.mockClear()
-            jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [occurrence] })
-
-            await expectLogic(logic, () => {
-                logic.actions.selectFailure({
-                    message: 'api_5xx (HTTP 500)',
-                    error_type: 'api_5xx',
-                    error_status: bucketStatus,
-                    occurrences: 2,
-                    last_seen: '2026-07-15 00:00:00',
-                    harnesses: [],
-                    cause: '',
-                    sample_message: '',
-                })
-            }).toDispatchActions(['loadFailureOccurrences', 'loadFailureOccurrencesSuccess'])
-
-            expect(mockApi.query).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    kind: 'MCPToolFailureOccurrencesQuery',
-                    toolName: 'query_run',
-                    errorType: 'api_5xx',
-                    errorStatus: expectedStatus,
-                })
-            )
-            expect(logic.values.failureOccurrences).toEqual([occurrence])
-        }
-    )
-
-    // Guards the stale-response race: bucket A selected, then bucket B before A resolves.
-    // Without the loader breakpoint, A's late response would overwrite B's occurrences
-    // while the modal header still shows B.
-    it.each(['select another bucket', 'deselect'])('discards a pending failure load on %s', async (change) => {
-        const logic = mcpAnalyticsToolDetailLogic({ toolName: 'query_run' })
-        logic.mount()
-        const occurrenceFor = (id: string): Record<string, string> => ({
-            timestamp: '2026-07-15 00:00:00',
-            distinct_id: id,
-            session_id: 's1',
-            harness: 'Claude Code',
-            intent: '',
-            error_message: `boom from ${id}`,
-            error_status: '',
-        })
-        let resolveSlowA: (value: unknown) => void = () => {}
-        const slowA = new Promise((resolve) => {
-            resolveSlowA = resolve
-        })
-        jest.spyOn(mockApi, 'query')
-            .mockImplementationOnce(() => slowA as any)
-            .mockImplementationOnce(() => Promise.resolve({ results: [occurrenceFor('bucketB')] }))
-
-        const bucket = (errorType: string): any => ({
-            message: errorType,
-            error_type: errorType,
-            error_status: '',
-            occurrences: 1,
-            last_seen: '2026-07-15 00:00:00',
-            harnesses: [],
-        })
-        await expectLogic(logic, () => {
-            logic.actions.selectFailure(bucket('api_5xx'))
-            if (change === 'select another bucket') {
-                logic.actions.selectFailure(bucket('internal'))
-            } else {
-                logic.actions.selectFailure(null)
-            }
-        }).toMatchValues({ selectedFailure: change === 'deselect' ? null : bucket('internal') })
-        const expected = change === 'deselect' ? [] : [occurrenceFor('bucketB')]
-        if (change === 'select another bucket') {
-            await expectLogic(logic).toMatchValues({ failureOccurrences: expected })
-        }
-
-        // Bucket A's request resolves late — its stale result must be discarded.
-        await expectLogic(logic, () => {
-            resolveSlowA({ results: [occurrenceFor('bucketA')] })
-        }).toFinishAllListeners()
-        expect(logic.values.failureOccurrences).toEqual(expected)
-    })
-
-    it.each(['deselect', 'properties', 'test accounts', 'team test-account default'])(
-        'clears the open failure on %s',
-        async (change) => {
-            const logic = mcpAnalyticsToolDetailLogic({ toolName: 'query_run' })
-            logic.mount()
-            jest.spyOn(mockApi, 'query').mockResolvedValue({
-                results: [
-                    {
-                        timestamp: '2026-07-15 00:00:00',
-                        distinct_id: 'd1',
-                        session_id: 's1',
-                        harness: 'Claude Code',
-                        intent: '',
-                        error_message: 'boom',
-                        error_status: '',
-                    },
-                ],
-            })
-
-            await expectLogic(logic, () => {
-                logic.actions.selectFailure({
-                    message: 'internal',
-                    error_type: 'internal',
-                    error_status: '',
-                    occurrences: 1,
-                    last_seen: '2026-07-15 00:00:00',
-                    harnesses: [],
-                    cause: '',
-                    sample_message: '',
-                })
-            }).toDispatchActions(['loadFailureOccurrencesSuccess'])
-
-            await expectLogic(logic, () => {
-                if (change === 'properties') {
-                    mcpAnalyticsFiltersLogic.actions.setPropertyFilters([
-                        {
-                            key: '$mcp_tool_name',
-                            value: ['query_run'],
-                            operator: PropertyOperator.Exact,
-                            type: PropertyFilterType.Event,
-                        },
-                    ])
-                } else if (change === 'test accounts') {
-                    mcpAnalyticsFiltersLogic.actions.setFilterTestAccounts(true)
-                } else if (change === 'team test-account default') {
-                    enableTeamTestAccountDefault()
-                } else {
-                    logic.actions.selectFailure(null)
-                }
-            }).toMatchValues({ selectedFailure: null, failureOccurrences: [] })
-        }
-    )
-})
-
 describe('shared filter wiring', () => {
     beforeEach(() => {
         jest.clearAllMocks()
@@ -270,8 +112,14 @@ describe('shared filter wiring', () => {
         jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] })
     })
 
-    function queryCallsSince(callIndex: number): Record<string, any>[] {
-        return mockApi.query.mock.calls.slice(callIndex).map((call) => call[0] as any)
+    // The shared filters of each section query: top-level on MCP query nodes, under `filters` on HogQL ones.
+    // The filter bar's facet queries carry none, so they are left out.
+    function sectionFiltersSince(callIndex: number): Record<string, any>[] {
+        return mockApi.query.mock.calls
+            .slice(callIndex)
+            .map((call) => call[0] as any)
+            .map((query) => (query.kind === NodeKind.HogQLQuery ? query.filters : query))
+            .filter((filters) => filters?.filterTestAccounts !== undefined)
     }
 
     const EVENT_FILTER: AnyPropertyFilter = {
@@ -279,6 +127,18 @@ describe('shared filter wiring', () => {
         value: ['query_run'],
         operator: PropertyOperator.Exact,
         type: PropertyFilterType.Event,
+    }
+
+    const EXAMPLE: ExampleCall = {
+        uuid: 'call-1',
+        timestamp: '2026-07-15 00:00:00',
+        sessionId: 's1',
+        intent: '',
+        durationMs: 120,
+        client: 'Claude Code',
+        errorType: '',
+        errorMessage: '',
+        harness: 'Claude Code',
     }
 
     it('spreads the shared property filters into every section query and reloads on change', async () => {
@@ -293,9 +153,21 @@ describe('shared filter wiring', () => {
             mcpAnalyticsFiltersLogic.actions.setPropertyFilters([EVENT_FILTER])
         }).toFinishAllListeners()
 
-        const reloads = queryCallsSince(callsBefore)
+        const reloads = sectionFiltersSince(callsBefore)
         expect(reloads.length).toBe(10)
         expect(reloads.every((call) => JSON.stringify(call.properties) === JSON.stringify([EVENT_FILTER]))).toBe(true)
+    })
+
+    it.each([
+        ['properties', () => mcpAnalyticsFiltersLogic.actions.setPropertyFilters([EVENT_FILTER])],
+        ['test accounts', () => mcpAnalyticsFiltersLogic.actions.setFilterTestAccounts(true)],
+        ['team test-account default', enableTeamTestAccountDefault],
+    ])('closes the open example call on %s', async (_label, change) => {
+        const logic = mcpAnalyticsToolDetailLogic({ toolName: 'query_run' })
+        logic.mount()
+        await expectLogic(logic, () => logic.actions.openExample(EXAMPLE)).toMatchValues({ selectedExample: EXAMPLE })
+
+        await expectLogic(logic, change).toMatchValues({ selectedExample: null })
     })
 
     it.each([
@@ -311,7 +183,7 @@ describe('shared filter wiring', () => {
 
         await expectLogic(logic, change).toFinishAllListeners()
 
-        const reloads = queryCallsSince(callsBefore)
+        const reloads = sectionFiltersSince(callsBefore)
         expect(reloads.length).toBe(10)
         expect(reloads.every((call) => call.filterTestAccounts === true)).toBe(true)
     })
@@ -330,7 +202,7 @@ describe('shared filter wiring', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(mockApi.query).toHaveBeenCalledTimes(10)
+        expect(sectionFiltersSince(0)).toHaveLength(10)
     })
 
     it('reloads sections once when both shared filters hydrate from the URL', async () => {
@@ -340,10 +212,10 @@ describe('shared filter wiring', () => {
         const callsBefore = mockApi.query.mock.calls.length
 
         await expectLogic(logic, () =>
-            mcpAnalyticsFiltersLogic.actions.hydrateFilters(true, [EVENT_FILTER])
+            mcpAnalyticsFiltersLogic.actions.hydrateFilters(true, [EVENT_FILTER], DEFAULT_FACET_FILTERS)
         ).toFinishAllListeners()
 
-        const reloads = queryCallsSince(callsBefore)
+        const reloads = sectionFiltersSince(callsBefore)
         expect(reloads).toHaveLength(10)
         expect(reloads.every((call) => call.filterTestAccounts === true)).toBe(true)
         expect(reloads.every((call) => JSON.stringify(call.properties) === JSON.stringify([EVENT_FILTER]))).toBe(true)

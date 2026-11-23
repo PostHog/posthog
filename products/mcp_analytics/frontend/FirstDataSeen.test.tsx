@@ -30,10 +30,18 @@ const ONE_CALL = [1, 1, 1, '2026-07-01T00:00:00Z']
 async function arriveLive(
     mountHost: () => void = () => {}
 ): Promise<ReturnType<typeof mcpAnalyticsOnboardingLogic.build>> {
+    // The scene's shared filters load their facet lists through api.query too, so only the signal query gets rows.
+    let signalQueries = 0
     jest.spyOn(mockApi, 'query')
         .mockReset()
-        .mockResolvedValueOnce({ results: [CONNECTED] } as any)
-        .mockResolvedValue({ results: [ONE_CALL] } as any)
+        .mockImplementation(
+            async (query: any) =>
+                ({
+                    results: String(query.query).includes('$mcp_initialize')
+                        ? [signalQueries++ === 0 ? CONNECTED : ONE_CALL]
+                        : [],
+                }) as any
+        )
     mountHost()
     const logic = mcpAnalyticsOnboardingLogic()
     logic.mount()
