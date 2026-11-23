@@ -1,5 +1,7 @@
+import { useActions, useValues } from 'kea'
+
 import { IconPlus, IconPlusSmall } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
@@ -14,9 +16,11 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { WarehouseAlertsSection } from 'products/data_warehouse/frontend/shared/alerts/WarehouseAlertsSection'
+
 import { dataWarehouseEmptyState } from '../../emptyState/dataWarehouseEmptyState'
 import { SourcesList } from './SourcesList'
-import { sourcesSceneLogic } from './sourcesSceneLogic'
+import { SourcesSceneTab, sourcesSceneLogic } from './sourcesSceneLogic'
 
 export const scene: SceneExport = {
     component: SourcesScene,
@@ -27,6 +31,9 @@ export const scene: SceneExport = {
 
 export function SourcesScene(): JSX.Element {
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const alertsEnabled = useFeatureFlag('PLATFORM_ALERTS_SOURCE_WAREHOUSE')
+    const { activeTab } = useValues(sourcesSceneLogic)
+    const { setActiveTab } = useActions(sourcesSceneLogic)
     const action = (
         <Shortcut
             name="NewPipelineSource"
@@ -60,6 +67,15 @@ export function SourcesScene(): JSX.Element {
         </Shortcut>
     )
 
+    const tabs: LemonTab<SourcesSceneTab>[] = [
+        { key: 'sources', label: 'Sources', content: <SourcesList /> },
+        {
+            key: 'alerts',
+            label: 'Alerts',
+            content: <WarehouseAlertsSection kind="warehouse_source" entry="sources_page" />,
+        },
+    ]
+
     return (
         <SceneContent className="pb-4">
             <SceneTitleSection
@@ -70,7 +86,11 @@ export function SourcesScene(): JSX.Element {
                 }}
                 actions={action}
             />
-            <SourcesList />
+            {alertsEnabled ? (
+                <LemonTabs activeKey={activeTab} onChange={(key) => setActiveTab(key)} tabs={tabs} sceneInset />
+            ) : (
+                <SourcesList />
+            )}
         </SceneContent>
     )
 }
