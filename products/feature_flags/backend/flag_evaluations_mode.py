@@ -110,26 +110,38 @@ def is_recorded_change(text: str) -> bool:
     return True
 
 
-def _is_uuid(text: str) -> bool:
-    try:
-        UUID(text)
-    except ValueError:
-        return False
-    return True
+_LINE_TEMPLATE = f"{'h' * 8}-{'h' * 4}-{'h' * 4}-{'h' * 4}-{'h' * 12} m k m k"
+_TEMPLATE_CHARACTERS = {
+    "h": "0123456789abcdef",
+    "m": "".join(str(mode) for mode in FlagEvaluationsMode.values),
+    "k": "01",
+    "-": "-",
+    " ": " ",
+}
+
+
+def _is_unfinished_record(text: str) -> bool:
+    """Whether the text is a part of a line that RecordedChange.to_line writes, cut short after something other than
+    the id. A bare id is excluded, because older runs wrote bare ids as whole lines."""
+    return (
+        0 < len(text) < len(_LINE_TEMPLATE)
+        and len(text) != _LINE_TEMPLATE.index(" ")
+        and all(character in _TEMPLATE_CHARACTERS[slot] for character, slot in zip(text, _LINE_TEMPLATE))
+    )
 
 
 def parse_recorded_changes(content: str) -> tuple[list[RecordedChange], str]:
     """The records in the text of a --write-changed-ids file, and its unfinished last line, or "" when it has none.
 
-    An unfinished last line has no final newline and is neither a record nor a bare id. A run syncs a chunk's lines
+    An unfinished last line has no final newline and is the start of a record cut short. A run syncs a chunk's lines
     to disk before the chunk commits, so such a line comes from a chunk that never committed. Any other line that is
-    not a record raises ValueError, whose message starts with the line number.
+    not a record raises ValueError, whose message starts with the line number. A caller may truncate the unfinished
+    line, so anything that a run could not have written refuses instead.
     """
     body, unfinished = content, ""
     if content and not content.endswith("\n"):
         start = content.rfind("\n") + 1
-        tail = content[start:].strip()
-        if not is_recorded_change(tail) and not _is_uuid(tail):
+        if _is_unfinished_record(content[start:]):
             body, unfinished = content[:start], content[start:]
     changes = []
     for line_number, line in enumerate(body.splitlines(), start=1):
@@ -191,8 +203,9 @@ class OrganizationRestore:
     current: FlagEvaluationsConfig
     target: FlagEvaluationsConfig
     outcome: RestoreOutcome
-    # The same count as on OrganizationModeChange. The restore counts it only for an organization it restores.
-    running_experiments_needing_flag_calls_in_events: int
+    # The same count as on OrganizationModeChange, or None when the restore did not count it. The restore counts it only
+    # for an organization that it moves to FLAG_EVALUATIONS_ONLY, because only that move can stop events writes.
+    running_experiments_needing_flag_calls_in_events: int | None
 
 
 class UnknownIdsError(Exception):
@@ -319,8 +332,10 @@ def restore_organizations_flag_evaluations_configs(
             outcome=outcomes[organization_id],
             running_experiments_needing_flag_calls_in_events=(
                 count_running_experiments_needing_flag_calls_in_events(organization_id)
-                if count_experiments and outcomes[organization_id] == RestoreOutcome.RESTORED
-                else 0
+                if count_experiments
+                and outcomes[organization_id] == RestoreOutcome.RESTORED
+                and history.before.mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
+                else None
             ),
         )
         for organization_id, history in histories.items()

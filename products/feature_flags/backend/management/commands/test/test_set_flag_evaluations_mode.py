@@ -162,6 +162,12 @@ class TestSetFlagEvaluationsMode(BaseTest):
                 True,
                 True,
             ),
+            (
+                "restore_to_read_flag_evaluations",
+                lambda self: ("--restore-from-changed-ids-file", self._ids_file(f"{self.organization.id} 1 0 0 0")),
+                False,
+                False,
+            ),
         ]
     )
     def test_warns_only_when_the_mode_stops_events_writes_of_flag_calls_an_experiment_reads(
@@ -744,18 +750,28 @@ class TestSetFlagEvaluationsMode(BaseTest):
 
     @parameterized.expand(
         [
-            ("keeps_a_whole_last_line", "1 0", True),
-            ("drops_an_unfinished_last_line_from_a_chunk_that_never_committed", "1", False),
+            ("keeps_a_whole_last_line", lambda last_id: f"{last_id} 0 0 1 0", True),
+            ("drops_a_record_cut_short_by_a_chunk_that_never_committed", lambda last_id: f"{last_id} 0 0 1", False),
+            ("drops_an_id_cut_short", lambda last_id: str(last_id)[:20], False),
+            ("refuses_a_whole_record_with_an_unknown_mode", lambda last_id: f"{last_id} 0 0 7 0", None),
+            ("refuses_content_a_run_does_not_write", lambda last_id: '{"organization": 1}', None),
         ]
     )
     def test_a_run_appends_to_an_ids_file_that_lacks_a_final_newline(
-        self, _name: str, last_line_end: str, expects_last_line_kept: bool
+        self, _name: str, build_last_line: Any, expects_last_line_kept: bool | None
     ) -> None:
         kept, last, moved = self._organizations_without_config(3)
         changed_ids_file = self._ids_file()
-        Path(changed_ids_file).write_text(f"{kept.id} 0 0 1 0\n{last.id} 0 0 {last_line_end}")
+        content = f"{kept.id} 0 0 1 0\n{build_last_line(last.id)}"
+        Path(changed_ids_file).write_text(content)
+        args = ("--mode", "1", "--organization-id", str(moved.id), "--write-changed-ids", changed_ids_file)
 
-        self._run("--mode", "1", "--organization-id", str(moved.id), "--write-changed-ids", changed_ids_file)
+        if expects_last_line_kept is None:
+            with self.assertRaisesMessage(CommandError, f"{changed_ids_file}:2:"):
+                self._run(*args)
+            self.assertEqual(Path(changed_ids_file).read_text(), content)
+            return
+        self._run(*args)
 
         self.assertEqual(
             self._listed_ids(changed_ids_file),

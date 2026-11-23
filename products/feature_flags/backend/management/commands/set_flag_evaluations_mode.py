@@ -396,10 +396,9 @@ class Command(BaseCommand):
                 counts[restore.outcome] += 1
                 if restore.outcome == RestoreOutcome.CHANGED_OUTSIDE_THE_RUNS:
                     changed_outside.append(restore)
-                if restore.target.mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY:
-                    experiments_needing_flag_calls_count += restore.running_experiments_needing_flag_calls_in_events
+                experiments_needing_flag_calls_count += restore.running_experiments_needing_flag_calls_in_events or 0
                 if per_organization_lines:
-                    self._write_restore_line(restore, count_experiments=count_experiments)
+                    self._write_restore_line(restore)
             if not per_organization_lines:
                 self.stdout.write(f"  chunk {chunk_number}/{chunk_total}: {counts[RestoreOutcome.RESTORED]} restored")
 
@@ -416,15 +415,11 @@ class Command(BaseCommand):
             )
             if not per_organization_lines:
                 for restore in changed_outside:
-                    self._write_restore_line(restore, count_experiments=False)
+                    self._write_restore_line(restore)
         self._write_experiments_warning(experiments_needing_flag_calls_count)
 
-    def _write_restore_line(self, restore: OrganizationRestore, *, count_experiments: bool) -> None:
-        experiments = _experiments_suffix(
-            restore.running_experiments_needing_flag_calls_in_events
-            if count_experiments and restore.outcome == RestoreOutcome.RESTORED
-            else None
-        )
+    def _write_restore_line(self, restore: OrganizationRestore) -> None:
+        experiments = _experiments_suffix(restore.running_experiments_needing_flag_calls_in_events)
         self.stdout.write(
             f"  organization {restore.organization_id}{experiments}: {_describe(restore.current)} -> "
             f"{_describe(restore.target)}, {restore.outcome}"
