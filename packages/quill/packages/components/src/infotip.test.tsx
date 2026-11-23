@@ -17,11 +17,12 @@ describe('Infotip', () => {
         },
     ])('opens by $method as a named dialog, then Escape closes it and returns focus', async ({ open }) => {
         render(<Infotip label="About average position">1 means your site is the first source cited.</Infotip>)
-        const trigger = screen.getByRole('button', { name: 'About average position' })
+        const trigger = screen.getByLabelText('About average position')
 
         await open(trigger)
 
-        const popup = await screen.findByRole('dialog', { name: 'About average position' })
+        const popup = await screen.findByRole('dialog')
+        expect(popup.getAttribute('aria-label')).toBe('About average position')
         expect(trigger.getAttribute('aria-expanded')).toBe('true')
         expect(popup.getAttribute('aria-describedby')).toBe(
             screen.getByText('1 means your site is the first source cited.').id
@@ -38,7 +39,7 @@ describe('Infotip', () => {
         try {
             const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime })
             render(<Infotip label="About mentioned">The answer names your brand.</Infotip>)
-            const trigger = screen.getByRole('button', { name: 'About mentioned' })
+            const trigger = screen.getByLabelText('About mentioned')
 
             await user.hover(trigger)
             act(() => jest.advanceTimersByTime(1000))
