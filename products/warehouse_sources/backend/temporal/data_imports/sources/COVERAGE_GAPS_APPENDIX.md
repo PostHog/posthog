@@ -2252,11 +2252,11 @@ Note: The OpenAPI file linked from the official REST reference lists all collect
 
 Re-audited 2026-11-19 against: <https://bloomerang-api-documentation.s3.us-west-2.amazonaws.com/public_crm_generated.json>
 
-- [ ] `Users (GET /v2/users)` — resolve the UserId on tasks we sync and the staff behind fundraisers and audit trails (high)
-- [ ] `Tributes (GET /v2/tributes)` — resolve the TributeId on transaction designations to report tribute and memorial giving (medium)
+- [x] `Users (GET /v2/users)` — resolve the UserId on tasks we sync and the staff behind fundraisers and audit trails (high)
+- [x] `Tributes (GET /v2/tributes)` — resolve the TributeId on transaction designations to report tribute and memorial giving (medium)
 - [ ] `Groups (GET /v2/groups)` — list constituent groups for segmenting donors (low)
-- [ ] `Relationship roles (GET /v2/relationshiproles)` — role lookup for the relationship roles used by the relationships table (low)
-- [ ] `Processors (GET /v2/processors)` — payment processor lookup for wallet items and recurring gifts (low)
+- [x] `Relationship roles (GET /v2/relationshiproles)` — role lookup for the relationship roles used by the relationships table (low)
+- [x] `Processors (GET /v2/processors)` — payment processor lookup for wallet items and recurring gifts (low)
 - [ ] `Wallet items (GET /v2/walletitems)` — stored payment methods per constituent, linked to a processor account (low)
 - [ ] `Email interests (GET /v2/emailInterests)` — lookup for email interest categories used in constituent communication settings (low)
 
