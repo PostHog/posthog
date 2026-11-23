@@ -65,12 +65,15 @@ class TestBudgetAlerts(BaseTest):
 
     def test_claim_allows_only_one_sender_per_threshold(self):
         month = JULY.date().replace(day=1)
-        assert budget_alerts._claim_alert(self.row.pk, Decimal("100"), month, 80) is True
-        assert budget_alerts._claim_alert(self.row.pk, Decimal("100"), month, 80) is False
-        assert budget_alerts._claim_alert(self.row.pk, Decimal("100"), month, 50) is False
-        assert budget_alerts._claim_alert(self.row.pk, Decimal("100"), month, 100) is True
+        assert budget_alerts._claim_alert(str(self.row.organization_id), Decimal("100"), month, 80) is True
+        assert budget_alerts._claim_alert(str(self.row.organization_id), Decimal("100"), month, 80) is False
+        assert budget_alerts._claim_alert(str(self.row.organization_id), Decimal("100"), month, 50) is False
+        assert budget_alerts._claim_alert(str(self.row.organization_id), Decimal("100"), month, 100) is True
         # A budget changed since the row was read does not get the stale claim.
-        assert budget_alerts._claim_alert(self.row.pk, Decimal("50"), AUGUST.date().replace(day=1), 50) is False
+        assert (
+            budget_alerts._claim_alert(str(self.row.organization_id), Decimal("50"), AUGUST.date().replace(day=1), 50)
+            is False
+        )
 
     def test_unset_budget_is_skipped(self):
         self.row.monthly_budget_usd = None

@@ -28,10 +28,10 @@ def highest_threshold_reached(spend: Decimal, budget: Decimal) -> int | None:
     return max(reached) if reached else None
 
 
-def _claim_alert(settings_id: object, budget: Decimal, month_start: object, threshold: int) -> bool:
+def _claim_alert(organization_id: str, budget: Decimal, month_start: object, threshold: int) -> bool:
     """Atomically record the alert. Only one caller per threshold and month gets True."""
     claimed = (
-        ManagedWarehouseOrgSettings.objects.filter(pk=settings_id, monthly_budget_usd=budget)
+        ManagedWarehouseOrgSettings.objects.filter(organization_id=organization_id, monthly_budget_usd=budget)
         .filter(
             Q(budget_alert_month__isnull=True)
             | Q(budget_alert_month__lt=month_start)
@@ -95,7 +95,7 @@ def check_organization_budget(organization_id: str, *, now: datetime | None = No
     threshold = highest_threshold_reached(estimate.total_usd, budget)
     if threshold is None:
         return False
-    if not _claim_alert(row.pk, budget, estimate.month_start, threshold):
+    if not _claim_alert(organization_id, budget, estimate.month_start, threshold):
         return False
     try:
         organization = Organization.objects.get(id=organization_id)

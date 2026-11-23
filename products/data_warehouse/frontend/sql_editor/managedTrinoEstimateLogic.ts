@@ -18,9 +18,13 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
+import type { QueryTab } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { DataVisualizationNode } from '~/queries/schema/schema-general'
+import type { DataVisualizationNode, HogQLVariable, Node } from '~/queries/schema/schema-general'
+import type { DataWarehouseSavedQuery, DataWarehouseSavedQueryDraft, InsightModel } from '~/types'
+
+import type { BIEditorState } from 'products/business_intelligence/frontend/biEditorTypes'
 
 import { managedWarehouseConsoleEstimateCreate } from '../generated/api'
 import type { QueryEstimateRequestApi, QueryEstimateResponseApi } from '../generated/api.schemas'
@@ -59,27 +63,27 @@ export interface managedTrinoEstimateLogicValues {
 export interface managedTrinoEstimateLogicActions {
     createTab: (
         query?: string | undefined,
-        view?: import('~/types').DataWarehouseSavedQuery | undefined,
-        insight?: import('~/types').InsightModel<import('~/queries/schema').Node<Record<string, any>>> | undefined,
-        draft?: import('~/types').DataWarehouseSavedQueryDraft | undefined,
+        view?: DataWarehouseSavedQuery | undefined,
+        insight?: InsightModel<Node<Record<string, any>>> | undefined,
+        draft?: DataWarehouseSavedQueryDraft | undefined,
         metricName?: string | undefined,
-        biEditorState?: import('products/business_intelligence/frontend/biEditorTypes').BIEditorState | undefined
+        biEditorState?: BIEditorState | undefined
     ) => {
-        biEditorState: import('products/business_intelligence/frontend/biEditorTypes').BIEditorState | undefined
-        draft: import('~/types').DataWarehouseSavedQueryDraft | undefined
-        insight: import('~/types').InsightModel<import('~/queries/schema').Node<Record<string, any>>> | undefined
+        biEditorState: BIEditorState | undefined
+        draft: DataWarehouseSavedQueryDraft | undefined
+        insight: InsightModel<Node<Record<string, any>>> | undefined
         metricName: string | undefined
         query: string | undefined
-        view: import('~/types').DataWarehouseSavedQuery | undefined
+        view: DataWarehouseSavedQuery | undefined
     } // sqlEditorLogic
     editView: (
         query: string,
-        view: import('~/types').DataWarehouseSavedQuery,
-        biEditorState?: import('products/business_intelligence/frontend/biEditorTypes').BIEditorState | undefined
+        view: DataWarehouseSavedQuery,
+        biEditorState?: BIEditorState | undefined
     ) => {
-        biEditorState: import('products/business_intelligence/frontend/biEditorTypes').BIEditorState | undefined
+        biEditorState: BIEditorState | undefined
         query: string
-        view: import('~/types').DataWarehouseSavedQuery
+        view: DataWarehouseSavedQuery
     } // sqlEditorLogic
     setExecutionTarget: (executionTarget: 'default' | 'managed_trino' | undefined) => {
         executionTarget: 'default' | 'managed_trino' | undefined
@@ -87,14 +91,14 @@ export interface managedTrinoEstimateLogicActions {
     setQueryInput: (queryInput: string | null) => {
         queryInput: string | null
     } // sqlEditorLogic
-    setSelectedVariables: (variables: import('~/queries/schema').HogQLVariable[]) => {
-        variables: import('~/queries/schema').HogQLVariable[]
+    setSelectedVariables: (variables: HogQLVariable[]) => {
+        variables: HogQLVariable[]
     } // sqlEditorLogic
     setSourceQuery: (sourceQuery: DataVisualizationNode) => {
         sourceQuery: DataVisualizationNode
     } // sqlEditorLogic
-    updateTab: (tab: import('scenes/data-warehouse/editor/sqlEditorLogic').QueryTab) => {
-        tab: import('scenes/data-warehouse/editor/sqlEditorLogic').QueryTab
+    updateTab: (tab: QueryTab) => {
+        tab: QueryTab
     } // sqlEditorLogic
     estimateCleared: () => {
         value: true

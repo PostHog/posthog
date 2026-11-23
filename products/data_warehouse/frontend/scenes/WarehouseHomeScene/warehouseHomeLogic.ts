@@ -152,10 +152,10 @@ export interface warehouseHomeLogicMeta {
         sourceStep: (setupStatus: ProductSetupStatus) => WarehouseStepState
         viewStep: (savedQueryCount: number | null, savedQueryCountFailed: boolean) => WarehouseStepState
         warehouseIssues: (healthIssues: DataHealthIssueApi[] | null) => DataHealthIssueApi[] | null
-        runBuckets: (jobStats: any) => RunBucket[]
-        runSuccess: (jobStats: any) => PipelineTile | null
-        syncTile: (jobStats: any) => PipelineTile | null
-        viewTile: (jobStats: any) => PipelineTile | null
+        runBuckets: (jobStats: PipelineJobStatsResponseApi | null) => RunBucket[]
+        runSuccess: (jobStats: PipelineJobStatsResponseApi | null) => PipelineTile | null
+        syncTile: (jobStats: PipelineJobStatsResponseApi | null) => PipelineTile | null
+        viewTile: (jobStats: PipelineJobStatsResponseApi | null) => PipelineTile | null
         attentionTile: (
             warehouseIssues: DataHealthIssueApi[] | null,
             issueCountsByStatus: [string, number][]
