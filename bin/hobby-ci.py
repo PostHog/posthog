@@ -153,8 +153,9 @@ class HobbyTester:
         installer installs Docker. A missing docker command would look the same as a missing tag.
         """
         repository = f"posthog/{HOBBY_NODE_IMAGE_NAME}"
-        # The fresh install puts this command in a YAML list as a plain value, where a colon
-        # followed by a space starts a mapping. So no header has a space after its colon.
+        # The fresh install puts this command in a YAML list inside double quotes, where a backslash
+        # must start one of YAML's own escapes. So the command contains no backslash, and it reads
+        # the token with cut: the fourth field of {"token":"..."} split on double quotes.
         accept = ",".join(
             [
                 "application/vnd.oci.image.index.v1+json",
@@ -163,10 +164,7 @@ class HobbyTester:
                 "application/vnd.docker.distribution.manifest.v2+json",
             ]
         )
-        token = (
-            f"$(curl -sf 'https://ghcr.io/token?scope=repository:{repository}:pull' "
-            '| sed -n \'s/.*"token":"\\([^"]*\\)".*/\\1/p\')'
-        )
+        token = f"""$(curl -sf 'https://ghcr.io/token?scope=repository:{repository}:pull' | cut -d'"' -f4)"""
         return (
             f'curl -sf -o /dev/null -H "Accept:{accept}" -H "Authorization:Bearer {token}" '
             f"https://ghcr.io/v2/{repository}/manifests/{tag}"
