@@ -113,7 +113,7 @@ class RoutingOwnerReason(LabeledStrEnum):
     NEW_PATH = "new_path", "Owns a new path"
     # The guards keep the owner with the largest part, so a pull request always keeps a reviewer.
     LARGEST_OWNER = "largest_owner", "Has the largest part"
-    # Some of the owner's diff did not fit the prompt, so the model could not judge the owner.
+    # Some of the owner's diff did not fit, or its call failed, so the model could not judge the owner.
     DIFF_NOT_SEEN = "diff_not_seen", "Diff not shown to the model"
     # The cut step made no model call. The run's llm_skipped says why.
     CUT_SKIPPED = "cut_skipped", "Cut step skipped"

@@ -300,6 +300,7 @@ export const FEATURE_FLAGS = {
     CUSTOMER_ANALYTICS_ACCOUNT_SQL_QUERY_TILE: 'customer-analytics-account-sql-query-tile', // owner: #team-customer-analytics, gates the SQL query tile in account views
     CUSTOMER_ANALYTICS_ACCOUNT_USERS_TABLE: 'customer-analytics-account-users-table', // owner: @arthurdedeus #team-customer-analytics, swaps the account Users tab to a configurable persons table
     CUSTOMER_ANALYTICS_AUTOMATIONS_WIDGET: 'customer-analytics-automations-widget', // owner: @arthurdedeus #team-customer-analytics
+    CUSTOMER_ANALYTICS_CONTEXT_PANE: 'customer-analytics-context-pane',
     CUSTOMER_ANALYTICS_CSP: 'customer-analytics-csp', // owner: @arthurdedeus #team-customer-analytics, gates the Customer analytics > Accounts settings tab (account_group_type_index dropdown)
     CUSTOMER_ANALYTICS_CUSTOMER_TASKS: 'customer-analytics-customer-tasks', // owner: @arthurdedeus #team-web-analytics
     CUSTOMER_ANALYTICS_DOT_MATRIX: 'customer-analytics-dot-matrix', // owner: @arthurdedeus #team-customer-analytics
@@ -382,7 +383,6 @@ export const FEATURE_FLAGS = {
     INBOX_NEEDS_YOU_SCOPE: 'inbox-needs-you-scope', // owner: #team-self-driving, gates the Needs you scope on the inbox report list
     INBOX_REPORT_EDITABLE_DECISIONS: 'inbox-report-editable-decisions', // owner: #team-self-driving, gates the editable agent decision rows (repository, priority) in the report Status section
     INBOX_REPORT_FEEDBACK_BANG: 'inbox-report-feedback-bang', // owner: #team-self-driving, gates the party hog that pops on a report thumbs-up in the inbox and on the Today home page
-    INBOX_REPORT_IMPLEMENT_BUTTON_POSITION: 'inbox-report-implement-button-position', // owner: #team-self-driving
     INBOX_SLACK_NOTIFICATIONS: 'inbox-slack-notifications', // owner: #team-self-driving, gates the Slack notifications config card in the inbox
     INBOX_SOURCE_FILTER: 'inbox-source-filter', // owner: #team-self-driving, gates the Source filter on the inbox report list
     INBOX_TAG_FILTER: 'inbox-tag-filter', // owner: #team-self-driving, gates the report tag chips and the Tags filter on the inbox report list
