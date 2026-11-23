@@ -66,6 +66,24 @@ class TestTextFromHtml(SimpleTestCase):
                 True,
                 "Unsubscribe",
             ),
+            (
+                "marketing_send_with_fragment",
+                '<a href="{{ unsubscribe_url }}#preferences">Unsubscribe</a>',
+                True,
+                "Unsubscribe ({{ unsubscribe_url }}#preferences)",
+            ),
+            (
+                "marketing_send_with_query_and_fragment",
+                '<a href="{{ unsubscribe_url }}?utm_source=email#preferences">Unsubscribe</a>',
+                True,
+                "Unsubscribe ({{ unsubscribe_url }}?utm_source=email#preferences)",
+            ),
+            (
+                "marketing_send_with_extra_path_segment",
+                '<a href="{{ unsubscribe_url }}extra">Unsubscribe</a>',
+                True,
+                "Unsubscribe",
+            ),
             ("transactional_send", '<a href="{{unsubscribe_url}}">Unsubscribe</a>', False, "Unsubscribe"),
         ]
     )

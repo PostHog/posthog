@@ -100,8 +100,7 @@ def _create_or_restore(team_id: int, requested: SendCategoryDefinition) -> Messa
     category = _category_with_key(team_id, requested.key)
     if category is not None:
         return _use_existing(team_id, category, requested)
-    if (existing := _require_room_or_existing_live(team_id, requested)) is not None:
-        return existing
+    _require_room_for(team_id, requested.key)
     category, created = MessageCategory.objects.get_or_create(
         team_id=team_id,
         key=requested.key,
@@ -119,29 +118,16 @@ def _create_or_restore(team_id: int, requested: SendCategoryDefinition) -> Messa
 def _use_existing(team_id: int, category: MessageCategory, requested: SendCategoryDefinition) -> MessageCategory:
     _require_matching_type(category, requested)
     if category.deleted:
-        if (existing := _require_room_or_existing_live(team_id, requested)) is not None:
-            return existing
+        _require_room_for(team_id, requested.key)
         MessageCategory.objects.filter(team_id=team_id, pk=category.pk, deleted=True).update(
             deleted=False, updated_at=timezone.now()
         )
     return category
 
 
-def _require_room_or_existing_live(team_id: int, requested: SendCategoryDefinition) -> MessageCategory | None:
-    if not _at_category_limit(team_id):
-        return None
-    # Non-send writers don't take the send lock, so re-read once at the limit in case one just created or restored
-    # this key into the last slot.
-    existing = _category_with_key(team_id, requested.key)
-    if existing is not None:
-        _require_matching_type(existing, requested)
-        if not existing.deleted:
-            return existing
-    raise _too_many_categories(requested.key)
-
-
-def _at_category_limit(team_id: int) -> bool:
-    return MessageCategory.objects.filter(team_id=team_id, deleted=False).count() >= SEND_CATEGORY_LIMIT
+def _require_room_for(team_id: int, key: str) -> None:
+    if MessageCategory.objects.filter(team_id=team_id, deleted=False).exclude(key=key).count() >= SEND_CATEGORY_LIMIT:
+        raise _too_many_categories(key)
 
 
 def _too_many_categories(key: str) -> TooManyCategories:

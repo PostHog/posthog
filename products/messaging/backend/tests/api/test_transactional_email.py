@@ -1161,6 +1161,14 @@ class TestTransactionalEmail(APIBaseTest):
         assert cdp.received[0]["send"]["message_category"] == {"id": str(category.id), "type": "marketing"}
         assert cdp.emails() == []
 
+    def _seed_categories(self, count: int) -> None:
+        MessageCategory.objects.bulk_create(
+            [
+                MessageCategory(team=self.team, key=f"cat-{index}", name=f"Category {index}", category_type="marketing")
+                for index in range(count)
+            ]
+        )
+
     @parameterized.expand(
         [
             ("unknown_key_creates_it", None, ("Newsletter", "Monthly news")),
@@ -1176,16 +1184,14 @@ class TestTransactionalEmail(APIBaseTest):
         self, cdp_post, _flag, capture, _name, existing, expected
     ):
         self._use_fakes(cdp_post, capture)
+        self._seed_categories(send_categories.SEND_CATEGORY_LIMIT - 1)
         before = self._category(**existing) if existing is not None else None
 
-        with patch.object(send_categories, "SEND_CATEGORY_LIMIT", 1):
-            response = self._psak_client(["transactional_email:write"]).post(
-                self.send_email_url,
-                self._code_send(
-                    category={**self.NEWSLETTER, "description": "Monthly news"}, html=self.UNSUBSCRIBE_HTML
-                ),
-                format="json",
-            )
+        response = self._psak_client(["transactional_email:write"]).post(
+            self.send_email_url,
+            self._code_send(category={**self.NEWSLETTER, "description": "Monthly news"}, html=self.UNSUBSCRIBE_HTML),
+            format="json",
+        )
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         category = MessageCategory.objects.get(team=self.team, key="newsletter")
@@ -1234,13 +1240,16 @@ class TestTransactionalEmail(APIBaseTest):
             ),
             (
                 "category_limit_reached",
-                lambda test: test._category(key="promos"),
+                lambda test: test._seed_categories(send_categories.SEND_CATEGORY_LIMIT),
                 {"category": NEWSLETTER, "html": UNSUBSCRIBE_HTML},
                 "too_many_categories",
             ),
             (
                 "archived_category_beyond_the_limit",
-                lambda test: (test._category(key="promos"), test._category(deleted=True)),
+                lambda test: (
+                    test._seed_categories(send_categories.SEND_CATEGORY_LIMIT),
+                    test._category(deleted=True),
+                ),
                 {"category": NEWSLETTER, "html": UNSUBSCRIBE_HTML},
                 "too_many_categories",
             ),
@@ -1284,10 +1293,9 @@ class TestTransactionalEmail(APIBaseTest):
         workflows_before = HogFlow.objects.filter(team=self.team).count()
         sandbox_senders_before = list(self._sandbox_senders())
 
-        with patch.object(send_categories, "SEND_CATEGORY_LIMIT", 1):
-            response = self._psak_client(["transactional_email:write"]).post(
-                self.send_email_url, self._code_send(**fields), format="json"
-            )
+        response = self._psak_client(["transactional_email:write"]).post(
+            self.send_email_url, self._code_send(**fields), format="json"
+        )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["code"] == expected_code
@@ -3842,9 +3850,18 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
             format="json",
         )
 
+    def _seed_categories(self, count: int) -> None:
+        MessageCategory.objects.bulk_create(
+            [
+                MessageCategory(team=self.team, key=f"cat-{index}", name=f"Category {index}", category_type="marketing")
+                for index in range(count)
+            ]
+        )
+
     @parameterized.expand([("restores", True), ("creates", False)])
     def test_a_category_another_send_makes_at_the_limit_is_used(self, cdp_post, _flag, _capture, _name, archived):
         cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
+        self._seed_categories(send_categories.SEND_CATEGORY_LIMIT - 1)
         if archived:
             category = MessageCategory.objects.create(
                 team=self.team, key="newsletter", name="Newsletter", category_type="marketing", deleted=True
@@ -3867,8 +3884,7 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
                 self._commit_once_the_send_waits, self._send_pid(), write, written, under_the_send_lock=True
             )
             assert written.wait(timeout=30)
-            with patch.object(send_categories, "SEND_CATEGORY_LIMIT", 1):
-                response = self._send_newsletter()
+            response = self._send_newsletter()
             category_id = other_send.result(timeout=30)
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
@@ -3876,7 +3892,8 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
 
     def test_a_send_cannot_restore_into_the_last_slot_another_send_is_restoring_into(self, cdp_post, _flag, _capture):
         cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
-        promos, _newsletter = (
+        self._seed_categories(send_categories.SEND_CATEGORY_LIMIT - 1)
+        promos, newsletter = (
             MessageCategory.objects.create(
                 team=self.team, key=key, name=key.title(), category_type="marketing", deleted=True
             )
@@ -3892,16 +3909,17 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
                 under_the_send_lock=True,
             )
             assert restored.wait(timeout=30)
-            with patch.object(send_categories, "SEND_CATEGORY_LIMIT", 1):
-                response = self._send_newsletter()
+            response = self._send_newsletter()
             other_send.result(timeout=30)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["code"] == "too_many_categories"
         assert cdp.received == []
-        assert set(MessageCategory.objects.filter(team=self.team, deleted=False).values_list("key", flat=True)) == {
-            "promos"
-        }
+        assert (
+            MessageCategory.objects.filter(team=self.team, deleted=False).count() == send_categories.SEND_CATEGORY_LIMIT
+        )
+        assert not MessageCategory.objects.get(id=promos.id).deleted
+        assert MessageCategory.objects.get(id=newsletter.id).deleted
 
     def test_a_key_the_app_creates_while_the_send_inserts_it_is_the_one_used(self, cdp_post, _flag, _capture):
         cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
