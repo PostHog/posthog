@@ -42,6 +42,17 @@ def record_visit(team: Team) -> None:
     )
 
 
+def suggestions_turned_off(team: Team) -> bool:
+    return EvalSuggestionTeamState.objects.for_team(team.pk).filter(turned_off_at__isnull=False).exists()
+
+
+def set_suggestions_turned_off(team: Team, turned_off: bool) -> None:
+    turned_off_at = timezone.now() if turned_off else None
+    EvalSuggestionTeamState.objects.for_team(team.pk).update_or_create(
+        defaults={"turned_off_at": turned_off_at}, create_defaults={"team": team, "turned_off_at": turned_off_at}
+    )
+
+
 def claim_first_visit_run(team: Team, today: date | None = None) -> bool:
     """True once per team and day while the team has no completed run, so the first page load fills the
     page the same day without a reload starting a run each time."""
@@ -106,13 +117,14 @@ def steady_traffic_team_ids(team_ids: list[int], now: datetime) -> set[int]:
 
 
 def eligible_team_ids(settings: SuggestionSettings, now: datetime | None = None) -> list[int]:
-    """Teams someone visited in the last 14 days, in a flagged organization, with generations on at least
-    4 of the last 28 days and 2 of the last 7. The most recently visited come first, up to the run cap."""
+    """Teams someone visited in the last 14 days, in a flagged organization, that have not turned suggestions off,
+    with generations on at least 4 of the last 28 days and 2 of the last 7. The most recently visited come first,
+    up to the run cap."""
     now = now or timezone.now()
     visited = list(
         # The weekly plan reads every team that visited, by design.
         EvalSuggestionTeamState.objects.unscoped()
-        .filter(last_visited_at__gte=now - VISIT_LOOKBACK)
+        .filter(last_visited_at__gte=now - VISIT_LOOKBACK, turned_off_at__isnull=True)
         .order_by("-last_visited_at")
         .values_list("team_id", "team__organization_id")
     )

@@ -369,7 +369,12 @@ class LazyTableResolver(TraversingVisitor):
         self.resolver_factory = resolver_factory
 
     def _resolve_join_subquery(
-        self, select_type: ast.SelectQueryType, subquery: ast.SelectQuery, *, join_sources: JoinSources | None = None
+        self,
+        select_type: ast.SelectQueryType,
+        subquery: ast.SelectQuery,
+        *,
+        join_sources: JoinSources | None = None,
+        scopes: list[ast.SelectQueryType] | None = None,
     ) -> ast.SelectQuery:
         # The resolver copies `subquery`. A copy made here would have no source in `join_sources`. The swap then
         # refuses the subquery on mode 2.
@@ -379,7 +384,7 @@ class LazyTableResolver(TraversingVisitor):
                 subquery,
                 self.context,
                 self.dialect,
-                [select_type],
+                [select_type] if scopes is None else scopes,
                 resolver_factory=self.resolver_factory,
                 join_sources=join_sources,
             ),

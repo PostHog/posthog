@@ -10,6 +10,7 @@ from django.db import transaction
 from django.utils import timezone
 
 import structlog
+from clickhouse_driver.errors import Error as ClickHouseDriverError
 from drf_spectacular.utils import extend_schema_field
 from opentelemetry import trace
 from rest_framework import exceptions, serializers
@@ -35,7 +36,7 @@ from posthog.hogql.resolver import resolve_types
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
-from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
+from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_message
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
@@ -135,11 +136,9 @@ def _as_uuid(value: object) -> uuid.UUID | None:
 
 
 def _view_types_validation_error(e: Exception) -> serializers.ValidationError:
-    # Column inference runs the HogQL-to-ClickHouse path, so a raw exception can carry stack
-    # traces, internal table or column names, and S3 URIs. Surface only the errors already marked
-    # user-safe; reduce everything else to its class name. Mirrors validate_query below, which
-    # keeps the full cause in error tracking and logs instead of the response.
-    if isinstance(e, ExposedHogQLError | ExposedCHQueryError):
+    if isinstance(e, ClickHouseDriverError):
+        return serializers.ValidationError(f"Failed to retrieve types for view: {clickhouse_error_message(e)}")
+    if isinstance(e, ExposedHogQLError):
         return serializers.ValidationError(f"Failed to retrieve types for view: {e}")
     return serializers.ValidationError(f"Failed to retrieve types for view: unexpected {type(e).__name__}")
 
@@ -255,6 +254,7 @@ class DataWarehouseSavedQuerySerializer(
     sync_frequency_bounds = serializers.SerializerMethodField(
         read_only=True, help_text=sync_cadence.SYNC_FREQUENCY_BOUNDS_HELP_TEXT
     )
+    plan_clamp = serializers.SerializerMethodField(read_only=True, help_text=view_state.PLAN_CLAMP_HELP_TEXT)
     latest_history_id = serializers.UUIDField(
         source="query_revision",
         read_only=True,
@@ -339,6 +339,7 @@ class DataWarehouseSavedQuerySerializer(
             "description",
             "sync_frequency",
             "sync_frequency_bounds",
+            "plan_clamp",
             "columns",
             "status",
             "last_run_at",
@@ -372,6 +373,7 @@ class DataWarehouseSavedQuerySerializer(
             "last_run_at",
             "managed_viewset_kind",
             "sync_frequency_bounds",
+            "plan_clamp",
             "folder_name",
             "latest_error",
             "latest_history_id",
@@ -975,6 +977,8 @@ class DataWarehouseSavedQuerySerializer(
             if isinstance(err, ExposedHogQLError):
                 refusal = _unreferenceable_view_refusal(team_id, query["query"])
                 raise exceptions.ValidationError(detail=refusal or f"Invalid query: {err}")
+            elif isinstance(err, ClickHouseDriverError):
+                raise exceptions.ValidationError(detail=clickhouse_error_message(err)) from err
             elif not settings.DEBUG:
                 # We don't want to accidentally expose too much data via errors
                 raise exceptions.ValidationError(detail=f"Unexpected {err.__class__.__name__}")

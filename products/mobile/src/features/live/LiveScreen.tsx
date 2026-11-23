@@ -164,7 +164,7 @@ function LiveBody({ chrome, scope, scrollTitle, toasts, internalUsersFilter }: L
     const tabBottom = useTabBottomOffset()
     const tab = chrome === 'tab'
     const scroll = useRef<ScrollViewInstance>(null)
-    const { preference } = useLivePreference()
+    const { preference, trafficFilters } = useLivePreference()
     const previousPreference = useRef(preference)
     useEffect(() => {
         if (preference !== previousPreference.current) {
@@ -295,6 +295,7 @@ function LiveBody({ chrome, scope, scrollTitle, toasts, internalUsersFilter }: L
                         mobileOnly={mobile}
                         webOnly={detectedAudience === 'web'}
                         filterTestAccounts={internalUsersFilter}
+                        trafficFilters={trafficFilters}
                     />
                 )}
                 <LiveActivityCard activity={activity} audience={hasMobile ? (mixed ? 'mixed' : 'mobile') : 'web'} />

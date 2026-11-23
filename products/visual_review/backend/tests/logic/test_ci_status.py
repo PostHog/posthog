@@ -733,6 +733,7 @@ def _recheck(unsure: int = 0, clamped: bool = False, has_record: bool = True) ->
 STALE_ONE = _verdict("failure", "Baseline changed after approval: 1 snapshot. Update the branch and review again")
 CHANGES_DETECTED = _verdict("failure", "Visual changes detected: 1 changed")
 RERUN_ONE = _verdict("pending", "Re-run Visual Review: 1 snapshot needs the new baseline")
+CLAMPED_CHANGES = _verdict("failure", commit_status.CLAMPED_CHANGES_DESCRIPTION)
 
 
 class TestStatusVerdict:
@@ -827,6 +828,26 @@ class TestStatusVerdict:
                 _facts(is_partial=True, purpose=RunPurpose.OBSERVE, tracking=True),
                 _verdict("success", "Tracking only: no visual changes"),
                 id="partial_default_branch_run",
+            ),
+            pytest.param(
+                _facts(changes_summary="1 changed", unresolved=1, clamped=True),
+                CLAMPED_CHANGES,
+                id="branch_older_than_the_ledger_with_snapshots_to_review",
+            ),
+            pytest.param(
+                _facts(is_partial=True, changes_summary="1 changed", unresolved=1, clamped=True),
+                _verdict("failure", f"{commit_status.CLAMPED_CHANGES_DESCRIPTION} (partial run)"),
+                id="partial_run_on_a_branch_older_than_the_ledger",
+            ),
+            pytest.param(
+                _facts(approved=True, changes_summary="1 changed", clamped=True),
+                _verdict("success", "Visual changes approved"),
+                id="finalized_run_on_a_branch_older_than_the_ledger",
+            ),
+            pytest.param(
+                _facts(clamped=True),
+                _verdict("success", "No visual changes"),
+                id="clean_run_on_a_branch_older_than_the_ledger",
             ),
             pytest.param(
                 _facts(ledger_recheck=_recheck()),
@@ -1500,6 +1521,25 @@ class TestLedgerRecheck:
         commit_status.publish(repo, run.commit_sha, run.run_type)
 
         assert _posted(sender) == posted
+
+    @pytest.mark.parametrize(
+        ("record", "expected"),
+        [
+            pytest.param(
+                replace(make_record(), clamped_to_seed=True), CLAMPED_CHANGES, id="ledger_run_older_than_the_ledger"
+            ),
+            pytest.param(make_record(), CHANGES_DETECTED, id="ledger_run"),
+            pytest.param(
+                replace(SHADOW_RECORD, clamped_to_seed=True), CHANGES_DETECTED, id="shadow_run_older_than_the_ledger"
+            ),
+        ],
+    )
+    def test_a_change_on_a_branch_older_than_the_ledger_asks_for_a_merge(self, repo, sender, record, expected) -> None:
+        run = _shadow_run(repo, "Button-new", record=record, result=SnapshotResult.CHANGED, changed_count=1)
+
+        commit_status.publish(repo, run.commit_sha, run.run_type)
+
+        assert _posted(sender) == [(self.GATING, expected.state, expected.description)]
 
     def test_the_recheck_dry_run_shows_the_ledger_verdicts_and_posts_nothing(self, repo, sender, mocker) -> None:
         set_baseline_mode(repo, BaselineMode.SHADOW, status_gate=False)

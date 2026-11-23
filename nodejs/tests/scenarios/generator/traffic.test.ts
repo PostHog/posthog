@@ -74,7 +74,11 @@ function startCdpApi(answers: Answer[], clock: ServerClock = { now: Date.now }):
 
 const contextFor = (url: string, settled: string | undefined = undefined, clock?: SendClock): OfferContext => ({
     emit: () => Promise.reject(new Error('the transactional kind never emits')),
-    cdpApi: { url, jwt: new ScopedServiceJwt(PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL, SECRET), clock },
+    cdpApi: {
+        nextUrl: () => url,
+        jwt: new ScopedServiceJwt(PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL, SECRET),
+        clock,
+    },
     sesFeedback: { settled: (unitId) => Promise.resolve(unitId === UNIT.unitId ? settled : 'another unit') },
 })
 

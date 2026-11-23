@@ -10,6 +10,7 @@ from uuid import UUID
 
 from ..logic import metric_reads
 from ..logic.analytics import certification_target_name
+from ..logic.attention import CatalogAttention, catalog_attention
 from ..logic.certifications import (
     certifications_for_team,
     certify,
@@ -76,6 +77,8 @@ from .models import Metric, RelationshipProposal, TableCertification
 
 __all__ = [
     "AIConsentMissing",
+    "CatalogAttention",
+    "catalog_attention",
     "BULK_SKIP_NOT_FOUND",
     "DESCRIPTION_TOO_LONG_MESSAGE",
     "MAX_DESCRIPTION_LENGTH",
