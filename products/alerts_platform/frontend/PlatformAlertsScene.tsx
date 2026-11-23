@@ -35,6 +35,7 @@ const COLUMNS: LemonTableColumns<PlatformAlertConfigurationApi> = [
                 <Tooltip title={label}>
                     <span
                         className="group/colorful-product-icons colorful-product-icons-true flex text-xl"
+                        role="img"
                         aria-label={label}
                         data-attr="platform-alerts-row-type"
                     >
