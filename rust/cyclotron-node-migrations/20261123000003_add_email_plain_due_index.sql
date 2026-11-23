@@ -7,8 +7,9 @@
 -- with files from the heap and discards it, and a backlog of them slows every poll.
 --
 -- Recovery note: an interrupted CONCURRENTLY build leaves the index INVALID, and a rerun's IF NOT EXISTS
--- does not rebuild it. sqlx runs a no-transaction file as one batch, so a drop cannot share this file. Recover by hand:
---   DROP INDEX CONCURRENTLY idx_cyclotron_jobs_email_plain_due;  -- then rerun the migrations
+-- skips it while sqlx records the migration as applied. Rebuild it in place by hand, then check
+-- pg_index.indisvalid:
+--   REINDEX INDEX CONCURRENTLY idx_cyclotron_jobs_email_plain_due;
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_cyclotron_jobs_email_plain_due
     ON cyclotron_jobs (priority, scheduled)
     WHERE status = 'available' AND queue_name = 'email' AND file_bytes IS NULL;
