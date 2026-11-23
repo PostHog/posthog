@@ -169,7 +169,7 @@ def _drain_on_demand_budget(test: "TestErrorTracking", _issue: ErrorTrackingIssu
     consume(f"{issue_summaries.ISSUE_SUMMARY_ON_DEMAND_BUDGET_KEY_PREFIX}:{test.team.id}", tiny)
 
 
-SUMMARIZE_REFUSALS: list[tuple[str, Callable[..., object], int, str]] = [
+SUMMARIZE_REFUSALS: list[tuple[str, Callable[..., object], int, str, str]] = [
     (
         "setting_off",
         lambda test, _issue, _completions: ErrorTrackingSettings.objects.filter(team=test.team).update(
@@ -177,6 +177,7 @@ SUMMARIZE_REFUSALS: list[tuple[str, Callable[..., object], int, str]] = [
         ),
         403,
         "setting_off",
+        "authentication_error",
     ),
     (
         "out_of_credits",
@@ -187,8 +188,9 @@ SUMMARIZE_REFUSALS: list[tuple[str, Callable[..., object], int, str]] = [
         ),
         402,
         "out_of_credits",
+        "invalid_request",
     ),
-    ("rate_limited", _drain_on_demand_budget, 429, "rate_limited"),
+    ("rate_limited", _drain_on_demand_budget, 429, "rate_limited", "throttled_error"),
     (
         "in_progress",
         lambda test, issue, _completions: get_client().set(
@@ -196,12 +198,14 @@ SUMMARIZE_REFUSALS: list[tuple[str, Callable[..., object], int, str]] = [
         ),
         409,
         "in_progress",
+        "invalid_request",
     ),
     (
         "model_fails",
         lambda _test, _issue, completions: completions.configure_mock(side_effect=TimeoutError("slow")),
         503,
         "failed",
+        "server_error",
     ),
 ]
 
@@ -1026,7 +1030,12 @@ class TestErrorTracking(APIBaseTest):
 
     @parameterized.expand(SUMMARIZE_REFUSALS)
     def test_summarize_refusal(
-        self, _name: str, arrange: Callable[..., object], expected_status: int, expected_code: str
+        self,
+        _name: str,
+        arrange: Callable[..., object],
+        expected_status: int,
+        expected_code: str,
+        expected_type: str,
     ) -> None:
         issue = self.create_issue()
 
@@ -1035,7 +1044,7 @@ class TestErrorTracking(APIBaseTest):
             response = self._summarize(issue.id)
 
         assert response.status_code == expected_status, response.json()
-        assert response.json()["code"] == expected_code
+        assert (response.json()["code"], response.json()["type"]) == (expected_code, expected_type)
         assert not ErrorTrackingIssueSummary.objects.for_team(self.team.id).exists()
 
     @parameterized.expand([("issue", True), ("malformed_id", False)])

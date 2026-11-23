@@ -359,7 +359,16 @@ class ErrorTrackingIssueSummarizeError(APIException):
 
     def __init__(self, outcome: contracts.IssueSummarizeOutcome) -> None:
         self.status_code, detail = SUMMARIZE_ERRORS[outcome]
+        # The exception handler reads this, because a plain APIException would report every refusal as a server error.
+        self.exception_type = SUMMARIZE_ERROR_TYPES.get(self.status_code, "invalid_request")
         super().__init__(detail=detail, code=outcome.value)
+
+
+SUMMARIZE_ERROR_TYPES: dict[int, str] = {
+    status.HTTP_403_FORBIDDEN: "authentication_error",
+    status.HTTP_429_TOO_MANY_REQUESTS: "throttled_error",
+    status.HTTP_503_SERVICE_UNAVAILABLE: "server_error",
+}
 
 
 SUMMARIZE_ERRORS: dict[contracts.IssueSummarizeOutcome, tuple[int, str]] = {
