@@ -1968,6 +1968,7 @@ filters:
         - posthog/sync.py
         - posthog/schema.py
         - posthog/errors.py
+        - posthog/job_owners.py
         - posthog/jwt.py
         - posthog/cache_utils.py
         - posthog/event_usage.py
@@ -2081,4 +2082,4 @@ images:
             max-ai:
                 repository: posthog-temporal-workers/max-ai
                 filter: maxAiWorker
-                bootstrapPolicyDigest: 132fe4ea4374fb655ca39be67ed996ae675e7029c80dfb6c68ce11b723b2c1a0
+                bootstrapPolicyDigest: 2b4941b9ff72f37d5a04b3802ef5a81dbe7a87768c8234e732d28858705fc028
