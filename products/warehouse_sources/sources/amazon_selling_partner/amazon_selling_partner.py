@@ -26,10 +26,17 @@ from products.warehouse_sources.sources.amazon_selling_partner.settings import (
     INBOUND_PLANS_PATH,
     INVENTORY_SUMMARIES,
     INVENTORY_SUMMARIES_PATH,
+    INVOICES,
+    INVOICES_HISTORY_DAYS,
+    INVOICES_PATH,
+    INVOICES_WINDOW_DAYS,
     LWA_TOKEN_URL,
     MARKETPLACE_CURRENCIES,
     MARKETPLACE_PARTICIPATIONS_PATH,
     ORDER_ITEMS,
+    ORDER_METRICS,
+    ORDER_METRICS_HISTORY_DAYS,
+    ORDER_METRICS_PATH,
     ORDERS,
     ORDERS_INCLUDED_DATA,
     ORDERS_PAGE_SIZE,
@@ -38,6 +45,10 @@ from products.warehouse_sources.sources.amazon_selling_partner.settings import (
     PAYOUTS,
     PAYOUTS_PATH,
     PRIMARY_KEYS,
+    REPLENISHMENT_OFFERS,
+    REPLENISHMENT_OFFERS_MAX_OFFSET,
+    REPLENISHMENT_OFFERS_PAGE_SIZE,
+    REPLENISHMENT_OFFERS_PATH,
     REPORT_DOCUMENTS_PATH,
     REPORTS_PATH,
     REQUEST_TIME_MARGIN_SECONDS,
@@ -57,12 +68,15 @@ from products.warehouse_sources.sources.amazon_selling_partner.settings import (
     VendorReport,
 )
 from products.warehouse_sources.sources.sdk import (
+    Endpoint,
     OAuth2Auth,
     OAuth2AuthRequestError,
+    PaginatorConfig,
     Resource,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
+    format_datetime,
     frozen,
     interruptible_wait,
     lift_nested,
@@ -195,16 +209,30 @@ def _build_resource(
     name: str,
     path: str,
     data_selector: str,
-    cursor_path: str,
-    cursor_param: str,
     params: dict[str, Any],
     merge: bool,
     team_id: int,
     job_id: str,
     db_incremental_field_last_value: Any,
+    cursor_path: str | None = None,
+    cursor_param: str | None = None,
+    paginator: PaginatorConfig | None = None,
+    json_body: dict[str, Any] | None = None,
     resume_hook: ResumeHook | None = None,
     initial_paginator_state: dict[str, Any] | None = None,
 ) -> Resource:
+    endpoint: Endpoint = {
+        "path": path,
+        "data_selector": data_selector,
+        "data_selector_empty_ok": True,
+        "paginator": paginator
+        if paginator is not None
+        else {"type": "cursor", "cursor_path": cursor_path, "cursor_param": cursor_param},
+        "params": params,
+    }
+    if json_body is not None:
+        endpoint["method"] = "post"
+        endpoint["json"] = json_body
     config: RESTAPIConfig = {
         "client": {
             "base_url": _base_url(region),
@@ -223,13 +251,7 @@ def _build_resource(
                 "name": name,
                 "table_name": name,
                 "write_disposition": _write_disposition(merge),
-                "endpoint": {
-                    "path": path,
-                    "data_selector": data_selector,
-                    "data_selector_empty_ok": True,
-                    "paginator": {"type": "cursor", "cursor_path": cursor_path, "cursor_param": cursor_param},
-                    "params": params,
-                },
+                "endpoint": endpoint,
                 "table_format": "delta",
             }
         ],
@@ -686,6 +708,356 @@ def _vendor_purchase_orders_resource(
         pages,
         name=VENDOR_PURCHASE_ORDERS,
         hints=_wrapper_hints(VENDOR_PURCHASE_ORDERS, should_use_incremental_field),
+    )
+
+
+@frozen
+class MarketplaceStep:
+    marketplace_id: str
+    # The issue-date window inside the marketplace, for a table that walks windows.
+    window_start: datetime | None = None
+    window_end: datetime | None = None
+
+
+@frozen
+class DateWindow:
+    start: datetime
+    end: datetime
+
+
+WindowsFrom = Callable[[datetime | None], list[DateWindow]]
+
+
+def date_windows(start: datetime, now: datetime, days: int) -> list[DateWindow]:
+    """Contiguous [start, end) windows of at most `days` days from `start` up to the request margin."""
+    cutoff = now - timedelta(seconds=REQUEST_TIME_MARGIN_SECONDS)
+    windows: list[DateWindow] = []
+    while start < cutoff:
+        end = min(start + timedelta(days=days), cutoff)
+        windows.append(DateWindow(start=start, end=end))
+        start = end
+    return windows
+
+
+def marketplace_steps(
+    marketplace_ids: list[str],
+    windows_from: WindowsFrom | None,
+    resume: AmazonSellingPartnerResumeConfig | None,
+) -> list[MarketplaceStep]:
+    """The steps a walk still has to read: each marketplace, or each window inside each marketplace."""
+
+    def steps_for(marketplace_id: str, after: datetime | None = None) -> list[MarketplaceStep]:
+        if windows_from is None:
+            return [MarketplaceStep(marketplace_id=marketplace_id)]
+        return [
+            MarketplaceStep(marketplace_id=marketplace_id, window_start=window.start, window_end=window.end)
+            for window in windows_from(after)
+        ]
+
+    if resume is not None and resume.completed_marketplaces:
+        marketplace_ids = [id for id in marketplace_ids if id not in resume.completed_marketplaces]
+    if resume is None or resume.marketplace_id not in marketplace_ids:
+        return [step for marketplace_id in marketplace_ids for step in steps_for(marketplace_id)]
+    resumed = resume.marketplace_id
+    window_start, window_end = parse_datetime_value(resume.window_start), parse_datetime_value(resume.window_end)
+    if windows_from is not None and window_start is not None and window_end is not None:
+        first = [
+            MarketplaceStep(marketplace_id=resumed, window_start=window_start, window_end=window_end),
+            *steps_for(resumed, window_end),
+        ]
+    else:
+        first = steps_for(resumed)
+    following = marketplace_ids[marketplace_ids.index(resumed) + 1 :]
+    return [*first, *(step for marketplace_id in following for step in steps_for(marketplace_id))]
+
+
+def _marketplace_walk_resource(
+    *,
+    name: str,
+    merge: bool,
+    region: str,
+    auth: LwaAuth,
+    marketplace_ids: list[str],
+    manager: ResumableSourceManager[AmazonSellingPartnerResumeConfig],
+    windows_from: WindowsFrom | None,
+    page_state_key: str,
+    build: Callable[[MarketplaceStep, ResumeHook, dict[str, Any] | None], Resource],
+    rows_cap: int | None = None,
+) -> Resource:
+    """Walk the table one marketplace at a time, resuming at the saved marketplace, window and page."""
+
+    def state_for(step: MarketplaceStep, page_state: dict[str, Any] | None = None) -> AmazonSellingPartnerResumeConfig:
+        return AmazonSellingPartnerResumeConfig(
+            marketplace_id=step.marketplace_id,
+            window_start=to_iso8601(step.window_start) if step.window_start is not None else None,
+            window_end=to_iso8601(step.window_end) if step.window_end is not None else None,
+            next_token=str(page_state[page_state_key]) if page_state else None,
+        )
+
+    def pages() -> Iterator[Any]:
+        resume = manager.load_state() if manager.can_resume() else None
+        discovered = not marketplace_ids
+        all_marketplaces = marketplace_ids or list_marketplace_ids(region, auth)
+        steps = marketplace_steps(all_marketplaces, windows_from, resume)
+        # Staged with the walk's last page, so a hand-off after it reads nothing again.
+        finished = AmazonSellingPartnerResumeConfig(completed_marketplaces=list(all_marketplaces))
+        rejected: str | None = None
+        for index, step in enumerate(steps):
+            if step.marketplace_id == rejected:
+                continue
+            following = steps[index + 1] if index + 1 < len(steps) else None
+            first_of_marketplace = index == 0 or steps[index - 1].marketplace_id != step.marketplace_id
+            initial_state: dict[str, Any] | None = None
+            if index == 0 and resume is not None and resume.next_token:
+                if state_for(step) == AmazonSellingPartnerResumeConfig(
+                    marketplace_id=resume.marketplace_id, window_start=resume.window_start, window_end=resume.window_end
+                ):
+                    initial_state = {page_state_key: resume.next_token}
+
+            def save_checkpoint(
+                page_state: dict[str, Any] | None,
+                step: MarketplaceStep = step,
+                following: MarketplaceStep | None = following,
+            ) -> None:
+                if page_state and page_state.get(page_state_key) is not None:
+                    manager.save_state(state_for(step, page_state))
+                else:
+                    # Staged before the step's last page is handed on, so a resume skips the step.
+                    manager.save_state(state_for(following) if following is not None else finished)
+
+            got_a_page = False
+            rows_read = int(initial_state[page_state_key]) if rows_cap is not None and initial_state else 0
+            try:
+                for batch in build(step, save_checkpoint, initial_state):
+                    got_a_page = True
+                    rows_read += len(batch)
+                    yield batch
+                    # The staged state still points at or before this page, so a hand-off here loses no rows.
+                    manager.safe_point()
+            except requests.HTTPError as e:
+                # A discovered marketplace can be a channel this API does not cover, such as Non-Amazon.
+                # Amazon rejects it on the first request, before any row or page token exists to lose.
+                # A resumed request can fail on an expired page token instead, which must not skip rows.
+                if (
+                    not discovered
+                    or got_a_page
+                    or initial_state is not None
+                    or not first_of_marketplace
+                    or not _is_invalid_input(e)
+                ):
+                    raise
+                logger.warning(
+                    "amazon_selling_partner_marketplace_skipped", table=name, marketplace_id=step.marketplace_id
+                )
+                rejected = step.marketplace_id
+                next_marketplace = next((s for s in steps[index + 1 :] if s.marketplace_id != rejected), None)
+                manager.save_state(state_for(next_marketplace) if next_marketplace is not None else finished)
+            if rows_cap is not None and rows_read >= rows_cap:
+                logger.warning(
+                    "amazon_selling_partner_rows_cap_reached",
+                    table=name,
+                    marketplace_id=step.marketplace_id,
+                    rows_cap=rows_cap,
+                )
+            # Empty pages are not handed on, so a run of empty windows reaches a safe point here.
+            manager.safe_point()
+
+    return Resource(pages, name=name, hints=_wrapper_hints(name, merge))
+
+
+def _interval_bound(value: str) -> str | None:
+    parsed = parse_datetime_value(value)
+    return format_datetime(parsed) if parsed is not None else None
+
+
+def order_metric_row(marketplace_id: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    def shape(metric: dict[str, Any]) -> dict[str, Any]:
+        start, _, end = str(metric.get("interval") or "").partition("--")
+        # The last interval of a run ends at the request time, so the start is the stable key.
+        return {
+            "marketplaceId": marketplace_id,
+            "startTime": _interval_bound(start),
+            "endTime": _interval_bound(end),
+            **metric,
+        }
+
+    return shape
+
+
+def order_metrics_start(now: datetime, watermark: Any) -> datetime:
+    start = now - timedelta(days=ORDER_METRICS_HISTORY_DAYS)
+    parsed = parse_datetime_value(watermark) if watermark is not None else None
+    if parsed is not None:
+        start = max(start, parsed.astimezone(UTC))
+    return start.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _order_metrics_resource(
+    *,
+    region: str,
+    auth: LwaAuth,
+    marketplace_ids: list[str],
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[AmazonSellingPartnerResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Resource:
+    now = datetime.now(UTC)
+    watermark = db_incremental_field_last_value if should_use_incremental_field else None
+    interval = f"{to_iso8601(order_metrics_start(now, watermark))}--{to_iso8601(now)}"
+
+    def build(step: MarketplaceStep, resume_hook: ResumeHook, initial_state: dict[str, Any] | None) -> Resource:
+        resource = _build_resource(
+            region=region,
+            auth=auth,
+            name=ORDER_METRICS,
+            path=ORDER_METRICS_PATH,
+            data_selector="payload",
+            paginator="single_page",
+            params={
+                "marketplaceIds": step.marketplace_id,
+                "interval": interval,
+                "granularity": "Day",
+                "granularityTimeZone": "UTC",
+            },
+            merge=should_use_incremental_field,
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            resume_hook=resume_hook,
+        )
+        resource.add_map(order_metric_row(step.marketplace_id))
+        return resource
+
+    return _marketplace_walk_resource(
+        name=ORDER_METRICS,
+        merge=should_use_incremental_field,
+        region=region,
+        auth=auth,
+        marketplace_ids=marketplace_ids,
+        manager=resumable_source_manager,
+        windows_from=None,
+        page_state_key="cursor",
+        build=build,
+    )
+
+
+def _invoices_resource(
+    *,
+    region: str,
+    auth: LwaAuth,
+    marketplace_ids: list[str],
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[AmazonSellingPartnerResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Resource:
+    now = datetime.now(UTC)
+    history_start = now - timedelta(days=INVOICES_HISTORY_DAYS)
+    modified_after: str | None = None
+    if should_use_incremental_field and db_incremental_field_last_value is not None:
+        modified_after = to_iso8601(db_incremental_field_last_value)
+
+    def windows_from(after: datetime | None) -> list[DateWindow]:
+        # An invoice issued long ago can still change, so an incremental sync also walks every
+        # issue-date window and lets invoicesModifiedAfter filter the rows.
+        return date_windows(after or history_start, now, INVOICES_WINDOW_DAYS)
+
+    def build(step: MarketplaceStep, resume_hook: ResumeHook, initial_state: dict[str, Any] | None) -> Resource:
+        params: dict[str, Any] = {
+            "marketplaceId": step.marketplace_id,
+            "fromIssueDate": to_iso8601(step.window_start),
+            "toIssueDate": to_iso8601(step.window_end),
+        }
+        if modified_after is not None:
+            params["invoicesModifiedAfter"] = modified_after
+        resource = _build_resource(
+            region=region,
+            auth=auth,
+            name=INVOICES,
+            path=INVOICES_PATH,
+            data_selector="invoices",
+            cursor_path="nextToken",
+            cursor_param="nextToken",
+            params=params,
+            merge=should_use_incremental_field,
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            resume_hook=resume_hook,
+            initial_paginator_state=initial_state,
+        )
+        resource.add_map(lambda invoice: {"marketplaceId": step.marketplace_id, **invoice})
+        return resource
+
+    return _marketplace_walk_resource(
+        name=INVOICES,
+        merge=should_use_incremental_field,
+        region=region,
+        auth=auth,
+        marketplace_ids=marketplace_ids,
+        manager=resumable_source_manager,
+        windows_from=windows_from,
+        page_state_key="cursor",
+        build=build,
+    )
+
+
+def _replenishment_offers_resource(
+    *,
+    region: str,
+    auth: LwaAuth,
+    marketplace_ids: list[str],
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[AmazonSellingPartnerResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Resource:
+    # listOffers has no time filter, so the table is full refresh only.
+    def build(step: MarketplaceStep, resume_hook: ResumeHook, initial_state: dict[str, Any] | None) -> Resource:
+        return _build_resource(
+            region=region,
+            auth=auth,
+            name=REPLENISHMENT_OFFERS,
+            path=REPLENISHMENT_OFFERS_PATH,
+            data_selector="offers",
+            paginator={
+                "type": "offset",
+                "limit": REPLENISHMENT_OFFERS_PAGE_SIZE,
+                "offset_param": "pagination.offset",
+                "limit_param": "pagination.limit",
+                "total_path": "pagination.totalResults",
+                "maximum_offset": REPLENISHMENT_OFFERS_MAX_OFFSET + REPLENISHMENT_OFFERS_PAGE_SIZE,
+                "param_location": "json",
+            },
+            json_body={
+                "filters": {"marketplaceId": step.marketplace_id, "programTypes": ["SUBSCRIBE_AND_SAVE"]},
+                # A fixed order keeps offset pages from skipping or repeating offers.
+                "sort": {"order": "ASC", "key": "ASIN"},
+            },
+            params={},
+            merge=False,
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            resume_hook=resume_hook,
+            initial_paginator_state=initial_state,
+        )
+
+    return _marketplace_walk_resource(
+        name=REPLENISHMENT_OFFERS,
+        merge=False,
+        region=region,
+        auth=auth,
+        marketplace_ids=marketplace_ids,
+        manager=resumable_source_manager,
+        windows_from=None,
+        page_state_key="offset",
+        build=build,
+        rows_cap=REPLENISHMENT_OFFERS_MAX_OFFSET + REPLENISHMENT_OFFERS_PAGE_SIZE,
     )
 
 
@@ -1157,6 +1529,12 @@ def amazon_selling_partner_source(
             resource = _fulfillment_orders_resource(**common)
         elif endpoint == VENDOR_PURCHASE_ORDERS:
             resource = _vendor_purchase_orders_resource(**common)
+        elif endpoint == ORDER_METRICS:
+            resource = _order_metrics_resource(marketplace_ids=marketplace_ids, **common)
+        elif endpoint == INVOICES:
+            resource = _invoices_resource(marketplace_ids=marketplace_ids, **common)
+        elif endpoint == REPLENISHMENT_OFFERS:
+            resource = _replenishment_offers_resource(marketplace_ids=marketplace_ids, **common)
         else:
             raise ValueError(f"Unknown Amazon Selling Partner endpoint: {endpoint}")
         items = lambda: resource

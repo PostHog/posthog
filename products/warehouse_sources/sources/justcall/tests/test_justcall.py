@@ -10,7 +10,13 @@ from products.warehouse_sources.sources.justcall.justcall import (
     validate_credentials,
 )
 from products.warehouse_sources.sources.justcall.source import JustCallSource
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 
 
 def _driver() -> SourceDriver:
@@ -66,11 +72,80 @@ class TestPagination:
         assert len(result.requests) == 2
         assert result.params("per_page") == [str(page_size), str(page_size)]
 
+    @pytest.mark.parametrize(
+        "endpoint, expected_pages",
+        [
+            ("texts_tags", ["0"]),
+            # No documented page-size cap, so a short page may just be the server's own cap.
+            ("sales_dialer_contacts", ["0", "1"]),
+        ],
+    )
+    def test_short_page_ends_walk_only_where_the_cap_is_documented(
+        self, endpoint: str, expected_pages: list[str]
+    ) -> None:
+        result = _driver().run(endpoint, [_response([{"id": 1}, {"id": 2}]), _response([])])
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [1, 2]
+        assert result.params("page") == expected_pages
+
     def test_resumes_from_saved_page(self) -> None:
         result = _driver().run("calls", [_response([{"id": 9}])], resume_state=JustCallResumeConfig(page=5))
 
         assert result.raised is None
         assert result.params("page") == ["5"]
+
+
+def _campaign_contacts_script(contacts: dict[str, list[dict[str, Any]]]) -> Any:
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/v2.1/sales_dialer/campaigns":
+            return _response([{"id": int(campaign_id), "name": f"Campaign {campaign_id}"} for campaign_id in contacts])
+        assert request.path == "/v2.1/sales_dialer/campaigns/contacts"
+        campaign_id = request.param("campaign_id")
+        assert campaign_id is not None
+        return _response(contacts[campaign_id] if request.param("page") == "0" else [])
+
+    return respond
+
+
+class TestCampaignContacts:
+    def test_fans_out_over_campaigns_and_tags_rows_with_campaign(self) -> None:
+        # The same contact in two campaigns must stay two rows, told apart by campaign_id.
+        script = _campaign_contacts_script(
+            {
+                "1": [{"id": 10, "progress_status": "Dialed"}, {"id": 11}],
+                "2": [{"id": 10, "progress_status": "Undialed"}],
+            }
+        )
+        result = _driver().run("sales_dialer_campaign_contacts", script)
+
+        assert result.raised is None
+        assert result.rows == [
+            {"id": 10, "progress_status": "Dialed", "campaign_id": 1},
+            {"id": 11, "campaign_id": 1},
+            {"id": 10, "progress_status": "Undialed", "campaign_id": 2},
+        ]
+        contact_requests = [r for r in result.requests if r.path.endswith("/contacts")]
+        assert [(r.param("campaign_id"), r.param("page")) for r in contact_requests] == [
+            ("1", "0"),
+            ("1", "1"),
+            ("2", "0"),
+            ("2", "1"),
+        ]
+        assert {r.param("order") for r in contact_requests} == {"asc"}
+
+    def test_resume_skips_completed_campaigns(self) -> None:
+        script = _campaign_contacts_script({"1": [{"id": 10}], "2": [{"id": 20}]})
+        first = _driver().run("sales_dialer_campaign_contacts", script)
+        after_first_campaign = next(
+            state for state in first.saved_states if state.fanout_state and state.fanout_state.get("completed")
+        )
+
+        resumed = _driver().run("sales_dialer_campaign_contacts", script, resume_state=after_first_campaign)
+
+        assert resumed.raised is None
+        assert resumed.rows == [{"id": 20, "campaign_id": 2}]
+        assert "1" not in resumed.params("campaign_id")
 
 
 class TestValidateCredentials:

@@ -1,14 +1,17 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonDialog, LemonInputSelect, LemonLabel, LemonSkeleton } from '@posthog/lemon-ui'
+import { Button, Item, ItemActions, ItemContent, ItemDescription, Skeleton } from '@posthog/quill'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { HEATMAP_SCREENSHOT_COOKIE_NAME } from '../heatmapScreenshotCookie'
 import { heatmapScreenshotSettingsLogic } from './heatmapScreenshotSettingsLogic'
+import { QuillHeatmapScreenshotCookieSettings } from './QuillHeatmapScreenshotCookieSettings'
 
 export function HeatmapScreenshotCookieSettings(): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
@@ -29,8 +32,24 @@ export function HeatmapScreenshotCookieSettings(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (loadError) {
+        if (todayRailNav) {
+            return (
+                <Item tone="destructive" size="sm">
+                    <ItemContent>
+                        <ItemDescription>Could not load screenshot settings. Try again.</ItemDescription>
+                    </ItemContent>
+                    <ItemActions>
+                        <Button variant="outline" onClick={loadSettings}>
+                            Retry
+                        </Button>
+                    </ItemActions>
+                </Item>
+            )
+        }
+
         return (
             <LemonBanner type="error" action={{ children: 'Retry', onClick: loadSettings }}>
                 Could not load screenshot settings. Try again.
@@ -38,7 +57,47 @@ export function HeatmapScreenshotCookieSettings(): JSX.Element {
         )
     }
     if (!settings) {
-        return <LemonSkeleton />
+        return todayRailNav ? <Skeleton className="h-8 max-w-160" /> : <LemonSkeleton />
+    }
+
+    const rotateDisabledReason = !settings.allowed_hostnames.length
+        ? 'Save at least one approved hostname first.'
+        : settingsLoading || hasChanges
+          ? 'Save your hostname changes first.'
+          : undefined
+
+    const handleRotateClick = (): void => {
+        if (!settings.has_secret) {
+            rotateSecret()
+            return
+        }
+        LemonDialog.open({
+            title: 'Rotate the screenshot value?',
+            description:
+                'New screenshots will use the new value. Replace the old value in your bot protection rule to restore access and revoke the old value.',
+            primaryButton: { children: 'Rotate value', onClick: rotateSecret },
+            secondaryButton: { children: 'Cancel' },
+        })
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillHeatmapScreenshotCookieSettings
+                settings={settings}
+                settingsLoading={settingsLoading}
+                hostnames={hostnames}
+                secret={secret}
+                rotatedSecretLoading={rotatedSecretLoading}
+                suggestions={suggestions}
+                hasChanges={hasChanges}
+                saveError={saveError}
+                restrictedReason={restrictedReason}
+                rotateDisabledReason={rotateDisabledReason}
+                onHostnamesChange={setHostnames}
+                onSave={saveSettings}
+                onRotate={handleRotateClick}
+            />
+        )
     }
 
     return (
@@ -119,26 +178,8 @@ export function HeatmapScreenshotCookieSettings(): JSX.Element {
                         <LemonButton
                             type="secondary"
                             loading={rotatedSecretLoading}
-                            disabledReason={
-                                !settings.allowed_hostnames.length
-                                    ? 'Save at least one approved hostname first.'
-                                    : settingsLoading || hasChanges
-                                      ? 'Save your hostname changes first.'
-                                      : undefined
-                            }
-                            onClick={() => {
-                                if (!settings.has_secret) {
-                                    rotateSecret()
-                                    return
-                                }
-                                LemonDialog.open({
-                                    title: 'Rotate the screenshot value?',
-                                    description:
-                                        'New screenshots will use the new value. Replace the old value in your bot protection rule to restore access and revoke the old value.',
-                                    primaryButton: { children: 'Rotate value', onClick: rotateSecret },
-                                    secondaryButton: { children: 'Cancel' },
-                                })
-                            }}
+                            disabledReason={rotateDisabledReason}
+                            onClick={handleRotateClick}
                         >
                             {settings.has_secret ? 'Rotate value' : 'Generate screenshot value'}
                         </LemonButton>

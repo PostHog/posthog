@@ -384,7 +384,7 @@ export interface hogFunctionConfigurationLogicValues {
     currentProject: ProjectType | null // projectLogic
     currentProjectId: number | null // projectLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
-    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     baseEventsQuery: EventsQuery | null
     canEditSource: boolean
     canLoadSampleGlobals: boolean
@@ -799,9 +799,7 @@ export interface hogFunctionConfigurationLogicMeta {
         logicProps: (arg: any) => HogFunctionConfigurationLogicProps
         surveyIdFromFilters: (configuration: HogFunctionConfigurationType) => string | null
         type: (configuration: HogFunctionConfigurationType, hogFunction: HogFunctionType | null) => HogFunctionTypeType
-        hasGroupsAddon: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
-        ) => boolean
+        hasGroupsAddon: (hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean) => boolean
         useMapping: (
             hogFunction: HogFunctionType | null,
             template: HogFunctionTemplateType | null
@@ -1087,7 +1085,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         template: [
             null as HogFunctionTemplateType | null,
             {
-                loadTemplate: async () => {
+                loadTemplate: async (): Promise<HogFunctionTemplateType | null> => {
                     cache.configFromUrl = router.values.hashParams.configuration
                     if (!props.templateId) {
                         return null

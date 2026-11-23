@@ -25,29 +25,31 @@ POLICY_PATH = ".stamphog/policy.yml"
 BOT_AUTHORS_CACHE_SECONDS = 300
 
 
-def admitted_bot_author(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> dict[str, Any] | None:
+def admitted_bot_author(
+    repo_config: StamphogRepoConfig, pr: dict[str, Any], *, client: StamphogGitHubClient | None = None
+) -> dict[str, Any] | None:
     """The policy entry that admits this PR, as `{name, login, id}`, or None.
 
     The author must be a GitHub App account whose login and numeric id both match one entry, because
     a login can be renamed and claimed by someone else while the id cannot. The head must live in
     the repo itself, because the fork's owner controls a fork's branch. A transient policy fetch
     failure raises, so the caller retries the delivery rather than refusing a bot the policy admits.
+    ``client`` reads the policy on a cache miss, so a caller can pick the egress lane of that read.
     """
     user = pr.get("user") or {}
     if user.get("type") != "Bot" or is_fork(pr, repo_config.repository):
         return None
     login, user_id = user.get("login"), user.get("id")
-    return next((bot for bot in _repo_bot_authors(repo_config) if bot["login"] == login and bot["id"] == user_id), None)
+    bot_authors = _repo_bot_authors(repo_config, client or StamphogGitHubClient(repo_config.installation_id))
+    return next((bot for bot in bot_authors if bot["login"] == login and bot["id"] == user_id), None)
 
 
-def _repo_bot_authors(repo_config: StamphogRepoConfig) -> list[dict[str, Any]]:
+def _repo_bot_authors(repo_config: StamphogRepoConfig, client: StamphogGitHubClient) -> list[dict[str, Any]]:
     """The `bot_authors` entries on the repo's default branch, cached briefly, absence included."""
     key = f"stamphog:bot_authors:{repo_config.id}"
     cached = cache.get(key)
     if cached is None:
-        raw_text = StamphogGitHubClient(repo_config.installation_id).get_default_branch_file(
-            repo_config.repository, POLICY_PATH
-        )
+        raw_text = client.get_default_branch_file(repo_config.repository, POLICY_PATH)
         cached = _parse_bot_authors(raw_text, repo_config.repository)
         cache.set(key, cached, BOT_AUTHORS_CACHE_SECONDS)
     return cached

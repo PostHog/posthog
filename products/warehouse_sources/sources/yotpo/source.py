@@ -179,7 +179,7 @@ class YotpoSource(ResumableSource[YotpoSourceConfig, YotpoResumeConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="YYYY-MM-DD",
-                        caption="Email tables include data from this date. Reviews and unsubscribers include all available records.",
+                        caption="Email tables include data from this date. Other tables include all available records.",
                         secret=False,
                     ),
                 ],

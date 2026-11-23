@@ -1,7 +1,7 @@
 import { IconInfo } from '@posthog/icons'
 import { Field, FieldTitle, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
-import { QuillSurfaceContext } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { QuillSurfaceContext } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import type { EditorFilterItemsProps } from './EditorFilterItems'
 
