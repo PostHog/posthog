@@ -1913,7 +1913,7 @@ class TestPrinter(BaseTest):
             ("mysql", "sha1(CONVERT(%(hogql_val_0)s USING utf8mb4))"),
             ("snowflake", "sha1(%(hogql_val_0)s)"),
             ("redshift", "sha1(%(hogql_val_0)s)"),
-            ("trino", "lower(to_hex(sha1(to_utf8(CAST(%(hogql_val_0)s AS VARCHAR)))))"),
+            ("trino", "lower(to_hex(sha1(to_utf8(CAST('abc' AS VARCHAR)))))"),
         ]
     )
     def test_sha1_dialects(self, dialect: HogQLDialect, expected: str) -> None:
