@@ -64,6 +64,8 @@ class ImportStepSpec:
     requires: tuple[str, ...] = ()
     # Steps the run must include for this one to do anything, such as contacts for new people.
     needs: tuple[str, ...] = ()
+    # Creates or updates people, and each of those counts as an event on the bill.
+    counts_as_events: bool = False
 
 
 @frozen
@@ -101,6 +103,7 @@ class ImportContext:
     # Names what the run stores, so a retried page overwrites what it stored before.
     run_id: str = ""
     settings: Mapping[str, str] = field(default_factory=dict)
+    completed_steps: tuple[str, ...] = ()
 
 
 ImportItemStatus = Literal["created", "skipped", "failed", "listed"]
@@ -140,6 +143,8 @@ class SavedPage:
     counts: Mapping[str, int] = field(default_factory=dict)
     items: tuple[ImportItem, ...] = ()
     people_imports: tuple[PeopleImportPlan, ...] = ()
+    # Fails the step after the page's own writes commit, and leaves the step's progress as it was.
+    error: str | None = None
 
 
 @frozen

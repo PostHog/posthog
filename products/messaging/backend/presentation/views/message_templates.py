@@ -1058,11 +1058,13 @@ def unconfirmed_email_send() -> ExplainedRefusal:
 
 class TransactionalEmailBurstThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
     scope = "transactional_email_burst"
+    reads_history_from_primary = True
     rate = "600/minute"
 
 
 class TransactionalEmailSustainedThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
     scope = "transactional_email_sustained"
+    reads_history_from_primary = True
     rate = "20000/hour"
 
 
@@ -1070,11 +1072,13 @@ class TransactionalEmailTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
     """Per-team aggregate across all of a project's secret API keys."""
 
     scope = "transactional_email_psak_team_burst"
+    reads_history_from_primary = True
     rate = "600/minute"
 
 
 class TransactionalEmailTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
     scope = "transactional_email_psak_team_sustained"
+    reads_history_from_primary = True
     rate = "20000/hour"
 
 
@@ -1861,29 +1865,8 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             require_email_from_code(self.team)
             _check_scheduled_at(self.team, request.validated_data.get("scheduled_at"))
         data = request.validated_data
-        key = data["template_key"]
-        with transactional_email_stage("workflow_access"):
-            require_code_email_access(
-                self.team_id,
-                key,
-                require_workflow_editor=self._require_workflow_editor,
-                require_workflow_create=self._require_workflow_create,
-            )
-        email = CodeEmail(
-            key=key,
-            subject=data["subject"],
-            html=data.get("html", ""),
-            text=data.get("text", ""),
-            sender=data.get("from"),
-            reply_to=tuple(data.get("reply_to", ())),
-            tracking=data["tracking"]
-            if "tracking" in data
-            else EmailTracking(engagement=data.get("capture_engagement", True)),
-            sensitive=data.get("sensitive"),
-            cc=tuple(data.get("cc") or ()),
-            bcc=tuple(data.get("bcc") or ()),
-            attachments=tuple(EmailAttachment(**attachment) for attachment in data.get("attachments") or ()),
-        )
+        self._require_code_email_access(data["template_key"])
+        email = code_email(data)
         return self._queue_send(
             request,
             lambda idempotency_key: send_code_email(
@@ -1894,14 +1877,45 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
                 idempotency_key=idempotency_key,
                 scheduled_at=data.get("scheduled_at"),
             ),
-            usage_properties={
-                "addressed_by": "template_key",
-                "tracking_opens": email.tracking.opens,
-                "tracking_clicks": email.tracking.clicks,
-                "tracking_engagement": email.tracking.engagement,
-            },
+            usage_properties=code_email_usage_properties(email),
             unavailable=unconfirmed_email_send,
         )
+
+    def _require_code_email_access(self, key: str) -> None:
+        with transactional_email_stage("workflow_access"):
+            require_code_email_access(
+                self.team_id,
+                key,
+                require_workflow_editor=self._require_workflow_editor,
+                require_workflow_create=self._require_workflow_create,
+            )
+
+
+def code_email(data: Mapping[str, Any]) -> CodeEmail:
+    return CodeEmail(
+        key=data["template_key"],
+        subject=data["subject"],
+        html=data.get("html", ""),
+        text=data.get("text", ""),
+        sender=data.get("from"),
+        reply_to=tuple(data.get("reply_to", ())),
+        tracking=data["tracking"]
+        if "tracking" in data
+        else EmailTracking(engagement=data.get("capture_engagement", True)),
+        sensitive=data.get("sensitive"),
+        cc=tuple(data.get("cc") or ()),
+        bcc=tuple(data.get("bcc") or ()),
+        attachments=tuple(EmailAttachment(**attachment) for attachment in data.get("attachments") or ()),
+    )
+
+
+def code_email_usage_properties(email: CodeEmail) -> dict[str, Any]:
+    return {
+        "addressed_by": "template_key",
+        "tracking_opens": email.tracking.opens,
+        "tracking_clicks": email.tracking.clicks,
+        "tracking_engagement": email.tracking.engagement,
+    }
 
 
 def _check_scheduled_at(team: Any, scheduled_at: datetime | None) -> None:

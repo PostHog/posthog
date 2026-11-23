@@ -18,6 +18,7 @@ from __future__ import annotations
 from products.data_catalog.evals.catalog_seeders import (
     seed_account_engagement_metric,
     seed_activation_funnel_metric,
+    seed_catalog_with_mrr,
     seed_mrr_metric,
 )
 from products.data_catalog.evals.catalog_synthesizer import (
@@ -25,8 +26,11 @@ from products.data_catalog.evals.catalog_synthesizer import (
     ACTIVATION_FUNNEL_METRIC,
     MRR_DISTINGUISHING_TERMS,
     MRR_METRIC,
+    TOOL_FAILURE_RATE_METRIC,
 )
 from products.data_catalog.evals.offline_config import offline_suite
+from products.data_catalog.evals.scenario_seeder import seed_mcp_tool_failures
+from products.data_catalog.evals.scenario_synthesizer import MCP_FAILING_TOOL, MCP_FAILURE_RISE_DAYS
 from products.data_catalog.evals.scorers import (
     MetricDescribeBeforeAdaptedSql,
     MetricFound,
@@ -43,6 +47,13 @@ from products.posthog_ai.evals.product_analytics.scorers import InsightShape
 _ADAPTED_MRR = {
     "metric_describe_before_adapted_sql": {},
     "query_terms_used": {"terms": list(MRR_DISTINGUISHING_TERMS)},
+}
+
+
+# One account's spend keeps the MRR measure and adds the account group key, which is how bills attach to accounts.
+_ONE_ACCOUNT_MRR = {
+    "metric_describe_before_adapted_sql": {},
+    "query_terms_used": {"terms": ["paid_bill", "$group_0"]},
 }
 
 
@@ -139,6 +150,148 @@ async def eval_metric_adaptation(ctx: EvalContext) -> None:
                 },
             },
             setup=seed_mrr_metric,
+        ),
+        SandboxedEvalCase(
+            name="adjust_one_account_spend",
+            prompt="How much did our biggest paying account pay us over the last 30 days?",
+            expected={
+                **_ONE_ACCOUNT_MRR,
+                "semantic_layer_answer": {
+                    "expected_behavior": _adapted_mrr_behavior(
+                        "find the account with the largest paid_bill total in the window, and report that "
+                        "account's total"
+                    )
+                },
+            },
+            setup=seed_mrr_metric,
+        ),
+        SandboxedEvalCase(
+            name="adjust_one_account_annual_value",
+            prompt="What's our top paying account worth per year at its current spend?",
+            expected={
+                **_ONE_ACCOUNT_MRR,
+                "semantic_layer_answer": {
+                    "expected_behavior": (
+                        _adapted_mrr_behavior(
+                            "find the account with the largest paid_bill total in the window, and report that "
+                            "account's total"
+                        )
+                        + " Multiply that 30-day total by 12 for the yearly value, and say that the yearly value "
+                        "is an estimate derived from the governed metric."
+                    )
+                },
+            },
+            setup=seed_mrr_metric,
+        ),
+        SandboxedEvalCase(
+            name="adjust_compare_to_past_window",
+            prompt="Our goal is to grow MRR by 20% this quarter. How are we tracking against 60 days ago?",
+            expected={
+                **_ADAPTED_MRR,
+                "semantic_layer_answer": {
+                    "expected_behavior": _adapted_mrr_behavior(
+                        "compute the same 30-day total for the window that ended 60 days ago, next to the current "
+                        "value, and compare the growth with the 20% goal"
+                    )
+                },
+            },
+            setup=seed_mrr_metric,
+        ),
+        SandboxedEvalCase(
+            name="adapt_failure_rate_for_one_tool",
+            prompt=f"Is the {MCP_FAILING_TOOL} tool failing more often this past week than before?",
+            expected={
+                "metric_found": {"metric_name": TOOL_FAILURE_RATE_METRIC.name},
+                "metric_describe_before_adapted_sql": {},
+                "query_terms_used": {"terms": ["$mcp_is_error", MCP_FAILING_TOOL]},
+                "semantic_layer_answer": {
+                    "expected_behavior": (
+                        f"Find {TOOL_FAILURE_RATE_METRIC.name} in the catalog and read its definition with "
+                        f"metric-describe. Adapt that stored query to count only {MCP_FAILING_TOOL} calls and to "
+                        f"compare the last {MCP_FAILURE_RISE_DAYS} days with the three weeks before, and keep the "
+                        "$mcp_is_error failure flag on $mcp_tool_call events. Report that the failure share rose from "
+                        "about 5% to about a third in the last week. Label the result as an adaptation of the "
+                        "governed metric, not as the approved number itself."
+                    )
+                },
+            },
+            setup=seed_mcp_tool_failures,
+        ),
+        # The next four cases add the noise catalog, because an agent skips the catalog more often when the
+        # question names an account or a task rather than the measure.
+        SandboxedEvalCase(
+            name="adjust_one_account_annual_plan_savings",
+            prompt="How much would Anixter International save in a year by moving to an annual plan with 20% off what they pay now?",
+            expected={
+                **_ONE_ACCOUNT_MRR,
+                "metric_found": {"metric_name": MRR_METRIC.name},
+                "semantic_layer_answer": {
+                    "expected_behavior": _adapted_mrr_behavior(
+                        "the Anixter International account through $group_0, then multiply that 30-day total by 12 "
+                        "and take 20% of it as the yearly saving"
+                    )
+                },
+            },
+            setup=seed_catalog_with_mrr,
+        ),
+        SandboxedEvalCase(
+            name="adjust_one_account_revenue_at_risk",
+            prompt=(
+                "Anixter International told their account manager they may move their files to an in-house system. "
+                "What else do they use us for, and how much revenue would we lose if they left?"
+            ),
+            expected={
+                **_ONE_ACCOUNT_MRR,
+                "metric_found": {"metric_name": MRR_METRIC.name},
+                "semantic_layer_answer": {
+                    "expected_behavior": _adapted_mrr_behavior(
+                        "the Anixter International account through $group_0 to size the revenue at risk"
+                    )
+                    + " Also describe what else the account does in the product."
+                },
+            },
+            setup=seed_catalog_with_mrr,
+        ),
+        SandboxedEvalCase(
+            name="adjust_mrr_band_account_list",
+            prompt=(
+                "I want to interview 15 users from accounts that pay between $10 and $50 a month and that logged in "
+                "during the last 14 days. List them with their account, how many days they were active in the last "
+                "30 days, and when they signed up."
+            ),
+            expected={
+                **_ONE_ACCOUNT_MRR,
+                "metric_found": {"metric_name": MRR_METRIC.name},
+                "semantic_layer_answer": {
+                    "expected_behavior": _adapted_mrr_behavior(
+                        "a 30-day total per account through $group_0, and keep only accounts between $10 and $50"
+                    )
+                    + " Then list users of those accounts who logged in during the last 14 days, with active days in "
+                    "the last 30 days and the signup date."
+                },
+            },
+            setup=seed_catalog_with_mrr,
+        ),
+        SandboxedEvalCase(
+            name="adjust_mrr_month_projection",
+            prompt=(
+                "Where will MRR land for the current month? Check first whether this month's data is complete so "
+                "far, and tell me which base you used for the projection."
+            ),
+            expected={
+                "metric_describe_before_adapted_sql": {},
+                "metric_found": {"metric_name": MRR_METRIC.name},
+                "semantic_layer_answer": {
+                    "expected_behavior": (
+                        f"Find {MRR_METRIC.name} in the catalog and read its definition with metric-describe. Keep the "
+                        "paid_bill event and the personal/free exclusion, but replace the 30-day window with the "
+                        "current calendar month so far. Check how many of the month's days have data, project the "
+                        "full month from that base, and label the projection as an adaptation of the governed MRR "
+                        "metric, not as the approved number itself."
+                    )
+                },
+            },
+            setup=seed_catalog_with_mrr,
         ),
         SandboxedEvalCase(
             name="adapt_trend_grouping",

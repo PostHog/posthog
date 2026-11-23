@@ -407,21 +407,31 @@ class TestChartsCountOnce(SimpleTestCase):
 
 
 class TestBuildersAndViewers(SimpleTestCase):
-    def test_a_complex_measure_ranks_before_one_that_more_people_built(self) -> None:
-        complex_sql = (
-            "SELECT sumIf(properties.amount, properties.paid) / sum(properties.amount) FROM events e "
-            "JOIN persons p ON e.person_id = p.id WHERE e.event = 'purchase' AND p.properties.plan = 'pro'"
-        )
+    _COMPLEX_SQL = (
+        "SELECT sumIf(properties.amount, properties.paid) / sum(properties.amount) FROM events e "
+        "JOIN persons p ON e.person_id = p.id WHERE e.event = 'purchase' AND p.properties.plan = 'pro'"
+    )
+
+    @parameterized.expand(
+        [
+            ("one_more_person_keeps_the_complex_measure_first", 3, True),
+            ("far_more_people_rank_the_simpler_measure_first", 200, False),
+        ]
+    )
+    def test_rank_weighs_complexity_against_the_people_who_built_it(
+        self, _name: str, revenue_people: int, complex_first: bool
+    ) -> None:
         folder = MeasureFolder()
-        for person in ("alice", "bob", "carol"):
-            folder.add_agent(_agent(REVENUE, person, trace_id=person))
+        for number in range(revenue_people):
+            folder.add_agent(_agent(REVENUE, f"person-{number}", trace_id=f"t{number}"))
         for person in ("alice", "bob"):
-            folder.add_agent(_agent(complex_sql, person, trace_id=person))
+            folder.add_agent(_agent(self._COMPLEX_SQL, person, trace_id=person))
 
         groups = folder.groups(_index())
 
-        assert [group.sample_sql for group in groups][:2] == [complex_sql, REVENUE]
-        assert groups[0].complexity > groups[1].complexity
+        order = [self._COMPLEX_SQL, REVENUE] if complex_first else [REVENUE, self._COMPLEX_SQL]
+        assert [group.sample_sql for group in groups][:2] == order
+        assert groups[0].priority > groups[1].priority
 
     def test_an_agent_retry_is_one_write_and_two_views(self) -> None:
         folder = MeasureFolder()
@@ -433,7 +443,7 @@ class TestBuildersAndViewers(SimpleTestCase):
 
         assert [(group.built, group.views) for group in groups] == [(2, 3)]
 
-    def test_builders_rank_first_and_a_chart_creator_counts_as_a_builder(self) -> None:
+    def test_viewers_count_toward_rank_and_a_chart_creator_counts_as_a_builder(self) -> None:
         folder = MeasureFolder()
         people = {1: "alice", 2: "bob", 3: "carol"}
         folder.add_human(
@@ -461,7 +471,7 @@ class TestBuildersAndViewers(SimpleTestCase):
 
         groups = folder.groups(_index())
 
-        assert [(group.distinct_people, group.built, group.views) for group in groups] == [(2, 4, 4), (1, 1, 30)]
+        assert [(group.distinct_people, group.built, group.views) for group in groups] == [(1, 1, 30), (2, 4, 4)]
 
 
 class TestFetchHumanShapes(ClickhouseTestMixin, BaseTest):

@@ -1,6 +1,8 @@
 version: 1
 owners: []
 rules:
+    - match: '/CheatCodes/'
+      owners: team-billing
     - match: '/HogQLEditor/'
       owners: team-data-tools
     - match: '/LiveUserCount/'
@@ -92,6 +94,7 @@ rules:
           - '/Account/*.test.*'
           - '/ActivityLog/activityDescriptions/*.test.*'
           - '/NotificationsMenu/*.test.*'
+          - '/SocialLoginButton/*.test.*'
           - '/TimeSensitiveAuthentication/*.test.*'
       owners: team-platform-features
     - match:

@@ -6,6 +6,9 @@ import type { SandboxEmailEvents } from '../sandbox-email-events'
 
 export const capturedAnalytics: EventMessage[] = []
 
+export const capturedFor = (teamUuid: string): EventMessage[] =>
+    capturedAnalytics.filter((message) => message.groups?.project === teamUuid)
+
 class InMemoryPostHog {
     disable(): Promise<void> {
         return Promise.resolve()
