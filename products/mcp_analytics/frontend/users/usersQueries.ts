@@ -3,13 +3,7 @@ import { hogql } from 'lib/utils/hogql'
 import { DateRange, HogQLQuery } from '~/queries/schema/schema-general'
 import { IntervalType } from '~/types'
 
-import {
-    MCP_CLIENT_EXPR,
-    MCP_HARNESS_EXPR,
-    MCP_IS_ERROR_EXPR,
-    MCP_MODEL_EXPR,
-    MCP_TOOL_EXPR,
-} from '../components/toolCallFeedQuery'
+import { MCP_HARNESS_EXPR, MCP_IS_ERROR_EXPR, MCP_MODEL_EXPR, MCP_TOOL_EXPR } from '../components/toolCallFeedQuery'
 import type { MCPSharedQueryFilters } from '../mcpAnalyticsFiltersLogic'
 import { withFilters } from '../tool-quality/toolReportQueries'
 
@@ -147,28 +141,26 @@ LIMIT 50`,
     )
 }
 
-/** The user's newest calls, in the columns `toExampleCalls` reads, plus whether each failed. */
-export function userRecentCallsQuery(
+/** The user's newest sessions, with each one's calls, errors, harness, first intent and top tools. */
+export function userRecentSessionsQuery(
     distinctId: string,
     dateRange: DateRange,
     filters: MCPSharedQueryFilters
 ): HogQLQuery {
     return withFilters(
         hogql`SELECT
-    uuid,
-    timestamp,
     ${hogql.raw(SESSION)} AS session_id,
-    toString(properties.$mcp_intent) AS intent,
-    ${hogql.raw(DURATION)} AS duration_ms,
-    ${hogql.raw(MCP_CLIENT_EXPR)} AS client,
-    coalesce(nullIf(toString(properties.$mcp_error_type), ''), 'Unknown') AS error_type,
-    toString(properties.$mcp_error_message) AS error_message,
-    ${hogql.raw(MCP_HARNESS_EXPR)} AS harness,
-    ${hogql.raw(MCP_TOOL_EXPR)} AS tool,
-    ${hogql.raw(MCP_IS_ERROR_EXPR)} AS is_error
+    min(timestamp) AS started,
+    max(timestamp) AS ended,
+    count() AS calls,
+    countIf(${hogql.raw(MCP_IS_ERROR_EXPR)}) AS errors,
+    argMin(${hogql.raw(MCP_HARNESS_EXPR)}, timestamp) AS harness,
+    argMinIf(toString(properties.$mcp_intent), timestamp, toString(properties.$mcp_intent) != '') AS intent,
+    topK(3)(${hogql.raw(MCP_TOOL_EXPR)}) AS tools
 FROM events
-WHERE event = '$mcp_tool_call' AND distinct_id = ${distinctId} AND {filters}
-ORDER BY timestamp DESC
+WHERE event = '$mcp_tool_call' AND distinct_id = ${distinctId} AND ${hogql.raw(SESSION)} != '' AND {filters}
+GROUP BY session_id
+ORDER BY started DESC
 LIMIT 10`,
         dateRange,
         filters

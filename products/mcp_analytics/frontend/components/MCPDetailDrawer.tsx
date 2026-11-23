@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { ReactNode, useEffect, useRef } from 'react'
 
 import { IconChevronDown, IconExpand45, IconX } from '@posthog/icons'
@@ -10,6 +10,7 @@ import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import {
     DetailPanel,
@@ -37,7 +38,7 @@ export interface MCPDetailDrawerProps {
     fullPageHref?: string
     fullPageLabel?: string
     /** An arrow when the link leaves this page. */
-    fullPageIcon?: ReactNode
+    fullPageIcon?: JSX.Element
     /** Over another drawer; Escape closes only this one. */
     stacked?: boolean
     onClose: () => void
@@ -61,6 +62,8 @@ export function MCPDetailDrawer({
     children,
 }: MCPDetailDrawerProps): JSX.Element | null {
     const { mainContentRect } = useValues(panelLayoutLogic)
+    const { setLayoutNavCollapsedOverride } = useActions(panelLayoutLogic)
+    const { setSidebarOpen } = useActions(todayShellLogic)
     const containerRef = useRef<HTMLDivElement>(null)
     const resizerProps: ResizerLogicProps = {
         containerRef,
@@ -88,6 +91,22 @@ export function MCPDetailDrawer({
         callback: () => !isOverlayOpen() && onNext?.(),
         disabled: !onNext,
     })
+    // Collapse the nav and close the sidebar for room while open, and put both back on close.
+    // The drawer under a stacked one owns this.
+    useEffect(() => {
+        if (stacked) {
+            return
+        }
+        const sidebarWasOpen = todayShellLogic.values.sidebarOpen
+        setLayoutNavCollapsedOverride(dataAttr, true)
+        setSidebarOpen(false)
+        return () => {
+            setLayoutNavCollapsedOverride(dataAttr, null)
+            if (sidebarWasOpen && !todayShellLogic.values.sidebarOpen) {
+                setSidebarOpen(true)
+            }
+        }
+    }, [stacked, dataAttr, setLayoutNavCollapsedOverride, setSidebarOpen])
     useEffect(() => {
         const closeOnEscape = (event: KeyboardEvent): void => {
             if (shouldCloseOnEscape(event)) {
@@ -113,7 +132,7 @@ export function MCPDetailDrawer({
             aria-label={`${noun[0].toUpperCase()}${noun.slice(1)} detail`}
             data-attr={dataAttr}
             rect={mainContentRect}
-            width={desiredSize ?? Math.round((mainContentRect.width * 2) / 3)}
+            width={desiredSize ?? Math.round(mainContentRect.width * 0.85)}
             containerRef={containerRef}
             resizer={isDetailPanelFullWidth(mainContentRect.width) ? null : <Resizer {...resizerProps} />}
             toolbar={

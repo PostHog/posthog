@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
 import * as puzzlePng from '@posthog/brand/hoggies/png/puzzle'
-import { IconLightBulb, IconPlug } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { IconInfo, IconLightBulb, IconPlug } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { Card, DataTable, type DataTableProps } from '@posthog/quill'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { BrandMark } from 'lib/components/BrandMark/BrandMark'
@@ -21,7 +22,9 @@ import { labMark, modelLab } from '../aiLabs'
 import { McpDateFilter } from '../components/McpDateFilter'
 import { MCP_FILTER_ACTIVE_CLASS, McpFacetSelect } from '../components/McpFacetSelect'
 import { McpFacetControl, McpSharedFilters } from '../components/McpSharedFilters'
+import { TableLoadingBar } from '../components/TableLoadingBar'
 import { HarnessLogo } from '../dashboard/harness'
+import { SkeletonLine } from '../dashboard/SkeletonLine'
 import { mcpAnalyticsFiltersLogic } from '../mcpAnalyticsFiltersLogic'
 import {
     DEFAULT_DATE_FILTER,
@@ -196,6 +199,93 @@ function ClientCell({ harness }: { harness: string }): JSX.Element {
     )
 }
 
+function HelpHead({ title, help }: { title: string; help: string }): JSX.Element {
+    return (
+        <Tooltip>
+            <TooltipTrigger render={<span tabIndex={0} className="inline-flex items-center gap-1" />}>
+                {title}
+                <IconInfo className="size-3" />
+            </TooltipTrigger>
+            <TooltipContent>{help}</TooltipContent>
+        </Tooltip>
+    )
+}
+
+const reportRowId = (row: MCPMissingCapabilitiesItem, index: number): string => `${row.timestamp}-${index}`
+
+// No accessors: rows stay in the server's newest-first order, which load more extends.
+const REPORT_COLUMNS: DataTableProps<MCPMissingCapabilitiesItem, unknown>['columns'] = [
+    {
+        id: 'intent',
+        header: 'The ask',
+        meta: { expand: true },
+        cell: ({ row }) => (
+            <span className="block min-w-40">
+                <AskCell row={row.original} />
+            </span>
+        ),
+    },
+    {
+        id: 'suggested_improvement',
+        header: () => <HelpHead title="Suggested fix" help={SUGGESTED_HELP} />,
+        cell: ({ row }) =>
+            row.original.suggested_improvement ? (
+                <span className="block min-w-40 text-secondary">{row.original.suggested_improvement}</span>
+            ) : (
+                <span className="text-muted">—</span>
+            ),
+    },
+    {
+        id: 'outcome',
+        header: () => <HelpHead title="Outcome" help={OUTCOME_HELP} />,
+        cell: ({ row }) =>
+            row.original.outcome === 'blocked' ? (
+                <LemonTag type="danger" size="small">
+                    {REPORT_OUTCOMES.blocked}
+                </LemonTag>
+            ) : row.original.outcome === 'completed' ? (
+                <LemonTag type="muted" size="small">
+                    {REPORT_OUTCOMES.completed}
+                </LemonTag>
+            ) : (
+                <span className="text-muted">{REPORT_OUTCOMES.not_reported}</span>
+            ),
+    },
+    {
+        id: 'harness',
+        header: 'Harness',
+        cell: ({ row }) => <ClientCell harness={row.original.harness} />,
+    },
+    {
+        id: 'model',
+        header: 'Model',
+        cell: ({ row }) => <ModelCell model={row.original.model} />,
+    },
+    {
+        id: 'person',
+        header: 'Person',
+        cell: ({ row }) => (
+            // The person popover takes the click, so it does not also open the session.
+            <span className="block max-w-32 truncate" data-row-click-ignore>
+                <PersonDisplay
+                    person={{
+                        distinct_id: row.original.distinct_id,
+                        properties: parsePersonProperties(row.original.person_properties),
+                    }}
+                    withIcon
+                    noPopover={false}
+                />
+            </span>
+        ),
+    },
+    {
+        id: 'timestamp',
+        header: 'When',
+        meta: { align: 'right' },
+        cell: ({ row }) => <TZLabel time={row.original.timestamp} />,
+    },
+]
+
 export function MCPAnalyticsMissingCapabilities(): JSX.Element {
     const {
         reports,
@@ -245,93 +335,36 @@ export function MCPAnalyticsMissingCapabilities(): JSX.Element {
             {initialLoadFailed ? null : noReports ? (
                 <NoReportsState />
             ) : (
-                <LemonTable<MCPMissingCapabilitiesItem>
-                    dataSource={reports}
-                    loading={reportsLoading && reports.length === 0}
-                    rowKey={(row, index) => `${row.timestamp}-${index}`}
-                    emptyState={<NoMatchesState search={search} />}
-                    onRow={(row) => ({
-                        onClick: () => openReport(row),
-                        className: 'cursor-pointer',
-                        'data-attr': 'mcp-missing-capabilities-row',
-                    })}
-                    rowStatus={(row) => (row === openedReport ? 'highlighted' : null)}
-                    columns={[
-                        {
-                            title: 'The ask',
-                            key: 'intent',
-                            className: 'min-w-48',
-                            render: (_, row) => <AskCell row={row} />,
-                        },
-                        {
-                            title: 'Suggested fix',
-                            key: 'suggested_improvement',
-                            className: 'min-w-44',
-                            tooltip: SUGGESTED_HELP,
-                            render: (_, row) =>
-                                row.suggested_improvement ? (
-                                    <span className="text-secondary">{row.suggested_improvement}</span>
+                // pt-0: no card header.
+                <Card size="sm" className="gap-0 overflow-hidden pt-0" data-attr="mcp-missing-capabilities-table">
+                    <div className="relative">
+                        <DataTable
+                            columns={REPORT_COLUMNS}
+                            data={reports}
+                            fullWidth
+                            size="sm"
+                            stickyHeader
+                            className="max-h-[44rem]"
+                            getRowId={reportRowId}
+                            // Marks the open report's row the way Tool quality marks its open tool.
+                            rowSelection={
+                                openedReport ? { [reportRowId(openedReport, reports.indexOf(openedReport))]: true } : {}
+                            }
+                            onRowClick={openReport}
+                            empty={
+                                reportsLoading ? (
+                                    <div className="flex flex-col gap-2 py-2">
+                                        <SkeletonLine className="w-1/2" />
+                                        <SkeletonLine className="w-1/3" />
+                                    </div>
                                 ) : (
-                                    <span className="text-muted">—</span>
-                                ),
-                        },
-                        {
-                            title: 'Outcome',
-                            key: 'outcome',
-                            width: 110,
-                            tooltip: OUTCOME_HELP,
-                            render: (_, row) =>
-                                row.outcome === 'blocked' ? (
-                                    <LemonTag type="danger" size="small">
-                                        {REPORT_OUTCOMES.blocked}
-                                    </LemonTag>
-                                ) : row.outcome === 'completed' ? (
-                                    <LemonTag type="muted" size="small">
-                                        {REPORT_OUTCOMES.completed}
-                                    </LemonTag>
-                                ) : (
-                                    <span className="text-muted">{REPORT_OUTCOMES.not_reported}</span>
-                                ),
-                        },
-                        {
-                            title: 'Harness',
-                            key: 'harness',
-                            width: 120,
-                            render: (_, row) => <ClientCell harness={row.harness} />,
-                        },
-                        {
-                            title: 'Model',
-                            key: 'model',
-                            width: 110,
-                            render: (_, row) => <ModelCell model={row.model} />,
-                        },
-                        {
-                            title: 'Person',
-                            key: 'person',
-                            width: 200,
-                            render: (_, row) => (
-                                // The person popover takes the click, so it does not also open the session.
-                                <span className="block max-w-32 truncate" onClick={(event) => event.stopPropagation()}>
-                                    <PersonDisplay
-                                        person={{
-                                            distinct_id: row.distinct_id,
-                                            properties: parsePersonProperties(row.person_properties),
-                                        }}
-                                        withIcon
-                                        noPopover={false}
-                                    />
-                                </span>
-                            ),
-                        },
-                        {
-                            title: 'When',
-                            key: 'timestamp',
-                            width: 90,
-                            align: 'right',
-                            render: (_, row) => <TZLabel time={row.timestamp} />,
-                        },
-                    ]}
-                />
+                                    <NoMatchesState search={search} />
+                                )
+                            }
+                        />
+                        <TableLoadingBar loading={reportsLoading && reports.length > 0} />
+                    </div>
+                </Card>
             )}
             {hasNext ? (
                 <div className="flex justify-center">

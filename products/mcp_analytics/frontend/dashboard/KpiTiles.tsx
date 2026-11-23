@@ -143,6 +143,8 @@ export function KpiTiles({
     // partial period doesn't read as a decline. Required rather than optional: an omitted prop
     // silently renders the partial bucket as settled data.
     incompleteTail: boolean
+    // Without identify, each "user" is a session.
+    usersAreSessions?: boolean
 }): JSX.Element {
     const {
         sessions: sessionsHref,

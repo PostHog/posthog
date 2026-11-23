@@ -1,7 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
-import { LemonBanner, LemonButton, LemonTable } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { Card, DataTable, type DataTableProps } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { formatPercentage } from 'lib/utils/numbers'
@@ -14,8 +15,10 @@ import { InstrumentationEmptyState } from '../components/InstrumentationEmptySta
 import { McpDateFilter } from '../components/McpDateFilter'
 import { MCPDetailDrawer } from '../components/MCPDetailDrawer'
 import { McpSharedFilters } from '../components/McpSharedFilters'
+import { TableLoadingBar } from '../components/TableLoadingBar'
 import { formatMs, formatNumber } from '../dashboard/formatters'
 import { HarnessLabel } from '../dashboard/HarnessLabel'
+import { SkeletonLine } from '../dashboard/SkeletonLine'
 import { INSTRUMENTATION_FIXES } from '../instrumentationFixes'
 import { mcpUsersLogic } from './mcpUsersLogic'
 import { UserReport } from './UserReport'
@@ -30,6 +33,77 @@ export function mcpUserUrl(distinctId: string, dateFrom: string | null, dateTo: 
 }
 
 const errorRate = (user: UserRow): number => (user.calls ? (user.errors / user.calls) * 100 : 0)
+
+const USER_COLUMNS: DataTableProps<UserRow, unknown>['columns'] = [
+    {
+        id: 'user',
+        header: 'User',
+        accessorFn: (user) => user.label,
+        meta: { expand: true },
+        cell: ({ row: { original: user } }) => (
+            <PersonDisplay
+                person={{
+                    distinct_id: user.distinctId,
+                    properties: user.label !== user.distinctId ? { email: user.label } : {},
+                }}
+                withIcon
+                noLink
+                noPopover
+            />
+        ),
+    },
+    {
+        id: 'calls',
+        header: 'Calls',
+        accessorFn: (user) => user.calls,
+        meta: { align: 'right' },
+        cell: ({ row }) => formatNumber(row.original.calls),
+    },
+    {
+        id: 'sessions',
+        header: 'Sessions',
+        accessorFn: (user) => user.sessions,
+        meta: { align: 'right' },
+        cell: ({ row }) => formatNumber(row.original.sessions),
+    },
+    {
+        id: 'errorRate',
+        header: 'Error rate',
+        accessorFn: errorRate,
+        meta: { align: 'right' },
+        cell: ({ row }) => formatPercentage(errorRate(row.original), { compact: true }),
+    },
+    {
+        id: 'p95',
+        header: 'p95',
+        accessorFn: (user) => user.p95Ms ?? 0,
+        meta: { align: 'right' },
+        cell: ({ row }) => (row.original.p95Ms !== null ? formatMs(row.original.p95Ms) : '–'),
+    },
+    {
+        id: 'topTool',
+        header: 'Top tool',
+        enableSorting: false,
+        cell: ({ row }) => <span className="font-mono">{row.original.topTool}</span>,
+    },
+    {
+        id: 'topHarness',
+        header: 'Harness',
+        enableSorting: false,
+        cell: ({ row }) => (
+            <span className="whitespace-nowrap">
+                <HarnessLabel category={row.original.topHarness} />
+            </span>
+        ),
+    },
+    {
+        id: 'lastSeen',
+        header: 'Last seen',
+        accessorFn: (user) => user.lastSeen,
+        meta: { align: 'right' },
+        cell: ({ row }) => <TZLabel time={row.original.lastSeen} />,
+    },
+]
 
 function UsersTable(): JSX.Element {
     const { users, filteredUsers, usersLoading, usersFailed, search, openedUser } = useValues(mcpUsersLogic)
@@ -54,82 +128,37 @@ function UsersTable(): JSX.Element {
                     </div>
                 </LemonBanner>
             ) : null}
-            <LemonTable<UserRow>
-                dataSource={filteredUsers}
-                loading={usersLoading}
-                rowKey="distinctId"
-                defaultSorting={{ columnKey: 'calls', order: -1 }}
-                emptyState={search ? 'No users match this search.' : 'No users in this date range.'}
-                onRow={(user) => ({
-                    onClick: () => openUser(user.distinctId),
-                    className: 'cursor-pointer',
-                    'data-attr': 'mcp-users-row',
-                })}
-                rowStatus={(user) => (user.distinctId === openedUser ? 'highlighted' : null)}
-                columns={[
-                    {
-                        title: 'User',
-                        key: 'user',
-                        sorter: (a, b) => a.label.localeCompare(b.label),
-                        render: (_, user) => (
-                            <PersonDisplay
-                                person={{
-                                    distinct_id: user.distinctId,
-                                    properties: user.label !== user.distinctId ? { email: user.label } : {},
-                                }}
-                                withIcon
-                                noLink
-                                noPopover
-                            />
-                        ),
-                    },
-                    {
-                        title: 'Calls',
-                        key: 'calls',
-                        align: 'right',
-                        sorter: (a, b) => a.calls - b.calls,
-                        render: (_, user) => formatNumber(user.calls),
-                    },
-                    {
-                        title: 'Sessions',
-                        key: 'sessions',
-                        align: 'right',
-                        sorter: (a, b) => a.sessions - b.sessions,
-                        render: (_, user) => formatNumber(user.sessions),
-                    },
-                    {
-                        title: 'Error rate',
-                        key: 'errorRate',
-                        align: 'right',
-                        sorter: (a, b) => errorRate(a) - errorRate(b),
-                        render: (_, user) => formatPercentage(errorRate(user), { compact: true }),
-                    },
-                    {
-                        title: 'p95',
-                        key: 'p95',
-                        align: 'right',
-                        sorter: (a, b) => (a.p95Ms ?? 0) - (b.p95Ms ?? 0),
-                        render: (_, user) => (user.p95Ms !== null ? formatMs(user.p95Ms) : '–'),
-                    },
-                    {
-                        title: 'Top tool',
-                        key: 'topTool',
-                        render: (_, user) => <span className="font-mono">{user.topTool}</span>,
-                    },
-                    {
-                        title: 'Harness',
-                        key: 'topHarness',
-                        render: (_, user) => <HarnessLabel category={user.topHarness} />,
-                    },
-                    {
-                        title: 'Last seen',
-                        key: 'lastSeen',
-                        align: 'right',
-                        sorter: (a, b) => a.lastSeen.localeCompare(b.lastSeen),
-                        render: (_, user) => <TZLabel time={user.lastSeen} />,
-                    },
-                ]}
-            />
+            {/* pt-0: no card header. */}
+            <Card size="sm" className="gap-0 overflow-hidden pt-0" data-attr="mcp-users-table">
+                <div className="relative">
+                    <DataTable
+                        columns={USER_COLUMNS}
+                        // Rows arrive sorted by calls.
+                        data={filteredUsers}
+                        fullWidth
+                        size="sm"
+                        stickyHeader
+                        className="max-h-[44rem]"
+                        getRowId={(user) => user.distinctId}
+                        // Marks the open user's row the way Tool quality marks its open tool.
+                        rowSelection={openedUser ? { [openedUser]: true } : {}}
+                        onRowClick={(user) => openUser(user.distinctId)}
+                        empty={
+                            usersLoading ? (
+                                <div className="flex flex-col gap-2 py-2">
+                                    <SkeletonLine className="w-1/2" />
+                                    <SkeletonLine className="w-1/3" />
+                                </div>
+                            ) : (
+                                <span className="text-secondary">
+                                    {search ? 'No users match this search.' : 'No users in this date range.'}
+                                </span>
+                            )
+                        }
+                    />
+                    <TableLoadingBar loading={usersLoading && filteredUsers.length > 0} />
+                </div>
+            </Card>
         </>
     )
 }

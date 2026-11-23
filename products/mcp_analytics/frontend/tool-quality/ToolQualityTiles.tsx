@@ -75,6 +75,7 @@ export function ToolQualityTiles(): JSX.Element {
                             key={tile.label}
                             label={tile.label}
                             loading={dailyStatsLoading && !totals}
+                            hasValue={!!totals}
                             value={tile.value}
                             data={tile.data}
                             labels={dailyChartData.labels}

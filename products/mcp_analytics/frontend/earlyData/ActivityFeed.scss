@@ -1,0 +1,68 @@
+// The shared events table, restyled to match the quill tables on the other MCP analytics tabs.
+// Its toolbar renders empty here, and the flex gap after it would sit above the header.
+// Out of flow, it takes no gap; display can't be overridden, as utilities are !important.
+.McpActivityTable > div > :empty {
+    position: absolute;
+}
+
+.McpActivityTable .LemonTable {
+    --lemon-table-background-color: var(--card);
+    --row-horizontal-padding: 0.75rem;
+
+    font-size: var(--text-xs);
+    border: none;
+    border-radius: 0;
+
+    .LemonTable__content > table {
+        > thead > tr:not(.LemonTable__loader-row) > th {
+            height: 2.05rem;
+            padding-top: 0;
+            padding-bottom: 0;
+            font-size: var(--text-xxs);
+            font-weight: 500;
+            letter-spacing: 0.05em;
+            background: var(--background);
+            box-shadow: inset 0 -1px var(--border);
+        }
+
+        > tbody > tr {
+            &:not(:first-child) {
+                border-top-color: var(--border);
+            }
+
+            > td {
+                padding-top: 0.5rem;
+                padding-bottom: 0.5rem;
+                line-height: 1rem;
+                color: var(--foreground);
+            }
+
+            &:hover > td {
+                background: color-mix(in oklab, var(--muted) 40%, var(--background));
+            }
+
+            &.LemonTable__row--status-highlighted {
+                font-weight: inherit;
+
+                > td:not(.LemonTable__cell--sticky) {
+                    background: color-mix(in oklab, var(--primary) 12%, var(--background));
+                }
+            }
+        }
+
+        > thead > tr > th,
+        > tbody > tr > td {
+            &:first-child {
+                padding-left: var(--row-horizontal-padding);
+            }
+
+            &:last-child {
+                padding-right: var(--row-horizontal-padding);
+            }
+        }
+    }
+
+    .LemonTable__header .LemonTable__header-content {
+        color: var(--muted-foreground);
+    }
+}

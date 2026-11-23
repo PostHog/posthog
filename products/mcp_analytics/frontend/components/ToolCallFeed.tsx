@@ -19,7 +19,12 @@ import {
     MCP_ACTIVITY_MAX_ROWS,
     MCP_ACTIVITY_MODEL_COLUMN,
     MCP_ACTIVITY_SESSION_COLUMN,
+    MCP_ACTIVITY_TOOL_COLUMN,
 } from './toolCallFeedQuery'
+
+function ToolCell({ value }: { value: unknown }): JSX.Element {
+    return <span className="font-mono">{String(value ?? '')}</span>
+}
 
 function IntentCell({ value }: { value: unknown }): JSX.Element {
     if (!value) {
@@ -113,6 +118,7 @@ export function ToolCallFeed({
                 compactDataTableToolbar: true,
                 hideRecordingButton: true,
                 columns: {
+                    [MCP_ACTIVITY_TOOL_COLUMN]: { render: ToolCell },
                     [MCP_ACTIVITY_INTENT_COLUMN]: { render: IntentCell, width: '20rem' },
                     [MCP_ACTIVITY_ERROR_COLUMN]: { render: ErrorCell, title: 'Error' },
                     [MCP_ACTIVITY_DURATION_COLUMN]: { render: DurationCell, align: 'right' },

@@ -1,21 +1,25 @@
 import { useValues } from 'kea'
 import { useState } from 'react'
 
-import { Skeleton, ToggleGroup, ToggleGroupItem } from '@posthog/quill-primitives'
+import { Badge, Skeleton, ToggleGroup, ToggleGroupItem } from '@posthog/quill-primitives'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { BrandMark } from 'lib/components/BrandMark/BrandMark'
+import { TZLabel } from 'lib/components/TZLabel'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { cn } from 'lib/utils/css-classes'
 import { formatPercentage } from 'lib/utils/numbers'
 
 import { labMark, modelLab } from '../aiLabs'
 import { formatMs, formatNumber } from '../dashboard/formatters'
+import { HarnessLogo } from '../dashboard/harness'
 import { HarnessLabel } from '../dashboard/HarnessLabel'
 import { MetricTile } from '../dashboard/MetricTile'
 import { deltaPct } from '../mcpDashboardOverviewLogic'
 import { ResultTable, SectionHeader } from '../MCPToolReport'
 import { SessionDrawer } from '../sessions/SessionDrawer'
-import { ExampleCallRow } from '../tool-quality/ExampleCallRow'
-import { type UserRecentCall, userReportLogic } from './userReportLogic'
+import { formatDuration, sessionDurationMs } from '../sessions/utils'
+import { type UserRecentSession, userReportLogic } from './userReportLogic'
 import type { UserTopDimension } from './usersQueries'
 
 const TOP_TABS: { value: UserTopDimension; label: string }[] = [
@@ -41,6 +45,52 @@ const TOP_LABEL: Record<UserTopDimension, { header: string; render: (label: stri
     },
 }
 
+function RecentSessionRow({
+    session,
+    onOpen,
+}: {
+    session: UserRecentSession
+    onOpen: (session: UserRecentSession) => void
+}): JSX.Element {
+    return (
+        <button
+            type="button"
+            onClick={() => onOpen(session)}
+            // Intents are raw event data, so keep them out of autocapture and replay.
+            className="ph-no-capture flex w-full cursor-pointer items-start justify-between gap-3 px-3 py-2 text-left hover:bg-fill-highlight-50"
+            data-attr="mcp-user-recent-session"
+        >
+            <Tooltip title={session.harness || 'Unknown client'}>
+                <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded border border-primary bg-surface-primary">
+                    <HarnessLogo category={session.harness || 'Other'} className="size-4" />
+                </span>
+            </Tooltip>
+            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                {session.tools.length ? (
+                    <span className="truncate font-mono text-sm font-semibold">{session.tools.join(', ')}</span>
+                ) : null}
+                <span className={cn('line-clamp-1 text-sm', !session.intent && 'italic text-secondary')}>
+                    {session.intent || 'No intent recorded'}
+                </span>
+                <span className="flex flex-wrap items-center gap-1.5 text-xs text-secondary">
+                    <span>
+                        {formatNumber(session.calls)} {session.calls === 1 ? 'call' : 'calls'}
+                    </span>
+                    {session.errors ? (
+                        <Badge variant="destructive">
+                            {formatNumber(session.errors)} {session.errors === 1 ? 'error' : 'errors'}
+                        </Badge>
+                    ) : null}
+                    <TZLabel time={session.started} />
+                </span>
+            </span>
+            <span className="shrink-0 text-sm tabular-nums">
+                {formatDuration(sessionDurationMs(session.started, session.ended))}
+            </span>
+        </button>
+    )
+}
+
 /** One user's report, on its page and in the Users drawer. Mount it under a `userReportLogic`. */
 export function UserReport(): JSX.Element {
     const {
@@ -52,12 +102,12 @@ export function UserReport(): JSX.Element {
         incompleteTail,
         topRows,
         topRowsLoading,
-        recentCalls,
-        recentCallsLoading,
+        recentSessions,
+        recentSessionsLoading,
     } = useValues(userReportLogic)
     const theme = useChartTheme()
     const [topTab, setTopTab] = useState<UserTopDimension>('tools')
-    const [openedCall, setOpenedCall] = useState<UserRecentCall | null>(null)
+    const [openedSession, setOpenedSession] = useState<UserRecentSession | null>(null)
 
     const current = totals?.current
     const previous = totals?.previous
@@ -109,6 +159,7 @@ export function UserReport(): JSX.Element {
                                 key={tile.label}
                                 label={tile.label}
                                 loading={(totalsLoading && !totals) || (seriesLoading && !series)}
+                                hasValue={!!totals && !!series}
                                 value={tile.value}
                                 data={tile.data}
                                 labels={series?.labels}
@@ -134,21 +185,16 @@ export function UserReport(): JSX.Element {
             </div>
 
             <div className="flex flex-col gap-3">
-                <SectionHeader title="Recent calls" subtitle="Open one to see it in its session." />
+                <SectionHeader title="Recent sessions" />
                 <div className="overflow-hidden rounded border border-primary bg-surface-primary">
-                    {recentCallsLoading && recentCalls.length === 0 ? (
+                    {recentSessionsLoading && recentSessions.length === 0 ? (
                         <Skeleton className="h-40 rounded-none" aria-busy />
-                    ) : recentCalls.length === 0 ? (
-                        <div className="p-4 text-sm text-secondary">No calls in this date range.</div>
+                    ) : recentSessions.length === 0 ? (
+                        <div className="p-4 text-sm text-secondary">No sessions in this date range.</div>
                     ) : (
                         <div className="divide-y divide-primary">
-                            {recentCalls.map((call) => (
-                                <ExampleCallRow
-                                    key={call.uuid}
-                                    call={call}
-                                    kinds={call.isError ? ['errored'] : []}
-                                    onOpen={setOpenedCall}
-                                />
+                            {recentSessions.map((session) => (
+                                <RecentSessionRow key={session.sessionId} session={session} onOpen={setOpenedSession} />
                             ))}
                         </div>
                     )}
@@ -192,13 +238,12 @@ export function UserReport(): JSX.Element {
                 />
             </div>
 
-            {openedCall ? (
+            {openedSession ? (
                 <SessionDrawer
-                    sessionId={openedCall.sessionId}
-                    timestamp={openedCall.timestamp}
-                    focusedEventId={openedCall.uuid}
+                    sessionId={openedSession.sessionId}
+                    timestamp={openedSession.started}
                     stacked
-                    onClose={() => setOpenedCall(null)}
+                    onClose={() => setOpenedSession(null)}
                     dataAttr="mcp-user-session-drawer"
                 />
             ) : null}

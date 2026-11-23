@@ -335,7 +335,7 @@ export function ToolQualityTable(): JSX.Element {
         // pt-0: no card header.
         <Card size="sm" className="gap-0 overflow-hidden pt-0">
             <div className="relative">
-                <Table fullWidth stickyHeader className="max-h-[44rem]" aria-busy={toolRowsPageLoading}>
+                <Table fullWidth size="sm" stickyHeader className="max-h-[44rem]" aria-busy={toolRowsPageLoading}>
                     <TableHeader>
                         <TableRow>
                             <TableHead expand>Tool</TableHead>

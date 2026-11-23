@@ -1,5 +1,9 @@
+import './ActivityFeed.scss'
+
 import { useActions, useValues } from 'kea'
 import { MouseEvent, useCallback, useEffect } from 'react'
+
+import { Card } from '@posthog/quill'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -61,8 +65,11 @@ export function ActivityFeed(): JSX.Element {
 
     return (
         <section className="flex flex-col" data-attr="mcp-analytics-activity-feed">
-            {/* Day dividers sit flush left. */}
-            <div className="flex [&_.DataTable\_\_row--category\_row]:text-left">
+            {/* Day dividers sit flush left. pt-0: no card header. */}
+            <Card
+                size="sm"
+                className="McpActivityTable gap-0 overflow-hidden pt-0 [&_.DataTable\_\_row--category\_row]:text-left"
+            >
                 <ToolCallFeed
                     query={activityQuery}
                     setQuery={setActivityQuery}
@@ -71,7 +78,7 @@ export function ActivityFeed(): JSX.Element {
                     attachTo={mcpEarlyDataLogic}
                     rowProps={rowProps}
                 />
-            </div>
+            </Card>
             <ActivityDrawerRowsSync query={activityQuery.source} />
             <ActivityDrawer />
         </section>

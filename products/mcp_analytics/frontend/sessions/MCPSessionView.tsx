@@ -47,7 +47,8 @@ const MAX_TOOL_CALL_SKELETONS = 8
 
 type TimelineItem =
     | { kind: 'call'; toolCall: MCPToolCallApi; index: number }
-    | { kind: 'report' | 'suggestion'; report: MissingCapabilityReport }
+    | { kind: 'report'; report: MissingCapabilityReport }
+    | { kind: 'suggestion'; report: MissingCapabilityReport }
 
 const timeOf = (timestamp: string): number => new Date(timestamp).getTime()
 
@@ -128,54 +129,66 @@ export function MCPSessionView({
 
     return (
         <div className="flex flex-col h-full min-h-0">
-            <header className="flex flex-col gap-2 shrink-0 border-b border-primary px-3 pt-3 pb-2">
-                <div className="flex items-center gap-2 min-w-0">
-                    <div
-                        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
-                            identifiedPerson ? 'bg-accent/20 text-accent' : 'bg-surface-secondary text-secondary'
-                        }`}
-                    >
-                        <IconUser className="text-2xl" />
-                    </div>
-                    <div className="flex flex-col min-w-0 flex-1 gap-1">
-                        <span
-                            className={`truncate font-semibold ${
-                                identifiedPerson ? 'text-default text-sm' : 'font-mono text-xs text-secondary'
-                            }`}
-                        >
-                            {primaryLabel}
-                        </span>
-                        {session.distinct_id ? (
-                            <CopyToClipboardInline
-                                explicitValue={session.distinct_id}
-                                description="distinct id"
-                                iconSize="xsmall"
-                                tooltipMessage={<IdTooltip label="Distinct ID" value={session.distinct_id} />}
-                                className="truncate font-mono text-[11px] text-secondary"
+            <header className="@container shrink-0 border-b border-primary px-3 pt-3 pb-2">
+                <div className="flex flex-col gap-2 @2xl:flex-row @2xl:items-start @2xl:gap-4">
+                    <div className="flex min-w-0 flex-1 flex-col gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                            <div
+                                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
+                                    identifiedPerson
+                                        ? 'bg-accent/20 text-accent'
+                                        : 'bg-surface-secondary text-secondary'
+                                }`}
                             >
-                                {session.distinct_id}
+                                <IconUser className="text-2xl" />
+                            </div>
+                            <div className="flex flex-col min-w-0 flex-1 gap-1">
+                                <span
+                                    className={`truncate font-semibold ${
+                                        identifiedPerson ? 'text-default text-sm' : 'font-mono text-xs text-secondary'
+                                    }`}
+                                >
+                                    {primaryLabel}
+                                </span>
+                                {session.distinct_id ? (
+                                    <CopyToClipboardInline
+                                        explicitValue={session.distinct_id}
+                                        description="distinct id"
+                                        iconSize="xsmall"
+                                        tooltipMessage={<IdTooltip label="Distinct ID" value={session.distinct_id} />}
+                                        className="truncate font-mono text-[11px] text-secondary"
+                                    >
+                                        {session.distinct_id}
+                                    </CopyToClipboardInline>
+                                ) : null}
+                            </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-1.5">
+                            {session.mcp_client_name ? (
+                                <MetaBadge icon={<IconSparkles />} label={session.mcp_client_name} />
+                            ) : null}
+                            <MetaBadge icon={<IconBolt />} label={`${calls} tool call${calls === 1 ? '' : 's'}`} />
+                            <MetaBadge icon={<IconClock />} label={formatDuration(durationMs)} />
+                            <CopyToClipboardInline
+                                explicitValue={session.session_id}
+                                description="session id"
+                                iconSize="xsmall"
+                                tooltipMessage={<IdTooltip label="Session ID" value={session.session_id} />}
+                                className="rounded-full bg-surface-secondary px-2 py-0.5 text-[11px] text-secondary font-mono"
+                            >
+                                {shortenSessionId(session.session_id)}
                             </CopyToClipboardInline>
-                        ) : null}
+                        </div>
+                    </div>
+                    <div className="min-w-0 @2xl:w-1/2 @2xl:max-w-xl">
+                        <SessionIntentCard
+                            intent={intent}
+                            isGenerating={isGeneratingIntent}
+                            onGenerate={onGenerateIntent}
+                        />
                     </div>
                 </div>
-
-                <div className="flex flex-wrap items-center gap-1.5">
-                    {session.mcp_client_name ? (
-                        <MetaBadge icon={<IconSparkles />} label={session.mcp_client_name} />
-                    ) : null}
-                    <MetaBadge icon={<IconBolt />} label={`${calls} tool call${calls === 1 ? '' : 's'}`} />
-                    <MetaBadge icon={<IconClock />} label={formatDuration(durationMs)} />
-                    <CopyToClipboardInline
-                        explicitValue={session.session_id}
-                        description="session id"
-                        iconSize="xsmall"
-                        tooltipMessage={<IdTooltip label="Session ID" value={session.session_id} />}
-                        className="rounded-full bg-surface-secondary px-2 py-0.5 text-[11px] text-secondary font-mono"
-                    >
-                        {shortenSessionId(session.session_id)}
-                    </CopyToClipboardInline>
-                </div>
-                <SessionIntentCard intent={intent} isGenerating={isGeneratingIntent} onGenerate={onGenerateIntent} />
             </header>
 
             <section className="flex-1 min-h-0 overflow-y-auto px-3 py-3">

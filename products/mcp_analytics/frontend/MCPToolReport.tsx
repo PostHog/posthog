@@ -367,6 +367,7 @@ function StatTiles({
                     key={tile.label}
                     {...tile}
                     loading={loading}
+                    hasValue={summary !== null}
                     labels={daily.labels}
                     interval={interval}
                     theme={theme}

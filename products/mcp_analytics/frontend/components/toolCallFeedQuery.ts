@@ -37,11 +37,12 @@ export const MCP_CLIENT_EXPR = `coalesce(nullIf(toString(properties.$mcp_client_
 export const MCP_HARNESS_EXPR = 'toString(properties.$virt_mcp_harness)'
 export const MCP_MODEL_EXPR = 'toString(properties.$mcp_llm_model)'
 
+export const MCP_ACTIVITY_TOOL_COLUMN = `${MCP_TOOL_EXPR} -- Tool`
 export const MCP_ACTIVITY_MODEL_COLUMN = hogql`withIcon(properties.$mcp_llm_model, ${hogql.raw(modelMarkSql)}) -- Model`
 
 // `*` goes last: the table puts day labels in the first column, and `*` never shows. Readers take the last cell.
 export const MCP_ACTIVITY_COLUMNS = [
-    `${MCP_TOOL_EXPR} -- Tool`,
+    MCP_ACTIVITY_TOOL_COLUMN,
     MCP_ACTIVITY_INTENT_COLUMN,
     MCP_ACTIVITY_ERROR_COLUMN,
     MCP_ACTIVITY_DURATION_COLUMN,

@@ -187,6 +187,7 @@ export interface mcpAnalyticsToolQualityLogicValues {
     dailyChartData: DailyChartData
     dailyStats: DailyToolStat[]
     dailyStatsLoading: boolean
+    dailyTotals: MCPToolQualityTotals | null
     dateFilter: DateFilter
     incompleteTail: boolean
     interval: IntervalType
@@ -250,6 +251,9 @@ export interface mcpAnalyticsToolQualityLogicActions {
     reloadForSharedFilters: () => {
         value: true
     }
+    setDailyTotals: (totals: MCPToolQualityTotals | null) => {
+        totals: MCPToolQualityTotals | null
+    }
     setDateFilter: (
         dateFrom: string | null,
         dateTo: string | null
@@ -285,8 +289,14 @@ export interface mcpAnalyticsToolQualityLogicMeta {
             toolRows: MCPToolQualityRowItem[],
             selectedTool: string | null
         ) => MCPDetailDrawerPosition | null
-        previousTool: (toolRows: MCPToolQualityRowItem[], selectedToolPosition: any) => string | null
-        nextTool: (toolRows: MCPToolQualityRowItem[], selectedToolPosition: any) => string | null
+        previousTool: (
+            toolRows: MCPToolQualityRowItem[],
+            selectedToolPosition: MCPDetailDrawerPosition | null
+        ) => string | null
+        nextTool: (
+            toolRows: MCPToolQualityRowItem[],
+            selectedToolPosition: MCPDetailDrawerPosition | null
+        ) => string | null
         intervalOptions: (dateFilter: DateFilter, timezone: string) => IntervalOption[]
         interval: (dateFilter: DateFilter, pinnedInterval: IntervalType | null, timezone: string) => IntervalType
         loadedToolQualityPageIndex: (toolRowsPage: ToolRowsPage | null) => number

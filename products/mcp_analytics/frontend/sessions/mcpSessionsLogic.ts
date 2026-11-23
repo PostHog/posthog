@@ -144,6 +144,7 @@ export async function fetchToolCallsPage(
 export interface mcpSessionsLogicValues {
     sharedQueryFilters: MCPSharedQueryFilters // mcpAnalyticsFiltersLogic
     currentProjectId: number | string // teamLogic
+    conversationIdBannerDismissed: boolean
     dateFilter: MCPSessionsDateFilter
     filters: MCPSessionsFilters
     generatedIntent: MCPSessionIntentApi | null
@@ -165,7 +166,6 @@ export interface mcpSessionsLogicValues {
         loading: boolean
         loadingMore: boolean
     }
-    conversationIdBannerDismissed: boolean
     sessions: MCPSessionApi[]
     sessionsLoading: boolean
     showConversationIdBanner: boolean
@@ -309,9 +309,7 @@ export interface mcpSessionsLogicMeta {
         showConversationIdBanner: (
             sessions: MCPSessionApi[],
             sessionsLoading: boolean,
-            sharedQueryFilters: Required<
-                Pick<import('~/queries/schema').HogQLFilters, 'filterTestAccounts' | 'properties'>
-            >,
+            sharedQueryFilters: Required<Pick<HogQLFilters, 'filterTestAccounts' | 'properties'>>,
             conversationIdBannerDismissed: boolean
         ) => boolean
         hasActiveFilters: (
