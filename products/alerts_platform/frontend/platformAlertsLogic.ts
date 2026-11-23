@@ -284,6 +284,10 @@ export const platformAlertsLogic = kea<platformAlertsLogicType>([
                 actions.loadConfigurations()
             } catch (error: any) {
                 lemonToast.error(error?.detail ?? "Couldn't update the alert. Try again.")
+                // A quiet group is removed, so a 404 means the list is stale.
+                if (error?.status === 404) {
+                    actions.loadConfigurations()
+                }
             } finally {
                 actions.setUpdatingAlertId(updatingId, false)
             }

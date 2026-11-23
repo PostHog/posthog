@@ -24,7 +24,7 @@ export function PlatformAlertGroupRowMenu({
     const alertSnoozed = listRowMute({ kind: 'alert', configuration }, now)?.until != null
     let disabledReason: string | undefined
     if (!canSnoozeGroups(configuration)) {
-        disabledReason = `Snooze this group in ${SOURCE_KINDS[configuration.source_kind].label}`
+        disabledReason = `${SOURCE_KINDS[configuration.source_kind].label} manages this alert, so snooze the whole alert there`
     } else if (alertSnoozed) {
         disabledReason = 'The whole alert is snoozed'
     }
