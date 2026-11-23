@@ -187,14 +187,17 @@ describe('mcpRecurringReportsLogic', () => {
             .toMatchValues({ reportsFailed: true, reportsLoaded: true })
     })
 
-    it('reverts the toggle when the update is rejected', async () => {
-        listReturns([makeReport(1, { enabled: true })])
+    it.each([
+        ['an enabled report', true],
+        ['an already paused report', false],
+    ])('restores %s to its previous state when the update is rejected', async (_name, startEnabled) => {
+        listReturns([makeReport(1, { enabled: startEnabled })])
         await expectLogic(logic, () => logic.actions.loadReports()).toFinishAllListeners()
         mockedToggle.mockResolvedValue(false)
 
         await expectLogic(logic, () => logic.actions.toggleReportEnabled(1, false)).toFinishAllListeners()
 
-        expect(logic.values.reports[0].enabled).toBe(true)
+        expect(logic.values.reports[0].enabled).toBe(startEnabled)
         expect(logic.values.pendingToggleIds).toEqual({})
     })
 

@@ -47,6 +47,7 @@ from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPr
 from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
 from products.mcp_analytics.backend.hogql_queries.base import (
     CONVERSATION_ID_SQL,
+    EFFECTIVE_DESCRIPTION_SQL,
     EFFECTIVE_TOOL_SQL,
     mcp_query_date_range,
     shared_filter_exprs,
@@ -354,7 +355,7 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                     toString(dateTrunc({interval}, timestamp)) AS bucket,
                     toBool(properties.$mcp_is_error) AS is_error,
                     toFloat(properties.$mcp_duration_ms) AS duration_ms,
-                    nullIf(toString(properties.$mcp_tool_description), '') AS description,
+                    nullIf({_EFFECTIVE_DESCRIPTION}, '') AS description,
                     nullIf(toString(properties.$mcp_tool_category), '') AS category,
                     timestamp
                 FROM events
@@ -366,6 +367,7 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
             """,
             placeholders={
                 "_EFFECTIVE_TOOL": parse_expr(EFFECTIVE_TOOL_SQL),
+                "_EFFECTIVE_DESCRIPTION": parse_expr(EFFECTIVE_DESCRIPTION_SQL),
                 "interval": ast.Constant(value=interval),
                 "tools": ast.Tuple(exprs=[ast.Constant(value=tool) for tool in tools]),
                 "where": _named_tool_where(

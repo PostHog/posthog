@@ -2,13 +2,15 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo } from 'react'
 
+import api from 'lib/api'
 import { useChartTheme } from 'lib/charts/hooks'
 import { BrandMark } from 'lib/components/BrandMark/BrandMark'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { hogql } from 'lib/utils/hogql'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { MCPDashboardSection } from '~/queries/schema/schema-general'
+import { HogQLQuery, MCPDashboardSection, NodeKind } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { labMark, modelLab } from '../aiLabs'
@@ -99,6 +101,30 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
     const eventFilter = (key: string, value: string): Parameters<typeof activityUrlWithFilter>[1] => ({
         property: { type: PropertyFilterType.Event, key, value: [value], operator: PropertyOperator.Exact },
     })
+    // The label is the email, else the distinct ID, and the filters can't OR the two, so check which one it is.
+    const openUserActivity = async (user: string): Promise<void> => {
+        const callsWithoutEmail = user.includes('@')
+            ? await api
+                  .query<HogQLQuery>({
+                      kind: NodeKind.HogQLQuery,
+                      query: hogql`SELECT 1 FROM events
+                          WHERE event = '$mcp_tool_call' AND {filters} AND distinct_id = ${user}
+                              AND empty(toString(person.properties.email))
+                          LIMIT 1`,
+                      filters: { dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo } },
+                  })
+                  .catch(() => null)
+            : null
+        const isDistinctId = !user.includes('@') || !!callsWithoutEmail?.results?.length
+        openActivity({
+            property: {
+                type: PropertyFilterType.Person,
+                key: isDistinctId ? 'distinct_id' : 'email',
+                value: [user],
+                operator: PropertyOperator.Exact,
+            },
+        })
+    }
 
     return (
         <div className="@container/mcp-overview flex min-w-0 flex-col gap-6" data-attr="mcp-leaderboard-home">
@@ -211,16 +237,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         rows={facets.user}
                         loading={loadingFacet('user')}
                         failed={failedFacet('user')}
-                        onSelect={(user) =>
-                            openActivity({
-                                property: {
-                                    type: PropertyFilterType.Person,
-                                    key: user.includes('@') ? 'email' : 'distinct_id',
-                                    value: [user],
-                                    operator: PropertyOperator.Exact,
-                                },
-                            })
-                        }
+                        onSelect={openUserActivity}
                         dataAttr="mcp-dashboard-user-share"
                         unknownLabel="Anonymous"
                         setupEmptyState={

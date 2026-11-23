@@ -153,14 +153,17 @@ export function useInstantAlertRows(): InstantAlertRows {
                     activeDestination={first?.enabled ? first.template?.id : undefined}
                 />
             ),
-            // ponytail: a type holds one alert; older projects with extras toggle them together and edit the newest.
+            // ponytail: a type holds one alert. Older projects with extras pause the enabled ones together, but
+            // resume and edit only the newest, so an extra the card does not show never turns on.
             setup: first
                 ? {
                       enabled: saved.some((notification) => notification.enabled),
                       summary: getNotificationDescription(first),
                       editTo: urlForHogFunction(first, combineUrl(urls.mcpAnalyticsNotifications(), searchParams).url),
                       onToggle: (enabled) =>
-                          saved.forEach((notification) => toggleNotificationEnabled(notification.id, enabled)),
+                          (enabled ? [first] : saved.filter((notification) => notification.enabled)).forEach(
+                              (notification) => toggleNotificationEnabled(notification.id, enabled)
+                          ),
                       toggleLoading: saved.some((notification) => pendingToggleIds[notification.id]),
                       // A refresh in flight could clobber a toggle started now.
                       toggleDisabled: notificationsLoading,

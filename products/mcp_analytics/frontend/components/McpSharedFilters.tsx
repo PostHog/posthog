@@ -92,7 +92,8 @@ export function McpSharedFilters({
     const shows = (control: McpFacetControl): boolean => facetControls.includes(control)
     const { propertyFilters, facetFilters, hasActiveFacetFilters } = useValues(mcpAnalyticsFiltersLogic)
     const { setPropertyFilters, setFacetFilters } = useActions(mcpAnalyticsFiltersLogic)
-    const { facets } = useValues(mcpFacetsLogic)
+    const { facets, facetsLoading } = useValues(mcpFacetsLogic)
+    const { loadFacets } = useActions(mcpFacetsLogic)
 
     return (
         <div className={cn('w-full min-w-0', className)} data-attr={`${dataAttrPrefix}-property-filter`}>
@@ -249,7 +250,13 @@ export function McpSharedFilters({
                                 <Button
                                     variant="outline"
                                     size="icon"
-                                    onClick={onRefresh}
+                                    onClick={() => {
+                                        onRefresh()
+                                        // The facets load once on mount, so a failed load retries only from here.
+                                        if (!facets && !facetsLoading) {
+                                            loadFacets()
+                                        }
+                                    }}
                                     loading={refreshing}
                                     aria-label="Refresh"
                                     title="Refresh"

@@ -187,6 +187,7 @@ class MCPMissingCapabilitiesQueryRunner(HarnessLabelQueryRunner[MCPMissingCapabi
             response = execute_hogql_query(
                 query=self.to_query(),
                 team=self.team,
+                user=self.user,
                 query_type="mcp_missing_capabilities_query",
                 timings=self.timings,
                 modifiers=self.modifiers,

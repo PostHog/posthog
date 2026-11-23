@@ -165,6 +165,8 @@ export const MCP_ANALYTICS_FILTER_ROUTES = [
     urls.mcpAnalyticsActivity(),
     urls.mcpAnalyticsDashboard(),
     urls.mcpAnalyticsSessions(),
+    urls.mcpAnalyticsUsers(),
+    `${urls.mcpAnalyticsUsers()}/:distinctId`,
     urls.mcpAnalyticsToolQuality(),
     `${urls.mcpAnalyticsToolQuality()}/:toolName`,
     urls.mcpAnalyticsIntentClustering(),

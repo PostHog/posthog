@@ -56,7 +56,7 @@ const FEEDBACK_SESSIONS_QUERY: HogQLQuery = {
     kind: NodeKind.HogQLQuery,
     query: `SELECT DISTINCT toString(properties.$session_id) AS session_id
         FROM events
-        WHERE event IN ('$mcp_feedback', '$mcp_missing_capability')
+        WHERE (event = '$mcp_missing_capability' OR (event = '$mcp_feedback' AND properties.$mcp_feedback_type = 'missing_capability'))
             AND timestamp >= now() - INTERVAL 90 DAY
             AND notEmpty(session_id)
         LIMIT 5000`,

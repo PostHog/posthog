@@ -204,11 +204,11 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
             if s.session_id == sid
         } == expected
 
-    @parameterized.expand([("on", True, {"reported"}), ("off", False, {"reported", "quiet"})])
+    @parameterized.expand([("on", True, {"reported"}), ("off", False, {"reported", "quiet", "praised"})])
     def test_feedback_only_keeps_sessions_with_a_missing_capability_report(
         self, _name: str, feedback_only: bool, expected: set[str]
     ) -> None:
-        by_name = {name: str(uuid7()) for name in ("reported", "quiet")}
+        by_name = {name: str(uuid7()) for name in ("reported", "quiet", "praised")}
         for session_id in by_name.values():
             self._seed_session(session_id, ["query_run"])
         _create_event(
@@ -217,6 +217,13 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
             distinct_id="anon_seed",
             timestamp=datetime.now(tz=UTC) - timedelta(minutes=1),
             properties={"$session_id": by_name["reported"]},
+        )
+        _create_event(
+            team=self.team,
+            event="$mcp_feedback",
+            distinct_id="anon_seed",
+            timestamp=datetime.now(tz=UTC) - timedelta(minutes=1),
+            properties={"$session_id": by_name["praised"], "$mcp_feedback_type": "praise"},
         )
         flush_persons_and_events()
 

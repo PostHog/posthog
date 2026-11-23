@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { Badge, Skeleton, ToggleGroup, ToggleGroupItem } from '@posthog/quill-primitives'
@@ -96,6 +96,7 @@ export function UserReport(): JSX.Element {
     const {
         totals,
         totalsLoading,
+        totalsFailed,
         series,
         seriesLoading,
         interval,
@@ -105,6 +106,7 @@ export function UserReport(): JSX.Element {
         recentSessions,
         recentSessionsLoading,
     } = useValues(userReportLogic)
+    const { loadTotals } = useActions(userReportLogic)
     const theme = useChartTheme()
     const [topTab, setTopTab] = useState<UserTopDimension>('tools')
     const [openedSession, setOpenedSession] = useState<UserRecentSession | null>(null)
@@ -160,6 +162,8 @@ export function UserReport(): JSX.Element {
                                 label={tile.label}
                                 loading={(totalsLoading && !totals) || (seriesLoading && !series)}
                                 hasValue={!!totals && !!series}
+                                failed={totalsFailed}
+                                onRetry={loadTotals}
                                 value={tile.value}
                                 data={tile.data}
                                 labels={series?.labels}

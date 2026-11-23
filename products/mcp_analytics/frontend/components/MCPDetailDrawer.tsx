@@ -46,6 +46,9 @@ export interface MCPDetailDrawerProps {
     children: ReactNode
 }
 
+// Stacked drawers all listen on window and run in registration order, so only the drawer opened last handles Escape.
+const openDrawers: object[] = []
+
 /** List detail drawer, matching the AI observability trace drawer. */
 export function MCPDetailDrawer({
     noun,
@@ -108,8 +111,12 @@ export function MCPDetailDrawer({
         }
     }, [stacked, dataAttr, setLayoutNavCollapsedOverride, setSidebarOpen])
     useEffect(() => {
+        openDrawers.push(containerRef)
+        return () => void openDrawers.splice(openDrawers.indexOf(containerRef), 1)
+    }, [])
+    useEffect(() => {
         const closeOnEscape = (event: KeyboardEvent): void => {
-            if (shouldCloseOnEscape(event)) {
+            if (openDrawers[openDrawers.length - 1] === containerRef && shouldCloseOnEscape(event)) {
                 onClose()
                 if (stacked) {
                     event.preventDefault()

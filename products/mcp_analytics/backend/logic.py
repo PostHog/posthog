@@ -208,7 +208,7 @@ __PAGE__
 _FEEDBACK_SESSIONS_EXPR = """$session_id IN (
     SELECT $session_id
     FROM events
-    WHERE event IN ('$mcp_feedback', '$mcp_missing_capability')
+    WHERE {missing_capability_report}
         AND timestamp >= {scan_from}
         AND timestamp <= {scan_to}
         AND $session_id != ''
@@ -439,6 +439,7 @@ def _query_mcp_sessions(
                 parse_expr(
                     _FEEDBACK_SESSIONS_EXPR,
                     placeholders={
+                        "missing_capability_report": missing_capability_report_expr(),
                         "scan_from": ast.Constant(value=window_from - SESSION_OVERLAP_BUFFER),
                         "scan_to": ast.Constant(value=window_to + SESSION_OVERLAP_BUFFER),
                     },

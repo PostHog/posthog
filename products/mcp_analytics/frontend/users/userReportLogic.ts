@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
@@ -92,6 +92,7 @@ export interface userReportLogicValues {
         current: UserTotals
         previous: UserTotals
     } | null
+    totalsFailed: boolean
     totalsLoading: boolean
 }
 
@@ -362,6 +363,15 @@ export const userReportLogic = kea<userReportLogicType>([
             },
         ],
     })),
+    reducers({
+        totalsFailed: [
+            false,
+            {
+                loadTotals: () => false,
+                loadTotalsFailure: () => true,
+            },
+        ],
+    }),
     listeners(({ actions }) => ({
         loadAll: () => {
             actions.loadTotals()

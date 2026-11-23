@@ -142,7 +142,7 @@ FROM (
     SELECT steps, outcome, count() AS sessions
     FROM (
         SELECT
-            arrayMap(x -> tupleElement(x, 2), arraySlice(arraySort(groupArray(tuple(timestamp, tool))), 1, ${JOURNEY_DEPTH})) AS steps,
+            arrayMap(x -> tupleElement(x, 2), groupArraySorted(${JOURNEY_DEPTH})(tuple(timestamp, tool))) AS steps,
             if(countIf(is_error) > 0, 'error', 'completed') AS outcome
         FROM (
             SELECT
@@ -154,7 +154,7 @@ FROM (
             WHERE event = '$mcp_tool_call' AND {filters} AND notEmpty(toString(properties.$session_id))
         )
         GROUP BY session_id
-        HAVING has(groupArray(tool), ${toolName})
+        HAVING countIf(tool = ${toolName}) > 0
     )
     GROUP BY steps, outcome
 )

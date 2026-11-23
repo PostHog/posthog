@@ -161,7 +161,8 @@ export function useRecurringReportRows(): RecurringReportRows {
                     prompt={report.prompt}
                 />
             ),
-            // ponytail: a type holds one report; older projects with extras toggle them together and edit the newest.
+            // ponytail: a type holds one report. Older projects with extras pause the enabled ones together, but
+            // resume and edit only the newest, so an extra the card does not show never turns on.
             setup: first
                 ? {
                       enabled: saved.some((saved) => saved.enabled),
@@ -177,7 +178,10 @@ export function useRecurringReportRows(): RecurringReportRows {
                           </>
                       ),
                       editTo: urls.subscription(first.id),
-                      onToggle: (enabled) => saved.forEach((saved) => toggleReportEnabled(saved.id, enabled)),
+                      onToggle: (enabled) =>
+                          (enabled ? [first] : saved.filter((saved) => saved.enabled)).forEach((saved) =>
+                              toggleReportEnabled(saved.id, enabled)
+                          ),
                       toggleLoading: saved.some((saved) => pendingToggleIds[saved.id]),
                   }
                 : undefined,

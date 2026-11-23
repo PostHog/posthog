@@ -457,6 +457,8 @@ class MCPDashboardQueryRunner(HarnessLabelQueryRunner[MCPDashboardQueryResponse]
         # Keeps rows built on the lean database apart, so turning the flag off never serves them.
         if self._lean_database:
             payload["lean_database"] = True
+        # Tool and error type rows are now bucketed; keeps entries cached in the old shape from being served.
+        payload["facet_rows"] = "bucketed"
         return payload
 
     @cached_property
