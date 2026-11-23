@@ -76,6 +76,7 @@ from posthog.models.event.new_events_schema import (
     NEW_EVENTS_SCHEMA_HEADER,
     new_events_schema_for_request,
 )
+from posthog.request_log_signal_handlers import CREDENTIAL_QUERY_PARAMS
 from posthog.session.activity import session_activity_credential
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.utils import get_ip_address, get_trusted_client_ip
@@ -1244,10 +1245,11 @@ def get_or_set_session_cookie_created_at(request: HttpRequest) -> float:
 
 
 SESSION_EXPIRED_MESSAGE = "Your session has expired. Please log in again."
-# `next` ends up in the `/login` page URL, which analytics record. A page of the app reports its own URL
-# anyway, so only a credential on a URL that reports no analytics is new there: the query string of an
-# OAuth callback, and the path of a page that loads no analytics, such as a share link.
-_NO_RETURN_QUERY_PARAMS = frozenset({"code", "token"})
+# `next` ends up in the `/login` page URL, which analytics and the request log record. A credential must
+# not follow it there. In a query string that is a parameter the request log redacts, or the `code` of an
+# OAuth callback. In a path it is the token of a page that loads no analytics, such as a share link. A page
+# of the app reports its own URL anyway, so a token in its path is not new in `next`.
+_NO_RETURN_QUERY_PARAMS = CREDENTIAL_QUERY_PARAMS | {"code"}
 _NO_RETURN_PATH_PREFIXES = (
     "/shared/",
     "/shared_dashboard/",
@@ -1261,8 +1263,8 @@ _NO_RETURN_PATH_PREFIXES = (
 def session_expired_login_url(request: HttpRequest) -> str:
     params = {"message": SESSION_EXPIRED_MESSAGE}
     next_url = request.get_full_path()
-    holds_credential = request.path.startswith(_NO_RETURN_PATH_PREFIXES) or not _NO_RETURN_QUERY_PARAMS.isdisjoint(
-        request.GET
+    holds_credential = request.path.startswith(_NO_RETURN_PATH_PREFIXES) or any(
+        name.lower() in _NO_RETURN_QUERY_PARAMS for name in request.GET
     )
     # The session is already destroyed, so `next` is the only record of the page the person opened.
     # A form post is not a page to return to, and login lands on `/` without a `next`.

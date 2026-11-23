@@ -2467,6 +2467,7 @@ class TestSessionAgeMiddleware(APIBaseTest):
             ("share_link", "get", "/shared/share-token", ""),
             ("login_token_link", "get", "/agentic/login?token=one-time-token&team_id=2", ""),
             ("oauth_callback", "get", "/toolbar_oauth/callback?code=one-time-code&state=signed-state", ""),
+            ("api_key_in_query", "get", "/api/projects/?Personal_API_Key=not-a-real-key", ""),
             ("server_rendered_token_page", "get", "/messaging-preferences/recipient-token/", ""),
             ("form_post", "post", "/project/2/dashboard/5", ""),
         ]
