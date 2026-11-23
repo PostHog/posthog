@@ -382,7 +382,6 @@ export const FEATURE_FLAGS = {
     INBOX_NEEDS_YOU_SCOPE: 'inbox-needs-you-scope', // owner: #team-self-driving, gates the Needs you scope on the inbox report list
     INBOX_REPORT_EDITABLE_DECISIONS: 'inbox-report-editable-decisions', // owner: #team-self-driving, gates the editable agent decision rows (repository, priority) in the report Status section
     INBOX_REPORT_FEEDBACK_BANG: 'inbox-report-feedback-bang', // owner: #team-self-driving, gates the party hog that pops on a report thumbs-up in the inbox and on the Today home page
-    INBOX_REPORT_IMPLEMENT_BUTTON_POSITION: 'inbox-report-implement-button-position', // owner: #team-self-driving
     INBOX_SLACK_NOTIFICATIONS: 'inbox-slack-notifications', // owner: #team-self-driving, gates the Slack notifications config card in the inbox
     INBOX_SOURCE_FILTER: 'inbox-source-filter', // owner: #team-self-driving, gates the Source filter on the inbox report list
     INBOX_TAG_FILTER: 'inbox-tag-filter', // owner: #team-self-driving, gates the report tag chips and the Tags filter on the inbox report list
