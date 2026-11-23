@@ -38,6 +38,7 @@ from products.access_control.backend.facade.api import team_has_property_access_
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
+    TtlSchedule,
     ensure_precomputed,
     expire_ready_jobs_covering,
     parse_ttl_schedule,
@@ -91,7 +92,7 @@ TTL_SECONDS: dict[str, int] = {
 MAX_WINDOW_DAYS = 7
 LATE_EVENTS_SETTLING_SECONDS = 60 * 60
 MAX_RANGE_DAYS = 366
-VERIFY_INTERVAL_SECONDS = 6 * 60 * 60
+VERIFY_INTERVAL_SECONDS = 24 * 60 * 60
 VERIFY_RETRY_SECONDS = 15 * 60
 ENGINE_VERSION = "series_values_v2"
 
@@ -222,6 +223,23 @@ def _remaining_seconds(started: float, budget_seconds: float | None) -> float | 
     return None if budget_seconds is None else budget_seconds - (time.monotonic() - started)
 
 
+def _ttl_schedule(runner: TrendsQueryRunner) -> TtlSchedule:
+    return parse_ttl_schedule(
+        TTL_SECONDS,
+        runner.team.timezone,
+        max_window_days=MAX_WINDOW_DAYS,
+        settling_period_seconds=LATE_EVENTS_SETTLING_SECONDS,
+    )
+
+
+def _verify_range_end(runner: TrendsQueryRunner, *, start: datetime, end: datetime) -> datetime:
+    schedule = _ttl_schedule(runner)
+    day = start
+    while day < end and schedule.get_ttl(day) == schedule.default_ttl_seconds:
+        day += timedelta(days=1)
+    return day
+
+
 def _ensure(
     runner: TrendsQueryRunner,
     *,
@@ -236,12 +254,7 @@ def _ensure(
         insert_query=INSERT_QUERY_TEMPLATE,
         time_range_start=start,
         time_range_end=end,
-        ttl_seconds=parse_ttl_schedule(
-            TTL_SECONDS,
-            runner.team.timezone,
-            max_window_days=MAX_WINDOW_DAYS,
-            settling_period_seconds=LATE_EVENTS_SETTLING_SECONDS,
-        ),
+        ttl_seconds=_ttl_schedule(runner),
         table=LazyComputationTable.SERIES_VALUES_PREAGGREGATED,
         placeholders={
             "event_filter": _event_filter(runner),
@@ -454,14 +467,15 @@ def closed_series_values(
 
     verification = None
     remaining = _remaining_seconds(started, wait_timeout_seconds)
-    if verify and (remaining is None or remaining > 0) and _verification_due(runner):
+    verify_end = _verify_range_end(runner, start=range_start, end=range_end)
+    if verify and verify_end > range_start and (remaining is None or remaining > 0) and _verification_due(runner):
         verify_started = time.monotonic()
         try:
             stale_days = _changed_days(
                 runner,
                 job_ids=[str(job_id) for job_id in result.job_ids],
                 start=range_start,
-                end=range_end,
+                end=verify_end,
                 timeout_seconds=remaining,
             )
         except _CANCELLATION:
