@@ -7,6 +7,7 @@ settings and writes only the copy. Every writer locks the insight row before the
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from datetime import datetime
@@ -17,9 +18,11 @@ from django.db import transaction
 
 import posthoganalytics
 
+from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
 from posthog.models.team.team import Team
 from posthog.tasks.alerts.utils import next_check_at_after_schedule_restriction_change
 
+from products.alerts.backend.activity_logging import log_platform_alert_edit
 from products.alerts.backend.evaluation.validation import validate_alert_config
 from products.alerts.backend.facade.contracts import PlatformCannotOwn
 from products.alerts.backend.llm_detector_limits import is_llm_detector_config
@@ -219,10 +222,13 @@ def write_moved_alert_edit(
     if alert is None or not show_locked_copy(alert):
         return
     row_insight_id = alert.insight_id
+    before = copy.copy(alert)
+    before.threshold = copy.copy(alert.threshold)
     _apply_changes(alert, changes)
     on_updated(alert, snooze_changed=snooze_changed, rescheduled=rescheduled)
     if alert.insight_id != row_insight_id:
         AlertConfiguration.objects.filter(team_id=team_id, id=alert_id).update(insight_id=alert.insight_id)
+    log_platform_alert_edit(before, alert, user=get_current_user(), was_impersonated=get_was_impersonated())
 
 
 def _apply_changes(alert: AlertConfiguration, changes: Mapping[str, Any]) -> None:
