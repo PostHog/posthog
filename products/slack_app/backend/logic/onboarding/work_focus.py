@@ -408,8 +408,7 @@ class _Found:
     message_count: int
     candidate_count: int
     thread_count: int
-    # The messages left out because they were the person's own or tagged an app, and the candidates whose thread
-    # handed the work to an app.
+    # Counts the person's own messages too.
     handed_off_count: int
     flow: WorkFocusFlow
 
@@ -436,8 +435,6 @@ def _find(
         logger.warning("slack_app_work_focus_bot_user_unknown", integration_id=integration.id)
     is_bot = _bot_lookup(integration, bot_user_id)
     found_count = len(messages)
-    # The person already knows what they wrote. A message that tagged an app handed the work to that app, so it is
-    # never offered again.
     messages = [
         message
         for message in messages
@@ -561,6 +558,13 @@ def _thread_ts_in(permalink: object) -> str | None:
     return values[0] if values and values[0] else None
 
 
+@frozen
+class _CandidateThread:
+    text: str | None = None
+    app_replied: bool = False
+    tagged: tuple[str, ...] = ()
+
+
 def _still_open(
     integration: WorkspaceIntegration,
     candidates: list[_FoundMessage],
@@ -577,24 +581,27 @@ def _still_open(
     thread the summary already read is not read again."""
     slack = SlackIntegration(integration)
 
-    def thread_of(candidate: _FoundMessage) -> tuple[str | None, bool, tuple[str, ...]]:
+    def thread_of(candidate: _FoundMessage) -> _CandidateThread:
         if (summary := known.get((candidate.channel_id, candidate.thread_ts))) is not None:
-            return summary.text, False, summary.tagged
+            return _CandidateThread(text=summary.text, tagged=summary.tagged)
         read = read_thread(slack.client, candidate.channel_id, candidate.thread_ts, bot_user_id=bot_user_id)
         if read is None:
-            return None, False, ()
-        tagged = tagged_users(str(message.get("text") or "") for message in read.messages)
-        # A lone root is the message itself, which Jev already read.
-        return (thread_text(read.messages) if len(read.messages) > 1 else None), read.app_took_part, tagged
+            return _CandidateThread()
+        return _CandidateThread(
+            # A lone root is the message itself, which Jev already read.
+            text=thread_text(read.messages) if len(read.messages) > 1 else None,
+            app_replied=read.app_took_part,
+            tagged=tagged_users(str(message.get("text") or "") for message in read.messages),
+        )
 
     read: list[_FoundMessage] = []
     handed_off = 0
     # The bot lookups run here, not in the reader threads, because they read the profile cache from the database.
-    for candidate, (text, app_replied, tagged) in zip(candidates, parallel_map(thread_of, candidates)):
-        if app_replied or any(is_bot(user) for user in tagged):
+    for candidate, thread in zip(candidates, parallel_map(thread_of, candidates)):
+        if thread.app_replied or any(is_bot(user) for user in thread.tagged):
             handed_off += 1
         else:
-            read.append(replace(candidate, thread=text))
+            read.append(replace(candidate, thread=thread.text))
     keys = {f"t{index}": index for index, candidate in enumerate(read) if candidate.thread}
     if not keys:
         return read, handed_off

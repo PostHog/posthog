@@ -169,7 +169,6 @@ def slack(org_team_user) -> Iterator[dict[str, MagicMock]]:
         patch(f"{WORK_FOCUS}.consume", return_value=allowed) as bucket,
         patch(f"{WORK_FOCUS}.refund") as refunded,
         patch(f"{WORK_FOCUS}.capture_slack_event") as captured,
-        # users.info marks every app user as a bot, such as another AI agent installed in the workspace.
         patch(
             f"{WORK_FOCUS}.get_slack_user_info",
             side_effect=lambda client, integration, user_id: (
@@ -187,7 +186,6 @@ def slack(org_team_user) -> Iterator[dict[str, MagicMock]]:
             "1700.5": [{"user": "U_ANDY", "text": RESOLVED_MESSAGE}, {"user": "U_ANDY", "text": "fixed, merged"}],
             # The app answered in this thread, so nobody needs to ask Jev whether the work is open.
             "1700.7": [{"user": "U_ANDY", "text": HANDLED_MESSAGE}, {"user": "U_BOT", "text": "It is yours."}],
-            # The person handed this one to another agent in the thread.
             "1700.9": [
                 {"user": "U_ANDY", "text": AGENT_THREAD_MESSAGE},
                 {"user": SLACK_USER_ID, "text": f"<@{AGENT}> can you take this one?"},
@@ -235,7 +233,6 @@ def test_jev_picks_the_messages_and_only_those_reach_the_writer(
         assert find_and_send_work_focus(integration, SLACK_USER_ID) == "already_done"
 
     searches = slack["search"].return_value.api_call.call_args_list
-    # Only the messages that mention the person are searched, never the ones they wrote.
     assert {call.kwargs["params"]["query"] for call in searches} == {f"<@{SLACK_USER_ID}>"}
     # A Monday run reads back to Friday, the same time of day.
     assert {call.kwargs["params"]["after"] for call in searches} == {int((MONDAY - timedelta(days=3)).timestamp())}
@@ -267,7 +264,6 @@ def test_jev_picks_the_messages_and_only_those_reach_the_writer(
     )
     # A thread the app already replied in, or where someone tagged another agent, is dropped before Jev is asked.
     assert HANDLED_MESSAGE not in written_from and AGENT_THREAD_MESSAGE not in written_from
-    # The person's own message and a message that tagged another agent are never ranked or offered.
     assert OWN_MESSAGE not in written_from and HANDED_TO_AN_AGENT not in written_from
     assert all(
         ASKED_THE_APP not in json.dumps(call.kwargs["state"])

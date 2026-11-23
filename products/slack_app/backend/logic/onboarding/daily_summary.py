@@ -122,7 +122,6 @@ class SummaryThread:
     # The person is in the thread: they started it, replied, or were mentioned.
     involves_person: bool
     permalink: str | None = None
-    # The users any person in the thread tagged, so a caller can tell work handed to an app.
     tagged: tuple[str, ...] = ()
 
 
