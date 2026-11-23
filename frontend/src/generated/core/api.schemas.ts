@@ -6360,7 +6360,6 @@ export interface LeakedKeyReportApi {
 /**
  * * `personal_api_key` - personal_api_key
  * * `project_secret_api_key` - project_secret_api_key
- * * `team_secret_token` - team_secret_token
  * * `oauth_access_token` - oauth_access_token
  * * `oauth_refresh_token` - oauth_refresh_token
  */
@@ -6370,19 +6369,17 @@ export type LeakedKeyReportResponseTypeEnumApi =
 export const LeakedKeyReportResponseTypeEnumApi = {
     PersonalApiKey: 'personal_api_key',
     ProjectSecretApiKey: 'project_secret_api_key',
-    TeamSecretToken: 'team_secret_token',
     OauthAccessToken: 'oauth_access_token',
     OauthRefreshToken: 'oauth_refresh_token',
 } as const
 
 export interface LeakedKeyReportResponseApi {
-    /** Whether a matching PostHog key or token was found. It was revoked, or, for team_secret_token, its project admins were told to rotate it. */
+    /** Whether a matching PostHog key or token was found and revoked. */
     found: boolean
-    /** The type of key that was found and revoked, or null if no match was found. team_secret_token means the string is a legacy feature flags secure API key: its migrated project secret API key row was removed, but the legacy key itself cannot be auto-rotated, so project admins are emailed to rotate it.
+    /** The type of key that was found and revoked, or null if no match was found. A legacy feature flags secure API key matches as project_secret_api_key through its migrated row (#63111).
      *
      * * `personal_api_key` - personal_api_key
      * * `project_secret_api_key` - project_secret_api_key
-     * * `team_secret_token` - team_secret_token
      * * `oauth_access_token` - oauth_access_token
      * * `oauth_refresh_token` - oauth_refresh_token */
     type: LeakedKeyReportResponseTypeEnumApi | null

@@ -1,7 +1,7 @@
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError
 from django.db.models import QuerySet
 from django.utils import timezone
 
@@ -19,23 +19,20 @@ from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.exceptions import InsufficientScope
 from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
 from posthog.models import Organization, Team, User
-from posthog.models.project_secret_api_key import ProjectSecretAPIKey, RevokedTeamSecretToken
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.utils import ai_credential_value, generate_random_token_secret, hash_key_value, mask_key_value
 from posthog.permissions import TeamMemberStrictManagementPermission, TimeSensitiveActionPermission, scopes_caller_lacks
 from posthog.scopes.catalog import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS
 from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
 from posthog.scopes.project_secret_api_key import PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION
 from posthog.settings import EE_AVAILABLE
-from posthog.tasks.email import send_feature_flags_secure_api_key_exposed, send_project_secret_api_key_exposed
+from posthog.tasks.email import send_project_secret_api_key_exposed
 from posthog.utils import get_trusted_client_ip
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.security.backend.facade.api import access_refused as security_access_refused
 from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
 from products.security.backend.facade.enums import Surface as SecuritySurface
-
-if TYPE_CHECKING:
-    from products.conversations.backend.services.signing_secrets import SigningSecretRetirement
 
 if EE_AVAILABLE:
     from ee.billing.grants import BillingEntitlement, effective_billing_grants
@@ -195,16 +192,6 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
         _enforce_caller_holds_scopes(self.context["request"], added)
         _enforce_caller_may_grant_billing_read(self.context["request"], self.context["view"].team.organization, added)
         _enforce_caller_may_grant_business_knowledge_read(self.context["request"], self.context["view"].team, added)
-        # Only the #63111 backfill creates keys without a creator, so created_by marks a key
-        # migrated from the legacy secret token. Every project member could read that value
-        # while the plaintext endpoints existed, so the check on the person who grants the
-        # scope does not limit who ends up holding this key.
-        restricted_legacy_scopes = set(added) & {"business_knowledge:read", "person:write"}
-        if restricted_legacy_scopes and self.instance is not None and self.instance.created_by_id is None:
-            raise serializers.ValidationError(
-                "This key was migrated from the project's legacy secret token, which every project member "
-                f"could read. Create a new key for these scopes: {', '.join(sorted(restricted_legacy_scopes))}."
-            )
         if "llm_gateway:read" in added:
             _enforce_gateway_bans(self.context["request"], self.context["view"].team)
         return scopes
@@ -268,50 +255,6 @@ def roll_project_secret_api_key_and_notify(project_secret_api_key: ProjectSecret
     send_project_secret_api_key_exposed(
         project_secret_api_key.team_id, project_secret_api_key.id, old_mask_value, more_info
     )
-
-
-def retire_leaked_team_secret_token(team_id: int, token_hash: str, token_mask: str) -> "SigningSecretRetirement":
-    """Record a leaked legacy token's hash and replace a widget signing secret still
-    carrying the value. The hash keeps a rerun of the #63111 backfill from minting a
-    fresh mirror row for it. Returns what changed on the signing secret row."""
-    # Lazy: conversations imports posthog.api modules at load time.
-    from products.conversations.backend.services.signing_secrets import retire_leaked_signing_secret
-
-    # One transaction: the revoked hash and the signing secret change commit together.
-    with transaction.atomic():
-        RevokedTeamSecretToken.objects.for_team(team_id).get_or_create(team_id=team_id, secure_value=token_hash)
-        return retire_leaked_signing_secret(team_id, token_hash, token_mask)
-
-
-def revoke_exposed_project_secret_api_key(project_secret_api_key: ProjectSecretAPIKey, more_info: str) -> bool:
-    """Revoke an exposed key the right way for what it actually is, and return whether it
-    was a mirrored legacy team token.
-
-    A backfilled PSAK (#63111) mirrors the team's legacy secret token: deleting the row
-    is the revocation (rolling would leave a new live key the team never asked for).
-    Any other key gets the ordinary roll-and-notify. Only the backfill creates keys
-    without a creator, so created_by tells the two apart without reading the retired
-    plaintext token columns.
-    """
-    token_hash = project_secret_api_key.secure_value
-    if project_secret_api_key.created_by_id is None and token_hash is not None:
-        team_id = project_secret_api_key.team_id
-        token_mask = project_secret_api_key.mask_value or ""
-        with transaction.atomic():
-            project_secret_api_key.delete()
-            # In the same transaction: once the row is gone a retried report finds no
-            # PSAK and would never retire a signing secret still mirroring the value.
-            retirement = retire_leaked_team_secret_token(team_id, token_hash, token_mask)
-        send_feature_flags_secure_api_key_exposed(
-            team_id,
-            token_mask,
-            more_info,
-            signing_secret_replaced=retirement.replaced,
-            grace_window_ended=retirement.grace_window_ended,
-        )
-        return True
-    roll_project_secret_api_key_and_notify(project_secret_api_key, more_info)
-    return False
 
 
 @extend_schema(extensions={"x-product": "core"})

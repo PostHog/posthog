@@ -2180,44 +2180,6 @@ def send_personal_api_keys_changed_by_org_admin(
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
-def send_feature_flags_secure_api_key_exposed(
-    team_id: int,
-    mask_value: str,
-    more_info: str,
-    signing_secret_replaced: bool = False,
-    grace_window_ended: bool = False,
-) -> None:
-    if not is_email_available(with_absolute_urls=True):
-        return
-
-    team = Team.objects.select_related("organization").get(pk=team_id)
-    memberships_to_email = get_project_api_key_admins_to_notify(team)
-    if not memberships_to_email:
-        return
-
-    message = EmailMessage(
-        use_http=True,
-        campaign_key=f"feature-flags-secure-api-key-exposed-{team.uuid}-{timezone.now().timestamp()}",
-        subject=f"Legacy feature flags secret key has been revoked for {team.name}",
-        template_name="feature_flags_secure_api_key_exposed",
-        template_context={
-            "preheader": "Legacy feature flags secret key has been revoked",
-            "project_name": team.name,
-            "more_info": more_info,
-            "mask_value": mask_value,
-            "url": f"{settings.SITE_URL}/project/{team.pk}/settings/environment-secret-api-keys",
-            "conversations_settings_url": f"{settings.SITE_URL}/project/{team.pk}/settings/environment-conversations",
-            "signing_secret_replaced": signing_secret_replaced,
-            "grace_window_ended": grace_window_ended,
-            **get_email_team_and_org_context(team=team),
-        },
-    )
-    for membership in memberships_to_email:
-        message.add_user_recipient(membership.user)
-    message.send()
-
-
-@shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def send_project_secret_api_key_exposed(
     team_id: int, project_secret_api_key_id: str, old_mask_value: str, more_info: str

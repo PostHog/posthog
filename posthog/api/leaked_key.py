@@ -14,7 +14,6 @@ from posthog.api.secret_revocation import (
     CANONICAL_OAUTH_REFRESH_TOKEN,
     CANONICAL_PERSONAL_API_KEY,
     CANONICAL_PROJECT_SECRET_API_KEY,
-    CANONICAL_TEAM_SECRET_TOKEN,
     revoke_leaked_secret,
 )
 from posthog.rate_limit import LeakedKeyReportThrottle
@@ -34,18 +33,17 @@ class LeakedKeyReportSerializer(serializers.Serializer):
 
 class LeakedKeyReportResponseSerializer(serializers.Serializer):
     found = serializers.BooleanField(
-        help_text="Whether a matching PostHog key or token was found. It was revoked, or, for team_secret_token, its project admins were told to rotate it.",
+        help_text="Whether a matching PostHog key or token was found and revoked.",
     )
     type = serializers.ChoiceField(
         choices=[
             CANONICAL_PERSONAL_API_KEY,
             CANONICAL_PROJECT_SECRET_API_KEY,
-            CANONICAL_TEAM_SECRET_TOKEN,
             CANONICAL_OAUTH_ACCESS_TOKEN,
             CANONICAL_OAUTH_REFRESH_TOKEN,
         ],
         allow_null=True,
-        help_text="The type of key that was found and revoked, or null if no match was found. team_secret_token means the string is a legacy feature flags secure API key: its migrated project secret API key row was removed, but the legacy key itself cannot be auto-rotated, so project admins are emailed to rotate it.",
+        help_text="The type of key that was found and revoked, or null if no match was found. A legacy feature flags secure API key matches as project_secret_api_key through its migrated row (#63111).",
     )
 
 
@@ -54,11 +52,9 @@ class PublicLeakedKeyReport(APIView):
     Public, unauthenticated self-service endpoint: submit a leaked PostHog token and,
     if it matches a real credential, it's revoked immediately and the owner is
     notified — even if the submitted OAuth access token has itself already expired,
-    since the paired refresh token it protects may still be live. The one exception
-    is a legacy feature flags secure API key, matched through its migrated PSAK row:
-    that row is deleted and the project admins are emailed to rotate the key, which
-    cannot be rotated automatically. A legacy key with no migrated row (none exists
-    before the #63111 backfill) is simply not found.
+    since the paired refresh token it protects may still be live. A legacy feature
+    flags secure API key matches through its migrated PSAK row (#63111) and is rolled
+    like any other project secret API key; one with no migrated row is simply not found.
     Safety relies on possession of the plaintext token, not a signature — see
     secret_revocation.py.
 

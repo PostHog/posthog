@@ -1,7 +1,7 @@
 from typing import Literal
 
 from posthog.api.personal_api_key import PersonalAPIKeySerializer
-from posthog.api.project_secret_api_key import revoke_exposed_project_secret_api_key
+from posthog.api.project_secret_api_key import roll_project_secret_api_key_and_notify
 from posthog.dataclasses import frozen
 from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_token, revoke_oauth_token_session
 from posthog.models.personal_api_key import find_personal_api_key, looks_like_legacy_personal_api_key
@@ -17,9 +17,6 @@ from posthog.tasks.email import send_oauth_token_exposed, send_personal_api_key_
 
 CANONICAL_PERSONAL_API_KEY = "personal_api_key"
 CANONICAL_PROJECT_SECRET_API_KEY = "project_secret_api_key"
-# Never a lookup key for revoke_leaked_secret (team tokens can't be auto-rotated); only
-# reported back when the matched PSAK row turns out to mirror a team token.
-CANONICAL_TEAM_SECRET_TOKEN = "team_secret_token"
 CANONICAL_OAUTH_ACCESS_TOKEN = "oauth_access_token"
 CANONICAL_OAUTH_REFRESH_TOKEN = "oauth_refresh_token"
 
@@ -49,8 +46,8 @@ def _revoke_project_secret_api_key(token: str, more_info: str) -> str | None:
     project_secret_api_key = find_project_secret_api_key(token)
     if project_secret_api_key is None:
         return None
-    was_team_token = revoke_exposed_project_secret_api_key(project_secret_api_key, more_info)
-    return CANONICAL_TEAM_SECRET_TOKEN if was_team_token else CANONICAL_PROJECT_SECRET_API_KEY
+    roll_project_secret_api_key_and_notify(project_secret_api_key, more_info)
+    return CANONICAL_PROJECT_SECRET_API_KEY
 
 
 def _revoke_oauth_token(token: str, more_info: str, *, kind: Literal["access", "refresh"]) -> str | None:
@@ -116,10 +113,9 @@ _REVOKERS = {
 # per-IP rate limit, not by this check.
 #
 # Retired team-level secret tokens (Team.secret_api_token, #66179) share
-# SECRET_API_TOKEN_PREFIX with project secret API keys and are deliberately not in
-# this map: a leaked one matches the project-secret-api-key path through its
-# backfilled PSAK mirror row (#63111), which revokes the credential and sends the
-# rotate-your-key notice.
+# SECRET_API_TOKEN_PREFIX with project secret API keys and need no entry of their
+# own: a leaked one matches the project-secret-api-key path through its backfilled
+# PSAK mirror row (#63111), which rolls the key and notifies the project admins.
 _PREFIX_TO_CANONICAL_TYPE = {
     PERSONAL_API_KEY_PREFIX: CANONICAL_PERSONAL_API_KEY,
     SECRET_API_TOKEN_PREFIX: CANONICAL_PROJECT_SECRET_API_KEY,
@@ -151,9 +147,7 @@ def revoke_leaked_secret(token: str, key_type: str | None, more_info: str) -> Re
 
     `key_type` must be one of the four lookup types (personal_api_key,
     project_secret_api_key, oauth_access_token, oauth_refresh_token) or None, in which
-    case the token's prefix determines which single lookup runs. The result's key_type
-    can be narrower than the lookup: a "phs_" match that mirrors a team token comes
-    back as CANONICAL_TEAM_SECRET_TOKEN, which is never itself a valid lookup type.
+    case the token's prefix determines which single lookup runs.
     """
     resolved_type = key_type if key_type is not None else _detect_canonical_type(token)
     if resolved_type is None:

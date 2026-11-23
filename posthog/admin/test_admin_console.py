@@ -86,7 +86,6 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefres
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project import Project
-from posthog.models.project_secret_api_key import RevokedTeamSecretToken
 from posthog.models.team.team import Team
 from posthog.models.tophog.queries import TopHogFilterOptions
 from posthog.models.user import User
@@ -2054,27 +2053,18 @@ class TestAdminConsoleApiKeys(BaseTest):
             f"Could not email these owners: {self.user.email}. Tell them that their keys changed.",
         ]
 
-    @patch("posthog.api.project_secret_api_key.send_feature_flags_secure_api_key_exposed")
     @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")
-    def test_revoking_a_secret_api_key_rolls_it_or_deletes_a_legacy_mirror(
-        self, psak_exposed: MagicMock, legacy_exposed: MagicMock
-    ) -> None:
+    def test_revoking_a_secret_api_key_rolls_it(self, psak_exposed: MagicMock) -> None:
         key, _ = create_project_secret_api_key(team=self.team, created_by=self.user, label="Admin key")
         old_secure_value = key.secure_value
-        legacy_token = "phs_legacy_token_mirrored_in_console"
-        mirrored, _ = create_project_secret_api_key(team=self.team, label="Migrated legacy key", value=legacy_token)
         url = f"/admin/console/teams/{self.team.pk}/secret-api-keys/revoke/"
 
         rolled = self.client.post(url, {"key": key.pk, "exposed_at": "", "reason": "Found in a public repo"})
-        deleted = self.client.post(url, {"key": mirrored.pk, "exposed_at": "", "reason": "Found in a public repo"})
 
-        assert (rolled.status_code, deleted.status_code) == (302, 302)
+        assert rolled.status_code == 302
         key.refresh_from_db()
         assert key.secure_value != old_secure_value
         psak_exposed.assert_called_once_with(self.team.id, key.id, ANY, "")
-        assert not type(mirrored).objects.filter(pk=mirrored.pk).exists()
-        assert RevokedTeamSecretToken.objects.for_team(self.team.id).filter().exists()
-        legacy_exposed.assert_called_once()
 
     @parameterized.expand([("personal", "personalapikey"), ("project_secret", "projectsecretapikey")])
     def test_an_old_roll_url_lands_on_the_panel_of_the_key_owner(self, kind: str, model_name: str) -> None:
