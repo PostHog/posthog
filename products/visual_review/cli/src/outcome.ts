@@ -115,7 +115,7 @@ export async function reportRunOutcome(
         log(`[run:${runId}] Visual changes detected — review at: ${reviewUrl}`)
         if (run.gate === 'commit_status') {
             log(
-                `[run:${runId}] The status "PostHog Visual Review / ${run.run_type}" turns green when these changes are approved. Nothing in CI needs to run again.`
+                `[run:${runId}] The status "Visual Review gate / ${run.run_type}" turns green when these changes are approved. Nothing in CI needs to run again.`
             )
             return 0
         }

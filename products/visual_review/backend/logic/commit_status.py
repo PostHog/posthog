@@ -9,17 +9,33 @@ verdict without a lock around a GitHub request.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from datetime import datetime
+from enum import StrEnum
+
 from django.db import transaction
 
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
+from posthog.models.instance_setting import get_instance_setting
 
 from ..db import WRITER_DB
 from ..facade.contracts import NoRunNeededInput
 from ..facade.enums import BaselineMode, NoRunNeededOutcome, RunPurpose, RunStatus
 from ..models import Repo, Run
-from . import app_urls, baseline_approvals, baselines, ci_status, errors, gating
+from . import (
+    app_urls,
+    baseline_approvals,
+    baseline_record,
+    baselines,
+    ci_status,
+    errors,
+    gating,
+    github_api,
+    ledger_recheck,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -27,6 +43,22 @@ logger = structlog.get_logger(__name__)
 MAX_ROUNDS = 3
 
 NO_RUN_NEEDED_DESCRIPTION = "No visual run needed"
+NO_SETUP_CHECK_DESCRIPTION = "No setup check given"
+NO_RUN_NEEDED_FOR_COMMIT_DESCRIPTION = "No visual run needed for this commit"
+RUN_GONE_DESCRIPTION = "Re-run Visual Review: the run for this commit is gone"
+# The state of a recheck verdict that posts nothing on the head.
+NO_STATUS_STATE = "skipped"
+
+
+def gate_context(run_type: str) -> str:
+    """The context the ruleset requires. Only this publisher posts it, and only with ledger verdicts.
+
+    It differs from the context of the publisher for a repo with the gate off, which posts the
+    baseline file's verdict. So a pass from that publisher, left on a commit from before the switch,
+    cannot satisfy the required check. A run the baseline file classified gets the ledger recheck
+    here in every mode, because the ruleset requires this context before `mode --set ledger`.
+    """
+    return f"Visual Review gate / {run_type}"
 
 
 @frozen
@@ -35,6 +67,8 @@ class _Status:
     state: str
     description: str
     target_url: str
+    # The run was created before the switch, so its commit can carry a red status under the old context.
+    replaces_legacy: bool = False
 
 
 def publishes_by_commit(repo: Repo) -> bool:
@@ -60,9 +94,9 @@ def guards_stale_approvals(repo: Repo) -> bool:
     return repo.baseline_mode == BaselineMode.LEDGER and publishes_by_commit(repo)
 
 
-def _guards_stale_approvals(run: Run, repo: Repo) -> bool:
+def _guards_stale_approvals(run: Run, ledger_mode: bool) -> bool:
     """Whether a stale approval can fail the run. A queue run fails on drift by itself."""
-    return guards_stale_approvals(repo) and run.purpose != RunPurpose.OBSERVE and run.pr_number is not None
+    return ledger_mode and run.purpose != RunPurpose.OBSERVE and run.pr_number is not None
 
 
 def stale_approval_count(run: Run) -> int:
@@ -70,7 +104,7 @@ def stale_approval_count(run: Run) -> int:
 
     A superseded run counts 0, because only the newest run of a commit decides its status.
     """
-    if run.superseded_by_id is not None or not _guards_stale_approvals(run, run.repo):
+    if run.superseded_by_id is not None or not _guards_stale_approvals(run, guards_stale_approvals(run.repo)):
         return 0
     return len(baseline_approvals.stale_approvals(run))
 
@@ -95,6 +129,8 @@ class RunFacts:
     hidden_by_quarantine: int = 0
     # 0 also when the stale-approval rule does not apply to the run.
     stale_approvals: int = 0
+    # Set for a run the baseline file classified, which passes only when the ledger agrees.
+    ledger_recheck: ledger_recheck.LedgerRecheck | None = None
 
 
 @frozen
@@ -140,6 +176,26 @@ def _gating_verdict(facts: RunFacts) -> StatusVerdict:
     )
 
 
+def _recheck_verdict(facts: RunFacts, verdict: StatusVerdict) -> StatusVerdict:
+    """A pass of a run the baseline file classified holds only when the ledger agrees from the stored hashes.
+
+    The developer can act on a real change or a stale approval, so those verdicts stay. A queue
+    run fails, so that the queue drops the pull request instead of waiting on a status that does
+    not change without a new run.
+    """
+    recheck = facts.ledger_recheck
+    if recheck is None or verdict.state != "success" or not recheck.needs_new_run:
+        return verdict
+    if facts.purpose == RunPurpose.OBSERVE:
+        return StatusVerdict(state="failure", description="Tested before the switch to ledger mode. Enqueue again")
+    if recheck.clamped:
+        return StatusVerdict(state="pending", description="Merge master, then re-run Visual Review")
+    if not recheck.has_record:
+        return StatusVerdict(state="pending", description="Re-run Visual Review: this run has no ledger baseline")
+    noun = "snapshot needs" if recheck.unsure == 1 else "snapshots need"
+    return StatusVerdict(state="pending", description=f"Re-run Visual Review: {recheck.unsure} {noun} the new baseline")
+
+
 def _verdict_without_partial_note(facts: RunFacts) -> StatusVerdict:
     if facts.status in (RunStatus.PENDING, RunStatus.PROCESSING):
         return StatusVerdict(state="pending", description="Visual review in progress")
@@ -149,7 +205,7 @@ def _verdict_without_partial_note(facts: RunFacts) -> StatusVerdict:
         summary = facts.changes_summary
         description = f"Tracking only: {summary} recorded" if summary else "Tracking only: no visual changes"
         return StatusVerdict(state="success", description=description)
-    return _gating_verdict(facts)
+    return _recheck_verdict(facts, _gating_verdict(facts))
 
 
 def status_verdict(facts: RunFacts) -> StatusVerdict:
@@ -160,10 +216,12 @@ def status_verdict(facts: RunFacts) -> StatusVerdict:
     return verdict
 
 
-def _run_facts(run: Run, repo: Repo) -> RunFacts:
+def _run_facts(run: Run, repo: Repo, ledger_mode: bool) -> RunFacts:
     """Read what the verdict of the run needs, in the order the verdict reads it.
 
-    Counts go to the writer, because a publish has to see the write that triggered it.
+    Counts go to the writer, because a publish has to see the write that triggered it. With
+    `ledger_mode` the stale-approval rule applies too, also when the recheck command asks how
+    the status would read before the switch.
     """
     tracking = run.purpose == RunPurpose.OBSERVE and baselines._run_is_on_default_branch(repo, run.branch)
     summary = gating._changes_summary(run)
@@ -171,6 +229,7 @@ def _run_facts(run: Run, repo: Repo) -> RunFacts:
         run.status in (RunStatus.PENDING, RunStatus.PROCESSING, RunStatus.FAILED) or bool(run.error_message) or tracking
     )
     unresolved = awaiting = hidden = stale = 0
+    recheck: ledger_recheck.LedgerRecheck | None = None
     if not decided_without_counts:
         if run.purpose == RunPurpose.OBSERVE:
             # Drift fails a queue run before the quarantine count matters.
@@ -179,9 +238,12 @@ def _run_facts(run: Run, repo: Repo) -> RunFacts:
             unresolved = gating.count_unresolved(run, WRITER_DB)
             awaiting = 0 if unresolved else gating.count_awaiting_finalize(run, WRITER_DB)
             hidden = 0 if unresolved or awaiting else gating.count_hidden_by_quarantine(run, WRITER_DB)
-        # A run that already fails on its review needs no stale count.
-        if _guards_stale_approvals(run, repo) and unresolved == 0 and awaiting == 0:
+        # A run that already fails on its review needs no stale count and no recheck.
+        passes_review = unresolved == 0 and awaiting == 0 and not (run.purpose == RunPurpose.OBSERVE and summary)
+        if _guards_stale_approvals(run, ledger_mode) and passes_review:
             stale = len(baseline_approvals.stale_approvals(run))
+        if passes_review and stale == 0:
+            recheck = ledger_recheck.recheck_run(run)
     return RunFacts(
         status=RunStatus(run.status),
         error_message=run.error_message,
@@ -194,25 +256,31 @@ def _run_facts(run: Run, repo: Repo) -> RunFacts:
         awaiting_finalize=awaiting,
         hidden_by_quarantine=hidden,
         stale_approvals=stale,
+        ledger_recheck=recheck,
     )
 
 
-def _status_of(run: Run, repo: Repo) -> _Status:
-    facts = _run_facts(run, repo)
-    context = ci_status.gating_context(run.run_type)
+def _status_of(run: Run, repo: Repo, ledger_mode: bool) -> _Status:
+    facts = _run_facts(run, repo, ledger_mode)
+    context = gate_context(run.run_type)
     if facts.tracking:
         context = f"{context} (tracking)"
     verdict = status_verdict(facts)
+    record = baseline_record.record_for_run(run)
     return _Status(
-        context=context, state=verdict.state, description=verdict.description, target_url=app_urls.run_url(run, repo)
+        context=context,
+        state=verdict.state,
+        description=verdict.description,
+        target_url=app_urls.run_url(run, repo),
+        replaces_legacy=not facts.tracking and (record is None or record.mode != BaselineMode.LEDGER),
     )
 
 
-def _current_status(repo: Repo, commit_sha: str, run_type: str) -> _Status | None:
+def _current_status(repo: Repo, commit_sha: str, run_type: str, ledger_mode: bool) -> _Status | None:
     run = _newest_run(repo, commit_sha, run_type)
     if run is None:
         return None
-    return _status_of(run, repo)
+    return _status_of(run, repo, ledger_mode)
 
 
 def _send(repo: Repo, commit_sha: str, status: _Status) -> ci_status.StatusPost:
@@ -226,14 +294,32 @@ def _send(repo: Repo, commit_sha: str, status: _Status) -> ci_status.StatusPost:
     )
 
 
+def _post_legacy_replacement(repo: Repo, commit_sha: str, run_type: str) -> ci_status.StatusPost:
+    """Turn the context of the publisher for a repo with the gate off green.
+
+    Nothing posts that context once the gate is on, so a pull request that was red before the switch
+    would keep that red next to its new verdict. Only a passing gate verdict may replace it, so a
+    ruleset that still requires the old context is never satisfied by the replacement alone.
+    """
+    return ci_status._send_commit_status(
+        repo,
+        commit_sha,
+        context=ci_status.gating_context(run_type),
+        state="success",
+        description=f"Replaced by {gate_context(run_type)}",
+        target_url=None,
+    )
+
+
 def publish_rounds(repo: Repo, commit_sha: str, run_type: str) -> bool:
     """Post the verdict of the newest run until a read after the post finds it unchanged.
 
     Returns False when the status may not be settled: GitHub refused a post, a read raised, or
     the verdict still changed after the last round. The caller then retries later.
     """
+    ledger_mode = repo.baseline_mode == BaselineMode.LEDGER
     try:
-        status = _current_status(repo, commit_sha, run_type)
+        status = _current_status(repo, commit_sha, run_type, ledger_mode)
         for _round in range(MAX_ROUNDS):
             if status is None:
                 return True
@@ -242,7 +328,10 @@ def publish_rounds(repo: Repo, commit_sha: str, run_type: str) -> bool:
                 return False
             if posted == ci_status.StatusPost.SKIPPED:
                 return True
-            newer = _current_status(repo, commit_sha, run_type)
+            replaces_legacy = status.replaces_legacy and status.state == "success"
+            if replaces_legacy and _post_legacy_replacement(repo, commit_sha, run_type) == ci_status.StatusPost.REFUSED:
+                return False
+            newer = _current_status(repo, commit_sha, run_type, ledger_mode)
             if newer == status:
                 return True
             status = newer
@@ -333,7 +422,7 @@ def publish_for_run(run: Run) -> None:
 
 
 def no_run_needed_detail(outcome: NoRunNeededOutcome, run_type: str) -> str:
-    context = ci_status.gating_context(run_type)
+    context = gate_context(run_type)
     if outcome == NoRunNeededOutcome.POSTED:
         return f'Posted "{NO_RUN_NEEDED_DESCRIPTION}" to {context}.'
     if outcome == NoRunNeededOutcome.RUN_EXISTS:
@@ -352,7 +441,7 @@ def report_no_run_needed(repo: Repo, report: NoRunNeededInput) -> NoRunNeededOut
     if _newest_run(repo, report.commit_sha, report.run_type) is not None:
         return NoRunNeededOutcome.RUN_EXISTS
 
-    context = ci_status.gating_context(report.run_type)
+    context = gate_context(report.run_type)
     posted = ci_status._send_commit_status(
         repo,
         report.commit_sha,
@@ -378,3 +467,193 @@ def report_no_run_needed(repo: Repo, report: NoRunNeededInput) -> NoRunNeededOut
     if _newest_run(repo, report.commit_sha, report.run_type) is not None:
         publish(repo, report.commit_sha, report.run_type)
     return NoRunNeededOutcome.POSTED
+
+
+def _setup_check_skipped_at(repo: Repo, commit_sha: str, setup_check: str) -> datetime | None:
+    """When CI first skipped the job that creates the run on this commit, or None when it did not skip it.
+
+    Lets `GITHUB_READ_REFUSED` through: a refused read is no evidence either way.
+    """
+    check_runs = github_api.actions_check_runs(repo, commit_sha, setup_check, Priority.BATCH)
+    if not check_runs:
+        return None
+    completed = [check_run.completed_at for check_run in check_runs if check_run.conclusion == "skipped"]
+    if len(completed) != len(check_runs) or None in completed:
+        return None
+    return min(moment for moment in completed if moment is not None)
+
+
+def _retargeted_since(repo: Repo, pr_numbers: tuple[int, ...], since: datetime) -> bool:
+    """Whether a pull request with this head changed its base at or after `since`.
+
+    CI decided the skip against the base the pull request had then. A timeline GitHub does not
+    return counts as a change. Lets `GITHUB_READ_REFUSED` through.
+    """
+    for pr_number in pr_numbers:
+        changes = github_api.pull_request_base_changes(repo, pr_number, Priority.BATCH)
+        if changes is None or any(changed_at >= since for changed_at in changes):
+            return True
+    return False
+
+
+def _verdict_without_run(repo: Repo, commit_sha: str, setup_check: str, pr_numbers: tuple[int, ...]) -> StatusVerdict:
+    """The status of a commit that has no run. It passes only when CI skipped the job that creates the run.
+
+    Retention deletes runs, also failed ones, so a missing run proves nothing, and neither does the
+    commit's age. A skip decided before the pull request was retargeted gets no status, as a stacked
+    head without a run. Lets `GITHUB_READ_REFUSED` through.
+    """
+    if not setup_check:
+        return StatusVerdict(state="pending", description=NO_SETUP_CHECK_DESCRIPTION)
+    skipped_at = _setup_check_skipped_at(repo, commit_sha, setup_check)
+    if skipped_at is None:
+        return StatusVerdict(state="pending", description=RUN_GONE_DESCRIPTION)
+    if _retargeted_since(repo, pr_numbers, skipped_at):
+        return StatusVerdict(state=NO_STATUS_STATE, description="retargeted, no run")
+    return StatusVerdict(state="success", description=NO_RUN_NEEDED_FOR_COMMIT_DESCRIPTION)
+
+
+def _recheck_status(
+    repo: Repo, commit_sha: str, run_type: str, setup_check: str, pr_numbers: tuple[int, ...]
+) -> _Status:
+    """The status of a commit under `ledger` rules, in any mode. Lets `GITHUB_READ_REFUSED` through."""
+    run = _newest_run(repo, commit_sha, run_type)
+    if run is None:
+        verdict = _verdict_without_run(repo, commit_sha, setup_check, pr_numbers)
+        return _Status(
+            context=gate_context(run_type), state=verdict.state, description=verdict.description, target_url=""
+        )
+    return _status_of(run, repo, ledger_mode=True)
+
+
+def _stacked_without_run(repo: Repo, commit_sha: str, run_type: str, stacked: bool) -> bool:
+    """Whether the commit is the head of a pull request on another branch than the default one, and has no run.
+
+    Such a head gets no status. CI decided whether to skip the setup job against the other branch,
+    and no workflow runs when the pull request is retargeted, so a pass would outlive the retarget.
+    The push after the retarget creates a run.
+    """
+    return stacked and _newest_run(repo, commit_sha, run_type) is None
+
+
+def ledger_verdict(
+    repo: Repo,
+    commit_sha: str,
+    run_type: str,
+    setup_check: str = "",
+    *,
+    stacked: bool = False,
+    pr_numbers: tuple[int, ...] = (),
+) -> StatusVerdict:
+    """The status a commit gets under `ledger` rules, in any mode. Posts nothing.
+
+    The recheck command shows it before the switch, to count what the switch turns red or pending.
+    `setup_check` names the CI job that creates the run of this run type. Lets `GITHUB_READ_REFUSED`
+    through, so the caller can tell a refused read from a verdict.
+    """
+    if _stacked_without_run(repo, commit_sha, run_type, stacked):
+        return StatusVerdict(state=NO_STATUS_STATE, description="stacked, no run")
+    status = _recheck_status(repo, commit_sha, run_type, setup_check, pr_numbers)
+    return StatusVerdict(state=status.state, description=status.description)
+
+
+class RecheckPost(StrEnum):
+    POSTED = "posted"
+    UNCHANGED = "unchanged"
+    NOT_SUCCESS = "not_success"
+    STACKED_WITHOUT_RUN = "stacked_without_run"
+    RETARGETED_WITHOUT_RUN = "retargeted_without_run"
+    # GitHub refused a read or a post, or the verdict kept changing. The caller stops.
+    STOPPED = "stopped"
+
+
+@frozen
+class RecheckResult:
+    outcome: RecheckPost
+    # The state of the gate verdict the commit carries now, empty when none was decided.
+    state: str = ""
+
+
+def _app_bot_login() -> str:
+    """The login GitHub gives the statuses this app posts, or empty when the instance does not name its app."""
+    slug = get_instance_setting("GITHUB_APP_SLUG")
+    return f"{slug}[bot]" if slug else ""
+
+
+def _carries(current: dict[str, github_api.PostedStatus], status: _Status) -> bool:
+    """Whether the commit already carries the status, posted by this app.
+
+    Any account with write access can post a status under the same context, and such a status does not count.
+    """
+    bot_login = _app_bot_login()
+    # GitHub keeps the first 140 characters of a description.
+    expected = github_api.PostedStatus(state=status.state, description=status.description[:140], creator=bot_login)
+    return bool(bot_login) and current.get(status.context) == expected
+
+
+def publish_recheck(
+    repo: Repo,
+    commit_sha: str,
+    run_type: str,
+    setup_check: str,
+    *,
+    current: dict[str, github_api.PostedStatus],
+    only_success: bool,
+    wait: Callable[[], None],
+    stacked: bool = False,
+    pr_numbers: tuple[int, ...] = (),
+) -> RecheckResult:
+    """Post the `ledger_verdict` of a commit unless `current`, what the commit carries now, already has it.
+
+    `wait` runs before every post, so the caller paces writes. With `only_success` a verdict other
+    than success is left out. After a post the verdict is read again, so a run created during the
+    post owns the status, as in `publish_rounds`.
+    """
+    if _stacked_without_run(repo, commit_sha, run_type, stacked):
+        return RecheckResult(outcome=RecheckPost.STACKED_WITHOUT_RUN)
+    try:
+        status = _recheck_status(repo, commit_sha, run_type, setup_check, pr_numbers)
+        if status.state == NO_STATUS_STATE:
+            return RecheckResult(outcome=RecheckPost.RETARGETED_WITHOUT_RUN)
+        if _carries(current, status):
+            return RecheckResult(outcome=RecheckPost.UNCHANGED, state=status.state)
+        if only_success and status.state != "success":
+            return RecheckResult(outcome=RecheckPost.NOT_SUCCESS)
+        for _round in range(MAX_ROUNDS):
+            wait()
+            if _send(repo, commit_sha, status) != ci_status.StatusPost.POSTED:
+                return RecheckResult(outcome=RecheckPost.STOPPED)
+            newer = _recheck_status(repo, commit_sha, run_type, setup_check, pr_numbers)
+            # A newer verdict that is not success waits for the run without `only_success`.
+            if newer == status or newer.state == NO_STATUS_STATE or (only_success and newer.state != "success"):
+                return RecheckResult(outcome=RecheckPost.POSTED, state=status.state)
+            status = newer
+    except github_api.GITHUB_READ_REFUSED:
+        return RecheckResult(outcome=RecheckPost.STOPPED)
+    return RecheckResult(outcome=RecheckPost.STOPPED)
+
+
+def replace_legacy_status(
+    repo: Repo,
+    commit_sha: str,
+    run_type: str,
+    *,
+    gate_state: str,
+    current: dict[str, github_api.PostedStatus],
+    wait: Callable[[], None],
+) -> RecheckPost:
+    """Turn the context of the publisher for a repo with the gate off green when it is not.
+
+    The gate context replaces it, and nothing posts the old one once the gate is on, so a pull
+    request that was red before the switch would keep that red next to its new verdict.
+    """
+    # Only a passing gate verdict replaces it, so a ruleset that still requires the old context is
+    # never satisfied by the replacement alone.
+    if gate_state != "success":
+        return RecheckPost.UNCHANGED
+    legacy = current.get(ci_status.gating_context(run_type))
+    if legacy is None or legacy.state == "success":
+        return RecheckPost.UNCHANGED
+    wait()
+    posted = _post_legacy_replacement(repo, commit_sha, run_type)
+    return RecheckPost.POSTED if posted == ci_status.StatusPost.POSTED else RecheckPost.STOPPED
