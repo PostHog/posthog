@@ -113,6 +113,7 @@ describe('impactSteps', () => {
             untracked,
             [null, 'Tracking off'],
             [null, 'Tracking off'],
+            ['Tracking off', undefined],
             [null, 'Tracking off', 'This counts conversions after a click. Every send in this period went out'],
         ],
         [
@@ -120,6 +121,7 @@ describe('impactSteps', () => {
             { ...impact, clicked: 0, after_click: { sends: 0, converted: 0 } },
             [60, undefined],
             [0, undefined],
+            ['Needs link tagging', true],
             [null, 'No clicks', 'This counts conversions after a click, and no clicks were recorded in this period.'],
         ],
         [
@@ -127,6 +129,7 @@ describe('impactSteps', () => {
             { ...impact, after_click: { sends: 0, converted: 0 } },
             [60, undefined],
             [20, undefined],
+            ['Needs link tagging', true],
             [null, 'None followed', "PostHog couldn't tie any of the 20 clicked sends"],
         ],
         [
@@ -134,6 +137,7 @@ describe('impactSteps', () => {
             { ...impact, clicked: 1, after_click: { sends: 0, converted: 0 } },
             [60, undefined],
             [1, undefined],
+            ['Needs link tagging', true],
             [null, 'None followed', "PostHog couldn't tie the clicked send in this period to a person."],
         ],
         [
@@ -141,6 +145,7 @@ describe('impactSteps', () => {
             { ...untracked, opened: 1 },
             [1, undefined],
             [0, undefined],
+            ['Needs link tagging', true],
             [null, 'No clicks', 'This counts conversions after a click, and no clicks were recorded'],
         ],
         [
@@ -148,6 +153,7 @@ describe('impactSteps', () => {
             { ...untracked, clicked: 3 },
             [0, undefined],
             [3, undefined],
+            ['Needs link tagging', true],
             [null, 'None followed', "PostHog couldn't tie any of the 3 clicked sends"],
         ],
         [
@@ -155,14 +161,16 @@ describe('impactSteps', () => {
             { ...untracked, untracked: 40 },
             [0, undefined],
             [0, undefined],
+            ['Needs link tagging', true],
             [null, 'No clicks', 'This counts conversions after a click, and no clicks were recorded'],
         ],
-    ] as const)('says why a step has no data when %s', (_, data, opened, clicked, converted) => {
+    ] as const)('says why a step has no data when %s', (_, data, opened, clicked, session, converted) => {
         const steps = impactSteps(data, 'plan upgraded', 'off')
-        const [, , openedStep, clickedStep, , convertedStep] = steps
+        const [, , openedStep, clickedStep, sessionStep, convertedStep] = steps
 
         expect([openedStep.value, openedStep.missing]).toEqual(opened)
         expect([clickedStep.value, clickedStep.missing]).toEqual(clicked)
+        expect([sessionStep.missing, sessionStep.missingFixedByLinkTagging]).toEqual(session)
         expect([convertedStep.label, convertedStep.value, convertedStep.missing]).toEqual([
             'plan upgraded',
             converted[0],

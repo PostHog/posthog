@@ -34,8 +34,11 @@ const SESSIONS_NOT_MEASURED_DETAIL =
 const SENSITIVE_EMAIL_DETAIL =
     "This email protects sensitive data, so PostHog doesn't tag its links and can't connect its clicks to sessions. Conversions still count, because they go through the person on each send."
 
-function sessionStep(linkTagging: LinkTagging): ImpactStep {
+function sessionStep(impact: TransactionalEmailImpactApi, linkTagging: LinkTagging): ImpactStep {
     const step = { key: 'session', label: 'Started a session', value: null, share: null } as const
+    if (everySendUntracked(impact)) {
+        return { ...step, missing: 'Tracking off', missingDetail: TRACKING_OFF_DETAIL }
+    }
     switch (linkTagging) {
         case 'on':
             return { ...step, missing: 'Not measured yet', missingDetail: SESSIONS_NOT_MEASURED_DETAIL }
@@ -106,7 +109,7 @@ export function impactSteps(
         { key: 'delivered', label: 'Delivered', value: impact.delivered, share: null },
         trackedStep('opened', 'Opened', impact.opened, impact),
         trackedStep('clicked', 'Clicked', impact.clicked, impact),
-        sessionStep(linkTagging),
+        sessionStep(impact, linkTagging),
         conversionStep(impact, event),
     ]
 }

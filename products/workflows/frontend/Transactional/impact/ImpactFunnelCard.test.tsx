@@ -29,9 +29,12 @@ const IMPACT: TransactionalEmailImpactApi = {
     without_click: { sends: 7, converted: 1 },
 }
 
-const teamWithLinkTagging = (enabled: boolean): TeamType => ({
+const teamWithLinkTagging = (enabled: boolean | undefined): TeamType => ({
     ...MOCK_DEFAULT_TEAM,
-    workflows_config: { capture_workflows_engagement_events: true, email_workflow_run_link_tag_enabled: enabled },
+    workflows_config: {
+        capture_workflows_engagement_events: true,
+        ...(enabled === undefined ? {} : { email_workflow_run_link_tag_enabled: enabled }),
+    },
 })
 
 describe('ImpactFunnelCard', () => {
@@ -67,7 +70,9 @@ describe('ImpactFunnelCard', () => {
     it.each([
         ['tagging is off', false, false, 'Needs link tagging', true],
         ['tagging is on', true, false, 'Not measured yet', false],
+        ['the project never set tagging', undefined, false, 'Not measured yet', false],
         ['the email protects sensitive data', false, true, 'Not measured', false],
+        ['the email protects sensitive data while tagging is on', true, true, 'Not measured', false],
     ])(
         "links the session step to the project's link tagging setting only when it would help, when %s",
         async (_, enabled, sensitive, label, linked) => {
