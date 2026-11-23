@@ -66,6 +66,9 @@ _RESERVED_STRING_VALUES = [
 _RESERVED_STRING_VALUES_TEXT = f"{', '.join(_RESERVED_STRING_VALUES[:-1])} or {_RESERVED_STRING_VALUES[-1]}"
 
 
+_UNBOUNDED_LIMITS = ValidationLimits(max_config_bytes=sys.maxsize, max_metadata_bytes=sys.maxsize)
+
+
 def _flag_enabled(key: str, team_id: int) -> bool:
     # Local evaluation only, so a write never waits on a remote call; an unresolved flag reads as closed.
     try:
@@ -243,8 +246,7 @@ def review_update(
     """
     # Stored rows may predate lower byte caps; validate their semantics without
     # preventing a replacement that brings them back within the write limits.
-    unbounded = ValidationLimits(max_config_bytes=sys.maxsize, max_metadata_bytes=sys.maxsize)
-    current = _validated_stored(stored, limits=unbounded, operation="updated") if stored else None
+    current = _validated_stored(stored, limits=_UNBOUNDED_LIMITS, operation="updated") if stored else None
     # Checked first, so a changed type is not reported as values that do not match it.
     if (
         current is not None
@@ -290,11 +292,10 @@ def _validated_stored(
 def check_copy(document: Mapping[str, Any]) -> None:
     """Reject a stored document that a new flag in another project may not store.
 
-    The document must validate, then pass the writer rules with nothing stored. The byte limits are unbounded because
-    a stored row may predate a lower cap, as in ``review_update``.
+    The document must validate, then pass the writer rules with nothing stored. The byte limits are not checked, so a
+    flag over a cap still copies. Its copy is then over the same cap as its source.
     """
-    unbounded = ValidationLimits(max_config_bytes=sys.maxsize, max_metadata_bytes=sys.maxsize)
-    validate_config(document, limits=unbounded)
+    validate_config(document, limits=_UNBOUNDED_LIMITS)
     check_writer_rules(document, stored={})
 
 

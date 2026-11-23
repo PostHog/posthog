@@ -20,7 +20,6 @@ from posthog.models.resource_transfer.visitors.feature_flag_filters import (
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.facade.config import detect_config_format
-from products.feature_flags.backend.facade.config_validation import ConfigValidationError
 from products.feature_flags.backend.facade.config_writes import check_copy
 from products.feature_flags.backend.reserved_variant_keys import reserved_variant_key, reserved_variant_key_message
 
@@ -54,10 +53,7 @@ class FeatureFlagVisitor(
         # A copy creates a new flag in the destination project, so the new flag holds no variant key or value yet.
         filters = payload.get("filters")
         if isinstance(filters, Mapping) and detect_config_format(filters).kind == "v2":
-            try:
-                check_copy(filters)
-            except ConfigValidationError as exc:
-                raise ValueError(str(exc)) from exc
+            check_copy(filters)
         reserved_key = reserved_variant_key(filters)
         if reserved_key is not None:
             raise ValueError(reserved_variant_key_message(reserved_key))
