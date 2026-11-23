@@ -1,19 +1,21 @@
 """The state machine of an observation window: what one tick does to an open or suspicious window.
 
-A window watches one flag edit that raised exposure. Each tick checks the closes first and stops at the first that
-applies, in this order:
+A window watches one flag edit that raised exposure. Each tick runs these checks in order and stops at the first that
+applies:
 
-1. Reverted: the flag gives nobody a value that it didn't give before the edit, for example because a person disabled
-   it or put the old config back. This check comes first, so the scout never reports an edit that a person already
-   rolled back.
-2. Superseded: the flag changed again in a way that moves people. When that edit raises exposure too, the next window
+1. Unreadable config: the flag moved to a config format that the comparison with the edit can't read, such as version
+   2. The window can't tell a revert from another edit, so it stops watching.
+2. Reverted: the flag gives nobody a value that it didn't give before the edit, for example because someone on the team
+   disabled it or put the old config back. This check comes before the score, so the scout never reports an edit that
+   the team already rolled back.
+3. Superseded: the flag changed again in a way that moves people. When that edit raises exposure too, the next window
    keeps the baseline and the evidence of this one, so the errors of an earlier rollout step stay out of the baseline of
    the next step.
-3. Expired: `max_duration` passed since the edit.
-4. A suspicious window waits for the verdict of the judgment, and asks for the judgment again on each tick.
-5. No reach: nobody is exposed `no_reach_after` the edit.
-6. The score: a suspicious score makes the window suspicious and asks for the judgment.
-7. No regression: the exposure share became stable, and `post_stable` passed since then.
+4. Expired: `max_duration` passed since the edit.
+5. A suspicious window waits for the verdict of the judgment, and asks for the judgment again on each tick.
+6. No reach: nobody is exposed `no_reach_after` the edit.
+7. The score: a suspicious score makes the window suspicious and asks for the judgment.
+8. No regression: the exposure share of the complete hours became stable, and `post_stable` passed since then.
 
 The module reads no data and stores nothing, so the tick and the backtest replay share one order of checks. The verdicts
 of the scout (reported, dismissed, and the expiry of a proposal) are out of scope.
@@ -31,6 +33,7 @@ from products.feature_flags.backend.exposure_change import (
     FlagExposureConfig,
     classify_exposure_change,
 )
+from products.feature_flags.backend.facade.config import is_v1_config
 from products.feature_flags.backend.flag_windows.baseline import HOUR, BaselineHour, HourErrors
 from products.feature_flags.backend.flag_windows.errors import ErrorCounts
 from products.feature_flags.backend.flag_windows.exposure import ExposureBucket
@@ -51,6 +54,7 @@ class WindowState(StrEnum):
 
 
 class CloseReason(StrEnum):
+    UNREADABLE_CONFIG = "unreadable_config"
     REVERTED = "reverted"
     SUPERSEDED = "superseded"
     EXPIRED = "expired"
@@ -112,18 +116,15 @@ class ObservationWindow:
 class TickOutcome:
     state: WindowState
     close_reason: CloseReason | None
-    trigger_judgment: bool
-    # The edit that superseded the window raises exposure too, so the window of that edit keeps the baseline and the
-    # evidence of this window.
+    # True when the edit that superseded the window raises exposure too, so the window of that edit keeps the baseline
+    # and the evidence of this window.
     successor_keeps_evidence: bool = False
     # None when the tick stopped before the score.
     score: WindowScore | None = None
 
-    def __post_init__(self) -> None:
-        if (self.state == WindowState.CLOSED) != (self.close_reason is not None):
-            raise ValueError(f"Only a closed window has a close reason, got {self.state} with {self.close_reason}")
-        if self.successor_keeps_evidence and self.close_reason != CloseReason.SUPERSEDED:
-            raise ValueError(f"Only a superseded window has a successor, got {self.close_reason}")
+    @property
+    def trigger_judgment(self) -> bool:
+        return self.state == WindowState.SUSPICIOUS
 
 
 def advance_window(
@@ -139,13 +140,15 @@ def advance_window(
     condition_match: ConditionMatch | None = None,
 ) -> TickOutcome:
     """Advances the window by the tick at `now`. `flag` holds the fields of the flag at `now`. The other inputs are the
-    ones that `score_window` takes. Raises `ConfigFormatError` when a config is not version 1."""
+    ones that `score_window` takes. Raises `ConfigFormatError` when a config of the window is not version 1."""
     if window.state == WindowState.CLOSED:
         raise ValueError(f"A closed window doesn't tick, got the window of edit {window.edit.id}")
     edited_at = window.edit.edited_at
     if now < edited_at:
         raise ValueError(f"The tick at {now} comes before the edit at {edited_at}")
 
+    if not is_v1_config(flag.filters):
+        return _closed(CloseReason.UNREADABLE_CONFIG)
     # The classification compares who gets which value, not the stored config, so a revert that keeps a payload change
     # counts. A partial revert still raises exposure over the old config, so the next check finds it as another edit.
     if classify_exposure_change(before=window.config_before, after=flag).direction != ExposureDirection.RAISES:
@@ -160,7 +163,7 @@ def advance_window(
     if now >= edited_at + parameters.max_duration:
         return _closed(CloseReason.EXPIRED)
     if window.state == WindowState.SUSPICIOUS:
-        return TickOutcome(state=WindowState.SUSPICIOUS, close_reason=None, trigger_judgment=True)
+        return TickOutcome(state=WindowState.SUSPICIOUS, close_reason=None)
     if now >= edited_at + parameters.no_reach_after and not _exposed_since_edit(exposure, condition_match):
         return _closed(CloseReason.NO_REACH)
 
@@ -168,11 +171,11 @@ def advance_window(
         window.edit, exposure, errors_since_edit, hours, baseline, parameters.score, condition_match=condition_match
     )
     if score.suspicious:
-        return TickOutcome(state=WindowState.SUSPICIOUS, close_reason=None, trigger_judgment=True, score=score)
-    stable_since = _stable_since(exposure, parameters)
+        return TickOutcome(state=WindowState.SUSPICIOUS, close_reason=None, score=score)
+    stable_since = _stable_since(exposure, now, parameters)
     if stable_since is not None and now >= stable_since + parameters.post_stable:
         return _closed(CloseReason.NO_REGRESSION, score=score)
-    return TickOutcome(state=WindowState.OPEN, close_reason=None, trigger_judgment=False, score=score)
+    return TickOutcome(state=WindowState.OPEN, close_reason=None, score=score)
 
 
 def _closed(
@@ -181,7 +184,6 @@ def _closed(
     return TickOutcome(
         state=WindowState.CLOSED,
         close_reason=reason,
-        trigger_judgment=False,
         successor_keeps_evidence=successor_keeps_evidence,
         score=score,
     )
@@ -200,17 +202,19 @@ def _exposed_since_edit(exposure: Sequence[ExposureBucket], condition_match: Con
     return since_edit.exposed
 
 
-def _stable_since(exposure: Sequence[ExposureBucket], parameters: WindowParameters) -> datetime | None:
+def _stable_since(exposure: Sequence[ExposureBucket], now: datetime, parameters: WindowParameters) -> datetime | None:
     """The end of the bucket in which the share had stayed in the band for `stable_buckets` buckets, or None when the
-    latest buckets aren't stable. A share that moves out of the band starts the count again."""
-    run_start = len(exposure)
+    latest buckets aren't stable. A share that moves out of the band starts the count again. The hour in progress holds
+    only the first minutes of people, so its share is noise and stays out."""
+    complete = [bucket for bucket in exposure if bucket.start + HOUR <= now]
+    run_start = len(complete)
     low, high = math.inf, -math.inf
-    for index in range(len(exposure) - 1, -1, -1):
-        share = exposure_share(exposure[index].in_bucket)
+    for index in range(len(complete) - 1, -1, -1):
+        share = exposure_share(complete[index].in_bucket)
         low, high = min(low, share), max(high, share)
         if high - low >= parameters.stable_share_change:
             break
         run_start = index
-    if len(exposure) - run_start < parameters.stable_buckets:
+    if len(complete) - run_start < parameters.stable_buckets:
         return None
-    return exposure[run_start + parameters.stable_buckets - 1].start + HOUR
+    return complete[run_start + parameters.stable_buckets - 1].start + HOUR

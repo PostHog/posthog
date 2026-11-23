@@ -68,6 +68,7 @@ def _flag(rollout: float, active: bool = True, payloads: Mapping[str, Any] | Non
 
 BEFORE = _flag(10)
 AFTER = _flag(25)
+IN_VERSION_2 = dataclasses.replace(AFTER, filters={"version": 2, "rules": []})
 
 EDIT = WatchedEdit(
     id="edit", flag_key="new-checkout", edited_at=EDITED_AT, group_type_index=None, variants=(), enables=False
@@ -121,21 +122,17 @@ SUSPICIOUS_ERRORS = ErrorCounts(
 
 
 def _closed(reason: CloseReason, successor_keeps_evidence: bool = False) -> TickOutcome:
-    return TickOutcome(
-        state=WindowState.CLOSED,
-        close_reason=reason,
-        trigger_judgment=False,
-        successor_keeps_evidence=successor_keeps_evidence,
-    )
+    return TickOutcome(state=WindowState.CLOSED, close_reason=reason, successor_keeps_evidence=successor_keeps_evidence)
 
 
-def _stays(state: WindowState, trigger_judgment: bool = False) -> TickOutcome:
-    return TickOutcome(state=state, close_reason=None, trigger_judgment=trigger_judgment)
+def _stays(state: WindowState) -> TickOutcome:
+    return TickOutcome(state=state, close_reason=None)
 
 
 class TestAdvanceWindow(SimpleTestCase):
     @parameterized.expand(
         [
+            param("unreadable_config", flag=IN_VERSION_2, expected=_closed(CloseReason.UNREADABLE_CONFIG)),
             param("reverted_by_disabling", flag=_flag(25, active=False), expected=_closed(CloseReason.REVERTED)),
             param("reverted_to_the_old_config", flag=BEFORE, expected=_closed(CloseReason.REVERTED)),
             param("reverted_below_the_old_config", flag=_flag(5), expected=_closed(CloseReason.REVERTED)),
@@ -150,13 +147,15 @@ class TestAdvanceWindow(SimpleTestCase):
                 expected=_closed(CloseReason.SUPERSEDED, successor_keeps_evidence=True),
             ),
             param("superseded_by_a_partial_revert", flag=_flag(15), expected=_closed(CloseReason.SUPERSEDED)),
-            param("payload_change_keeps_the_window", flag=_flag(25, payloads={"true": "{}"}), expected=_stays(OPEN)),
-            param("expired", hours_since_edit=7 * 24, expected=_closed(CloseReason.EXPIRED)),
             param(
-                "suspicious_asks_for_the_judgment_again",
-                state=SUSPICIOUS,
-                expected=_stays(SUSPICIOUS, trigger_judgment=True),
+                "payload_change_keeps_the_window",
+                flag=_flag(25, payloads={"true": "{}"}),
+                expected=_stays(OPEN),
+                scored=True,
             ),
+            param("expired", hours_since_edit=7 * 24, expected=_closed(CloseReason.EXPIRED)),
+            param("an_hour_before_expiry", hours_since_edit=7 * 24 - 1, expected=_stays(OPEN), scored=True),
+            param("suspicious_asks_for_the_judgment_again", state=SUSPICIOUS, expected=_stays(SUSPICIOUS)),
             param("no_reach", hours_since_edit=12, exposure=NOBODY_EXPOSED, expected=_closed(CloseReason.NO_REACH)),
             param("no_reach_without_buckets", hours_since_edit=12, exposure=[], expected=_closed(CloseReason.NO_REACH)),
             param(
@@ -164,6 +163,21 @@ class TestAdvanceWindow(SimpleTestCase):
                 hours_since_edit=11,
                 exposure=NOBODY_EXPOSED,
                 expected=_stays(OPEN),
+                scored=True,
+            ),
+            param(
+                "no_reach_reads_the_given_delay",
+                hours_since_edit=6,
+                exposure=NOBODY_EXPOSED,
+                parameters=dataclasses.replace(PARAMETERS, no_reach_after=timedelta(hours=6)),
+                expected=_closed(CloseReason.NO_REACH),
+            ),
+            param(
+                "exposed_after_the_first_buckets_keeps_the_window",
+                hours_since_edit=12,
+                exposure=[*_exposure([0.0] * 11, exposed=0), _exposure([0.25] * 12)[-1]],
+                expected=_stays(OPEN),
+                scored=True,
             ),
             param(
                 "no_reach_in_the_watched_conditions",
@@ -180,35 +194,43 @@ class TestAdvanceWindow(SimpleTestCase):
                 hours_since_edit=12,
                 condition_match=ConditionMatch.REASON,
                 expected=_stays(OPEN),
+                scored=True,
             ),
-            param(
-                "suspicious_score",
-                errors=SUSPICIOUS_ERRORS,
-                expected=_stays(SUSPICIOUS, trigger_judgment=True),
-            ),
+            param("suspicious_score", errors=SUSPICIOUS_ERRORS, expected=_stays(SUSPICIOUS), scored=True),
             param(
                 "no_regression",
                 hours_since_edit=28,
                 exposure=_exposure(_rising_then_flat(28)),
                 expected=_closed(CloseReason.NO_REGRESSION),
+                scored=True,
             ),
             param(
                 "stable_before_the_post_stable_delay",
                 hours_since_edit=27,
                 exposure=_exposure(_rising_then_flat(27)),
                 expected=_stays(OPEN),
+                scored=True,
+            ),
+            param(
+                "hour_in_progress_stays_out_of_stability",
+                hours_since_edit=28.5,
+                exposure=_exposure([*_rising_then_flat(28), 0.40]),
+                expected=_closed(CloseReason.NO_REGRESSION),
+                scored=True,
             ),
             param(
                 "share_that_moves_again_restarts_stability",
                 hours_since_edit=40,
                 exposure=_exposure([*_rising_then_flat(38), 0.40, 0.40]),
                 expected=_stays(OPEN),
+                scored=True,
             ),
             param(
                 "share_drifting_slowly_keeps_the_window_open",
                 hours_since_edit=40,
                 exposure=_exposure([0.10 + 0.005 * index for index in range(40)]),
                 expected=_stays(OPEN),
+                scored=True,
             ),
             param(
                 "reverted_wins_over_suspicious",
@@ -239,14 +261,21 @@ class TestAdvanceWindow(SimpleTestCase):
                 state=SUSPICIOUS,
                 hours_since_edit=12,
                 exposure=NOBODY_EXPOSED,
-                expected=_stays(SUSPICIOUS, trigger_judgment=True),
+                expected=_stays(SUSPICIOUS),
+            ),
+            param(
+                "no_reach_wins_over_no_regression",
+                hours_since_edit=28,
+                exposure=_exposure([0.0] * 28, exposed=0),
+                expected=_closed(CloseReason.NO_REACH),
             ),
             param(
                 "suspicious_score_wins_over_no_regression",
                 hours_since_edit=28,
                 exposure=_exposure(_rising_then_flat(28)),
                 errors=SUSPICIOUS_ERRORS,
-                expected=_stays(SUSPICIOUS, trigger_judgment=True),
+                expected=_stays(SUSPICIOUS),
+                scored=True,
             ),
         ]
     )
@@ -256,24 +285,27 @@ class TestAdvanceWindow(SimpleTestCase):
         expected: TickOutcome,
         state: WindowState = OPEN,
         flag: FlagExposureConfig = AFTER,
-        hours_since_edit: int = 2,
+        hours_since_edit: float = 2,
         exposure: Sequence[ExposureBucket] = RISING_EXPOSURE,
         errors: ErrorCounts | None = None,
         condition_match: ConditionMatch | None = None,
+        parameters: WindowParameters = PARAMETERS,
+        scored: bool = False,
     ) -> None:
         outcome = advance_window(
             _window(state),
             flag=flag,
-            now=EDITED_AT + hours_since_edit * HOUR,
+            now=EDITED_AT + timedelta(hours=hours_since_edit),
             exposure=exposure,
             errors_since_edit=errors,
             hours={},
             baseline=[],
-            parameters=PARAMETERS,
+            parameters=parameters,
             condition_match=condition_match,
         )
 
         assert dataclasses.replace(outcome, score=None) == expected
+        assert (outcome.score is not None) == scored
 
     @parameterized.expand(
         [
@@ -297,10 +329,12 @@ class TestAdvanceWindow(SimpleTestCase):
     @parameterized.expand(
         [
             ("zero_duration", {"no_reach_after": timedelta(0)}, "positive no reach delay"),
+            ("zero_post_stable", {"post_stable": timedelta(0)}, "positive post stable delay"),
             ("one_stable_bucket", {"stable_buckets": 1}, "at least 2 buckets"),
+            ("share_change_of_zero", {"stable_share_change": 0.0}, "between 0 and 1"),
             ("share_change_of_one", {"stable_share_change": 1.0}, "between 0 and 1"),
-            ("no_reach_after_expiry", {"no_reach_after": timedelta(days=7)}, "would expire"),
-            ("post_stable_after_expiry", {"post_stable": timedelta(days=8)}, "would expire"),
+            ("no_reach_at_expiry", {"no_reach_after": timedelta(days=7)}, "would expire"),
+            ("post_stable_at_expiry", {"post_stable": timedelta(days=7)}, "would expire"),
         ]
     )
     def test_parameters_refuse(self, _name: str, changes: Mapping[str, Any], message: str) -> None:
