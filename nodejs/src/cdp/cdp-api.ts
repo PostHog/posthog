@@ -1693,7 +1693,12 @@ export class CdpApi {
                 }
                 // A single send answers 404 here, which Django retries. A batch refuses for good: the workflow is gone
                 // for every recipient.
-                if (!hogFlow || hogFlow.team_id !== team.id || hogFlow.trigger?.type !== 'api') {
+                if (
+                    !hogFlow ||
+                    hogFlow.team_id !== team.id ||
+                    hogFlow.trigger?.type !== 'api' ||
+                    hasPushActions(hogFlow.actions)
+                ) {
                     return refuse('not_sendable', 400, { error: 'not_sendable' })
                 }
 

@@ -5543,6 +5543,32 @@ describe('CDP API', () => {
                     },
                 ],
                 [
+                    'the workflow also sends a push',
+                    400,
+                    'not_sendable',
+                    async () => {
+                        await hub.postgres.query(
+                            PostgresUse.COMMON_WRITE,
+                            `UPDATE posthog_hogflow SET actions = actions || $2::jsonb WHERE id = $1`,
+                            [
+                                hogFlow.id,
+                                JSON.stringify([
+                                    {
+                                        id: 'push',
+                                        name: 'push',
+                                        description: '',
+                                        type: 'function_push',
+                                        config: { template_id: 'template-native-push', inputs: {} },
+                                        created_at: 0,
+                                        updated_at: 0,
+                                    },
+                                ]),
+                            ],
+                            'add-push-step'
+                        )
+                    },
+                ],
+                [
                     "the workflow's sending is paused and the suspension lookup stalls",
                     422,
                     'sending_paused',
@@ -6913,10 +6939,10 @@ describe('CDP API', () => {
 
                 expect(res.status).toEqual(202)
                 expect(res.body).toEqual({ status: 'queued', invocation_id: expect.any(String), replayed: false })
-                expect(producedTo('cdp_intake_transactional_push')).toEqual([
+                expect(producedTo('cdp_intake_msk_transactional_push')).toEqual([
                     expect.objectContaining({ key: res.body.invocation_id }),
                 ])
-                expect(producedTo('cdp_intake_transactional_email')).toEqual([])
+                expect(producedTo('cdp_intake_msk_transactional_email')).toEqual([])
                 expect(mockQueueInvocations).not.toHaveBeenCalled()
             })
 
@@ -6929,12 +6955,12 @@ describe('CDP API', () => {
 
                 expect(res.status).toEqual(202)
                 expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-                expect(producedTo('cdp_intake_transactional_push')).toEqual([])
+                expect(producedTo('cdp_intake_msk_transactional_push')).toEqual([])
             })
 
             it('answers 503 intake_unavailable when the broker refuses the run', async () => {
                 produceOutput.mockImplementation((output: string) =>
-                    output === 'cdp_intake_transactional_push'
+                    output === 'cdp_intake_msk_transactional_push'
                         ? Promise.reject(new Error('Broker: Not enough in-sync replicas'))
                         : Promise.resolve()
                 )
@@ -6961,7 +6987,7 @@ describe('CDP API', () => {
 
                 expect(res.status).toEqual(202)
                 expect(mockQueueInvocations).toHaveBeenCalledTimes(inserted)
-                expect(producedTo('cdp_intake_transactional_push')).toHaveLength(produced)
+                expect(producedTo('cdp_intake_msk_transactional_push')).toHaveLength(produced)
             })
         })
     })
