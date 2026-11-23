@@ -7,6 +7,7 @@ lifecycle machine in `facade.lifecycle`, and scheduling math in `facade.scheduli
 
 import uuid
 from collections.abc import Collection, Iterable, Iterator
+from copy import copy as shallow_copy
 from datetime import datetime, timedelta
 from itertools import islice
 from typing import Any, Literal
@@ -441,12 +442,14 @@ def _snooze_moved_from_slack(alert: AlertConfiguration, *, user: User, snoozed_u
     """Snoozes an alert the platform owns, whose row the caller locked, on its copy alone, which holds
     whether it is on and mutes its delivery."""
     # Deferred: platform_ownership reaches this module back.
+    from products.alerts.backend.activity_logging import log_platform_alert_edit  # noqa: PLC0415
     from products.alerts.backend.platform_ownership import on_updated, show_locked_copy  # noqa: PLC0415
 
     if not show_locked_copy(alert):
         return "not_found"
     if not alert.enabled:
         return "disabled"
+    before = shallow_copy(alert)
     alert.snoozed_until = snoozed_until
     with ActingUserContext(user):
         try:
@@ -455,6 +458,7 @@ def _snooze_moved_from_slack(alert: AlertConfiguration, *, user: User, snoozed_u
             capture_exception(error, {"alert_id": str(alert.id)})
             transaction.set_rollback(True)
             return "not_snoozable"
+    log_platform_alert_edit(before, alert, user=user, was_impersonated=False)
     return "snoozed"
 
 

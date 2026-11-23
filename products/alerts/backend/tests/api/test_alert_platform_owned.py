@@ -1527,6 +1527,13 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             assert (self._copy().name, self.alert.snoozed_until) == ("alert", None)
             # The platform's history records the snooze, so the row keeps no check for it.
             assert not AlertCheck.objects.filter(alert_configuration_id=self.alert.id).exists()
+            logged = ActivityLog.objects.filter(
+                team_id=self.team.id, scope="AlertConfiguration", item_id=str(self.alert.id), activity="updated"
+            ).get()
+            assert (logged.user, [change["field"] for change in (logged.detail or {})["changes"]]) == (
+                self.user,
+                ["snoozed_until"],
+            )
 
     def test_a_snooze_through_the_api_writes_no_check_to_an_owned_alerts_row(self) -> None:
         snoozed = self.client.patch(
