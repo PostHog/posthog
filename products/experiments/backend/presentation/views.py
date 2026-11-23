@@ -88,6 +88,10 @@ from products.experiments.backend.facade.contracts import (
 from products.experiments.backend.facade.legacy_migration import migrate_experiment as migrate_legacy_experiment
 from products.experiments.backend.facade.replay import resolve_in_session_exposure_semantics
 from products.experiments.backend.facade.temporal import ExperimentTimeseriesRecalculationWorkflowInputs
+from products.experiments.backend.facade.warehouse_native_access import (
+    validate_warehouse_native_connection_access,
+    warehouse_native_connection_id,
+)
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
 # TODO: Route through facade instead of direct import
@@ -1735,6 +1739,7 @@ class EnterpriseExperimentsViewSet(
     )
     def metrics_recalculation_latest(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment: Experiment = self.get_object()
+        _check_warehouse_native_result_access(experiment, self.team, request.user)
         active = get_active_recalculation(experiment)
         active_run = {"id": str(active.id), "status": active.status} if active is not None else None
         recalc = get_latest_recalculation(experiment)
@@ -1783,6 +1788,7 @@ class EnterpriseExperimentsViewSet(
         self, request: Request, recalculation_id: str, *args: Any, **kwargs: Any
     ) -> Response:
         experiment: Experiment = self.get_object()
+        _check_warehouse_native_result_access(experiment, self.team, request.user)
         recalc = get_recalculation_by_id(experiment, recalculation_id)
         if recalc is None:
             return Response({"detail": "Recalculation not found"}, status=404)
@@ -2196,6 +2202,15 @@ class EnterpriseExperimentsViewSet(
         except Exception:
             logger.warning("Failed to evaluate the experiment behavior comparison flag", exc_info=True)
             return False
+
+
+def _check_warehouse_native_result_access(experiment: Experiment, team: Team, user: Any) -> None:
+    """A stored run holds totals read from the customer's warehouse. The reader needs the connection access
+    that the query endpoint asks for, or the run hands out what that endpoint refuses."""
+    connection_id = warehouse_native_connection_id(experiment.exposure_criteria)
+    if connection_id is None:
+        return
+    validate_warehouse_native_connection_access(team, user if isinstance(user, User) else None, connection_id)
 
 
 def _build_run_payload(recalc: ExperimentMetricsRecalculation) -> dict:
