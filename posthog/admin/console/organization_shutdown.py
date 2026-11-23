@@ -4,12 +4,14 @@ The bulk deactivation tool and the organization page both run `shut_down_organiz
 cannot drift apart.
 """
 
+import json
 from collections.abc import Callable, Collection, Sequence
 from functools import partial
 from typing import Any
 from uuid import UUID
 
 from django import forms
+from django.core.cache import cache
 from django.db import transaction
 from django.urls import reverse
 
@@ -42,8 +44,8 @@ STOP_NOTICE = (
 )
 UNDO_HINT = (
     "To undo, reactivate the organization on its Django admin page. That does not restart the background work "
-    f"this stopped. Turn each item back on by hand: the result page and the {AUDIT_EVENT} event in the audit log "
-    "list every stopped ID."
+    f"this stopped. Turn each item back on by hand: the page that follows the shutdown and the {AUDIT_EVENT} event "
+    "in the audit log list every stopped ID."
 )
 
 HOG_FUNCTION_LABELS = {
@@ -236,7 +238,8 @@ class ShutdownResult:
     failures: tuple[StopFailure, ...]
 
 
-def _deactivate(organization_ids: Sequence[UUID], reason: str) -> set[UUID]:
+def deactivate_organizations(organization_ids: Sequence[UUID], reason: str) -> set[UUID]:
+    """Deactivates each organization that is still active, and returns their IDs."""
     with transaction.atomic():
         # Read the active state again under a lock, so an organization deactivated since the preview keeps
         # its existing reason. No-key, because only plain columns change and child rows may keep inserting.
@@ -295,41 +298,144 @@ def _describe(error: Exception) -> str:
     return f"{type(error).__name__}: {message}"[:300] if message else type(error).__name__
 
 
+def stop_organization_background_work(
+    organization_id: UUID, *, deactivated: bool, reason: str, triggered_by: str
+) -> ShutdownResult | None:
+    """Stops what the organization runs in the background, and writes each stopped ID to the audit log, because
+    reactivating an organization does not restart its work: staff turn it back on by hand. Nothing is deleted.
+
+    None when the organization no longer exists.
+    """
+    organization = Organization.objects.only("id", "name").filter(id=organization_id).first()
+    if organization is None:
+        return None
+    stopped, failures = _stop_background_work(organization)
+    result = ShutdownResult(
+        organization_id=organization.id,
+        name=organization.name,
+        deactivated=deactivated,
+        stopped=tuple(stopped),
+        failures=tuple(failures),
+    )
+    logger.info(
+        AUDIT_EVENT,
+        organization_id=str(organization.id),
+        triggered_by=triggered_by,
+        reason=reason,
+        deactivated=result.deactivated,
+        stopped={work.label: list(work.ids) for work in result.stopped},
+        failed=[{"kind": failure.label, "id": failure.resource_id} for failure in result.failures],
+    )
+    return result
+
+
 def shut_down_organizations(
     organization_ids: Sequence[UUID], *, reason: str, stop_background_work: bool, triggered_by: str
 ) -> list[ShutdownResult]:
     """Deactivates each organization that is still active with `reason`, and with `stop_background_work`, stops
-    what every one of them runs in the background, the already inactive ones included.
+    what every one of them runs in the background, the already inactive ones included, within this request."""
+    deactivated = deactivate_organizations(organization_ids, reason)
+    if not stop_background_work:
+        organizations = Organization.objects.only("id", "name").in_bulk(organization_ids)
+        return [
+            ShutdownResult(
+                organization_id=organization_id,
+                name=organizations[organization_id].name,
+                deactivated=organization_id in deactivated,
+                stopped=(),
+                failures=(),
+            )
+            for organization_id in organization_ids
+            if organization_id in organizations
+        ]
+    results = [
+        stop_organization_background_work(
+            organization_id, deactivated=organization_id in deactivated, reason=reason, triggered_by=triggered_by
+        )
+        for organization_id in organization_ids
+    ]
+    return [result for result in results if result is not None]
 
-    Nothing is deleted. Each stopped ID goes to the audit log, because reactivating an organization does not restart
-    its work: staff turn it back on by hand.
+
+@frozen
+class ShutdownRun:
+    total: int
+    finished: bool
+    crashed: bool
+    results: tuple[ShutdownResult, ...]
+
+
+class ShutdownRuns:
+    """The progress of a bulk shutdown that a Celery task runs, kept in the cache as JSON for the tool page to follow.
+
+    The audit log keeps every stopped ID for good, so the cache only has to outlive the time staff watch the run.
     """
-    deactivated = _deactivate(organization_ids, reason)
-    organizations = Organization.objects.only("id", "name").in_bulk(organization_ids)
-    results: list[ShutdownResult] = []
-    for organization_id in organization_ids:
-        organization = organizations.get(organization_id)
-        if organization is None:
-            continue
-        stopped, failures = _stop_background_work(organization) if stop_background_work else ([], [])
-        result = ShutdownResult(
-            organization_id=organization.id,
-            name=organization.name,
-            deactivated=organization.id in deactivated,
-            stopped=tuple(stopped),
-            failures=tuple(failures),
+
+    TTL_SECONDS = 7 * 24 * 60 * 60
+
+    @staticmethod
+    def _key(run_id: str) -> str:
+        return f"admin_console_organization_shutdown_run:{run_id}"
+
+    @classmethod
+    def start(cls, run_id: str, *, total: int) -> bool:
+        """False when the run already started, for example from a confirm submitted twice."""
+        state = {"total": total, "finished": False, "crashed": False, "results": []}
+        return cache.add(cls._key(run_id), json.dumps(state), cls.TTL_SECONDS)
+
+    @classmethod
+    def record(cls, run_id: str, result: ShutdownResult) -> None:
+        cls._update(run_id, lambda state: state["results"].append(_result_json(result)))
+
+    @classmethod
+    def finish(cls, run_id: str, *, crashed: bool = False) -> None:
+        cls._update(run_id, lambda state: state.update(finished=True, crashed=crashed))
+
+    @classmethod
+    def _update(cls, run_id: str, change: Callable[[dict[str, Any]], object]) -> None:
+        # Only the run's own task writes after the start, so a read and a write cannot race.
+        raw = cache.get(cls._key(run_id))
+        if raw is None:
+            return
+        state = json.loads(raw)
+        change(state)
+        cache.set(cls._key(run_id), json.dumps(state), cls.TTL_SECONDS)
+
+    @classmethod
+    def read(cls, run_id: str) -> ShutdownRun | None:
+        raw = cache.get(cls._key(run_id))
+        if raw is None:
+            return None
+        state = json.loads(raw)
+        return ShutdownRun(
+            total=state["total"],
+            finished=state["finished"],
+            crashed=state["crashed"],
+            results=tuple(_result_from_json(result) for result in state["results"]),
         )
-        logger.info(
-            AUDIT_EVENT,
-            organization_id=str(organization.id),
-            triggered_by=triggered_by,
-            reason=reason,
-            deactivated=result.deactivated,
-            stopped={work.label: list(work.ids) for work in result.stopped},
-            failed=[{"kind": failure.label, "id": failure.resource_id} for failure in result.failures],
-        )
-        results.append(result)
-    return results
+
+
+def _result_json(result: ShutdownResult) -> dict[str, Any]:
+    return {
+        "organization_id": str(result.organization_id),
+        "name": result.name,
+        "deactivated": result.deactivated,
+        "stopped": [[work.label, list(work.ids)] for work in result.stopped],
+        "failures": [[failure.label, failure.resource_id, failure.error] for failure in result.failures],
+    }
+
+
+def _result_from_json(state: dict[str, Any]) -> ShutdownResult:
+    return ShutdownResult(
+        organization_id=UUID(state["organization_id"]),
+        name=state["name"],
+        deactivated=state["deactivated"],
+        stopped=tuple(StoppedWork(label=label, ids=tuple(ids)) for label, ids in state["stopped"]),
+        failures=tuple(
+            StopFailure(label=label, resource_id=resource_id, error=error)
+            for label, resource_id, error in state["failures"]
+        ),
+    )
 
 
 def _organization_url(organization_id: UUID) -> str:
@@ -421,3 +527,59 @@ def result_page(results: Sequence[ShutdownResult], notices: Sequence[Notice] = (
     )
     blocks += notices
     return Page(blocks=tuple(blocks))
+
+
+RUN_FOLLOW_UP = (
+    "Reactivating an organization does not restart this work, and the "
+    f"{AUDIT_EVENT} event in the audit log keeps every stopped ID. A failure can come after the change was "
+    "saved, so check each failed item. Run the shutdown again to retry the ones still running."
+)
+
+
+def run_table(run: ShutdownRun) -> Table:
+    stopped = sum(len(work.ids) for result in run.results for work in result.stopped)
+    failed = sum(len(result.failures) for result in run.results)
+    if run.crashed:
+        title = f"Stopped early after {len(run.results)} of {run.total} organizations. Run the shutdown again."
+    elif run.finished:
+        title = f"Finished: stopped {pluralize(stopped, 'item')}, {failed} failed"
+    else:
+        title = f"Stopping background work: {len(run.results)} of {run.total} organizations done"
+    rows: list[Row | GroupRow] = []
+    for result in run.results:
+        rows.append(
+            GroupRow(
+                text=result.name,
+                detail=f"{result.organization_id} · {'deactivated' if result.deactivated else 'already inactive'}",
+                href=_organization_url(result.organization_id),
+            )
+        )
+        rows += [
+            Row(
+                cells=(
+                    Cell(text=work.label),
+                    Cell(text=resource_id, mono=True),
+                    Cell(text="Stopped", tone=Tone.SUCCESS),
+                    Cell(text=""),
+                )
+            )
+            for work in result.stopped
+            for resource_id in work.ids
+        ]
+        rows += [
+            Row(
+                cells=(
+                    Cell(text=failure.label),
+                    Cell(text=failure.resource_id or "Could not list them", mono=bool(failure.resource_id)),
+                    Cell(text="Failed", tone=Tone.DESTRUCTIVE),
+                    Cell(text=failure.error),
+                )
+            )
+            for failure in result.failures
+        ]
+    return Table(
+        title=title,
+        columns=("Kind", "ID", "Status", "Error"),
+        rows=tuple(rows),
+        empty_text="No organization is done yet.",
+    )

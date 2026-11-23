@@ -1,26 +1,34 @@
 import re
 from typing import Any, cast
-from uuid import UUID
+from urllib.parse import urlencode
+from uuid import UUID, uuid4
 
 from django import forms
 from django.contrib import messages
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 
 from posthog.admin.console.organization_shutdown import (
+    RUN_FOLLOW_UP,
     STOP_NOTICE,
     UNDO_HINT,
     OrganizationShutdownForm,
+    ShutdownRuns,
+    deactivate_organizations,
     inventory_table,
     planned_action,
-    result_page,
+    run_table,
     shut_down_organizations,
     take_inventory,
 )
 from posthog.admin.console.registry import console
-from posthog.admin.console.tools import ConsoleTool, Notice, Page, Table, ToolOperation
+from posthog.admin.console.tools import ConsoleTool, Live, Notice, Page, Table, ToolOperation
 from posthog.models.organization import Organization
 from posthog.models.user import User
+from posthog.tasks.organization_shutdown import stop_organizations_background_work
 from posthog.utils import pluralize
+
+TOOL_URL = "/admin/console/tools/bulk-deactivate-organizations/"
+RUN_REFRESH_SECONDS = 3
 
 
 class BulkDeactivateOrganizationsForm(OrganizationShutdownForm):
@@ -118,33 +126,61 @@ def preview_bulk_deactivation(request: HttpRequest, form: forms.Form) -> Page:
     return Page(blocks=tuple(blocks))
 
 
+def _run_id(request: HttpRequest) -> str:
+    # The form nonce names the run, so a confirm submitted twice starts one run.
+    try:
+        return str(UUID(request.POST.get("form_nonce", "")))
+    except ValueError:
+        return str(uuid4())
+
+
 def bulk_deactivate(request: HttpRequest, form: forms.Form | None) -> HttpResponse | Page | None:
     assert form is not None
     stop_background_work = form.cleaned_data["stop_background_work"]
     deactivation = BulkDeactivation(form.cleaned_data["organization_ids"], stop_background_work=stop_background_work)
-    results = shut_down_organizations(
-        [organization.id for organization in deactivation.acted_on],
-        reason=form.cleaned_data["resolved_reason"],
-        stop_background_work=stop_background_work,
-        triggered_by=cast(User, request.user).email,
-    )
-    missing = (
-        f"Skipped {pluralize(len(deactivation.missing_ids), 'organization ID')} that were not found."
-        if deactivation.missing_ids
-        else ""
-    )
-    if stop_background_work:
-        return result_page(results, notices=[Notice(text=missing)] if missing else [])
+    organization_ids = [organization.id for organization in deactivation.acted_on]
+    reason = form.cleaned_data["resolved_reason"]
+    triggered_by = cast(User, request.user).email
+    if deactivation.missing_ids:
+        messages.warning(
+            request, f"Skipped {pluralize(len(deactivation.missing_ids), 'organization ID')} that were not found."
+        )
 
-    deactivated = sum(result.deactivated for result in results)
-    if deactivated:
-        messages.success(request, f"Deactivated {pluralize(deactivated, 'organization')}.")
-    if missing:
-        messages.warning(request, missing)
-    skipped = len(deactivation.matched) - deactivated
+    if stop_background_work:
+        deactivated = deactivate_organizations(organization_ids, reason)
+        run_id = _run_id(request)
+        if ShutdownRuns.start(run_id, total=len(organization_ids)):
+            stop_organizations_background_work.delay(
+                run_id,
+                [str(organization_id) for organization_id in organization_ids],
+                [str(organization_id) for organization_id in deactivated],
+                reason,
+                triggered_by,
+            )
+        messages.success(
+            request,
+            f"Deactivated {pluralize(len(deactivated), 'organization')}. Their background work stops in a background "
+            "job, and this page follows it.",
+        )
+        return HttpResponseRedirect(f"{TOOL_URL}?{urlencode({'run': run_id})}")
+
+    results = shut_down_organizations(
+        organization_ids, reason=reason, stop_background_work=False, triggered_by=triggered_by
+    )
+    deactivated_count = sum(result.deactivated for result in results)
+    if deactivated_count:
+        messages.success(request, f"Deactivated {pluralize(deactivated_count, 'organization')}.")
+    skipped = len(deactivation.matched) - deactivated_count
     if skipped:
         messages.warning(request, f"Skipped {pluralize(skipped, 'already inactive organization')}, reason unchanged.")
     return None
+
+
+def _requested_run(request: HttpRequest) -> str | None:
+    try:
+        return str(UUID(request.GET.get("run", "")))
+    except ValueError:
+        return None
 
 
 @console.register_tool
@@ -158,17 +194,26 @@ class OrganizationBulkDeactivationTool(ConsoleTool):
     )
 
     def page(self, request: HttpRequest) -> Page:
-        return Page(
-            blocks=(
-                Notice(
-                    text=(
-                        "Members of a deactivated organization cannot use PostHog until staff reactivate it. "
-                        "You see the organizations, the work each runs in the background, and what happens to each "
-                        "before anything changes."
-                    )
-                ),
+        intro = Notice(
+            text=(
+                "Members of a deactivated organization cannot use PostHog until staff reactivate it. "
+                "You see the organizations, the work each runs in the background, and what happens to each "
+                "before anything changes."
             )
         )
+        run = self.live(request, "run")
+        if run is None:
+            return Page(blocks=(intro,))
+        return Page(blocks=(Notice(text=RUN_FOLLOW_UP, link_text="Start another", href=TOOL_URL), run))
+
+    def live(self, request: HttpRequest, key: str) -> Live | None:
+        run_id = _requested_run(request)
+        if key != "run" or run_id is None:
+            return None
+        run = ShutdownRuns.read(run_id)
+        if run is None:
+            return Live(key="run", block=Notice(text="This run is unknown or too old to show. The audit log keeps it."))
+        return Live(key="run", block=run_table(run), refresh_seconds=None if run.finished else RUN_REFRESH_SECONDS)
 
     def operations(self, request: HttpRequest) -> list[ToolOperation]:
         return [
@@ -184,7 +229,7 @@ class OrganizationBulkDeactivationTool(ConsoleTool):
                 ),
                 form_class=BulkDeactivateOrganizationsForm,
                 undo_hint=UNDO_HINT,
-                pending_label="Shutting down. This can take a minute...",
+                pending_label="Deactivating...",
             )
         ]
 
@@ -192,5 +237,5 @@ class OrganizationBulkDeactivationTool(ConsoleTool):
 console.register_moved_page(
     old_path="admin/posthog/organization/bulk-deactivate/",
     title="Bulk deactivation",
-    url="/admin/console/tools/bulk-deactivate-organizations/",
+    url=TOOL_URL,
 )
