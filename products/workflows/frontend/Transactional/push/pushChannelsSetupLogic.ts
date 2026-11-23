@@ -8,7 +8,8 @@ import { IntegrationType } from '~/types'
 import { countPeopleWithPushDevice, pushAppId } from '../../setupGuide/wizard/pushDeviceCheckLogic'
 
 export type PushChannelsSetupWarning =
-    | { kind: 'no_integration' }
+    // Every selected app was disconnected since the template was saved.
+    | { kind: 'app_disconnected' }
     // The selected apps, none of which has a registered device.
     | { kind: 'no_devices'; appNames: string[] }
 
@@ -137,11 +138,9 @@ export const pushChannelsSetupLogic = kea<pushChannelsSetupLogicType>([
                 const hasPushIntegration = integrations.some(
                     (integration) => integration.kind === 'apns' || integration.kind === 'firebase'
                 )
-                if (!hasPushIntegration || (channels.length > 0 && selected.length === 0)) {
-                    return { kind: 'no_integration' }
-                }
+                // With no push app at all, the channel picker already says to connect one.
                 if (selected.length === 0) {
-                    return null
+                    return hasPushIntegration && channels.length > 0 ? { kind: 'app_disconnected' } : null
                 }
                 const counts = selected.map((integration) => {
                     const appId = pushAppId(integration)
