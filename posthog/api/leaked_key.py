@@ -1,5 +1,7 @@
 from hashlib import sha256
 
+from django.db import models
+
 import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers
@@ -22,6 +24,13 @@ from posthog.utils import get_instance_region
 PUBLIC_REPORT_MORE_INFO = "This key was reported as leaked via PostHog's public key-revocation API."
 
 
+class LeakedKeyType(models.TextChoices):
+    PERSONAL_API_KEY = CANONICAL_PERSONAL_API_KEY
+    PROJECT_SECRET_API_KEY = CANONICAL_PROJECT_SECRET_API_KEY
+    OAUTH_ACCESS_TOKEN = CANONICAL_OAUTH_ACCESS_TOKEN
+    OAUTH_REFRESH_TOKEN = CANONICAL_OAUTH_REFRESH_TOKEN
+
+
 class LeakedKeyReportSerializer(serializers.Serializer):
     token = serializers.CharField(
         # The longest key we issue is 51 characters. The cap rejects an oversized body
@@ -36,12 +45,7 @@ class LeakedKeyReportResponseSerializer(serializers.Serializer):
         help_text="Whether a matching PostHog key or token was found and revoked.",
     )
     type = serializers.ChoiceField(
-        choices=[
-            CANONICAL_PERSONAL_API_KEY,
-            CANONICAL_PROJECT_SECRET_API_KEY,
-            CANONICAL_OAUTH_ACCESS_TOKEN,
-            CANONICAL_OAUTH_REFRESH_TOKEN,
-        ],
+        choices=LeakedKeyType.choices,
         allow_null=True,
         help_text="The type of key that was found and revoked, or null if no match was found. A legacy feature flags secure API key matches as project_secret_api_key through its migrated row (#63111).",
     )

@@ -6358,15 +6358,14 @@ export interface LeakedKeyReportApi {
 }
 
 /**
- * * `personal_api_key` - personal_api_key
- * * `project_secret_api_key` - project_secret_api_key
- * * `oauth_access_token` - oauth_access_token
- * * `oauth_refresh_token` - oauth_refresh_token
+ * * `personal_api_key` - Personal Api Key
+ * * `project_secret_api_key` - Project Secret Api Key
+ * * `oauth_access_token` - Oauth Access Token
+ * * `oauth_refresh_token` - Oauth Refresh Token
  */
-export type LeakedKeyReportResponseTypeEnumApi =
-    (typeof LeakedKeyReportResponseTypeEnumApi)[keyof typeof LeakedKeyReportResponseTypeEnumApi]
+export type LeakedKeyTypeEnumApi = (typeof LeakedKeyTypeEnumApi)[keyof typeof LeakedKeyTypeEnumApi]
 
-export const LeakedKeyReportResponseTypeEnumApi = {
+export const LeakedKeyTypeEnumApi = {
     PersonalApiKey: 'personal_api_key',
     ProjectSecretApiKey: 'project_secret_api_key',
     OauthAccessToken: 'oauth_access_token',
@@ -6378,11 +6377,11 @@ export interface LeakedKeyReportResponseApi {
     found: boolean
     /** The type of key that was found and revoked, or null if no match was found. A legacy feature flags secure API key matches as project_secret_api_key through its migrated row (#63111).
      *
-     * * `personal_api_key` - personal_api_key
-     * * `project_secret_api_key` - project_secret_api_key
-     * * `oauth_access_token` - oauth_access_token
-     * * `oauth_refresh_token` - oauth_refresh_token */
-    type: LeakedKeyReportResponseTypeEnumApi | null
+     * * `personal_api_key` - Personal Api Key
+     * * `project_secret_api_key` - Project Secret Api Key
+     * * `oauth_access_token` - Oauth Access Token
+     * * `oauth_refresh_token` - Oauth Refresh Token */
+    type: LeakedKeyTypeEnumApi | null
 }
 
 /**
