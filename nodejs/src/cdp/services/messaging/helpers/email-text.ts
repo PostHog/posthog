@@ -9,10 +9,14 @@ const SKIPPED_SELECTORS = [
     'template',
     '[hidden]',
     '[style*="display:none" i]',
-    '[style*="display: none" i]',
-    '[style*="display :none" i]',
-    '[style*="display : none" i]',
 ]
+
+// Selectors match style text literally, so spacing in "display : none" is removed before matching.
+const STYLE_ATTRIBUTE = /\bstyle\s*=\s*("[^"]*"|'[^']*')/gi
+const HIDING_DISPLAY = /display\s*:\s*none/gi
+
+// The library cuts longer input short, and a text part missing its end is worse than none.
+const MAX_HTML_LENGTH = 1 << 24
 
 const HEADINGS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']
 
@@ -23,6 +27,9 @@ const SCRIPT_URL = /^\s*javascript:/i
 
 const toText = compile({
     wordwrap: false,
+    // By default only the first <body> is rendered, which drops content a sender put after </body>.
+    baseElements: { selectors: [], returnDomByDefault: true },
+    limits: { maxInputLength: MAX_HTML_LENGTH },
     selectors: [
         ...SKIPPED_SELECTORS.map((selector) => ({ selector, format: 'skip' })),
         ...HEADINGS.map((selector) => ({ selector, options: { uppercase: false } })),
@@ -53,10 +60,16 @@ const toText = compile({
     },
 })
 
+const withPlainHidingStyles = (html: string): string =>
+    html.replace(STYLE_ATTRIBUTE, (attribute) => attribute.replace(HIDING_DISPLAY, 'display:none'))
+
 export const plainTextFromHtml = (html: string): string => {
+    if (html.length > MAX_HTML_LENGTH) {
+        return ''
+    }
     let text: string
     try {
-        text = toText(html).trim()
+        text = toText(withPlainHidingStyles(html)).trim()
     } catch {
         // html-to-text recurses once per element, so deeply nested html overflows the stack.
         // The email then goes out without a text part, as html-only emails always did.

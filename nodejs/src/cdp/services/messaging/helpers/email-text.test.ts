@@ -55,10 +55,16 @@ describe('plainTextFromHtml', () => {
         ['a hidden void element', '<img src="pixel.gif" alt="pixel" style="DISPLAY:NONE"><p>Hello</p>', 'Hello'],
         ['an element with the hidden attribute', '<div hidden>Preview</div><p>Hello</p>', 'Hello'],
         [
-            'a hidden style with spaces around the colon',
-            '<div style="display : none">Preview</div><p>Hello</p>',
+            'hidden styles with any spacing around the colon',
+            '<div style="display : none">Old</div><div style=\'color:red;display:\tnone\'>Older</div><p>Hello</p>',
             'Hello',
         ],
+        [
+            'content after the body',
+            '<body><p>Sign in</p></body><p>Your code: 482913</p>',
+            'Sign in\n\nYour code: 482913',
+        ],
+        ['html longer than the converter reads', '<p>Hi</p>' + ' '.repeat(1 << 24), ''],
         ['a code shown as an image', '<p>Your code:</p><img src="code.png" alt="482913">', 'Your code:\n\n482913'],
         [
             'comments and conditional comments',
