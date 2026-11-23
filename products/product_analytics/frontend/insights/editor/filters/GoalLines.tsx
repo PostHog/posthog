@@ -5,7 +5,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { GoalLinesList } from 'lib/components/GoalLinesList'
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { InsightLogicProps } from '~/types'
 

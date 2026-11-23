@@ -409,7 +409,7 @@ class Pipeline:
         reviewed = ReviewedHead(pr_number=pr.number, head_sha=pr.head_sha, merge_base_sha=pr.merge_base_sha)
         proven = pinned_files(matching, pr.check_runs, paths, reviewed)
         return {
-            "checks": [{"check": attestation.check, "app_id": attestation.app_id} for attestation in matching],
+            "checks": [pending_entry(attestation) for attestation in matching],
             "proven": set(paths) <= proven,
         }
 

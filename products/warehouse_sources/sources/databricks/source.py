@@ -52,6 +52,10 @@ DatabricksErrors = {
     # Workspace-level entitlement, not a Unity Catalog grant — a separate admin setting from
     # PERMISSION_DENIED/INSUFFICIENT_PERMISSIONS above.
     "databricks-sql-access or workspace-consume entitlements": "Your Databricks credentials don't have the databricks-sql-access or workspace-consume entitlement. Grant one of those entitlements to the connecting user or service principal in your Databricks workspace admin settings, then try again.",
+    # Raised by the OAuth M2M token endpoint for the service principal flow. The SDK always
+    # requests the "all-apis" scope (`DatabricksSdkConfig.scopes` defaults to it when unset), so
+    # this is a fixed scope name, not something a customer's own request varies.
+    "Scopes 'all-apis' are not assigned": "Databricks rejected the service principal's OAuth token request because the client isn't assigned the 'all-apis' scope. Grant that scope to the service principal's OAuth client in your Databricks account settings, then try again.",
 }
 
 
@@ -219,6 +223,9 @@ class DatabricksSource(SQLSource[DatabricksSourceConfig], ValidateDatabaseHostMi
             # Workspace-level entitlement, not a Unity Catalog grant — a separate admin setting from
             # PERMISSION_DENIED/INSUFFICIENT_PERMISSIONS above.
             "databricks-sql-access or workspace-consume entitlements": "Your Databricks credentials don't have the databricks-sql-access or workspace-consume entitlement. Grant one of those entitlements to the connecting user or service principal in your Databricks workspace admin settings, then resync.",
+            # Same OAuth M2M scope rejection as in `DatabricksErrors`, but raised on a scheduled
+            # sync (which never calls `validate_credentials`) rather than at setup time.
+            "Scopes 'all-apis' are not assigned": "Databricks rejected the service principal's OAuth token request because the client isn't assigned the 'all-apis' scope. Grant that scope to the service principal's OAuth client in your Databricks account settings, then resync.",
             # Raised when a synced table is a Lakehouse Federation table/view backed by an external
             # JDBC data source and Databricks itself can't open a connection to that upstream
             # database — a connectivity problem on the customer's federated data source, not

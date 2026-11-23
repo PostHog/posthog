@@ -12,6 +12,7 @@ import psycopg.conninfo
 
 from products.batch_exports.backend.facade.destinations.postgres import PostgreSQLClient
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
+    BatchWriteOutcome,
     DestinationBatchContext,
     DestinationRunContext,
 )
@@ -194,6 +195,34 @@ class TestScopedIdentifierTruncation:
         assert stage != base.encode()[:63].decode()
         assert stage.endswith("__ph_merge_abcd1234")
         assert len(stage.encode()) <= 63
+
+
+@pytest.mark.parametrize(
+    "sync_type,primary_keys",
+    [("full_refresh", ()), ("incremental", ("id",)), ("incremental", ())],
+    ids=["full_refresh", "merge", "append"],
+)
+async def test_bytes_written_sums_every_tsv_buffer_copied(dsn, table_name, sync_type, primary_keys) -> None:
+    ctx = _ctx(table_name, sync_type, primary_keys=primary_keys)
+    writer = LocalPostgresWriter(ctx, dsn)
+    copied_sizes: list[int] = []
+    copy = PostgreSQLClient.copy_tsv_to_postgres
+
+    async def recording_copy(client, tsv_file, *args, **kwargs):
+        copied_sizes.append(len(tsv_file.getvalue()))
+        return await copy(client, tsv_file, *args, **kwargs)
+
+    try:
+        with mock.patch.object(PostgreSQLClient, "copy_tsv_to_postgres", recording_copy):
+            outcome = await writer.write_batch(
+                _batches(_rows(["a"], [1]), _rows(["b"], [2])),
+                DestinationBatchContext(run=ctx, batch_index=0, is_final_batch=False),
+            )
+
+        assert len(copied_sizes) == 2
+        assert outcome == BatchWriteOutcome(rows_written=2, bytes_written=sum(copied_sizes))
+    finally:
+        _drop(dsn, table_name, staging_table_name(ctx), merge_stage_name(table_name, ctx))
 
 
 class TestFullRefresh:

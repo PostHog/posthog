@@ -4,11 +4,13 @@ import { IconUndo, IconX } from '@posthog/icons'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic'
+import { QuillEvaluationContextSuggestions } from './QuillEvaluationContextSuggestions'
 
 export function EvaluationContextSuggestions(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -18,9 +20,25 @@ export function EvaluationContextSuggestions(): JSX.Element | null {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS]) {
         return null
+    }
+
+    const actionDisabledReason = restrictedReason ?? (pendingContextName ? 'Saving…' : undefined)
+
+    if (todayRailNav) {
+        return (
+            <QuillEvaluationContextSuggestions
+                availableContexts={availableContexts}
+                hiddenContexts={hiddenContexts}
+                pendingContextName={pendingContextName}
+                actionDisabledReason={actionDisabledReason}
+                onHide={hideContext}
+                onUnhide={unhideContext}
+            />
+        )
     }
 
     return (
@@ -46,9 +64,7 @@ export function EvaluationContextSuggestions(): JSX.Element | null {
                                         icon={<IconX />}
                                         tooltip={`Hide "${name}" from suggestions`}
                                         onClick={() => hideContext(name)}
-                                        disabledReason={
-                                            restrictedReason ?? (pendingContextName ? 'Saving…' : undefined)
-                                        }
+                                        disabledReason={actionDisabledReason}
                                         loading={pendingContextName === name}
                                     />
                                 </span>
@@ -71,9 +87,7 @@ export function EvaluationContextSuggestions(): JSX.Element | null {
                                         icon={<IconUndo />}
                                         tooltip="Restore to suggestions"
                                         onClick={() => unhideContext(name)}
-                                        disabledReason={
-                                            restrictedReason ?? (pendingContextName ? 'Saving…' : undefined)
-                                        }
+                                        disabledReason={actionDisabledReason}
                                         loading={pendingContextName === name}
                                     />
                                 </span>

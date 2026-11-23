@@ -327,7 +327,7 @@
        (SELECT nullIf(toString(events.properties.`$pathname`), '') AS path,
                quantile(0.75)(accurateCastOrNull(events.properties.`$web_vitals_INP_value`, 'Float64')) AS value
         FROM events_json AS events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), equals(events.properties.`$pathname`, '/path1')))
+        WHERE and(equals(events.team_id, 99999), equals(events.properties.`$pathname`, '/path1'), equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0))
         GROUP BY path
         HAVING ifNull(greaterOrEquals(value, 0), 0)))
   ORDER BY value ASC,

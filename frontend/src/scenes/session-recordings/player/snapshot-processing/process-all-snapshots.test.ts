@@ -283,7 +283,8 @@ describe('process all snapshots', () => {
             expect(result[0].timestamp).toBe(1234567890)
         })
 
-        it('handles multiple snapshots in decompressed data', async () => {
+        // A block's last line can lack a newline, and it must still not run into the next block's first line.
+        it.each(['\n', ''])('handles multiple snapshots across blocks ending in %j', async (blockEnd) => {
             const sessionId = 'test-session'
 
             const snapshot1 = JSON.stringify({
@@ -294,8 +295,8 @@ describe('process all snapshots', () => {
                 window_id: '1',
                 data: [{ type: 3, timestamp: 2000, data: {} }],
             })
-            const decompressedBytes1 = new TextEncoder().encode(snapshot1 + '\n')
-            const decompressedBytes2 = new TextEncoder().encode(snapshot2 + '\n')
+            const decompressedBytes1 = new TextEncoder().encode(snapshot1 + blockEnd)
+            const decompressedBytes2 = new TextEncoder().encode(snapshot2 + blockEnd)
 
             const fakeCompressedBlock1 = new Uint8Array([1, 2, 3])
             const fakeCompressedBlock2 = new Uint8Array([4, 5, 6])

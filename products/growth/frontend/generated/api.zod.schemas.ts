@@ -578,6 +578,12 @@ export const SdkAssessmentApi = zod.object({
     migration_required: zod
         .boolean()
         .describe('True when this SDK must be replaced by a supported successor rather than upgraded in place.'),
+    migration_guide_url: zod
+        .string()
+        .nullable()
+        .describe(
+            'URL of the migration guide for the latest major. Null unless the in-use major is behind latest and a guide exists.'
+        ),
     severity: zod
         .enum(['none', 'warning', 'danger'])
         .describe('\* `none` - none\n\* `warning` - warning\n\* `danger` - danger')
@@ -718,6 +724,12 @@ export const SdkHealthReportApi = zod.object({
                     .boolean()
                     .describe(
                         'True when this SDK must be replaced by a supported successor rather than upgraded in place.'
+                    ),
+                migration_guide_url: zod
+                    .string()
+                    .nullable()
+                    .describe(
+                        'URL of the migration guide for the latest major. Null unless the in-use major is behind latest and a guide exists.'
                     ),
                 severity: zod
                     .enum(['none', 'warning', 'danger'])

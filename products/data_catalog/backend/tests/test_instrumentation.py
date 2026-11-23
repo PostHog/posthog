@@ -5,6 +5,9 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework.exceptions import Throttled, ValidationError
@@ -36,6 +39,7 @@ _PROBE_OUTCOMES = get_args(RelationshipProbeOutcome)
 _SURFACES = get_args(CatalogSurface)
 
 _PROCESS_QUERY = "products.data_catalog.backend.logic.execution.process_query_dict"
+_TRACER = "products.data_catalog.backend.logic.execution.tracer"
 
 # ClickHouse error codes. Every one is user_safe, so all four surface as ExposedCHQueryError, but
 # they classify differently: a missing table is the definition's problem, a timeout is a cost
@@ -231,6 +235,52 @@ class TestMetricRunOutcomes(APIBaseTest):
         assert _delta(outcomes_before, _run_outcomes()) == {(expected_kind, expected_outcome): 1.0}
         timed = expected_outcome == "success" and expected_kind != "markdown"
         assert _delta(durations_before, _durations()) == ({expected_kind: 1.0} if timed else {})
+
+    @parameterized.expand(
+        [
+            ("async_enqueue", {"return_value": dict(_ASYNC_PAYLOAD)}, {"refresh": "async"}, None, "async_enqueued"),
+            (
+                "definition_error",
+                {"side_effect": ExposedHogQLError("no such table")},
+                {},
+                ValidationError,
+                "definition_error",
+            ),
+        ]
+    )
+    def test_run_records_a_span_per_stage_under_one_run_span(
+        self,
+        _name: str,
+        patch_kwargs: dict,
+        run_kwargs: dict,
+        expected_error: Optional[type[Exception]],
+        expected_outcome: str,
+    ) -> None:
+        metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL)
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+        with patch(_PROCESS_QUERY, **patch_kwargs), patch(_TRACER, provider.get_tracer(__name__)):
+            if expected_error is not None:
+                with self.assertRaises(expected_error):
+                    run_metric(team=self.team, metric=metric, user=self.user, **run_kwargs)
+            else:
+                run_metric(team=self.team, metric=metric, user=self.user, **run_kwargs)
+
+        spans = {span.name: span for span in exporter.get_finished_spans()}
+        run_span = spans.pop("data_catalog.metric_run")
+        assert dict(run_span.attributes or {}) == {
+            "team_id": self.team.pk,
+            "definition_kind": "hogql",
+            "outcome": expected_outcome,
+        }
+        run_span_id = run_span.get_span_context().span_id
+        assert {name: span.parent.span_id for name, span in spans.items() if span.parent} == {
+            "data_catalog.metric_run.compute_drift": run_span_id,
+            "data_catalog.metric_run.prepare_query": run_span_id,
+            "data_catalog.metric_run.execute_query": run_span_id,
+        }
 
 
 class TestRelationshipProbeOutcomes(BaseTest):

@@ -10,7 +10,7 @@ import { ContentAutopilotAnswerSentimentTag } from './ContentAutopilotAnswerSent
 import { ContentAutopilotAnswerText } from './ContentAutopilotAnswerText'
 import { ContentAutopilotCheckResult } from './ContentAutopilotCheckResult'
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
-import { CITATIONS_MAX_DAYS } from './contentAutopilotCitationsModalLogic'
+import { CITATIONS_MAX_DATE_FROM } from './contentAutopilotCitationsModalLogic'
 import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import { checkPromptVersion, engineLabel } from './utils'
@@ -121,7 +121,8 @@ export const ContentAutopilotPromptAnswer = (): JSX.Element => {
                                             lookup={{
                                                 kind: 'url',
                                                 value: url,
-                                                days: CITATIONS_MAX_DAYS,
+                                                dateFrom: CITATIONS_MAX_DATE_FROM,
+                                                dateTo: null,
                                                 branded: 'all',
                                             }}
                                             source="prompt-answer-sources"
@@ -164,7 +165,8 @@ export const ContentAutopilotPromptAnswer = (): JSX.Element => {
                                             lookup={{
                                                 kind: 'search',
                                                 value: query,
-                                                days: CITATIONS_MAX_DAYS,
+                                                dateFrom: CITATIONS_MAX_DATE_FROM,
+                                                dateTo: null,
                                                 branded: 'all',
                                             }}
                                             source="prompt-answer-searches"
