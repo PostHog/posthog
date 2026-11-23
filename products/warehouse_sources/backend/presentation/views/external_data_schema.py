@@ -500,21 +500,22 @@ def _trigger_schema_sync(instance: ExternalDataSchema) -> None:
 def _sync_now_for_shorter_cadence(instance: ExternalDataSchema) -> None:
     """Start a sync after the user shortened the cadence, with the same guards as a manual sync.
 
-    The new cadence is already saved and scheduled, so a failed start is logged and does not fail
-    the request. The next scheduled run then syncs the table.
+    The new cadence is already saved and scheduled, so a failed start, including a failed Temporal
+    connection, is logged and does not fail the request. The next scheduled run then syncs the table.
+
+    The status is not set to Running here. A run in failure backoff exits before it creates a job,
+    so only the job-creation activity knows that a sync started.
     """
     if manual_sync_refusal(instance.source) is not None or is_any_external_data_schema_paused(instance.team_id):
         return
     try:
         trigger_external_data_workflow(instance)
-    except temporalio.service.RPCError as e:
+    except Exception as e:
         logger.exception(
             "Could not start a sync after the sync frequency got shorter",
             schema_id=str(instance.id),
             exc_info=e,
         )
-        return
-    mark_schema_running_unless_halted(instance)
 
 
 def resync_schema(instance: ExternalDataSchema) -> Response:

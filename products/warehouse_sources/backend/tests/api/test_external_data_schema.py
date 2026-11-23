@@ -2273,7 +2273,47 @@ class TestExternalDataSchema(APIBaseTest):
         assert temporal_update.call_args.kwargs["schedule"].spec.intervals[0].every == expected_interval
         triggered = [call.kwargs["schedule_id"] for call in temporal_trigger.call_args_list]
         assert triggered == ([str(schema.id)] if expect_trigger else [])
-        assert (schema.status == ExternalDataSchema.Status.RUNNING) is expect_trigger
+        # A run in failure backoff creates no job, so only the job-creation activity sets Running.
+        assert schema.status == schema_fields.get("status", ExternalDataSchema.Status.COMPLETED)
+
+    @parameterized.expand(
+        [
+            ("temporal_rejects_the_trigger", RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b"")),
+            ("temporal_connection_fails", RuntimeError("Failed client connect")),
+        ]
+    )
+    def test_update_schema_frequency_keeps_the_new_cadence_when_the_sync_cannot_start(self, _name, error):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_frequency_interval=timedelta(hours=1),
+        )
+
+        service = "products.data_warehouse.backend.logic.data_load.service"
+        with (
+            mock.patch(f"{service}.sync_connect"),
+            mock.patch(f"{service}.schedule_exists", return_value=True),
+            mock.patch(f"{service}.update_schedule") as temporal_update,
+            mock.patch(f"{service}.unpause_schedule"),
+            mock.patch(f"{service}.trigger_schedule", side_effect=error),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_frequency": "5min"},
+            )
+
+        assert response.status_code == 200, response.content
+        schema.refresh_from_db()
+        assert schema.sync_frequency_interval == timedelta(minutes=5)
+        assert temporal_update.call_args.kwargs["schedule"].spec.intervals[0].every == timedelta(minutes=5)
 
     @parameterized.expand(
         [
