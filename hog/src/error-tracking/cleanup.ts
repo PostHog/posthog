@@ -34,6 +34,41 @@ export interface CleanupResult {
     warnings: string[]
 }
 
+// The real folders of the selected paths. A selected file stands for the folder it is in.
+export function canonicalRoots(roots: string[]): string[] {
+    return roots.map((root) => {
+        const absolute = realpathSync(root)
+        return statSync(absolute).isFile() ? dirname(absolute) : absolute
+    })
+}
+
+export function insideRoots(roots: string[], path: string): boolean {
+    let canonical: string
+    try {
+        canonical = realpathSync(path)
+    } catch {
+        return false
+    }
+    // On Windows, `relative` returns an absolute path for a file on another drive.
+    return roots.some((root) => {
+        const within = relative(root, canonical)
+        return !within.startsWith('..') && !isAbsolute(within)
+    })
+}
+
+// readPairs already skips JS maps outside the roots. This keeps every deletion inside them too.
+export function targetsInsideRoots(targets: CleanupTarget[], roots: string[], warnings: string[]): CleanupTarget[] {
+    return targets.filter((target) => {
+        if (insideRoots(roots, target.mapPath)) {
+            return true
+        }
+        warnings.push(
+            `Skipping sourcemap cleanup for ${target.mapPath} because it resolves outside the selected paths.`
+        )
+        return false
+    })
+}
+
 export function jsTarget(pair: SourcePair): CleanupTarget {
     return {
         sourcePath: pair.sourcePath,
@@ -142,10 +177,7 @@ export function cssTargets(
     warnings: string[],
     ignored: (mapPath: string) => boolean
 ): CleanupTarget[] {
-    const canonicalRoots = roots.map((root) => {
-        const absolute = realpathSync(root)
-        return statSync(absolute).isFile() ? dirname(absolute) : absolute
-    })
+    const realRoots = canonicalRoots(roots)
     const targets: CleanupTarget[] = []
     for (const file of files.filter((path) => path.endsWith('.css'))) {
         let source: string
@@ -169,13 +201,7 @@ export function cssTargets(
         if (!map.fields.has('mappings') && !map.fields.has('sections')) {
             continue
         }
-        const canonicalMap = realpathSync(mapPath)
-        // On Windows, `relative` returns an absolute path for a file on another drive.
-        const inside = (root: string): boolean => {
-            const within = relative(root, canonicalMap)
-            return !within.startsWith('..') && !isAbsolute(within)
-        }
-        if (!canonicalRoots.some(inside)) {
+        if (!insideRoots(realRoots, mapPath)) {
             warnings.push(
                 `Skipping CSS sourcemap cleanup for ${mapPath} because it resolves outside the selected paths.`
             )

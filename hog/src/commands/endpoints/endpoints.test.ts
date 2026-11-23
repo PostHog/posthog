@@ -173,6 +173,49 @@ describe('hog endpoints', () => {
         expect(result.files['/work/endpoints/weekly.yaml']).toBeUndefined()
     })
 
+    test.each([
+        ['the working folder', [], { '/work/README.md': '' }, '/work/weekly.yaml'],
+        [
+            'the endpoints.dir from posthog.json',
+            [],
+            {
+                '/work/posthog.json': JSON.stringify({ endpoints: { dir: 'endpoints' } }),
+                '/work/endpoints/README.md': '',
+            },
+            '/work/endpoints/weekly.yaml',
+        ],
+        ['a --to folder', ['--to', 'endpoints'], { '/work/endpoints/README.md': '' }, '/work/endpoints/weekly.yaml'],
+    ])('pull leaves alone a file in %s that links out of it', async (_name, args, files, planted) => {
+        const result = await runHog(['endpoints', 'pull', 'weekly', '--yes', '-o', 'json', ...args], {
+            env: AGENT,
+            files: { ...files, '/home/ana/.bashrc': 'keep' },
+            links: { [planted]: '/home/ana/.bashrc' },
+            respond: server([TRENDS]),
+        })
+
+        expect(result.exitCode).toBe(EXIT_FAILURE)
+        expect(result.stdout).toContain('points outside')
+        expect(result.files['/home/ana/.bashrc']).toBe('keep')
+        expect(result.files[planted]).toBeUndefined()
+    })
+
+    test.each([
+        ['an absolute folder', '/home/ana'],
+        ['a folder that climbs out of the project', '../outside'],
+    ])('pull refuses an endpoints.dir in posthog.json that is %s', async (_name, dir) => {
+        const config = JSON.stringify({ endpoints: { dir } })
+
+        const result = await runHog(['endpoints', 'pull', '--all', '--yes'], {
+            env: AGENT,
+            files: { '/work/posthog.json': config },
+            respond: server([TRENDS]),
+        })
+
+        expect(result.exitCode).toBe(EXIT_FAILURE)
+        expect(result.error()).toMatchObject({ code: 'unsafe_endpoints_dir' })
+        expect(Object.keys(result.files)).toEqual(['/work/posthog.json'])
+    })
+
     test('pull takes variable types from the values when the key cannot read project variables', async () => {
         const result = await runHog(['endpoints', 'pull', 'by-type', '--yes'], {
             env: AGENT,

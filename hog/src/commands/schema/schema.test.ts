@@ -88,6 +88,33 @@ describe('hog schema', () => {
         })
     })
 
+    test.each([
+        ['an absolute path', '/home/ana/.bashrc', '/home/ana/.bashrc', {}],
+        ['a path that climbs out of the project', '../outside/typed.ts', '/outside/typed.ts', {}],
+        [
+            'a file that links out of the project',
+            'typed.ts',
+            '/home/ana/.bashrc',
+            { '/work/typed.ts': '/home/ana/.bashrc' },
+        ],
+    ])('pull refuses an output_path in posthog.json that is %s', async (_name, outputPath, outside, links) => {
+        const config = JSON.stringify({
+            languages: { typescript: { output_path: outputPath, schema_hash: 'hash-old' } },
+        })
+
+        const result = await runHog(['schema', 'pull'], {
+            env: AGENT,
+            files: { '/work/posthog.json': config, [outside]: 'keep' },
+            links,
+            respond: definitions('generated'),
+        })
+
+        expect(result.exitCode).toBe(EXIT_FAILURE)
+        expect(result.error()).toMatchObject({ code: 'unsafe_output_path' })
+        expect(result.files[outside]).toBe('keep')
+        expect(result.files['/work/posthog.json']).toBe(config)
+    })
+
     test('pull asks an agent for --language instead of prompting', async () => {
         const result = await runHog(['schema', 'pull'], { env: AGENT })
         expect(result.exitCode).toBe(EXIT_USAGE)

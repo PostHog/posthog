@@ -2,7 +2,7 @@ import { defineCommand } from '@/core/command'
 import { TYPESCRIPT_SDKS, updateConfig, type SchemaLanguage, type TypeScriptSdk } from '@/core/config'
 import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
-import { absolutePath, storedPath } from '@/core/paths'
+import { absolutePath, confinedWritePath, storedPath } from '@/core/paths'
 import { plural } from '@/core/text'
 
 import {
@@ -110,10 +110,20 @@ export default defineCommand({
             const saved = configured[language]
             const sdk = language === 'typescript' ? await typescriptSdk(ctx, options.sdk, saved) : undefined
             let file: string
+            // posthog.json can come from someone else's repository. A path the person typed is their own choice.
+            let target: string | undefined
             if (options.file !== undefined) {
                 file = await chosenFile(ctx, options.file, language, sdk)
             } else if (saved) {
                 file = absolutePath(root, saved.output_path)
+                target = await confinedWritePath(ctx.runtime, root, file)
+                if (target === undefined) {
+                    throw new HogError(
+                        'unsafe_output_path',
+                        `posthog.json sets the ${moduleInfo(language, sdk).name} module path to ${saved.output_path}, which is outside the project, so hog won't write there.`,
+                        'Change output_path in posthog.json to a path inside the project, or pass --file to choose where hog writes the module.'
+                    )
+                }
             } else {
                 const info = moduleInfo(language, sdk)
                 const answer = ctx.prompts
@@ -133,7 +143,7 @@ export default defineCommand({
                 saved.schema_hash === definitions.schema_hash &&
                 (await ctx.runtime.exists(file))
             if (!unchanged && !options.dryRun) {
-                await ctx.runtime.writeFile(file, definitions.content)
+                await ctx.runtime.writeFile(target ?? file, definitions.content)
                 entries[language] = {
                     output_path: outputPath,
                     sdk,

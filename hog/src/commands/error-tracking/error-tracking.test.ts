@@ -232,6 +232,7 @@ describe('hog error-tracking upload', () => {
     })
 
     const MAP = JSON.stringify({ version: 3, sources: ['a.ts'], names: [], mappings: 'AAAA' })
+    const DEBUG_ID = '11111111-2222-4333-8444-555555555555'
     test.each([
         [
             'a reference to a JSON file that is not a sourcemap',
@@ -246,6 +247,13 @@ describe('hog error-tracking upload', () => {
             ['a.js.map'],
             'dist/a.js.map',
             'ignore pattern',
+        ],
+        [
+            'a sourcemap outside the selected paths',
+            { 'dist/a.js': 'a();\n//# sourceMappingURL=../maps/a.js.map\n', 'maps/a.js.map': MAP },
+            [],
+            'maps/a.js.map',
+            'outside the selected paths',
         ],
     ])('inject skips %s and leaves it alone', async (_name, files, ignore, untouched, reason) => {
         const folder = project({
@@ -294,6 +302,32 @@ describe('hog error-tracking upload', () => {
             'chunk.js': 'the sourcemap is empty although the file is large. Check your bundler sourcemap setting.',
         })
     })
+
+    test.each([
+        ['a path that climbs out with ..', (_folder: string) => '../maps/a.js.map'],
+        ['an absolute path', (folder: string) => join(folder, 'maps/a.js.map')],
+    ])(
+        'upload --delete-after leaves alone a sourcemap outside the selected paths, named by %s',
+        async (_name, reference) => {
+            const folder = project({ 'maps/a.js.map': MAP })
+            const bundle = `a();\n//# debugId=${DEBUG_ID}\n//# sourceMappingURL=${reference(folder)}\n`
+            mkdirSync(join(folder, 'dist'))
+            writeFileSync(join(folder, 'dist/a.js'), bundle)
+
+            const result = await runHog(['et', 'upload', 'dist', '--delete-after', '--release-version', '1.0'], {
+                env: { ...TEST_CREDENTIALS, CLAUDECODE: '1' },
+                cwd: folder,
+                useDisk: true,
+            })
+
+            expect(result.json(UploadOutput).skipped).toEqual([
+                { path: 'dist/a.js', reason: 'its sourcemap is outside the selected paths' },
+            ])
+            expect(readFileSync(join(folder, 'maps/a.js.map'), 'utf8')).toBe(MAP)
+            expect(readFileSync(join(folder, 'dist/a.js'), 'utf8')).toBe(bundle)
+            expect(result.requests).toEqual([])
+        }
+    )
 
     test('--delete-after leaves alone CSS maps outside the selected paths, ignored maps, and JSON that is not a map', () => {
         const folder = project({

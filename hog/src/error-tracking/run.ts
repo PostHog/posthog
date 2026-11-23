@@ -5,7 +5,15 @@ import type { ArtifactKind } from '@/core/config'
 import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 
-import { cleanUp, cssTargets, jsTarget, type CleanupTarget } from './cleanup'
+import {
+    canonicalRoots,
+    cleanUp,
+    cssTargets,
+    insideRoots,
+    jsTarget,
+    targetsInsideRoots,
+    type CleanupTarget,
+} from './cleanup'
 import { contentHash } from './container'
 import { discover, isDsymBundle, isIgnored, listFiles, type Artifact, type Root } from './discover'
 import { GitError, gitInfo, type GitInfo } from './git'
@@ -174,8 +182,14 @@ function readPairs(
     const seen = new Set<string>()
     const pairs: SourcePair[] = []
     const owners = new Map<SourcePair, Artifact>()
+    const roots = canonicalRoots(selection.roots.map((root) => resolve(selection.cwd, root.path)))
     for (const artifact of selection.artifacts.filter(isBundle)) {
         const pair = readPair(artifact.path, options.publicPathPrefix, skipped)
+        // A bundle can name any file as its map, and hog rewrites, uploads and may delete that map.
+        if (pair && !insideRoots(roots, pair.mapPath)) {
+            skipped.push({ path: artifact.display, reason: 'its sourcemap is outside the selected paths' })
+            continue
+        }
         if (
             pair &&
             isIgnored(
@@ -649,7 +663,11 @@ export async function upload(
             )
         const cleanup = cleanUp([
             // Maps skipped as too large go too, as in posthog-cli, so they never ship with the build.
-            ...targets.map(({ target }) => target),
+            ...targetsInsideRoots(
+                targets.map(({ target }) => target),
+                canonicalRoots(rootPaths),
+                warnings
+            ),
             ...cssTargets(
                 listFiles(selection.roots, selection.cwd),
                 rootPaths,
