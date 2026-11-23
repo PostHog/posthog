@@ -28,6 +28,20 @@
         "session": null
     },
     {
+        "name": "infinite_root_latency_falls_through",
+        "events": [
+            { "event": "$ai_trace", "latency": "Infinity", "parent_id": null },
+            { "event": "$ai_generation", "latency": 1.0, "parent_id": "trace-a" },
+            { "event": "$ai_generation", "latency": 2.0, "parent_id": "trace-a" }
+        ],
+        "latency": 3.0,
+        "errored": false,
+        "identified": [true, true, true],
+        "cost": null,
+        "person": "user-1",
+        "session": null
+    },
+    {
         "name": "generations_only_sum",
         "events": [
             { "event": "$ai_generation", "latency": 1.5, "parent_id": "span-1" },
@@ -243,6 +257,19 @@
         "errored": false,
         "identified": [true, true, true, true],
         "cost": 0.75,
+        "person": "user-1",
+        "session": null
+    },
+    {
+        "name": "infinite_cost_is_skipped",
+        "events": [
+            { "event": "$ai_generation", "latency": null, "parent_id": null, "total_cost": 0.5 },
+            { "event": "$ai_generation", "latency": null, "parent_id": null, "total_cost": "Infinity" }
+        ],
+        "latency": null,
+        "errored": false,
+        "identified": [true, true],
+        "cost": 0.5,
         "person": "user-1",
         "session": null
     },
