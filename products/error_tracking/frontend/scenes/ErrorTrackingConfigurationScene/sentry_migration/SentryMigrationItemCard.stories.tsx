@@ -1,6 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 
 import type { SentryMigrationItemApi } from '../../../generated/api.schemas'
+import { QuillSentryMigrationItemCard } from './QuillSentryMigrationItemCard'
 import { SentryMigrationItemCard } from './SentryMigrationItemCard'
 
 const meta: Meta<typeof SentryMigrationItemCard> = {
@@ -98,6 +99,29 @@ export const Variants: Story = {
             />
             <SentryMigrationItemCard item={RATE_LIMIT} selected disabledReason={null} onToggle={() => {}} />
             <SentryMigrationItemCard
+                item={RATE_LIMIT_TOO_LARGE}
+                selected={false}
+                disabledReason="PostHog can't import this setting"
+                onToggle={() => {}}
+            />
+        </div>
+    ),
+}
+
+/** The same items in the quill version, which shows behind the new navigation. */
+export const QuillVariants: Story = {
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    render: () => (
+        <div data-quill className="flex w-160 flex-col">
+            <QuillSentryMigrationItemCard item={ERROR_MESSAGE} selected disabledReason={null} onToggle={() => {}} />
+            <QuillSentryMigrationItemCard
+                item={LEGACY_BROWSER}
+                selected={false}
+                disabledReason="This automatic suppression rule is already on"
+                onToggle={() => {}}
+            />
+            <QuillSentryMigrationItemCard item={RATE_LIMIT} selected disabledReason={null} onToggle={() => {}} />
+            <QuillSentryMigrationItemCard
                 item={RATE_LIMIT_TOO_LARGE}
                 selected={false}
                 disabledReason="PostHog can't import this setting"

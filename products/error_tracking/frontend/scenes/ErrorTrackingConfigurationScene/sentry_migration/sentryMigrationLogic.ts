@@ -50,6 +50,26 @@ export function sentryProjectKey(project: SentryProjectApi): string {
     return `${project.organization_slug}/${project.project_slug}`
 }
 
+export interface SentryOrganizationProjects {
+    value: string
+    label: string
+    items: SentryProjectApi[]
+}
+
+function groupByOrganization(projects: SentryProjectApi[]): SentryOrganizationProjects[] {
+    const groups = new Map<string, SentryOrganizationProjects>()
+    for (const project of projects) {
+        const group = groups.get(project.organization_slug) ?? {
+            value: project.organization_slug,
+            label: project.organization_name,
+            items: [],
+        }
+        group.items.push(project)
+        groups.set(project.organization_slug, group)
+    }
+    return Array.from(groups.values())
+}
+
 function pluralRules(count: number, kind: string): string {
     return `${count} ${kind} suppression ${count === 1 ? 'rule' : 'rules'}`
 }
@@ -87,6 +107,7 @@ export interface sentryMigrationLogicValues {
     omittedFilterNames: string[]
     previewFailed: boolean
     projects: SentryProjectApi[] | null
+    projectsByOrganization: SentryOrganizationProjects[]
     projectsLoading: boolean
     selectedItemIds: string[]
     selectedProject: SentryProjectApi | null
@@ -200,6 +221,7 @@ export interface sentryMigrationLogicMeta {
             projects: SentryProjectApi[] | null,
             selectedProjectKey: string | null
         ) => SentryProjectApi | null
+        projectsByOrganization: (projects: SentryProjectApi[] | null) => SentryOrganizationProjects[]
         importPlan: (items: SentryMigrationItemApi[] | null, selectedItemIds: string[]) => SentryImportPlan
         steps: (items: SentryMigrationItemApi[] | null) => ImportWizardStepperStep<ImportWizardStep>[]
     }
@@ -436,6 +458,10 @@ export const sentryMigrationLogic = kea<sentryMigrationLogicType>([
             (s) => [s.projects, s.selectedProjectKey],
             (projects: SentryProjectApi[] | null, selectedProjectKey: string | null): SentryProjectApi | null =>
                 projects?.find((project: SentryProjectApi) => sentryProjectKey(project) === selectedProjectKey) ?? null,
+        ],
+        projectsByOrganization: [
+            (s) => [s.projects],
+            (projects: SentryProjectApi[] | null): SentryOrganizationProjects[] => groupByOrganization(projects ?? []),
         ],
         importPlan: [
             (s) => [s.items, s.selectedItemIds],

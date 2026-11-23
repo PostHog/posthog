@@ -5,7 +5,7 @@ import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { errorTrackingEditAccessDisabledReason } from '../../../utils'
 import { ImportWizardStepActions } from './ImportWizardStepActions'
 import { ImportWizardStepHeading } from './ImportWizardStepHeading'
-import { formatRateLimit } from './sentryMigrationFormat'
+import { describeImportPlan, importButtonLabel } from './sentryMigrationFormat'
 import { importSummary, sentryMigrationLogic } from './sentryMigrationLogic'
 
 export function SentryReviewStep(): JSX.Element {
@@ -13,18 +13,7 @@ export function SentryReviewStep(): JSX.Element {
     const { applyImport, goToPreviousStep, resetWizard } = useActions(sentryMigrationLogic)
     const editAccessDisabledReason = errorTrackingEditAccessDisabledReason()
 
-    const changes: string[] = []
-    if (importPlan.rateLimit) {
-        changes.push(`Sets the project rate limit to ${formatRateLimit(importPlan.rateLimit)}`)
-    }
-    if (importPlan.manualRuleCount > 0) {
-        changes.push(
-            `Creates ${importPlan.manualRuleCount} manual suppression ${importPlan.manualRuleCount === 1 ? 'rule' : 'rules'}`
-        )
-    }
-    if (importPlan.automaticRuleNames.length > 0) {
-        changes.push(`Turns on these automatic suppression rules: ${importPlan.automaticRuleNames.join(', ')}`)
-    }
+    const changes = describeImportPlan(importPlan)
 
     return (
         <>
@@ -68,11 +57,7 @@ export function SentryReviewStep(): JSX.Element {
                     }
                     data-attr="error-tracking-sentry-migration-import"
                 >
-                    {selectedItemIds.length === 0
-                        ? 'Import'
-                        : selectedItemIds.length === 1
-                          ? 'Import 1 setting'
-                          : `Import ${selectedItemIds.length} settings`}
+                    {importButtonLabel(selectedItemIds.length)}
                 </LemonButton>
             </ImportWizardStepActions>
         </>

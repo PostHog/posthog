@@ -3,23 +3,29 @@ import { useActions, useValues } from 'kea'
 import { IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 
 import { ImportSourceStep } from './ImportSourceStep'
 import { ImportWizardStepper } from './ImportWizardStepper'
+import { QuillImportWizard } from './QuillImportWizard'
 import { SentryCategoryStep } from './SentryCategoryStep'
 import { SentryLocationStep } from './SentryLocationStep'
 import { sentryMigrationLogic } from './sentryMigrationLogic'
-import { IMPORT_CATEGORIES, ImportWizardStep } from './sentryMigrationSteps'
+import { FORM_STEPS, IMPORT_CATEGORIES, ImportWizardStep } from './sentryMigrationSteps'
 import { SentryProjectStep } from './SentryProjectStep'
 import { SentryReviewStep } from './SentryReviewStep'
 import { SentryTokenStep } from './SentryTokenStep'
 
-const FORM_STEPS = [ImportWizardStep.Source, ImportWizardStep.Location, ImportWizardStep.Token]
-
 export function ImportWizard(): JSX.Element {
     const { step, steps } = useValues(sentryMigrationLogic)
     const { setStep, resetWizard } = useActions(sentryMigrationLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillImportWizard />
+    }
+
     const category = IMPORT_CATEGORIES.find((importCategory) => importCategory.step === step)
 
     return (
@@ -37,7 +43,6 @@ export function ImportWizard(): JSX.Element {
                     />
                 )}
             </div>
-            {/* The project and import steps list long filter patterns, so they get more room than the forms. */}
             <div
                 className={cn(
                     'mx-auto flex w-full flex-col gap-4',

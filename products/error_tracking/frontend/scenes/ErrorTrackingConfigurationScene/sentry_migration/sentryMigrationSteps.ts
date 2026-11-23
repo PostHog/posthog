@@ -52,6 +52,9 @@ export const IMPORT_CATEGORIES: ImportCategory[] = [
     },
 ]
 
+/** Steps that show a short form. The project and import steps list long filter patterns, so they get more room. */
+export const FORM_STEPS = [ImportWizardStep.Source, ImportWizardStep.Location, ImportWizardStep.Token]
+
 const SETUP_STEPS: ImportWizardStepperStep<ImportWizardStep>[] = [
     { key: ImportWizardStep.Source, label: 'Tool' },
     { key: ImportWizardStep.Location, label: 'URL' },

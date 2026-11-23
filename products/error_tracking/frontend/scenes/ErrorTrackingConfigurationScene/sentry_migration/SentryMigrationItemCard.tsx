@@ -1,12 +1,12 @@
 import { LemonCheckbox, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
 import type { SentryMigrationFitEnumApi, SentryMigrationItemApi } from '../../../generated/api.schemas'
-import { describeSuppressionFilters, formatRateLimit } from './sentryMigrationFormat'
+import { FIT_LABELS, describeSuppressionFilters, formatRateLimit } from './sentryMigrationFormat'
 
-const FIT_TAGS: Record<SentryMigrationFitEnumApi, { label: string; type: LemonTagType }> = {
-    good: { label: 'Same behavior', type: 'success' },
-    partial: { label: 'Close match', type: 'warning' },
-    unsupported: { label: "Can't import", type: 'muted' },
+const FIT_TAG_TYPES: Record<SentryMigrationFitEnumApi, LemonTagType> = {
+    good: 'success',
+    partial: 'warning',
+    unsupported: 'muted',
 }
 
 export interface SentryMigrationItemCardProps {
@@ -22,7 +22,6 @@ export function SentryMigrationItemCard({
     disabledReason,
     onToggle,
 }: SentryMigrationItemCardProps): JSX.Element {
-    const fitTag = FIT_TAGS[item.fit]
     const filters = item.suppression_rule_filters
     const filterRows = filters ? describeSuppressionFilters(filters) : []
     const builtInFilter = item.built_in_filter
@@ -44,7 +43,7 @@ export function SentryMigrationItemCard({
                     ) : (
                         <>
                             {item.already_in_posthog && <LemonTag type="completion">Already in PostHog</LemonTag>}
-                            <LemonTag type={fitTag.type}>{fitTag.label}</LemonTag>
+                            <LemonTag type={FIT_TAG_TYPES[item.fit]}>{FIT_LABELS[item.fit]}</LemonTag>
                         </>
                     )}
                 </div>

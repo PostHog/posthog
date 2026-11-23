@@ -3,7 +3,12 @@ import { genericOperatorMap } from 'lib/utils/operators'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
-import type { PropertyGroupFilterValueApi, SentryMigrationRateLimitApi } from '../../../generated/api.schemas'
+import type {
+    PropertyGroupFilterValueApi,
+    SentryMigrationFitEnumApi,
+    SentryMigrationRateLimitApi,
+} from '../../../generated/api.schemas'
+import type { SentryImportPlan } from './sentryMigrationSelection'
 
 export interface SuppressionFilterRow {
     property: string
@@ -21,6 +26,36 @@ function formatWindow(minutes: number): string {
 
 export function formatRateLimit(rateLimit: SentryMigrationRateLimitApi): string {
     return `${rateLimit.value.toLocaleString()} exceptions per ${formatWindow(rateLimit.bucket_size_minutes)}`
+}
+
+export const FIT_LABELS: Record<SentryMigrationFitEnumApi, string> = {
+    good: 'Same behavior',
+    partial: 'Close match',
+    unsupported: "Can't import",
+}
+
+/** One line for each kind of change that an import of the selected settings makes in PostHog. */
+export function describeImportPlan(importPlan: SentryImportPlan): string[] {
+    const changes: string[] = []
+    if (importPlan.rateLimit) {
+        changes.push(`Sets the project rate limit to ${formatRateLimit(importPlan.rateLimit)}`)
+    }
+    if (importPlan.manualRuleCount > 0) {
+        changes.push(
+            `Creates ${importPlan.manualRuleCount} manual suppression ${importPlan.manualRuleCount === 1 ? 'rule' : 'rules'}`
+        )
+    }
+    if (importPlan.automaticRuleNames.length > 0) {
+        changes.push(`Turns on these automatic suppression rules: ${importPlan.automaticRuleNames.join(', ')}`)
+    }
+    return changes
+}
+
+export function importButtonLabel(selectedCount: number): string {
+    if (selectedCount === 0) {
+        return 'Import'
+    }
+    return selectedCount === 1 ? 'Import 1 setting' : `Import ${selectedCount} settings`
 }
 
 /** One readable row per condition of a flat suppression rule, in the words the rule editor uses. */
