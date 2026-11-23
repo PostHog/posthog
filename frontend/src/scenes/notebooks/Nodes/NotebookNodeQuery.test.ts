@@ -4,10 +4,12 @@ import posthog from 'posthog-js'
 import { createElement } from 'react'
 
 import { useMocks } from '~/mocks/jest'
+import { examples } from '~/queries/examples'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { PropertyFilterType, PropertyOperator } from '~/types'
+import { InsightShortId, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { NotebookFilteredQuery } from 'products/notebooks/frontend/NotebookFilteredQuery'
 import { notebookFilterLogic } from 'products/notebooks/frontend/notebookFilterLogic'
 import { NotebookFiltersBar } from 'products/notebooks/frontend/NotebookFiltersBar'
 
@@ -198,6 +200,35 @@ describe('NotebookNodeQuery', () => {
             unmountPreview()
             unmountNode()
             unmountNotebook()
+        }
+    })
+
+    it('requests only the saved insight definition when filtering a saved block', async () => {
+        const shortId = 'saved-filter-test' as InsightShortId
+        const requests: URL[] = []
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/': ({ request }) => {
+                    requests.push(new URL(request.url))
+                    return { results: [{ id: 1, short_id: shortId, query: examples.InsightTrends }] }
+                },
+            },
+        })
+        initKeaTests()
+        try {
+            render(
+                createElement(NotebookFilteredQuery, {
+                    shortId: 'notebook-test',
+                    nodeId: 'saved-insight',
+                    filters: { dateRange: { date_from: '-7d' }, properties: [] },
+                    unfiltered: createElement('div'),
+                    query: { kind: NodeKind.SavedInsightNode, shortId },
+                })
+            )
+            expect(await screen.findByText('Notebook filters applied')).toBeTruthy()
+            expect(requests.map((request) => request.searchParams.get('basic'))).toEqual(['true'])
+        } finally {
+            cleanup()
         }
     })
 

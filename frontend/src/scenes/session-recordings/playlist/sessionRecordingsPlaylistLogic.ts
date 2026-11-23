@@ -570,6 +570,7 @@ export interface SessionRecordingPlaylistLogicProps {
     onlyPinned?: boolean
     type?: 'filters' | 'collection'
     filters?: RecordingUniversalFilters
+    filterSessionIdsByDate?: boolean
     /**
      * Makes the caller's `filters` prop the baseline of the filter bar: a reset returns to it, and
      * `totalFiltersCount` counts what the viewer added on top of it. Set it where those filters scope
@@ -1257,7 +1258,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     // built from, not whatever they are once the response lands.
                     const filters = getEffectiveRecordingFilters(values.filters, values.featureFlags)
                     const convertedQuery = convertUniversalFiltersToRecordingsQuery(filters)
-                    const params: RecordingsQuery & { add_events_to_property_queries?: '1' } = {
+                    const params: RecordingsQuery & {
+                        add_events_to_property_queries?: '1'
+                        filter_session_ids_by_date?: '1'
+                    } = {
                         ...convertedQuery,
                         person_uuid: props.personUUID ?? convertedQuery.person_uuid ?? '',
                         // KLUDGE: some persons have >8MB of distinct_ids,
@@ -1276,6 +1280,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         hide_viewed_recordings: values.hideViewedRecordings || undefined,
                     }
 
+                    if (props.filterSessionIdsByDate && convertedQuery.session_ids?.length) {
+                        params.filter_session_ids_by_date = '1'
+                    }
                     if (values.allowEventPropertyExpansion) {
                         params.add_events_to_property_queries = '1'
                     }

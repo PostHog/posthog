@@ -1129,9 +1129,9 @@ class SessionRecordingViewSet(
                         e, distinct_id=user_distinct_id or "unknown", properties={"while": "setting tracing attributes"}
                     )
 
-                # we don't want to pass add_events_to_property_queries into the model validation
                 params = request.GET.dict()
                 allow_event_property_expansion = params.pop("add_events_to_property_queries", "0") == "1"
+                filter_session_ids_by_date = params.pop("filter_session_ids_by_date", "0") == "1"
                 with tracer.start_as_current_span("convert_filters"):
                     query = filter_from_params_to_query(params)
 
@@ -1147,9 +1147,8 @@ class SessionRecordingViewSet(
                         cast(User, request.user),
                         team=self.team,
                         allow_event_property_expansion=allow_event_property_expansion,
-                        # show explicitly selected sessions (e.g. a funnel drop-off handoff)
-                        # even outside the date range
-                        bypass_date_window_for_session_ids=True,
+                        # Explicit handoffs can include sessions outside the default date window.
+                        bypass_date_window_for_session_ids=not filter_session_ids_by_date,
                         allow_combined_event_filters=True,
                     )
 

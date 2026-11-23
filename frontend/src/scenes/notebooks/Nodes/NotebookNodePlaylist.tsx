@@ -47,6 +47,7 @@ const Component = ({
 interface NotebookCollectionStatus {
     loading: boolean
     count?: number
+    hasAuthoredDuration: boolean
 }
 
 function collectionPreviewNotice({ loading, count }: NotebookCollectionStatus, ids?: string[]): JSX.Element | null {
@@ -79,7 +80,13 @@ function NotebookPlaylistView({
     if (notice) {
         return notice
     }
-    const filters = getFilteredNotebookPlaylist(props.attributes.universalFilters, notebookFilters, collectionIds)
+    const filters = getFilteredNotebookPlaylist(
+        props.attributes.universalFilters,
+        notebookFilters,
+        collection && collectionIds
+            ? { ids: collectionIds, hasAuthoredDuration: collection.hasAuthoredDuration }
+            : undefined
+    )
     if (!filters) {
         return (
             <div className="flex h-full flex-col">
@@ -101,6 +108,7 @@ function NotebookPlaylistView({
                 key={key}
                 logicKey={key}
                 filters={filters}
+                filterSessionIdsByDate={!!notebookFilters.dateRange}
                 personUUID={personUUIDFromCanvasOverride ?? undefined}
                 autoPlay={false}
                 updateSearchParams={false}
@@ -234,7 +242,11 @@ function SavedPlaylistDetail(props: NotebookNodeProps<NotebookNodePlaylistAttrib
             {...props}
             collection={
                 playlist.type === 'collection'
-                    ? { loading: pinnedRecordingsLoading, count: playlist.recordings_counts?.collection?.count }
+                    ? {
+                          loading: pinnedRecordingsLoading,
+                          count: playlist.recordings_counts?.collection?.count,
+                          hasAuthoredDuration: 'duration' in filters || !!filters.session_recording_duration,
+                      }
                     : undefined
             }
             attributes={{

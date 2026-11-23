@@ -25,7 +25,9 @@ export function NotebookFilteredQuery({
     query: QuerySchema
 }): JSX.Element {
     const savedId = isSavedInsightNode(query) ? query.shortId : null
-    const { insight, insightLoading } = useValues(insightLogic({ dashboardItemId: savedId ?? 'new' }))
+    const { insight, insightLoading } = useValues(
+        insightLogic({ dashboardItemId: savedId ?? 'new', retainResponseOnUnmount: !!savedId })
+    )
     if (savedId && !insight.query && insightLoading) {
         return <LemonSkeleton className="h-full w-full" />
     }

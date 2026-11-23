@@ -65,18 +65,30 @@ describe('notebook filters', () => {
         }
     )
 
-    it('keeps both list and collection constraints in the replay request', () => {
+    it.each([false, true])('keeps collection constraints with an authored duration of %s', (hasAuthoredDuration) => {
         const filters: RecordingUniversalFilters = {
-            duration: [],
+            duration: [
+                {
+                    key: 'active_seconds',
+                    type: PropertyFilterType.Recording,
+                    operator: PropertyOperator.GreaterThan,
+                    value: 5,
+                },
+            ],
             date_from: '-7d',
             filter_group: { type: FilterLogicalOperator.And, values: [condition] },
         }
-        const preview = getFilteredNotebookPlaylist(filters, { properties: [cohort] }, ['recording-a'])
+        const preview = getFilteredNotebookPlaylist(
+            filters,
+            { properties: [cohort] },
+            { ids: ['recording-a'], hasAuthoredDuration }
+        )
         expect(convertUniversalFiltersToRecordingsQuery(preview!)).toMatchObject({
             date_from: '-7d',
             operand: 'AND',
             properties: [{ ...condition, value: ['west'] }, cohort],
             session_ids: ['recording-a'],
+            having_predicates: hasAuthoredDuration ? filters.duration : [],
         })
         expect(filters.filter_group.values).toEqual([condition])
         expect(
@@ -97,7 +109,11 @@ describe('notebook filters', () => {
             filter_group: { type: FilterLogicalOperator.And, values: [] },
             session_ids: authored,
         }
-        const preview = getFilteredNotebookPlaylist(filters, { properties: [cohort] }, ['recording-a', 'recording-b'])
+        const preview = getFilteredNotebookPlaylist(
+            filters,
+            { properties: [cohort] },
+            { ids: ['recording-a', 'recording-b'], hasAuthoredDuration: false }
+        )
         expect(convertUniversalFiltersToRecordingsQuery(preview!).session_ids).toEqual(expected)
     })
 

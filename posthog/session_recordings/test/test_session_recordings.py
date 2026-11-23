@@ -1191,6 +1191,19 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             assert response.status_code == status.HTTP_200_OK
             assert response.json()["results"] == []
 
+            self.produce_replay_summary("user", "recent-session", now() - relativedelta(days=1))
+            self.produce_replay_summary("user", "non-member", now() - relativedelta(days=1))
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/session_recordings",
+                {
+                    "session_ids": '["old-session", "recent-session"]',
+                    "date_from": "-3d",
+                    "filter_session_ids_by_date": "1",
+                },
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert [r["id"] for r in response.json()["results"]] == ["recent-session"]
+
     def test_empty_list_session_ids_filter_returns_no_recordings(self):
         with time_machine.travel("2020-09-13T12:26:40.000Z", tick=False):
             create_person(
