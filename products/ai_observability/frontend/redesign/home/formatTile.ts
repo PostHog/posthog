@@ -1,6 +1,6 @@
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
-import { TraceMetricChangeUnitApi, TraceMetricKeyApi } from '../../generated/api.schemas'
+import { TraceMetricChangeUnitApi, TraceMetricKeyApi, type TraceMetricTileApi } from '../../generated/api.schemas'
 import { formatCostUsd } from '../shared/formatCost'
 import { formatLatencyMs } from '../trace/components/formatStats'
 
@@ -39,6 +39,17 @@ export function formatTileChange(change: number, unit: TraceMetricChangeUnitApi)
     }
     const magnitude = humanFriendlyNumber(Math.abs(rounded), decimals, decimals)
     return `${rounded < 0 ? MINUS : '+'}${magnitude}${suffix}`
+}
+
+export function formatTileDetail({
+    detail,
+    latencyQuantiles,
+}: Pick<TraceMetricTileApi, 'detail' | 'latencyQuantiles'>): string | null {
+    if (latencyQuantiles) {
+        const { p50Seconds, p99Seconds } = latencyQuantiles
+        return `p50 ${formatLatencyMs(p50Seconds * 1000)} · p99 ${formatLatencyMs(p99Seconds * 1000)}`
+    }
+    return detail
 }
 
 export function tileSlug(key: TraceMetricKeyApi): string {

@@ -1,5 +1,5 @@
 import { TraceMetricChangeUnitApi, TraceMetricKeyApi } from '../../generated/api.schemas'
-import { formatTileChange, formatTileValue } from './formatTile'
+import { formatTileChange, formatTileDetail, formatTileValue } from './formatTile'
 
 describe('formatTile', () => {
     it.each<[TraceMetricKeyApi, number | null, string]>([
@@ -32,5 +32,14 @@ describe('formatTile', () => {
         [-1.25, TraceMetricChangeUnitApi.Seconds, '−1.3s'],
     ])('formats a change of %p %s as %p', (change, unit, expected) => {
         expect(formatTileChange(change, unit)).toBe(expected)
+    })
+
+    it.each<[Parameters<typeof formatTileDetail>[0], string | null]>([
+        [{ detail: '1,147 errored traces', latencyQuantiles: null }, '1,147 errored traces'],
+        [{ detail: null, latencyQuantiles: { p50Seconds: 1.4, p99Seconds: 8.9 } }, 'p50 1.4s · p99 8.9s'],
+        [{ detail: null, latencyQuantiles: { p50Seconds: 0.42, p99Seconds: 4503 } }, 'p50 420ms · p99 1h\u00a015m'],
+        [{ detail: null, latencyQuantiles: null }, null],
+    ])('formats the detail of %p as %p', (tile, expected) => {
+        expect(formatTileDetail(tile)).toBe(expected)
     })
 })
