@@ -5,7 +5,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models import User
+from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user_integration import UserIntegration, user_slack_integration_from_identity
 
@@ -1075,6 +1075,30 @@ class TestGetInstallationsForSandbox(BaseTest):
         )
 
         assert self._agent_results(self.user.id if run_has_owner else None) == []
+
+    @parameterized.expand([("nobodys_run", False), ("teammates_run", True)])
+    def test_departed_members_connections_and_team_share_are_removed(self, _name: str, run_has_owner: bool) -> None:
+        account = self._support_agent()
+        departing = User.objects.create_and_join(self.organization, "departing@posthog.com", "password")
+        other_org = Organization.objects.create(name="Other Org")
+        departing.join(organization=other_org)
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        server = self._create_gateway_server(name="Granted", url="https://granted.example.com/mcp")
+        connection = self._create_installation(user=departing, gateway_server=server, url=server.url)
+        self._grant(account, server, user=departing, installation=connection, scope="team")
+        shared = self._create_installation(user=departing, scope="shared", url="https://shared.example.com/mcp")
+        other_org_connection = self._create_installation(user=departing, team=other_team)
+        credential_owner_id = self.user.id if run_has_owner else None
+        assert [result.id for result in self._agent_results(credential_owner_id)] == [str(connection.id)]
+
+        departing.leave(organization=self.organization)
+
+        assert self._agent_results(credential_owner_id) == []
+        assert not MCPServiceAccountServerAccess.objects.unscoped().filter(user=departing).exists()
+        assert set(MCPServerInstallation.objects.filter(user=departing).values_list("id", flat=True)) == {
+            shared.id,
+            other_org_connection.id,
+        }
 
     def test_team_scoped_grant_without_a_user_is_never_mounted(self) -> None:
         account = self._support_agent()

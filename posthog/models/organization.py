@@ -1039,6 +1039,21 @@ def clean_up_event_streams_on_membership_removal(sender, instance: OrganizationM
 
 
 @receiver(models.signals.post_delete, sender=OrganizationMembership)
+def clean_up_mcp_connections_on_membership_removal(sender, instance: OrganizationMembership, **kwargs):
+    from products.mcp_store.backend.facade.api import remove_member_connections
+
+    deleted_count = remove_member_connections(user_id=instance.user_id, organization_id=instance.organization_id)
+
+    if deleted_count > 0:
+        logger.info(
+            "Removed MCP connections for user removed from organization",
+            user_id=instance.user_id,
+            organization_id=str(instance.organization_id),
+            deleted_count=deleted_count,
+        )
+
+
+@receiver(models.signals.post_delete, sender=OrganizationMembership)
 def sync_billing_on_membership_removal(sender, instance: OrganizationMembership, **kwargs):
     from posthog.tasks.sync_billing import sync_members_to_billing
 

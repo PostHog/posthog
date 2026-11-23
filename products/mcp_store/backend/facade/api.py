@@ -1115,3 +1115,20 @@ def member_server_hosts(team_id: int, user_id: int) -> list[str]:
         .values_list("url", flat=True)
     )
     return sorted({host for url in urls if (host := _installation_host(url))})
+
+
+def remove_member_connections(*, user_id: int, organization_id: uuid.UUID) -> int:
+    """Delete the personal MCP connections and agent grants of a user who left an organization, across its
+    projects. A grant lends its owner's connection to the project's agent runs, and OAuth tokens refresh on use,
+    so without this a departed member's credential keeps acting in agent runs. Shared connections stay because
+    the team uses them. Returns how many connections were deleted."""
+    with transaction.atomic():
+        MCPServiceAccountServerAccess.objects.unscoped().filter(
+            user_id=user_id, team__organization_id=organization_id
+        ).delete()
+        connections = MCPServerInstallation.objects.filter(
+            user_id=user_id, team__organization_id=organization_id, scope="personal"
+        )
+        deleted_count = connections.count()
+        connections.delete()
+    return deleted_count
