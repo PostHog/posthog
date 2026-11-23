@@ -9,7 +9,7 @@ its topic are unknown, and a reader with any denied table does not see that topi
 import re
 import json
 from collections import Counter, defaultdict
-from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from datetime import datetime
 from typing import Any
 
@@ -18,6 +18,7 @@ from django.db.models import Max
 from rest_framework.exceptions import ValidationError
 
 from posthog.hogql import ast
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -34,6 +35,7 @@ from products.data_tools.backend.facade.models import DataWarehouseExpression, D
 from products.product_analytics.backend.facade.models import Insight
 
 from ..facade.enums import MARKDOWN_DEFINITION_KIND
+from ..metrics import DatabaseBuildTrigger
 from .agent_sessions import (
     DATA_TOOL_PREFIX,
     DATA_TOOLS,
@@ -213,7 +215,9 @@ class ReadSources:
     ``field_tables`` maps the name of each warehouse join and saved expression field to the tables that the
     field reads, or to None when the scan cannot tell. ``fields_changed_at`` holds the last change or delete of
     any of those fields. ``table_expressions`` holds the saved expression fields of each table, which `*` expands.
-    ``view_changes`` holds the last change of each saved view or of a view that it reads."""
+    ``view_changes`` holds the last change of each saved view or of a view that it reads. ``untraced_views`` holds
+    the views whose body the scan cannot trace. ``views_saved_at`` holds the last save of any saved view, and
+    ``table_exists`` says whether the team has a table or view with a name now."""
 
     metric_definitions: Mapping[str, SavedDefinition]
     insight_queries: Mapping[str, SavedDefinition]
@@ -222,6 +226,9 @@ class ReadSources:
     fields_changed_at: datetime | None = None
     table_expressions: Mapping[str, frozenset[str]] | None = None
     view_changes: Mapping[str, datetime] | None = None
+    untraced_views: frozenset[str] = frozenset()
+    views_saved_at: datetime | None = None
+    table_exists: Callable[[str], bool] | None = None
 
     def as_of(self, at: datetime) -> "ReadSources":
         """Only a definition that did not change after a call still says what that call read."""
@@ -233,6 +240,9 @@ class ReadSources:
             fields_changed_at=self.fields_changed_at,
             table_expressions=self.table_expressions,
             view_changes=self.view_changes,
+            untraced_views=self.untraced_views,
+            views_saved_at=self.views_saved_at,
+            table_exists=self.table_exists,
         )
 
     def field_reads(self, bodies: Iterable[object]) -> frozenset[str] | None:
@@ -267,6 +277,15 @@ class ReadSources:
         changes = self.view_changes or {}
         return any(_changed_after(changes.get(table), at) for table in tables)
 
+    def names_renamed_view(self, tables: Iterable[str], at: datetime) -> bool:
+        """Whether a call can name a view by a name that the view had before a rename.
+
+        A rename keeps no record of the old name, and a reader's denial follows the new name. So after a save of
+        any view, a name that the team has no table or view for now can hide a read."""
+        if self.table_exists is None or not _changed_after(self.views_saved_at, at):
+            return False
+        return not all(self.table_exists(table) for table in tables)
+
 
 def _unchanged[K](saved: Mapping[K, SavedDefinition], at: datetime) -> dict[K, SavedDefinition]:
     return {key: item for key, item in saved.items() if item.changed_at is not None and item.changed_at <= at}
@@ -284,6 +303,11 @@ class _SavedFilterFinder(TraversingVisitor):
         )
         super().visit_select_query(node)
 
+    def visit_columns_expr(self, node: ast.ColumnsExpr) -> None:
+        # `COLUMNS(...)` picks from every field of a table, the same as `*`.
+        self.asterisk = True
+        super().visit_columns_expr(node)
+
     def visit_compare_operation(self, node: ast.CompareOperation) -> None:
         self.found = self.found or node.op in _COHORT_OPERATORS
         super().visit_compare_operation(node)
@@ -297,7 +321,7 @@ def sql_tables(sql: str) -> frozenset[str] | None:
     """The tables a HogQL query names, or None when it does not parse or runs a saved cohort or action.
 
     The check reads the parsed query, because a comment between two keywords hides them from a text match. A
-    query that selects `*` also gets the `_ASTERISK` marker."""
+    query that selects `*` or `COLUMNS(...)` also gets the `_ASTERISK` marker."""
     finder = _SavedFilterFinder()
     try:
         finder.visit(parse_select(sql))
@@ -502,13 +526,17 @@ def call_tables(call: ReadCall, sources: ReadSources) -> frozenset[str] | None:
     fields = None if found is None else current.field_reads(_call_bodies(call, current))
     if found is None or fields is None:
         return None
+    if current.names_renamed_view(found - {_ASTERISK}, call.at):
+        return None
     tables = (found | fields) - {_ASTERISK}
     if _ASTERISK in found:
         expanded = current.asterisk_reads(tables)
         if expanded is None:
             return None
         tables |= expanded
-    return None if current.view_changed_after(tables, call.at) else tables
+    if tables & current.untraced_views or current.view_changed_after(tables, call.at):
+        return None
+    return tables
 
 
 def session_tables(
@@ -817,13 +845,36 @@ def view_changes(views: Sequence[SavedView]) -> dict[str, datetime]:
     return {name: time for name in by_name if (time := last_change(name, ())) is not None}
 
 
-def _load_view_changes(team: Team) -> dict[str, datetime]:
+def untraced_views(views: Sequence[SavedView]) -> frozenset[str]:
+    """The views that run a saved cohort or action or do not parse, and the views that read such a view.
+
+    A reader's denial follows the tables that a view body names, and these bodies can read a table that they do
+    not name."""
+    reads = {name: sql_tables(view.sql) for view in views for name in view.names}
+    untraced = {name for name, tables in reads.items() if tables is None}
+    spread = set(untraced)
+    while spread:
+        spread = {name for name, tables in reads.items() if name not in untraced and tables and tables & untraced}
+        untraced |= spread
+    return frozenset(untraced)
+
+
+@frozen
+class _SavedViews:
+    changes: dict[str, datetime]
+    untraced: frozenset[str]
+    saved_at: datetime | None
+
+
+def _load_saved_views(team: Team) -> _SavedViews:
     rows = DataWarehouseSavedQuery.objects.filter(team_id=team.id).values_list(
-        "name", "deleted_name", "query", "created_at", "query_updated_at", "deleted_at"
+        "name", "deleted_name", "query", "created_at", "query_updated_at", "deleted_at", "updated_at"
     )
     views = []
-    for name, deleted_name, query, created_at, query_updated_at, deleted_at in rows:
+    saves = []
+    for name, deleted_name, query, created_at, query_updated_at, deleted_at, updated_at in rows:
         times = [time for time in (created_at, query_updated_at, deleted_at) if time is not None]
+        saves.extend(time for time in (created_at, updated_at) if time is not None)
         views.append(
             SavedView(
                 names=frozenset(view_name for view_name in (name, deleted_name) if view_name),
@@ -831,7 +882,7 @@ def _load_view_changes(team: Team) -> dict[str, datetime]:
                 changed_at=max(times, default=None),
             )
         )
-    return view_changes(views)
+    return _SavedViews(changes=view_changes(views), untraced=untraced_views(views), saved_at=max(saves, default=None))
 
 
 def load_read_sources(team: Team, calls: Sequence[ReadCall], since: datetime) -> ReadSources:
@@ -875,6 +926,13 @@ def load_read_sources(team: Team, calls: Sequence[ReadCall], since: datetime) ->
         *_last_changes(team, "DataWarehouseExpression", since).values(),
     ]
     saved_fields = _load_saved_fields(team)
+    saved_views = _load_saved_views(team)
+    # Only a team with a saved view can have a renamed view, so other teams skip the database build.
+    database = (
+        Database.create_for(team=team, trigger=DatabaseBuildTrigger.USAGE_TOPIC_READS)
+        if saved_views.saved_at is not None
+        else None
+    )
     return ReadSources(
         metric_definitions=definitions,
         insight_queries=queries,
@@ -882,7 +940,10 @@ def load_read_sources(team: Team, calls: Sequence[ReadCall], since: datetime) ->
         field_tables=saved_fields.field_tables,
         fields_changed_at=max(field_changes, default=None),
         table_expressions=saved_fields.table_expressions,
-        view_changes=_load_view_changes(team),
+        view_changes=saved_views.changes,
+        untraced_views=saved_views.untraced,
+        views_saved_at=saved_views.saved_at,
+        table_exists=database.has_table if database is not None else None,
     )
 
 

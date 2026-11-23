@@ -29,6 +29,7 @@ from products.data_catalog.backend.logic.usage_topic_reads import (
     session_tables,
     topic_tables,
     trace_session_tables,
+    untraced_views,
     view_changes,
 )
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -77,6 +78,7 @@ _SOURCES = ReadSources(
     },
     table_expressions={"events": frozenset({"billing_total"})},
     view_changes={"revenue_view": _EDITED, "stable_view": _CALL_AT - timedelta(days=1)},
+    untraced_views=frozenset({"cohort_view"}),
 )
 
 
@@ -138,7 +140,9 @@ class TestSessionTables(SimpleTestCase):
             ("sql_using_an_untraceable_saved_expression", [_sql("SELECT broken_total FROM events")], None),
             ("sql_using_a_dollar_saved_expression", [_sql("SELECT $billing_total FROM events")], {"events", "billing"}),
             ("sql_selecting_every_field", [_sql("SELECT * FROM events")], {"events", "billing"}),
+            ("sql_selecting_fields_by_pattern", [_sql("SELECT COLUMNS('bill.*') FROM events")], {"events", "billing"}),
             ("sql_counting_rows_reads_no_field", [_sql("SELECT count(*) FROM events")], {"events"}),
+            ("sql_over_a_view_the_scan_cannot_trace", [_sql("SELECT 1 FROM cohort_view")], None),
             ("sql_over_a_view_edited_after_the_run", [_sql("SELECT 1 FROM revenue_view")], None),
             ("sql_over_a_view_edited_before_the_run", [_sql("SELECT 1 FROM stable_view")], {"stable_view"}),
             (
@@ -440,6 +444,10 @@ class TestViewChanges(SimpleTestCase):
             SavedView(names=frozenset({"POSTHOG_DELETED_1", "gone"}), sql="SELECT 1 FROM events", changed_at=at(5)),
             SavedView(names=frozenset({"ping"}), sql="SELECT 1 FROM pong", changed_at=at(3)),
             SavedView(names=frozenset({"pong"}), sql="SELECT 1 FROM ping", changed_at=at(4)),
+            SavedView(
+                names=frozenset({"in_cohort"}), sql="SELECT 1 FROM events WHERE person_id IN COHORT 7", changed_at=at(1)
+            ),
+            SavedView(names=frozenset({"over_in_cohort"}), sql="SELECT 1 FROM in_cohort", changed_at=at(1)),
         ]
 
         changes = view_changes(views)
@@ -447,6 +455,7 @@ class TestViewChanges(SimpleTestCase):
         assert changes["top"] == at(9)
         assert changes["gone"] == at(5)
         assert changes["ping"] == changes["pong"] == at(4)
+        assert untraced_views(views) == {"in_cohort", "over_in_cohort"}
 
 
 class TestSavedFieldTables(SimpleTestCase):
@@ -519,6 +528,19 @@ class TestLoadReadSources(BaseTest):
         sources = load_read_sources(self.team, [call], _CALL_AT - timedelta(days=3))
 
         assert call_tables(call, sources) is None
+
+    def test_a_call_over_a_name_that_no_table_has_after_a_view_save_is_unknown(self) -> None:
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="new_name", query={"kind": "HogQLQuery", "query": "SELECT 1 FROM events"}
+        )
+        DataWarehouseSavedQuery.objects.filter(id=view.id).update(
+            created_at=_CALL_AT - timedelta(days=2), updated_at=_CALL_AT + timedelta(days=1)
+        )
+        calls = [_sql("SELECT 1 FROM old_name"), _sql("SELECT 1 FROM new_name"), _sql("SELECT 1 FROM events")]
+
+        sources = load_read_sources(self.team, calls, _CALL_AT - timedelta(days=3))
+
+        assert [call_tables(call, sources) for call in calls] == [None, frozenset({"new_name"}), frozenset({"events"})]
 
     def test_a_call_through_a_saved_expression_reads_its_tables(self) -> None:
         DataWarehouseExpression.objects.for_team(self.team.id).create(
