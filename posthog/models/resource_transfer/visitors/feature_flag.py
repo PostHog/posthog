@@ -21,7 +21,7 @@ from posthog.models.resource_transfer.visitors.feature_flag_filters import (
 from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.facade.config import detect_config_format
 from products.feature_flags.backend.facade.config_validation import ConfigValidationError
-from products.feature_flags.backend.facade.config_writes import check_writer_rules
+from products.feature_flags.backend.facade.config_writes import check_copy
 from products.feature_flags.backend.reserved_variant_keys import reserved_variant_key, reserved_variant_key_message
 
 if TYPE_CHECKING:
@@ -55,11 +55,9 @@ class FeatureFlagVisitor(
         filters = payload.get("filters")
         if isinstance(filters, Mapping) and detect_config_format(filters).kind == "v2":
             try:
-                check_writer_rules(filters, stored={})
+                check_copy(filters)
             except ConfigValidationError as exc:
                 raise ValueError(str(exc)) from exc
-            except (LookupError, TypeError) as exc:
-                raise ValueError("This flag's version 2 configuration is malformed, so it can't be copied.") from exc
         reserved_key = reserved_variant_key(filters)
         if reserved_key is not None:
             raise ValueError(reserved_variant_key_message(reserved_key))

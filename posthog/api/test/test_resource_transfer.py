@@ -323,15 +323,12 @@ class TestResourceTransferTransfer(APIBaseTest):
                 'filters.default_value: Must be null or a non-empty string other than "false", "null", "true", '
                 "$false or $true.",
             ),
-            (
-                "v2_malformed",
-                {"version": 2},
-                "This flag's version 2 configuration is malformed, so it can't be copied.",
-            ),
+            ("v2_missing_fields", {"version": 2}, None),
+            ("v2_null_rule", {"version": 2, "return_type": "string", "default_value": "ok", "rules": [None]}, None),
         ]
     )
     def test_transfer_refuses_a_flag_with_a_variant_a_new_flag_may_not_store(
-        self, _name: str, filters: dict[str, Any], detail: str
+        self, _name: str, filters: dict[str, Any], detail: str | None
     ) -> None:
         flag = FeatureFlag.objects.create(team=self.team, key="split")
         # FeatureFlag.save() refuses a keyless variant, so the stored row is written with QuerySet.update.
@@ -348,8 +345,26 @@ class TestResourceTransferTransfer(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["detail"] == detail
+        if detail is not None:
+            assert response.json()["detail"] == detail
         assert not FeatureFlag.objects.filter(team=self.dest_team).exists()
+
+    def test_transfer_copies_a_valid_v2_flag(self) -> None:
+        filters = {"version": 2, "return_type": "string", "default_value": "ok", "rules": []}
+        flag = FeatureFlag.objects.create(team=self.team, key="v2-flag", filters=filters)
+
+        response = self.client.post(
+            self._transfer_url(),
+            {
+                "source_team_id": self.team.pk,
+                "destination_team_id": self.dest_team.pk,
+                "resource_kind": "FeatureFlag",
+                "resource_id": str(flag.pk),
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert FeatureFlag.objects.get(team=self.dest_team).filters == filters
 
     def test_transfer_with_substitution_uses_existing_resource(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")

@@ -287,6 +287,17 @@ def _validated_stored(
         raise ConfigValidationError([ConfigError(code="unsupported", detail=detail, attr="filters")]) from exc
 
 
+def check_copy(document: Mapping[str, Any]) -> None:
+    """Reject a stored document that a new flag in another project may not store.
+
+    The document must validate, then pass the writer rules with nothing stored. The byte limits are unbounded because
+    a stored row may predate a lower cap, as in ``review_update``.
+    """
+    unbounded = ValidationLimits(max_config_bytes=sys.maxsize, max_metadata_bytes=sys.maxsize)
+    validate_config(document, limits=unbounded)
+    check_writer_rules(document, stored={})
+
+
 def check_writer_rules(document: Mapping[str, Any], *, stored: Mapping[str, Any]) -> None:
     """Reject a document ``validate_config`` admitted that a writer still may not store.
 
