@@ -1,6 +1,6 @@
 import re
 from collections.abc import Iterator
-from contextlib import AbstractContextManager, contextmanager, nullcontext
+from contextlib import contextmanager, nullcontext
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
@@ -151,7 +151,7 @@ def start_background_work(team: Team, user: User) -> dict[str, str]:
 
 
 def running_work(team: Team) -> dict[str, tuple[str, ...]]:
-    return {work.label: work.ids for work in find_background_work([team.id])}
+    return {work.label: work.ids for work in find_background_work([team.id]).running}
 
 
 class TestBulkDeactivateOrganizationsTool(BaseTest):
@@ -188,11 +188,9 @@ class TestBulkDeactivateOrganizationsTool(BaseTest):
         token = self._confirm_token(self._preview(organization_ids, reason, custom_reason, stop_background_work))
         return self.client.post(TOOL_URL, {"confirm_token": token})
 
-    def _shut_down(
-        self, organization_ids: str, temporal: FakeTemporal, during_confirm: AbstractContextManager | None = None
-    ) -> str:
+    def _shut_down(self, organization_ids: str, temporal: FakeTemporal) -> str:
         token = self._confirm_token(self._preview(organization_ids, SECURITY_VIOLATION, stop_background_work=True))
-        with temporal_boundary(temporal), during_confirm or nullcontext():
+        with temporal_boundary(temporal):
             response = self.client.post(TOOL_URL, {"confirm_token": token})
         assert response.status_code == 302
         return self.client.get(response["Location"]).content.decode()
@@ -235,7 +233,10 @@ class TestBulkDeactivateOrganizationsTool(BaseTest):
         for resource_id in stopped.values():
             assert resource_id in result
         [audit] = [log for log in logs if log["event"] == AUDIT_EVENT]
-        assert audit["stopped"] == {label: [resource_id] for label, resource_id in stopped.items()}
+        assert (audit["reason"], audit["stopped"]) == (
+            SECURITY_VIOLATION,
+            {label: [resource_id] for label, resource_id in stopped.items()},
+        )
 
     @parameterized.expand([("an_item_fails_to_stop", "Batch exports"), ("a_kind_fails_to_list", "Subscriptions")])
     def test_a_failure_is_reported_and_the_rest_still_stop(self, _name: str, failing_kind: str) -> None:
@@ -249,11 +250,14 @@ class TestBulkDeactivateOrganizationsTool(BaseTest):
             else nullcontext()
         )
 
-        result = self._shut_down(str(self.organization.id), temporal, during_confirm=listing_fails)
+        with listing_fails:
+            preview = self._preview(str(self.organization.id), stop_background_work=True).content.decode()
+            result = self._shut_down(str(self.organization.id), temporal)
 
         assert running_work(self.team) == {failing_kind: (failing_id,)}
         assert "A failure can come after the change was saved" in result
         assert ("BatchExportScheduleError" if failing_kind == "Batch exports" else "Could not list them") in result
+        assert (failing_kind == "Subscriptions") == ("Subscriptions: could not list" in preview)
 
     def test_confirm_stops_the_work_of_an_organization_that_is_already_inactive(self) -> None:
         Organization.objects.filter(id=self.organization.id).update(

@@ -127,16 +127,16 @@ class OrganizationBackgroundWorkPanel(Panel):
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, Organization)
-        running = find_background_work(list(obj.teams.values_list("id", flat=True)))
-        if not running:
+        listing = find_background_work(list(obj.teams.values_list("id", flat=True)))
+        facts = [Fact(label=work.label, value=str(len(work.ids))) for work in listing.running]
+        facts += [Fact(label=kind, value="Could not list", tone=Tone.WARNING) for kind in listing.unlisted]
+        if not facts:
             return [Fact(label="Running", value="Nothing", tone=Tone.SUCCESS)]
-        shown = running if len(running) <= MAX_FACTS_PER_PANEL else running[: MAX_FACTS_PER_PANEL - 1]
-        facts = [Fact(label=work.label, value=str(len(work.ids))) for work in shown]
-        if len(shown) < len(running):
-            facts.append(
-                Fact(label="More", value=f"{len(running) - len(shown)} more kinds. The shutdown preview lists all.")
-            )
-        return facts
+        if len(facts) <= MAX_FACTS_PER_PANEL:
+            return facts
+        shown = facts[: MAX_FACTS_PER_PANEL - 1]
+        more = Fact(label="More", value=f"{len(facts) - len(shown)} more kinds. The shutdown preview lists all.")
+        return [*shown, more]
 
     def operations(self, obj: Model) -> list[Operation]:
         return [

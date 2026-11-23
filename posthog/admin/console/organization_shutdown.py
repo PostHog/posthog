@@ -116,11 +116,14 @@ def planned_action(organization: Organization, *, stop_background_work: bool) ->
 
 @frozen
 class BackgroundWork:
-    """The running items of one kind, such as the enabled destinations of an organization, and how to stop one."""
+    """The running items of one kind, such as the enabled destinations of an organization, and how to stop one.
+
+    `stop(resource_id, team_id=...)` stops one item of that team, and returns False when it no longer runs.
+    """
 
     label: str
     ids: tuple[str, ...]
-    stop: Callable[[str], bool]
+    stop: Callable[..., bool]
 
 
 def _hog_function_work(team_ids: Collection[int]) -> list[BackgroundWork]:
@@ -128,7 +131,7 @@ def _hog_function_work(team_ids: Collection[int]) -> list[BackgroundWork]:
         BackgroundWork(
             label=_hog_function_label(function_type),
             ids=tuple(ids),
-            stop=partial(cdp.disable_hog_function, team_ids=team_ids),
+            stop=cdp.disable_hog_function,
         )
         for function_type, ids in cdp.enabled_hog_function_ids_by_type(team_ids).items()
     ]
@@ -140,7 +143,7 @@ def _work_of_one_kind(
     stop: Callable[..., bool],
     team_ids: Collection[int],
 ) -> list[BackgroundWork]:
-    return [BackgroundWork(label=label, ids=tuple(find(team_ids)), stop=partial(stop, team_ids=team_ids))]
+    return [BackgroundWork(label=label, ids=tuple(find(team_ids)), stop=stop)]
 
 
 def _finders(team_ids: Collection[int]) -> list[tuple[str, Callable[[], list[BackgroundWork]]]]:
@@ -150,7 +153,7 @@ def _finders(team_ids: Collection[int]) -> list[tuple[str, Callable[[], list[Bac
         (
             "Batch exports",
             batch_exports.unpaused_batch_export_ids,
-            partial(batch_exports.pause_batch_export_of_teams, note=PAUSE_NOTE),
+            partial(batch_exports.pause_running_batch_export, note=PAUSE_NOTE),
         ),
         ("Warehouse syncs", warehouse.syncing_schema_ids_for_staff, warehouse.stop_schema_syncing_for_staff),
         ("Legacy plugins", cdp.enabled_plugin_config_ids, cdp.disable_plugin_config),
@@ -163,9 +166,29 @@ def _finders(team_ids: Collection[int]) -> list[tuple[str, Callable[[], list[Bac
     ]
 
 
-def find_background_work(team_ids: Collection[int]) -> list[BackgroundWork]:
+@frozen
+class BackgroundWorkListing:
+    running: tuple[BackgroundWork, ...]
+    # Kinds whose listing failed. Staff see them, so a failed query never reads as nothing running.
+    unlisted: tuple[str, ...]
+
+    def summary(self) -> str:
+        parts = [f"{work.label}: {len(work.ids)}" for work in self.running]
+        parts += [f"{kind}: could not list" for kind in self.unlisted]
+        return ", ".join(parts) or "None running"
+
+
+def find_background_work(team_ids: Collection[int]) -> BackgroundWorkListing:
     """Every kind of work the teams run without anyone signed in, with at least one item running."""
-    return [work for _, find in _finders(team_ids) for work in find() if work.ids]
+    running: list[BackgroundWork] = []
+    unlisted: list[str] = []
+    for kind, find in _finders(team_ids):
+        try:
+            running += [work for work in find() if work.ids]
+        except Exception as error:
+            capture_exception(error)
+            unlisted.append(kind)
+    return BackgroundWorkListing(running=tuple(running), unlisted=tuple(unlisted))
 
 
 @frozen
@@ -174,12 +197,7 @@ class OrganizationInventory:
     name: str
     member_count: int
     personal_api_key_count: int
-    background_work: tuple[BackgroundWork, ...]
-
-    def work_summary(self) -> str:
-        if not self.background_work:
-            return "None running"
-        return ", ".join(f"{work.label}: {len(work.ids)}" for work in self.background_work)
+    background_work: BackgroundWorkListing
 
 
 def take_inventory(organization: Organization) -> OrganizationInventory:
@@ -189,7 +207,7 @@ def take_inventory(organization: Organization) -> OrganizationInventory:
         name=organization.name,
         member_count=organization.members.count(),
         personal_api_key_count=get_organization_personal_api_keys(organization).count(),
-        background_work=tuple(find_background_work(team_ids)),
+        background_work=find_background_work(team_ids),
     )
 
 
@@ -233,34 +251,29 @@ def _deactivate(organization_ids: Sequence[UUID], reason: str) -> set[UUID]:
 
 
 def _stop_background_work(organization: Organization) -> tuple[list[StoppedWork], list[StopFailure]]:
-    stopped: list[StoppedWork] = []
+    stopped: dict[str, list[str]] = {}
     failures: list[StopFailure] = []
-    team_ids = list(organization.teams.values_list("id", flat=True))
     # Each kind is listed, and each item stopped, on its own, so one that fails, such as a Temporal schedule that
-    # refuses to pause, leaves the rest to stop and shows on the result page.
-    for kind, find in _finders(team_ids):
-        try:
-            found = find()
-        except Exception as error:
-            failures.append(_failure(organization, StopFailure(label=kind, resource_id="", error=_describe(error))))
-            capture_exception(error)
-            continue
-        for work in found:
-            stopped_ids: list[str] = []
-            for resource_id in work.ids:
-                try:
-                    if work.stop(resource_id):
-                        stopped_ids.append(resource_id)
-                except Exception as error:
-                    failures.append(
-                        _failure(
-                            organization, StopFailure(label=work.label, resource_id=resource_id, error=_describe(error))
-                        )
-                    )
-                    capture_exception(error)
-            if stopped_ids:
-                stopped.append(StoppedWork(label=work.label, ids=tuple(stopped_ids)))
-    return stopped, failures
+    # refuses to pause, leaves the rest to stop and shows on the result page. Each stop names its team, so it can
+    # never reach an item outside the organization.
+    for team_id in organization.teams.order_by("id").values_list("id", flat=True):
+        for kind, find in _finders([team_id]):
+            try:
+                found = find()
+            except Exception as error:
+                failures.append(_failure(organization, StopFailure(label=kind, resource_id="", error=_describe(error))))
+                capture_exception(error)
+                continue
+            for work in found:
+                for resource_id in work.ids:
+                    try:
+                        if work.stop(resource_id, team_id=team_id):
+                            stopped.setdefault(work.label, []).append(resource_id)
+                    except Exception as error:
+                        failure = StopFailure(label=work.label, resource_id=resource_id, error=_describe(error))
+                        failures.append(_failure(organization, failure))
+                        capture_exception(error)
+    return [StoppedWork(label=label, ids=tuple(ids)) for label, ids in stopped.items()], failures
 
 
 def _failure(organization: Organization, failure: StopFailure) -> StopFailure:
@@ -307,6 +320,7 @@ def shut_down_organizations(
             AUDIT_EVENT,
             organization_id=str(organization.id),
             triggered_by=triggered_by,
+            reason=reason,
             deactivated=result.deactivated,
             stopped={work.label: list(work.ids) for work in result.stopped},
             failed=[{"kind": failure.label, "id": failure.resource_id} for failure in result.failures],
@@ -328,7 +342,7 @@ def inventory_table(inventories: Sequence[OrganizationInventory], actions: dict[
                 Cell(text=actions[inventory.organization_id]),
                 Cell(text=str(inventory.member_count)),
                 Cell(text=str(inventory.personal_api_key_count)),
-                Cell(text=inventory.work_summary()),
+                Cell(text=inventory.background_work.summary()),
             )
         )
         for inventory in inventories

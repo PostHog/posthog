@@ -34,9 +34,9 @@ class TestStopSchemaSyncing(BaseTest):
             mock.patch(TEARDOWN) as teardown,
             self.captureOnCommitCallbacks(execute=True),
         ):
-            assert stop_schema_syncing_for_staff(mine, team_ids=[self.team.pk]) is True
-            assert stop_schema_syncing_for_staff(mine, team_ids=[self.team.pk]) is False
-            assert stop_schema_syncing_for_staff(theirs, team_ids=[self.team.pk]) is False
+            assert stop_schema_syncing_for_staff(mine, team_id=self.team.pk) is True
+            assert stop_schema_syncing_for_staff(mine, team_id=self.team.pk) is False
+            assert stop_schema_syncing_for_staff(theirs, team_id=self.team.pk) is False
 
         temporal.get_schedule_handle.assert_called_once_with(mine)
         temporal.get_schedule_handle.return_value.pause.assert_awaited_once()
@@ -49,6 +49,6 @@ class TestStopSchemaSyncing(BaseTest):
         temporal.get_schedule_handle.return_value.pause = mock.AsyncMock(side_effect=RuntimeError("unavailable"))
 
         with mock.patch(TEMPORAL_CLIENT, return_value=temporal), pytest.raises(RuntimeError):
-            stop_schema_syncing_for_staff(schema_id, team_ids=[self.team.pk])
+            stop_schema_syncing_for_staff(schema_id, team_id=self.team.pk)
 
         assert syncing_schema_ids_for_staff([self.team.pk]) == [schema_id]

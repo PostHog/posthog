@@ -94,7 +94,7 @@ __all__ = [
     "list_supported_intervals",
     "organization_has_custom_events_schema_exports",
     "pause_batch_export",
-    "pause_batch_export_of_teams",
+    "pause_running_batch_export",
     "retry_batch_export_run",
     "run_destination_test_step",
     "start_file_download",
@@ -567,13 +567,13 @@ def unpaused_batch_export_ids(team_ids: Collection[int]) -> list[str]:
     return _import_exports().unpaused_batch_export_ids(team_ids)
 
 
-def pause_batch_export_of_teams(export_id: str, *, team_ids: Collection[int], note: str) -> bool:
-    """Pause a batch export of these teams, Temporal schedule included. Returns False when it is already paused.
+def pause_running_batch_export(export_id: str, *, team_id: int, note: str) -> bool:
+    """Pause a batch export of the team, Temporal schedule included. Returns False when it is already paused.
 
     ``note`` records who asked, on the Temporal schedule. Raises
     ``contracts.BatchExportScheduleError`` when Temporal rejects the change.
     """
-    return _import_exports().pause_batch_export_of_teams(export_id, team_ids=team_ids, note=note)
+    return _import_exports().pause_running_batch_export(export_id, team_id=team_id, note=note)
 
 
 def unpause_batch_export(team_id: int, export_id: UUID, *, note: str, backfill: bool) -> None:

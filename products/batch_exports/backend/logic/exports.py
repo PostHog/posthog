@@ -570,18 +570,13 @@ def unpaused_batch_export_ids(team_ids: Collection[int]) -> list[str]:
     return [str(export_id) for export_id in rows]
 
 
-def pause_batch_export_of_teams(export_id: str, *, team_ids: Collection[int], note: str) -> bool:
-    """Pause an export of these teams. Returns False when it is no longer running.
+def pause_running_batch_export(export_id: str, *, team_id: int, note: str) -> bool:
+    """Pause an export of the team. Returns False when it is no longer running.
 
     Raises:
         contracts.BatchExportScheduleError: If Temporal rejects the change.
     """
-    team_id = (
-        BatchExport.objects.filter(team_id__in=team_ids, id=export_id, deleted=False, paused=False)
-        .values_list("team_id", flat=True)
-        .first()
-    )
-    if team_id is None:
+    if not BatchExport.objects.filter(team_id=team_id, id=export_id, deleted=False, paused=False).exists():
         return False
     with _map_schedule_errors():
         return service.pause_batch_export(sync_connect(), export_id, note=note, team_id=team_id)

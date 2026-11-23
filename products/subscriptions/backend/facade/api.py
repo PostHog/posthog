@@ -131,9 +131,9 @@ def enabled_subscription_ids(team_ids: Collection[int]) -> list[str]:
     return subscription_shutdown.enabled_subscription_ids(team_ids)
 
 
-def disable_subscription(subscription_id: str, *, team_ids: Collection[int]) -> bool:
-    """Disables one enabled subscription of these teams. Returns False when it is no longer enabled."""
-    return subscription_shutdown.disable_subscription(subscription_id, team_ids=team_ids)
+def disable_subscription(subscription_id: str, *, team_id: int) -> bool:
+    """Disables one enabled subscription of the team. Returns False when it is no longer enabled."""
+    return subscription_shutdown.disable_subscription(subscription_id, team_id=team_id)
 
 
 def validate_re_enable(target_type: str | None, integration_id: int | None) -> str | None:

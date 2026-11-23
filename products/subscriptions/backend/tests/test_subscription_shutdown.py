@@ -16,7 +16,7 @@ class TestDisableSubscription(BaseTest):
         )
 
         assert api.enabled_subscription_ids([self.team.pk]) == [mine]
-        assert api.disable_subscription(mine, team_ids=[self.team.pk]) is True
-        assert api.disable_subscription(mine, team_ids=[self.team.pk]) is False
-        assert api.disable_subscription(theirs, team_ids=[self.team.pk]) is False
+        assert api.disable_subscription(mine, team_id=self.team.pk) is True
+        assert api.disable_subscription(mine, team_id=self.team.pk) is False
+        assert api.disable_subscription(theirs, team_id=self.team.pk) is False
         assert api.enabled_subscription_ids([self.team.pk, other_team.pk]) == [theirs]

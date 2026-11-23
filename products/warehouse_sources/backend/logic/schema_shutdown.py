@@ -15,8 +15,8 @@ def syncing_schema_ids(team_ids: Collection[int]) -> list[str]:
     return [str(schema_id) for schema_id in rows]
 
 
-def stop_schema_syncing(schema_id: str, *, team_ids: Collection[int]) -> bool:
-    schemas = ExternalDataSchema.objects.filter(id=schema_id, source__team_id__in=team_ids, should_sync=True)
+def stop_schema_syncing(schema_id: str, *, team_id: int) -> bool:
+    schemas = ExternalDataSchema.objects.filter(team_id=team_id, id=schema_id, should_sync=True)
     if not schemas.exists():
         return False
     # Pausing first means a failed pause leaves the schema syncing, so a second run picks it up again.

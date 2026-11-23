@@ -139,14 +139,12 @@ def enabled_hog_function_ids_by_type(team_ids: Collection[int]) -> dict[str, lis
     return by_type
 
 
-def disable_hog_function(hog_function_id: str, *, team_ids: Collection[int]) -> bool:
-    """Disables one enabled hog function of these teams. Returns False when it is no longer enabled.
+def disable_hog_function(hog_function_id: str, *, team_id: int) -> bool:
+    """Disables one enabled hog function of the team. Returns False when it is no longer enabled.
 
     It saves the row instead of a bulk update, because the save signal is what makes the CDP workers drop it.
     """
-    hog_function = HogFunction.objects.filter(
-        team_id__in=team_ids, id=hog_function_id, enabled=True, deleted=False
-    ).first()
+    hog_function = HogFunction.objects.filter(team_id=team_id, id=hog_function_id, enabled=True, deleted=False).first()
     if hog_function is None:
         return False
     hog_function.enabled = False
@@ -160,12 +158,12 @@ def enabled_plugin_config_ids(team_ids: Collection[int]) -> list[str]:
     return [str(plugin_config_id) for plugin_config_id in rows]
 
 
-def disable_plugin_config(plugin_config_id: str, *, team_ids: Collection[int]) -> bool:
-    """Disables one enabled legacy plugin config of these teams. Returns False when it is no longer enabled.
+def disable_plugin_config(plugin_config_id: str, *, team_id: int) -> bool:
+    """Disables one enabled legacy plugin config of the team. Returns False when it is no longer enabled.
 
     It saves the row instead of a bulk update, because the save signal is what makes the plugin server reload.
     """
-    plugin_config = PluginConfig.objects.filter(team_id__in=team_ids, id=int(plugin_config_id), enabled=True).first()
+    plugin_config = PluginConfig.objects.filter(team_id=team_id, id=int(plugin_config_id), enabled=True).first()
     if plugin_config is None:
         return False
     plugin_config.enabled = False

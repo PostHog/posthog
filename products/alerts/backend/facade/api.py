@@ -108,9 +108,9 @@ def enabled_alert_ids(team_ids: Collection[int]) -> list[str]:
     return alert_shutdown.enabled_alert_ids(team_ids)
 
 
-def disable_alert(alert_id: str, *, team_ids: Collection[int]) -> bool:
-    """Disables one enabled alert of these teams. Returns False when it is no longer enabled."""
-    return alert_shutdown.disable_alert(alert_id, team_ids=team_ids)
+def disable_alert(alert_id: str, *, team_id: int) -> bool:
+    """Disables one enabled alert of the team. Returns False when it is no longer enabled."""
+    return alert_shutdown.disable_alert(alert_id, team_id=team_id)
 
 
 def first_subscriber_id(*, team_id: int, alert_id: uuid.UUID) -> int | None:

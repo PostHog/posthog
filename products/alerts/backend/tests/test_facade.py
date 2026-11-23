@@ -213,9 +213,9 @@ class TestDisableAlert(BaseTest):
         mine, theirs = str(alerts[self.team.pk].id), str(alerts[other_team.pk].id)
 
         assert api.enabled_alert_ids([self.team.pk]) == [mine]
-        assert api.disable_alert(mine, team_ids=[self.team.pk]) is True
-        assert api.disable_alert(mine, team_ids=[self.team.pk]) is False
-        assert api.disable_alert(theirs, team_ids=[self.team.pk]) is False
+        assert api.disable_alert(mine, team_id=self.team.pk) is True
+        assert api.disable_alert(mine, team_id=self.team.pk) is False
+        assert api.disable_alert(theirs, team_id=self.team.pk) is False
         assert api.enabled_alert_ids([self.team.pk, other_team.pk]) == [theirs]
 
     def test_disabling_an_alert_the_platform_owns_switches_off_the_copy_its_scheduler_checks(self) -> None:
@@ -233,6 +233,6 @@ class TestDisableAlert(BaseTest):
             copy_id = platform_testing.copy_of(alert.id).id
         assert scheduled() == [copy_id]
 
-        assert api.disable_alert(str(alert.id), team_ids=[self.team.pk]) is True
+        assert api.disable_alert(str(alert.id), team_id=self.team.pk) is True
 
         assert scheduled() == []

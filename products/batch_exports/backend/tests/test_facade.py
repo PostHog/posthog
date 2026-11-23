@@ -431,9 +431,9 @@ def test_pausing_an_export_of_the_teams_pauses_its_temporal_schedule(team, organ
     temporal.get_schedule_handle.return_value.pause = mock.AsyncMock()
 
     with mock.patch("products.batch_exports.backend.logic.exports.sync_connect", return_value=temporal):
-        assert api.pause_batch_export_of_teams(export_id, team_ids=[other_team_id], note="Paused") is False
-        assert api.pause_batch_export_of_teams(export_id, team_ids=[team.pk], note="Paused") is True
-        assert api.pause_batch_export_of_teams(export_id, team_ids=[team.pk], note="Paused") is False
+        assert api.pause_running_batch_export(export_id, team_id=other_team_id, note="Paused") is False
+        assert api.pause_running_batch_export(export_id, team_id=team.pk, note="Paused") is True
+        assert api.pause_running_batch_export(export_id, team_id=team.pk, note="Paused") is False
 
     temporal.get_schedule_handle.assert_called_once_with(export_id)
     temporal.get_schedule_handle.return_value.pause.assert_awaited_once_with(note="Paused")

@@ -17,13 +17,11 @@ def enabled_alert_ids(team_ids: Collection[int]) -> list[str]:
     return [str(alert_id) for alert_id in rows]
 
 
-def disable_alert(alert_id: str, *, team_ids: Collection[int]) -> bool:
+def disable_alert(alert_id: str, *, team_id: int) -> bool:
     with transaction.atomic():
         # The insight row is locked before the platform's copy, as every writer of both rows does.
         alert = (
-            AlertConfiguration.objects.select_for_update()
-            .filter(team_id__in=team_ids, id=alert_id, enabled=True)
-            .first()
+            AlertConfiguration.objects.select_for_update().filter(team_id=team_id, id=alert_id, enabled=True).first()
         )
         if alert is None:
             return False

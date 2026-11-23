@@ -73,9 +73,9 @@ class TestStoppingCdpWork(BaseTest):
         redis = RecordingRedis()
 
         with mock.patch("posthog.plugins.plugin_server_api.get_client", return_value=redis):
-            assert disable(mine, team_ids=[self.team.pk]) is True
-            assert disable(mine, team_ids=[self.team.pk]) is False
-            assert disable(theirs, team_ids=[self.team.pk]) is False
+            assert disable(mine, team_id=self.team.pk) is True
+            assert disable(mine, team_id=self.team.pk) is False
+            assert disable(theirs, team_id=self.team.pk) is False
 
         assert not running([self.team.pk])
         assert running([other_team.pk])

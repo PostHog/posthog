@@ -98,12 +98,12 @@ def syncing_schema_ids_for_staff(team_ids: Collection[int]) -> list[str]:
     return schema_shutdown.syncing_schema_ids(team_ids)
 
 
-def stop_schema_syncing_for_staff(schema_id: str, *, team_ids: Collection[int]) -> bool:
+def stop_schema_syncing_for_staff(schema_id: str, *, team_id: int) -> bool:
     """Pauses a syncing schema's Temporal schedule, then turns its syncing off. Returns False when it no longer syncs.
 
     Raises when Temporal rejects the pause, and the schema keeps syncing.
     """
-    return schema_shutdown.stop_schema_syncing(schema_id, team_ids=team_ids)
+    return schema_shutdown.stop_schema_syncing(schema_id, team_id=team_id)
 
 
 def summarize_auto_disabled_schemas_for_staff(selection: AutoDisabledSchemaFilter) -> AutoDisabledSchemasSummary:

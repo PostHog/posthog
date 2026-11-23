@@ -14,8 +14,8 @@ def enabled_subscription_ids(team_ids: Collection[int]) -> list[str]:
     return [str(subscription_id) for subscription_id in rows]
 
 
-def disable_subscription(subscription_id: str, *, team_ids: Collection[int]) -> bool:
+def disable_subscription(subscription_id: str, *, team_id: int) -> bool:
     disabled = Subscription.objects.filter(
-        team_id__in=team_ids, id=int(subscription_id), deleted=False, enabled=True
+        team_id=team_id, id=int(subscription_id), deleted=False, enabled=True
     ).update(enabled=False)
     return disabled > 0
