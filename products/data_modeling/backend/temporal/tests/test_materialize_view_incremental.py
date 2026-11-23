@@ -25,6 +25,7 @@ from posthog.sync import database_sync_to_async
 
 from products.data_modeling.backend.facade.api import get_incremental_state, set_incremental_state
 from products.data_modeling.backend.temporal.activities import MaterializeViewInputs, materialize_view_activity
+from products.data_modeling.backend.temporal.activities.arrow_batch_transforms import InvalidUtf8KeyError
 from products.data_modeling.backend.temporal.activities.incremental_write import (
     DuplicateUniqueKeyError,
     IncrementalWriteError,
@@ -32,7 +33,6 @@ from products.data_modeling.backend.temporal.activities.incremental_write import
 )
 from products.data_modeling.backend.temporal.activities.materialize_view import (
     FAILED_UPDATE_REASON_PREFIX,
-    InvalidUtf8KeyError,
     _build_model_table_uri,
     get_aws_storage_options,
 )
