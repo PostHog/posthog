@@ -50,6 +50,7 @@ export function TodaySheetMenu({ open, onOpenChange, title, description, childre
                     {page ? (
                         <DrawerHeader className="flex-row items-center gap-2">
                             <Button
+                                variant="outline"
                                 size="icon"
                                 aria-label="Back"
                                 onClick={() => setPage(null)}

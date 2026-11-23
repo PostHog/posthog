@@ -15,6 +15,8 @@ import type { DataWarehouseSavedQueryUpdate } from 'scenes/data-warehouse/saved_
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import type { TodayDataRecent } from '~/layout/today/todayDataRecents'
+import { TODAY_RECENT_KEY } from '~/layout/today/todayRecents'
 import type { DatabaseSchemaField } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
@@ -155,6 +157,7 @@ export interface nodeDetailSceneLogicValues {
     tableDetailsAccessDenied: boolean
     tableDetailsError: boolean
     tableDetailsLoading: boolean
+    todayRecent: TodayDataRecent | null
     visitedTabs: NodeDetailSceneTab[]
 }
 
@@ -341,6 +344,7 @@ export interface nodeDetailSceneLogicMeta {
         catalogRestructureEnabled: (featureFlags: FeatureFlagsSet) => boolean
         modelListUrl: (catalogRestructureEnabled: boolean) => string
         breadcrumbs: (node: DataModelingNode | null, catalogRestructureEnabled: boolean) => Breadcrumb[]
+        todayRecent: (node: DataModelingNode | null) => TodayDataRecent | null
         nodeType: (node: DataModelingNode | null) => NodeTypeEnumApi | null
         sceneResolved: (node: DataModelingNode | null, savedQuerySettled: boolean) => boolean
         availableTabs: (node: DataModelingNode | null, sceneResolved: boolean) => NodeDetailSceneTab[]
@@ -661,6 +665,11 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                     name: node?.name || 'Loading...',
                 },
             ],
+        ],
+        [TODAY_RECENT_KEY]: [
+            (s) => [s.node],
+            (node: DataModelingNode | null): TodayDataRecent | null =>
+                node ? { type: 'data_model', name: node.name, href: urls.nodeDetail(node.id) } : null,
         ],
         nodeType: [(s) => [s.node], (node: DataModelingNode | null) => node?.type ?? null],
         // Which tabs exist depends on the saved query too, so a node that has one is only resolved

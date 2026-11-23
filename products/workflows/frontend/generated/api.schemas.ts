@@ -2463,6 +2463,20 @@ export interface EmailSendingAllowanceApi {
     readonly rate_limited_max_batch_audience: number | null
 }
 
+/**
+ * How email from every project in this PostHog region fared, from AWS SES's own delivery data.
+ */
+export interface EmailInfrastructureHealthApi {
+    /** A lower bound on the emails sent during the window, rounded down to one significant figure (1,234,567 sent reads as 1,000,000). The exact count is not exposed. */
+    readonly emails_sent_at_least: number
+    /** Emails the recipients' mailbox providers accepted, divided by emails sent (0-1), rounded down to 0.001. Acceptance is not inbox placement. */
+    readonly delivery_rate: number
+    /** Hard (permanent) bounces divided by emails sent (0-1), rounded up to 0.0001. */
+    readonly bounce_rate: number
+    /** Spam complaints divided by deliveries to mailbox providers that report complaints (0-1), rounded up to 0.0001. */
+    readonly complaint_rate: number
+}
+
 export interface TeamEmailReputationResponseApi {
     /** Sending health as judged and enforced by AWS SES for this project's tenant; null when the caller lacks project-wide workflow access, no tenant is provisioned, or AWS is unreachable. */
     readonly aws: AwsTenantReputationApi | null
@@ -2487,6 +2501,8 @@ export interface TeamEmailReputationResponseApi {
     readonly email_sending_suspension_reason: string
     /** The project's sending tier, what it allows, and how much of it has been used; null when the caller lacks project-wide workflow access. Tiers grow on their own as the project builds a clean sending record. */
     readonly sending_allowance: EmailSendingAllowanceApi | null
+    /** Sending health across every project in this PostHog region over the last 30 whole days, which all send through the same infrastructure. Null when AWS is unreachable or has no data, or while the feature is not yet released to this project. */
+    readonly infrastructure: EmailInfrastructureHealthApi | null
 }
 
 export type SendCalendarFlowApiAudiencePropertiesItem = { [key: string]: unknown }
