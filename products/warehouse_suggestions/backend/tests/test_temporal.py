@@ -25,7 +25,7 @@ from products.warehouse_suggestions.backend.logic.reads import RollupDays
 from products.warehouse_suggestions.backend.logic.rules import RULES
 from products.warehouse_suggestions.backend.logic.suggestions import upsert_suggestions
 from products.warehouse_suggestions.backend.logic.view_costs import MeasurementOutcome
-from products.warehouse_suggestions.backend.models import WarehouseSuggestion
+from products.warehouse_suggestions.backend.models import WarehouseSuggestion, WarehouseSuggestionTeamConfig
 from products.warehouse_suggestions.backend.temporal import (
     ACTIVITIES as WAREHOUSE_SUGGESTIONS_ACTIVITIES,
     WORKFLOWS,
@@ -41,6 +41,7 @@ from products.warehouse_suggestions.backend.tests.factories import context, team
 ACTIVITIES = "products.warehouse_suggestions.backend.temporal.activities"
 READS = "products.warehouse_suggestions.backend.logic.reads"
 TIMEOUT_EXCEEDED = 159
+TEAM_MEMORY_LIMIT = 1_000_000
 WORKFLOWS_MODULE = "products.warehouse_suggestions.backend.temporal.workflows"
 
 
@@ -99,8 +100,7 @@ class TestTeamBatches(BaseTest):
 
 class FakeClickHouse:
     def __init__(self, *, shared_read_fails: bool = False) -> None:
-        self.shared_reads: set[tuple[int, ...]] = set()
-        self.own_reads: set[int] = set()
+        self.reads: list[tuple[tuple[int, ...], Mapping[str, Any], int | None]] = []
         self._shared_read_fails = shared_read_fails
 
     def __call__(
@@ -108,13 +108,14 @@ class FakeClickHouse:
     ) -> list[tuple[Any, ...]]:
         if "team_ids" not in params:
             return [(RULES.window_days, RULES.lifecycle.expire_after_days)]
-        if team_id is not None:
-            self.own_reads.add(team_id)
-            return []
-        self.shared_reads.add(params["team_ids"])
-        if self._shared_read_fails:
+        self.reads.append((params["team_ids"], settings, team_id))
+        if self._shared_read_fails and len(params["team_ids"]) > 1:
             raise ServerException("Timeout exceeded", code=TIMEOUT_EXCEEDED)
         return []
+
+    @property
+    def team_groups(self) -> set[tuple[int, ...]]:
+        return {team_ids for team_ids, _, _ in self.reads}
 
 
 class TestRunBatch(BaseTest):
@@ -126,25 +127,34 @@ class TestRunBatch(BaseTest):
         with patch(f"{READS}.sync_execute", clickhouse):
             return run_batch(self.team_ids, run_id="run-1")
 
-    def test_reads_each_team_alone_when_the_shared_read_fails(self) -> None:
+    def test_reads_each_enabled_team_alone_when_the_shared_read_fails(self) -> None:
+        *enabled_team_ids, disabled_team_id = self.team_ids
+        WarehouseSuggestionTeamConfig.objects.create(team_id=disabled_team_id, enabled=False)
         clickhouse = FakeClickHouse(shared_read_fails=True)
 
         outcome = self._run_batch(clickhouse)
 
-        assert (outcome.not_eligible, outcome.failed, clickhouse.own_reads) == (3, 0, set(self.team_ids))
+        assert (outcome.not_eligible, outcome.disabled, outcome.failed) == (2, 1, 0)
+        assert clickhouse.team_groups == {tuple(self.team_ids), *((team_id,) for team_id in enabled_team_ids)}
 
-    def test_reads_a_team_with_its_own_clickhouse_settings_alone(self) -> None:
-        *shared_team_ids, own_settings_team_id = self.team_ids
+    def test_reads_a_team_with_its_own_query_limits_alone_under_those_limits(self) -> None:
+        *shared_team_ids, limited_team_id = self.team_ids
         clickhouse = FakeClickHouse()
 
-        with override_settings(CLICKHOUSE_PER_TEAM_QUERY_SETTINGS={str(own_settings_team_id): {"max_threads": 1}}):
+        with override_settings(
+            CLICKHOUSE_PER_TEAM_QUERY_SETTINGS={str(limited_team_id): {"max_memory_usage": TEAM_MEMORY_LIMIT}}
+        ):
             outcome = self._run_batch(clickhouse)
 
-        assert (clickhouse.shared_reads, clickhouse.own_reads, outcome.not_eligible) == (
-            {tuple(shared_team_ids)},
-            {own_settings_team_id},
+        limited_team_settings = {
+            settings["max_memory_usage"] for team_ids, settings, _ in clickhouse.reads if team_ids == (limited_team_id,)
+        }
+        assert (clickhouse.team_groups, limited_team_settings, outcome.not_eligible) == (
+            {tuple(shared_team_ids), (limited_team_id,)},
+            {TEAM_MEMORY_LIMIT},
             3,
         )
+        assert {team_id for _, _, team_id in clickhouse.reads} == {None}
 
 
 async def test_a_worker_measures_the_most_recomputed_views_across_teams_first() -> None:

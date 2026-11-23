@@ -8,7 +8,7 @@ from uuid import UUID
 from django.conf import settings
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.execute import KillSwitchLevel, get_team_kill_switch_level
+from posthog.clickhouse.client.execute import KillSwitchLevel, get_team_kill_switch_level, kill_switch_overrides
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.clickhouse.warehouse_object_reads import WAREHOUSE_OBJECT_READS_DAILY_TABLE, ReadKind
 from posthog.dataclasses import frozen
@@ -17,6 +17,7 @@ from ..facade.enums import WarehouseSuggestionSubjectKind
 from .rules import Rules, Surface, SurfaceRules, TrafficRules
 
 READS_QUERY_SETTINGS = {"max_execution_time": 30, "max_threads": 2}
+READS_QUERY_NAME = "warehouse_suggestions_reads"
 FIRST_QUANTILE = 1
 SECOND_QUANTILE = 2
 MEASUREMENT_FEATURE = Feature.WAREHOUSE_SUGGESTIONS
@@ -140,12 +141,10 @@ def read_team_reads(team_id: int, window: ReadWindow, rules: Rules, rollup_days:
     return read_teams_reads([team_id], window, rules, rollup_days)[team_id]
 
 
-def has_team_clickhouse_overrides(team_id: int) -> bool:
+def has_team_query_limits(team_id: int) -> bool:
     return (
         get_team_kill_switch_level(team_id) != KillSwitchLevel.OFF
         or str(team_id) in settings.CLICKHOUSE_PER_TEAM_QUERY_SETTINGS
-        or str(team_id) in settings.CLICKHOUSE_PER_TEAM_SETTINGS
-        or team_id in settings.CLICKHOUSE_USE_HTTP_PER_TEAM
     )
 
 
@@ -157,7 +156,8 @@ def read_teams_reads(
         product=Product.DATA_MODELING,
         feature=Feature.WAREHOUSE_SUGGESTIONS,
         team_id=sole_team_id,
-        name="warehouse_suggestions_reads",
+        name=READS_QUERY_NAME,
+        query_type=READS_QUERY_NAME,
     )
     params: dict[str, Any] = {
         "team_ids": tuple(team_ids),
@@ -325,8 +325,17 @@ GROUP BY team_id, subject_id, workflow_id
 """
 
 
-def _execute(sql: str, params: Mapping[str, Any], team_id: int | None) -> list[tuple[Any, ...]]:
-    return sync_execute(sql, params, settings=READS_QUERY_SETTINGS, team_id=team_id)
+def _execute(sql: str, params: Mapping[str, Any], sole_team_id: int | None) -> list[tuple[Any, ...]]:
+    return sync_execute(sql, params, settings=_query_settings(sole_team_id))
+
+
+def _query_settings(sole_team_id: int | None) -> dict[str, Any]:
+    if sole_team_id is None:
+        return READS_QUERY_SETTINGS
+    query_settings = {**settings.CLICKHOUSE_PER_TEAM_QUERY_SETTINGS.get(str(sole_team_id), {}), **READS_QUERY_SETTINGS}
+    for name, ceiling in kill_switch_overrides(sole_team_id).items():
+        query_settings[name] = min(query_settings.get(name, ceiling), ceiling)
+    return query_settings
 
 
 def _subject(subject_kind: str, subject_id: str) -> Subject | None:

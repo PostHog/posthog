@@ -85,7 +85,7 @@ class TestRunTeam(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-        result = run_team(self.team.pk, run_id="run-1", reads=self._reads(), now=NOW)
+        result = run_team(self.team.pk, run_id="run-1", load_reads=self._reads, now=NOW)
 
         assert result.status == TeamRunStatus.PROCESSED
         assert sorted(
@@ -144,7 +144,7 @@ class TestRunTeam(ClickhouseTestMixin, BaseTest):
             status=status, asset_outcome=asset_outcome
         )
 
-        result = run_team(self.team.pk, run_id="run-1", reads=self._reads(), now=NOW)
+        result = run_team(self.team.pk, run_id="run-1", load_reads=self._reads, now=NOW)
 
         config = WarehouseSuggestionTeamConfig.objects.get(team_id=self.team.pk)
         about_a_deleted_view.refresh_from_db()

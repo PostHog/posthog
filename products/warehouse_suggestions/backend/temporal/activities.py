@@ -1,4 +1,5 @@
 from collections import Counter
+from functools import partial
 from itertools import batched
 from uuid import UUID
 
@@ -21,7 +22,7 @@ from ..logic.reads import (
     ReadWindow,
     RollupDays,
     TeamReads,
-    has_team_clickhouse_overrides,
+    has_team_query_limits,
     read_rollup_days,
     read_team_reads,
     read_teams_reads,
@@ -65,8 +66,8 @@ def run_batch(team_ids: list[int], run_id: str) -> BatchOutcome:
     view_costs_to_measure: list[ViewCostRequest] = []
     for team_id in team_ids:
         try:
-            reads = shared_reads.get(team_id) or read_team_reads(team_id, window, RULES, rollup_days)
-            result = run_team(team_id, run_id=run_id, reads=reads)
+            load_reads = partial(_team_reads, team_id, shared_reads, window, rollup_days)
+            result = run_team(team_id, run_id=run_id, load_reads=load_reads)
         except Exception:
             LOGGER.exception("warehouse_suggestions.team_failed", team_id=team_id)
             outcomes["failed"] += 1
@@ -90,7 +91,7 @@ def run_batch(team_ids: list[int], run_id: str) -> BatchOutcome:
 
 
 def _read_shared(team_ids: list[int], window: ReadWindow, rollup_days: RollupDays) -> dict[int, TeamReads]:
-    shared_team_ids = [team_id for team_id in team_ids if not has_team_clickhouse_overrides(team_id)]
+    shared_team_ids = [team_id for team_id in team_ids if not has_team_query_limits(team_id)]
     if not shared_team_ids:
         return {}
     try:
@@ -98,6 +99,12 @@ def _read_shared(team_ids: list[int], window: ReadWindow, rollup_days: RollupDay
     except Exception:
         LOGGER.exception("warehouse_suggestions.shared_read_failed", team_ids=shared_team_ids)
         return {}
+
+
+def _team_reads(
+    team_id: int, shared_reads: dict[int, TeamReads], window: ReadWindow, rollup_days: RollupDays
+) -> TeamReads:
+    return shared_reads.get(team_id) or read_team_reads(team_id, window, RULES, rollup_days)
 
 
 def measure_view_costs_sync(requests: list[ViewCostRequest]) -> int:

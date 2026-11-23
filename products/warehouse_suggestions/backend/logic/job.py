@@ -1,4 +1,5 @@
 from collections import defaultdict
+from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from enum import StrEnum
 from uuid import UUID
@@ -43,7 +44,7 @@ def run_team(
     team_id: int,
     *,
     run_id: str,
-    reads: TeamReads,
+    load_reads: Callable[[], TeamReads],
     now: datetime | None = None,
     rules: Rules = RULES,
 ) -> TeamRunResult:
@@ -51,6 +52,7 @@ def run_team(
     team = Team.objects.get(id=team_id)
     if not get_or_create_team_extension(team, WarehouseSuggestionTeamConfig).enabled:
         return TeamRunResult(team_id=team_id, status=TeamRunStatus.DISABLED)
+    reads = load_reads()
     eligible = is_eligible(reads, rules.eligibility)
     status = TeamRunStatus.PROCESSED if eligible else TeamRunStatus.NOT_ELIGIBLE
     if not eligible and not _has_suggestions_to_maintain(team_id):
