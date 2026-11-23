@@ -2464,6 +2464,7 @@ class TestSessionAgeMiddleware(APIBaseTest):
                 "&next=/project/2/dashboard/5%3Fdate_from%3D-7d%26tab%3Da",
             ),
             ("api_call", "get", "/api/users/@me/", ""),
+            ("login_token_link", "get", "/agentic/login?token=one-time-token&team_id=2", ""),
             ("form_post", "post", "/logout", ""),
         ]
     )
