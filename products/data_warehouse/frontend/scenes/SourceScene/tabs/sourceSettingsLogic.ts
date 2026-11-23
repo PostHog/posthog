@@ -1236,6 +1236,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 sourceSceneLogic.findMounted({ id: props.id })
 
             sceneLogicInstance?.actions.setBreadcrumbName(breadcrumbName)
+            if (source) {
+                sceneLogicInstance?.actions.setRecentName(source.prefix ? `${label} (${source.prefix})` : label)
+            }
         }
 
         const scheduleSchemaUpdateFlush = (): void => {

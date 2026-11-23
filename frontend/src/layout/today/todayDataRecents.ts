@@ -9,4 +9,6 @@ export interface TodayDataRecent {
     type: TodayDataRecentType
     name: string
     href: string
+    /** The record's id, for records that are also starred by id elsewhere, such as a source on the Sources page. */
+    ref?: string
 }

@@ -9,7 +9,7 @@ export function TodayPinnableRecentRow({
     active,
     dataAttr,
 }: {
-    recent: { type: string; name: string; href: string }
+    recent: { type: string; name: string; href: string; ref?: string }
     icon: JSX.Element
     description: string
     active: boolean
@@ -25,7 +25,7 @@ export function TodayPinnableRecentRow({
             active={active}
             action={
                 <SidebarPinButton
-                    target={{ type: recent.type, name: recent.name, href: recent.href }}
+                    target={{ type: recent.type, ref: recent.ref, name: recent.name, href: recent.href }}
                     dataAttr={`${dataAttr}-pin`}
                 />
             }
