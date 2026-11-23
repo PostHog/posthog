@@ -50,8 +50,16 @@ describe('workflowEmailPrefill', () => {
         ],
         ['a bracket lookup', "{{ variables['order-id'] }}", "{{ event.properties['order-id'] }}"],
         ['whitespace control', '{{-variables.name-}}', '{{-event.properties.name-}}'],
-        ['a loop', '{% for item in variables.items %}', '{% for item in event.properties.items %}'],
-        ['a range bound', '{% for i in (1..variables.count) %}', '{% for i in (1..event.properties.count) %}'],
+        [
+            'a loop',
+            '{% for item in variables.items %}{{ item }}{% endfor %}',
+            '{% for item in event.properties.items %}{{ item }}{% endfor %}',
+        ],
+        [
+            'a range bound',
+            '{% for i in (1..variables.count) %}{{ i }}{% endfor %}',
+            '{% for i in (1..event.properties.count) %}{{ i }}{% endfor %}',
+        ],
         [
             'a property that ends in variables',
             '{{ person.properties.variables.x }}',
