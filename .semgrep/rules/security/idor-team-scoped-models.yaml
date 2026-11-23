@@ -70,6 +70,7 @@ rules:
                               |AEOBrand
                               |AEOCheckBrand
                               |AEOCheckCitation
+                              |AEOCheckKeyword
                               |AEOCheckSearch
                               |AEOCitationCheck
                               |AEOEngineSetting

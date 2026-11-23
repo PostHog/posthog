@@ -2236,7 +2236,9 @@ class TestAEOKeywordAPI(APIBaseTest):
         assert rows["zebra"]["answer_rate"] == 0.0
         assert rows["zebra"]["uses_per_answer"] is None
 
-        self.client.post(self.url, {"keywords": ["acme"]}, format="json")
+        # A keyword added after the answers gets its history from the match its creation queues.
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(self.url, {"keywords": ["acme"]}, format="json")
         refreshed = self.client.get(f"{self.url}report/?date_from=-7d").json()
         assert [row["keyword"] for row in refreshed["keywords"]] == ["acme", "pricing", "session replay", "zebra"]
         assert next(row for row in refreshed["keywords"] if row["keyword"] == "acme")["answer_checks"] == 2

@@ -36,6 +36,7 @@ from posthog.models.team import Team
 from products.aeo.backend import prompt_limit
 from products.aeo.backend.catalog import own_domains
 from products.aeo.backend.check_brands import BrandMatcher, catalog_identities, write_check_brands
+from products.aeo.backend.check_keywords import write_check_keywords
 from products.aeo.backend.engine_settings import engine_schedule
 from products.aeo.backend.engines import CitationEngine, build_check_fields
 from products.aeo.backend.facade.contracts import CitationRunSummary
@@ -395,6 +396,12 @@ def _record_prompt_checks(
                     write_check_brands(written, BrandMatcher(catalog_identities(canonical_team_id)))
             except Exception as e:
                 logger.exception("aeo_check_brands_write_failed", team_id=team.id, run_id=run_id, error=str(e)[:300])
+            try:
+                # Also a savepoint: the keyword match after the run writes what this left out.
+                with transaction.atomic():
+                    write_check_keywords(canonical_team_id, [check.id for check in written])
+            except Exception as e:
+                logger.exception("aeo_check_keywords_write_failed", team_id=team.id, run_id=run_id, error=str(e)[:300])
             bump_data_version_on_commit(canonical_team_id)
     except Exception as e:
         logger.exception("aeo_citation_write_failed", team_id=team.id, run_id=run_id, error=str(e)[:300])

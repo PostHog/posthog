@@ -23,6 +23,7 @@ from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.aeo.backend.brand import brand_names
+from products.aeo.backend.check_keywords import has_new_keywords
 from products.aeo.backend.facade.contracts import (
     KEYWORD_MAX_LENGTH,
     MAX_KEYWORD_MODIFIERS,
@@ -99,13 +100,10 @@ def _to_keyword(row: AEOKeyword) -> Keyword:
     return Keyword(id=str(row.id), keyword=row.keyword, created_at=row.created_at)
 
 
-# `answered` lowercases each answered check once, so the keyword cross join only runs strpos. A check's
-# searches are joined with newlines, which a keyword can't contain, so no match spans two searches. Whether
-# an answer names an own brand, and where it first does, comes from the stored brand rows, so no brand
-# pattern runs against the text. Without an own brand, `mentioned` is the citation alone and `mention_depth`
-# is null. `matched` keeps only the pairs where the keyword occurs, since every aggregate below filters on
-# a match. It is MATERIALIZED because Postgres otherwise inlines it and evaluates the `uses` replace() once
-# for each aggregate that reads it.
+# Which keywords each answer uses comes from the stored keyword rows, written when the check was, so the
+# report never reads the answer text. Whether an answer names an own brand, and where it first does, comes
+# from the stored brand rows. Without an own brand, `mentioned` is the citation alone and `mention_depth`
+# is null. A keyword row exists only where the keyword occurs, since every aggregate below filters on a match.
 _KEYWORD_REPORT_SQL = f"""
     WITH own_named AS MATERIALIZED (
         SELECT check_brand.citation_check_id,
@@ -117,14 +115,7 @@ _KEYWORD_REPORT_SQL = f"""
         GROUP BY check_brand.citation_check_id
     ),
     answered AS MATERIALIZED (
-        SELECT check_row.prompt_id, check_row.cited, check_row.target_best_position,
-            lower(check_row.prompt_text) AS prompt_text,
-            lower(coalesce(check_row.answer_text, '')) AS answer_text,
-            lower(array_to_string(ARRAY(
-                SELECT jsonb_array_elements_text(
-                    CASE WHEN jsonb_typeof(check_row.search_queries) = 'array' THEN check_row.search_queries ELSE '[]'::jsonb END
-                )
-            ), E'\\n')) AS searches,
+        SELECT check_row.id, check_row.prompt_id, check_row.cited, check_row.target_best_position,
             check_row.cited OR own_named.citation_check_id IS NOT NULL AS mentioned,
             own_named.mention_depth
         FROM posthog_aeo_citation_check AS check_row
@@ -133,18 +124,15 @@ _KEYWORD_REPORT_SQL = f"""
             AND check_row.created_at < %(until)s AND check_row.check_failed = false
             AND {NAMED_SCOPE_SQL}
     ),
-    matched AS MATERIALIZED (
-        SELECT keyword, answered.prompt_id, answered.cited, answered.mentioned, answered.target_best_position,
-            answered.mention_depth,
-            strpos(answered.prompt_text, keyword) > 0 AS in_prompt,
-            strpos(answered.searches, keyword) > 0 AS in_searches,
-            CASE WHEN strpos(answered.answer_text, keyword) > 0
-                THEN (length(answered.answer_text) - length(replace(answered.answer_text, keyword, ''))) / length(keyword)
-                ELSE 0
-            END AS uses
-        FROM answered CROSS JOIN unnest(%(keywords)s::text[]) AS keyword
-        WHERE strpos(answered.prompt_text, keyword) > 0 OR strpos(answered.searches, keyword) > 0
-            OR strpos(answered.answer_text, keyword) > 0
+    matched AS (
+        SELECT keyword.keyword, answered.prompt_id, answered.cited, answered.mentioned,
+            answered.target_best_position, answered.mention_depth,
+            check_keyword.in_prompt, check_keyword.in_searches, check_keyword.uses
+        FROM posthog_aeo_check_keyword AS check_keyword
+        JOIN answered ON answered.id = check_keyword.citation_check_id
+        JOIN posthog_aeo_keyword AS keyword ON keyword.id = check_keyword.keyword_id
+        WHERE check_keyword.team_id = %(team_id)s AND check_keyword.created_at >= %(since)s
+            AND check_keyword.created_at < %(until)s AND keyword.keyword = ANY(%(keywords)s::text[])
     )
     SELECT keyword,
         count(DISTINCT prompt_id) FILTER (WHERE in_prompt),
@@ -184,7 +172,9 @@ def get_keyword_report(
     if isinstance(cached, KeywordReport):
         return cached
     report = _build_keyword_report(team_id, window, keywords, target_domains=target_domains, scope=scope)
-    cache.set(cache_key, report, KEYWORD_REPORT_CACHE_SECONDS)
+    # A keyword whose history is still being matched counts only part of the window, so that report is not kept.
+    if not has_new_keywords(team_id):
+        cache.set(cache_key, report, KEYWORD_REPORT_CACHE_SECONDS)
     return report
 
 
