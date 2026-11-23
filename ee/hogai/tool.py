@@ -16,7 +16,7 @@ from pydantic import BaseModel, ValidationError
 from posthog.schema import ApprovalResumePayload, AssistantTool, ClientToolResultPayload
 
 from posthog.models import Team, User
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 from posthog.sync import database_sync_to_async
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef

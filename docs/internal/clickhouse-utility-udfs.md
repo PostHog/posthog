@@ -69,7 +69,10 @@ One call per event row for the native JSON events table. It takes the raw event 
 
 The typed JSON column cannot store `null`, so the cleaners drop null fields. The null-key arrays keep the difference between a property sent as `null` and one never sent, but no reader uses them, so every read sees a field sent as `null` as missing. Whole-document reads (HogQL `SELECT properties` and `person.properties`, the events API, the native batch export source) leave it out of the document they rebuild with the shared builder in `posthog/hogql/printer/events_json_document.py`. `JSONHas(properties, 'plan')` returns 0 for it. Only top-level fields are dropped and recorded: a `null` inside an object or array stays in the stored string, so `{"user":{"plan":null}}` records nothing. The exception is a `null` flag, which is dropped from the `$feature_flags` map and recorded as `$feature_flags.<key>`. A dot inside one key is written as `%2E`, the spelling `json_type_escape_dots_in_keys` uses, so `{"a.b":null}` records `a%2Eb`. A `%` is not escaped, so a key sent with a literal `%2E` reads back with a dot, the same as the JSON column returns a stored value under that key. A path that still holds a value after duplicate handling is not recorded, so `{"a":null,"a":1}` records nothing. The paths of one document can use at most 256 KiB. If they need more, that document records no null keys, and its cleaned properties are unchanged. A path repeats every key above it, so without this limit a small document with a long key and many null children could produce gigabytes of paths.
 
-The native export's separate `$set`, `$set_once`, `$unset` and `$group_set` columns read from the rebuilt document too. HTTP exports send that document without overwriting those fields.
+The native export's separate `$set`, `$set_once`, `$unset` and `$group_set` columns read from the rebuilt document too.
+HTTP batch exports construct `$set` from each event's stored `person_properties` only when `$set` is absent from the rebuilt event properties and the person-properties document is nonempty.
+Existing `$set` values are preserved, and empty or missing person properties do not add `$set`.
+When migrating between PostHog projects, normal ingestion applies these updates to the person and enriches the imported event, so its person properties can differ from the source event.
 
 The function never fails. Blank input becomes `{}`. Malformed, non-object, or too-deep input comes back quarantined under `$unparseable_properties` in that document, with `{}` temporary properties and no null keys, so the calling SQL needs no `isValidJSON` guards. Rows travel as `JSONEachRow` in both directions and the executable pool reads a chunk header before each batch.
 
@@ -83,6 +86,30 @@ FROM (SELECT JSONCleanPostHogEvent(properties, person_properties) AS cleaned FRO
 ```sql
 SELECT JSONCleanPostHogEvent('{"$set":{"score":7},"$feature/demo":"control","plan":null,"custom":"kept"}', '{"email":null}');
 -- ('{"custom":"kept","$feature_flags":{"demo":"control"}}','{"$set":"{\\"score\\":7}"}','{}',['plan'],[],['email'])
+```
+
+### `JSONCleanPostHogEventForExport(properties, person_properties)`
+
+It takes the same arguments as `JSONCleanPostHogEvent` and returns the same named tuple.
+Each document is the JSON value that a read of the native JSON events table returns for that input.
+A table filled from this function therefore holds the documents a batch export of the events table sends, and its view needs no cast into the JSON type and no document builder.
+The null-key arrays are the ones `JSONCleanPostHogEvent` returns.
+
+The function applies the rules of that cast and of the builder in `posthog/hogql/printer/events_json_document.py`:
+
+- A top-level object or array is JSON, not a string. A string that holds a valid JSON object or array is written as that object or array too, because the stored column cannot tell the two apart. "Valid" means what ClickHouse's `isValidJSON` accepts.
+- `properties` also holds the members of `temporary_properties`, after its own.
+- Under a path the events table declares as a string, a number or boolean is a string, and an empty string is left out. A number with a fraction or an exponent is written the way ClickHouse prints a `Float64`, so `1.50` becomes `"1.5"` and `1e3` becomes `"1000"`.
+- Every value of the `$feature_flags` map is a string. An object or array flag value is the JSON text ClickHouse prints for it. An empty map is left out.
+- `%2E` in a key reads back as a dot. When two keys read back as one path, the first one stays.
+- A number with a fraction or an exponent that ClickHouse prints as an integer outside the `Int64` and `UInt64` ranges is a string, such as `2e19`. Every other number keeps the text it was sent with, so the document can spell a number differently from a read of the events table while the value is the same.
+- A top-level number outside the `Float64` range, or one anywhere in the flags map, fails the cast in the events view. The document is then `{"$unparseable_properties": ...}` with the raw input, and for temporary properties it is `{}`.
+
+A change to the declared paths, the JSON column types, or the builder needs the matching change in `clickhouse-udfs/util/cmd/json_clean_posthog_event_properties_udf/export.go`.
+
+```sql
+SELECT JSONCleanPostHogEventForExport('{"$set":{"score":7},"$browser_version":120,"plan":null,"tags":["a"]}', '{"email":null}');
+-- ('{"$browser_version":"120","tags":["a"],"$set":{"score":7}}','{"$set":{"score":7}}','{}',['plan'],[],['email'])
 ```
 
 ### `JSONCleanPostHogTemporaryProperties(json)`

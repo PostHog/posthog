@@ -5,17 +5,20 @@ import { IconLaptop, IconLeave } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { UserAuthSessionApi } from '~/generated/core/api.schemas'
 
 import { loginSessionsLogic } from './loginSessionsLogic'
+import { QuillLoginSessions } from './QuillLoginSessions'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 export function LoginSessions(): JSX.Element {
     const { loginSessions, loginSessionsLoading } = useValues(loginSessionsLogic)
     const { revokeSession, revokeOtherSessions } = useActions(loginSessionsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const hasOtherSessions = loginSessions.some((session) => !session.is_current)
 
@@ -43,6 +46,16 @@ export function LoginSessions(): JSX.Element {
             },
             secondaryButton: { children: 'Cancel' },
         })
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillLoginSessions
+                hasOtherSessions={hasOtherSessions}
+                onRevoke={handleRevoke}
+                onRevokeOthers={handleRevokeOthers}
+            />
+        )
     }
 
     return (

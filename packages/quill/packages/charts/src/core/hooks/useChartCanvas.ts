@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { buildDimensions, sameDimensions, type SizeRect } from '../canvas-size'
+import { buildDimensions, rasterScale, sameDimensions, type SizeRect } from '../canvas-size'
 import type { ChartDimensions, ChartMargins } from '../types'
+import { useIsOnScreen } from './useIsOnScreen'
 import { useLatest } from './useLatest'
+import { useViewportPixelRatio } from './useViewportPixelRatio'
 
 interface UseChartCanvasOptions {
     margins: ChartMargins
@@ -36,8 +38,12 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
     const marginsRef = useLatest(margins)
     const rectRef = useRef<SizeRect | null>(null)
 
-    // Attach the ResizeObserver once. updateSize reads margins from the ref; when margins
-    // change, the secondary effect below recomputes dimensions from the cached rect.
+    const pagePixelRatio = useViewportPixelRatio()
+    const onScreen = useIsOnScreen(wrapperRef, pagePixelRatio > (window.devicePixelRatio || 1))
+    const rasterRef = useLatest({ pagePixelRatio, onScreen })
+
+    // Attach the ResizeObserver once. updateSize reads margins and the raster inputs from refs;
+    // when either changes, the secondary effect below recomputes dimensions from the cached rect.
     useEffect(() => {
         const wrapper = wrapperRef.current
         if (!wrapper) {
@@ -83,7 +89,9 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
             // The draw loops key on `dimensions` *identity*, so publishing a fresh object is what
             // schedules a repaint. A restored context needs one even though no value moved, so
             // `repaint` skips the reuse of `prev`.
-            const next = buildDimensions(rect, marginsRef.current)
+            const raster = rasterRef.current
+            const pixelRatio = rasterScale(rect, window.devicePixelRatio || 1, raster.pagePixelRatio, raster.onScreen)
+            const next = buildDimensions(rect, marginsRef.current, pixelRatio)
             setCanvasState((prev) =>
                 prev &&
                 !repaint &&
@@ -128,20 +136,22 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
-    // When margins change without a resize, recompute dimensions from the cached rect.
+    // When margins or the raster scale change without a resize, recompute dimensions from the cached
+    // rect. A new `pixelRatio` on `dimensions` is what repaints a chart after a zoom or a screen move.
     useEffect(() => {
         const rect = rectRef.current
         if (!rect) {
             return
         }
+        const pixelRatio = rasterScale(rect, window.devicePixelRatio || 1, pagePixelRatio, onScreen)
         setCanvasState((prev) => {
             if (!prev) {
                 return prev
             }
-            const next = buildDimensions(rect, margins)
+            const next = buildDimensions(rect, margins, pixelRatio)
             return sameDimensions(prev.dimensions, next) ? prev : { ...prev, dimensions: next }
         })
-    }, [margins.left, margins.right, margins.top, margins.bottom, margins])
+    }, [margins.left, margins.right, margins.top, margins.bottom, margins, pagePixelRatio, onScreen])
 
     return {
         canvasRef,

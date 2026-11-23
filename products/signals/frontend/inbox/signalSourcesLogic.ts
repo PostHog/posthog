@@ -41,7 +41,6 @@ import { signalsOnboardingList, signalsSourceConfigsCreate, signalsSourceConfigs
 import type {
     InboxOnboardingStateApi,
     PatchedSignalSourceConfigApi,
-    SignalSourceTypeApi,
     SignalSourceConfigSourceTypeEnumApi,
 } from '../generated/api.schemas'
 import {
@@ -580,7 +579,7 @@ export interface signalSourcesLogicActions {
         value: true
     }
     toggleErrorTrackingType: (sourceType: SignalSourceType) => {
-        sourceType: SignalSourceTypeApi
+        sourceType: SignalSourceType
     }
     toggleEvalReports: () => {
         value: true
@@ -645,8 +644,10 @@ export interface signalSourcesLogicMeta {
             sourceCategory: string,
             externalSourceStates: Record<
                 | 'aha'
+                | 'ahrefs'
                 | 'airbrake'
                 | 'amazon_cloudwatch'
+                | 'app_store_connect'
                 | 'appfigures'
                 | 'appfollow'
                 | 'appsignal'
@@ -663,6 +664,7 @@ export interface signalSourcesLogicMeta {
                 | 'bettermode'
                 | 'betterstack'
                 | 'bigeye'
+                | 'bing_webmaster_tools'
                 | 'bugherd'
                 | 'bugsnag'
                 | 'canny'
@@ -683,6 +685,7 @@ export interface signalSourcesLogicMeta {
                 | 'featurebase'
                 | 'featurebase_surveys'
                 | 'firehydrant'
+                | 'firehydrant_alerts'
                 | 'formbricks'
                 | 'freshdesk'
                 | 'freshservice'
@@ -701,11 +704,13 @@ export interface signalSourcesLogicMeta {
                 | 'google_search_console'
                 | 'gorgias'
                 | 'grafana_irm'
+                | 'grafana_irm_alert_groups'
                 | 'gumroad'
                 | 'helpscout'
                 | 'honeybadger'
                 | 'hubspot'
                 | 'incident_io'
+                | 'incident_io_alerts'
                 | 'infisical'
                 | 'instatus'
                 | 'intercom'
@@ -739,10 +744,14 @@ export interface signalSourcesLogicMeta {
                 | 'retently'
                 | 'roark'
                 | 'rollbar'
+                | 'rootly'
+                | 'rootly_alerts'
                 | 'semgrep'
                 | 'semgrep_sca'
+                | 'semrush'
                 | 'sentinelone'
                 | 'sentry'
+                | 'sentry_feedback'
                 | 'servicenow'
                 | 'shortcut'
                 | 'sleekplan'
@@ -750,6 +759,7 @@ export interface signalSourcesLogicMeta {
                 | 'solarwinds_service_desk'
                 | 'sonarcloud'
                 | 'sonarqube'
+                | 'splunk_observability_cloud'
                 | 'sprig'
                 | 'squadcast'
                 | 'statuspage'
@@ -762,6 +772,7 @@ export interface signalSourcesLogicMeta {
                 | 'trustpilot'
                 | 'trustpilot_product_reviews'
                 | 'typeform'
+                | 'uptimerobot'
                 | 'usersnap'
                 | 'uservoice'
                 | 'uservoice_nps'
@@ -774,6 +785,7 @@ export interface signalSourcesLogicMeta {
                 | 'xmatters'
                 | 'yotpo'
                 | 'zendesk'
+                | 'zenduty'
                 | 'zoho_crm',
                 ExternalSignalSourceState
             >,
@@ -793,8 +805,10 @@ export interface signalSourcesLogicMeta {
             externalAgents: AgentRosterDefinition[],
             externalSourceStates: Record<
                 | 'aha'
+                | 'ahrefs'
                 | 'airbrake'
                 | 'amazon_cloudwatch'
+                | 'app_store_connect'
                 | 'appfigures'
                 | 'appfollow'
                 | 'appsignal'
@@ -811,6 +825,7 @@ export interface signalSourcesLogicMeta {
                 | 'bettermode'
                 | 'betterstack'
                 | 'bigeye'
+                | 'bing_webmaster_tools'
                 | 'bugherd'
                 | 'bugsnag'
                 | 'canny'
@@ -831,6 +846,7 @@ export interface signalSourcesLogicMeta {
                 | 'featurebase'
                 | 'featurebase_surveys'
                 | 'firehydrant'
+                | 'firehydrant_alerts'
                 | 'formbricks'
                 | 'freshdesk'
                 | 'freshservice'
@@ -849,11 +865,13 @@ export interface signalSourcesLogicMeta {
                 | 'google_search_console'
                 | 'gorgias'
                 | 'grafana_irm'
+                | 'grafana_irm_alert_groups'
                 | 'gumroad'
                 | 'helpscout'
                 | 'honeybadger'
                 | 'hubspot'
                 | 'incident_io'
+                | 'incident_io_alerts'
                 | 'infisical'
                 | 'instatus'
                 | 'intercom'
@@ -887,10 +905,14 @@ export interface signalSourcesLogicMeta {
                 | 'retently'
                 | 'roark'
                 | 'rollbar'
+                | 'rootly'
+                | 'rootly_alerts'
                 | 'semgrep'
                 | 'semgrep_sca'
+                | 'semrush'
                 | 'sentinelone'
                 | 'sentry'
+                | 'sentry_feedback'
                 | 'servicenow'
                 | 'shortcut'
                 | 'sleekplan'
@@ -898,6 +920,7 @@ export interface signalSourcesLogicMeta {
                 | 'solarwinds_service_desk'
                 | 'sonarcloud'
                 | 'sonarqube'
+                | 'splunk_observability_cloud'
                 | 'sprig'
                 | 'squadcast'
                 | 'statuspage'
@@ -910,6 +933,7 @@ export interface signalSourcesLogicMeta {
                 | 'trustpilot'
                 | 'trustpilot_product_reviews'
                 | 'typeform'
+                | 'uptimerobot'
                 | 'usersnap'
                 | 'uservoice'
                 | 'uservoice_nps'
@@ -922,6 +946,7 @@ export interface signalSourcesLogicMeta {
                 | 'xmatters'
                 | 'yotpo'
                 | 'zendesk'
+                | 'zenduty'
                 | 'zoho_crm',
                 ExternalSignalSourceState
             >,
@@ -931,8 +956,10 @@ export interface signalSourcesLogicMeta {
             externalAgents: AgentRosterDefinition[],
             externalSourceStates: Record<
                 | 'aha'
+                | 'ahrefs'
                 | 'airbrake'
                 | 'amazon_cloudwatch'
+                | 'app_store_connect'
                 | 'appfigures'
                 | 'appfollow'
                 | 'appsignal'
@@ -949,6 +976,7 @@ export interface signalSourcesLogicMeta {
                 | 'bettermode'
                 | 'betterstack'
                 | 'bigeye'
+                | 'bing_webmaster_tools'
                 | 'bugherd'
                 | 'bugsnag'
                 | 'canny'
@@ -969,6 +997,7 @@ export interface signalSourcesLogicMeta {
                 | 'featurebase'
                 | 'featurebase_surveys'
                 | 'firehydrant'
+                | 'firehydrant_alerts'
                 | 'formbricks'
                 | 'freshdesk'
                 | 'freshservice'
@@ -987,11 +1016,13 @@ export interface signalSourcesLogicMeta {
                 | 'google_search_console'
                 | 'gorgias'
                 | 'grafana_irm'
+                | 'grafana_irm_alert_groups'
                 | 'gumroad'
                 | 'helpscout'
                 | 'honeybadger'
                 | 'hubspot'
                 | 'incident_io'
+                | 'incident_io_alerts'
                 | 'infisical'
                 | 'instatus'
                 | 'intercom'
@@ -1025,10 +1056,14 @@ export interface signalSourcesLogicMeta {
                 | 'retently'
                 | 'roark'
                 | 'rollbar'
+                | 'rootly'
+                | 'rootly_alerts'
                 | 'semgrep'
                 | 'semgrep_sca'
+                | 'semrush'
                 | 'sentinelone'
                 | 'sentry'
+                | 'sentry_feedback'
                 | 'servicenow'
                 | 'shortcut'
                 | 'sleekplan'
@@ -1036,6 +1071,7 @@ export interface signalSourcesLogicMeta {
                 | 'solarwinds_service_desk'
                 | 'sonarcloud'
                 | 'sonarqube'
+                | 'splunk_observability_cloud'
                 | 'sprig'
                 | 'squadcast'
                 | 'statuspage'
@@ -1048,6 +1084,7 @@ export interface signalSourcesLogicMeta {
                 | 'trustpilot'
                 | 'trustpilot_product_reviews'
                 | 'typeform'
+                | 'uptimerobot'
                 | 'usersnap'
                 | 'uservoice'
                 | 'uservoice_nps'
@@ -1060,6 +1097,7 @@ export interface signalSourcesLogicMeta {
                 | 'xmatters'
                 | 'yotpo'
                 | 'zendesk'
+                | 'zenduty'
                 | 'zoho_crm',
                 ExternalSignalSourceState
             >,

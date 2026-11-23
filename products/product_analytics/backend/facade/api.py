@@ -228,6 +228,19 @@ def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Colle
     return logic.insights_including_soft_deleted_for_team(team_id=team_id, insight_ids=insight_ids)
 
 
+def live_insight_ids_by_team(*, team_ids: Collection[int], insight_ids: Collection[int]) -> dict[int, set[int]]:
+    """Which of the given insights in these teams are not deleted, by team, in one query."""
+    live: dict[int, set[int]] = {}
+    if not team_ids or not insight_ids:
+        return live
+    # Every row stays inside `team_ids`, which the caller resolved; the ids only narrow that set.
+    # nosemgrep: idor-lookup-without-team
+    rows = Insight.objects.filter(team_id__in=list(team_ids), id__in=list(insight_ids))
+    for team_id, insight_id in rows.values_list("team_id", "id"):
+        live.setdefault(team_id, set()).add(insight_id)
+    return live
+
+
 def _visible_insight_rows(
     insight_ids: Collection[int],
     *,
@@ -314,6 +327,11 @@ def insight_ids_viewed_since(*, team_ids: Collection[int], since: datetime) -> s
 def insight_ids_modified_since(*, team_ids: Collection[int], since: datetime) -> set[int]:
     """Saved insights of these teams created or edited since the given time, in one query."""
     return logic.insight_ids_modified_since(team_ids=team_ids, since=since)
+
+
+def insight_ids_by_short_ids(*, team_id: int, short_ids: Collection[str]) -> set[int]:
+    """Ids of the live insights of this team with these short ids, in one query. Unknown short ids are left out."""
+    return logic.insight_ids_by_short_ids(team_id=team_id, short_ids=short_ids)
 
 
 def insight_ids_named_like(*, team_id: int, search: str) -> set[int]:
@@ -552,7 +570,7 @@ def get_insight_series(
         team,
         user,
         short_id=insight.short_id,
-        name=insight.name,
+        name=insight.name or insight.derived_name,
         query=insight.query or {},
         dashboard=dashboard,
         blocking=blocking,

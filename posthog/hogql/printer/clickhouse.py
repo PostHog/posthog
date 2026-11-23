@@ -282,7 +282,9 @@ class ClickHousePrinter(BasePrinter):
                     ]
 
                     if isinstance(suffix_arg.value, str):
-                        suffix_arg.value = suffix_arg.value.format(*suffix_arg_args_values)
+                        # Every query in the process shares suffix_arg through the function table.
+                        # Formatting it in place would print this call's arguments in every later call.
+                        suffix_arg = ast.Constant(value=suffix_arg.value.format(*suffix_arg_args_values))
                     else:
                         raise QueryError(
                             f"Suffix argument '{suffix_arg.value}' expects a string, but got {type(suffix_arg.value).__name__}"
@@ -1177,9 +1179,12 @@ class ClickHousePrinter(BasePrinter):
                 )
             return None
 
+        if isinstance(table_type.table, SavedQuery):
+            # An unexpanded view would print as a bare table name with no team_id filter.
+            raise ImpossibleASTError(f'View "{table_type.table.to_printed_hogql()}" was not expanded before printing.')
+
         if (
             not isinstance(table_type.table, DataWarehouseTable)
-            and not isinstance(table_type.table, SavedQuery)
             and not isinstance(table_type.table, DANGEROUS_NoTeamIdCheckTable)
             and node_type is not None
         ):

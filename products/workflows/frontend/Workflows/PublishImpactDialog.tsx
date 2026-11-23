@@ -6,9 +6,11 @@ import type { HogFlowPublishImpactApi, HogFlowPublishImpactDeletedStepApi } from
 function PublishImpactContent({
     impact,
     inFlightRuns,
+    movesToSandboxSender,
 }: {
     impact: HogFlowPublishImpactApi | null
     inFlightRuns: number | null
+    movesToSandboxSender: boolean
 }): JSX.Element {
     const deletedSteps = impact?.deleted_steps ?? []
     const emptyVariables = impact?.empty_variables ?? []
@@ -16,6 +18,12 @@ function PublishImpactContent({
 
     return (
         <div className="flex flex-col gap-3">
+            {movesToSandboxSender && (
+                <LemonBanner type="warning">
+                    These changes put email steps on the PostHog test sender. Those steps reach only verified members of
+                    your organization, and everyone else is skipped.
+                </LemonBanner>
+            )}
             <p className="mb-0">
                 This applies your staged changes to the live workflow.{' '}
                 {inFlightRuns === null
@@ -102,16 +110,24 @@ function PublishImpactContent({
 export function openPublishConfirmDialog({
     impact,
     inFlightRuns,
+    movesToSandboxSender = false,
     onConfirm,
 }: {
     impact: HogFlowPublishImpactApi | null
     inFlightRuns: number | null
+    movesToSandboxSender?: boolean
     onConfirm: () => void
 }): void {
     LemonDialog.open({
         title: 'Publish staged changes?',
         maxWidth: '36rem',
-        description: <PublishImpactContent impact={impact} inFlightRuns={inFlightRuns} />,
+        description: (
+            <PublishImpactContent
+                impact={impact}
+                inFlightRuns={inFlightRuns}
+                movesToSandboxSender={movesToSandboxSender}
+            />
+        ),
         primaryButton: {
             children: 'Publish',
             onClick: onConfirm,

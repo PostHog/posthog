@@ -1,6 +1,8 @@
 version: 1
 owners: []
 rules:
+    - match: '/CheatCodes/'
+      owners: team-billing
     - match: '/HogQLEditor/'
       owners: team-data-tools
     - match: '/LiveUserCount/'
@@ -12,6 +14,8 @@ rules:
       owners: team-growth
       sensitive: true
     - match: '/ProductEmptyState/'
+      owners: team-growth
+    - match: '/QuillMemberSelectMultiple.test.tsx'
       owners: team-growth
     - match: '/ReverseProxyChecker/'
       owners: team-platform-features
@@ -90,6 +94,7 @@ rules:
           - '/Account/*.test.*'
           - '/ActivityLog/activityDescriptions/*.test.*'
           - '/NotificationsMenu/*.test.*'
+          - '/SocialLoginButton/*.test.*'
           - '/TimeSensitiveAuthentication/*.test.*'
       owners: team-platform-features
     - match:

@@ -37,16 +37,18 @@ export function SuggestedReviewersSectionView({
                     </span>
                 </Tooltip>
             }
+            rightSlot={
+                <div className="flex items-center gap-2">
+                    {disabled && <Spinner className="size-3" />}
+                    {addControl}
+                </div>
+            }
         >
             {reviewers.length === 0 ? (
                 <p className="m-0 text-xs text-tertiary">No suggested reviewers yet.</p>
             ) : (
                 <SuggestedReviewersList reviewers={reviewers} disabled={disabled} onRemove={onRemove} claim={claim} />
             )}
-            <div className="mt-3 flex items-center justify-end gap-2">
-                {disabled && <Spinner className="size-3" />}
-                {addControl}
-            </div>
         </DetailSection>
     )
 }

@@ -122,4 +122,19 @@ describe('warehouse alert logics', () => {
         )
         expect(logic.values.alerts?.map((alert) => alert.id)).toEqual(['on-page-1', 'on-page-2'])
     })
+
+    it.each([
+        ['a flag-gated 403 as not available', { status: 403, code: 'feature_flag_required' }, true, false],
+        ['an access-denied 403 as a failure', { status: 403, code: 'permission_denied' }, false, true],
+        ['a server error as a failure', { status: 500 }, false, true],
+    ])('treats %s', async (_, error, unavailable, failed) => {
+        platformApi.platformAlertsList.mockRejectedValue(error)
+        const logic = warehouseAlertsLogic(PROPS)
+
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+
+        expect(logic.values).toMatchObject({ alertsUnavailable: unavailable, alertsFailed: failed })
+    })
 })

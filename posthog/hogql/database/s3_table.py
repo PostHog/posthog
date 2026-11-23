@@ -46,6 +46,9 @@ _URL_GLOB_CHARACTERS = frozenset("*?{}")
 _BROTLI_FILE_NAME_RE = re.compile(r"\.(?:br|brotli)(?![\w.-])", re.IGNORECASE)
 _BROTLI_EXTENSION_RE = re.compile(r"(?:br|brotli)[*?]*", re.IGNORECASE)
 _MAX_BRACE_EXPANSIONS = 1000
+_MISSING_CREDENTIAL_MESSAGE = (
+    "This table has no usable access key and secret. Add them in the table's settings, then try again."
+)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -283,7 +286,12 @@ def build_function_call(
     context: Optional[HogQLContext] = None,
     table_size_mib: Optional[float] = None,
     compression: Optional[str] = None,
+    credential_required: bool = False,
 ) -> str:
+    # Without a key, ClickHouse reads with its own role, which only suits a URL that PostHog built.
+    if credential_required and not (access_key and access_secret):
+        raise ExposedHogQLError(_MISSING_CREDENTIAL_MESSAGE)
+
     if access_key is None and access_secret is None and (settings.DEBUG or settings.TEST or settings.USE_LOCAL_SETUP):
         access_key = settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY
         access_secret = settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET
@@ -324,6 +332,7 @@ class S3Table(FunctionCallTable):
     queryable_folder: Optional[str] = None
     access_key: Optional[str] = None
     access_secret: Optional[str] = None
+    credential_required: bool = False
     structure: Optional[str] = None
     table_id: Optional[str] = None
     table_size_mib: Optional[float] = None
@@ -349,9 +358,13 @@ class S3Table(FunctionCallTable):
             structure=self.structure,
             context=context,
             table_size_mib=self.table_size_mib,
+            credential_required=self.credential_required,
         )
 
     def to_printed_duckdb(self, context: HogQLContext) -> str:
+        if self.credential_required and not (self.access_key and self.access_secret):
+            raise ExposedHogQLError(_MISSING_CREDENTIAL_MESSAGE)
+
         if self.format != "Parquet":
             format_label = _FORMAT_LABELS.get(self.format, self.format)
             raise ExposedHogQLError(

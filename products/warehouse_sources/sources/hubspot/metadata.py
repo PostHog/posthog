@@ -1,5 +1,5 @@
 """Fetchers for HubSpot's tables that are not CRM objects: pipelines, pipeline stages, property
-definitions, owners and conversation threads.
+definitions, owners, conversation threads, teams and marketing campaigns.
 
 These are not CRM objects — they have no `properties` envelope, no `/search` endpoint and no
 server-side timestamp filter — so they are always a full refresh and reuse `helpers.fetch_data`
@@ -21,11 +21,14 @@ from structlog.types import FilteringBoundLogger
 from products.warehouse_sources.sources.hubspot.helpers import fetch_data
 from products.warehouse_sources.sources.hubspot.scopes import HubspotForbiddenError
 from products.warehouse_sources.sources.hubspot.settings import (
+    CAMPAIGN_PROPERTIES,
     HUBSPOT_ENDPOINTS,
     HUBSPOT_METADATA_ENDPOINTS,
     PIPELINE_OBJECT_TYPES,
     apply_crm_api_version,
     conversation_threads_path,
+    marketing_campaigns_path,
+    teams_path,
 )
 
 # A portal that hasn't enabled an object answers 404 for that object type only. An object the
@@ -50,6 +53,7 @@ def _iter_pages(
     skip_forbidden: bool = False,
     params: dict[str, Any] | None = None,
     follow_after_cursor: bool = False,
+    unwrap_properties: bool = True,
 ) -> Iterator[list[dict[str, Any]]]:
     try:
         yield from fetch_data(
@@ -59,6 +63,7 @@ def _iter_pages(
             params=params,
             source_id=source_id,
             follow_after_cursor=follow_after_cursor,
+            unwrap_properties=unwrap_properties,
         )
     except HubspotForbiddenError:
         # A fan-out reads one path per object type, so an object the portal cannot read must not
@@ -161,10 +166,53 @@ def get_conversation_threads_rows(
         yield [_normalize_row(thread, columns) for thread in page]
 
 
+def get_teams_rows(
+    api_key: str,
+    refresh_token: str,
+    logger: FilteringBoundLogger,
+    source_id: str | None,
+    api_version: str,
+) -> Iterator[list[dict[str, Any]]]:
+    columns = HUBSPOT_METADATA_ENDPOINTS["teams"].columns
+    # The teams list has no paging: one response holds every team.
+    for page in _iter_pages(teams_path(api_version), api_key, refresh_token, source_id, logger):
+        yield [_normalize_row(team, columns) for team in page]
+
+
+def get_marketing_campaigns_rows(
+    api_key: str,
+    refresh_token: str,
+    logger: FilteringBoundLogger,
+    source_id: str | None,
+    api_version: str,
+) -> Iterator[list[dict[str, Any]]]:
+    columns = HUBSPOT_METADATA_ENDPOINTS["marketing_campaigns"].columns
+    for page in _iter_pages(
+        marketing_campaigns_path(api_version),
+        api_key,
+        refresh_token,
+        source_id,
+        logger,
+        params={"limit": 100, "properties": ",".join(CAMPAIGN_PROPERTIES)},
+        # HubSpot documents a relative `paging.next.link`, so page on the `after` cursor.
+        follow_after_cursor=True,
+        unwrap_properties=False,
+    ):
+        yield [
+            _normalize_row(
+                {**(campaign.get("properties") or {}), **{k: v for k, v in campaign.items() if k != "properties"}},
+                columns,
+            )
+            for campaign in page
+        ]
+
+
 METADATA_FETCHERS = {
     "pipelines": get_pipelines_rows,
     "pipeline_stages": get_pipeline_stages_rows,
     "properties": get_properties_rows,
     "owners": get_owners_rows,
     "conversation_threads": get_conversation_threads_rows,
+    "teams": get_teams_rows,
+    "marketing_campaigns": get_marketing_campaigns_rows,
 }

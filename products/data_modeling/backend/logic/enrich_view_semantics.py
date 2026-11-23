@@ -21,8 +21,7 @@ from django.conf import settings
 
 import structlog
 from temporalio.client import Client
-from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -676,7 +675,7 @@ def _start_enrichment_workflow(team_id: int, saved_query_id: str) -> None:
     """Start the enrichment workflow on the metadata queue. Never breaks the caller's save."""
     # Deferred: the activities module imports the facade, which imports this module — a module-level
     # import would be circular.
-    from posthog.temporal.data_modeling.activities import EnrichViewSemanticsInputs  # noqa: PLC0415
+    from products.data_modeling.backend.temporal.activities import EnrichViewSemanticsInputs  # noqa: PLC0415
 
     try:
         temporal: Client = sync_connect()
@@ -687,10 +686,9 @@ def _start_enrichment_workflow(team_id: int, saved_query_id: str) -> None:
                 id=f"enrich-view-semantics-{saved_query_id}",
                 task_queue=str(settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
         )
-    except WorkflowAlreadyStartedError:
-        logger.info("view_enrichment.workflow_already_running", saved_query_id=saved_query_id)
     except Exception as e:
         capture_exception(e)

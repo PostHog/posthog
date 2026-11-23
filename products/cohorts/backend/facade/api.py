@@ -9,17 +9,20 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from contextlib import suppress
 from datetime import datetime
 from typing import Any, Literal
 
 from django.db import connection, router
 
 from posthog.dataclasses import frozen
+from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.models.team import Team
 from posthog.tasks.calculate_cohort import insert_cohort_from_query, schedule_static_cohort_count_refresh
 
 from products.cohorts.backend.models.cohort import Cohort, CohortType, ImportResolution
+from products.cohorts.backend.models.util import list_cohort_member_ids, remove_static_cohort_members
+
+_MEMBER_LOOKUP_CHUNK_SIZE = 1000
 
 
 def cohort_exists_for_team(*, team_id: int, cohort_id: int) -> bool:
@@ -56,6 +59,32 @@ def get_cohort_ref(*, team_id: int, cohort_id: int) -> CohortRef | None:
     )
 
 
+def find_cohort_ref_by_description(*, team_id: int, description: str) -> CohortRef | None:
+    """The oldest cohort with this description, deleted or not, so an import can respect a cohort someone deleted."""
+    cohort = (
+        Cohort.objects.filter(team_id=team_id, description=description)
+        .only("id", "team_id", "created_by_id", "is_static", "deleted")
+        .order_by("id")
+        .first()
+    )
+    if cohort is None:
+        return None
+    return CohortRef(
+        id=cohort.id,
+        team_id=cohort.team_id,
+        created_by_id=cohort.created_by_id,
+        is_static=cohort.is_static,
+        deleted=cohort.deleted,
+    )
+
+
+def create_empty_static_cohort(*, team_id: int, name: str, description: str, created_by_id: int) -> CohortRef:
+    cohort = Cohort.objects.create(
+        team_id=team_id, name=name, description=description, is_static=True, count=0, created_by_id=created_by_id
+    )
+    return CohortRef(id=cohort.id, team_id=cohort.team_id, created_by_id=created_by_id, is_static=True, deleted=False)
+
+
 def add_person_to_static_cohort(*, team_id: int, cohort_id: int, person_uuid: str) -> bool:
     """Add one person to a static cohort. Returns False when the team has no person with that UUID.
 
@@ -70,6 +99,41 @@ def add_person_to_static_cohort(*, team_id: int, cohort_id: int, person_uuid: st
         return False
     schedule_static_cohort_count_refresh(team_id=team_id, cohort_id=cohort_id)
     return True
+
+
+@frozen
+class StaticCohortReplaced:
+    """How a static cohort changed when it was set to exactly a list of people."""
+
+    matched: int
+    unmatched: int
+    removed: int
+
+
+def replace_static_cohort_members(*, team_id: int, cohort_id: int, distinct_ids: Sequence[str]) -> StaticCohortReplaced:
+    """Set a static cohort's members to the people behind `distinct_ids`. Members not in the list are removed.
+
+    Safe to run again: a person who is already a member is not added twice, and removing a missing member is a no-op.
+    Raises on a failed insert, and leaves the cohort's final state to the caller then.
+    """
+    cohort = Cohort.objects.get(team_id=team_id, id=cohort_id, is_static=True, deleted=False)
+    keep: set[int] = set()
+    for start in range(0, len(distinct_ids), _MEMBER_LOOKUP_CHUNK_SIZE):
+        persons = get_persons_by_distinct_ids(
+            team_id, list(distinct_ids[start : start + _MEMBER_LOOKUP_CHUNK_SIZE]), distinct_id_limit=0
+        )
+        keep.update(person.id for person in persons)
+    stale = sorted(set(list_cohort_member_ids(team_id, cohort_id)) - keep)
+    remove_static_cohort_members(team_id, cohort_id, stale)
+    resolution = ImportResolution()
+    # Finishes the cohort's calculation and recounts it on success.
+    cohort.insert_users_by_list(list(distinct_ids), team_id=team_id, raise_on_error=True, import_resolution=resolution)
+    Cohort.objects.filter(team_id=team_id, id=cohort_id).update(
+        last_import_total_count=resolution.total, last_import_unmatched_count=resolution.unmatched
+    )
+    return StaticCohortReplaced(
+        matched=len(resolution.matched_inputs), unmatched=resolution.unmatched, removed=len(stale)
+    )
 
 
 @frozen
@@ -257,7 +321,7 @@ def create_cohort_from_filters(
     from posthog.models import User
     from posthog.models.activity_logging.activity_log import Detail, log_activity
 
-    from products.cohorts.backend.cohort_enablement import RealtimeTurnOnRefused, turn_realtime_on
+    from products.cohorts.backend.cohort_enablement import RealtimeLimitReached, RealtimeTurnOnRefused, turn_realtime_on
 
     team = Team.objects.get(id=team_id)
     user = User.objects.get(id=user_id)
@@ -276,8 +340,23 @@ def create_cohort_from_filters(
     cohort.enqueue_calculation(initiating_user=user)
     if cohort.cohort_type == CohortType.REALTIME:
         # Only the new cohort may be turned on, so a cohort its filters include stays as its owner left it.
-        with suppress(RealtimeTurnOnRefused):
+        try:
             turn_realtime_on(team_id, cohort.id, can_edit=lambda each: each.id == cohort.id)
+        except RealtimeLimitReached as error:
+            report_user_action(
+                user,
+                "cohort realtime limit reached",
+                {
+                    **cohort.get_analytics_metadata(),
+                    "limit": error.limit,
+                    "allowed": error.allowed,
+                    "used": error.used,
+                    "source": "workflow_import",
+                },
+                team=team,
+            )
+        except RealtimeTurnOnRefused:
+            pass
         cohort.refresh_from_db(fields=["realtime_enabled_at"])
     report_user_action(user, "cohort created", cohort.get_analytics_metadata(), team=team)
     log_activity(

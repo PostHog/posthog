@@ -8,6 +8,8 @@ function appliedBy(source: ErrorTrackingIssueTag['source']): string | null {
             return 'Applied by AI'
         case 'manual':
             return 'Applied manually'
+        case 'rule':
+            return 'Applied by a tag rule'
         default:
             return null
     }

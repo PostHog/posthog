@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { getToolbarRuntime } from 'lib/toolbar/toolbarRuntime'
+
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { canonicalizeApiHost, canonicalizeUiHost, toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
@@ -1010,6 +1012,7 @@ describe('toolbar toolbarConfigLogic', () => {
                 projectId: 1,
             })
             logic1.unmount()
+            expect(getToolbarRuntime()).toBeNull()
 
             // Second mount: tokens should be restored from OAuth localStorage
             const logic2 = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
@@ -1022,6 +1025,7 @@ describe('toolbar toolbarConfigLogic', () => {
                 clientId: 'persisted-client',
                 isAuthenticated: true,
             })
+            expect(getToolbarRuntime()?.isAuthenticated()).toBe(true)
         })
 
         it('handles corrupted OAuth localStorage gracefully', () => {

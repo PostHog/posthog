@@ -38,7 +38,7 @@ ID-JAG exchange reject every issuer the application registered, without deleting
 configurations.
 
 The scope is in `AUTHORIZATION_SERVER_ONLY_SCOPES`, so the authorization server metadata lists it
-and no other discovery document does. `posthog/scopes.py` explains that class. Because a client can
+and no other discovery document does. `posthog/scopes/oauth.py` explains that class. Because a client can
 copy the whole list into `/authorize`, `requests_ema_issuer` counts a request as an EMA setup only
 when the scope comes alone or with identity scopes.
 """
@@ -69,7 +69,7 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplic
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import User
-from posthog.scopes import ALWAYS_ALLOWED_SCOPES, EMA_ISSUER_MANAGE_SCOPE
+from posthog.scopes.oauth import ALWAYS_ALLOWED_SCOPES, EMA_ISSUER_MANAGE_SCOPE
 from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)
@@ -135,7 +135,9 @@ def _ineligibility_reason(
 
 def ema_consent_context(user: User) -> dict[str, object]:
     """What the consent screen needs to name the organization and what approving turns on."""
-    memberships = list(OrganizationMembership.objects.filter(user=user).select_related("organization"))
+    memberships = list(
+        OrganizationMembership.objects.with_effective_level().filter(user=user).select_related("organization")
+    )
     domains = _verified_domains_by_organization(membership.organization_id for membership in memberships)
     organizations = []
     for membership in memberships:
@@ -146,7 +148,9 @@ def ema_consent_context(user: User) -> dict[str, object]:
                 "id": str(organization.id),
                 "name": organization.name,
                 "verified_domains": verified_domains,
-                "disabled_reason": _ineligibility_reason(user, organization, membership.level, verified_domains),
+                "disabled_reason": _ineligibility_reason(
+                    user, organization, membership.effective_level, verified_domains
+                ),
             }
         )
     organizations.sort(key=lambda org: (org["disabled_reason"] is not None, str(org["name"]).lower()))
@@ -189,7 +193,8 @@ def validate_ema_grant(
     if access_level != OAuthApplicationAccessLevel.ORGANIZATION.value or len(scoped_organization_ids) != 1:
         raise EmaSetupError("invalid_request", "Choose exactly one organization to set up enterprise-managed auth.")
     membership = (
-        OrganizationMembership.objects.filter(user=user, organization_id=scoped_organization_ids[0])
+        OrganizationMembership.objects.with_effective_level()
+        .filter(user=user, organization_id=scoped_organization_ids[0])
         .select_related("organization")
         .first()
     )
@@ -197,7 +202,7 @@ def validate_ema_grant(
         raise EmaSetupError("access_denied", "You aren't a member of this organization.", status.HTTP_403_FORBIDDEN)
     organization = membership.organization
     verified_domains = _verified_domains_by_organization([organization.id]).get(str(organization.id), [])
-    reason = _ineligibility_reason(user, organization, membership.level, verified_domains)
+    reason = _ineligibility_reason(user, organization, membership.effective_level, verified_domains)
     if reason:
         raise EmaSetupError("access_denied", reason, status.HTTP_403_FORBIDDEN)
     return organization

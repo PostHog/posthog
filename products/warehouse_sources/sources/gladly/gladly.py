@@ -445,6 +445,26 @@ def get_rows(
         resumable_source_manager.save_state(GladlyResumeConfig(last_job_updated_at=job_updated_at))
 
 
+def _rejected_event_entities(error: requests.HTTPError) -> set[str]:
+    response = error.response
+    if response is None or response.status_code != 400:
+        return set()
+    try:
+        body = response.json()
+    except ValueError:
+        return set()
+    errors = body.get("errors") if isinstance(body, dict) else None
+    rejected: set[str] = set()
+    for item in errors if isinstance(errors, list) else []:
+        if not isinstance(item, dict) or item.get("attr") != "entities":
+            continue
+        meta = item.get("meta")
+        value = meta.get("entities") if isinstance(meta, dict) else None
+        if isinstance(value, str):
+            rejected.add(value)
+    return rejected
+
+
 def _event_rows(
     fetch: Callable[[str], requests.Response],
     base_url: str,
@@ -482,14 +502,23 @@ def _event_rows(
         else:
             window_start = max(window_start, resume_end)
 
+    requested = list(entities)
     while window_start < now:
         window_end = min(window_start + EVENTS_WINDOW, now)
         params = [
             ("startAt", _format_timestamp(window_start)),
             ("endAt", _format_timestamp(window_end)),
-            *(("entities", entity) for entity in entities),
+            *(("entities", entity) for entity in requested),
         ]
-        response = fetch(f"{base_url}/events?{urlencode(params)}")
+        try:
+            response = fetch(f"{base_url}/events?{urlencode(params)}")
+        except requests.HTTPError as error:
+            rejected = _rejected_event_entities(error) & set(requested)
+            if not rejected or rejected == set(requested):
+                raise
+            logger.warning(f"Gladly: skipping event entity types this account rejects: {sorted(rejected)}")
+            requested = [entity for entity in requested if entity not in rejected]
+            continue
         chunk: list[dict[str, Any]] = []
         for line in response.iter_lines(decode_unicode=True):
             if not line or not line.strip():

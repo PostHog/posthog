@@ -17,6 +17,7 @@ import { isDevEnv, isProdEnv, isTestEnv } from '~/common/utils/env-utils'
 import { ClickhouseConfig, getDefaultClickhouseConfig } from '../common/clickhouse-config'
 import {
     CdpProducerName,
+    MSK_CDP_INTAKE_PRODUCER,
     WAREHOUSE_PRODUCER,
     WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER,
     WARPSTREAM_CYCLOTRON_PRODUCER,
@@ -56,6 +57,10 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: CyclotronJobQueueKind
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueSource
     CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: string
+    // Stores the content of transactional email sends encrypted. Turn on only once every reader is deployed.
+    CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: boolean
+    // Keys for sealed job state only, kept apart from ENCRYPTION_SALT_KEYS. Comma-separated, newest first.
+    CDP_SEALED_STATE_KEYS: string
 
     CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: string
     CDP_LEGACY_EVENT_CONSUMER_TOPIC: string
@@ -67,6 +72,14 @@ export type CdpConfig = ClickhouseConfig & {
     // cdp_events_unmatched_event_name_invoked stays at zero.
     CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES: boolean
     CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: string
+    // How long the matcher holds an event batch to look it up together with the batches after it.
+    // 0 looks up every batch alone. It can only merge as many batches as CONSUMER_MAX_BACKGROUND_TASKS.
+    CDP_HOGFLOW_SUBSCRIPTION_MATCHER_EVENTS_COALESCE_MS: number
+    // Whether the matcher checks an event against the workflows' filters before looking it up:
+    //   "off"     - every event of a team with a waiting or goal workflow is looked up.
+    //   "shadow"  - every event is still looked up, and the metrics count what "on" would skip.
+    //   "on"      - only events that pass some filter are looked up.
+    CDP_HOGFLOW_SUBSCRIPTION_MATCHER_FILTER_FIRST: string
 
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
     CDP_CYCLOTRON_BATCH_DELAY_MAX_MS: number
@@ -79,6 +92,7 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_USE_BULK_COPY_JOB: boolean
     CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: boolean
     CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK: boolean
+    CDP_CYCLOTRON_RELEASE_WRITE_RETRY: boolean
     // Off until Django emits `$workflow_step_resume`, or parked steps never wake.
     CDP_HOGFLOW_AWAITED_STEPS_ENABLED: boolean
     WORKFLOWS_SANDBOX_SENDER_ENABLED: boolean
@@ -152,13 +166,12 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_FREQUENCY_CAP_VALKEY_PASSWORD: string
     CDP_FREQUENCY_CAP_VALKEY_TLS: boolean
 
-    // Valkey for caller-supplied idempotency keys, such as an `Idempotency-Key` header. When it is
-    // unset, each route decides what a request with a key does.
-    CDP_IDEMPOTENCY_VALKEY_HOST: string
-    CDP_IDEMPOTENCY_VALKEY_PORT: number
-    CDP_IDEMPOTENCY_VALKEY_PASSWORD: string
-    CDP_IDEMPOTENCY_VALKEY_TLS: boolean
-    CDP_IDEMPOTENCY_VALKEY_ENABLED: boolean
+    // Valkey for the daily per-team byte budget of email attachment uploads. When it is unset, the upload route
+    // answers 503.
+    CDP_EMAIL_ATTACHMENTS_VALKEY_HOST: string
+    CDP_EMAIL_ATTACHMENTS_VALKEY_PORT: number
+    CDP_EMAIL_ATTACHMENTS_VALKEY_PASSWORD: string
+    CDP_EMAIL_ATTACHMENTS_VALKEY_TLS: boolean
 
     CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: number
     CDP_SES_RATE_LIMIT_CAPACITY: number
@@ -210,10 +223,16 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC: string
     CDP_INTAKE_DLQ_TOPIC: string
     CDP_INTAKE_PRODUCER: CdpProducerName
+    // An intake consumer's dead letters, on the cluster it reads from.
+    CDP_INTAKE_DLQ_PRODUCER: CdpProducerName
     // Teams whose routes produce accepted runs to the intake topics: a list of team ids, or `*`. Shadow still inserts
     // each run itself and only measures the produce. Async answers on the broker's ack. Async wins over shadow.
     CDP_INTAKE_KAFKA_SHADOW_TEAMS: string
     CDP_INTAKE_KAFKA_ASYNC_TEAMS: string
+    CDP_INTAKE_MSK_PRODUCER: CdpProducerName
+    // Teams whose intake runs go to the CDP intake MSK cluster instead of WarpStream, in the same format.
+    // Ignored without KAFKA_MSK_CDP_INTAKE_PRODUCER_METADATA_BROKER_LIST.
+    CDP_INTAKE_MSK_TEAMS: string
     // Replay worker. Scaled to zero replicas; an operator scales it up to drain the topic.
     CDP_DLQ_REPLAY_TOPIC: string
 
@@ -388,6 +407,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: 'hog',
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
         CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
+        CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: false,
+        CDP_SEALED_STATE_KEYS: isDevEnv() || isTestEnv() ? '00feed0000feed0000feed0000feed00' : '',
 
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
         CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
@@ -397,6 +418,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_EVENTS_CONSUMER_GROUP_ID: 'cdp-processed-events-consumer',
         CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES: false,
         CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: '',
+        CDP_HOGFLOW_SUBSCRIPTION_MATCHER_EVENTS_COALESCE_MS: 0,
+        CDP_HOGFLOW_SUBSCRIPTION_MATCHER_FILTER_FIRST: 'off',
 
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
         CDP_CYCLOTRON_BATCH_DELAY_MAX_MS: 0,
@@ -409,6 +432,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_USE_BULK_COPY_JOB: isProdEnv() ? false : true,
         CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: true,
         CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK: false,
+        CDP_CYCLOTRON_RELEASE_WRITE_RETRY: false,
         CDP_HOGFLOW_AWAITED_STEPS_ENABLED: isProdEnv() ? false : true,
         WORKFLOWS_SANDBOX_SENDER_ENABLED: false,
         SES_SANDBOX_CONFIGURATION_SET: '',
@@ -458,11 +482,10 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_FREQUENCY_CAP_VALKEY_PASSWORD: '',
         CDP_FREQUENCY_CAP_VALKEY_TLS: false,
 
-        CDP_IDEMPOTENCY_VALKEY_HOST: isTestEnv() || isDevEnv() ? '127.0.0.1' : '',
-        CDP_IDEMPOTENCY_VALKEY_PORT: isTestEnv() || isDevEnv() ? 6390 : 6379,
-        CDP_IDEMPOTENCY_VALKEY_PASSWORD: '',
-        CDP_IDEMPOTENCY_VALKEY_TLS: false,
-        CDP_IDEMPOTENCY_VALKEY_ENABLED: true,
+        CDP_EMAIL_ATTACHMENTS_VALKEY_HOST: isTestEnv() || isDevEnv() ? '127.0.0.1' : '',
+        CDP_EMAIL_ATTACHMENTS_VALKEY_PORT: isTestEnv() || isDevEnv() ? 6390 : 6379,
+        CDP_EMAIL_ATTACHMENTS_VALKEY_PASSWORD: '',
+        CDP_EMAIL_ATTACHMENTS_VALKEY_TLS: false,
 
         CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: 100,
         CDP_SES_RATE_LIMIT_CAPACITY: 50,
@@ -516,8 +539,11 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC: KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK,
         CDP_INTAKE_DLQ_TOPIC: KAFKA_CDP_INTAKE_DLQ,
         CDP_INTAKE_PRODUCER: WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER,
+        CDP_INTAKE_DLQ_PRODUCER: WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER,
         CDP_INTAKE_KAFKA_SHADOW_TEAMS: '',
         CDP_INTAKE_KAFKA_ASYNC_TEAMS: '',
+        CDP_INTAKE_MSK_PRODUCER: MSK_CDP_INTAKE_PRODUCER,
+        CDP_INTAKE_MSK_TEAMS: '',
         CDP_DLQ_REPLAY_TOPIC: KAFKA_CDP_EVENTS_DLQ,
 
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',

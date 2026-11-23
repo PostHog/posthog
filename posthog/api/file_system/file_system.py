@@ -48,6 +48,7 @@ from posthog.api.file_system.access_levels import (
 )
 from posthog.api.file_system.deletion import (
     HOG_FUNCTION_TYPES,
+    DeletionResult,
     FileChangeContext,
     FileObjectRef,
     check_file_system_object_changes,
@@ -57,6 +58,7 @@ from posthog.api.file_system.deletion import (
     is_file_system_type_registered,
     lock_file_system_objects,
     prepare_file_system_objects,
+    run_post_delete_batch_hooks,
     undo_delete as undo_delete_object,
 )
 from posthog.api.file_system.file_system_logging import log_api_file_system_view
@@ -100,7 +102,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.paging import Page, PageRequest
 from posthog.permissions import get_authenticator_scoped_team_ids, scopes_caller_lacks
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 from posthog.settings import EE_AVAILABLE
 from posthog.utils import str_to_bool
 
@@ -1509,6 +1511,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         carrier_ids = {row.pk for row in carriers}
         deleted_objects: list[dict[str, Any]] = []
+        results: list[DeletionResult] = []
         for row in removed:
             if row.pk not in carrier_ids:
                 row.delete()
@@ -1522,6 +1525,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 organization=getattr(self, "organization", None),
                 locked_objects=locked_objects,
             )
+            results.append(result)
             deleted_objects.append(
                 {
                     "type": result.type,
@@ -1532,6 +1536,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "can_undo": result.can_undo and bool(result.ref),
                 }
             )
+        run_post_delete_batch_hooks(results)
         return target, deleted_objects
 
     @extend_schema(parameters=[FileSystemDeleteQuerySerializer])

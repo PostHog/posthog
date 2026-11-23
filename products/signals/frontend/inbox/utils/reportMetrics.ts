@@ -428,7 +428,10 @@ export function isReportMetricsEnabled(featureFlags: FeatureFlagsSet): boolean {
 export const REPORT_METRIC_SNAPSHOT_FRESH_FOR_MS = 15 * 60 * 1000
 
 /** Whether any metric on the report has no snapshot, or one older than the freshness window. */
-export function reportNeedsMetricRefresh(report: { metrics?: ReportMetricApi[] }, now: number): boolean {
+export function reportNeedsMetricRefresh(
+    report: { metrics?: readonly Pick<ReportMetricApi, 'value' | 'value_at'>[] },
+    now: number
+): boolean {
     return (report.metrics ?? []).some((metric) => {
         if (metric.value === null || metric.value === undefined || !metric.value_at) {
             return true
@@ -457,7 +460,9 @@ function sameSeries(a: number[] | null | undefined, b: number[] | null | undefin
  * query stays as loaded. Returns the same report object when nothing changed, so a memoized row
  * does not re-render for a refresh that measured the same number.
  */
-export function mergeReportMetricSnapshots<T extends { id: string; metrics?: ReportMetricApi[] }>(
+type SnapshotMetric = Pick<ReportMetricApi, 'metric_id' | 'value' | 'value_at' | 'series' | 'series_buckets'>
+
+export function mergeReportMetricSnapshots<T extends { id: string; metrics?: readonly SnapshotMetric[] }>(
     report: T,
     snapshots: readonly SignalReportMetricSnapshotsApi[]
 ): T {
@@ -487,7 +492,8 @@ export function mergeReportMetricSnapshots<T extends { id: string; metrics?: Rep
             series_buckets: snapshot.series_buckets,
         }
     })
-    return changed ? { ...report, metrics } : report
+    // Only the snapshot fields change, so each metric keeps its own type.
+    return changed ? ({ ...report, metrics } as T) : report
 }
 
 export function selectReportCardImpactMetric(metrics?: ReportMetricApi[]): ReportMetricApi | null {

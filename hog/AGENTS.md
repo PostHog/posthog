@@ -1,18 +1,20 @@
 # hog
 
-`hog` is the PostHog command line, version 1. Read [README.md](README.md) for what it does and how to run it.
+`hog` is the PostHog command line. Read [README.md](README.md) for what it does and how to run it.
 
 ## Layout
 
 | Path                  | Holds                                                                                                                                                                                     |
 | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/commands/`       | One file per command. `index.ts` is the tree of every command; `legacy.ts` holds the ones posthog-cli still owns                                                                          |
+| `src/commands/`       | One file per command. `index.ts` is the tree of every command, and `shortcuts.ts` gives a command in a group a top-level name, as `hog whoami` for `hog auth status`                      |
 | `src/core/`           | The shared parts every command uses: command definitions, context and global options, output, agent detection, errors, runtime, the manifest                                              |
 | `src/posthog/`        | The PostHog API client, the pagination helpers every list uses, and credentials                                                                                                           |
 | `src/ci/`             | CI setup. `providers/registry.ts` lists the providers whose OIDC tokens hog exchanges, and each provider has its own folder                                                               |
 | `src/error-tracking/` | Symbol upload: discovery, artifact types under `kinds/`, the container and content hash, releases, git, the upload protocol, and `run.ts`, the inject and upload steps the commands share |
 | `src/setup/`          | `hog setup`: the steps, the state file each folder keeps in `~/.posthog/setup/`, the AGENTS.md note and the product table                                                                 |
 | `src/endpoints/`      | The endpoint YAML files, how they compare with PostHog, and the push and pull plans                                                                                                       |
+| `src/updates/`        | `hog upgrade` and the update check: the release manifest, how hog was installed, version rules, the daily cache and the setup gate                                                        |
+| `release/`            | The release scripts the `Release hog` workflow runs (compile, package), `install.sh`, `install.ps1` and the npm launcher. README.md, "Releases", has the flow                             |
 | `test/parity/`        | Goldens recorded from posthog-cli and the tests that hold hog to them. Read its README before changing anything that reaches an upload                                                    |
 | `src/cli.ts`          | Turns the command tree into a commander program, runs it, and maps errors to exit codes                                                                                                   |
 | `src/testing.ts`      | `runHog` and a fake runtime, so tests run the real CLI without a process or a network                                                                                                     |
@@ -22,7 +24,7 @@ Import from another folder with `@/`, which `tsconfig.json` maps to `src/`, as i
 ## Add a command
 
 1. Write `src/commands/<group>/<name>.ts` with `defineCommand`. Put it in a `defineGroup` when it has siblings.
-2. Add it to the tree in `src/commands/index.ts`, and remove its `defineLegacy` entry from `src/commands/legacy.ts` if posthog-cli has one. A legacy entry can sit inside a group, so a group can be half ported.
+2. Add it to the tree in `src/commands/index.ts`.
 3. Add cases to `src/commands/<group>/<group>.test.ts` with `runHog`.
 
 ```ts

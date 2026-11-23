@@ -93,17 +93,6 @@ def get_task_staged_artifacts(task: Task, artifact_ids: list[str]) -> tuple[list
     return artifacts, missing_ids
 
 
-def consume_task_staged_artifacts(task: Task, artifact_ids: list[str]) -> tuple[list[dict[str, Any]], list[str]]:
-    artifacts, missing_ids = get_task_staged_artifacts(task, artifact_ids)
-    if missing_ids:
-        return [], missing_ids
-
-    for artifact_id in artifact_ids:
-        get_tasks_cache().delete(build_task_staged_artifact_cache_key(str(task.id), artifact_id))
-
-    return artifacts, []
-
-
 def get_task_run_artifacts_by_id(task_run: TaskRun, artifact_ids: list[str]) -> tuple[list[dict[str, Any]], list[str]]:
     artifacts_by_id = {
         str(artifact.get("id")): artifact

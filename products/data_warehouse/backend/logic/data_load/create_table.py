@@ -1,11 +1,15 @@
 import uuid
+import functools
 import dataclasses
+from collections.abc import Callable
+from typing import TypeVar
 
 from django.conf import settings
 from django.db import transaction
 
 from asgiref.sync import sync_to_async
 from clickhouse_driver.errors import ServerException
+from opentelemetry import trace
 from structlog.contextvars import bind_contextvars
 
 from posthog.exceptions_capture import capture_exception
@@ -23,6 +27,18 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable,
 from products.warehouse_sources.backend.facade.types import DataWarehouseTableCreatedVia, DataWarehouseTableFormat
 
 LOGGER = get_logger(__name__)
+tracer = trace.get_tracer(__name__)
+
+_R = TypeVar("_R")
+
+
+def _in_span(name: str, call: Callable[[], _R]) -> Callable[[], _R]:
+    @functools.wraps(call)
+    def call_in_span() -> _R:
+        with tracer.start_as_current_span(name):
+            return call()
+
+    return call_in_span
 
 
 @dataclasses.dataclass
@@ -63,6 +79,7 @@ def _get_or_create_table_for_saved_query(
         return table
 
 
+@tracer.start_as_current_span("create_table_from_saved_query.folder_size")
 async def calculate_table_size(saved_query: DataWarehouseSavedQuery, team_id: int, queryable_folder: str) -> float:
     bind_contextvars(team_id=team_id)
     logger = LOGGER.bind()
@@ -124,8 +141,15 @@ async def create_table_from_saved_query(
         # set_columns records the DESCRIBE column order (which follows the view's SELECT order for
         # materialized backing tables) alongside `columns`, since jsonb loses key order.
         published_columns = (table_created.columns, table_created.column_order)
-        table_created.set_columns(await sync_to_async(table_created.get_columns)())
-        table_created.row_count = await database_sync_to_async(table_created.get_count)()
+        with tracer.start_as_current_span("create_table_from_saved_query.describe_columns"):
+            columns = await sync_to_async(
+                _in_span("create_table_from_saved_query.describe_columns.run", table_created.get_columns)
+            )()
+        table_created.set_columns(columns)
+        with tracer.start_as_current_span("create_table_from_saved_query.count_rows"):
+            table_created.row_count = await database_sync_to_async(
+                _in_span("create_table_from_saved_query.count_rows.run", table_created.get_count)
+            )()
 
         refreshed_saved_query = await aget_saved_query_by_id(saved_query_id=saved_query_id_converted, team_id=team_id)
 

@@ -23,6 +23,7 @@ from products.warehouse_sources.sources.sdk import (
     SinglePagePaginator,
     SourceResponse,
     create_response_hooks,
+    format_datetime,
     make_tracked_session,
     rest_api_resource,
     rest_api_resources,
@@ -106,10 +107,6 @@ def _parse_timestamp(value: Any) -> Optional[datetime]:
         except ValueError:
             return None
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
-
-
-def _format_timestamp(value: datetime) -> str:
-    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _floor_to_hour(value: datetime) -> datetime:
@@ -286,8 +283,8 @@ def _metrics_rows(
             window_end = min(window_start + METRICS_WINDOW, end)
             for request in config.metrics_requests:
                 body = {
-                    "start": _format_timestamp(window_start),
-                    "end": _format_timestamp(window_end),
+                    "start": format_datetime(window_start),
+                    "end": format_datetime(window_end),
                     "granularity": METRICS_GRANULARITY,
                     "aggregation": request.aggregation,
                     "metrics": list(request.metrics),

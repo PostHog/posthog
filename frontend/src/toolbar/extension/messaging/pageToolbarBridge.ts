@@ -5,6 +5,7 @@ import type {
     HeatmapFixedPositionMode,
     ScrollDepthPosthogJsError,
 } from 'lib/components/heatmaps/types'
+import type { ToolbarProject } from 'lib/toolbar/toolbarProject'
 
 import type { SelectorMatchCounts } from '~/toolbar/shared/actions/SelectorCountContext'
 import type { EventCategory } from '~/toolbar/shared/debug/eventCategories'
@@ -12,7 +13,6 @@ import type { PosthogDebugInfo } from '~/toolbar/shared/debug/posthogDebugInfo'
 import type { ElementSelectorType } from '~/toolbar/shared/experiments/elementSelectorTypes'
 import type { FlagComparison, FlagComparisonFailureReason } from '~/toolbar/shared/flags/flagComparisonLogic'
 import type { FlagInfo } from '~/toolbar/shared/flags/flagInfo'
-import type { ToolbarProject } from '~/toolbar/shared/toolbarProject'
 import type { ActionForm, WebExperimentForm } from '~/toolbar/shared/types'
 import type { WebVitalsMetrics } from '~/toolbar/shared/web-vitals/webVitalsToolbarLogic'
 import type { ActionStepType, ElementType } from '~/types'

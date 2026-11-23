@@ -20,6 +20,7 @@ from products.tasks.backend.logic.services.compute_settlement import settle_over
 from products.tasks.backend.logic.services.slack_pr_cards import post_pr_closed_slack_update
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run_id
 from products.tasks.backend.logic.stream.budget_steer import BudgetSteerCapture, BudgetSteerProperties
+from products.tasks.backend.task_run_sync import DONE_RETRY_SECONDS, finish_closed_turn
 
 
 @shared_task(ignore_result=True, bind=True, max_retries=5)
@@ -50,6 +51,12 @@ def reconcile_task_run_pull_request(self: CeleryTask, *, team_id: int, run_id: s
         if isinstance(retry_after, (int, float)):
             countdown = max(countdown, retry_after)
         raise self.retry(exc=error, countdown=countdown)
+
+
+@shared_task(ignore_result=True, bind=True, max_retries=5)
+def finish_task_after_closed_turn(self: CeleryTask, task_id: str) -> None:
+    if not finish_closed_turn(task_id):
+        raise self.retry(countdown=DONE_RETRY_SECONDS * 2**self.request.retries)
 
 
 @shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5, acks_late=True)

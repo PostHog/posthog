@@ -611,6 +611,8 @@ class ExposureEvents:
     # The event, or the action's name, that has to follow a user's flag call before the user counts. None without an
     # activation, which the exposure query reads only next to the flag call events.
     activation: str | None = None
+    # The name of the action that the criteria count. None when they count an event.
+    action: str | None = None
     property_filters: tuple[ExposurePropertyFilter, ...] = ()
     # The filters inside an action's steps are not read.
     cohort_ids: tuple[int, ...] = ()
@@ -1012,8 +1014,8 @@ def _other_experiments_on_flag(experiment: Experiment) -> tuple[ExperimentOnFlag
 def _flag_calls_unrecorded(experiment: Experiment) -> bool:
     # The task that sets `last_called_at` reads `$feature_flag_called` from the events table, unless it is set to
     # read flag_evaluations. On FLAG_EVALUATIONS_ONLY, ingestion writes no `$feature_flag_called` to the events table
-    # for the teams in its allowlist, which this side can't read. Their flags keep no `last_called_at` however often
-    # they are called.
+    # for the teams it copies to flag_evaluations, which this side can't read. Their flags keep no `last_called_at`
+    # however often they are called.
     return settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE != "flag_evaluations" and (
         get_organization_flag_evaluations_mode(experiment.team.organization_id)
         == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
@@ -1067,7 +1069,8 @@ def _exposure_events(experiment: Experiment) -> ExposureEvents | None:
             for prop in properties
             if isinstance(prop, EventPropertyFilter) and prop.key == "$feature_flag"
         ),
-        activation=_activation_name(activation) if activation else None,
+        activation=_event_or_action_name(activation) if activation else None,
+        action=_event_or_action_name(config) if isinstance(config, ActionsNode) else None,
         property_filters=tuple(
             ExposurePropertyFilter.of(prop, source.event if isinstance(source, ExperimentEventExposureConfig) else None)
             for prop, source in filters
@@ -1079,10 +1082,10 @@ def _exposure_events(experiment: Experiment) -> ExposureEvents | None:
     )
 
 
-def _activation_name(activation: ExperimentEventExposureConfig | ActionsNode) -> str:
-    if isinstance(activation, ExperimentEventExposureConfig):
-        return activation.event
-    return activation.name or f"action {activation.id}"
+def _event_or_action_name(config: ExperimentEventExposureConfig | ActionsNode) -> str:
+    if isinstance(config, ExperimentEventExposureConfig):
+        return config.event
+    return config.name or f"Action {config.id}"
 
 
 def _filter_values(value: list[str | float | bool] | str | float | bool | None) -> tuple[str | float | bool, ...]:

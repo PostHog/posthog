@@ -141,7 +141,7 @@ describe("loopModelOptions", () => {
         "claude-fable-5-2",
         "zai-org/glm-5.3",
         "zai-org/glm-5.3-flash",
-        "moonshotai/kimi-k3",
+        "moonshotai/kimi-k3.1-pro",
       ],
     },
     {
@@ -189,7 +189,7 @@ describe("loopModelOptions", () => {
 describe("LOOP_DEFAULT_MODELS", () => {
   it("mirrors the backend loop defaults", () => {
     expect(LOOP_DEFAULT_MODELS.claude.id).toBe("claude-sonnet-5-5");
-    expect(LOOP_DEFAULT_MODELS.codex.id).toBe("gpt-6.1-sol");
+    expect(LOOP_DEFAULT_MODELS.codex.id).toBe("gpt-6.2-sol");
   });
 });
 

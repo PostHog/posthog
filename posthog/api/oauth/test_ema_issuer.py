@@ -26,7 +26,7 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplic
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
-from posthog.scopes import EMA_ISSUER_MANAGE_SCOPE
+from posthog.scopes.oauth import EMA_ISSUER_MANAGE_SCOPE
 
 CLIENT_ID = "ema-test-client"
 CLIENT_SECRET = "ema-test-secret"

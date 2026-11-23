@@ -2,6 +2,7 @@ import re
 import json
 import uuid
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -22,9 +23,14 @@ from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.team import Team
 
 from products.ai_observability.backend.logic.eval_suggestions import call_review, pipeline, runs
-from products.ai_observability.backend.logic.eval_suggestions.call_review_queries import CallTypeRow
+from products.ai_observability.backend.logic.eval_suggestions.call_review import REVIEW_TEMPLATE_KEY
+from products.ai_observability.backend.logic.eval_suggestions.call_review_queries import CallTypeRow, SnippetMatches
 from products.ai_observability.backend.logic.eval_suggestions.config import SuggestionSettings
-from products.ai_observability.backend.logic.eval_suggestions.coverage import Coverage, ExistingEval
+from products.ai_observability.backend.logic.eval_suggestions.coverage import (
+    Coverage,
+    ExistingEval,
+    earlier_review_cards,
+)
 from products.ai_observability.backend.logic.eval_suggestions.measure import SampleRef
 from products.ai_observability.backend.logic.eval_suggestions.pipeline import (
     dedupe,
@@ -76,7 +82,7 @@ def _content(captured: bool, messages: list[dict[str, Any]], choices: list[dict[
 
 def _chat_traffic(team: Team, end: datetime, *, capture_content: bool = True, final_answer: bool = True) -> None:
     """60 chat turns over three days. Every action goes through one dispatcher tool, answers link to docs,
-    some turns pause for approval, and 3 turns end on a timeout nobody retried."""
+    some turns pause for approval, and 5 turns end on a timeout nobody retried."""
     for index in range(60):
         at = end - timedelta(hours=1 + index * 1.1)
         trace = {"$ai_trace_id": f"turn-{index}", "ai_product": "chat_assistant"}
@@ -106,7 +112,7 @@ def _chat_traffic(team: Team, end: datetime, *, capture_content: bool = True, fi
             messages = [*messages, assistant, {"role": "tool", "tool_call_id": call["id"], "content": "ok"}]
         # The last action's own span, or the approval pause, comes after the earlier spans, never at the same instant.
         at += timedelta(seconds=1)
-        if index % 20 == 7:
+        if index % 12 == 7:
             _event(
                 team,
                 "$ai_span",
@@ -173,8 +179,13 @@ SUPPORT_PROMPT = "You answer refund questions for Example Shop. Never promise a 
 JUDGE_PROMPT = "Does the reply avoid promising a refund date? Pass when it gives no date, fail when it promises one."
 
 
-def _support_traffic(team: Team, end: datetime) -> None:
-    """30 support replies over the last hours, each in its own trace, all from one managed prompt."""
+def _support_traffic(
+    team: Team, end: datetime, *, prompt_name: str | None = "support-reply", promises: int = 30
+) -> None:
+    """30 support replies over the last hours, each in its own trace, all from one prompt, and the first `promises`
+    of them promise a refund date. An unnamed prompt is grouped by the start of its input, so it runs past that start
+    for the calls to share one call type."""
+    system = SUPPORT_PROMPT if prompt_name else SUPPORT_PROMPT + " See the policy." * 100
     for index in range(30):
         _event(
             team,
@@ -183,17 +194,26 @@ def _support_traffic(team: Team, end: datetime) -> None:
             {
                 "$ai_trace_id": f"support-{index}",
                 "$ai_model": "gpt-5-mini",
-                "$ai_prompt_name": "support-reply",
+                **({"$ai_prompt_name": prompt_name} if prompt_name else {}),
                 "$ai_input": [
-                    {"role": "system", "content": SUPPORT_PROMPT},
+                    {"role": "system", "content": system},
                     {"role": "user", "content": f"Where is my refund for order {index}?"},
                 ],
-                "$ai_output_choices": [{"role": "assistant", "content": "Your refund arrives by Friday."}],
+                "$ai_output_choices": [
+                    {
+                        "role": "assistant",
+                        "content": "Your refund arrives by Friday."
+                        if index < promises
+                        else "Your refund is on its way.",
+                    }
+                ],
             },
         )
 
 
 REVIEW_TITLE = "Replies promise refund dates"
+# The generation's stored output is an assistant message list, so this passes only when the code reads its text.
+AGREEING_CODE = "return not match(output, '^Your refund arrives by')"
 
 
 def _calibration_record(*, caught: int, false_alarms: int, kept: bool) -> dict[str, Any]:
@@ -210,18 +230,27 @@ def _calibration_record(*, caught: int, false_alarms: int, kept: bool) -> dict[s
     return {"status": "ok", "model": "gpt-5-mini", "cards": [{"title": REVIEW_TITLE, **counts, "kept": kept}]}
 
 
-def _judge_replies(judge_fails: set[int], review: MagicMock) -> Callable[..., MagicMock]:
-    """The judge fails the calls numbered `judge_fails` in the review. It reads the call as the runtime judge does, so
-    it finds the review's number through the call's trace."""
+def _review_replies(card: dict[str, Any]) -> Callable[..., MagicMock]:
+    """The triage picks the support prompt. The review drafts `card` and labels each call it read by whether the
+    reply promises a date."""
 
     def reply(**kwargs: Any) -> MagicMock:
-        review_prompt = review.messages.create.call_args_list[1].kwargs["messages"][0]["content"]
-        numbers = {
-            trace: int(n) for n, trace in re.findall(r'<call number="(\d+)" type="T\d+" trace="([^"]+)"', review_prompt)
-        }
+        if kwargs["model"] == call_review.TRIAGE_MODEL:
+            return _json_reply({"exclude": False, "picked": [{"id": "T1", "why": "answers users"}]})
+        calls = re.findall(r'<call number="(\d+)"(.*?)</call>', kwargs["messages"][0]["content"], flags=re.DOTALL)
+        labels = [{"call": int(n), "verdict": "fail" if "by Friday" in body else "pass"} for n, body in calls]
+        return _json_reply({"product": "a shop", "themes": [], "cards": [{**card, "labels": labels}]})
+
+    return reply
+
+
+def _judge_replies(judge_fails: set[int]) -> Callable[..., MagicMock]:
+    """The judge fails the replies to the orders numbered `judge_fails`, which it reads in the call's input."""
+
+    def reply(**kwargs: Any) -> MagicMock:
         order = re.search(r"order (\d+)\?", kwargs["messages"][-1]["content"])
         assert order is not None
-        verdict = "fail" if numbers[f"support-{order.group(1)}"] in judge_fails else "pass"
+        verdict = "fail" if int(order.group(1)) in judge_fails else "pass"
         return MagicMock(
             choices=[MagicMock(message=MagicMock(content=json.dumps({"reasoning": "r", "outcome": verdict})))],
             usage=MagicMock(prompt_tokens=1000, completion_tokens=50),
@@ -278,11 +307,19 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
 
         fix = suggestions[fix_key]
         assert fix.draft["conditions"][0]["properties"][0]["value"] == ["chat_assistant"]
-        assert fix.headline == f'Your "{dead_judge.name}" eval stopped running'
+        assert (fix.headline, fix.target_evaluation_id) == (
+            "A filter value no longer appears in your events",
+            dead_judge.id,
+        )
 
         errors = suggestions["check:unrecovered_errors"]
         assert errors.measured_failure_rate is not None and 0 < errors.measured_failure_rate < 0.1
-        assert re.fullmatch(r"1 in \d+ traces ends on a failed call", errors.headline)
+        assert errors.headline == "Tool or model calls that never succeed"
+        # The observation and the stored rate come from the same counts.
+        observed = re.fullmatch(r"(\d+) of (\d+) sampled traces flagged", errors.draft["observation"])
+        assert observed is not None
+        assert int(observed[1]) / int(observed[2]) == errors.measured_failure_rate
+        assert int(observed[2]) == errors.sample_size
         assert all("GraphInterrupt" not in e["reason"] for e in errors.evidence)
 
         # The noise: dispatcher calls counted as loops.
@@ -308,16 +345,58 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             # The judge catches 5 of the review's 6 fails and flags 2 of its 24 passes.
-            ("judge_agrees", {1, 2, 3, 4, 5, 7, 8}, None, _calibration_record(caught=5, false_alarms=2, kept=True)),
-            ("judge_misses_half", {1, 2, 3}, None, _calibration_record(caught=3, false_alarms=0, kept=False)),
-            ("over_budget", {1, 2, 3, 4, 5, 7}, 10**7, {"status": "skipped", "detail": "budget used up"}),
+            ("judge_agrees", {0, 1, 2, 3, 4, 6, 7}, None, _calibration_record(caught=5, false_alarms=2, kept=True)),
+            ("judge_misses_half", {0, 1, 2}, None, _calibration_record(caught=3, false_alarms=0, kept=False)),
+            ("over_budget", {0, 1, 2, 3, 4, 6}, 10**7, {"status": "skipped", "detail": "budget used up"}),
+            # The prompt has no name, so the card selects its generations by the prompt's text.
+            (
+                "judge_agrees_on_an_unnamed_prompt",
+                {0, 1, 2, 3, 4, 6, 7},
+                None,
+                _calibration_record(caught=5, false_alarms=2, kept=True),
+                None,
+            ),
+            # 26 of 30 calls break the rule, so the card asks for a prompt fix and no judge runs.
+            (
+                "most_calls_break_the_rule",
+                set(),
+                None,
+                {"status": "skipped", "detail": "no cards"},
+                "support-reply",
+                26,
+            ),
+            (
+                "code_check_agrees",
+                set(),
+                None,
+                {"status": "skipped", "detail": "no cards"},
+                "support-reply",
+                6,
+                AGREEING_CODE,
+            ),
+            (
+                "code_check_does_not_compile",
+                {0, 1, 2, 3, 4, 6, 7},
+                None,
+                _calibration_record(caught=5, false_alarms=2, kept=True),
+                "support-reply",
+                6,
+                "return match(output, 'by \\d')",
+            ),
         ]
     )
     def test_a_reviewed_judge_publishes_only_when_the_team_model_agrees(
-        self, _name: str, judge_fails: set[int], max_output_tokens: int | None, record: dict[str, Any]
+        self,
+        _name: str,
+        judge_fails: set[int],
+        max_output_tokens: int | None,
+        record: dict[str, Any],
+        prompt_name: str | None = "support-reply",
+        review_fails: int = 6,
+        code_check: str = "",
     ) -> None:
         now = timezone.now()
-        _support_traffic(self.team, now - timedelta(minutes=30))
+        _support_traffic(self.team, now - timedelta(minutes=30), prompt_name=prompt_name, promises=review_fails)
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         run = create_run(self.team, "manual")
@@ -327,20 +406,18 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
         ]
         card = {
             "title": REVIEW_TITLE,
-            "checks": "Checks whether a reply promises a refund date",
+            "summary": "Flags replies that promise a refund date",
+            "rule": "A reply fails when it names a date or day by which the refund arrives.",
             "why": "The prompt says never to promise a refund date",
             "call_types": ["T1"],
-            "labels": [{"call": n, "verdict": "fail" if n <= 6 else "pass"} for n in range(1, 31)],
             "examples": examples,
             "judge_prompt": JUDGE_PROMPT,
+            "code_check": code_check,
         }
         client = MagicMock()
-        client.messages.create.side_effect = [
-            _json_reply({"exclude": False, "picked": [{"id": "T1", "why": "answers users"}]}),
-            _json_reply({"product": "a shop", "themes": [], "cards": [card]}),
-        ]
+        client.messages.create.side_effect = _review_replies(card)
         judge = MagicMock(spec=openai.OpenAI)
-        judge.chat.completions.create.side_effect = _judge_replies(judge_fails, client)
+        judge.chat.completions.create.side_effect = _judge_replies(judge_fails)
 
         with (
             patch.object(pipeline.call_review, "build_client", return_value=client),
@@ -350,6 +427,8 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
                 "MAX_OUTPUT_TOKENS",
                 max_output_tokens or pipeline.judge_calibration.MAX_OUTPUT_TOKENS,
             ),
+            patch.object(runs, "is_enabled_for_organization", return_value=False),
+            patch.object(runs, "report_team_action") as report,
         ):
             suggestions = _run_stages(
                 self.team,
@@ -363,7 +442,50 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
         assert run.stages["drafting"]["status"] == "ok"
         assert run.stages["drafting"]["calibration"] == record
         assert run.cost_usd > 0
-        reviewed = [s for s in suggestions if s.template_key == "review"]
+        kept = int(record["status"] == "ok" and record["cards"][0]["kept"])
+        coded = code_check == AGREEING_CODE
+        [(_team, event, properties)] = [c.args for c in report.call_args_list]
+        assert event == runs.RUN_FINISHED_EVENT
+        assert {
+            k: properties[k]
+            for k in ("trigger", "status", "shadow", "calls_reviewed", "review_cards_drafted", "review_code_checks")
+        } == {
+            "trigger": "manual",
+            "status": "completed",
+            "shadow": True,
+            "calls_reviewed": 30,
+            "review_cards_drafted": 1,
+            "review_code_checks": int(coded),
+        }
+        assert (properties["review_cards_kept"], properties["cards_published"]) == (kept, len(suggestions))
+        assert properties["cost_usd"] == run.cost_usd
+        prompt_fixes = [s for s in suggestions if s.kind == "fix_prompt"]
+        assert [(s.headline, s.measured_failure_rate) for s in prompt_fixes] == (
+            [(REVIEW_TITLE, review_fails / 30)] if review_fails > 6 else []
+        )
+        assert run.stages["drafting"]["prompt_bugs"] == len(prompt_fixes)
+        if prompt_fixes:
+            assert judge.chat.completions.create.call_count == 0
+        assert [(c["compiles"], c["kept"]) for c in run.stages["drafting"]["code_calibration"]] == (
+            [(coded, coded)] if code_check else []
+        )
+        code_cards = [s for s in suggestions if s.kind == "new_hog" and s.template_key == "review"]
+        if coded:
+            [code_card] = code_cards
+            assert judge.chat.completions.create.call_count == 0
+            assert code_card.draft["evaluation_config"] == {"source": call_review.code_check_source(code_check)}
+            assert (code_card.draft["evaluation_type"], code_card.draft["target"]) == ("hog", "generation")
+            assert code_card.filters == [
+                {"key": "$ai_prompt_name", "value": ["support-reply"], "operator": "exact", "type": "event"}
+            ]
+            assert (code_card.headline, code_card.measured_failure_rate, code_card.sample_size) == (
+                REVIEW_TITLE,
+                6 / 30,
+                30,
+            )
+            return
+        assert code_cards == []
+        reviewed = [s for s in suggestions if s.kind == "new_llm_judge" and s.template_key == "review"]
         if not (record["status"] == "ok" and record["cards"][0]["kept"]):
             assert reviewed == []
             return
@@ -373,9 +495,18 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
         assert suggestion.draft["calibration"] == {
             k: v for k, v in record["cards"][0].items() if k not in ("title", "kept")
         }
-        assert suggestion.filters == [
-            {"key": "$ai_prompt_name", "value": ["support-reply"], "operator": "exact", "type": "event"}
-        ]
+        assert suggestion.filters == (
+            [{"key": "$ai_prompt_name", "value": ["support-reply"], "operator": "exact", "type": "event"}]
+            if prompt_name
+            else [
+                {
+                    "key": "$ai_input",
+                    "value": "You answer refund questions for Example Shop",
+                    "operator": "icontains",
+                    "type": "event",
+                }
+            ]
+        )
         assert suggestion.evidence == [{"trace_id": e["trace_id"], "reason": e["what_went_wrong"]} for e in examples]
         # The judge's own fails, 5 caught and 2 false alarms, not the review's 6.
         assert (suggestion.headline, suggestion.measured_failure_rate, suggestion.sample_size) == (
@@ -416,9 +547,11 @@ class TestRunRetries(ClickhouseTestMixin, APIBaseTest):
     ) -> None:
         dead_judge = _dead_judge(self.team)
         run = create_run(self.team, "scheduled")
-        _run_stages(self.team, run)
+        with patch.object(runs, "report_team_action") as report:
+            _run_stages(self.team, run)
+            late_attempt(run)
 
-        late_attempt(run)
+        assert report.call_count == 1
 
         run.refresh_from_db()
         assert run.status == EvalSuggestionRunStatus.COMPLETED
@@ -433,14 +566,21 @@ class TestRunRetries(ClickhouseTestMixin, APIBaseTest):
         _run_stages(self.team, first)
         second = create_run(self.team, "scheduled")
 
-        if next_run_fails:
-            with patch.object(pipeline, "fetch_profile", side_effect=RuntimeError("ClickHouse timed out")):
-                with pytest.raises(RuntimeError):
-                    measure_stage(self.team.pk, str(second.id), settings=SuggestionSettings())
-            # The workflow fails the run once the stage used up its attempts.
-            fail_run(self.team.pk, str(second.id), "RuntimeError: ClickHouse timed out")
-        else:
-            _run_stages(self.team, second)
+        with patch.object(runs, "report_team_action") as report:
+            if next_run_fails:
+                with patch.object(pipeline, "fetch_profile", side_effect=RuntimeError("ClickHouse timed out")):
+                    with pytest.raises(RuntimeError):
+                        measure_stage(self.team.pk, str(second.id), settings=SuggestionSettings())
+                # The workflow fails the run once the stage used up its attempts, and may fail it again on a retry.
+                fail_run(self.team.pk, str(second.id), "RuntimeError: ClickHouse timed out")
+                fail_run(self.team.pk, str(second.id), "RuntimeError: ClickHouse timed out")
+            else:
+                _run_stages(self.team, second)
+
+        [(_team, _event, properties)] = [c.args for c in report.call_args_list]
+        assert (properties["status"], properties["error_type"]) == (
+            ("failed", "RuntimeError") if next_run_fails else ("completed", "")
+        )
 
         statuses = dict(EvalSuggestion.objects.for_team(self.team.pk).values_list("run_id", "status"))
         second.refresh_from_db()
@@ -563,6 +703,29 @@ class TestRunRecords(BaseTest):
         )
 
         assert publish(run, [_candidate("check:unrecovered_errors", [])], {}) == []
+
+    def test_the_review_reads_the_latest_card_of_each_earlier_check(self) -> None:
+        def reviewed(key: str, name: str) -> Proposal:
+            return replace(
+                _candidate(key, [], "Is it right?"),
+                template_key=REVIEW_TEMPLATE_KEY,
+                draft={"name": name, "description": f"Whether {name} holds"},
+            )
+
+        first = create_run(self.team, "scheduled")
+        publish(first, [reviewed("review:a", "dates"), reviewed("review:b", "tone"), CHECK], {})
+        # Suggested before the memory window, and dismissed within it.
+        EvalSuggestion.objects.for_team(self.team.pk).filter(dedupe_key="review:b").update(
+            status=EvalSuggestionStatus.DISMISSED,
+            decided_at=timezone.now(),
+            created_at=timezone.now() - timedelta(days=100),
+        )
+        publish(create_run(self.team, "scheduled"), [reviewed("review:a", "refund dates")], {})
+
+        assert [(card.dedupe_key, card.status, card.title) for card in earlier_review_cards(self.team)] == [
+            ("review:a", "proposed", "refund dates"),
+            ("review:b", "dismissed", "tone"),
+        ]
 
     def test_a_card_accepted_while_the_run_works_is_not_published_again(self) -> None:
         run = create_run(self.team, "scheduled")
@@ -753,3 +916,39 @@ def test_a_less_confident_match_that_covers_the_scope_still_drops_the_candidate(
     coverage = Coverage(evals=[narrow, wide], fixes=[], dismissed_dedupe_keys=frozenset())
 
     assert dedupe([AUTH_GAP], coverage, {AUTH_GAP.dedupe_key: [(narrow, 0.95), (wide, 0.7)]}, {}) == []
+
+
+@parameterized.expand(
+    [
+        ("count_runs", False, None, {"input:1": "You answer refund questions for Example Shop"}),
+        ("count_fails", False, RuntimeError("Memory limit exceeded"), {}),
+        # The snippet would reach members who may not read $ai_input through the accepted evaluation's conditions.
+        ("team_has_property_access_rules", True, None, {}),
+    ]
+)
+def test_an_unnamed_call_type_gets_a_prompt_text_filter_only_when_safe_to_count(
+    _name: str, has_rules: bool, error: Exception | None, expected: dict[str, str]
+) -> None:
+    system = {"role": "system", "content": "You answer refund questions for Example Shop"}
+    call_type = CallTypeRow(source="input", name="1", calls=10, model="m", example_input=json.dumps([system]))
+    card = call_review.ReviewCard(
+        title="Refund dates",
+        summary="s",
+        rule="r",
+        why="w",
+        call_types=[call_type],
+        labels={},
+        failed=3,
+        of=10,
+        examples=[],
+        judge_prompt="j",
+    )
+    counts = {"1": [SnippetMatches(matched=10, in_call_type=10)] * 5}
+
+    with (
+        patch.object(pipeline, "team_has_property_access_rules", return_value=has_rules),
+        patch.object(pipeline, "snippet_matches", return_value=counts, side_effect=error),
+    ):
+        snippets = pipeline._prompt_snippets(MagicMock(pk=1), MagicMock(), 1000, [call_type], [card], None)
+
+    assert snippets == expected
