@@ -2,7 +2,7 @@ import { defineCommand } from '@/core/command'
 import { TYPESCRIPT_SDKS, updateConfig, type SchemaLanguage, type TypeScriptSdk } from '@/core/config'
 import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
-import { absolutePath, confinedWritePath, isInside, storedPath } from '@/core/paths'
+import { absolutePath, confinedWritePath, findGitRoot, isInside, storedPath } from '@/core/paths'
 import { plural } from '@/core/text'
 
 import {
@@ -104,6 +104,7 @@ export default defineCommand({
             )
         }
 
+        const repository = (await findGitRoot(ctx.runtime))?.root ?? root
         const pulled: PulledLanguage[] = []
         const entries: Partial<Record<Language, SchemaLanguage>> = {}
         for (const language of languages) {
@@ -131,14 +132,14 @@ export default defineCommand({
                     : info.defaultFile
                 file = await chosenFile(ctx, answer || info.defaultFile, language, sdk)
             }
-            // The repository can plant a link at any path inside the project, including one the person typed. A path
-            // the person typed outside the project is their own choice.
-            if (target === undefined && isInside(root, file)) {
+            // The repository can plant a link at any path inside it, including one the person typed. A path the person
+            // typed outside the repository is their own choice.
+            if (target === undefined && isInside(repository, file)) {
                 target = await confinedOutput(
                     ctx,
-                    root,
+                    repository,
                     file,
-                    `${storedPath(root, file)} links to a file outside the project, so hog won't write there.`,
+                    `${storedPath(repository, file)} links to a file outside the repository, so hog won't write there.`,
                     'Remove the link, or pass --file with the path the link points to.'
                 )
             }

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { dirname } from 'node:path'
 
 import { EXIT_FAILURE, EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
 import { readJson, runHog, TEST_CREDENTIALS } from '@/testing'
@@ -116,15 +117,22 @@ describe('hog schema', () => {
     })
 
     test.each([
-        ['the default path', [], '/work/README.md', '/work/posthog-typed.ts'],
-        ['a --file folder', ['--file', 'src/'], '/work/src/README.md', '/work/src/posthog-typed.ts'],
-        ['a --file path', ['--file', 'src/typed.ts'], '/work/src/README.md', '/work/src/typed.ts'],
+        ['the default path', [], '/work/posthog-typed.ts', '/work'],
+        ['a --file folder', ['--file', 'src/'], '/work/src/posthog-typed.ts', '/work'],
+        ['a --file path', ['--file', 'src/typed.ts'], '/work/src/typed.ts', '/work'],
+        ['a --file path above the working folder', ['--file', '../gen/typed.ts'], '/work/gen/typed.ts', '/work/app'],
     ])(
-        'pull refuses a module file inside the project that links out of it, at %s',
-        async (_name, args, folderFile, planted) => {
+        'pull refuses a module file inside the repository that links out of it, at %s',
+        async (_name, args, planted, cwd) => {
             const result = await runHog(['schema', 'pull', '--language', 'typescript', ...args], {
                 env: AGENT,
-                files: { [folderFile]: '', '/home/ana/.bashrc': 'keep' },
+                cwd,
+                files: {
+                    '/work/.git/HEAD': '',
+                    [`${cwd}/README.md`]: '',
+                    [`${dirname(planted)}/README.md`]: '',
+                    '/home/ana/.bashrc': 'keep',
+                },
                 links: { [planted]: '/home/ana/.bashrc' },
                 respond: definitions('generated'),
             })
@@ -132,7 +140,7 @@ describe('hog schema', () => {
             expect(result.exitCode).toBe(EXIT_FAILURE)
             expect(result.error()).toMatchObject({ code: 'unsafe_output_path' })
             expect(result.files['/home/ana/.bashrc']).toBe('keep')
-            expect(result.files['/work/posthog.json']).toBeUndefined()
+            expect(result.files[`${cwd}/posthog.json`]).toBeUndefined()
         }
     )
 
