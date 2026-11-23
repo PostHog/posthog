@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 
-from posthog.schema import DetectorType, TrendsAlertConfig, TrendsQuery
+from posthog.schema import DetectorType, TrendsQuery
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
@@ -130,8 +130,7 @@ def extract_detector_series(
     if has_breakdown:
         results = cast(list[TrendResult], calculation_result.result)[:MAX_DETECTOR_BREAKDOWN_VALUES]
     else:
-        config = TrendsAlertConfig(type="TrendsAlertConfig", series_index=series_index)
-        results = [_pick_series_result(config, calculation_result)]
+        results = [_pick_series_result(series_index, calculation_result, query)]
 
     series: list[ComparableSeries] = []
     for result in results:
