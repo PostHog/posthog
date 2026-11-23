@@ -1667,7 +1667,7 @@ test('nodejs is still the only workspace package importing a rust binding', () =
             .filter((entry) => entry.isDirectory())
             .map((entry) => path.posix.join(glob.slice(0, -2), entry.name))
     }
-    const packageDirs = workspaceGlobs.flatMap(expand)
+    const packageDirs = new Set(['.', ...workspaceGlobs.flatMap(expand)])
 
     // An incomplete checkout (e.g. a sparse CI checkout missing workspace
     // manifests) would silently shrink the inspection set: expand() and the
