@@ -18,7 +18,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.multi_query import SharingQuery
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import HogQLQueryExecutor
-from posthog.hogql.query_stats import record
+from posthog.hogql.query_stats import notify_query_started, query_stats_scope, record
 
 from products.dashboards.backend.constants import MAX_CACHED_TILES_BATCH_SIZE
 from products.dashboards.backend.presentation.query_sharing import DashboardQuerySharingParamsSerializer
@@ -62,23 +62,31 @@ class TestDashboardQuerySharing(SimpleTestCase):
         barrier = Barrier(2)
         executors = [self.executor("SELECT count() AS n FROM events", barrier) for _ in range(2)]
         diagnostics = [DashboardQuerySharingDebug(tile_id) for tile_id in (11, 22)]
+        tiles_told_query_started: set[int] = set()
 
         def run(index: int) -> HogQLQueryResponse:
             token = sharing_debug.set(diagnostics[index])
             try:
-                return sharing.execute(executors[index])
+                with query_stats_scope() as stats:
+                    stats.query_start_listeners.append(lambda: tiles_told_query_started.add(index))
+                    return sharing.execute(executors[index])
             finally:
                 sharing_debug.reset(token)
 
+        def run_shared_query() -> HogQLQueryResponse:
+            notify_query_started()
+            if fail:
+                raise ValueError("bad shared query")
+            return HogQLQueryResponse(
+                results=[(7,)],
+                columns=["n"],
+                types=[("n", "UInt64")],
+                clickhouse="SELECT countIf(partner_predicate)",
+                metadata={"query": "partner_predicate", "errors": [], "warnings": [], "notices": []},
+            )
+
         shared = Mock()
-        shared.execute.side_effect = ValueError("bad shared query") if fail else None
-        shared.execute.return_value = HogQLQueryResponse(
-            results=[(7,)],
-            columns=["n"],
-            types=[("n", "UInt64")],
-            clickhouse="SELECT countIf(partner_predicate)",
-            metadata={"query": "partner_predicate", "errors": [], "warnings": [], "notices": []},
-        )
+        shared.execute.side_effect = run_shared_query
         if fail:
             executors[0].execute.side_effect = ValueError("one bad tile")
         with patch("products.dashboards.backend.query_sharing._CancellableExecutor", return_value=shared):
@@ -92,6 +100,7 @@ class TestDashboardQuerySharing(SimpleTestCase):
                     self.assertNotIn("partner_predicate", futures[0].result(timeout=10).model_dump_json())
                 self.assertEqual(futures[1].result(timeout=10).results, [(7,)])
         self.assertEqual(shared.execute.call_count, 1)
+        self.assertEqual(tiles_told_query_started, {0, 1})
         self.assertEqual([executor.execute.call_count for executor in executors], [int(fail), int(fail)])
         decisions = [entry for debug in diagnostics for entry in debug.executions]
         shared_decisions = [entry for entry in decisions if entry["outcome"] != "separate"]

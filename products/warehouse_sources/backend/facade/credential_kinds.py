@@ -68,6 +68,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "Apollo": "apollo",
     "AppLovin": "app-lovin",
     "AppStoreConnect": "app-store-connect",
+    "Appbot": "appbot",
     "Appcues": "appcues",
     "Appdirect": "appdirect",
     "Appdynamics": "appdynamics",

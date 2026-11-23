@@ -59,6 +59,13 @@ describe('scoutRunsWindow report channel', () => {
         expect(scoutDisplayName({ skill_name: 'signals-scout-daily-digest', display_name })).toBe(expected)
     })
 
+    it.each([
+        ['signals-scout-apm', 'APM'],
+        ['signals-scout-mcp-tool-calls', 'MCP tool calls'],
+    ])('keeps acronyms in the default name for %s', (skill_name, expected) => {
+        expect(scoutDisplayName({ skill_name, display_name: '' })).toBe(expected)
+    })
+
     // The report channel (emit_report/edit_report) is invisible to emitted_count, so a report-authoring
     // run used to read as "quiet / 0 signals emitted". These lock in that report activity counts as output.
     describe('deriveRunOutcome', () => {

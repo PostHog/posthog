@@ -44,6 +44,7 @@ function makeReport(overrides: Partial<SignalReport> = {}): SignalReport {
         is_suggested_reviewer: false,
         created_at: '2026-06-11T10:00:00Z',
         updated_at: '2026-06-11T10:00:00Z',
+        repo_slug: 'example/app',
         ...overrides,
     } satisfies SignalReport
 }
@@ -125,7 +126,7 @@ describe('ImplementButton', () => {
         ['triage_mode', false],
         ['detail_pane', true],
     ] as const)(
-        'offers a repository after automatic resolution fails from %s (retry loading: %s)',
+        'asks for a repository before starting a report without one from %s (retry loading: %s)',
         async (surface, retryLoading) => {
             let repositoriesFailed = retryLoading
             useMocks({
@@ -138,24 +139,22 @@ describe('ImplementButton', () => {
                         repositoriesFailed
                             ? [503, { detail: 'Try again.' }]
                             : {
-                                  repositories: [{ id: 1, name: 'app', full_name: 'example/app' }],
+                                  repositories: [
+                                      { id: 1, name: 'app', full_name: 'example/app' },
+                                      { id: 2, name: 'web', full_name: 'example/web' },
+                                  ],
                                   has_more: false,
                               },
                 },
             })
             const user = userEvent.setup()
-            const report = { ...makeReport(), repo_slug: null }
+            const report = makeReport({ repo_slug: null })
             render(<ImplementButton report={report} surface={surface} />)
 
+            expect(screen.queryByText('Select a repository to implement this report')).not.toBeInTheDocument()
             await user.click(
                 screen.getByTestId(surface === 'triage_mode' ? 'inbox-triage-create-pr' : 'inbox-report-create-pr')
             )
-            expect(createPrFromReport).toHaveBeenCalledWith(report, undefined)
-            expect(screen.queryByTestId('select-github-repository')).not.toBeInTheDocument()
-            createPrFromReport.mockClear()
-
-            const access = reportGithubAccessLogic({ report, surface })
-            await expectLogic(access, () => access.actions.requireRepositorySelection()).toFinishAllListeners()
             await screen.findByText('Select a repository to implement this report')
             expect(createPrFromReport).not.toHaveBeenCalled()
             expect(screen.getByTestId('inbox-report-create-pr-submit')).toHaveAttribute('aria-disabled', 'true')
@@ -186,6 +185,33 @@ describe('ImplementButton', () => {
             )
         }
     )
+
+    it('selects the only connected repository for a report without one', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/integrations/': {
+                    results: [{ id: 1, kind: 'github', display_name: 'Example' }],
+                    next: null,
+                },
+                '/api/projects/:team_id/integrations/1/github_repos/': {
+                    repositories: [{ id: 1, name: 'app', full_name: 'example/app' }],
+                    has_more: false,
+                },
+            },
+        })
+        const user = userEvent.setup()
+        const report = makeReport({ repo_slug: null })
+        render(<ImplementButton report={report} />)
+
+        await user.click(screen.getByTestId('inbox-report-create-pr'))
+        await waitFor(() =>
+            expect(screen.getByTestId('inbox-report-create-pr-submit')).not.toHaveAttribute('aria-disabled', 'true')
+        )
+        expect(createPrFromReport).not.toHaveBeenCalled()
+        await user.click(screen.getByTestId('inbox-report-create-pr-submit'))
+
+        expect(createPrFromReport).toHaveBeenCalledWith(report, undefined, 'example/app')
+    })
 
     it('opens the implementation choices when a link asks for them', async () => {
         const user = userEvent.setup()

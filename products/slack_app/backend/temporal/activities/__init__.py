@@ -46,6 +46,7 @@ from products.slack_app.backend.temporal.activities.slack_app_onboarding import 
 from products.slack_app.backend.temporal.activities.slack_app_work_focus import (
     claim_due_slack_app_daily_focus_activity,
     find_slack_app_work_focus_activity,
+    index_slack_app_daily_summary_activity,
 )
 from products.slack_app.backend.temporal.activities.task_creation import (
     create_posthog_code_task_for_repo_activity,
@@ -105,6 +106,7 @@ __all__ = [
     "edit_slack_app_onboarding_message_activity",
     "find_slack_app_work_focus_activity",
     "claim_due_slack_app_daily_focus_activity",
+    "index_slack_app_daily_summary_activity",
     "offer_slack_app_tool_connections_activity",
     "plan_slack_app_onboarding_activity",
     "post_slack_app_onboarding_message_activity",
