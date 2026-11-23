@@ -25,8 +25,8 @@ export const TODAY_PANE_INTROS: Record<TodayIntroPane, TodayPaneIntroCopy> = {
         description: 'Roll out with feature flags, and check it worked with experiments.',
     },
     monitor: {
-        title: 'Is anything broken?',
-        description: 'Error tracking, logs, metrics and uptime, so you hear about problems.',
+        title: 'Keep an eye on your systems',
+        description: 'Track errors, logs, metrics and uptime across your systems.',
     },
     data: {
         title: "What's coming in, and what does it mean?",
