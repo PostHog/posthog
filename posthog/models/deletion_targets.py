@@ -29,6 +29,7 @@ from posthog.models.event.sql import (
     DISTRIBUTED_EVENTS_JSON_TABLE,
     EVENTS_DATA_TABLE,
     EVENTS_JSON_DATA_TABLE,
+    SHARDED_EVENTS_JSON_RECENT_TABLE,
     SHARDED_EVENTS_RECENT_DATA_TABLE,
 )
 from posthog.models.flag_evaluations.sql import (
@@ -265,15 +266,20 @@ PERSON_ID_REWRITE_EXEMPT: frozenset[str] = frozenset()
 # Storage tables that carry person properties and are reclaimed by their TTL alone. Each entry is a
 # decision that erasure may lag by the retention window, not an oversight.
 #
-# sharded_events_recent is a transient mirror of the last few days of events, on a 7-day TTL keyed
-# on inserted_at. Seven days is a short enough window to accept as the erasure bound, and a sweep
+# sharded_events_recent is a transient mirror of the last few days of events, on a 9-day TTL keyed
+# on inserted_at. Nine days is a short enough window to accept as the erasure bound, and a sweep
 # would race the TTL for little benefit.
 #
+# sharded_events_json_recent holds the same recent events in the events_json shape, with the same
+# TTL. It is accepted on the same terms.
+#
 # sharded_flag_evaluations_json is exempt only until the next change in its stack registers it as a
-# sweep target. Migration 0392 creates it and its consumer on every deployment that is not deployed
-# cloud, so a self-hosted deployment that forks flag calls holds personal data in it that no sweep
-# reaches. The two changes must merge together.
-TTL_ONLY_TABLES: frozenset[str] = frozenset({SHARDED_EVENTS_RECENT_DATA_TABLE(), FLAG_EVALUATIONS_JSON_DATA_TABLE})
+# sweep target. Migration 0394 creates its consumer only in local development and CI, so no deployed
+# table receives rows before that change lands. The two changes must merge together before any
+# deployment starts its consumer.
+TTL_ONLY_TABLES: frozenset[str] = frozenset(
+    {SHARDED_EVENTS_RECENT_DATA_TABLE(), SHARDED_EVENTS_JSON_RECENT_TABLE, FLAG_EVALUATIONS_JSON_DATA_TABLE}
+)
 
 
 _TABLE_EXISTS_SQL = "SELECT count() FROM system.tables WHERE database = %(database)s AND name = %(name)s"

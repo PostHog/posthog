@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 import { Counter } from 'prom-client'
 
+import { buildIntegerMatcher } from '~/common/config/matchers'
 import { TRANSPORT_MAX_BACKOFF_MS, TRANSPORT_MAX_RETRIES } from '~/common/personhog/grpc-retry'
 import {
     DistinctIdKey,
@@ -27,7 +28,7 @@ import { logger } from '~/common/utils/logger'
 import { NoRowsUpdatedError } from '~/common/utils/utils'
 import { BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
 import { Properties } from '~/plugin-scaffold'
-import { InternalPerson } from '~/types'
+import { InternalPerson, ValueMatcher } from '~/types'
 
 import { MergeMode, PersonMergeCallFailedError, PersonMergeNotAppliedError } from './person-merge-types'
 import { EventOps, applyEventPropertyUpdates, computeOpsScalarUpdates, foldOps, refineEventOps } from './person-update'
@@ -98,6 +99,12 @@ export const personhogStoreMergeOutcomeCounter = new Counter({
     labelNames: ['outcome'],
 })
 
+export const personhogStoreSamePersonMergeCounter = new Counter({
+    name: 'personhog_store_same_person_merge_total',
+    help: 'Merges whose target and sources already shared one person, by action: settled without the identity call, or sent to identity and why',
+    labelNames: ['action'],
+})
+
 export interface PersonhogPersonsStoreOptions {
     /** Bounds concurrent RPC fan-out; separate from the Postgres store's same-named pool option. */
     maxConcurrentUpdates: number
@@ -108,6 +115,7 @@ export interface PersonhogPersonsStoreOptions {
     /** The injected repository's per-request timeout; the flush's lane wait derives from it. */
     requestTimeoutMs: number
     mergeTimeoutMs: number
+    settleSamePersonMergesTeamAllowlist: string
 }
 
 const DEFAULT_OPTIONS: PersonhogPersonsStoreOptions = {
@@ -116,6 +124,7 @@ const DEFAULT_OPTIONS: PersonhogPersonsStoreOptions = {
     syncMergeMoveLimit: 10_000,
     requestTimeoutMs: 3_000,
     mergeTimeoutMs: 35_000,
+    settleSamePersonMergesTeamAllowlist: '',
 }
 
 const CALLER_TAG = 'ingestion/personhog-store'
@@ -207,6 +216,10 @@ const HELD_RESOLVE_INTERVAL_MS = 5_000
  */
 export const HELD_LANES_LIMIT = 10_000
 
+// Past the limit the earliest op id is forgotten, and a retry of that op can then settle locally and leave an
+// open saga to the lifecycle sweeper.
+const NO_VERDICT_MERGE_OPS_LIMIT = 10_000
+
 function pruneMarks(marks: Map<string, number>, oldestRead: number): void {
     for (const [key, seq] of marks) {
         if (seq > oldestRead) {
@@ -275,6 +288,13 @@ export class PersonhogPersonsStore implements PersonsStore {
     private purgedDistinctKeys: Map<string, number> = new Map()
     private purgedPersonKeys: Map<string, number> = new Map()
     private purgedTeams: Map<string, number> = new Map()
+    /**
+     * Op ids of merge calls with no verdict: at identity now, or ended without one. Such a call can have its saga
+     * past the step that repoints the mappings, where the merged ids already share one person while the op is still
+     * open. Only a call under the same op id resumes that op, so a merge under a remembered op id goes to identity.
+     */
+    private noVerdictMergeOps: Set<string> = new Set()
+    private settlesSamePersonMerges: ValueMatcher<number>
 
     /** Serializes flush passes; see flush(). */
     private flushChain: Promise<void> = Promise.resolve()
@@ -287,6 +307,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         options?: Partial<PersonhogPersonsStoreOptions>
     ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
+        this.settlesSamePersonMerges = buildIntegerMatcher(this.options.settleSamePersonMergesTeamAllowlist, true)
         // A bad limit would fail every merge, or strand claimed lanes when
         // pLimit rejects it mid-flush; startup is where both fail usefully.
         if (!Number.isInteger(this.options.syncMergeMoveLimit) || this.options.syncMergeMoveLimit < 1) {
@@ -904,7 +925,9 @@ export class PersonhogPersonsStore implements PersonsStore {
      * Runs the identity service's merge saga. Any verdict purges local
      * state for the merge's persons rather than repairing it; a call with
      * no verdict purges the same set and throws for the caller's bounded
-     * retries.
+     * retries. For a team on settleSamePersonMergesTeamAllowlist, a merge
+     * whose ids already share one person is answered here and purges
+     * nothing.
      */
     async mergePersons(request: MergePersonsRequest, _batchId: number): Promise<MergePersonsResult> {
         const { teamId } = request
@@ -922,10 +945,31 @@ export class PersonhogPersonsStore implements PersonsStore {
         const believed = namedIds
             .map((distinctId) => this.resolutions.get(`${teamId}:${distinctId}`))
             .filter((personKey): personKey is string => personKey != null)
-        const resolved = await this.resolveMergeParticipants(teamId, namedIds)
-        const affected = new Set<string>([...believed, ...resolved])
+        let participants: Map<string, string | null>
+        if (this.settlesSamePersonMerges(teamId)) {
+            const read = this.beginRead()
+            try {
+                participants = await this.resolveMergeParticipants(teamId, namedIds)
+                const settled = await this.settleSamePersonMerge(request, opId, believed, participants, read)
+                if (settled !== null) {
+                    return settled
+                }
+            } finally {
+                this.endRead(read)
+            }
+        } else {
+            participants = await this.resolveMergeParticipants(teamId, namedIds)
+        }
+        const affected = new Set<string>(believed)
+        for (const personId of participants.values()) {
+            if (personId !== null) {
+                affected.add(`${teamId}:${personId}`)
+            }
+        }
         await this.drainLanesBeforeMerge(teamId, [...affected], opId)
 
+        // Remembered before the call, so a second delivery under this op id also goes to identity while the call waits.
+        this.rememberNoVerdictMerge(opId)
         let result
         try {
             result = await this.repository.mergePersons(
@@ -1003,6 +1047,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                 error
             )
         }
+        this.noVerdictMergeOps.delete(opId)
         for (const source of result.results) {
             personhogStoreMergeOutcomeCounter.inc({ outcome: source.outcome })
         }
@@ -1051,8 +1096,99 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
     }
 
-    /** One batched identity resolve of a merge's named ids, answering the person keys. */
-    private async resolveMergeParticipants(teamId: number, distinctIds: string[]): Promise<Set<string>> {
+    private rememberNoVerdictMerge(opId: string): void {
+        // Added again as the latest, so the limit does not forget an op whose retries still fail.
+        this.noVerdictMergeOps.delete(opId)
+        this.noVerdictMergeOps.add(opId)
+        if (this.noVerdictMergeOps.size > NO_VERDICT_MERGE_OPS_LIMIT) {
+            const [earliest] = this.noVerdictMergeOps
+            this.noVerdictMergeOps.delete(earliest)
+        }
+    }
+
+    private laneHoldsOps(personKey: string): boolean {
+        const lane = this.entries.get(personKey)
+        return lane !== undefined && (lane.segments.length > 0 || lane.inFlight === true)
+    }
+
+    /** Returns null when identity must run the request. */
+    private async settleSamePersonMerge(
+        request: MergePersonsRequest,
+        opId: string,
+        believed: string[],
+        participants: Map<string, string | null>,
+        read: number
+    ): Promise<MergePersonsResult | null> {
+        const { teamId } = request
+        const personId = participants.get(request.targetDistinctId)
+        if (personId == null || request.sources.some((source) => participants.get(source.distinctId) !== personId)) {
+            return null
+        }
+        if (this.noVerdictMergeOps.has(opId)) {
+            personhogStoreSamePersonMergeCounter.inc({ action: 'sent_no_verdict_op' })
+            return null
+        }
+        const personKey = `${teamId}:${personId}`
+        const projection = this.projections.get(personKey)
+        const document = projection ?? (await this.fetchSurvivorDocument(teamId, personId))
+        if (document === null) {
+            personhogStoreSamePersonMergeCounter.inc({ action: 'sent_survivor_unavailable' })
+            return null
+        }
+        const distinctKeys = [...participants.keys()].map((distinctId) => `${teamId}:${distinctId}`)
+        // A purge of one of these ids or of the person since the resolve went out means the answers above can
+        // predate a change to their mappings. The full request ends in its own purge, which keeps the caller's
+        // follow-up off a stale edge.
+        if (distinctKeys.some((distinctKey) => this.purgedSince(read, distinctKey, personKey))) {
+            personhogStoreSamePersonMergeCounter.inc({ action: 'sent_stale_generation' })
+            return null
+        }
+        const edges = distinctKeys.map((distinctKey) => this.resolutions.get(distinctKey))
+        // An edge that names another person, or a cached absence, is stale. Only the full request clears it:
+        // the drain writes the lane the edge points at before identity runs, and the purge drops the entry
+        // together with the reads in flight for it.
+        if ([...believed, ...edges].some((edge) => edge !== undefined && edge !== personKey)) {
+            personhogStoreSamePersonMergeCounter.inc({ action: 'sent_stale_edge' })
+            return null
+        }
+        // A leader document lacks the ops the survivor's own lane holds.
+        if (!this.projections.has(personKey) && this.laneHoldsOps(personKey)) {
+            personhogStoreSamePersonMergeCounter.inc({ action: 'sent_unwritten_lane' })
+            return null
+        }
+        // Read again: an event can install a projection that carries its ops while the leader read waits. A
+        // document that no edge names is not cached, because nothing would evict it.
+        if (!this.projections.has(personKey) && edges.includes(personKey)) {
+            this.setCachedPersonForUpdate(personKey, document)
+        }
+        personhogStoreSamePersonMergeCounter.inc({ action: 'settled' })
+        return {
+            survivor: this.snapshot(this.projections.get(personKey) ?? document),
+            results: request.sources.map((source) => ({
+                sourceDistinctId: source.distinctId,
+                outcome: 'noop_same_person',
+                settled: true,
+            })),
+        }
+    }
+
+    private async fetchSurvivorDocument(teamId: number, personId: string): Promise<InternalPerson | null> {
+        try {
+            return await this.repository.fetchPersonById(teamId, personId, CALLER_TAG)
+        } catch (error) {
+            // The merge service reads a transport error out of mergePersons as identity's refusal of the merge
+            // and acks the event with a warning. A failed read sends the merge to identity instead.
+            logger.warn('survivor read failed for a same-person merge; the merge goes to identity', {
+                team_id: teamId,
+                person_id: personId,
+                error: String(error),
+            })
+            return null
+        }
+    }
+
+    /** One batched identity resolve of a merge's named ids, answering each id's person id, or null for no person. */
+    private async resolveMergeParticipants(teamId: number, distinctIds: string[]): Promise<Map<string, string | null>> {
         let resolved
         try {
             resolved = await this.resolveDistinctIds(
@@ -1068,13 +1204,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                 error
             )
         }
-        const personKeys = new Set<string>()
-        for (const entry of resolved) {
-            if (entry.person) {
-                personKeys.add(`${teamId}:${entry.person.id}`)
-            }
-        }
-        return personKeys
+        return new Map(resolved.map((entry) => [entry.distinctId, entry.person?.id ?? null]))
     }
 
     /**

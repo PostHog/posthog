@@ -74,6 +74,11 @@ FLEETIO_ENDPOINTS: dict[str, FleetioEndpointConfig] = {
     "inventory_journal_entries": FleetioEndpointConfig(
         name="inventory_journal_entries", path="/inventory_journal_entries"
     ),
+    "inventory_adjustment_reasons": FleetioEndpointConfig(
+        name="inventory_adjustment_reasons", path="/inventory_adjustment_reasons"
+    ),
+    "fault_rules": FleetioEndpointConfig(name="fault_rules", path="/fault_rules"),
+    "inspection_forms": FleetioEndpointConfig(name="inspection_forms", path="/inspection_forms", path_version="v3"),
     # From 2024-06-30 Fleetio only lists location entries per vehicle, so fan out over vehicles.
     # The list action takes a `filter[updated_at]`, but fan-out rows arrive grouped by vehicle, so
     # no ascending watermark holds across the table: full refresh only.
@@ -110,6 +115,26 @@ FLEETIO_ENDPOINTS: dict[str, FleetioEndpointConfig] = {
             # schema, so take it from the parent row to keep the composite primary key populated.
             include_from_parent=["id"],
             parent_field_renames={"id": "service_entry_id"},
+            parent_params={"sort[created_at]": "asc"},
+            child_params={"sort[id]": "asc"},
+        ),
+    ),
+    # Line items are only listed per work order. The list action takes no `filter` param — only
+    # `sort[id]` — so this is full refresh only.
+    "work_order_line_items": FleetioEndpointConfig(
+        name="work_order_line_items",
+        path="/work_orders/{work_order_id}/work_order_line_items",
+        path_version="v2",
+        incremental_fields=[],
+        primary_keys=["work_order_id", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="work_orders",
+            resolve_param="work_order_id",
+            resolve_field="id",
+            # The line item does not carry the id of its work order, so take it from the parent row
+            # to populate the composite primary key and join back to `work_orders`.
+            include_from_parent=["id"],
+            parent_field_renames={"id": "work_order_id"},
             parent_params={"sort[created_at]": "asc"},
             child_params={"sort[id]": "asc"},
         ),

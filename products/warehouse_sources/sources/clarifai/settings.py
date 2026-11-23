@@ -18,6 +18,8 @@ class ClarifaiEndpointConfig:
     page_size: int = PAGE_SIZE
     incremental_fields: list[Any] = field(default_factory=list)
     default_incremental_field: str | None = None
+    # User-level lists sit under /users/{user_id}/ rather than under the selected app.
+    user_level: bool = False
 
 
 CLARIFAI_ENDPOINTS: dict[str, ClarifaiEndpointConfig] = {
@@ -28,6 +30,11 @@ CLARIFAI_ENDPOINTS: dict[str, ClarifaiEndpointConfig] = {
         ClarifaiEndpointConfig(name="datasets", path="datasets", data_selector="datasets"),
         ClarifaiEndpointConfig(name="concepts", path="concepts", data_selector="concepts"),
         ClarifaiEndpointConfig(name="inputs", path="inputs", data_selector="inputs"),
+        # App IDs are only unique per user, so the key includes the owner.
+        ClarifaiEndpointConfig(
+            name="apps", path="apps", data_selector="apps", primary_keys=["user_id", "id"], user_level=True
+        ),
+        ClarifaiEndpointConfig(name="pipelines", path="pipelines", data_selector="pipelines"),
         # Without a concept ID in the path, ListConceptRelations returns every relation in the app.
         ClarifaiEndpointConfig(name="concept_relations", path="concepts/relations", data_selector="concept_relations"),
         # Without this flag the API returns only trusted annotations, which hides pending and rejected reviews.
@@ -109,6 +116,33 @@ CLARIFAI_ENDPOINTS: dict[str, ClarifaiEndpointConfig] = {
                 resolve_field="id",
                 include_from_parent=["id"],
                 parent_field_renames={"id": "workflow_id"},
+            ),
+        ),
+        ClarifaiEndpointConfig(
+            name="pipeline_versions",
+            path="pipelines/{pipeline_id}/versions",
+            data_selector="pipeline_versions",
+            primary_keys=["pipeline_id", "id"],
+            fanout=DependentEndpointConfig(
+                parent_name="pipelines",
+                resolve_param="pipeline_id",
+                resolve_field="id",
+                include_from_parent=["id"],
+                parent_field_renames={"id": "pipeline_id"},
+            ),
+        ),
+        # Fans out over pipeline_versions, which itself fans out over pipelines.
+        ClarifaiEndpointConfig(
+            name="pipeline_version_runs",
+            path="pipelines/{pipeline_id}/versions/{pipeline_version_id}/runs",
+            data_selector="pipeline_version_runs",
+            primary_keys=["pipeline_id", "pipeline_version_id", "id"],
+            fanout=DependentEndpointConfig(
+                parent_name="pipeline_versions",
+                resolve_param="pipeline_version_id",
+                resolve_field="id",
+                include_from_parent=["pipeline_id", "id"],
+                parent_field_renames={"pipeline_id": "pipeline_id", "id": "pipeline_version_id"},
             ),
         ),
     )
