@@ -9,6 +9,7 @@ from parameterized import parameterized
 
 from posthog.admin.console.organization_tools import BulkDeactivateOrganizationsForm
 from posthog.models import Organization, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 
 
 class TestBulkDeactivateOrganizationsForm(SimpleTestCase):
@@ -198,3 +199,10 @@ class TestDeactivateOrganizationOperation(BaseTest):
             expected_active,
             reason if active else COMPLIANCE_REVIEW,
         )
+        updates = ActivityLog.objects.filter(
+            scope="Organization", item_id=str(self.organization.id), activity="updated"
+        )
+        assert [
+            (logged.user_id, [(change["field"], change["after"]) for change in logged.detail["changes"]])
+            for logged in updates
+        ] == ([(self.user.id, [("is_active", False), ("is_not_active_reason", reason)])] if active else [])
