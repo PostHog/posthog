@@ -15,6 +15,8 @@ from posthog.hogql.direct_sql.trino_adapter import bounded_trino_cursor, ensure_
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.trino_parameters import convert_pyformat_placeholders
 
+from posthog.dataclasses import frozen
+
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.managed_warehouse.backend.facade.contracts import (
     ControlPlaneNotConfiguredError,
@@ -50,21 +52,38 @@ ESTIMATE_FAILED_MESSAGE = "Couldn't estimate this query."
 LARGE_TABLE_BYTES = 10 * GIB
 
 
-def _read_input_tables(plan: dict[str, Any]) -> list[tuple[str, str, str, bool]]:
-    """Read ``(catalog, schema, table, has_filter)`` from the JSON of ``EXPLAIN (TYPE IO, FORMAT JSON)``.
+@frozen
+class _InputTable:
+    catalog: str
+    schema: str
+    table: str
+    has_filter: bool
+
+
+@frozen
+class _TableKey:
+    schema: str
+    table: str
+
+
+def _read_input_tables(plan: dict[str, Any]) -> list[_InputTable]:
+    """Read the catalog, schema, table and filter flag of each input table from the JSON of ``EXPLAIN (TYPE IO, FORMAT JSON)``.
 
     Trino's ``IoPlan`` lists ``inputTableColumnInfos``. Each entry has ``table`` (``catalog`` and
     ``schemaTable.schema``/``schemaTable.table``) and a ``constraint``. The constraint has ``none`` (true when no
     row can match) and ``columnConstraints`` (one entry per constrained column).
     """
-    tables: dict[tuple[str, str, str], bool] = {}
+    tables: dict[tuple[str, str, str], bool] = {}  # (catalog, schema, table) -> has_filter; local to this function
     for info in plan.get("inputTableColumnInfos", []):
         table = info["table"]
         key = (str(table["catalog"]), str(table["schemaTable"]["schema"]), str(table["schemaTable"]["table"]))
         constraint = info.get("constraint") or {}
         has_filter = bool(constraint.get("none")) or bool(constraint.get("columnConstraints"))
         tables[key] = tables.get(key, True) and has_filter
-    return [(*key, has_filter) for key, has_filter in tables.items()]
+    return [
+        _InputTable(catalog=catalog, schema=schema, table=table, has_filter=has_filter)
+        for (catalog, schema, table), has_filter in tables.items()
+    ]
 
 
 def _explain_io(team: Team, user: User, sql: str, values: dict[str, Any] | None) -> dict[str, Any]:
@@ -99,9 +118,12 @@ def _explain_io(team: Team, user: User, sql: str, values: dict[str, Any] | None)
     return plan
 
 
-def _table_sizes(organization_id: str) -> dict[tuple[str, str], int]:
+def _table_sizes(organization_id: str) -> dict[_TableKey, int]:
     try:
-        return {(t.schema, t.table): t.data_bytes for t in get_storage_overview(organization_id).tables}
+        return {
+            _TableKey(schema=t.schema, table=t.table): t.data_bytes
+            for t in get_storage_overview(organization_id).tables
+        }
     except _STORAGE_UNAVAILABLE as error:
         # The plan is still useful without sizes, so the estimate reports the tables with unknown sizes.
         LOGGER.warning("managed_warehouse_estimate_storage_unavailable", error_type=type(error).__name__)
@@ -144,13 +166,13 @@ def estimate_managed_trino_query(
     sizes = _table_sizes(organization_id)
     tables = tuple(
         QueryCostTable(
-            catalog=catalog,
-            schema=schema,
-            table=table,
-            size_bytes=sizes.get((schema, table)),
-            has_filter=has_filter,
+            catalog=t.catalog,
+            schema=t.schema,
+            table=t.table,
+            size_bytes=sizes.get(_TableKey(schema=t.schema, table=t.table)),
+            has_filter=t.has_filter,
         )
-        for catalog, schema, table, has_filter in input_tables
+        for t in input_tables
     )
     complete = all(t.size_bytes is not None for t in tables)
     # With no sized table at all, a zero would read as "free", so the bound stays unknown.

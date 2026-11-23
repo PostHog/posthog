@@ -8,6 +8,8 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal
 
+from posthog.dataclasses import frozen
+
 from products.managed_warehouse.backend.facade.contracts import (
     ConsoleSettings,
     UsageBreakdownRow,
@@ -42,11 +44,25 @@ MIN_FORECAST_ELAPSED_SECONDS = 86400
 UNATTRIBUTED_LABEL = "Unattributed"
 
 
-def _month_bounds(period: Period, today: date) -> tuple[date, date]:
+@frozen
+class MonthBounds:
+    start: date
+    end: date
+
+
+@frozen
+class UsageWindow:
+    period_start: date
+    period_end: date
+    # Last day the control plane is asked for: the period end, or tomorrow while the month runs.
+    query_end: date
+
+
+def _month_bounds(period: Period, today: date) -> MonthBounds:
     this_month = today.replace(day=1)
     start = this_month if period == "current_month" else (this_month - timedelta(days=1)).replace(day=1)
     next_month = (start + timedelta(days=32)).replace(day=1)
-    return start, next_month
+    return MonthBounds(start=start, end=next_month)
 
 
 def _int(value: Any) -> int:
@@ -155,8 +171,11 @@ def build_usage_summary(
 ) -> UsageSummary:
     now = now or datetime.now(UTC)
     today = now.date()
-    period_start, period_end = _month_bounds(period, today)
-    query_end = min(period_end, today + timedelta(days=1))
+    month = _month_bounds(period, today)
+    window = UsageWindow(
+        period_start=month.start, period_end=month.end, query_end=min(month.end, today + timedelta(days=1))
+    )
+    period_start, query_end = window.period_start, window.query_end
 
     def fetch(by: str) -> dict[str, Any]:
         return call_control_plane(
@@ -167,9 +186,7 @@ def build_usage_summary(
     by_breakdown = fetch(group_by)
 
     with malformed_body_guard():
-        return _summarize(
-            organization_id, period, group_by, now, (period_start, period_end, query_end), by_day, by_breakdown
-        )
+        return _summarize(organization_id, period, group_by, now, window, by_day, by_breakdown)
 
 
 def _summarize(
@@ -177,11 +194,11 @@ def _summarize(
     period: Period,
     group_by: BreakdownBy,
     now: datetime,
-    bounds: tuple[date, date, date],
+    window: UsageWindow,
     by_day: dict[str, Any],
     by_breakdown: dict[str, Any],
 ) -> UsageSummary:
-    period_start, period_end, query_end = bounds
+    period_start, period_end, query_end = window.period_start, window.period_end, window.query_end
     day_rows = {str(r["key"]): r for r in by_day.get("compute", [])}
     storage_by_day = {str(r["day"]): Decimal(str(r["byte_seconds"])) for r in by_day.get("storage", [])}
 
@@ -281,7 +298,7 @@ def estimate_month_to_date_spend(organization_id: str, *, now: datetime | None =
     """Month-to-date estimated spend and forecast for the current UTC month, with one control plane call."""
     now = now or datetime.now(UTC)
     today = now.date()
-    month_start, _ = _month_bounds("current_month", today)
+    month_start = _month_bounds("current_month", today).start
     by_day = call_control_plane(
         lambda: hogtower.get_usage(
             organization_id, date_from=month_start, date_to=today + timedelta(days=1), group_by="day"
