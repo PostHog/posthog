@@ -39,6 +39,7 @@ from products.feature_flags.backend.flag_evaluations_mode import (
     OrganizationModeChange,
     UnknownIdsError,
     find_unknown_organization_ids,
+    lock_organization_configs,
     select_organization_ids,
     set_organizations_flag_evaluations_mode,
 )
@@ -353,6 +354,10 @@ class Command(BaseCommand):
         verb = "Would restore" if dry_run else "Restored"
         restored_count = 0
         with transaction.atomic():
+            if not dry_run:
+                # Every other writer locks rows in id order. The groups below write one after another, so lock all
+                # listed rows up front in that order, or a concurrent writer can deadlock with this restore.
+                lock_organization_configs(known)
             for config, organization_ids in groups.items():
                 organizations = list(
                     Organization.objects.filter(id__in=organization_ids)

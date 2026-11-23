@@ -101,6 +101,17 @@ def get_organizations_of_teams(team_ids: Collection[int]) -> list[Organization]:
     return get_organizations(set(organization_id_by_team_id.values()))
 
 
+def lock_organization_configs(organization_ids: Collection[UUID]) -> None:
+    """Lock the organizations' config rows in id order, the order that every writer of these rows uses. Call it inside
+    a transaction before writes that go in more than one statement, so a concurrent writer cannot deadlock with them."""
+    list(
+        OrganizationFeatureFlagsConfig.objects.select_for_update()
+        .filter(organization_id__in=organization_ids)
+        .order_by("organization_id")
+        .values_list("organization_id", flat=True)
+    )
+
+
 def _upsert_modes(
     organization_ids: Collection[UUID],
     mode: FlagEvaluationsMode,

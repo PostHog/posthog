@@ -446,6 +446,24 @@ class TestSetFlagEvaluationsMode(BaseTest):
 
         self.assertEqual(self._stored_mode(self.organization), FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
 
+    def test_a_restore_locks_every_listed_row_in_id_order_before_it_writes_any_group(self) -> None:
+        # Other writers lock rows in id order. Groups restore one after another, so without an up-front lock in that
+        # order a concurrent writer can deadlock with the restore.
+        first, second = self._organizations_without_config(2)
+        self._store_mode(first, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        self._store_mode(second, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        changed_ids_file = self._ids_file(f"{second.id} 1 0", f"{first.id} 0 0")
+
+        with CaptureQueriesContext(connection) as queries:
+            self._run("--restore-from-changed-ids-file", changed_ids_file)
+
+        statements = [query["sql"] for query in queries]
+        lock = next(i for i, sql in enumerate(statements) if "FOR UPDATE" in sql and "ORDER BY" in sql)
+        first_write = next(i for i, sql in enumerate(statements) if "unnest" in sql)
+        self.assertLess(lock, first_write)
+        self.assertEqual(self._stored_mode(first), FlagEvaluationsMode.EVENTS)
+        self.assertEqual(self._stored_mode(second), FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+
     def test_a_restore_refuses_a_file_without_the_previous_settings(self) -> None:
         changed_ids_file = self._ids_file(self.organization.id)
 
