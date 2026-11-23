@@ -891,6 +891,10 @@ class OauthIntegration:
             return OauthConfig(
                 authorize_url="https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
                 token_url="https://login.microsoftonline.com/common/oauth2/v2.0/token",
+                # Without `select_account`, Microsoft silently reuses the login that the browser is signed in
+                # with. A user whose login cannot access an ads account then gets the same error on every
+                # reconnect. Microsoft accepts one prompt value, and still asks for consent when it is needed.
+                additional_authorize_params={"prompt": "select_account"},
                 scope="https://ads.microsoft.com/msads.manage offline_access openid profile",
                 id_path="id",
                 name_path="userPrincipalName",

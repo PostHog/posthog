@@ -785,6 +785,33 @@ class TestWarehouseTableAccessControl(BaseTest):
         # allowed_table has no source, so no rule about sources may reach it.
         assert "allowed_table" not in database._denied_tables
 
+    @parameterized.expand([("denied", True), ("no_rule", False)])
+    def test_query_log_warehouse_table_ids_hides_denied_table_ids(self, _label: str, deny: bool):
+        from posthog.hogql.parser import parse_select
+
+        if deny:
+            self._create_ac(
+                resource="warehouse_table",
+                resource_id=str(self.denied_table.id),
+                access_level="none",
+                member=self._membership(),
+            )
+
+        database = Database.create_for(team=self.team, user=self.user)
+        context = HogQLContext(
+            team_id=self.team.pk, team=self.team, user=self.user, database=database, enable_select_queries=True
+        )
+        prepared = prepare_ast_for_printing(
+            parse_select("SELECT warehouse_table_ids FROM query_log"), context=context, dialect="clickhouse"
+        )
+        assert prepared is not None
+        sql = print_prepared_ast(prepared, context=context, dialect="clickhouse")
+
+        printed_values = list(context.values.values())
+        assert (str(self.denied_table.id) in printed_values) is deny
+        assert str(self.allowed_table.id) not in printed_values
+        assert ("arrayFilter" in sql) is deny
+
     def test_system_tables_listing_hides_denied_tables_and_tables_of_a_denied_source(self):
         from posthog.hogql.parser import parse_select
 
