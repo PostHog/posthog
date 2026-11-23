@@ -2120,10 +2120,10 @@ Today (18): `audiences`, `contact_properties`, `contacts`, `email_broadcasts`, `
 
 Diffed against: <https://bird.com/openapi.json>
 
-- [ ] `Voice legs (GET /v1/voice/legs)` — call legs with direction, status and timing, the whole voice channel is missing (high)
-- [ ] `Preferences (GET /v1/preferences)` — contact subscription preferences per channel and handle, for consent and opt-out analysis (high)
-- [ ] `Apple Messages conversations and messages (GET /v1/amb/conversations; GET /v1/amb/messages)` — the Apple Messages for Business channel next to email, SMS and WhatsApp (medium)
-- [ ] `SMS suppressions (GET /v1/sms/suppressions); WhatsApp suppressions (GET /v1/whatsapp/suppressions)` — opt-out lists for SMS and WhatsApp, matching the email suppressions table (medium)
+- [x] `Voice legs (GET /v1/voice/legs)` — call legs with direction, status and timing, the whole voice channel is missing (high) → `voice_legs` (full refresh)
+- [x] `Preferences (GET /v1/preferences)` — contact subscription preferences per channel and handle, for consent and opt-out analysis (high) → `preferences` (full refresh)
+- [x] `Apple Messages conversations and messages (GET /v1/amb/conversations; GET /v1/amb/messages)` — the Apple Messages for Business channel next to email, SMS and WhatsApp (medium) → `amb_conversations`, `amb_messages` (full refresh)
+- [x] `SMS suppressions (GET /v1/sms/suppressions); WhatsApp suppressions (GET /v1/whatsapp/suppressions)` — opt-out lists for SMS and WhatsApp, matching the email suppressions table (medium) → `sms_suppressions`, `whatsapp_suppressions` (full refresh)
 - [ ] `Email message events (GET /v1/email/messages/{message_id}/events)` — per-message delivery, open and click events, finer than the message row (medium)
 - [ ] `SMS senders (GET /v1/sms/senders); SMS messaging profiles (GET /v1/sms/messaging-profiles)` — sender IDs and profiles that explain the originators on SMS messages (low)
 - [ ] `Labels (GET /v1/labels)` — label lookup used for tagging contacts and conversations (low)
