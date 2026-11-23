@@ -7,7 +7,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
     CDCErrorInfo,
     CDCMaskedKeyError,
     CDCMaskingKeyError,
-    CDCSlotNotConfiguredError,
+    CDCStreamNotConfiguredError,
     CDCTransactionTooLargeError,
     cdc_error_info,
     classify_cdc_error,
@@ -114,7 +114,7 @@ class TestClassifyCDCError:
     def test_slot_not_configured_is_classified_without_adapter(self):
         # A CDC-enabled source with no slot name is a config dead end, not a psycopg failure, so it
         # must classify to a non-retryable category regardless of engine adapter.
-        info = classify_cdc_error(CDCSlotNotConfiguredError(), None)
+        info = classify_cdc_error(CDCStreamNotConfiguredError(), None)
         assert info.category is CDCErrorCategory.SLOT_NOT_CONFIGURED
         assert info.retryable is False
 

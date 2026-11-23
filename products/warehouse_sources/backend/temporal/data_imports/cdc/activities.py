@@ -78,7 +78,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
     CDCMaskedKeyError,
     CDCMaskingKeyError,
     CDCReservedColumnError,
-    CDCSlotNotConfiguredError,
+    CDCStreamNotConfiguredError,
     classify_cdc_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import SourceHistoryNamings
@@ -112,12 +112,12 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 
 logger = structlog.get_logger(__name__)
 
-# Shown as latest_error on schemas reset by slot-invalidation recovery.
-SLOT_INVALIDATION_RECOVERY_MESSAGE = (
-    "The source database invalidated this source's replication slot (its WAL retention limit was "
-    "exceeded), so changes since the last successful sync could not be read. PostHog recreated the "
-    "slot and scheduled a full re-sync of this table; change data capture resumes automatically "
-    "once the re-sync completes."
+# Shown as latest_error on schemas reset by lost-stream recovery.
+STREAM_LOST_RECOVERY_MESSAGE = (
+    "The source database no longer holds the changes made since the last successful sync (for "
+    "example, its log retention limit was exceeded), so they could not be read. PostHog restarted "
+    "change capture and scheduled a full re-sync of this table; change data capture resumes "
+    "automatically once the re-sync completes."
 )
 
 
@@ -186,8 +186,7 @@ class ValidateCDCPrerequisitesInput:
     management_mode: str
     tables: list[str]
     schema: str
-    slot_name: str | None
-    publication_name: str | None
+    setup: dict[str, typing.Any] = dataclasses.field(default_factory=dict)
 
 
 class CDCExtractActivity:
@@ -482,7 +481,7 @@ class CDCExtractActivity:
             self._update_log_positions()
 
         except Exception as exc:
-            if self.adapter is not None and self.adapter.is_slot_invalidation_error(exc):
+            if self.adapter is not None and self.adapter.is_stream_lost_error(exc):
                 try:
                     self._recover_from_slot_invalidation(exc)
                     self._emit_run_duration("recovered")
@@ -1303,7 +1302,7 @@ class CDCExtractActivity:
         assert self.adapter is not None
         assert self.source is not None
         if not self.adapter.parse_cdc_config(self.source).stream_name:
-            raise CDCSlotNotConfiguredError()
+            raise CDCStreamNotConfiguredError()
 
     # ------------------------------------------------------------------
     # Failure / success finalization
@@ -1331,7 +1330,7 @@ class CDCExtractActivity:
             if self._reset_schema_to_snapshot(schema, awaiting_slot=True):
                 reset_schemas.append(schema)
             schema.status = ExternalDataSchema.Status.FAILED
-            schema.latest_error = SLOT_INVALIDATION_RECOVERY_MESSAGE
+            schema.latest_error = STREAM_LOST_RECOVERY_MESSAGE
             schema.save(update_fields=["status", "latest_error", "updated_at"])
             self._schema_log(schema).warning("cdc_schema_reset_for_slot_recovery", schema_id=str(schema.id))
 
@@ -1620,7 +1619,7 @@ def validate_cdc_prerequisites_activity(inputs: ValidateCDCPrerequisitesInput) -
         management_mode=inputs.management_mode,  # type: ignore[arg-type]
         tables=inputs.tables,
         schema=inputs.schema,
-        setup={"cdc_slot_name": inputs.slot_name, "cdc_publication_name": inputs.publication_name},
+        setup=inputs.setup,
     )
 
 

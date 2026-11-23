@@ -87,7 +87,7 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
         no position."""
         ...
 
-    def is_slot_invalidation_error(self, exc: BaseException) -> bool:
+    def is_stream_lost_error(self, exc: BaseException) -> bool:
         """Whether the exception means the engine invalidated or dropped the
         change-stream resource (PG: replication slot lost to max_slot_wal_keep_size)
         such that it cannot be resumed and must be recreated."""
@@ -110,7 +110,7 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
     def classify_error(self, exc: BaseException) -> CDCErrorInfo | None:
         """Interpret a single engine-specific exception as a CDC error category, or None
         when unrecognized (the caller falls back to the engine-agnostic default). Mirrors
-        ``is_slot_invalidation_error``: keeps psycopg/engine specifics out of the shared layer."""
+        ``is_stream_lost_error``: keeps psycopg/engine specifics out of the shared layer."""
         ...
 
     def recreate_stream(self, source: ExternalDataSource, tables: list[str]) -> dict[str, Any]:

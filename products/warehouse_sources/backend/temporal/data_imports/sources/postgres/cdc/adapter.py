@@ -209,7 +209,7 @@ class PostgresCDCAdapter:
             return None
         return CDCLag(behind_bytes=lag_bytes, retention_cap_mb=retention_cap_mb)
 
-    def is_slot_invalidation_error(self, exc: BaseException) -> bool:
+    def is_stream_lost_error(self, exc: BaseException) -> bool:
         return is_slot_invalidation_error(exc)
 
     def is_connection_error(self, exc: BaseException) -> bool:

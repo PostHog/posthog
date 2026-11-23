@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING, Optional, cast
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 from sshtunnel import BaseSSHTunnelForwarderError
 
@@ -20,6 +21,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSelectConfigOption,
     SourceFieldSSHTunnelConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.source_mixin import CDCSourceMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     HostNotAllowedError,
@@ -45,6 +47,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     _SSH_HANDSHAKE_EOF_ERROR,
     UNAVOIDABLE_FILESORT_LOST_CONNECTION_ERROR,
     MySQLImplementation,
+    _configured_schema,
     get_connection_metadata as get_mysql_connection_metadata,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -149,6 +152,7 @@ _SSH_FORWARD_FAILED_EXHAUSTED_MESSAGE = (
 
 @SourceRegistry.register
 class MySQLSource(
+    CDCSourceMixin[MySQLSourceConfig],
     SQLSource[MySQLSourceConfig],
     ResumableSource[MySQLSourceConfig, KeysetResumeState],
     SSHTunnelMixin,
@@ -696,6 +700,24 @@ class MySQLSource(
         # `config.using_ssl` inside `connect`.
         with self.get_implementation.connect(config, team_id=team_id) as conn:
             return get_mysql_connection_metadata(conn, database=config.database)
+
+    def check_cdc_prerequisites(
+        self,
+        config: MySQLSourceConfig,
+        management_mode: str,
+        tables: list[str],
+        setup: Mapping[str, Any],
+        require_ssl: bool = True,
+        team_id: int | None = None,
+    ) -> list[str]:
+        """Validate MySQL CDC prerequisites against a live connection, before the source exists."""
+        from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.prerequisite_validator import (
+            validate_cdc_prerequisites,
+        )
+
+        # `require_ssl` keeps signature parity with Postgres; MySQL SSL is governed by `config.using_ssl`.
+        with self.get_implementation.connect(config, team_id=team_id, autocommit=True) as conn:
+            return validate_cdc_prerequisites(conn, tables=tables, database=_configured_schema(config))
 
     def validate_credentials(
         self,

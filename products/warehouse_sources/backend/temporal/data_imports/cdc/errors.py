@@ -4,7 +4,7 @@ Classifies an extraction failure into a user-facing category with a friendly,
 credential-safe message and a retryable flag. Engine-agnostic: the engine-specific
 interpretation (which psycopg exception means "authentication failed", etc.) lives
 behind ``CDCSourceAdapter.classify_error`` in each source's adapter, mirroring the
-``is_slot_invalidation_error`` seam. This module owns the shared vocabulary, the
+``is_stream_lost_error`` seam. This module owns the shared vocabulary, the
 user-facing copy, and the orchestration-level fallbacks.
 """
 
@@ -60,14 +60,14 @@ class CDCTransactionTooLargeError(Exception):
     """
 
 
-class CDCSlotNotConfiguredError(Exception):
-    """Change data capture is enabled but the source has no replication slot name stored.
+class CDCStreamNotConfiguredError(Exception):
+    """Change data capture is enabled but the source stores no change stream to read (PG: no slot name).
 
-    Non-retryable: without a slot name there is nothing to stream from and nothing to recreate,
-    so retrying — or the slot-invalidation recovery / Repair CDC paths — replays the same dead
-    end. The extraction activity raises this before streaming (streaming an empty slot name would
-    surface as a misleading "replication slot does not exist"). Defined here so the shared
-    classifier owns the mapping to ``SLOT_NOT_CONFIGURED``.
+    Non-retryable: without a stream there is nothing to read from and nothing to recreate, so
+    retrying — or the lost-stream recovery / Repair CDC paths — replays the same dead end. The
+    extraction activity raises this before reading (PG: streaming an empty slot name would surface
+    as a misleading "replication slot does not exist"). Defined here so the shared classifier owns
+    the mapping to ``SLOT_NOT_CONFIGURED``.
     """
 
 
@@ -162,7 +162,7 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         False,
     ),
     CDCErrorCategory.SLOT_NOT_CONFIGURED: (
-        "Change data capture is enabled for this source but no replication slot is configured, so "
+        "Change data capture is enabled for this source but its change stream isn't configured, so "
         "changes can't be read. Disable and re-enable change data capture to set it up again.",
         False,
     ),
@@ -243,7 +243,7 @@ def classify_cdc_error(exc: BaseException, adapter: CDCSourceAdapter | None) -> 
     Falls back to a retryable ``unknown`` so a misclassification never strands a recoverable run.
     """
     for err in _iter_cause_chain(exc):
-        if isinstance(err, CDCSlotNotConfiguredError):
+        if isinstance(err, CDCStreamNotConfiguredError):
             return cdc_error_info(CDCErrorCategory.SLOT_NOT_CONFIGURED)
         if isinstance(err, CDCTransactionTooLargeError):
             return cdc_error_info(CDCErrorCategory.TRANSACTION_TOO_LARGE)

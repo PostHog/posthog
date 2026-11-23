@@ -26,7 +26,7 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.temporal.data_imports.cdc.activities import (
     CDC_MAX_CHANGES_PER_READ,
     CDC_MAX_EXTRACTION_ATTEMPTS,
-    SLOT_INVALIDATION_RECOVERY_MESSAGE,
+    STREAM_LOST_RECOVERY_MESSAGE,
     CDCExtractActivity,
     CDCExtractInput,
     cdc_extract_activity,
@@ -188,7 +188,7 @@ def _capture_harness(source, schemas, events=()) -> Iterator[SimpleNamespace]:
         MockSourceModel.objects.get.return_value = source
         adapter = mock_get_adapter.return_value
         adapter.create_reader.return_value = reader
-        adapter.is_slot_invalidation_error.return_value = False
+        adapter.is_stream_lost_error.return_value = False
         adapter.classify_error.return_value = None  # default: unrecognized -> unknown/retryable
         # Real converter, not a MagicMock return: the batcher feeds its output into a typed pa.array.
         adapter.position_to_seq.side_effect = lambda position: PgLSN.deserialize(position).value
@@ -564,7 +564,7 @@ class TestCDCExtractActivity:
         mock_reader.truncated_tables = []
         mock_adapter = MagicMock()
         mock_adapter.create_reader.return_value = mock_reader
-        mock_adapter.is_slot_invalidation_error.return_value = False
+        mock_adapter.is_stream_lost_error.return_value = False
         mock_adapter.classify_error.return_value = None
         mock_get_adapter.return_value = mock_adapter
 
@@ -676,7 +676,7 @@ class TestErrorClassification:
         mock_reader.truncated_tables = []
         mock_adapter = MagicMock()
         mock_adapter.create_reader.return_value = mock_reader
-        mock_adapter.is_slot_invalidation_error.return_value = False
+        mock_adapter.is_stream_lost_error.return_value = False
         mock_adapter.classify_error = PostgresCDCAdapter().classify_error  # exercise real classification
         mock_get_adapter.return_value = mock_adapter
 
@@ -761,7 +761,7 @@ class TestErrorClassification:
         mock_reader.truncated_tables = []
         mock_adapter = MagicMock()
         mock_adapter.create_reader.return_value = mock_reader
-        mock_adapter.is_slot_invalidation_error.return_value = False
+        mock_adapter.is_stream_lost_error.return_value = False
         mock_adapter.classify_error = PostgresCDCAdapter().classify_error
         mock_get_adapter.return_value = mock_adapter
 
@@ -826,7 +826,7 @@ class TestErrorClassification:
         mock_reader = MagicMock(last_commit_position=None)
         mock_adapter = MagicMock()
         mock_adapter.create_reader.return_value = mock_reader
-        mock_adapter.is_slot_invalidation_error.return_value = False
+        mock_adapter.is_stream_lost_error.return_value = False
         mock_adapter.parse_cdc_config = PostgresCDCAdapter().parse_cdc_config  # reads the empty slot name
         mock_get_adapter.return_value = mock_adapter
 
@@ -883,7 +883,7 @@ class TestErrorClassification:
         mock_reader.truncated_tables = []
         mock_adapter = MagicMock()
         mock_adapter.create_reader.return_value = mock_reader
-        mock_adapter.is_slot_invalidation_error.return_value = False
+        mock_adapter.is_stream_lost_error.return_value = False
         mock_adapter.classify_error = PostgresCDCAdapter().classify_error
         mock_get_adapter.return_value = mock_adapter
 
@@ -931,7 +931,7 @@ class TestErrorClassification:
         mock_reader.truncated_tables = []
         mock_adapter = MagicMock()
         mock_adapter.create_reader.return_value = mock_reader
-        mock_adapter.is_slot_invalidation_error.return_value = False
+        mock_adapter.is_stream_lost_error.return_value = False
         mock_adapter.classify_error = PostgresCDCAdapter().classify_error
         mock_get_adapter.return_value = mock_adapter
 
@@ -982,7 +982,7 @@ class TestErrorClassification:
         mock_reader.truncated_tables = []
         mock_adapter = MagicMock()
         mock_adapter.create_reader.return_value = mock_reader
-        mock_adapter.is_slot_invalidation_error.return_value = False
+        mock_adapter.is_stream_lost_error.return_value = False
         mock_adapter.classify_error = PostgresCDCAdapter().classify_error
         mock_get_adapter.return_value = mock_adapter
 
@@ -1043,7 +1043,7 @@ class TestErrorClassification:
         mock_reader.truncated_tables = []
         mock_adapter = MagicMock()
         mock_adapter.create_reader.return_value = mock_reader
-        mock_adapter.is_slot_invalidation_error.return_value = False
+        mock_adapter.is_stream_lost_error.return_value = False
         mock_adapter.classify_error = PostgresCDCAdapter().classify_error
         mock_get_adapter.return_value = mock_adapter
 
@@ -1075,7 +1075,7 @@ class TestSlotInvalidationRecovery:
                 'can no longer get changes from replication slot "posthog_slot"\n'
                 "DETAIL:  This slot has been invalidated because it exceeded the maximum reserved size."
             )
-            capture.adapter.is_slot_invalidation_error.return_value = True
+            capture.adapter.is_stream_lost_error.return_value = True
             capture.adapter.recreate_stream.return_value = {"cdc_consistent_point": "0/AA"}
             with patch(f"{_ACTIVITIES}.clear_slot_loss_markers") as clear_markers:
                 capture.clear_markers = clear_markers
@@ -1111,7 +1111,7 @@ class TestSlotInvalidationRecovery:
         assert "cdc_last_log_position" not in schema.sync_type_config
         assert schema.initial_sync_complete is False
         assert schema.status == "Failed"
-        assert schema.latest_error == SLOT_INVALIDATION_RECOVERY_MESSAGE
+        assert schema.latest_error == STREAM_LOST_RECOVERY_MESSAGE
 
         capture.reader.close.assert_called_once()
 
@@ -1179,7 +1179,7 @@ class TestSlotInvalidationRecovery:
 
         with self._invalidated_slot(source, schema) as capture:
             capture.reader.read_changes.side_effect = RuntimeError("connection lost")
-            capture.adapter.is_slot_invalidation_error.return_value = False
+            capture.adapter.is_stream_lost_error.return_value = False
             with pytest.raises(RuntimeError, match="connection lost"):
                 capture.extract()
 
@@ -1305,7 +1305,7 @@ class TestFailureVisibilityJobs:
         mock_reader.truncated_tables = []
         mock_adapter = MagicMock()
         mock_adapter.create_reader.return_value = mock_reader
-        mock_adapter.is_slot_invalidation_error.return_value = False
+        mock_adapter.is_stream_lost_error.return_value = False
         mock_adapter.classify_error = PostgresCDCAdapter().classify_error  # exercise real classification
         mock_get_adapter.return_value = mock_adapter
 

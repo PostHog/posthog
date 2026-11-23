@@ -4869,6 +4869,19 @@ wheels = [
 ]
 
 [[package]]
+name = "mysql-replication"
+version = "1.0.17"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "packaging" },
+    { name = "pymysql" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b2/90/4f1680403239649c1611cc589c9d5d6c93301e928d52fcab212467136734/mysql_replication-1.0.17.tar.gz", hash = "sha256:59384d2d344e44cfdedc05c9089585838afdfd031a3ac514623315fdc7a364f4", size = 76245, upload-time = "2026-08-06T00:37:48.213Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c1/12/faba37ab84b717a390303e21c9fab9462e8347007d60f8b0aebd34de51bd/mysql_replication-1.0.17-py3-none-any.whl", hash = "sha256:280b13bdf290e2a83c355cd20f65a59d37b5df9197ce87f630e8b71d56745a3a", size = 84832, upload-time = "2026-08-06T00:37:47.274Z" },
+]
+
+[[package]]
 name = "nanoid"
 version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -6151,6 +6164,7 @@ dependencies = [
     { name = "mistralai" },
     { name = "modal", extra = ["api-proxy-support"] },
     { name = "more-itertools" },
+    { name = "mysql-replication" },
     { name = "nanoid" },
     { name = "natsort" },
     { name = "nh3" },
@@ -6456,6 +6470,7 @@ requires-dist = [
     { name = "mistralai", specifier = "==1.9.11" },
     { name = "modal", extras = ["api-proxy-support"], specifier = "~=1.6.4" },
     { name = "more-itertools", specifier = "==11.2.1" },
+    { name = "mysql-replication", specifier = "==1.0.17" },
     { name = "nanoid", specifier = "==2.0.0" },
     { name = "natsort", specifier = "==8.4.0" },
     { name = "nh3", specifier = "==0.3.7" },

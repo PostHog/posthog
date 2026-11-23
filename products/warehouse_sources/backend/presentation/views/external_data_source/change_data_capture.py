@@ -35,7 +35,9 @@ from products.warehouse_sources.backend.facade.source_management import (
     CDCRepairError,
     CDCRepairInProgress,
     CDCSourceAdapter,
-    PostgresSource,
+    CDCSourceMixin,
+    SSHTunnelMixin,
+    ValidateDatabaseHostMixin,
     cdc_supported_source_types,
     get_cdc_adapter,
     history_tables,
@@ -325,7 +327,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
         responses={
             200: OpenApiResponse(
                 response=CdcPrerequisitesResponseSerializer,
-                description="Whether the Postgres database satisfies CDC prerequisites.",
+                description="Whether the source database satisfies CDC prerequisites.",
             ),
             400: OpenApiResponse(
                 response=ExternalDataSourceErrorResponseSerializer,
@@ -338,7 +340,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
     )
     @action(methods=["POST"], detail=False)
     def check_cdc_prerequisites(self, request: Request, *arg: Any, **kwargs: Any):
-        """Validate CDC prerequisites against a live Postgres connection.
+        """Validate CDC prerequisites against a live connection to the source database.
 
         Used by the source wizard to surface ✅/❌ checks before source creation,
         and by the self-managed setup popup to verify user-created publications.
@@ -375,7 +377,11 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
         # Dispatch to the actual source class so subclasses (Supabase, Neon) can run
         # their own pre-connection checks, e.g. rejecting pooled hosts for CDC.
         source_impl = base.SourceRegistry.get_source(source_type)
-        if not isinstance(source_impl, PostgresSource):
+        if not (
+            isinstance(source_impl, CDCSourceMixin)
+            and isinstance(source_impl, SSHTunnelMixin)
+            and isinstance(source_impl, ValidateDatabaseHostMixin)
+        ):
             return setup_error_response(
                 SourceSetupErrorCode.CDC_UNSUPPORTED_SOURCE_TYPE,
                 f"CDC prerequisite checks are not supported for source type: {source_type}",
@@ -427,12 +433,14 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
             # to the wizard as a 400, but don't capture it — these are user/upstream connection
             # problems, not bugs in our code, and capturing every one floods error tracking.
             return setup_error_response(
-                SourceSetupErrorCode.CONNECTION_FAILED, f"Could not connect to Postgres to check prerequisites: {e}"
+                SourceSetupErrorCode.CONNECTION_FAILED,
+                f"Could not connect to {source_type} to check prerequisites: {e}",
             )
         except Exception as e:
             base.capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             return setup_error_response(
-                SourceSetupErrorCode.CONNECTION_FAILED, f"Could not connect to Postgres to check prerequisites: {e}"
+                SourceSetupErrorCode.CONNECTION_FAILED,
+                f"Could not connect to {source_type} to check prerequisites: {e}",
             )
 
         return Response(
