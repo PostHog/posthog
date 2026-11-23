@@ -404,7 +404,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://developer.matomo.org/api-reference/reporting-api#UserCountry",
         "columns": {
             "_date": "The report day this row is for.",
-            "_row_key": "The country code, region code, city name, latitude and longitude, joined with |. Unique per day.",
+            "_row_key": "The country code, region code and city name, joined with |. Unique per day.",
             "label": "The city name, followed by its parent region and country names.",
             "city_name": "The city name.",
             "region": "The region code.",

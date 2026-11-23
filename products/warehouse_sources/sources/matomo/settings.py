@@ -270,7 +270,7 @@ MATOMO_ENDPOINTS: dict[str, MatomoEndpointConfig] = {
         kind="report",
         method="UserCountry.getCity",
         primary_keys=["_date", "_row_key"],
-        row_key_fields=("country", "region", "city_name", "lat", "long"),
+        row_key_fields=("country", "region", "city_name"),
         incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
     ),
     # A site with a page title category delimiter nests titles under category rows, like page URLs.

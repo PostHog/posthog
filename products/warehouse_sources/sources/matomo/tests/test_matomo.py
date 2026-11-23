@@ -229,8 +229,9 @@ class TestDrivenEndpoints:
                         "lat": None,
                         "long": None,
                     },
+                    {"label": "Others"},
                 ],
-                ["ex|NS|Rivertown|10.5|-2.25", "ex|NSH|Rivertown|11.0|-2.0", "xx|xx|Unknown||"],
+                ["ex|NS|Rivertown", "ex|NSH|Rivertown", "xx|xx|Unknown", "||"],
             ),
         ],
     )
