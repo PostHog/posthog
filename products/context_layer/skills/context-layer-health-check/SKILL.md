@@ -1,5 +1,7 @@
 ---
 name: context-layer-health-check
+metadata:
+  audience: internal
 description: Reviews context wiki quality after deterministic consolidation. Use when recent wiki-miss entries, contradictory or unsupported claims, stale priorities, near-duplicate subjects, or concepts without an owning page need semantic triage.
 ---
 

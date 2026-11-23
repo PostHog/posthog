@@ -1,5 +1,7 @@
 ---
 name: exploring-mcp-tool-original-user-motive
+metadata:
+  audience: internal
 description: >
   Build a starting-point taxonomy for an MCP tool — what users were trying to
   accomplish before they reached the tool — and publish it as a PostHog

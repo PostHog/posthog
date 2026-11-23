@@ -10,6 +10,7 @@ from pathlib import Path
 
 from . import (
     __doc__ as PACKAGE_DOC,
+    served_skills,
     skill_builder,
 )
 
@@ -86,6 +87,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Create SKILL.md.j2 instead of SKILL.md (use with --init)",
     )
     parser.add_argument(
+        "--internal",
+        action="store_true",
+        help="Mark the new skill as written for a PostHog job or for staff (use with --init)",
+    )
+    parser.add_argument(
         "--sync",
         action="store_true",
         help="Build a skill and sync it to .agents/skills/ for local testing",
@@ -102,8 +108,15 @@ def _run_init(builder: skill_builder.SkillBuilder, args: argparse.Namespace, par
     if not args.product or not args.name:
         parser.error("--init requires --product and --name")
     try:
-        skill_file = builder.init_skill(args.product, args.name, template=args.j2)
+        skill_file = builder.init_skill(args.product, args.name, template=args.j2, internal=args.internal)
         print(f"Created {skill_file.relative_to(REPO_ROOT)}")
+        if args.internal:
+            print("Marked `audience: internal`: the MCP `learn` command does not serve it.")
+        else:
+            print(
+                f'For the MCP `learn` command to serve it, add "{args.name}": {{}} to '
+                f"{served_skills.SERVED_SKILLS_FILE}. For a PostHog job or for staff, run again with --internal."
+            )
     except (FileNotFoundError, FileExistsError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)

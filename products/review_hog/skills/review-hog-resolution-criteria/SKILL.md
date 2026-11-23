@@ -4,6 +4,7 @@ description: >
   Implements safe, verifiable fixes from review comments. Explains declined requests and asks a human
   to handle risky changes.
 metadata:
+  audience: internal
   owner_team: review_hog
   skill_type: resolution_criteria
 ---

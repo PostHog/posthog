@@ -1,5 +1,7 @@
 ---
 name: debugging-experiments
+metadata:
+  audience: internal
 description: >-
   Debug and support PostHog Experiments (A/B tests) for a customer looking at
   their own results. Use whenever an experiment support ticket is pasted or a

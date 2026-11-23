@@ -1,5 +1,7 @@
 ---
 name: suggesting-path-cleaning-rules
+metadata:
+  audience: internal
 description: 'Runs and reasons about the automated AI health check that suggests path-cleaning rules for web-analytics teams. Use when asked to generate path-cleaning suggestions for a team or cohort, to run the suggestion check, to review/apply AI-suggested rules, to inspect path_cleaning_suggestions health issues, or to extend the suggestion pipeline. Covers the suggest_path_cleaning_rules management command, the path_cleaning_suggestions health check, the cohort gating (precompute teams), and how suggestions are validated against real paths before storage. For hand-authoring or applying rules directly, use managing-path-cleaning-rules instead.'
 ---
 

@@ -6,10 +6,9 @@ from __future__ import annotations
 import sys
 import shutil
 import zipfile
-import textwrap
 from pathlib import Path
 
-from . import discovery, frontmatter, linting, rendering, reserved_names, skill_manifest, source_files
+from . import discovery, frontmatter, linting, rendering, reserved_names, served_skills, skill_manifest, source_files
 
 _ZIP_FIXED_TIME = (2025, 1, 1, 0, 0, 0)
 
@@ -143,7 +142,7 @@ class SkillBuilder:
         """Validate skill sources without rendering (no Django needed)."""
         return linting.SkillLinter(self.repo_root, self.discoverer.discover()).run()
 
-    def init_skill(self, product_name: str, skill_name: str, *, template: bool = False) -> Path:
+    def init_skill(self, product_name: str, skill_name: str, *, template: bool = False, internal: bool = False) -> Path:
         """Scaffold a new skill directory with SKILL.md boilerplate.
 
         Creates products/{product}/skills/{skill-name}/ with a SKILL.md (or .md.j2)
@@ -164,16 +163,11 @@ class SkillBuilder:
 
         display_name = skill_name.replace("-", " ").capitalize()
         filename = "SKILL.md.j2" if template else "SKILL.md"
-        content = textwrap.dedent(f"""\
-            ---
-            name: {skill_name}
-            description: TODO
-            ---
-
-            # {display_name}
-
-            TODO: Describe when and how to use this skill.
-        """)
+        audience = f"metadata:\n  audience: {served_skills.INTERNAL_AUDIENCE}\n" if internal else ""
+        content = (
+            f"---\nname: {skill_name}\ndescription: TODO\n{audience}---\n\n"
+            f"# {display_name}\n\nTODO: Describe when and how to use this skill.\n"
+        )
 
         skill_file = skill_dir / filename
         skill_file.write_text(content)
