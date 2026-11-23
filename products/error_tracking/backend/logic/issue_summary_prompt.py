@@ -8,7 +8,7 @@ summaries. Only summaries written after the deploy use the new prompt.
 
 from pydantic import BaseModel, ConfigDict
 
-ISSUE_SUMMARY_PROMPT_VERSION = "v5"
+ISSUE_SUMMARY_PROMPT_VERSION = "v6"
 
 ISSUE_SUMMARY_SYSTEM_PROMPT = """\
 You summarise one error tracking issue for an engineer who is deciding what to do about it.
@@ -44,6 +44,7 @@ Facts:
 
 ISSUE_SUMMARY_IMPACT_LINE = "Impact in range: {occurrences} occurrences, {users} users, {sessions} sessions"
 ISSUE_SUMMARY_IMPACT_NOT_KNOWN_YET = "Impact: not known yet, because the issue was just created from its first event"
+ISSUE_SUMMARY_IMPACT_NOT_COUNTED = "Impact: not counted, because the summary reads only the issue's first event"
 
 
 class IssueSummaryResponse(BaseModel):

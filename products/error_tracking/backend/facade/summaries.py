@@ -3,12 +3,14 @@
 A module of its own, like ``queries.py``, so the HogQL and LLM client imports stay out of ``facade/api.py``.
 """
 
+from typing import assert_never
 from uuid import UUID
 
 from posthog.models import User
 
 from products.error_tracking.backend.facade import contracts
 from products.error_tracking.backend.logic import issue_summaries
+from products.error_tracking.backend.logic.issue_summaries import IssueSummaryOutcome
 from products.error_tracking.backend.models import ErrorTrackingIssueSummary
 
 
@@ -39,3 +41,47 @@ def read_issue_summary(team_id: int, issue_id: UUID | str, *, user: User) -> con
         summary=_to_summary(state.summary) if state.summary is not None else None,
         reason=state.reason,
     )
+
+
+def summarize_issue(team_id: int, issue_id: UUID | str, *, user: User) -> contracts.IssueSummarize:
+    """Generate the summary of an issue that has none, because `user` asked for it. Each generation uses AI credits."""
+    result = issue_summaries.generate_issue_summary_on_demand(team_id, issue_id, user)
+    summary = result.summary
+    if summary is not None and not issue_summaries.unsafe_summary_fields(summary.content):
+        return contracts.IssueSummarize(outcome=contracts.IssueSummarizeOutcome.READY, summary=_to_summary(summary))
+    return contracts.IssueSummarize(outcome=_summarize_outcome(result.outcome), summary=None)
+
+
+def _summarize_outcome(outcome: IssueSummaryOutcome) -> contracts.IssueSummarizeOutcome:
+    match outcome:
+        case IssueSummaryOutcome.DISABLED:
+            return contracts.IssueSummarizeOutcome.DISABLED
+        case IssueSummaryOutcome.RESTRICTED:
+            return contracts.IssueSummarizeOutcome.RESTRICTED
+        case IssueSummaryOutcome.SETTING_OFF:
+            return contracts.IssueSummarizeOutcome.SETTING_OFF
+        case IssueSummaryOutcome.AI_NOT_APPROVED:
+            return contracts.IssueSummarizeOutcome.AI_NOT_APPROVED
+        case IssueSummaryOutcome.OUT_OF_CREDITS:
+            return contracts.IssueSummarizeOutcome.OUT_OF_CREDITS
+        case IssueSummaryOutcome.RATE_LIMITED:
+            return contracts.IssueSummarizeOutcome.RATE_LIMITED
+        case IssueSummaryOutcome.IN_PROGRESS:
+            return contracts.IssueSummarizeOutcome.IN_PROGRESS
+        case IssueSummaryOutcome.ISSUE_MISSING:
+            return contracts.IssueSummarizeOutcome.ISSUE_MISSING
+        case IssueSummaryOutcome.NO_EXCEPTION:
+            return contracts.IssueSummarizeOutcome.NO_EXCEPTION
+        # GENERATED and FRESH reach here only with an unsafe stored summary, which no read shows.
+        case (
+            IssueSummaryOutcome.GENERATED
+            | IssueSummaryOutcome.FRESH
+            | IssueSummaryOutcome.INPUTS_ERROR
+            | IssueSummaryOutcome.GATEWAY_UNCONFIGURED
+            | IssueSummaryOutcome.MODEL_ERROR
+            | IssueSummaryOutcome.INVALID_OUTPUT
+            | IssueSummaryOutcome.UNEXPECTED_ERROR
+        ):
+            return contracts.IssueSummarizeOutcome.FAILED
+        case _:
+            assert_never(outcome)

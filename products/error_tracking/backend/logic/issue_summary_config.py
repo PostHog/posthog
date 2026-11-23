@@ -15,6 +15,9 @@ ISSUE_SUMMARY_LLM_TIMEOUT_SECONDS = 30.0
 # The refill sits well above a busy project's hourly rate of new issues, and the burst absorbs a release that creates
 # many issues at once.
 ISSUE_SUMMARY_WRITE_BUDGET = Budget(burst=200, per_hour=60)
+# Summaries that people ask for spend this budget, so a burst of new issues and a person working through old issues
+# never take each other's tokens. It also stops a script that calls the summarize endpoint in a loop.
+ISSUE_SUMMARY_ON_DEMAND_BUDGET = Budget(burst=20, per_hour=20)
 
 # Holds one generation per issue at a time. The worker deletes its claim when it finishes, so the TTL only frees an
 # issue whose worker died.

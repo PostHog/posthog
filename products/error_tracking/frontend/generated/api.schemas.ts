@@ -1165,7 +1165,7 @@ export const IssueSummaryUnavailableReasonEnumApi = {
 } as const
 
 export interface ErrorTrackingIssueSummaryResponseApi {
-    /** ready: `summary` holds the stored summary. not_generated: no summary is stored for this issue. A summary is written only when an issue is created. unavailable: no summary can be shown. `reason` says why.
+    /** ready: `summary` holds the stored summary. not_generated: no summary is stored for this issue. A summary is written when an issue is created, and when a person asks for one with the summarize action. unavailable: no summary can be shown. `reason` says why.
      *
      * * `ready` - Ready
      * * `not_generated` - Not Generated
@@ -1179,6 +1179,62 @@ export interface ErrorTrackingIssueSummaryResponseApi {
      * * `disabled` - Disabled
      * * `ai_not_approved` - Ai Not Approved */
     reason: IssueSummaryUnavailableReasonEnumApi | null
+}
+
+/**
+ * * `ready` - Ready
+ * * `disabled` - Disabled
+ * * `restricted` - Restricted
+ * * `setting_off` - Setting Off
+ * * `ai_not_approved` - Ai Not Approved
+ * * `out_of_credits` - Out Of Credits
+ * * `rate_limited` - Rate Limited
+ * * `in_progress` - In Progress
+ * * `issue_missing` - Issue Missing
+ * * `no_exception` - No Exception
+ * * `failed` - Failed
+ */
+export type IssueSummarizeOutcomeEnumApi =
+    (typeof IssueSummarizeOutcomeEnumApi)[keyof typeof IssueSummarizeOutcomeEnumApi]
+
+export const IssueSummarizeOutcomeEnumApi = {
+    Ready: 'ready',
+    Disabled: 'disabled',
+    Restricted: 'restricted',
+    SettingOff: 'setting_off',
+    AiNotApproved: 'ai_not_approved',
+    OutOfCredits: 'out_of_credits',
+    RateLimited: 'rate_limited',
+    InProgress: 'in_progress',
+    IssueMissing: 'issue_missing',
+    NoException: 'no_exception',
+    Failed: 'failed',
+} as const
+
+export interface ErrorTrackingIssueSummarizeErrorApi {
+    /** The error category, such as invalid_request or throttled_error. */
+    type: string
+    /** Why no summary was written. restricted, setting_off and ai_not_approved answer 403. out_of_credits answers 402. rate_limited answers 429. in_progress answers 409. no_exception answers 422. failed answers 503.
+     *
+     * * `ready` - Ready
+     * * `disabled` - Disabled
+     * * `restricted` - Restricted
+     * * `setting_off` - Setting Off
+     * * `ai_not_approved` - Ai Not Approved
+     * * `out_of_credits` - Out Of Credits
+     * * `rate_limited` - Rate Limited
+     * * `in_progress` - In Progress
+     * * `issue_missing` - Issue Missing
+     * * `no_exception` - No Exception
+     * * `failed` - Failed */
+    code: IssueSummarizeOutcomeEnumApi
+    /** What happened and what to do next. */
+    detail: string
+    /**
+     * Always null for this endpoint.
+     * @nullable
+     */
+    attr: string | null
 }
 
 export interface PatchedErrorTrackingIssueTagWriteApi {
