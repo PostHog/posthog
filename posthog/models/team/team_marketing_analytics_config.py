@@ -350,6 +350,16 @@ class TeamMarketingAnalyticsConfig(models.Model):
         "project",
         "admin",
     )
+    recommendation_conversion_actions = field_access_control(
+        models.JSONField(
+            default=list,
+            null=True,
+            blank=True,
+            help_text="Google Ads conversion action resource names that recommendations count. Empty counts the primary actions.",
+        ),
+        "project",
+        "admin",
+    )
 
     def clean(self):
         """Validate model fields"""

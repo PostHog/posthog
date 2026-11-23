@@ -9230,7 +9230,8 @@ export interface MarketingAnalyticsRecommendationsQuery extends DataNode<Marketi
      * Resource names of the Google Ads conversion actions that count as conversions, such as
      * `customers/123/conversionActions/456`. Each ad account uses the actions under its own customer ID, and an
      * account with none of them counts its primary actions. Selected actions count every conversion, including
-     * secondary actions and conversions outside campaign goals. Omit to count the primary actions only.
+     * secondary actions and conversions outside campaign goals. An empty list counts the primary actions only. Omit to
+     * use the actions saved in the project's marketing analytics settings.
      */
     conversionActions?: string[]
 }
@@ -9558,6 +9559,7 @@ export interface MarketingAnalyticsConfig {
     campaign_name_mappings?: Record<string, Record<string, string[]>>
     custom_source_mappings?: Record<string, string[]>
     campaign_field_preferences?: Record<string, CampaignFieldPreference>
+    recommendation_conversion_actions?: string[] | null
 }
 
 export enum MarketingAnalyticsDrillDownLevel {

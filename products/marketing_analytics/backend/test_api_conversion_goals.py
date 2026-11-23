@@ -428,6 +428,38 @@ class TestConversionGoalWrites(APIBaseTest):
         assert {entry.user_id for entry in entries} == {self.user.pk}
 
 
+class TestRecommendationConversionActionsSetting(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        get_or_create_team_extension(self.team, TeamMarketingAnalyticsConfig)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    @parameterized.expand(
+        [
+            ("saves_the_list", ["customers/1/conversionActions/10"], 200, ["customers/1/conversionActions/10"]),
+            ("empty_list_counts_primary_actions", [], 200, []),
+            ("rejects_an_action_name", ["Purchase"], 400, ["customers/9/conversionActions/90"]),
+        ]
+    )
+    def test_settings_save_writes_the_recommendation_conversion_actions(
+        self, _name: str, sent: list[str], expected_status: int, stored: list[str]
+    ) -> None:
+        TeamMarketingAnalyticsConfig.objects.filter(team=self.team).update(
+            recommendation_conversion_actions=["customers/9/conversionActions/90"]
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.pk}/",
+            {"marketing_analytics_config": {"recommendation_conversion_actions": sent}},
+            format="json",
+        )
+
+        assert response.status_code == expected_status, response.json()
+        config = TeamMarketingAnalyticsConfig.objects.get(team=self.team)
+        assert config.recommendation_conversion_actions == stored
+
+
 class TestConversionGoalIdIsOneName(APIBaseTest):
     def setUp(self):
         super().setUp()

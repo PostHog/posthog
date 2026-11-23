@@ -1860,6 +1860,12 @@ export interface TeamMarketingAnalyticsConfigApi {
     custom_source_mappings?: MarketingAnalyticsCustomSourceMappingsApi
     /** Which field to match campaigns on per integration type, campaign_name or campaign_id. Manual mappings in campaign_name_mappings still take precedence. */
     campaign_field_preferences?: MarketingAnalyticsCampaignFieldPreferencesApi
+    /**
+     * Google Ads conversion actions that recommendations count as conversions, as resource names. Each ad account counts the actions it owns or reports, including actions shared from a manager account, and an account with none of them counts its primary actions. Empty counts the primary actions of every account. Replaces the whole list on write.
+     * @maxItems 200
+     * @items.pattern ^customers/\d+/conversionActions/\d+$
+     */
+    recommendation_conversion_actions?: string[]
 }
 
 /**
