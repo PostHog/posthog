@@ -11,6 +11,15 @@ import { withoutTraceDrawerParams } from '../trace/traceDrawerRows'
 import { ShellFrame } from './components/ShellFrame'
 import { SHELL_TABS, shellHref, shellLocationForSceneKey } from './shellNavigation'
 
+// pinned: the open row of the errors, tools and people lists, which belongs to that list only
+const ENTITY_DRAWER_PARAMS = ['error', 'tool', 'person']
+
+function withoutDrawerParams(params: Record<string, unknown>): Record<string, unknown> {
+    return Object.fromEntries(
+        Object.entries(withoutTraceDrawerParams(params)).filter(([name]) => !ENTITY_DRAWER_PARAMS.includes(name))
+    )
+}
+
 function useTabShortcut(position: 1 | 2 | 3 | 4, linkParams: Record<string, unknown>): void {
     const { push } = useActions(router)
     const tab = SHELL_TABS[position - 1]
@@ -30,7 +39,7 @@ export function ShellHost({ children }: { children: React.ReactNode }): JSX.Elem
     const { searchParams } = useValues(router)
     const { push } = useActions(router)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
-    const linkParams = withoutTraceDrawerParams(searchParams)
+    const linkParams = withoutDrawerParams(searchParams)
 
     useTabShortcut(1, linkParams)
     useTabShortcut(2, linkParams)

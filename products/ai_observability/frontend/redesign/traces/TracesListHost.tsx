@@ -2,11 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
-
-import { groupsModel } from '~/models/groupsModel'
 
 import { AiObservabilityTracesListView, type TraceListItemApi } from '../../generated/api.schemas'
 import { ListEmptyState } from '../lists/components/ListEmptyState'
@@ -14,6 +10,7 @@ import { ListErrorState } from '../lists/components/ListErrorState'
 import { ListTable } from '../lists/components/ListTable'
 import { ListToolbar } from '../lists/components/ListToolbar'
 import { QuickFilterChips } from '../lists/components/QuickFilterChips'
+import { ListFiltersHost } from '../lists/ListFiltersHost'
 import { listFiltersLogic } from '../lists/listFiltersLogic'
 import { shellScopeLogic } from '../shell/shellScopeLogic'
 import { TraceDrawerHost } from '../trace/TraceDrawerHost'
@@ -52,7 +49,6 @@ export function TracesListHost(): JSX.Element {
     const { previews, people, sentiments } = useValues(traceCellsLogic)
     const { dateFrom, dateTo } = useValues(shellScopeLogic)
     const { setDateRange } = useActions(shellScopeLogic)
-    const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const fullPageHref = useTraceFullPageHref(LIST_ID)
     const rowOf = useCallback((item: TraceListItemApi): TraceListRow => toRow(item, people), [people])
@@ -89,17 +85,13 @@ export function TracesListHost(): JSX.Element {
                 onSearchChange={searchEnabled ? setSearchDraft : undefined}
                 searchPlaceholder="Search inputs and outputs"
                 filters={
-                    <PropertyFilters
+                    <ListFiltersHost
                         propertyFilters={filters.propertyFilters}
                         onChange={setPropertyFilters}
-                        taxonomicGroupTypes={[
-                            TaxonomicFilterGroupType.EventProperties,
-                            TaxonomicFilterGroupType.PersonProperties,
-                            ...groupsTaxonomicTypes,
-                            TaxonomicFilterGroupType.Cohorts,
-                            TaxonomicFilterGroupType.HogQLExpression,
-                        ]}
+                        // The Errors chip above already narrows to errors.
+                        controls={['model', 'provider', 'tool', 'slow']}
                         pageKey={DATA_ATTR}
+                        data-attr={DATA_ATTR}
                     />
                 }
                 testAccounts={

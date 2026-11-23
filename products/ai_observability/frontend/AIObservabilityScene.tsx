@@ -56,7 +56,11 @@ import { aiObservabilityEmptyState } from './emptyState/aiObservabilityEmptyStat
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { InstrumentationChecklistCard } from './instrumentationChecklist/InstrumentationChecklistCard'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
+import { ErrorsListHost } from './redesign/errors/ErrorsListHost'
+import { ListFiltersHost } from './redesign/lists/ListFiltersHost'
+import { PeopleListHost } from './redesign/people/PeopleListHost'
 import { ShellHost } from './redesign/shell/ShellHost'
+import { ToolsListHost } from './redesign/tools/ToolsListHost'
 import { toFullPageListParams } from './redesign/trace/traceBackLink'
 import { TraceDrawerQueryHost } from './redesign/trace/TraceDrawerQueryHost'
 import { withoutTraceDrawerParams } from './redesign/trace/traceDrawerRows'
@@ -89,7 +93,7 @@ const SENTIMENT_DATE_OPTIONS = dateMapping.filter(({ values }) =>
 )
 
 const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolean }): JSX.Element => {
-    const { dashboardDateFilter, dateFilter, shouldFilterTestAccounts, propertyFilters, activeTab } =
+    const { dashboardDateFilter, dateFilter, shouldFilterTestAccounts, propertyFilters, activeTab, featureFlags } =
         useValues(aiObservabilitySharedLogic)
     const { setDashboardDates, setDates, setShouldFilterTestAccounts, setPropertyFilters } =
         useActions(aiObservabilitySharedLogic)
@@ -109,14 +113,25 @@ const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolea
                 showRollingRangePicker={activeTab !== 'sentiment'}
                 showCustomRangeOptions={activeTab !== 'sentiment'}
             />
-            {!hidePropertyFilters && (
-                <PropertyFilters
-                    propertyFilters={propertyFilters}
-                    taxonomicGroupTypes={generationsQuery.showPropertyFilter as TaxonomicFilterGroupType[]}
-                    onChange={setPropertyFilters}
-                    pageKey="llm-analytics"
-                />
-            )}
+            {!hidePropertyFilters &&
+                (featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_NAV_REDESIGN] ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                        <ListFiltersHost
+                            propertyFilters={propertyFilters}
+                            onChange={setPropertyFilters}
+                            taxonomicGroupTypes={generationsQuery.showPropertyFilter as TaxonomicFilterGroupType[]}
+                            pageKey="llm-analytics"
+                            data-attr={`ai-observability-${activeTab}-filters`}
+                        />
+                    </div>
+                ) : (
+                    <PropertyFilters
+                        propertyFilters={propertyFilters}
+                        taxonomicGroupTypes={generationsQuery.showPropertyFilter as TaxonomicFilterGroupType[]}
+                        onChange={setPropertyFilters}
+                        pageKey="llm-analytics"
+                    />
+                ))}
             <div className="flex-1" />
             <TestAccountFilterSwitch checked={shouldFilterTestAccounts} onChange={setShouldFilterTestAccounts} />
             {activeTab === 'dashboard' && selectedDashboardId && (
@@ -143,7 +158,8 @@ const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolea
 }
 
 function AIObservabilityDashboard(): JSX.Element {
-    const { dashboardExternalDateFilters, propertyFilters } = useValues(aiObservabilitySharedLogic)
+    const { dashboardExternalDateFilters, propertyFilters, featureFlags } = useValues(aiObservabilitySharedLogic)
+    const navRedesign = !!featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_NAV_REDESIGN]
     const { selectedDashboardId, availableDashboardsLoading } = useValues(aiObservabilityDashboardLogic)
 
     const dashboardLogicInstance = React.useMemo(
@@ -202,7 +218,9 @@ function AIObservabilityDashboard(): JSX.Element {
                 <Dashboard
                     id={selectedDashboardId.toString()}
                     placement={DashboardPlacement.Builtin}
-                    showCreateAnomalyAlertButton
+                    showCreateAnomalyAlertButton={!navRedesign}
+                    // The shell's Home shows the charts without tile menus. "Edit dashboard" still changes them.
+                    readOnly={navRedesign}
                 />
             )}
         </div>
@@ -556,6 +574,14 @@ const TAB_BODIES: Partial<Record<AIObservabilityTabId, () => JSX.Element>> = {
     reviews: () => <AIObservabilityHumanReviews />,
 }
 
+// The shell's own pages. Other tabs keep their tabbed body inside the shell.
+const SHELL_TAB_BODIES: Partial<Record<AIObservabilityTabId, () => JSX.Element>> = {
+    traces: () => <TracesListHost />,
+    errors: () => <ErrorsListHost />,
+    tools: () => <ToolsListHost />,
+    users: () => <PeopleListHost />,
+}
+
 function TabBody({ tab }: { tab: AIObservabilityTabId }): JSX.Element | null {
     return TAB_BODIES[tab]?.() ?? null
 }
@@ -569,7 +595,7 @@ function AIObservabilitySceneContent(): JSX.Element {
     if (activeTab === 'self-driving' && !featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_SELF_DRIVING]) {
         return <NotFound object="page" />
     }
-    return <ShellHost>{activeTab === 'traces' ? <TracesListHost /> : <TabBody tab={activeTab} />}</ShellHost>
+    return <ShellHost>{SHELL_TAB_BODIES[activeTab]?.() ?? <TabBody tab={activeTab} />}</ShellHost>
 }
 
 function AIObservabilityTabbedContent(): JSX.Element {

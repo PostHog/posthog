@@ -14,6 +14,9 @@ export type TraceDrawerListId =
     | 'cluster-traces'
     | 'clusters'
     | 'eval-suggestions'
+    | 'errors'
+    | 'tools'
+    | 'people'
 
 export interface TraceDrawerListConfig {
     // Tested against the path without its project prefix. Other products use `trace` for their own ids, and on browser
@@ -108,6 +111,25 @@ export const TRACE_DRAWER_LISTS: Record<TraceDrawerListId, TraceDrawerListConfig
         pathMatcher: /^\/ai-evals\/evaluations$/,
         backTo: 'evaluations',
         backLabel: 'Back to evaluations',
+        rowClick: false,
+    },
+    // The examples in an error, tool or person drawer open their trace in a drawer stacked on top.
+    errors: {
+        pathMatcher: /^\/ai-observability\/errors$/,
+        backTo: 'errors',
+        backLabel: 'Back to errors',
+        rowClick: false,
+    },
+    tools: {
+        pathMatcher: /^\/ai-observability\/tools$/,
+        backTo: 'tools',
+        backLabel: 'Back to tools',
+        rowClick: false,
+    },
+    people: {
+        pathMatcher: /^\/ai-observability\/users$/,
+        backTo: 'people',
+        backLabel: 'Back to people',
         rowClick: false,
     },
 }
