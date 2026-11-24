@@ -2887,7 +2887,10 @@ def devbox_cleanup_disk(workspace: str | None, dry_run: bool, yes: bool, area: t
         _fail(
             "SSH access for devboxes isn't configured. Run `hogli devbox:setup` (it runs `coder config-ssh`), then retry."
         )
-    # No flox activation: its hook writes files and fails on a full disk, and it trims flox logs even on a dry run.
-    # `hogli` is not on the devbox PATH, so run the checkout's copy. doctor:disk prompts, so it needs a terminal.
-    remote_command = f"cd ~/posthog && {shlex.join(['./bin/hogli', *doctor_args])}"
+    # Put the flox tools on PATH without `flox activate`: its hook writes files and fails on a full disk,
+    # and it trims flox logs even on a dry run. `hogli` is not on the devbox PATH, so run the checkout's copy.
+    # doctor:disk prompts, so it needs a terminal.
+    remote_command = 'cd ~/posthog && for bin in .flox/run/*/bin; do PATH="$PWD/$bin:$PATH"; done && ' + shlex.join(
+        ["./bin/hogli", *doctor_args]
+    )
     exec_replace(name, ["bash", "-lc", remote_command], tty=True)
