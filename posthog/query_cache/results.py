@@ -7,10 +7,12 @@ from contextvars import ContextVar
 from typing import Optional
 
 import structlog
+import zstandard
 
 from posthog.dataclasses import frozen
 from posthog.query_cache.serialization import CachedEntry, split_cached_response_bytes
 from posthog.query_cache.storage import (
+    ZSTD_FRAME_MAGIC,
     decode_pointer,
     decode_stored_value,
     delete_entry,
@@ -120,11 +122,23 @@ def _read_blobs(pointers: Sequence[tuple[str, bytes]], *, team_id: int) -> dict[
 
 
 def prefetched_size(cache_key: str) -> int:
-    """The stored size in bytes of the next prefetched value for `cache_key`, or 0 when none is waiting."""
+    """The decoded size in bytes of the next prefetched value for `cache_key`, or 0 when none is waiting.
+
+    A zstd frame is measured by the content size in its header, so nothing is decompressed to measure it.
+    """
     prefetched = _prefetched_values.get()
     remaining = prefetched.get(cache_key) if prefetched is not None else None
     value = remaining[-1] if remaining else None
-    return len(value) if isinstance(value, bytes | bytearray | str) else 0
+    if not isinstance(value, bytes):
+        return 0
+    if value.startswith(ZSTD_FRAME_MAGIC):
+        try:
+            size = zstandard.frame_content_size(value)
+        except zstandard.ZstdError:
+            size = -1
+        if size >= 0:
+            return size
+    return len(value)
 
 
 def fetch_entry(cache_key: str, team_id: int) -> Optional[CachedEntry]:
