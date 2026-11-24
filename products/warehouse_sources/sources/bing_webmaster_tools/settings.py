@@ -75,10 +75,12 @@ ENDPOINT_CONFIGS: dict[str, BingWebmasterToolsEndpoint] = {
     "page_query_stats": BingWebmasterToolsEndpoint(
         method="GetPageQueryStats",
         primary_keys=["site_url", "page", "date", "query"],
-        # One API call per top page of every site, so it stays opt-in.
+        # One API call per top page of every site (capped at `MAX_PAGE_QUERY_STATS_PAGES`), so it
+        # stays opt-in.
         should_sync_default=False,
         description=(
-            "Traffic statistics for each search query that led to each of the site's top pages: "
+            "Traffic statistics for each search query that led to each of the site's 100 pages with the "
+            "most clicks: "
             "impressions, clicks, and average positions. Bing updates this data weekly and retains "
             "about six months."
         ),

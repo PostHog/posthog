@@ -7,6 +7,7 @@ from unittest import mock
 
 import requests
 
+from products.warehouse_sources.sources.bing_webmaster_tools import bing_webmaster_tools
 from products.warehouse_sources.sources.bing_webmaster_tools._config import BingWebmasterToolsSourceConfig
 from products.warehouse_sources.sources.bing_webmaster_tools.bing_webmaster_tools import (
     BingWebmasterToolsError,
@@ -19,6 +20,7 @@ from products.warehouse_sources.sources.bing_webmaster_tools.bing_webmaster_tool
 )
 from products.warehouse_sources.sources.bing_webmaster_tools.settings import BASE_URL
 from products.warehouse_sources.sources.bing_webmaster_tools.source import BingWebmasterToolsSource
+from products.warehouse_sources.sources.sdk import RetryableHTTPError, max_retry_after_seconds
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 
 _SITES = [
@@ -267,6 +269,22 @@ class TestRequest:
         with pytest.raises(BingWebmasterToolsError, match="InvalidApiKey"):
             _request(session, "key", "GetUserSites")
 
+    @pytest.mark.parametrize("fault", ["ThrottleUser", "ThrottleIP"])
+    def test_throttle_fault_defers_the_retry_instead_of_resending(self, fault):
+        # Resending at once only spends more of a quota that has already run out. The retry_after
+        # must be longer than the in-process retry waits, so the request goes out once and the
+        # activity defers its next attempt by that much.
+        session = _session({"GetQueryStats": _response(400, {"ErrorCode": 0, "Message": f"ERROR!!! {fault}"})})
+
+        with pytest.raises(RetryableHTTPError) as exc_info:
+            _request(session, "key", "GetQueryStats")
+
+        assert str(exc_info.value) == f"Bing Webmaster Tools GetQueryStats failed with status 400: ERROR!!! {fault}"
+        assert isinstance(exc_info.value, BingWebmasterToolsError)
+        assert exc_info.value.retry_after is not None
+        assert exc_info.value.retry_after > max_retry_after_seconds()
+        assert session.get.call_count == 1
+
     def test_faultless_http_error_redacts_api_key(self):
         session = _session({"GetUserSites": _response(400, body=None, json_error=True)})
 
@@ -386,6 +404,38 @@ class TestGetRows:
         assert [r.param("page") for r in result.requests[2:]] == ['"https://example.com/a"', '"https://example.com/b"']
         assert [(row["page"], row["query"], row["site_url"]) for row in result.rows] == [
             ("https://example.com/a", "query", "https://example.com/")
+        ]
+
+    def test_page_query_stats_fans_out_only_over_the_pages_with_the_most_clicks(self):
+        # GetPageStats lists every page with traffic, and each one costs a request against the
+        # per-key quota, so only the busiest pages are fanned out.
+        page_stats = [
+            {**_QUERY_STATS[0], "Query": "https://example.com/quiet", "Clicks": 0, "Impressions": 10},
+            {**_QUERY_STATS[0], "Query": "https://example.com/steady", "Clicks": 2},
+            {**_QUERY_STATS[0], "Query": "https://example.com/seen", "Clicks": 0, "Impressions": 50},
+            {**_QUERY_STATS[0], "Query": "https://example.com/busy", "Clicks": 3},
+            {
+                **_QUERY_STATS[0],
+                "Query": "https://example.com/steady",
+                "Clicks": 2,
+                "Date": "/Date(1316761200000-0700)/",
+            },
+        ]
+        with mock.patch.object(bing_webmaster_tools, "MAX_PAGE_QUERY_STATS_PAGES", 3):
+            result = self._driver().run(
+                "page_query_stats",
+                [
+                    ScriptedResponse(json={"d": _SITES}),
+                    ScriptedResponse(json={"d": page_stats}),
+                    *[ScriptedResponse(json={"d": []}) for _ in range(3)],
+                ],
+            )
+
+        assert result.raised is None
+        assert [r.param("page") for r in result.requests[2:]] == [
+            '"https://example.com/steady"',
+            '"https://example.com/busy"',
+            '"https://example.com/seen"',
         ]
 
     @pytest.mark.parametrize(

@@ -9,7 +9,12 @@ import requests
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.sources.bing_webmaster_tools.settings import BASE_URL, ENDPOINT_CONFIGS
-from products.warehouse_sources.sources.sdk import SourceResponse, make_tracked_session, vendor_retry
+from products.warehouse_sources.sources.sdk import (
+    RetryableHTTPError,
+    SourceResponse,
+    make_tracked_session,
+    vendor_retry,
+)
 from products.warehouse_sources.sources.sdk.internals import NamingConvention
 
 REQUEST_TIMEOUT_SECONDS = 60
@@ -22,12 +27,31 @@ VALIDATION_TIMEOUT_SECONDS = 30
 # doesn't produce an unreadable message.
 MAX_SUGGESTED_SITES = 3
 
+# `page_query_stats` sends one GetPageQueryStats request per top page, and GetPageStats can list
+# hundreds of pages for a busy site. Only the pages with the most clicks are fanned out, so one
+# table cannot use up the per-key quota that every other table of the source shares.
+MAX_PAGE_QUERY_STATS_PAGES = 100
+
+# ThrottleUser counts requests per API key and ThrottleIP per caller address. Neither fault says
+# when its window resets, and an immediate retry only spends more of the same quota. Wait this long
+# before the next activity attempt instead (the activity clamps it to its own maximum).
+THROTTLE_FAULTS = ("ThrottleUser", "ThrottleIP")
+THROTTLE_RETRY_AFTER_SECONDS = 60 * 60
+
 
 class BingWebmasterToolsError(Exception):
     """API-level failure carrying the ApiFault ``Message`` (e.g. InvalidApiKey, NotAuthorized).
 
     The fault message is part of the exception text so ``get_non_retryable_errors`` can match on
     it. Faults not in that map (e.g. throttling) stay retryable at the activity level.
+    """
+
+
+class BingWebmasterToolsThrottledError(BingWebmasterToolsError, RetryableHTTPError):
+    """A ThrottleUser or ThrottleIP fault.
+
+    Its `retry_after` is longer than `vendor_retry` waits in process, so the request is not sent
+    again in this attempt, and the activity defers its next attempt by that much.
     """
 
 
@@ -107,9 +131,12 @@ def _request_payload(
     if not response.ok:
         fault = _api_fault_message(response)
         if fault is not None:
-            raise BingWebmasterToolsError(
-                f"Bing Webmaster Tools {method} failed with status {response.status_code}: {fault}"
-            )
+            message = f"Bing Webmaster Tools {method} failed with status {response.status_code}: {fault}"
+            if fault.rstrip().endswith(THROTTLE_FAULTS):
+                raise BingWebmasterToolsThrottledError(
+                    message, status=response.status_code, retry_after=THROTTLE_RETRY_AFTER_SECONDS
+                )
+            raise BingWebmasterToolsError(message)
         try:
             response.raise_for_status()
         except requests.HTTPError as exc:
@@ -301,13 +328,32 @@ def _url_rows(items: list[dict[str, Any]], site_url: str) -> list[dict[str, Any]
     return [_normalized_row(item, site_url) for item in items if item.get("Url")]
 
 
+def _count(value: Any) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def _top_pages(page_stats: list[dict[str, Any]], limit: int) -> list[str]:
+    """The `limit` pages with the most clicks over the window, then the most impressions.
+
+    GetPageStats has one row per page and date, so totals are summed per page. Ties keep the order
+    Bing lists the pages in.
+    """
+    totals: dict[str, tuple[int, int]] = {}
+    for item in page_stats:
+        page = item.get("Query")
+        if not isinstance(page, str) or not page:
+            continue
+        clicks, impressions = totals.get(page, (0, 0))
+        totals[page] = (clicks + _count(item.get("Clicks")), impressions + _count(item.get("Impressions")))
+    return sorted(totals, key=lambda page: totals[page], reverse=True)[:limit]
+
+
 def _page_query_stats_batches(
     session: requests.Session, api_key: str, site_url: str, logger: FilteringBoundLogger
 ) -> Iterator[list[dict[str, Any]]]:
     """Fan out GetPageQueryStats over the site's top pages, as listed by GetPageStats."""
     page_stats = _request(session, api_key, "GetPageStats", {"siteUrl": site_url})
-    pages = list(dict.fromkeys(page for item in page_stats if isinstance(page := item.get("Query"), str) and page))
-    for page in pages:
+    for page in _top_pages(page_stats, MAX_PAGE_QUERY_STATS_PAGES):
         # The JSON endpoint documents `page` as a quoted JSON string literal, unlike `siteUrl`.
         try:
             items = _request(session, api_key, "GetPageQueryStats", {"siteUrl": site_url, "page": json.dumps(page)})
