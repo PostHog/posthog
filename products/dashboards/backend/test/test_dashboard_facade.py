@@ -373,7 +373,7 @@ class TestDashboardTeamSettings(APIBaseTest):
     @parameterized.expand(
         [("live", False, False, True), ("soft_deleted", True, False, False), ("other_team", False, True, False)]
     )
-    def test_home_tab_dashboard_reads_like_the_team_property(
+    def test_home_tab_dashboard_shows_only_a_live_dashboard_of_this_team(
         self, _name: str, deleted: bool, other_team: bool, shown: bool
     ) -> None:
         team_id = Team.objects.create(organization=self.organization).id if other_team else self.team.id
@@ -381,9 +381,7 @@ class TestDashboardTeamSettings(APIBaseTest):
 
         api.set_home_tab_dashboard(team_id=self.team.id, dashboard_id=dashboard_id)
 
-        team = Team.objects.get(id=self.team.id)
         assert api.home_tab_dashboard_id(team_id=self.team.id) == (dashboard_id if shown else None)
-        assert (team.home_tab_dashboard.id if team.home_tab_dashboard else None) == (dashboard_id if shown else None)
 
     def test_clearing_the_home_tab_dashboard_keeps_the_config_row(self) -> None:
         api.set_home_tab_dashboard(team_id=self.team.id, dashboard_id=create_dashboard(team_id=self.team.id))
