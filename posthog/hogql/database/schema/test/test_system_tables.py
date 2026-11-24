@@ -108,6 +108,7 @@ from products.error_tracking.backend.facade.testing import (
 )
 from products.event_definitions.backend.models import EventDefinition, PropertyDefinition
 from products.experiments.backend.facade.testing import (
+    clear_experiment_status,
     create_experiment,
     create_saved_metric,
     link_saved_metric,
@@ -2546,6 +2547,51 @@ class TestSystemExperimentAndFlagColumns(NonAtomicBaseTest):
         response = execute_hogql_query("SELECT deleted FROM system.experiments", team=self.team, user=self.user)
 
         assert response.results == [(expected,)]
+
+    @parameterized.expand(
+        [
+            ("draft", None, None, "draft"),
+            ("running", datetime(2026, 1, 1, tzinfo=UTC), None, "running"),
+            ("stopped", datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 2, 1, tzinfo=UTC), "stopped"),
+        ]
+    )
+    def test_experiment_status_derived_from_dates_when_null(self, _name, start_date, end_date, expected):
+        flag = FeatureFlag.objects.create(team=self.team, key="exp_flag")
+        experiment_id = create_experiment(
+            team_id=self.team.id, feature_flag_id=flag.id, start_date=start_date, end_date=end_date
+        )
+        clear_experiment_status(team_id=self.team.id, experiment_id=experiment_id)
+
+        response = execute_hogql_query("SELECT status FROM system.experiments", team=self.team, user=self.user)
+
+        assert response.results == [(expected,)]
+
+    @parameterized.expand([("other_creator", False, []), ("reader_is_creator", True, ["restricted"])])
+    def test_saved_metric_object_access_rule_hides_row(self, _name, reader_is_creator, expected_restricted):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        creator = self.user if reader_is_creator else User.objects.create(email="creator@example.com")
+        create_saved_metric(team_id=self.team.id, name="open", query={"kind": "ExperimentMetric"})
+        restricted_id = create_saved_metric(
+            team_id=self.team.id, name="restricted", query={"kind": "ExperimentMetric"}, created_by_id=creator.id
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="experiment_saved_metric",
+            resource_id=str(restricted_id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+
+        response = execute_hogql_query(
+            "SELECT name FROM system.experiment_saved_metrics ORDER BY name", team=self.team, user=self.user
+        )
+
+        assert [row[0] for row in response.results] == ["open", *expected_restricted]
 
     def test_saved_metrics_join_to_their_experiments(self):
         flag = FeatureFlag.objects.create(team=self.team, key="exp_flag")

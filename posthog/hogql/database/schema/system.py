@@ -942,9 +942,13 @@ experiments: PostgresTable = PostgresTable(
             name="feature_flag_id",
             description="Feature flag controlling variant assignment; joins to feature_flags.id.",
         ),
-        "status": StringDatabaseField(
+        "_status": StringDatabaseField(name="status", nullable=True, hidden=True),
+        # Rows saved before the status column existed hold NULL; derive their status from the dates.
+        "status": ExpressionField(
             name="status",
-            nullable=True,
+            expr=parse_expr(
+                "coalesce(_status, multiIf(start_date IS NULL, 'draft', end_date IS NULL, 'running', 'stopped'))"
+            ),
             description="Lifecycle status: 'draft', 'running' or 'stopped'.",
         ),
         "conclusion": StringDatabaseField(
@@ -993,9 +997,8 @@ experiments: PostgresTable = PostgresTable(
 experiment_saved_metrics: PostgresTable = PostgresTable(
     name="experiment_saved_metrics",
     postgres_table_name="posthog_experimentsavedmetric",
-    access_scope="experiment",
-    # Grants on experiments are keyed by experiment id, which can never match a saved metric id.
-    resource_level_access_only=True,
+    access_scope="experiment_saved_metric",
+    access_control_creator_id_field="created_by_id",
     description="Reusable experiment metrics shared across experiments; one row per saved metric. "
     "Link them to experiments through experiment_to_saved_metrics.",
     fields={
