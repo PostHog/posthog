@@ -177,9 +177,12 @@ def normalize_site_url(raw: str) -> str:
 
     # Google lists domain properties as 'sc-domain:<lowercase domain>' and matches byte for byte.
     # Mobile keyboards capitalise the prefix, and domain names are case-insensitive, so rewrite it.
+    # A domain name can't hold a quote, so a stray one (often the closing quote of a value copied
+    # from one of our own error messages) is always safe to drop.
     domain_match = _DOMAIN_PROPERTY_PATTERN.fullmatch(site)
     if domain_match:
-        return "sc-domain:" + domain_match.group(1).strip().rstrip("/").strip().lower()
+        domain = domain_match.group(1).strip().strip(_PASTED_QUOTES).rstrip("/").strip()
+        return "sc-domain:" + domain.lower()
 
     # URL-prefix properties are canonically stored with a lowercase scheme and host and a
     # trailing slash. Schemes and hostnames are case-insensitive, so a value like

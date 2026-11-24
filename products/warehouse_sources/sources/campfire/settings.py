@@ -209,6 +209,43 @@ CAMPFIRE_ENDPOINTS: dict[str, CampfireEndpointConfig] = {
             child_params={"limit": DEFAULT_PAGE_SIZE},
         ),
     ),
+    # Prepaid commits and usage revenue hang off a contract too. Neither child documents a
+    # `last_modified_at` filter, so both are full refresh.
+    "prepaid_commits": CampfireEndpointConfig(
+        name="prepaid_commits",
+        path="/rr/api/v1/contracts/{contract_id}/prepaid-commits",
+        partition_key="created_at",
+        primary_keys=["contract", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="contracts",
+            resolve_param="contract_id",
+            resolve_field="id",
+            include_from_parent=[],
+            parent_params={"limit": DEFAULT_PAGE_SIZE},
+            child_params={"limit": DEFAULT_PAGE_SIZE},
+        ),
+    ),
+    "contract_usage_revenue": CampfireEndpointConfig(
+        name="contract_usage_revenue",
+        path="/rr/api/v1/contracts/{contract_id}/usage",
+        partition_key="created_at",
+        primary_keys=["contract", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="contracts",
+            resolve_param="contract_id",
+            resolve_field="id",
+            include_from_parent=[],
+            parent_params={"limit": DEFAULT_PAGE_SIZE},
+            child_params={"limit": DEFAULT_PAGE_SIZE},
+        ),
+    ),
+    # The intercompany entries that `journal_entries` rows reference through `intercompany_journal`.
+    "intercompany_journal_entries": CampfireEndpointConfig(
+        name="intercompany_journal_entries",
+        path="/coa/api/intercompany-journal-entry",
+        incremental_fields=LAST_MODIFIED_AT_FIELD,
+        partition_key="created_at",
+    ),
     # Custom dimensions are Campfire's transaction tags. Inactive tags still label historical
     # transactions, so they are requested too.
     "custom_dimensions": CampfireEndpointConfig(

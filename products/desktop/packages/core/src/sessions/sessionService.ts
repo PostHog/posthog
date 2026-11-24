@@ -624,6 +624,7 @@ export interface ReconcileTaskConnectionParams {
 }
 
 const ACTIVITY_HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000;
+const LOCAL_RUN_HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000;
 
 export type SessionPlan = Extract<SessionUpdate, { sessionUpdate: "plan" }>;
 
@@ -1824,6 +1825,10 @@ export class SessionService {
     string,
     { timer: ReturnType<typeof setInterval>; holders: number }
   >();
+  private localRunHeartbeats = new Map<
+    string,
+    ReturnType<typeof setInterval>
+  >();
   private localRepoPaths = new Map<string, string>();
   private localRecoveryAttempts = new Map<string, Promise<boolean>>();
   private sessionLastUsedAt = new Map<string, number>();
@@ -2364,10 +2369,12 @@ export class SessionService {
       const persistedFastMode =
         fastOpt?.type === "select" ? fastOpt.currentValue === "on" : undefined;
 
+      let workspaceMissing = false;
       this.d.trpc.workspace.verify
         .query({ taskId })
         .then((workspaceResult) => {
           if (!workspaceResult.exists) {
+            workspaceMissing = true;
             this.d.log.warn("Workspace no longer exists", {
               taskId,
               missingPath: workspaceResult.missingPath,
@@ -2378,6 +2385,7 @@ export class SessionService {
                 ? `Working directory no longer exists: ${workspaceResult.missingPath}`
                 : "The working directory for this task no longer exists. Please start a new session.",
             });
+            this.stopLocalRunHeartbeat(taskRunId);
           }
         })
         .catch((err) => {
@@ -2450,6 +2458,9 @@ export class SessionService {
           configOptions,
           ...readCapabilities(result),
         });
+        if (!workspaceMissing) {
+          this.startLocalRunHeartbeat(taskRunId);
+        }
 
         // Persist the merged config options
         if (configOptions) {
@@ -2584,6 +2595,7 @@ export class SessionService {
     errorMessage: string,
     errorTitle?: string,
   ): void {
+    this.stopLocalRunHeartbeat(taskRunId);
     // Preserve events and logUrl from the existing session so the
     // retry / reset flows can re-hydrate without a fresh log fetch.
     // Note: the error overlay is opaque, so these events aren't visible
@@ -2872,6 +2884,7 @@ export class SessionService {
     this.d.store.setSession(session);
     this.d.store.clearTaskStarting?.(taskId, taskRun.id);
     this.subscribeToChannel(taskRun.id);
+    this.startLocalRunHeartbeat(taskRun.id);
 
     this.d.track(ANALYTICS_EVENTS.TASK_RUN_STARTED, {
       task_id: taskId,
@@ -3292,6 +3305,45 @@ export class SessionService {
     });
   }
 
+  private startLocalRunHeartbeat(taskRunId: string): void {
+    const session = this.getSessionByRunId(taskRunId);
+    if (!session || session.isCloud || this.localRunHeartbeats.has(taskRunId)) {
+      return;
+    }
+    const { taskId } = session;
+    const beat = () => {
+      void this.sendLocalRunHeartbeat(taskId, taskRunId);
+    };
+    beat();
+    this.localRunHeartbeats.set(
+      taskRunId,
+      setInterval(beat, LOCAL_RUN_HEARTBEAT_INTERVAL_MS),
+    );
+  }
+
+  private async sendLocalRunHeartbeat(
+    taskId: string,
+    taskRunId: string,
+  ): Promise<void> {
+    try {
+      const client = await this.d.getAuthenticatedClient();
+      await client?.heartbeatTaskRun(taskId, taskRunId);
+    } catch (error) {
+      if (requestErrorStatus(error) === 409) {
+        this.stopLocalRunHeartbeat(taskRunId);
+        return;
+      }
+      this.d.log.warn("Local run heartbeat failed", { taskRunId, error });
+    }
+  }
+
+  private stopLocalRunHeartbeat(taskRunId: string): void {
+    const timer = this.localRunHeartbeats.get(taskRunId);
+    if (timer === undefined) return;
+    clearInterval(timer);
+    this.localRunHeartbeats.delete(taskRunId);
+  }
+
   /**
    * A subscription completing without an error means the host tore down the
    * transport rather than the agent finishing: the renderer would otherwise
@@ -3315,6 +3367,7 @@ export class SessionService {
         "Session subscription keeps ending without an error, giving up",
         { taskRunId, which, attempts },
       );
+      this.stopLocalRunHeartbeat(taskRunId);
       return;
     }
     this.hostEndedResubscribes.set(taskRunId, attempts);
@@ -3333,6 +3386,7 @@ export class SessionService {
     this.subscriptions.delete(taskRunId);
     subscription?.event.unsubscribe();
     subscription?.permission?.unsubscribe();
+    this.stopLocalRunHeartbeat(taskRunId);
     this.hostEndedResubscribes.delete(taskRunId);
     this.lastSessionEventAt.delete(taskRunId);
     this.sessionEventStats.delete(taskRunId);
@@ -3359,6 +3413,9 @@ export class SessionService {
     // Unsubscribe from all active subscriptions
     for (const taskRunId of this.subscriptions.keys()) {
       this.unsubscribeFromChannel(taskRunId);
+    }
+    for (const taskRunId of [...this.localRunHeartbeats.keys()]) {
+      this.stopLocalRunHeartbeat(taskRunId);
     }
 
     // Clean up all cloud task watchers

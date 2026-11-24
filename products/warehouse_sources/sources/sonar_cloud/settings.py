@@ -210,6 +210,69 @@ SONAR_CLOUD_ENDPOINTS: dict[str, SonarCloudEndpointConfig] = {
             parent_field_renames={"key": "project_key"},
         ),
     ),
+    # The analyses of each project's main branch, with the events (version, quality gate and quality
+    # profile changes) attached to each.
+    "project_analyses": SonarCloudEndpointConfig(
+        name="project_analyses",
+        path="project_analyses/search?project={project}",
+        requires_organization=False,
+        data_key="analyses",
+        primary_keys=["project_key", "key"],
+        partition_key="date",
+        fanout=DependentEndpointConfig(
+            parent_name="projects",
+            resolve_param="project",
+            resolve_field="key",
+            include_from_parent=["key"],
+            parent_field_renames={"key": "project_key"},
+            child_params={"ps": MAX_PAGE_SIZE},
+        ),
+    ),
+    "project_branches": SonarCloudEndpointConfig(
+        name="project_branches",
+        path="project_branches/list?project={project}",
+        requires_organization=False,
+        data_key="branches",
+        primary_keys=["project_key", "name"],
+        paginated=False,
+        fanout=DependentEndpointConfig(
+            parent_name="projects",
+            resolve_param="project",
+            resolve_field="key",
+            include_from_parent=["key"],
+            parent_field_renames={"key": "project_key"},
+        ),
+    ),
+    # Both user group tables need the organization's Administer permission, so they are off by default.
+    "user_groups": SonarCloudEndpointConfig(
+        name="user_groups",
+        path="user_groups/search",
+        data_key="groups",
+        primary_keys=["id"],
+        should_sync_default=False,
+    ),
+    "user_group_members": SonarCloudEndpointConfig(
+        name="user_group_members",
+        path="user_groups/users?id={id}",
+        data_key="users",
+        primary_keys=["group_id", "login"],
+        should_sync_default=False,
+        fanout=DependentEndpointConfig(
+            parent_name="user_groups",
+            resolve_param="id",
+            resolve_field="id",
+            include_from_parent=["id", "name"],
+            parent_field_renames={"id": "group_id", "name": "group_name"},
+            child_params={"selected": "selected", "ps": MAX_PAGE_SIZE},
+        ),
+    ),
+    # Unpaginated: the default page size of 0 returns every language.
+    "languages": SonarCloudEndpointConfig(
+        name="languages",
+        path="languages/list",
+        data_key="languages",
+        paginated=False,
+    ),
 }
 
 ENDPOINTS = tuple(SONAR_CLOUD_ENDPOINTS.keys())

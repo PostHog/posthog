@@ -670,6 +670,20 @@ export interface AnomalyPointsResponseApi {
     series: AnomalySeriesPointsApi[]
 }
 
+export interface AnomalyIntervalRangeApi {
+    /** The bucket interval.
+     *
+     * * `hour` - Hour
+     * * `day` - Day
+     * * `week` - Week
+     * * `month` - Month */
+    interval: AnomalyIntervalEnumApi
+    /** The applied start of the range for series of this interval, in the project timezone. For `week` it is never later than the start of the last 2 completed weeks, and for `month` the start of the last completed month, so a short range still checks them. For `hour` and `day` it is the requested start. */
+    date_from: string
+    /** The applied end of the range, in the project timezone. */
+    date_to: string
+}
+
 /**
  * * `series` - Series
  * * `insight` - Insight
@@ -684,14 +698,12 @@ export const AnomalyGroupByEnumApi = {
 /**
  * * `unusual` - Unusual
  * * `recent` - Recent
- * * `rate` - Rate
  */
 export type AnomalyOrderEnumApi = (typeof AnomalyOrderEnumApi)[keyof typeof AnomalyOrderEnumApi]
 
 export const AnomalyOrderEnumApi = {
     Unusual: 'unusual',
     Recent: 'recent',
-    Rate: 'rate',
 } as const
 
 export interface AnomalyFlaggedPointApi {
@@ -854,10 +866,12 @@ export interface AnomalySearchResponseApi {
     scored_days: number
     /** True when `scored_days` is 14 or more. Until then the project has too little scored history to rely on its scores, even when `scoring_enabled` is true. */
     scored_history_ready: boolean
-    /** The applied start of the range, in the project timezone. */
+    /** The requested start of the range, in the project timezone. Weekly and monthly series can use an earlier start: see `interval_ranges`. */
     date_from: string
     /** The applied end of the range, in the project timezone. */
     date_to: string
+    /** The range applied to the series of each interval the search covers, from `hour` to `month`. Only the requested `interval` when one was passed. Every count of a series row covers the range of its interval. */
+    interval_ranges: AnomalyIntervalRangeApi[]
     /** The applied grouping.
      *
      * * `series` - Series
@@ -866,17 +880,12 @@ export interface AnomalySearchResponseApi {
     /** The applied order.
      *
      * * `unusual` - Unusual
-     * * `recent` - Recent
-     * * `rate` - Rate */
+     * * `recent` - Recent */
     order: AnomalyOrderEnumApi
     /** One row per series, in the requested `order`. Empty unless `group_by` is `series`. */
     series: AnomalySeriesApi[]
     /** One row per insight, in the requested `order`. Empty unless `group_by` is `insight`. */
     insights: AnomalyInsightRowApi[]
-    /** The applied noise filter limit. 1 means the filter is off. */
-    max_anomaly_rate: number
-    /** Series that match every other filter but that the noise filter hid, because their anomaly rate over the chart window is above `max_anomaly_rate`. They are left out of the rows, the insight counts and `has_more`. Pass a higher `max_anomaly_rate`, or 1, to see them. */
-    hidden_series: number
     /** True when rows exist after this page. Read them with `offset` set to `offset + limit`. */
     has_more: boolean
     /** True when `limit` or a read cap left rows out. */
@@ -888,6 +897,18 @@ export interface AnomalySearchResponseApi {
      * @nullable
      */
     message: string | null
+    /**
+     * The newest scored bucket of any series that matches the filters, in the project timezone. It does not depend on `order`, `only_flagged` or the page. Null when no bucket in the range was scored.
+     * @nullable
+     */
+    scored_through: string | null
+    /**
+     * The `viewed_within_days` of the request. Null when it passed none, so the result covers every insight in the project. When `viewed_scope_empty` is true, the result covers every insight too.
+     * @nullable
+     */
+    viewed_within_days: number | null
+    /** True when the request passed `viewed_within_days` and the caller viewed no insight or dashboard with an insight in that window, so the result covers every insight in the project instead. */
+    viewed_scope_empty: boolean
 }
 
 /**
@@ -930,6 +951,13 @@ export interface SignalTeamConfigApi {
      * @nullable
      */
     autostart_enabled?: boolean | null
+    /** Lowest report priority that agents open PRs for, from P0 (highest) to P4 (every priority). Reads as P2 for a project that never set autostart_enabled and still stores the P4 default. Setting autostart_enabled on such a project stores P2, and choosing P4 here also sets autostart_enabled to true.
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
     default_autostart_priority?: AutonomyPriorityEnumApi
     /**
      * Default Slack channel for this team's signal inbox notifications, in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null means no team-level default; per-user channels still apply.
@@ -1255,6 +1283,7 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `endpoints` - Endpoints
  * * `replay_vision` - Replay Vision
  * * `analytics` - Product analytics
+ * * `slack` - Slack
  * * `freshdesk` - Freshdesk
  * * `freshservice` - Freshservice
  * * `front` - Front
@@ -1417,6 +1446,7 @@ export const SignalSourceProductEnumApi = {
     Endpoints: 'endpoints',
     ReplayVision: 'replay_vision',
     Analytics: 'analytics',
+    Slack: 'slack',
     Freshdesk: 'freshdesk',
     Freshservice: 'freshservice',
     Front: 'front',
@@ -1630,6 +1660,7 @@ export interface InboxOnboardingSourceApi {
      * * `endpoints` - Endpoints
      * * `replay_vision` - Replay Vision
      * * `analytics` - Product analytics
+     * * `slack` - Slack
      * * `freshdesk` - Freshdesk
      * * `freshservice` - Freshservice
      * * `front` - Front
@@ -5043,6 +5074,7 @@ export interface SignalReportLeaveReviewersApi {
  * * `health_checks` - health_checks
  * * `replay_vision` - replay_vision
  * * `analytics` - analytics
+ * * `slack` - slack
  * * `freshdesk` - freshdesk
  * * `freshservice` - freshservice
  * * `front` - front
@@ -5205,6 +5237,7 @@ export const SignalSourceProductApi = {
     HealthChecks: 'health_checks',
     ReplayVision: 'replay_vision',
     Analytics: 'analytics',
+    Slack: 'slack',
     Freshdesk: 'freshdesk',
     Freshservice: 'freshservice',
     Front: 'front',
@@ -7126,6 +7159,7 @@ export interface SignalNodeApi {
      * * `health_checks` - health_checks
      * * `replay_vision` - replay_vision
      * * `analytics` - analytics
+     * * `slack` - slack
      * * `freshdesk` - freshdesk
      * * `freshservice` - freshservice
      * * `front` - front
@@ -7336,6 +7370,8 @@ export interface ReportSpendApi {
     implementation: SpendAmountApi
     /** Full usage of scout runs that authored this report. Shared with all other output of those runs. */
     shared_scout_runs: SpendAmountApi
+    /** Whether a scout run authored this report directly. Such a report has no generation usage of its own. */
+    scout_authored: boolean
 }
 
 /**
@@ -9233,7 +9269,7 @@ export interface SignalScoutConfigApi {
      * @nullable
      */
     readonly effective_precheck_query: string | null
-    /** Where `effective_precheck_query` comes from: `config` (this scout's `precheck_query`), `skill_default` (the default its skill ships), or `off` (no pre-check runs). */
+    /** Where `effective_precheck_query` comes from: `config` (this scout's `precheck_query`), `skill_default` (the default its skill ships), or `off` (no pre-check runs). `skill_default` with a null `effective_precheck_query` means the scout runs a built-in check in code. */
     readonly precheck_query_source: ScoutPrecheckQuerySourceEnumApi
     /**
      * When a scheduled run last evaluated this scout's pre-check. A skipped run writes no run row, so this stays recent while `last_run_at` ages. Null if no pre-check has run.
@@ -12861,6 +12897,67 @@ export interface ScoutSuggestionRefreshApi {
     workflow_id: string
 }
 
+export interface SlackChannelScoutCreateApi {
+    /**
+     * Name shown wherever people identify this scout. The scout's skill name is generated from it.
+     * @maxLength 200
+     */
+    display_name: string
+    /** Id of the Slack data warehouse source to read. */
+    source_id: string
+    /**
+     * Ids of the channels to read, at most 20. Every channel must already have synced its message table.
+     * @minItems 1
+     * @maxItems 20
+     * @items.maxLength 64
+     */
+    channel_ids: string[]
+    /**
+     * What the scout looks for in the messages, in plain words. Blank uses a default focus on bug reports, repeated requests, and complaints.
+     * @maxLength 4000
+     */
+    steer?: string
+    /**
+     * Optional five-field cron expression evaluated in the project timezone, e.g. '0 9 * * 1-5'. Occurrences must be at least 30 minutes apart. Omit for the daily default.
+     * @maxLength 100
+     * @nullable
+     */
+    run_cron_schedule?: string | null
+    /** Whether the scout files reports in the inbox. False is a dry run: it runs and logs only. */
+    emit?: boolean
+}
+
+export interface SlackChannelScoutCreateResponseApi {
+    /** True when this request created the scout. */
+    created: boolean
+    /** The new scout's skill name, its permanent identifier. Its config records the Slack source as owner. */
+    skill_name: string
+}
+
+export interface SlackScoutChannelApi {
+    /** The Slack channel id, which is also the name of its warehouse schema. */
+    id: string
+    /** The channel name, without the leading #. */
+    name: string
+    /**
+     * HogQL name of the channel's message table. Null until the channel's first sync writes the table.
+     * @nullable
+     */
+    table_name: string | null
+}
+
+export interface SlackScoutChannelSourceApi {
+    /** Id of the Slack data warehouse source. */
+    id: string
+    /** Channels the source syncs, ordered by name. */
+    channels: SlackScoutChannelApi[]
+}
+
+export interface SlackScoutChannelSourcesApi {
+    /** The project's Slack data warehouse sources. Empty when the project has not connected Slack. */
+    sources: SlackScoutChannelSourceApi[]
+}
+
 export type SignalSourceSyncStatusEnumApi =
     (typeof SignalSourceSyncStatusEnumApi)[keyof typeof SignalSourceSyncStatusEnumApi]
 
@@ -13794,12 +13891,6 @@ export type SignalsAnomaliesSearchRetrieveParams = {
      */
     limit?: number
     /**
-     * The noise filter: hide flagged series whose anomaly rate over the chart window of their interval is above this share, from 0 to 1. The chart window is the one `include_points` describes, not the requested range. A series flagged in many of its buckets is noisy, not unusual. Defaults to 0.1. Pass 1 to turn the filter off. A series with fewer than 10 scored buckets in its chart window is always shown, because its rate means little. `hidden_series` in the response counts the series it hid.
-     * @minimum 0
-     * @maximum 1
-     */
-    max_anomaly_rate?: number
-    /**
      * Rows to skip in the sorted result. Pass the previous `offset` plus `limit` when `has_more` is true.
      * @minimum 0
      * @maximum 10000
@@ -13810,11 +13901,10 @@ export type SignalsAnomaliesSearchRetrieveParams = {
      */
     only_flagged?: boolean
     /**
-     * `unusual` puts flagged series first, and among them the series that flagged the smallest share of the scored buckets in the chart window of its interval, because a flag on a series that rarely flags is the surprising one. A series with fewer than 10 scored buckets in its chart window sorts after the series with a share. The chart window ends at `date_to` and does not follow `date_from`. `recent` puts the series whose newest flagged bucket ended last first, whatever its interval, so an hour flagged this morning sorts above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
+     * `unusual` puts flagged series first, and among them the series that flagged the smallest share of the scored buckets in the chart window of its interval, because a flag on a series that rarely flags is the surprising one. A series with fewer than 10 scored buckets in its chart window sorts after the series with a share. The chart window ends at `date_to` and does not follow `date_from`. `recent` puts the series whose newest flagged bucket ended last first, whatever its interval, so an hour flagged this morning sorts above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as `unusual`. With `group_by: insight`, each insight sorts by its first series.
      *
      * * `unusual` - Unusual
      * * `recent` - Recent
-     * * `rate` - Rate
      * @minLength 1
      */
     order?: SignalsAnomaliesSearchRetrieveOrder
@@ -13823,6 +13913,16 @@ export type SignalsAnomaliesSearchRetrieveParams = {
      * @maxLength 200
      */
     search?: string
+    /**
+     * Only the insights the caller viewed in this many days: insights they opened, and insights on the dashboards they opened, with the tiles those dashboards have now. Views count only in the web app, not through the API or an MCP tool. Without it the search covers every insight in the project. When the caller viewed no insight in the window, the search covers every insight and `viewed_scope_empty` is true.
+     *
+     * * `7` - 7
+     * * `14` - 14
+     * * `30` - 30
+     * * `45` - 45
+     * * `90` - 90
+     */
+    viewed_within_days?: SignalsAnomaliesSearchRetrieveViewedWithinDays
 }
 
 export type SignalsAnomaliesSearchRetrieveGroupBy =
@@ -13849,7 +13949,17 @@ export type SignalsAnomaliesSearchRetrieveOrder =
 export const SignalsAnomaliesSearchRetrieveOrder = {
     Unusual: 'unusual',
     Recent: 'recent',
-    Rate: 'rate',
+} as const
+
+export type SignalsAnomaliesSearchRetrieveViewedWithinDays =
+    (typeof SignalsAnomaliesSearchRetrieveViewedWithinDays)[keyof typeof SignalsAnomaliesSearchRetrieveViewedWithinDays]
+
+export const SignalsAnomaliesSearchRetrieveViewedWithinDays = {
+    Number7: 7,
+    Number14: 14,
+    Number30: 30,
+    Number45: 45,
+    Number90: 90,
 } as const
 
 export type SignalsProcessingListParams = {
@@ -13939,6 +14049,10 @@ export type SignalsReportsListParams = {
      */
     plan?: string
     /**
+     * Requires task_id. When true, keeps only the reports that the task's pull requests and commits link to: its source report, the reports the task attached a pull request to, and its pipeline, legacy and assignment associations. A report that the task only claimed is kept only when the task has no other report.
+     */
+    pr_targets?: boolean
+    /**
      * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
      */
     priority?: string
@@ -14004,7 +14118,7 @@ export type SignalsReportsListParams = {
      */
     teammate_uuid?: string
     /**
-     * Filter by whether the report has no owner and no draft, open, or unknown PR. Resolved reports are never unclaimed.
+     * Filter by whether the report has no active claim and no draft, open, or unknown PR. True returns the reports with no work in progress. Suggested reviewers do not count as a claim. Resolved reports are never unclaimed. A suppressed report can be unclaimed, but it cannot be claimed until it is restored.
      */
     unclaimed?: boolean
     /**
@@ -14249,6 +14363,10 @@ export type SignalsReportsSectionCountsRetrieveParams = {
      */
     needs_you?: boolean
     /**
+     * Requires task_id. When true, keeps only the reports that the task's pull requests and commits link to: its source report, the reports the task attached a pull request to, and its pipeline, legacy and assignment associations. A report that the task only claimed is kept only when the task has no other report.
+     */
+    pr_targets?: boolean
+    /**
      * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
      */
     priority?: string
@@ -14302,7 +14420,7 @@ export type SignalsReportsSectionCountsRetrieveParams = {
      */
     teammate_uuid?: string
     /**
-     * Filter by whether the report has no owner and no draft, open, or unknown PR. Resolved reports are never unclaimed.
+     * Filter by whether the report has no active claim and no draft, open, or unknown PR. True returns the reports with no work in progress. Suggested reviewers do not count as a claim. Resolved reports are never unclaimed. A suppressed report can be unclaimed, but it cannot be claimed until it is restored.
      */
     unclaimed?: boolean
     /**
@@ -14329,6 +14447,11 @@ export type SignalsScoutConfigListParams = {
      * @minLength 1
      */
     search?: string
+    /**
+     * Returns only the scouts another product stood up for one of its own objects, e.g. `slack` for Slack channel scouts or `replay_vision` for Replay Vision scanner scouts. Omit for the whole fleet.
+     * @minLength 1
+     */
+    source_product?: string
     /**
      * Comma-separated tags, e.g. `revenue,on-call`. Returns the scouts carrying at least one of them. Values are normalized the same way stored tags are, so `On Call` matches `on-call`. Omit for the whole fleet.
      * @minLength 1

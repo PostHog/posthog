@@ -4,19 +4,17 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { useActions } from 'kea'
-import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
 import { FEATURE_FLAGS, STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
-import { App } from 'scenes/App'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
 import { SettingSectionId } from '../types'
+import { SETTINGS_STORY_TEST_OPTIONS, SettingsStoryApp } from './SettingsStoryApp'
 import { withTodayRailNav } from './withTodayRailNav'
 
 interface StoryProps {
@@ -31,6 +29,7 @@ const meta: Meta<StoryProps> = {
         viewMode: 'story',
         mockDate: '2023-05-25',
         featureFlags: STORYBOOK_FEATURE_FLAGS,
+        testOptions: SETTINGS_STORY_TEST_OPTIONS,
     },
     decorators: [
         mswDecorator({
@@ -83,14 +82,7 @@ const meta: Meta<StoryProps> = {
             },
         }),
     ],
-    render: ({ sectionId }: StoryProps) => {
-        // Navigate synchronously before <App /> mounts so it renders the settings scene directly,
-        // never the project homepage. A useEffect push fires after the first paint, so the snapshot
-        // can race and capture the homepage frame instead.
-        router.actions.push(urls.settings(sectionId))
-
-        return <App />
-    },
+    render: ({ sectionId }: StoryProps) => <SettingsStoryApp sectionId={sectionId} />,
 }
 export default meta
 
@@ -126,13 +118,12 @@ export const SettingsEnvironmentHeatmapsScreenshotCookie: Story = {
     ],
     render: ({ sectionId }: StoryProps) => {
         const { loadCurrentTeamSuccess } = useActions(teamLogic)
-        const [initializedSection, setInitializedSection] = useState<SettingSectionId | null>(null)
+        const [teamOverridden, setTeamOverridden] = useState(false)
         useEffect(() => {
             loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, heatmaps_screenshot_secret: 'phh_example1234abcd' })
-            router.actions.push(urls.settings(sectionId))
-            setInitializedSection(sectionId)
-        }, [loadCurrentTeamSuccess, sectionId])
-        return <>{initializedSection === sectionId && <App />}</>
+            setTeamOverridden(true)
+        }, [loadCurrentTeamSuccess])
+        return <>{teamOverridden && <SettingsStoryApp sectionId={sectionId} />}</>
     },
 }
 

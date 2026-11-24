@@ -70,7 +70,7 @@ if TYPE_CHECKING:
 
 
 class TestResolveSandboxAiProduct:
-    """Must agree with resolveAiProduct/resolveGatewayProduct in
+    """Must agree with resolveAiProduct in
     packages/agent/packages/agent/src/utils/gateway.ts — a disagreement makes a
     routed run mint no token (degrades to Python) or mint an unused token."""
 
@@ -109,9 +109,10 @@ class TestResolveSandboxAiProduct:
         assert resolve_sandbox_ai_product("review_hog", "validation-c1") == "posthog_code"
         assert resolve_sandbox_ai_product("review_hog", None, internal=False) == "posthog_code"
 
-    def test_account_audit_requires_the_server_stamped_internal_flag(self):
-        assert resolve_sandbox_ai_product("account_audit", None, internal=True) == "account_audit"
-        assert resolve_sandbox_ai_product("account_audit", None, internal=False) == "posthog_code"
+    @pytest.mark.parametrize("origin_product", ["account_audit", "autoresearch"])
+    def test_reserved_origin_requires_the_server_stamped_internal_flag(self, origin_product):
+        assert resolve_sandbox_ai_product(origin_product, None, internal=True) == origin_product
+        assert resolve_sandbox_ai_product(origin_product, None, internal=False) == "posthog_code"
 
     def test_unmapped_internal_is_background_agents(self):
         assert resolve_sandbox_ai_product("image_builder", None, internal=True) == "background_agents"
@@ -157,14 +158,10 @@ class TestSharedRoutingContract:
         "case", _CASES["resolve_ai_product"], ids=lambda c: f"{c['origin_product']}/{c['ai_stage']}"
     )
     def test_resolve_matches_contract(self, case):
-        assert (
-            resolve_sandbox_ai_product(
-                case["origin_product"],
-                case["ai_stage"],
-                internal=case["internal"],
-            )
-            == case["expected"]
-        )
+        assert [
+            resolve_sandbox_ai_product(case["origin_product"], None, internal=case["internal"]),
+            resolve_sandbox_ai_product(case["origin_product"], case["ai_stage"], internal=case["internal"]),
+        ] == [case["product"], case["expected"]]
 
     @pytest.mark.parametrize("case", _CASES["routed"], ids=lambda c: f"{c['origin_product']}/{c['ai_stage']}")
     def test_routed_matches_contract(self, case):
@@ -194,6 +191,14 @@ class TestSandboxProductRouted:
 
     def test_whitespace_and_blank_entries_tolerated(self):
         assert sandbox_product_routed("signals_custom_agent", "custom_agent", " , signals_custom_agent , ")
+
+
+@pytest.fixture(autouse=True)
+def run_tokens_are_recorded(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "products.tasks.backend.temporal.process_task.ai_gateway_token._remember_run_token",
+        lambda run_id, token: True,
+    )
 
 
 @pytest.fixture
@@ -257,6 +262,7 @@ class TestMintScopedToken:
     def test_private_mint_revokes_an_unacknowledged_token(
         self, mint_settings, capture_mode: object, gateway_config: AIGatewayConfig | None
     ) -> None:
+        mint_settings.SANDBOX_AI_GATEWAY_WORKER_URL = "http://localhost:18080"
         with patch.object(internal_requests if gateway_config is not None else requests, "post") as post:
             post.side_effect = [
                 self._response(201, {"token": "phe_ordinary", "capture_mode": capture_mode}),
@@ -269,8 +275,9 @@ class TestMintScopedToken:
                 is None
             )
         assert post.call_count == 2
-        expected_url = gateway_config.url.rstrip("/") if gateway_config else "https://ai-gateway.dev.posthog.dev/v1"
+        expected_url = gateway_config.url.rstrip("/") if gateway_config else "http://localhost:18080/v1"
         expected_key = gateway_config.api_key if gateway_config else "phs_test_mint"
+        assert post.call_args_list[0].args == (f"{expected_url}/tokens",)
         assert post.call_args.args == (f"{expected_url}/tokens/revoke",)
         assert post.call_args.kwargs["json"] == {"token": "phe_ordinary"}
         assert post.call_args.kwargs["headers"] == {"Authorization": f"Bearer {expected_key}"}
@@ -333,7 +340,8 @@ class TestMintScopedToken:
         assert body["allowed_models"] == _PRODUCT_ALLOWED_MODELS["review_hog"]
 
     @pytest.mark.parametrize(
-        "product", ["posthog_ai", "account_audit", "background_agents", "review_hog", "slack_app", "workflows"]
+        "product",
+        ["posthog_ai", "account_audit", "autoresearch", "background_agents", "review_hog", "slack_app", "workflows"],
     )
     def test_model_pin_follows_the_catalog(self, product):
         from products.tasks.backend.facade.run_config import RuntimeAdapter, get_models_for_runtime_adapter
@@ -598,7 +606,6 @@ class TestMintableGate:
     @pytest.mark.parametrize(
         "origin_product,mints",
         [
-            ("autoresearch", True),
             ("business_knowledge", True),
             ("context_layer", True),
             ("knowledge_writer", True),
@@ -1485,6 +1492,24 @@ class TestMintRefusalScope:
         with patch(_CREDIT_LOOKUP, return_value="org_deactivated"):
             assert mint_refusal("workflows", team_id=2, state=None, model=None, runtime="acp") == "org_deactivated"
 
+    @pytest.mark.parametrize(
+        "product,origin,internal,expected",
+        [
+            ("account_audit", "account_audit", True, None),
+            ("account_audit", "account_audit", False, "no_account_audit_provenance"),
+            ("autoresearch", "autoresearch", True, None),
+            ("autoresearch", "autoresearch", False, "no_autoresearch_provenance"),
+            ("autoresearch", "business_knowledge", True, "no_autoresearch_provenance"),
+        ],
+    )
+    def test_reserved_product_requires_its_own_server_origin(self, product, origin, internal, expected):
+        assert (
+            mint_refusal(
+                product, team_id=2, state=None, model=None, runtime="acp", internal=internal, origin_product=origin
+            )
+            == expected
+        )
+
     @pytest.mark.parametrize("product", ["workflows", "review_hog", "signals_scout"])
     def test_slack_provenance_gate_leaves_other_products_alone(self, product):
         with patch(_CREDIT_LOOKUP, return_value=None):
@@ -1689,16 +1714,18 @@ class TestPosthogAiMint:
     [
         ("account_audit", True, True),
         ("account_audit", False, False),
+        ("autoresearch", True, True),
+        ("autoresearch", False, False),
     ],
 )
-def test_account_audit_cost_routing_requires_server_provenance(
+def test_reserved_origin_cost_routing_requires_server_provenance(
     settings: Settings, origin: str, internal: bool, mints: bool
 ) -> None:
     settings.SANDBOX_AI_GATEWAY_URL = "https://ai-gateway.example.com"
-    settings.SANDBOX_AI_GATEWAY_PRODUCTS = "account_audit"
+    settings.SANDBOX_AI_GATEWAY_PRODUCTS = origin
     settings.SANDBOX_AI_GATEWAY_MINT_KEY = "phs_test_mint"
-    # A non-internal account_audit origin resolves to posthog_code, which is unrouted here.
-    resolves_to_posthog_code = origin == "account_audit" and not internal
+    # A non-internal reserved origin resolves to posthog_code, which is unrouted here.
+    resolves_to_posthog_code = not internal
     with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value="phe_test") as mint:
         refused = False
         try:
@@ -1711,7 +1738,7 @@ def test_account_audit_cost_routing_requires_server_provenance(
     assert ("AI_GATEWAY_TOKEN" in env) is mints
     assert mint.called is mints
     if mints:
-        mint.assert_called_once_with(ai_product="account_audit", team_id=123, user=None)
+        mint.assert_called_once_with(ai_product=origin, team_id=123, user=None)
 
 
 @pytest.mark.parametrize("internal", [True, False])

@@ -169,6 +169,7 @@ from products.signals.backend.models import (
     SignalSourceConfig,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
+    effective_autostart_priority,
 )
 from products.signals.backend.personal_ranking.config import PERSONAL_INBOX_RANKING_FLAG
 from products.signals.backend.personal_ranking.list_sort import (
@@ -446,6 +447,7 @@ from products.signals.backend.throttles import (
     report_task_run_throttled,
 )
 from products.signals.backend.tracker_issues import tracker_issue_completion_lock
+from products.signals.backend.transition_credit import TransitionCredit, resolve_transition_credit
 from products.signals.backend.trial.policy import TrialPolicy
 from products.signals.backend.trial.service import TrialService
 from products.tasks.backend.facade import api as tasks_facade
@@ -2105,6 +2107,18 @@ _REPORT_LIST_PARAMETERS = [
         description="Only reports associated with this task (via the report's task associations).",
     ),
     OpenApiParameter(
+        name="pr_targets",
+        type=OpenApiTypes.BOOL,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "Requires task_id. When true, keeps only the reports that the task's pull requests and commits "
+            "link to: its source report, the reports the task attached a pull request to, and its pipeline, "
+            "legacy and assignment associations. A report that the task only claimed is kept only when the "
+            "task has no other report."
+        ),
+    ),
+    OpenApiParameter(
         name="has_implementation_pr",
         type=OpenApiTypes.BOOL,
         location=OpenApiParameter.QUERY,
@@ -2121,8 +2135,10 @@ _REPORT_LIST_PARAMETERS = [
         location=OpenApiParameter.QUERY,
         required=False,
         description=(
-            "Filter by whether the report has no owner and no draft, open, or unknown PR. "
-            "Resolved reports are never unclaimed."
+            "Filter by whether the report has no active claim and no draft, open, or unknown PR. "
+            "True returns the reports with no work in progress. Suggested reviewers do not count as a claim. "
+            "Resolved reports are never unclaimed. A suppressed report can be unclaimed, but it cannot be claimed "
+            "until it is restored."
         ),
     ),
     OpenApiParameter(
@@ -3006,16 +3022,23 @@ class SignalReportViewSet(
 
     def _apply_signal_report_task_filter(self, queryset):
         # Reports a given task is associated with — used by running agents ("which reports am I
-        # working against?") and by the agent harness to fan commit artefacts out to them. Uses the
-        # unified association (task_run artefacts + legacy SignalReportTask); the team-scoped outer
-        # queryset keeps the result within the project.
+        # working against?"). Uses the unified association (task_run artefacts + legacy
+        # SignalReportTask); the team-scoped outer queryset keeps the result within the project.
+        # `pr_targets=true` narrows it to the reports the task's PRs link to. The agent harness uses
+        # it to write commit artefacts, so that a task which claims many reports does not put its
+        # commits on all of them.
+        pr_targets = self._bool_query_param("pr_targets")
         task_filter = self.request.query_params.get("task_id")
         if not task_filter:
+            if pr_targets:
+                raise serializers.ValidationError({"pr_targets": "Requires task_id."})
             return queryset
         try:
             task_uuid = uuid.UUID(task_filter.strip())
         except (ValueError, AttributeError) as e:
             raise serializers.ValidationError({"task_id": f"Invalid task UUID: {e}"})
+        if pr_targets:
+            return queryset.filter(id__in=SignalReport.pr_target_report_ids_for_tasks(self.team.id, [task_uuid]))
         return queryset.filter(SignalReport.reports_for_task_filter(task_uuid))
 
     def _apply_signal_report_priority_filter(self, queryset):
@@ -3025,12 +3048,7 @@ class SignalReportViewSet(
             personal_threshold = (
                 SignalUserAutonomyConfig.objects.filter(user=user).values_list("autostart_priority", flat=True).first()
             )
-            project_threshold = (
-                SignalTeamConfig.objects.filter(team=self.team)
-                .values_list("default_autostart_priority", flat=True)
-                .first()
-                or AutonomyPriority.P4
-            )
+            project_threshold = effective_autostart_priority(SignalTeamConfig.objects.filter(team=self.team).first())
             threshold = personal_threshold or project_threshold
             values = AutonomyPriority.values[: AutonomyPriority.values.index(threshold) + 1]
             return queryset.filter(inbox_priority_sort_rank__in=self._priority_ranks(values))
@@ -5287,6 +5305,18 @@ class SignalReportViewSet(
             self._cached_request_attribution = resolve_request_attribution(self.request, self.team.id)
         return self._cached_request_attribution
 
+    def _request_credit(self) -> TransitionCredit | None:
+        """The person this request's transitions name, resolved once and reused like `_request_attribution`."""
+        if not hasattr(self, "_cached_request_credit"):
+            user = self.request.user
+            self._cached_request_credit = resolve_transition_credit(
+                self._request_attribution(),
+                None,
+                team_id=self.team.id,
+                actor_user=user if isinstance(user, User) else None,
+            )
+        return self._cached_request_credit
+
     def _latest_selected_repository(self, report_id: str) -> str | None:
         """The repository named by the report's latest repo_selection artefact, if any."""
         artefact = (
@@ -5522,6 +5552,7 @@ class SignalReportViewSet(
                         monitoring_started_at=timezone.now(),
                         attribution=self._request_attribution(),
                         actor_user=self.request.user if isinstance(self.request.user, User) else None,
+                        credit=self._request_credit(),
                         close_pr_on_resolve=True,
                     )
                 except (InvalidStatusTransition, ValueError):
@@ -5593,7 +5624,8 @@ class SignalReportViewSet(
                 # on the linked pull request and tracker issue. An external agent keeps its user
                 # principal, so it names the person who ran it rather than nobody.
                 report._transition_actor = self._request_attribution()  # type: ignore[attr-defined]
-                report._transition_actor_user = self.request.user  # type: ignore[attr-defined]
+                report._transition_credit = self._request_credit()  # type: ignore[attr-defined]
+                report._transition_credit_resolved = True  # type: ignore[attr-defined]
                 # Read under the row lock, so two concurrent dismissals count as one new suppression.
                 report._newly_suppressed = target_status == SignalReport.Status.SUPPRESSED  # type: ignore[attr-defined]
 

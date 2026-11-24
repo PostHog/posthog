@@ -228,6 +228,33 @@ describe('createSetupDetectionLogic', () => {
         }
     )
 
+    it.each([
+        ['has-data', 1, 'has-data'],
+        [null, 2, 'waiting-for-data'],
+    ] as const)(
+        'on a recheck action whose payload gives %s, runs detection %s time(s) in total',
+        async (fromPayload, calls, expected) => {
+            const detect = jest
+                .fn<Promise<ProductSetupStatus>, []>()
+                .mockResolvedValueOnce('needs-setup')
+                .mockResolvedValue('waiting-for-data')
+            const logic = createSetupDetectionLogic({
+                productKey: ProductKey.LOGS,
+                path: ['test', 'setupDetectionLogic'],
+                detect,
+                recheckActionTypes: () => [teamLogic.actionTypes.updateCurrentTeamSuccess],
+                statusFromRecheck: () => fromPayload,
+            }).build()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            teamLogic.actions.updateCurrentTeamSuccess(MOCK_DEFAULT_TEAM, undefined)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(detect).toHaveBeenCalledTimes(calls)
+            expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe(expected)
+        }
+    )
+
     it('with cacheHasData, remembers has-data and skips detection on the next mount', async () => {
         const onDetected = jest.fn()
         const buildCached = (

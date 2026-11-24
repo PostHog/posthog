@@ -1,5 +1,7 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
+import { dayjs } from 'lib/dayjs'
+
 import { initKeaTests } from '~/test/init'
 import { ScheduledChangeModels, ScheduledChangeOperationType, ScheduledChangeType, UserBasicType } from '~/types'
 
@@ -52,4 +54,71 @@ describe('featureFlagScheduleEditLogic', () => {
             expect(logic.values.editPayloadValue).toBe(false)
         }
     )
+
+    describe('cron edits', () => {
+        // The stored next run is Friday 13 Nov 12:00, and "now" is the day before.
+        const fridayNoonSchedule: ScheduledChangeType = {
+            ...scheduledChange,
+            scheduled_at: '2026-11-13T12:00:00.000Z',
+            end_date: null,
+            cron_expression: '0 12 * * 5',
+        }
+
+        beforeEach(() => {
+            jest.useFakeTimers()
+            jest.setSystemTime(new Date('2026-11-12T15:27:00.000Z'))
+            initKeaTests(true, { ...MOCK_DEFAULT_TEAM, timezone: 'UTC' })
+            logic = featureFlagScheduleEditLogic({ id: 1 })
+            logic.mount()
+            logic.actions.openEdit(fridayNoonSchedule)
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        test.each([
+            ['an earlier time', ['0 11 * * 5'], '2026-11-13 11:00'],
+            ['an extra weekday', ['0 12 * * 5,6'], '2026-11-13 12:00'],
+            ['keystrokes that pass through another valid cron', ['0 1 * * 5', '0 13 * * 5'], '2026-11-13 13:00'],
+        ])('editing the cron to %s keeps the first future match', (_, keystrokes, expectedNextRun) => {
+            for (const cron of keystrokes) {
+                logic.actions.setEditCronExpression(cron)
+            }
+
+            expect(logic.values.editScheduledAt?.format('YYYY-MM-DD HH:mm')).toBe(expectedNextRun)
+        })
+
+        test.each([
+            ['a later day', 'UTC', '0 12 * * 5', '2026-11-20 09:00', '2026-11-20 12:00'],
+            ['a match at midnight', 'UTC', '0 0 * * 5', '2026-11-20 09:00', '2026-11-20 00:00'],
+            ['a past day', 'UTC', '0 12 * * 5', '2026-11-05 09:00', '2026-11-13 12:00'],
+            // Without keepLocalTime the picked day would land 9 hours late and skip to 27 Nov
+            ['a midnight match in Asia/Tokyo', 'Asia/Tokyo', '0 0 * * 5', '2026-11-20 09:00', '2026-11-20 00:00'],
+        ])(
+            'picking %s snaps to the first match on or after that day',
+            (_, timezone, cron, pickedDay, expectedNextRun) => {
+                initKeaTests(true, { ...MOCK_DEFAULT_TEAM, timezone })
+                logic = featureFlagScheduleEditLogic({ id: 1 })
+                logic.mount()
+                logic.actions.openEdit(fridayNoonSchedule)
+
+                const picked = dayjs(pickedDay)
+                logic.actions.setEditScheduledAt(picked)
+                logic.actions.setEditPickedDay(picked)
+                logic.actions.setEditCronExpression(cron)
+
+                expect(logic.values.editScheduledAt?.format('YYYY-MM-DD HH:mm')).toBe(expectedNextRun)
+            }
+        )
+
+        test('typing the cron after picking a day keeps that day', () => {
+            logic.actions.setEditPickedDay(dayjs('2026-12-04 09:00'))
+            for (const cron of ['0 1 * * 5', '0 13 * * 5']) {
+                logic.actions.setEditCronExpression(cron)
+            }
+
+            expect(logic.values.editScheduledAt?.format('YYYY-MM-DD HH:mm')).toBe('2026-12-04 13:00')
+        })
+    })
 })

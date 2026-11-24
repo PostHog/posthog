@@ -86,6 +86,10 @@
             "description": "Keep only the steps of this plan report, in plan order: the same reports, in the same order, as `plan.steps` on the plan report. Archived steps are included without `include_all_statuses`. Other filters still apply. A report with no steps returns an empty page.",
             "type": "string"
         },
+        "pr_targets": {
+            "description": "Requires task_id. When true, keeps only the reports that the task's pull requests and commits link to: its source report, the reports the task attached a pull request to, and its pipeline, legacy and assignment associations. A report that the task only claimed is kept only when the task has no other report.",
+            "type": "boolean"
+        },
         "priority": {
             "description": "Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.",
             "type": "string"
@@ -155,7 +159,7 @@
             "type": "string"
         },
         "unclaimed": {
-            "description": "Filter by whether the report has no owner and no draft, open, or unknown PR. Resolved reports are never unclaimed.",
+            "description": "Filter by whether the report has no active claim and no draft, open, or unknown PR. True returns the reports with no work in progress. Suggested reviewers do not count as a claim. Resolved reports are never unclaimed. A suppressed report can be unclaimed, but it cannot be claimed until it is restored.",
             "type": "boolean"
         },
         "unread": {

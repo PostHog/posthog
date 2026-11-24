@@ -605,6 +605,15 @@ Claude Desktop is one of the easiest ways to test MCP Apps - while PostHog Deskt
 }
 ```
 
+## MCP Registry listing
+
+The server is listed in the [MCP Registry](https://registry.modelcontextprotocol.io/v0/servers?search=com.posthog/mcp) as `com.posthog/mcp`, from [`server.json`](server.json).
+The `MCP Registry publish` workflow validates the file on pull requests and publishes it when it lands on `master`.
+
+- Bump `version` whenever you change `server.json`. The registry never accepts the same version twice, so the check fails when a published version's content differs from the file.
+- The registry verifies the `com.posthog` namespace through the public key at `https://posthog.com/.well-known/mcp-registry-auth`. The publish job signs with the matching private key, the `MCP_REGISTRY_PRIVATE_KEY` secret of the `mcp-registry` environment, which only admits `master`. Keep it out of organization and repository secrets, because any workflow on any branch can read those. The team password manager holds a copy. Rotate all of them together.
+- To deprecate an old version, log in with `mcp-publisher login http --domain posthog.com` and run `mcp-publisher status --status deprecated com.posthog/mcp <version>`.
+
 ## Privacy & Support
 
 - **Privacy Policy:** https://posthog.com/privacy

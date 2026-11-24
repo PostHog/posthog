@@ -2,15 +2,16 @@ import type { Profile } from '../cards/schema'
 import type { Role } from '../environment/roles'
 import type { RoleExit } from '../environment/supervisor'
 import type { BarResult } from '../judge/bars'
+import type { Convergence, InvariantResult } from '../judge/judge'
 import type { Baseline } from '../judge/measurements'
 import type { WriterSample } from '../probe/writer-probe'
 import type { ValveTimelineEntry } from '../valves/valves'
-import { Admission, Verdict, admissionsOf, statusOf } from './status'
+import { Admission, Verdict, admissionsOf, judgedInvariantsOf, statusOf } from './status'
 
 const HELD: Verdict = {
     admissions: [],
     minOffered: 0.9,
-    units: { targetUnits: 60, offeredUnits: 60 },
+    units: { targetUnits: 60, offeredUnits: 60, steps: [] },
     down: [],
     convergence: { converged: true, unfinishedJobs: 0, unrecorded: [], tookMs: 1000 },
     invariants: [{ name: 'at_least_once', passed: true, observed: 0, unitIds: [] }],
@@ -100,14 +101,14 @@ describe('statusOf', () => {
         ],
         [
             'the generator offered under minOffered',
-            { units: { targetUnits: 60, offeredUnits: 53 }, invariants: [BROKEN] },
+            { units: { targetUnits: 60, offeredUnits: 53, steps: [] }, invariants: [BROKEN] },
             'invalid',
             'the generator offered 53 of 60 units, under minOffered 0.9',
         ],
         [
             'a ramp that broke at a step before a later step fell short of minOffered',
             {
-                units: { targetUnits: 60, offeredUnits: 53 },
+                units: { targetUnits: 60, offeredUnits: 53, steps: [] },
                 ramp: { end: 'broke', sustainedScale: 1, reason: 'writer_cpu_under broke at the 2x step' },
             },
             'failed',
@@ -139,6 +140,57 @@ describe('statusOf', () => {
             { timeline: [{ valve: 'role.kill', target: EMAIL_WORKER, requestedAt: at(0), error: 'never applied' }] },
             'invalid',
             `role.kill on ${EMAIL_WORKER} was not observed: never applied`,
+        ],
+        [
+            'a valve applied only after the drive ended',
+            {
+                timeline: [
+                    {
+                        ...failedOver,
+                        intentAt: at(52),
+                        appliedAt: at(52),
+                        observedAt: at(53),
+                        releaseIntentAt: at(54),
+                        releasedAt: at(55),
+                    },
+                ],
+            },
+            'invalid',
+            'pg.failover on cyclotron was not observed: applied after the drive ended',
+        ],
+        [
+            'a valve that failed to apply after the drive ended',
+            {
+                timeline: [
+                    {
+                        valve: 'role.freeze',
+                        target: EMAIL_WORKER,
+                        requestedAt: at(51),
+                        intentAt: at(52),
+                        error: `${EMAIL_WORKER} is not running`,
+                    },
+                ],
+            },
+            'invalid',
+            `role.freeze on ${EMAIL_WORKER} was not observed: ${EMAIL_WORKER} is not running`,
+        ],
+        [
+            'a valve that applied after the drive ended but was never observed',
+            {
+                timeline: [
+                    {
+                        valve: 'role.kill',
+                        target: EMAIL_WORKER,
+                        requestedAt: at(51),
+                        intentAt: at(52),
+                        appliedAt: at(52),
+                        releasedAt: at(52),
+                        error: `${EMAIL_WORKER} is not running`,
+                    },
+                ],
+            },
+            'invalid',
+            `role.kill on ${EMAIL_WORKER} was not observed: ${EMAIL_WORKER} is not running`,
         ],
         [
             'an invariant failed while a valve was never observed',
@@ -219,6 +271,113 @@ describe('statusOf', () => {
             'the ramp broke: pickup_p99_under broke at the 2x step',
         ],
         [
+            'a ramp whose intake broke mid-ramp and whose judge could not read the final state',
+            {
+                convergence: {
+                    converged: false,
+                    unfinishedJobs: null,
+                    unrecorded: ['run-1'],
+                    tookMs: 120_000,
+                    unread: 'The operation was aborted due to timeout',
+                },
+                invariants: [
+                    { ...BROKEN, crossedBy: 'run-1' },
+                    { name: 'refused_at_intake', passed: false, observed: 3, unitIds: ['run-9'], crossedBy: 'run-9' },
+                ],
+                ramp: { end: 'broke', sustainedScale: 1, reason: 'refused_at_intake broke at the 2x step' },
+            },
+            'failed',
+            'the ramp broke: refused_at_intake broke at the 2x step; the judge could not read the final state: The operation was aborted due to timeout',
+        ],
+        [
+            'a run that held but whose judge could not read the final state',
+            {
+                convergence: {
+                    converged: true,
+                    unfinishedJobs: 0,
+                    unrecorded: [],
+                    tookMs: 1000,
+                    unread: 'The operation was aborted due to timeout',
+                },
+            },
+            'invalid',
+            'the judge could not read the final state: The operation was aborted due to timeout',
+        ],
+        [
+            'a run whose judge could not read the job count at the deadline',
+            {
+                convergence: {
+                    converged: false,
+                    unfinishedJobs: null,
+                    unrecorded: ['run-1'],
+                    tookMs: 120_000,
+                    unread: 'The operation was aborted due to timeout',
+                },
+            },
+            'invalid',
+            'the judge could not read the final state: The operation was aborted due to timeout',
+        ],
+        [
+            'a run whose backlog did not drain, though its judge could not read the final truth',
+            {
+                convergence: {
+                    converged: false,
+                    unfinishedJobs: 5,
+                    unrecorded: [],
+                    tookMs: 120_000,
+                    unread: 'The operation was aborted due to timeout',
+                },
+            },
+            'failed',
+            'the judge could not read the final state: The operation was aborted due to timeout; not converged: 5 unfinished jobs, 0 units without a delivery record',
+        ],
+        [
+            'a run whose queue drained with a delivery missing, though a later read failed',
+            {
+                convergence: {
+                    converged: false,
+                    unfinishedJobs: 0,
+                    unrecorded: ['run-1'],
+                    tookMs: 120_000,
+                    unread: 'The operation was aborted due to timeout',
+                },
+                invariants: [BROKEN],
+            },
+            'failed',
+            'the judge could not read the final state: The operation was aborted due to timeout; not converged: 0 unfinished jobs, 1 units without a delivery record; at_least_once failed: run-1 email: lost',
+        ],
+        [
+            'a ramp that held but whose judge could not read the job count at the deadline',
+            {
+                convergence: {
+                    converged: false,
+                    unfinishedJobs: null,
+                    unrecorded: ['run-1'],
+                    tookMs: 120_000,
+                    unread: 'The operation was aborted due to timeout',
+                },
+                ramp: { end: 'ceiling', sustainedScale: 10, reason: 'every step held up to the 10x ceiling' },
+            },
+            'invalid',
+            'the judge could not read the final state: The operation was aborted due to timeout',
+        ],
+        [
+            'a ramp that held with a delivery missing after its queue drained, though a later read failed',
+            {
+                convergence: {
+                    converged: false,
+                    unfinishedJobs: 0,
+                    unrecorded: ['run-1'],
+                    tookMs: 120_000,
+                    unread: 'The operation was aborted due to timeout',
+                },
+                invariants: [BROKEN],
+                ramp: { end: 'ceiling', sustainedScale: 10, reason: 'every step held up to the 10x ceiling' },
+            },
+            'failed',
+            'not converged: 0 unfinished jobs, 1 units without a delivery record; at_least_once failed: run-1 email: lost; the judge could not read the final state: The operation was aborted due to timeout',
+        ],
+        [
             'a ramp that stopped at a harness limit before the step whose unit broke an invariant',
             {
                 invariants: [{ ...BROKEN, crossedBy: 'run-1' }],
@@ -250,6 +409,96 @@ describe('statusOf', () => {
             { ramp: { end: 'ceiling', sustainedScale: 5, reason: 'every step held up to the 5x ceiling' } },
             'passed',
             'every invariant held',
+        ],
+        [
+            'a ramp that ran to its ceiling but lost deliveries and sent duplicates under the hard limit',
+            {
+                convergence: { converged: false, unfinishedJobs: 0, unrecorded: ['run-1', 'run-2'], tookMs: 120_000 },
+                invariants: [
+                    { ...BROKEN, crossedBy: 'run-1' },
+                    { name: 'duplicate_sends', passed: false, observed: 1, unitIds: ['run-3'], crossedBy: 'run-3' },
+                ],
+                ramp: {
+                    end: 'ceiling',
+                    sustainedScale: 5,
+                    reason: 'every step held up to the 5x ceiling',
+                    rates: [
+                        {
+                            index: 0,
+                            scale: 1,
+                            expected: 120,
+                            lost: 0,
+                            lossRate: 0,
+                            sent: 119,
+                            duplicates: 1,
+                            duplicateRate: 1 / 119,
+                            refused: 0,
+                            refusedRate: 0,
+                        },
+                        {
+                            index: 1,
+                            scale: 2,
+                            expected: 240,
+                            lost: 2,
+                            lossRate: 2 / 240,
+                            sent: 238,
+                            duplicates: 0,
+                            duplicateRate: 0,
+                            refused: 0,
+                            refusedRate: 0,
+                        },
+                    ],
+                },
+            },
+            'failed',
+            'the ramp ran to its last step, but lost 2 of 360 deliveries (0.56%): 2 in the 2x step; sent 1 duplicate of 357 deliveries (0.28%): 1 in the 1x step',
+        ],
+        [
+            'a ramp that ran to its ceiling with duplicates the janitor resets allow',
+            {
+                ramp: {
+                    end: 'ceiling',
+                    sustainedScale: 5,
+                    reason: 'every step held up to the 5x ceiling',
+                    rates: [
+                        {
+                            index: 0,
+                            scale: 1,
+                            expected: 120,
+                            lost: 0,
+                            lossRate: 0,
+                            sent: 120,
+                            duplicates: 1,
+                            duplicateRate: 1 / 120,
+                            refused: 0,
+                            refusedRate: 0,
+                        },
+                    ],
+                },
+                invariants: [{ name: 'duplicate_sends', passed: true, observed: 1, unitIds: ['run-3'] }],
+            },
+            'passed',
+            'every invariant held',
+        ],
+        [
+            'a ramp that ran to its ceiling whose last delivery arrived only after the convergence deadline',
+            {
+                convergence: { converged: false, unfinishedJobs: 0, unrecorded: ['run-1'], tookMs: 120_000 },
+                invariants: [{ name: 'at_least_once', passed: true, observed: 0, unitIds: [] }],
+                ramp: { end: 'ceiling', sustainedScale: 5, reason: 'every step held up to the 5x ceiling' },
+            },
+            'failed',
+            'not converged: 0 unfinished jobs, 1 units without a delivery record',
+        ],
+        [
+            'a ramp that ran to its ceiling on a card that does not judge at_least_once, with units left unrecorded',
+            {
+                convergence: { converged: false, unfinishedJobs: 0, unrecorded: ['run-1', 'run-2'], tookMs: 120_000 },
+                invariants: [{ name: 'duplicate_sends', passed: true, observed: 0, unitIds: [] }],
+                ramp: { end: 'ceiling', sustainedScale: 5, reason: 'every step held up to the 5x ceiling' },
+            },
+            'failed',
+            'not converged: 0 unfinished jobs, 2 units without a delivery record',
         ],
         [
             'a ramp that held up to its ceiling with a bar the stack has no source for',
@@ -387,6 +636,24 @@ describe('statusOf', () => {
             `Cyclotron interrupted without a valve: a writer probe lost its connection (SQLSTATE 08006) after the drive and every valve ended, at ${at(52)}`,
         ],
         [
+            'the writer probe lost its connection after the drive but before a late valve applied',
+            {
+                timeline: [
+                    {
+                        ...failedOver,
+                        intentAt: at(54),
+                        appliedAt: at(54),
+                        observedAt: at(54),
+                        releaseIntentAt: undefined,
+                        releasedAt: at(55),
+                    },
+                ],
+                writer: probed((second) => (second === 52 ? '08006' : false)),
+            },
+            'invalid',
+            `Cyclotron interrupted without a valve: a writer probe lost its connection (SQLSTATE 08006) before any valve applied, at ${at(52)}`,
+        ],
+        [
             'a card without a valve whose writer probe lost its connection across the drive end',
             {
                 writer: [{ at: Date.parse(at(49)), monoMs: 49_000, ok: false, latencyMs: 2000, sqlstate: '57P01' }],
@@ -515,9 +782,15 @@ describe('statusOf', () => {
         ],
         [
             'a dependency went away',
-            { down: ['provider-edge'], invariants: [BROKEN], admissions: [REFUSED_LOAD] },
+            {
+                down: [
+                    { name: 'provider-edge', at: Date.parse(at(20)), reason: 'refused', runnerBusy: 0.1, kind: 'gone' },
+                ],
+                invariants: [BROKEN],
+                admissions: [REFUSED_LOAD],
+            },
             'invalid',
-            'dependencies went away: provider-edge',
+            `dependencies went away: provider-edge at ${at(20)} (refused)`,
         ],
     ])('%s', (_story, change, status, statusReason) => {
         expect(statusOf({ ...HELD, ...change })).toEqual({ status, statusReason, restarts: expect.any(Array) })
@@ -533,6 +806,25 @@ describe('statusOf', () => {
         })
 
         expect(restarts).toEqual([restart])
+    })
+
+    it.each<[string, Convergence['unfinishedJobs'], string[]]>([
+        [
+            'drops the checks that read deliveries when the judge could not read the job count at the deadline',
+            null,
+            ['duplicate_sends'],
+        ],
+        [
+            'keeps every check when the judge read the job count',
+            0,
+            ['at_least_once', 'bounced_suppressed', 'duplicate_sends'],
+        ],
+    ])('%s', (_story, unfinishedJobs, judged) => {
+        const checked = ['at_least_once', 'bounced_suppressed', 'duplicate_sends'].map(
+            (name): InvariantResult => ({ name, passed: false, observed: 1, unitIds: ['run-1'] })
+        )
+
+        expect(judgedInvariantsOf(checked, { unfinishedJobs }).map(({ name }) => name)).toEqual(judged)
     })
 
     const BASELINE: Baseline = {
@@ -619,5 +911,11 @@ describe('statusOf', () => {
         ],
     ])('%s', (_story, profile, baseline, admissions) => {
         expect(admissionsOf(profile, { ...BASELINE, ...baseline })).toEqual(admissions)
+    })
+
+    it('admits a ramp that opens at 10x against targets measured at 1x', () => {
+        expect(
+            admissionsOf({ load: LOAD }, { ...BASELINE, claimsPerSecond: { email: 38 }, newJobsPerSecond: 55 }, 10)
+        ).toEqual([{ name: 'load', passed: true, reason: 'every baseline rate within 10% of its target' }])
     })
 })

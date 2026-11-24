@@ -235,11 +235,14 @@ class TrinoAnyJoinLowerer(CloningVisitor):
             )
         else:
             # Hidden sync columns are not in the Trino copy of the table, and `*` never exposes them.
-            column_names = [
-                field.name if self.physical_names else name
+            physical_columns = {
+                name: field.name if self.physical_names else name
                 for name, field in table_type.table.fields.items()
                 if isinstance(field, DatabaseField)
-                and (not field.hidden or name in key_names or name in self._referenced_names(lowered.alias))
+            }
+            read_names = {*key_names, *self._referenced_names(lowered.alias)}
+            column_names = [column for name, column in physical_columns.items() if name in read_names] or [
+                column for name, column in physical_columns.items() if not table_type.table.fields[name].hidden
             ]
         if not column_names:
             raise TrinoLoweringError("TRINO_ANY_JOIN_EMPTY_TABLE_UNSUPPORTED", f"{join_type} without columns", lowered)
@@ -535,6 +538,9 @@ def _collect_table_references(query: ast.SelectQuery) -> dict[str, set[str]]:
 
     class Collector(TraversingVisitor):
         def visit_field(self, node: ast.Field) -> None:
+            if node.type is None and len(node.chain) == 2 and all(isinstance(part, str) for part in node.chain):
+                references.setdefault(str(node.chain[0]), set()).add(str(node.chain[1]))
+                return
             field_type = node.type
             while isinstance(field_type, ast.FieldAliasType):
                 field_type = field_type.type

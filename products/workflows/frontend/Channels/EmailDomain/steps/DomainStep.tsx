@@ -42,7 +42,10 @@ function DomainChoices(props: EmailDomainWizardLogicProps): JSX.Element {
     )
 }
 
-function CreateSender(props: EmailDomainWizardLogicProps): JSX.Element {
+function CreateSender({
+    existingOpensNewTab,
+    ...props
+}: EmailDomainWizardLogicProps & { existingOpensNewTab?: boolean }): JSX.Element {
     const logic = emailDomainWizardLogic(props)
     const { existingSender, submitError, createdSenderLoading, bouncePrefix, domainSender } = useValues(logic)
     const { clearDomain, createSender } = useActions(logic)
@@ -59,7 +62,13 @@ function CreateSender(props: EmailDomainWizardLogicProps): JSX.Element {
             {existingSender && (
                 <p className="m-0 text-sm text-center text-secondary">
                     A sender with this address already exists in this project.{' '}
-                    <Link to={emailDomainSetupPath(existingSender.id, origin)}>Open it</Link> to check its status.
+                    <Link
+                        to={emailDomainSetupPath(existingSender.id, origin)}
+                        target={existingOpensNewTab ? '_blank' : undefined}
+                    >
+                        Open it
+                    </Link>{' '}
+                    to check its status.
                 </p>
             )}
             {submitError && <p className="m-0 text-sm text-center text-danger">{submitError}</p>}
@@ -81,7 +90,10 @@ function CreateSender(props: EmailDomainWizardLogicProps): JSX.Element {
     )
 }
 
-export function DomainStep(props: EmailDomainWizardLogicProps): JSX.Element {
+export function DomainStep({
+    existingOpensNewTab,
+    ...props
+}: EmailDomainWizardLogicProps & { existingOpensNewTab?: boolean }): JSX.Element {
     const { inferredDomains, eventHostsLoading, selectedDomain } = useValues(emailDomainWizardLogic(props))
     const lead =
         eventHostsLoading || inferredDomains.length > 0
@@ -96,7 +108,7 @@ export function DomainStep(props: EmailDomainWizardLogicProps): JSX.Element {
                 <>
                     <SendingAddressCard {...props} />
                     <LocalProviderPicker {...props} />
-                    <CreateSender {...props} />
+                    <CreateSender {...props} existingOpensNewTab={existingOpensNewTab} />
                 </>
             ) : (
                 <AnotherDomainInput {...props} />

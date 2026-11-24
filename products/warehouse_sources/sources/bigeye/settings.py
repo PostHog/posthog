@@ -147,6 +147,39 @@ BIGEYE_ENDPOINTS: dict[str, BigeyeEndpointConfig] = {
         per_table_data_node=True,
         primary_keys=("root_data_node_id", "id"),
     ),
+    "Columns": BigeyeEndpointConfig(
+        name="Columns",
+        table_name="columns",
+        path="/api/v1/columns/fetch",
+        method="post",
+        # Rows nest the column under `column` next to its parent `table`; `_flatten_column` lifts it.
+        data_selector="columns",
+        paginated=True,
+    ),
+    "CustomRules": BigeyeEndpointConfig(
+        name="CustomRules",
+        table_name="custom_rules",
+        path="/api/v1/custom-rules/fetch",
+        method="post",
+        data_selector="customRules",
+        paginated=True,
+    ),
+    "Users": BigeyeEndpointConfig(
+        name="Users",
+        table_name="users",
+        path="/api/v1/users",
+        method="get",
+        data_selector="users",
+        paginated=False,
+    ),
+    "Groups": BigeyeEndpointConfig(
+        name="Groups",
+        table_name="groups",
+        path="/api/v1/groups",
+        method="get",
+        data_selector="groups",
+        paginated=False,
+    ),
 }
 
 # Only the direct neighbours of each table. Every edge still appears in the graph of both of its
