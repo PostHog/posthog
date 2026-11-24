@@ -206,7 +206,7 @@ urlpatterns = [
     path("api/sdk_health/", sdk_health),
     path("api/cli/catalog.json", cli_catalog),
     # Conversations serves its widget and channel API from backend/api/, which its routes module
-    # may not import (import-linter contract "routes must only import presentation"), so the mount
+    # may not import (hoglint rule `presentation-uses-facade`), so the mount
     # stays here until those views move into presentation/.
     path("api/conversations/", include("products.conversations.backend.api.urls")),
     # Routes the security hub calls from outside the cluster (auth: scoped service JWT)
