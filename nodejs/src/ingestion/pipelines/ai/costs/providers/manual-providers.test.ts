@@ -1,8 +1,9 @@
 import { findCostFromModel } from '~/ingestion/pipelines/ai/costs/cost-model-matching'
 import { processCost } from '~/ingestion/pipelines/ai/costs/index'
+import { openRouterCostsByModel } from '~/ingestion/pipelines/ai/costs/providers'
 import { createAIEvent } from '~/ingestion/pipelines/ai/costs/test-helpers'
 
-import { manualCosts } from './manual-providers'
+import { manualCosts, openAILongContextModels } from './manual-providers'
 
 describe('manualCosts', () => {
     const testCases: Array<{
@@ -196,5 +197,76 @@ describe('manualCosts', () => {
                 10
             )
         })
+    })
+    describe('OpenAI long-context pricing', () => {
+        // OpenAI prices a prompt above 272K input tokens at 2x input and cache rates and 1.5x output.
+        // Holding every pinned route to that rule against the catalog's short-context rate catches a mistyped rate.
+        it.each(openAILongContextModels)('prices %s:large at the published multiple of each catalog route', (model) => {
+            const longContext = manualCosts.find((entry) => entry.model === `${model}:large`)
+            const shortContext = openRouterCostsByModel[`openai/${model}`]
+
+            expect(longContext).toBeDefined()
+            expect(shortContext).toBeDefined()
+
+            for (const [route, long] of Object.entries(longContext!.cost)) {
+                const short = shortContext.cost[route]
+
+                expect(short).toBeDefined()
+                expect(long).toEqual({
+                    ...short,
+                    prompt_token: expect.closeTo(short!.prompt_token * 2, 12),
+                    completion_token: expect.closeTo(short!.completion_token * 1.5, 12),
+                    ...(short!.cache_read_token !== undefined && {
+                        cache_read_token: expect.closeTo(short!.cache_read_token * 2, 12),
+                    }),
+                    ...(short!.cache_write_token !== undefined && {
+                        cache_write_token: expect.closeTo(short!.cache_write_token * 2, 12),
+                    }),
+                })
+            }
+        })
+
+        it.each([
+            {
+                inputTokens: 272000,
+                serviceTier: undefined,
+                model: 'openai/gpt-6-sol',
+                total: 272000 * 0.000002 + 1000 * 0.00001,
+            },
+            {
+                inputTokens: 272001,
+                serviceTier: undefined,
+                model: 'gpt-6-sol:large',
+                total: 272001 * 0.000004 + 1000 * 0.000015,
+            },
+            {
+                inputTokens: 272001,
+                serviceTier: 'flex',
+                model: 'gpt-6-sol:large',
+                total: 272001 * 0.000002 + 1000 * 0.0000075,
+            },
+            {
+                inputTokens: 272001,
+                serviceTier: 'priority',
+                model: 'gpt-6-sol:large',
+                total: 272001 * 0.000008 + 1000 * 0.00003,
+            },
+        ])(
+            'prices gpt-6-sol with $inputTokens input tokens on the $serviceTier tier with $model',
+            ({ inputTokens, serviceTier, model, total }) => {
+                const result = processCost(
+                    createAIEvent({
+                        $ai_provider: 'openai',
+                        $ai_model: 'gpt-6-sol',
+                        $ai_input_tokens: inputTokens,
+                        $ai_output_tokens: 1000,
+                        $ai_service_tier: serviceTier,
+                    })
+                )
+
+                expect(result.properties.$ai_model_cost_used).toBe(model)
+                expect(result.properties.$ai_total_cost_usd).toBeCloseTo(total, 8)
+            }
+        )
     })
 })
