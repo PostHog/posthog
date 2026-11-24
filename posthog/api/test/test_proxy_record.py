@@ -67,13 +67,22 @@ class TestProxyRecordAPI(APIBaseTest):
         self.organization_membership.refresh_from_db()
         self.organization.refresh_from_db()
 
-    @parameterized.expand([("patch",), ("delete",)])
-    def test_malformed_proxy_id_returns_validation_error(self, method: str) -> None:
+    @parameterized.expand(
+        [
+            ("retrieve", "get", ""),
+            ("partial_update", "patch", ""),
+            ("destroy", "delete", ""),
+            ("diagnose", "post", "diagnose/"),
+            ("retry", "post", "retry/"),
+        ]
+    )
+    def test_malformed_proxy_id_returns_validation_error(self, _action: str, method: str, suffix: str) -> None:
         response = getattr(self.client, method)(
-            f"/api/organizations/{self.organization.id}/proxy_records/not-a-uuid/",
+            f"/api/organizations/{self.organization.id}/proxy_records/not-a-uuid/{suffix}",
             data={},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "invalid_input")
 
     def test_list_returns_max_proxy_records_from_feature(self):
         response = self.client.get(f"/api/organizations/{self.organization.id}/proxy_records/")
