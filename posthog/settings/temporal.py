@@ -139,6 +139,7 @@ SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES: str = get_from_env("SANDBOX_AI_GATEW
 # Desktop cloud run has no duration cap, so its cap only bounds a runaway run.
 SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_DEFAULTS: dict[str, str] = {
     "background_agents": "50",
+    "autoresearch": "50",
     "signals_scout": "30",
     "signals_implementation": "20",
     "signals_inbox": "75",
