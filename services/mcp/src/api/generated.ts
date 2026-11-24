@@ -883,6 +883,19 @@ export namespace Schemas {
       engine: string;
     }
 
+    export interface AEOPromptSetEngineTopicCounts {
+      /** Share (0-1) of the answers that name the brand: 'mentioned' over 'answers'. */
+      readonly mention_rate: number;
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
+      engine: string;
+      /** Topic the checks ran with. Empty for prompts that have no topic. Matches 'topic' in 'topics'. */
+      topic: string;
+      /** Answered checks of this engine with this topic in the window. Failed checks are left out. The sample size behind 'mention_rate'. */
+      answers: number;
+      /** Of those answers, how many name the brand. A cited answer counts as a mention. */
+      mentioned: number;
+    }
+
     /**
      * * `all` - All
      * * `branded` - Branded
@@ -1003,6 +1016,8 @@ export namespace Schemas {
       daily: AEOPromptDailyEngineStats[];
       /** The current window split per topic, ordered by topic. A topic with active prompts but no check in the window has zero checks. */
       topics: AEOPromptSetTopicCounts[];
+      /** The current window split per answer engine and topic, ordered by engine, then topic. An engine and topic pair without an answered check is left out, so a missing pair means no data, not a rate of zero. */
+      engine_topics: AEOPromptSetEngineTopicCounts[];
       /** The 20 domains the engines cited most across all answers in the current window, most cited first, with the project's own domains flagged. */
       top_domains: AEOPromptSetDomain[];
       /** The 20 web searches the engines ran most while answering in the current window, ranked by how many prompts triggered them, with how often those answers cited the project. */

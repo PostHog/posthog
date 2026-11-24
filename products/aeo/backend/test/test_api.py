@@ -995,6 +995,15 @@ class TestAEOPromptAPI(APIBaseTest):
             ("Surveys", 1, 0, 0, 0, 0, None),
         ]
         assert [
+            (row["engine"], row["topic"], row["answers"], row["mentioned"], row["mention_rate"])
+            for row in overview["engine_topics"]
+        ] == [
+            ("claude-web-search", "", 1, 0, 0.0),
+            ("claude-web-search", "Analytics", 1, 1, 1.0),
+            ("exa-answer", "Analytics", 1, 1, 1.0),
+            ("exa-answer", "Flags", 1, 1, 1.0),
+        ]
+        assert [
             (row["domain"], row["answers"], row["share_of_answers"], row["is_target"])
             for row in overview["top_domains"]
         ] == [
@@ -1290,17 +1299,42 @@ class TestAEOPromptAPI(APIBaseTest):
             overview["branded_answers"],
             overview["non_branded_answers"],
         ) == expected_counts
+        assert sum(row["answers"] for row in overview["engine_topics"]) == current["checks"] - current["failed"]
         assert [row["domain"] for row in overview["top_domains"]] == expected_domains
         assert [row["query"] for row in overview["top_searches"]] == expected_searches
         assert (rankings["answers"], sorted(row["url"] for row in rankings["top_pages"])) == expected_rankings
 
     @parameterized.expand(
         [
-            ("every_check", {}, (3, 3), ["claude-web-search", "exa-answer"], ["", "Pricing", "Replay"], 2),
-            ("one_engine", {"engine": "exa-answer"}, (1, 3), ["exa-answer"], ["", "Pricing", "Replay"], 1),
-            ("one_topic", {"topic": "Pricing"}, (1, 1), ["claude-web-search"], ["Pricing"], 1),
-            ("no_topic", {"topic": ""}, (1, 1), ["exa-answer"], [""], 1),
-            ("unknown_engine", {"engine": "nope"}, (0, 3), [], ["", "Pricing", "Replay"], 0),
+            (
+                "every_check",
+                {},
+                (3, 3),
+                ["claude-web-search", "exa-answer"],
+                ["", "Pricing", "Replay"],
+                [("claude-web-search", "Pricing"), ("claude-web-search", "Replay"), ("exa-answer", "")],
+                2,
+            ),
+            (
+                "one_engine",
+                {"engine": "exa-answer"},
+                (1, 3),
+                ["exa-answer"],
+                ["", "Pricing", "Replay"],
+                [("exa-answer", "")],
+                1,
+            ),
+            (
+                "one_topic",
+                {"topic": "Pricing"},
+                (1, 1),
+                ["claude-web-search"],
+                ["Pricing"],
+                [("claude-web-search", "Pricing")],
+                1,
+            ),
+            ("no_topic", {"topic": ""}, (1, 1), ["exa-answer"], [""], [("exa-answer", "")], 1),
+            ("unknown_engine", {"engine": "nope"}, (0, 3), [], ["", "Pricing", "Replay"], [], 0),
         ]
     )
     @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
@@ -1311,6 +1345,7 @@ class TestAEOPromptAPI(APIBaseTest):
         expected_counts: tuple[int, int],
         expected_engines: list[str],
         expected_topics: list[str],
+        expected_engine_topics: list[tuple[str, str]],
         expected_cited_pages: int,
     ) -> None:
         ids = self._import_prompts(
@@ -1332,6 +1367,7 @@ class TestAEOPromptAPI(APIBaseTest):
         assert (overview["current"]["checks"], overview["prompts_tracked"]) == expected_counts
         assert [row["engine"] for row in overview["engines"]] == expected_engines
         assert [row["topic"] for row in overview["topics"]] == expected_topics
+        assert [(row["engine"], row["topic"]) for row in overview["engine_topics"]] == expected_engine_topics
         assert sum(row["answers"] for row in overview["top_domains"]) == expected_cited_pages
         assert rankings["answers"] == expected_counts[0]
         assert sum(row["answers"] for row in rankings["top_pages"]) == expected_cited_pages
