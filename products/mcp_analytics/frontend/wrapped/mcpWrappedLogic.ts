@@ -78,8 +78,8 @@ export interface mcpWrappedLogicActions {
     setPaused: (paused: boolean) => {
         paused: boolean
     }
-    shareCaptured: (method: 'copy' | 'download') => {
-        method: 'copy' | 'download'
+    shareCaptured: (method: 'share' | 'copy' | 'download') => {
+        method: 'share' | 'copy' | 'download'
     }
     showCard: (index: number) => {
         index: number
@@ -121,7 +121,7 @@ export const mcpWrappedLogic = kea<mcpWrappedLogicType>([
         nextCard: true,
         previousCard: true,
         setPaused: (paused: boolean) => ({ paused }),
-        shareCaptured: (method: 'copy' | 'download') => ({ method }),
+        shareCaptured: (method: 'share' | 'copy' | 'download') => ({ method }),
     }),
     loaders(({ values }) => ({
         wrapped: [
