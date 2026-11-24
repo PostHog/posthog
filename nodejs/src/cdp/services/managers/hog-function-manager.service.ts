@@ -172,16 +172,19 @@ export class HogFunctionManagerService {
     }
 
     public async fetchHogFunction(id: HogFunctionType['id']): Promise<HogFunctionType | null> {
-        const items: HogFunctionType[] = (
-            await this.postgres.query(
-                PostgresUse.COMMON_READ,
-                `SELECT ${HOG_FUNCTION_FIELDS.join(', ')}
+        const items: HogFunctionType[] = withoutDeactivatedOrganizations(
+            'hog_function',
+            (
+                await this.postgres.query<HogFunctionType>(
+                    PostgresUse.COMMON_READ,
+                    `SELECT ${HOG_FUNCTION_FIELDS.join(', ')}${this.organizationInactiveSelect()}
                 FROM posthog_hogfunction
                 WHERE id = $1 AND deleted = FALSE`,
-                [id],
-                'fetchHogFunction'
-            )
-        ).rows
+                    [id],
+                    'fetchHogFunction'
+                )
+            ).rows
+        )
 
         this.sanitize(items)
         return items[0] ?? null
