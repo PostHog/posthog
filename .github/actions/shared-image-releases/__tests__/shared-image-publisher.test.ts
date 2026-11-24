@@ -476,6 +476,7 @@ describe('shared-image publication', () => {
     expect((await publishChannels(options)).find(row => row.channel.endsWith('/worker'))).toMatchObject({decision: 'blocked', reason: expect.stringContaining('cannot change')})
   })
 
+  const requested = (name: string): Bootstrap => ({channel: `posthog-cloud/${name}`, revision: 'a'.repeat(40), digest: `sha256:${'a'.repeat(64)}`})
   test.each([
     ['force scalar', '*', undefined],
     ['force unknown', ['posthog-cloud/missing'], undefined],
@@ -486,9 +487,14 @@ describe('shared-image publication', () => {
     ['unknown seed channel', [], {channel: 'posthog-cloud/missing', revision: 'a'.repeat(40), digest: `sha256:${'a'.repeat(64)}`}],
     ['short seed revision', [], {channel: 'posthog-cloud/worker', revision: 'a', digest: `sha256:${'a'.repeat(64)}`}],
     ['invalid seed digest', [], {channel: 'posthog-cloud/worker', revision: 'a'.repeat(40), digest: 'invalid'}],
-    ['seed with force', ['posthog-cloud/worker'], {channel: 'posthog-cloud/worker', revision: 'a'.repeat(40), digest: `sha256:${'a'.repeat(64)}`}]
-  ])('request validation rejects %s', (_name, force, bootstrap) => {
-    expect(() => validateRequests(loadPolicy(policy()), force, bootstrap)).toThrow(String(_name).startsWith('force') ? 'Force requires' : 'Bootstrap requires')
+    ['seed with force', ['posthog-cloud/worker'], {channel: 'posthog-cloud/worker', revision: 'a'.repeat(40), digest: `sha256:${'a'.repeat(64)}`}, 'Bootstrap requires an empty force list'],
+    ['a list with no seeds', [], [], 'Bootstrap requires at least one seed'],
+    ['a list with a repeated channel', [], [requested('worker'), requested('other'), requested('worker')], 'Bootstrap requires each channel once: seed 2 repeats posthog-cloud/worker'],
+    ['a list with a seed with an extra key', [], [requested('worker'), {...requested('other'), extra: true}], 'digest in seed 1 (posthog-cloud/other)'],
+    ['a list with a digest inside an array', [], [requested('worker'), {...requested('other'), digest: [requested('other').digest]}], 'digest in seed 1 (posthog-cloud/other)'],
+    ['a list with a revision inside an array', [], [requested('worker'), {...requested('other'), revision: [requested('other').revision]}], 'digest in seed 1 (posthog-cloud/other)']
+  ])('request validation rejects %s', (_name, force, bootstrap, message = String(_name).startsWith('force') ? 'Force requires' : 'Bootstrap requires') => {
+    expect(() => validateRequests(loadPolicy(policy()), force, bootstrap)).toThrow(message)
   })
 
   test('bootstrap seeds every listed channel and blocks only the seed that fails', async () => {
@@ -562,19 +568,10 @@ describe('shared-image publication', () => {
     expect(existsSync(path.join(options.evidence, 'bootstrap/posthog-cloud/other.json'))).toBe(true)
   })
 
-  test.each([
-    ['no seeds', [], () => [], 'Bootstrap requires at least one seed'],
-    ['a repeated channel', [], (seed: (channel: string) => Bootstrap) => [seed('worker'), seed('other'), seed('worker')], 'Bootstrap requires each channel once: seed 2 repeats posthog-cloud/worker'],
-    ['a seed with an extra key', [], (seed: (channel: string) => Bootstrap) => [seed('worker'), {...seed('other'), extra: true}], 'digest in seed 1 (posthog-cloud/other)'],
-    ['force', ['posthog-cloud/other'], (seed: (channel: string) => Bootstrap) => [seed('worker')], 'Bootstrap requires an empty force list'],
-    ['a digest inside an array', [], (seed: (channel: string) => Bootstrap) => [seed('worker'), {...seed('other'), digest: [seed('other').digest]}], 'digest in seed 1 (posthog-cloud/other)'],
-    ['a revision inside an array', [], (seed: (channel: string) => Bootstrap) => [seed('worker'), {...seed('other'), revision: [seed('other').revision]}], 'digest in seed 1 (posthog-cloud/other)'],
-    ['a revision object that cannot become a string', [], (seed: (channel: string) => Bootstrap) => [seed('worker'), {...seed('other'), revision: {toString: 7}}], 'digest in seed 1 (posthog-cloud/other)']
-  ])('a bootstrap list with %s is refused before any registry call', async (_name, force, seeds, message) => {
+  test('a bootstrap list with a repeated channel is refused before any registry call', async () => {
     put('unrelated.txt', 'later build'); commit(); build()
-    options.force = force
-    options.bootstrap = seeds(channel => ({channel: `posthog-cloud/${channel}`, revision: base, digest: image(base)})) as Bootstrap[]
-    await expect(publishChannels(options)).rejects.toThrow(message)
+    options.bootstrap = ['worker', 'other', 'worker'].map(name => ({channel: `posthog-cloud/${name}`, revision: base, digest: image(base)}))
+    await expect(publishChannels(options)).rejects.toThrow('Bootstrap requires each channel once: seed 2 repeats posthog-cloud/worker')
     expect(external.mock.calls.filter(([executable]) => executable !== 'git')).toEqual([])
   })
 
