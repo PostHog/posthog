@@ -10,6 +10,7 @@ from typing import Any
 from uuid import UUID
 
 from django.core.cache import cache
+from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
@@ -20,7 +21,8 @@ from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
 from products.tasks.backend.facade.profiles import find_task_profile
-from products.tasks.backend.models import LIVE_RUN_STALE_AFTER, Task, TaskRun
+from products.tasks.backend.models import ENDED_BY_STALE_SWEEP_STATE_KEY, LIVE_RUN_STALE_AFTER, Task, TaskRun
+from products.tasks.backend.task_done import wake_refusal, warm_done_mode
 
 logger = structlog.get_logger(__name__)
 
@@ -45,6 +47,14 @@ class SweepMode(StrEnum):
     OFF = "off"
     SHADOW = "shadow"
     ENFORCE = "enforce"
+
+
+class ReopenOutcome(StrEnum):
+    REOPENED = "reopened"
+    MODE_UNKNOWN = "mode_unknown"
+    STILL_ENFORCED = "still_enforced"
+    WORKFLOW_GONE = "workflow_gone"
+    MOVED_ON = "moved_on"
 
 
 @frozen
@@ -127,28 +137,47 @@ def flag_mode(flag: str, profile_key: str | None, team: Team) -> SweepMode:
     return mode or SweepMode.OFF
 
 
-def _resolve_mode(flag: str, profile_key: str, team: Team) -> SweepMode | None:
-    try:
-        organization_id = str(team.organization_id)
-        payload = posthoganalytics.get_feature_flag_payload(
-            flag,
-            distinct_id=str(team.uuid),
-            groups={"organization": organization_id},
-            group_properties={"organization": {"id": organization_id}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-        if isinstance(payload, str):
-            payload = json.loads(payload)
-    except Exception:
-        logger.warning("task_flag_mode_unresolved", flag=flag, profile=profile_key, team_id=team.id, exc_info=True)
-        return None
+def _flag_lookup(team: Team) -> dict[str, Any]:
+    organization_id = str(team.organization_id)
+    return {
+        "distinct_id": str(team.uuid),
+        "groups": {"organization": organization_id},
+        "group_properties": {"organization": {"id": organization_id}},
+        "only_evaluate_locally": False,
+        "send_feature_flag_events": False,
+    }
+
+
+def _mode_in(payload: object, profile_key: str) -> SweepMode | None:
+    if isinstance(payload, str):
+        payload = json.loads(payload)
     if not isinstance(payload, dict):
         return None
     try:
         return SweepMode(str(payload.get(profile_key, SweepMode.OFF)))
     except ValueError:
         return SweepMode.OFF
+
+
+def _resolve_mode(flag: str, profile_key: str, team: Team) -> SweepMode | None:
+    try:
+        return _mode_in(posthoganalytics.get_feature_flag_payload(flag, **_flag_lookup(team)), profile_key)
+    except Exception:
+        logger.warning("task_flag_mode_unresolved", flag=flag, profile=profile_key, team_id=team.id, exc_info=True)
+        return None
+
+
+def _confirmed_sweep_mode(profile_key: str, team: Team) -> SweepMode | None:
+    try:
+        result = posthoganalytics.get_feature_flag_result(SWEEP_FLAG, **_flag_lookup(team))
+        if result is None:
+            return None
+        return (_mode_in(result.payload, profile_key) if result.enabled else None) or SweepMode.OFF
+    except Exception:
+        logger.warning(
+            "task_flag_mode_unresolved", flag=SWEEP_FLAG, profile=profile_key, team_id=team.id, exc_info=True
+        )
+        return None
 
 
 def _idle_timeout(profile_key: str | None, origin_product: str | None, run_timeout_seconds: object) -> timedelta:
@@ -279,6 +308,78 @@ def runs_to_sweep() -> list[RunToSweep]:
     if len(to_sweep) > MAX_SWEEPS_PER_PASS:
         logger.warning("task_stale_sweep_pass_capped", left_for_next_pass=len(to_sweep) - MAX_SWEEPS_PER_PASS)
     return to_sweep[:MAX_SWEEPS_PER_PASS]
+
+
+def _is_still_the_run_to_reopen(task: Task, run: TaskRun) -> bool:
+    return (
+        run.matches_task_ownership(task)
+        and wake_refusal(task, source="sweep_undo") is None
+        and not TaskRun.objects.filter(task_id=task.id, team_id=task.team_id, created_at__gt=run.created_at).exists()
+        and not task.live_cloud_run_ids(exclude_run_id=run.id)
+    )
+
+
+def reopen_swept_run(run_id: UUID, task_id: UUID, team_id: int, *, dry_run: bool = False) -> bool:
+    unlocked_task = Task.objects.filter(pk=task_id, team_id=team_id).only("id", "team_id", "profile", "status").first()
+    if unlocked_task is not None:
+        warm_done_mode(unlocked_task)
+    with transaction.atomic():
+        task = Task.objects.select_for_update().filter(pk=task_id, team_id=team_id, deleted=False).first()
+        if task is None:
+            return False
+        run = (
+            TaskRun.objects.select_for_update()
+            .filter(
+                id=run_id,
+                team_id=team_id,
+                status=TaskRun.Status.FAILED,
+                state__has_key=ENDED_BY_STALE_SWEEP_STATE_KEY,
+            )
+            .first()
+        )
+        if run is None or not _is_still_the_run_to_reopen(task, run):
+            return False
+        if dry_run:
+            return True
+        run.status = TaskRun.Status.IN_PROGRESS
+        run.error_message = None
+        run.completed_at = None
+        run.state.pop(ENDED_BY_STALE_SWEEP_STATE_KEY)
+        run.save(update_fields=["status", "error_message", "completed_at", "state", "updated_at"])
+    return True
+
+
+def reopen_swept_runs(
+    *, profile: str, hours: int, team_id: int | None, check_workflows: bool, dry_run: bool
+) -> Iterator[ReopenOutcome]:
+    swept = TaskRun.objects.filter(
+        status=TaskRun.Status.FAILED,
+        environment=TaskRun.Environment.CLOUD,
+        state__has_key=ENDED_BY_STALE_SWEEP_STATE_KEY,
+        completed_at__gte=timezone.now() - timedelta(hours=hours),
+        task__profile=None if profile == NO_PROFILE else profile,
+    )
+    if team_id is not None:
+        swept = swept.filter(team_id=team_id)
+    runs = list(swept.order_by("id").values_list("id", "team_id", "task_id", "state__workflow_id"))
+    teams = Team.objects.only("id", "uuid", "organization_id").in_bulk({run_team_id for _, run_team_id, _, _ in runs})
+    modes: dict[int, SweepMode | None] = {}
+    workflows = WorkflowLiveness()
+    for run_id, run_team_id, task_id, persisted_workflow_id in runs:
+        workflow_id = persisted_workflow_id or TaskRun.get_workflow_id(task_id, run_id)
+        if run_team_id not in modes:
+            modes[run_team_id] = _confirmed_sweep_mode(profile, teams[run_team_id])
+        mode = modes[run_team_id]
+        if mode is None:
+            yield ReopenOutcome.MODE_UNKNOWN
+        elif mode == SweepMode.ENFORCE:
+            yield ReopenOutcome.STILL_ENFORCED
+        elif check_workflows and not workflows.is_running(workflow_id):
+            yield ReopenOutcome.WORKFLOW_GONE
+        elif reopen_swept_run(run_id, task_id, run_team_id, dry_run=dry_run):
+            yield ReopenOutcome.REOPENED
+        else:
+            yield ReopenOutcome.MOVED_ON
 
 
 class WorkflowLiveness:
