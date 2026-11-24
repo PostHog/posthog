@@ -30,7 +30,7 @@ SHADOW_COMPARISON_EVENT = "alert series values shadow compared"
 SHADOW_BUILD_BUDGET_SECONDS = 60
 
 AlertKind = Literal["threshold", "detector"]
-ShadowOutcome = Literal["match", "mismatch", "unavailable", "error"]
+ShadowOutcome = Literal["match", "mismatch", "partial", "unavailable", "error"]
 _CANCELLATION = (CancelledError, CHQueryErrorQueryWasCancelled)
 
 _SHADOW_COMPARISON_COUNTER = Counter(
@@ -51,6 +51,7 @@ class ShadowComparison:
     outcome: ShadowOutcome
     reason: str | None = None
     buckets_compared: int = 0
+    buckets_missing: int = 0
     max_abs_difference: float = 0.0
     freshly_built: bool = False
 
@@ -101,14 +102,26 @@ def compare_closed_values(closed: ClosedSeriesValues | SeriesValuesUnavailable, 
         for bucket, stored in closed.values.items()
         if bucket in live_by_bucket
     ]
+    missing = len(closed.values) - len(differences)
     if not differences:
         return ShadowComparison(
-            outcome="unavailable", reason="no_overlapping_buckets", freshly_built=closed.freshly_built
+            outcome="unavailable",
+            reason="no_overlapping_buckets",
+            buckets_missing=missing,
+            freshly_built=closed.freshly_built,
         )
     largest = max(differences)
+    outcome: ShadowOutcome
+    if largest != 0:
+        outcome = "mismatch"
+    elif missing:
+        outcome = "partial"
+    else:
+        outcome = "match"
     return ShadowComparison(
-        outcome="match" if largest == 0 else "mismatch",
+        outcome=outcome,
         buckets_compared=len(differences),
+        buckets_missing=missing,
         max_abs_difference=largest,
         freshly_built=closed.freshly_built,
     )
@@ -178,6 +191,7 @@ def _record(
                 "outcome": comparison.outcome,
                 "reason": comparison.reason,
                 "buckets_compared": comparison.buckets_compared,
+                "buckets_missing": comparison.buckets_missing,
                 "max_abs_difference": comparison.max_abs_difference,
                 "alert_id": str(alert.id),
                 "calculation_interval": alert.calculation_interval,
