@@ -2,6 +2,8 @@ import { execFile } from 'child_process'
 import { join } from 'path'
 import { promisify } from 'util'
 
+import { getPluginServerCapabilities } from '~/capabilities'
+import { getDefaultCdpConfig } from '~/cdp/config'
 import { getExternalRequestConfig } from '~/common/config'
 import {
     buildIntegerMatcher,
@@ -249,5 +251,36 @@ describe('buildStringMatcher', () => {
         expect(matcher('c')).toBe(true)
         expect(matcher('d')).toBe(true)
         expect(matcher('e')).toBe(false)
+    })
+})
+
+describe('CDP intake in local dev', () => {
+    const env = { ...process.env }
+    afterEach(() => {
+        process.env = { ...env }
+    })
+
+    test.each([
+        ['the all-in-one server', undefined, '*'],
+        ['a dedicated cdp-api server', 'cdp-api', ''],
+    ])('%s answers from Kafka only when it also consumes intake', (_, mode, asyncTeams) => {
+        process.env.NODE_ENV = 'dev'
+        if (mode) {
+            process.env.PLUGIN_SERVER_MODE = mode
+        } else {
+            delete process.env.PLUGIN_SERVER_MODE
+        }
+        expect(getDefaultCdpConfig().CDP_INTAKE_KAFKA_ASYNC_TEAMS).toBe(asyncTeams)
+
+        for (const groups of ['cdp', 'cdp_workflows', '']) {
+            const capabilities = getPluginServerCapabilities({
+                PLUGIN_SERVER_MODE: null,
+                NODEJS_CAPABILITY_GROUPS: groups,
+            })
+            expect([capabilities.cdpIntakeTransactionalEmail, capabilities.cdpIntakeWorkflowWebhook]).toEqual([
+                capabilities.cdpApi,
+                capabilities.cdpApi,
+            ])
+        }
     })
 })

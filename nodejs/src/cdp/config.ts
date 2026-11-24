@@ -537,8 +537,9 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_INTAKE_DLQ_TOPIC: KAFKA_CDP_INTAKE_DLQ,
         CDP_INTAKE_DLQ_DRAIN: false,
         CDP_INTAKE_DLQ_PRODUCER: MSK_CDP_INTAKE_PRODUCER,
-        // Local dev answers from Kafka like cloud. Hobby stays synchronous until it seals sends with a key of its own.
-        CDP_INTAKE_KAFKA_ASYNC_TEAMS: isDevEnv() ? '*' : '',
+        // Only the all-in-one dev server runs the intake consumers beside the API, so only it answers from Kafka.
+        // Hobby stays synchronous until it seals sends with a key of its own.
+        CDP_INTAKE_KAFKA_ASYNC_TEAMS: isDevEnv() && !process.env.PLUGIN_SERVER_MODE ? '*' : '',
         CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS: 8,
         CDP_INTAKE_MSK_PRODUCER: MSK_CDP_INTAKE_PRODUCER,
         CDP_DLQ_REPLAY_TOPIC: KAFKA_CDP_EVENTS_DLQ,
