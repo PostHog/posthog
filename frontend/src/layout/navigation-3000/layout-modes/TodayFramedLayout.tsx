@@ -20,12 +20,6 @@ const TodaySidePanel = lazyWithRetry(() =>
     import('~/layout/today/TodaySidePanel').then((m) => ({ default: m.TodaySidePanel }))
 )
 const TodayTopBar = lazyWithRetry(() => import('~/layout/today/TodayTopBar').then((m) => ({ default: m.TodayTopBar })))
-const TodayWarehouseHeader = lazyWithRetry(() =>
-    import('~/layout/today/TodayWarehouseHeader').then((m) => ({ default: m.TodayWarehouseHeader }))
-)
-const TodayWarehouseSidebar = lazyWithRetry(() =>
-    import('~/layout/today/TodayWarehouseSidebar').then((m) => ({ default: m.TodayWarehouseSidebar }))
-)
 
 export function TodayFramedLayout({
     children,
@@ -36,8 +30,7 @@ export function TodayFramedLayout({
 }): JSX.Element {
     const { mobileLayout } = useValues(navigationLogic)
     const { isLayoutNavCollapsed, navbarWidth, sidePanelWidth } = useValues(panelLayoutLogic)
-    const { leftNavWidth, onAiPage, sidebarInContent, sidebarVisible, warehouseHeaderShown } =
-        useValues(todayShellLogic)
+    const { leftNavWidth, onAiPage, sidebarVisible } = useValues(todayShellLogic)
 
     const drawerOpen = mobileLayout && sidebarVisible
 
@@ -67,27 +60,11 @@ export function TodayFramedLayout({
             <MainContentColumn
                 sceneConfig={sceneConfig}
                 className={cn('TodayAppLayout__content', {
-                    // A docked sidebar draws the corner and the seam. The warehouse sidebar sits inside the content, so the content keeps them.
-                    'TodayAppLayout__content--corner': mobileLayout || !sidebarVisible || sidebarInContent,
+                    // A docked sidebar draws the corner and the seam.
+                    'TodayAppLayout__content--corner': mobileLayout || !sidebarVisible,
                     'TodayAppLayout__content--side-panel': sidePanelWidth > 0,
                 })}
                 inert={drawerOpen}
-                grid
-                header={
-                    warehouseHeaderShown && (
-                        <Suspense fallback={null}>
-                            <TodayWarehouseHeader className="col-span-2 row-start-1" />
-                        </Suspense>
-                    )
-                }
-                sidebar={
-                    sidebarInContent &&
-                    sidebarVisible && (
-                        <Suspense fallback={null}>
-                            <TodayWarehouseSidebar className="col-start-1 row-start-2" />
-                        </Suspense>
-                    )
-                }
                 // The frame uses quill's border token to match the sidebar seam.
                 frame={<div data-quill aria-hidden className="TodayAppLayout__frame" />}
                 overlay={
