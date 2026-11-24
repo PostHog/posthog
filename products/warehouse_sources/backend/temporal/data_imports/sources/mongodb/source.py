@@ -100,9 +100,9 @@ _MONGO_HOST_UNRESOLVED_MESSAGE = (
 )
 
 _MONGO_SRV_RECORD_MISSING_MESSAGE = (
-    # nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
     "PostHog couldn't find the DNS records that a mongodb+srv:// connection string needs. This "
     "scheme only works with a host that publishes SRV records, such as a MongoDB Atlas cluster. "
+    # nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
     "If your host doesn't, use the mongodb:// scheme with the host and port instead, then try again."
 )
 
