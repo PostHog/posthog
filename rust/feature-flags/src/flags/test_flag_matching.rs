@@ -5010,8 +5010,6 @@ mod tests {
         ));
         let team = context.insert_new_team(None).await.unwrap();
 
-        // The person does not satisfy the realtime cohort's filters, so the wrapper can only
-        // match through the provider's answer for the cohort it includes.
         let realtime_cohort = context
             .insert_cohort_with_type_and_condition_type(
                 team.id,

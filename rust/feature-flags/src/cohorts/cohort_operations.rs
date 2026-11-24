@@ -479,10 +479,6 @@ fn evaluate_single_cohort(
 /// Fails with `CohortFiltersParsingError` when the membership of the requested cohort is
 /// unknown. A dependency with unknown membership does not fail the evaluation when the
 /// rest of the requested cohort decides the result.
-///
-/// An entry in `known_cohort_matches` replaces the evaluation of that cohort's criteria, for
-/// a static, realtime or dynamic cohort. Every entry must come from the same person, target
-/// properties and matching context as this call, or the result uses a stale membership.
 pub fn evaluate_dynamic_cohorts(
     initial_cohort_id: CohortId,
     target_properties: &HashMap<String, Value>,
