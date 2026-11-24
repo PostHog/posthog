@@ -28,7 +28,6 @@ const encodedStateFields = {
     // where only vacuum reclaims the space. Files and blobs go to object storage, never into
     // this column or a new cyclotron table. See "Keep rows small" in ./README.md.
     state: z.instanceof(Buffer).nullish(),
-    // The total size of an email job's attachment files, so the email worker can dequeue them apart from plain sends.
     fileBytes: z.number().int().nonnegative().nullish(),
     distinctId: z.string().nullish(),
     personId: z.string().nullish(),
