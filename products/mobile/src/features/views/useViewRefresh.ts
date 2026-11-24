@@ -153,11 +153,6 @@ function blockedFor(options: ViewRefreshOptions, now: number = serverNow()): Blo
     })
 }
 
-/**
- * Runs the refresh rules of one Views screen. It reads on first paint and when items scroll into view, on screen focus
- * and on app foreground (never forcing), and on pull to refresh (forcing only what the server allows). Every
- * request goes through the app-wide queue. No timer sends requests while the app is open.
- */
 export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
     const optionsRef = useRef(options)
     optionsRef.current = options
@@ -197,6 +192,7 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
     useNow(30_000)
 
     const containerReading = useRef<Promise<JobResult> | null>(null)
+    const dashboardOpenGroup = useRef<string | null>(group)
     const itemReads = useRef(new Map<string, Promise<JobResult>>())
     const recoverOnEnable = useRef(false)
 
@@ -319,11 +315,21 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
                 fresh.map((item) => item.snapshot()),
                 serverNow()
             )
-            if (current.container && containerReading.current) {
-                await containerReading.current
-            }
+            const pendingContainer = current.container && containerReading.current
+            const containerRead = pendingContainer ? await pendingContainer : null
             if (!stillActive(generation, passGroup)) {
                 return
+            }
+            let canRefreshDashboard = false
+            const now = serverNow()
+            const container = current.container
+            if (container && dashboardOpenGroup.current === passGroup && fresh.length > 0) {
+                dashboardOpenGroup.current = null
+                // A pinned preview can already have read this dashboard within the automatic minute floor.
+                const hasRecentRead = containerRead
+                    ? containerRead.status === 'ok'
+                    : !readFloorPassed(container.readAt()) && !useItemErrors.getState().errors[container.key]
+                canRefreshDashboard = hasRecentRead && !blockedFor(optionsRef.current, now).blocked
             }
             for (const item of fresh) {
                 const previous = recovering ? await itemReads.current.get(item.key) : undefined
@@ -335,16 +341,18 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
                 }
                 const failed = previous?.status === 'failed'
                 const snapshot = item.snapshot()
-                // Dashboard tiles follow the web's open path: after the cache-only dashboard read, a tile computes
-                // only when it has no result or its `cache_target_age` has passed.
-                const wanted =
-                    drawable(item) &&
-                    (failed ||
-                        (current.container
-                            ? !hasGoodValue(snapshot) || cacheTargetPassed(snapshot)
-                            : (item.openDue?.() ?? isDue(snapshot))))
-                if (wanted) {
+                if (!drawable(item)) {
+                    continue
+                }
+                if (
+                    failed ||
+                    (current.container
+                        ? !hasGoodValue(snapshot) || cacheTargetPassed(snapshot, now)
+                        : (item.openDue?.() ?? isDue(snapshot)))
+                ) {
                     send(counters, item.key, item.family, 'blocking', item.read, failed)
+                } else if (canRefreshDashboard && isEligible(snapshot, now)) {
+                    send(counters, item.key, item.family, 'force_blocking', item.read)
                 }
             }
             await report(trigger, counters, startedAt, age, null)
@@ -506,7 +514,9 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
             focusedBefore.current = true
             return () => {
                 passGeneration.current += 1
-                viewsQueue.leave(groupOf(optionsRef.current))
+                const leavingGroup = groupOf(optionsRef.current)
+                dashboardOpenGroup.current = leavingGroup
+                viewsQueue.leave(leavingGroup)
             }
         }, [focusPass])
     )
