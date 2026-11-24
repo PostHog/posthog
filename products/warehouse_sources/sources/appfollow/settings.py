@@ -30,8 +30,21 @@ APPFOLLOW_V3 = "v3"
 #   - "workspace_apps": `app_lists` — fans out over every workspace, `/workspaces/apps?appsId=<id>`.
 #   - "reviews_feed":   `reviews` — fans out over every workspace with a POST to `/reviews/feed`,
 #                       cursor paginated, with a `from` date filter we drive incrementally off `date`.
+#
+#   - "dated_fanout": per-app endpoints walked over date slices: one request per day (`time_mode="daily"`)
+#                     or one per `from`/`to` window of at most `max_window_days`. Each request after a
+#                     backfill re-reads `DATED_FANOUT_LOOKBACK_DAYS` before the watermark, because these
+#                     statistics keep changing after the day they describe.
 EndpointKind = Literal[
-    "list", "apps", "reviews", "ratings", "app_fanout", "workspaces", "workspace_apps", "reviews_feed"
+    "list",
+    "apps",
+    "reviews",
+    "ratings",
+    "app_fanout",
+    "workspaces",
+    "workspace_apps",
+    "reviews_feed",
+    "dated_fanout",
 ]
 
 # How an "app_fanout" endpoint takes time:
@@ -39,13 +52,23 @@ EndpointKind = Literal[
 #   - "snapshot": a single `date` parameter selecting one day. We request today and stamp that date on
 #                 every row, so the primary key and the partition key are always populated.
 #   - "window":   a `from`/`to` date range. `from` is the incremental cursor.
-TimeMode = Literal["none", "snapshot", "window"]
+#   - "daily":    a single `date` parameter that selects the reviews of one day ("dated_fanout" only).
+#                 We walk one request per day and stamp that date on every row.
+TimeMode = Literal["none", "snapshot", "window", "daily"]
+
+# How the rows sit under the envelope key:
+#   - "list":    a list of rows.
+#   - "object":  one object, which becomes one row.
+#   - "grouped": an object of row lists. The rows are flattened and the list name goes in `group_field`.
+RowShape = Literal["list", "object", "grouped"]
 
 # AppFollow requires a `from`/`to` window on the reviews and ratings endpoints. On a first (backfill)
 # sync we open the window all the way back to this date so the whole history is captured once; from
 # then on the incremental filter (`last_modified` for reviews, `from`=watermark for ratings) does the
 # delta work. Predates the App Store (2008) and Google Play (2012) so no real review/rating is missed.
 DEFAULT_START_DATE = "2008-01-01"
+
+DATED_FANOUT_LOOKBACK_DAYS = 7
 
 
 @frozen
@@ -68,8 +91,19 @@ class AppfollowEndpointConfig:
     paginated: bool = False
     # "app_fanout" only: the endpoint requires a `country`, resolved per app.
     requires_country: bool = False
-    # "app_fanout" only: see TimeMode.
+    # "app_fanout" and "dated_fanout": see TimeMode.
     time_mode: TimeMode = "none"
+    # "dated_fanout" only: the most days one `from`/`to` request can span. `None` means one window.
+    max_window_days: Optional[int] = None
+    # "dated_fanout" only: how far back the first sync reads. `None` means from `DEFAULT_START_DATE`.
+    backfill_days: Optional[int] = None
+    # "dated_fanout" only: fixed query parameters sent with every request.
+    extra_params: tuple[tuple[str, str], ...] = ()
+    # "dated_fanout" only: see RowShape.
+    row_shape: RowShape = "list"
+    group_field: Optional[str] = None
+    # "dated_fanout" only: statuses that mean this app cannot use the endpoint. The walk skips the app.
+    skip_app_statuses: tuple[int, ...] = ()
 
 
 _REVIEW_UPDATED_FIELD: IncrementalField = {
@@ -190,6 +224,99 @@ APPFOLLOW_ENDPOINTS: dict[str, AppfollowEndpointConfig] = {
         data_key=("stats", "reviews"),
         partition_key="date",
         time_mode="window",
+        default_incremental_field="date",
+        incremental_fields=[_DATE_FIELD],
+        should_sync_default=False,
+    ),
+    # Reviews with their semantic sentiment and tags. Needs AppFollow's Advanced API add-on, and each
+    # request costs 48 credits. The endpoint does not page, so one request per app reads the window.
+    "reviews_semantic": AppfollowEndpointConfig(
+        name="reviews_semantic",
+        path="/reviews/semantic",
+        kind="dated_fanout",
+        primary_keys=["ext_id", "review_id"],
+        data_key=("reviews",),
+        partition_key="date",
+        time_mode="window",
+        default_incremental_field="date",
+        incremental_fields=[_DATE_FIELD],
+        should_sync_default=False,
+    ),
+    # Daily App Store downloads, impressions and page views by source channel. Needs the App Store
+    # Connect integration in AppFollow. One request can span one month at most.
+    "aso_reports": AppfollowEndpointConfig(
+        name="aso_reports",
+        path="/reports/aso",
+        kind="dated_fanout",
+        primary_keys=["ext_id", "date", "channel"],
+        data_key=("data",),
+        partition_key="date",
+        time_mode="window",
+        max_window_days=30,
+        backfill_days=365,
+        extra_params=(("channel", "channel"), ("period", "daily")),
+        # 424: the app has no App Store Connect integration, for example a Google Play app.
+        skip_app_statuses=(424,),
+        default_incremental_field="date",
+        incremental_fields=[_DATE_FIELD],
+        should_sync_default=False,
+    ),
+    # Star ratings by review tag for the reviews of one day, one row per replying user.
+    "reviews_ratings_stats": AppfollowEndpointConfig(
+        name="reviews_ratings_stats",
+        path="/reviews/stats/ratings",
+        kind="dated_fanout",
+        primary_keys=["ext_id", "date", "answer_user_id"],
+        data_key=("rating_stat",),
+        partition_key="date",
+        time_mode="daily",
+        backfill_days=30,
+        default_incremental_field="date",
+        incremental_fields=[_DATE_FIELD],
+        should_sync_default=False,
+    ),
+    # Reply counts per user, and tag and note counts, for the reviews of one day. One row per app and day.
+    "reviews_replies_stats": AppfollowEndpointConfig(
+        name="reviews_replies_stats",
+        path="/reviews/stats/replies",
+        kind="dated_fanout",
+        primary_keys=["ext_id", "date"],
+        data_key=("user_stat",),
+        partition_key="date",
+        time_mode="daily",
+        backfill_days=30,
+        row_shape="object",
+        default_incremental_field="date",
+        incremental_fields=[_DATE_FIELD],
+        should_sync_default=False,
+    ),
+    # Reply speed buckets per user for the reviews of one day.
+    "reviews_replies_speed": AppfollowEndpointConfig(
+        name="reviews_replies_speed",
+        path="/reviews/stats/replies/speed",
+        kind="dated_fanout",
+        primary_keys=["ext_id", "date", "answer_user_id"],
+        data_key=("replies_time_stat",),
+        partition_key="date",
+        time_mode="daily",
+        backfill_days=30,
+        default_incremental_field="date",
+        incremental_fields=[_DATE_FIELD],
+        should_sync_default=False,
+    ),
+    # Replied reviews whose rating changed after the reply, grouped by the API into `became_better` and
+    # `became_worse`. The price grows with every 14 days of the window, so the backfill is one year.
+    "reviews_replies_count": AppfollowEndpointConfig(
+        name="reviews_replies_count",
+        path="/reviews/stats/replies/count",
+        kind="dated_fanout",
+        primary_keys=["ext_id", "id"],
+        data_key=("list",),
+        partition_key="date",
+        time_mode="window",
+        backfill_days=365,
+        row_shape="grouped",
+        group_field="rating_change",
         default_incremental_field="date",
         incremental_fields=[_DATE_FIELD],
         should_sync_default=False,

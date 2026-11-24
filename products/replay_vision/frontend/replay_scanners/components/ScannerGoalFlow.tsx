@@ -50,13 +50,13 @@ export function ScannerGoalFlow(): JSX.Element {
         setGoalDraftQuery,
     } = useActions(logic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
-    const { freeCreditsLeft } = useValues(visionQuotaLogic)
+    const { freeCreditsLeft, quota } = useValues(visionQuotaLogic)
     // The spend choice is captured with the goal, so a quota that loads while consent is open cannot change it.
     const [pendingDraft, setPendingDraft] = useState<GoalDraftRequest | null>(null)
 
     // Drafting creates a scanner, so it needs the same editor access as the rest of the wizard.
     const editDisabledReason = getReplayVisionEditDisabledReason()
-    const spendChoice = goalSpendChoice(goalSpendMode, goalBudgetInput, freeCreditsLeft)
+    const spendChoice = goalSpendChoice(goalSpendMode, goalBudgetInput, quota)
     const spendMode = spendChoice.mode
     const budgetValid =
         spendMode === 'free' ||

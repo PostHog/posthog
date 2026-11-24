@@ -80,8 +80,6 @@ describe('PersonCreateService', () => {
                 version: 0,
                 is_identified: true,
                 is_user_id: isUserId,
-                properties_last_updated_at: {},
-                properties_last_operation: {},
                 last_seen_at: null,
             }
 
@@ -165,8 +163,6 @@ describe('PersonCreateService', () => {
                 version: 1,
                 is_identified: false,
                 is_user_id: null,
-                properties_last_updated_at: {},
-                properties_last_operation: {},
                 last_seen_at: null,
             }
 
@@ -203,8 +199,6 @@ describe('PersonCreateService', () => {
                 version: 1,
                 is_identified: false,
                 is_user_id: null,
-                properties_last_updated_at: {},
-                properties_last_operation: {},
                 last_seen_at: null,
             })
             const holder = makePerson('999')
@@ -244,8 +238,6 @@ describe('PersonCreateService', () => {
                 version: 1,
                 is_identified: false,
                 is_user_id: null,
-                properties_last_updated_at: {},
-                properties_last_operation: {},
                 last_seen_at: null,
             })
             const holder = makePerson('999')

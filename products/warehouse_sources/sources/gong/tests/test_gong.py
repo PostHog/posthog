@@ -9,11 +9,11 @@ from products.warehouse_sources.sources.gong._config import GongSourceConfig
 from products.warehouse_sources.sources.gong.gong import (
     GONG_BASE_URL,
     GongResumeConfig,
-    _format_datetime,
     _to_datetime,
     validate_credentials,
 )
 from products.warehouse_sources.sources.gong.source import GongSource
+from products.warehouse_sources.sources.sdk import format_datetime
 from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -24,17 +24,6 @@ from products.warehouse_sources.sources.sdk.testing import (
 
 def _driver() -> SourceDriver:
     return SourceDriver(GongSource(), GongSourceConfig(access_key="key", access_key_secret="secret"))
-
-
-class TestFormatDatetime:
-    @parameterized.expand(
-        [
-            ("utc_aware", datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC), "2026-03-04T02:58:14Z"),
-            ("naive_treated_as_utc", datetime(2026, 3, 4, 2, 58, 14), "2026-03-04T02:58:14Z"),
-        ]
-    )
-    def test_format_datetime(self, _name: str, value: datetime, expected: str) -> None:
-        assert _format_datetime(value) == expected
 
 
 class TestToDatetime:
@@ -140,14 +129,14 @@ class TestWindowedCalls:
         result = _driver().run(
             "calls",
             [ScriptedResponse(json={"calls": [{"id": "c1"}]})],
-            resume_state=GongResumeConfig(window_start=_format_datetime(resume_start)),
+            resume_state=GongResumeConfig(window_start=format_datetime(resume_start, "iso_z")),
             should_use_incremental_field=True,
             db_incremental_field_last_value=last_value,
         )
 
         assert result.raised is None
         # The first request starts from the resumed window, not the DB cursor value.
-        assert result.requests[0].param("fromDateTime") == _format_datetime(resume_start)
+        assert result.requests[0].param("fromDateTime") == format_datetime(resume_start, "iso_z")
 
 
 class TestLibraryFolders400IsNonRetryable:
@@ -199,10 +188,15 @@ class TestGongSource:
             ("library_folder_calls", ["folderId", "id", "created"], "created", "asc"),
             ("flows", ["id"], None, "asc"),
             ("workspaces", ["id"], None, "asc"),
+            # A setting can change many times, so the user and the setting alone would merge the history away.
+            ("user_settings_history", ["userId", "setting", "time"], "time", "asc"),
+            # Each window holds many users' days, and each log type's entries, in their own order.
+            ("aggregate_activity", ["userId", "fromDate"], "fromDate", None),
+            ("logs", ["id"], "eventTime", None),
         ]
     )
     def test_source_response_shape(
-        self, endpoint: str, primary_keys: list[str], partition_key: str | None, sort_mode: str
+        self, endpoint: str, primary_keys: list[str], partition_key: str | None, sort_mode: str | None
     ) -> None:
         result = _driver().run(endpoint, [])
         response = result.response
@@ -324,7 +318,7 @@ class TestExtensiveCalls:
         assert result.requests[0].method == "POST"
         body = result.requests[0].json()
         assert body["contentSelector"] == expected_selector
-        assert body["filter"]["fromDateTime"] == _format_datetime(last_value)
+        assert body["filter"]["fromDateTime"] == format_datetime(last_value, "iso_z")
         assert "cursor" not in body
 
     def test_cursor_travels_in_body(self) -> None:
@@ -408,7 +402,7 @@ class TestTranscripts:
         # Every page of the calls walk drives its own transcript request, so a second page of calls
         # isn't dropped.
         assert result.paths == ["/v2/calls", "/v2/calls/transcript", "/v2/calls", "/v2/calls/transcript"]
-        assert result.requests[0].param("fromDateTime") == _format_datetime(last_value)
+        assert result.requests[0].param("fromDateTime") == format_datetime(last_value, "iso_z")
         assert result.requests[2].param("cursor") == "calls-page2"
         # Each request asks only for the ids on the page that drove it.
         assert [request.json()["filter"]["callIds"] for request in result.requests if request.method == "POST"] == [
@@ -484,23 +478,52 @@ class TestDateFilteredStats:
         assert isinstance(result.raised, ValueError)
         assert len(result.requests) == 2
 
+    @parameterized.expand(
+        [
+            (
+                "daily_activity",
+                "usersDetailedActivities",
+                "userDailyActivityStats",
+                ["c1"],
+                [],
+                {},
+            ),
+            # Gong rejects a request without the period, and a wider period would merge the days into one row.
+            (
+                "aggregate_activity",
+                "usersAggregateActivity",
+                "userAggregateActivity",
+                1,
+                0,
+                {"aggregationPeriod": "DAY"},
+            ),
+        ]
+    )
     @time_machine.travel("2026-03-10T15:00:00Z", tick=False)
-    def test_daily_activity_turns_each_users_days_into_rows(self) -> None:
+    def test_activity_turns_each_users_days_into_rows(
+        self,
+        endpoint: str,
+        response_key: str,
+        nested_key: str,
+        first_day_hosted: Any,
+        second_day_hosted: Any,
+        extra_body: dict[str, Any],
+    ) -> None:
         result = _driver().run(
-            "daily_activity",
+            endpoint,
             [
                 ScriptedResponse(
                     json={
-                        "usersDetailedActivities": [
+                        response_key: [
                             {
                                 "userId": "u1",
                                 "userEmailAddress": "one@example.com",
-                                "userDailyActivityStats": [
-                                    {"fromDate": "2026-03-07T00:00:00-08:00", "callsAsHost": ["c1"]},
-                                    {"fromDate": "2026-03-08T00:00:00-08:00", "callsAsHost": []},
+                                nested_key: [
+                                    {"fromDate": "2026-03-07T00:00:00-08:00", "callsAsHost": first_day_hosted},
+                                    {"fromDate": "2026-03-08T00:00:00-08:00", "callsAsHost": second_day_hosted},
                                 ],
                             },
-                            {"userId": "u2", "userEmailAddress": "two@example.com", "userDailyActivityStats": None},
+                            {"userId": "u2", "userEmailAddress": "two@example.com", nested_key: None},
                         ]
                     }
                 ),
@@ -511,7 +534,7 @@ class TestDateFilteredStats:
 
         assert result.raised is None
         assert [request.json() for request in result.requests] == [
-            {"filter": {"fromDate": "2026-03-06", "toDate": "2026-03-09"}}
+            {"filter": {"fromDate": "2026-03-06", "toDate": "2026-03-09"}, **extra_body}
         ]
         assert result.items == [
             [
@@ -519,13 +542,13 @@ class TestDateFilteredStats:
                     "userId": "u1",
                     "userEmailAddress": "one@example.com",
                     "fromDate": "2026-03-07T00:00:00-08:00",
-                    "callsAsHost": ["c1"],
+                    "callsAsHost": first_day_hosted,
                 },
                 {
                     "userId": "u1",
                     "userEmailAddress": "one@example.com",
                     "fromDate": "2026-03-08T00:00:00-08:00",
-                    "callsAsHost": [],
+                    "callsAsHost": second_day_hosted,
                 },
             ]
         ]
@@ -579,3 +602,126 @@ class TestFanOut:
         ]
         assert result.params("cursor") == [None, None, "users2", None, "flows2"]
         assert [row["id"] for row in result.rows] == ["company", "mine", "shared"]
+
+    def test_user_settings_history_is_requested_per_user_in_the_path(self) -> None:
+        result = _driver().run(
+            "user_settings_history",
+            [
+                ScriptedResponse(
+                    json={
+                        "users": [
+                            {"id": "101", "emailAddress": "one@example.com", "active": True},
+                            # Inactive users keep the history that explains when they stopped recording.
+                            {"id": "102", "emailAddress": "gone@example.com", "active": False},
+                            {"id": "103", "emailAddress": "deleted@example.com", "active": True},
+                        ]
+                    }
+                ),
+                ScriptedResponse(
+                    json={
+                        "userSettingsHistory": [
+                            {"setting": "webConferencesRecorded", "value": True, "time": "2025-01-01T00:00:00Z"},
+                            {"setting": "webConferencesRecorded", "value": False, "time": "2025-06-01T00:00:00Z"},
+                        ]
+                    }
+                ),
+                ScriptedResponse(
+                    json={
+                        "userSettingsHistory": [
+                            {"setting": "active", "value": False, "time": "2025-02-01T00:00:00Z"},
+                        ]
+                    }
+                ),
+                ScriptedResponse(status=404, body=b'{"errors":["No user found for the given id"]}'),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v2/users",
+            "/v2/users/101/settings-history",
+            "/v2/users/102/settings-history",
+            "/v2/users/103/settings-history",
+        ]
+        assert result.params("id") == [None, None, None, None]
+        assert result.rows == [
+            {"setting": "webConferencesRecorded", "value": True, "time": "2025-01-01T00:00:00Z", "userId": "101"},
+            {"setting": "webConferencesRecorded", "value": False, "time": "2025-06-01T00:00:00Z", "userId": "101"},
+            {"setting": "active", "value": False, "time": "2025-02-01T00:00:00Z", "userId": "102"},
+        ]
+
+
+LOG_TYPES = [
+    "AccessLog",
+    "UserActivityLog",
+    "UserCallPlay",
+    "ExternallySharedCallAccess",
+    "ExternallySharedCallPlay",
+]
+EMPTY_LOGS = ScriptedResponse(status=404, body=b'{"errors":["No logs found corresponding to the provided filters"]}')
+
+
+class TestLogs:
+    @time_machine.travel("2026-03-10T15:00:00Z", tick=False)
+    def test_each_log_type_is_read_for_the_window_and_stamped(self) -> None:
+        entry = {"userId": "u1", "eventTime": "2026-03-08T10:00:00Z", "logRecord": {"ip": "192.0.2.1"}}
+        result = _driver().run(
+            "logs",
+            [
+                ScriptedResponse(json={"logEntries": [entry], "records": {"cursor": "access2"}}),
+                ScriptedResponse(json={"logEntries": [{**entry, "eventTime": "2026-03-08T11:00:00Z"}]}),
+                EMPTY_LOGS,
+                # The same entry in another log is a different event.
+                ScriptedResponse(json={"logEntries": [entry]}),
+                EMPTY_LOGS,
+                EMPTY_LOGS,
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-03-08T00:00:00Z",
+        )
+
+        assert result.raised is None
+        assert result.params("logType") == ["AccessLog", *LOG_TYPES]
+        assert result.params("cursor") == [None, "access2", None, None, None, None]
+        assert set(result.params("fromDateTime")) == {"2026-03-08T00:00:00Z"}
+        assert [(row["logType"], row["eventTime"]) for row in result.rows] == [
+            ("AccessLog", "2026-03-08T10:00:00Z"),
+            ("AccessLog", "2026-03-08T11:00:00Z"),
+            ("UserCallPlay", "2026-03-08T10:00:00Z"),
+        ]
+        ids = [row["id"] for row in result.rows]
+        assert len(set(ids)) == 3
+        assert result.rows[0]["logRecord"] == {"ip": "192.0.2.1"}
+
+    @time_machine.travel("2026-03-10T15:00:00Z", tick=False)
+    def test_id_is_stable_across_runs(self) -> None:
+        entry = {"userId": "u1", "eventTime": "2026-03-08T10:00:00Z", "logRecord": {"action": "login"}}
+        runs = [
+            _driver().run(
+                "logs",
+                [ScriptedResponse(json={"logEntries": [payload]}), *[EMPTY_LOGS] * 4],
+                should_use_incremental_field=True,
+                db_incremental_field_last_value="2026-03-08T00:00:00Z",
+            )
+            for payload in (entry, {**entry, "userFullName": "Renamed User"}, {**entry, "logRecord": {"action": "x"}})
+        ]
+
+        first, renamed, other = (run.rows[0]["id"] for run in runs)
+        # A re-read of the same event must merge onto the row it already wrote.
+        assert first == renamed
+        assert first != other
+
+    @time_machine.travel("2026-03-10T15:00:00Z", tick=False)
+    def test_resume_continues_from_the_saved_log_type(self) -> None:
+        result = _driver().run(
+            "logs",
+            [EMPTY_LOGS, ScriptedResponse(json={"logEntries": [{"eventTime": "2026-03-08T10:00:00Z"}]})],
+            resume_state=GongResumeConfig(window_start="2026-03-08T00:00:00Z", variant_index=3),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-03-01T00:00:00Z",
+        )
+
+        assert result.raised is None
+        assert result.params("logType") == LOG_TYPES[3:]
+        assert set(result.params("fromDateTime")) == {"2026-03-08T00:00:00Z"}
+        assert [state.variant_index for state in result.saved_states] == [4, None]

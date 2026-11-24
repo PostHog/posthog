@@ -173,6 +173,35 @@ describe('authLogic', () => {
         })
     })
 
+    describe('returning from an identity provider with a pending code', () => {
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/_preflight': () => [200, { ...preflightJson, can_create_org: true }],
+                },
+                post: {
+                    '/api/login/precheck': () => [200, { account_exists: true, saml_available: false }],
+                },
+            })
+            initKeaTests()
+            authLogic.mount()
+        })
+
+        afterEach(() => {
+            authLogic.unmount()
+        })
+
+        it('shows the code step for the asserted address without starting a second login', async () => {
+            await expectLogic(authLogic, () => {
+                router.actions.push('/login?code_verification_pending=1&email=person%40example.com')
+            }).toMatchValues({ step: 'login_code' })
+
+            expect(loginLogic.values.codeVerificationEmail).toEqual('person@example.com')
+            // A precheck would offer the provider buttons again and can bounce the person back to it.
+            expect(loginLogic.values.precheckResponse.status).toEqual('pending')
+        })
+    })
+
     describe('funnel events', () => {
         let accountExists: boolean
         let holdPrecheck: Promise<void> | null

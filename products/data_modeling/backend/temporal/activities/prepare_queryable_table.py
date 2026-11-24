@@ -4,6 +4,7 @@ import dataclasses
 from django.db import transaction
 
 import deltalake
+from opentelemetry import trace
 from structlog import get_logger
 from temporalio import activity
 
@@ -18,11 +19,12 @@ from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_modeling.backend.temporal.activities.materialize_view import get_aws_storage_options
 from products.data_modeling.backend.temporal.activities.utils import bind_data_modeling_log_context
 from products.data_warehouse.backend.facade.api import create_table_from_saved_query
-from products.warehouse_sources.backend.facade.api import discard_backing_table, record_table_row_count
+from products.warehouse_sources.backend.facade.api import discard_backing_table
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.temporal import prepare_s3_files_for_querying
 
 LOGGER = get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 @dataclasses.dataclass
@@ -64,16 +66,9 @@ def _link_or_discard_table(saved_query: DataWarehouseSavedQuery, saved_query_tab
 
 
 @database_sync_to_async_pool
-def _update_saved_query_with_table(
-    inputs: PrepareQueryableTableInputs, saved_query: DataWarehouseSavedQuery, saved_query_table: DataWarehouseTable
-):
+def _update_saved_query_with_table(saved_query: DataWarehouseSavedQuery, saved_query_table: DataWarehouseTable):
     if not _link_or_discard_table(saved_query, saved_query_table):
         return
-
-    if not inputs.incremental:
-        # `create_table_from_saved_query` already counted the published files, which is the whole
-        # table. Keep that for an incremental run rather than overwriting it with the window.
-        record_table_row_count(saved_query.team_id, saved_query_table.id, inputs.row_count)
 
     # Every other materialization entry point can leave a stale node type behind, so repair it here.
     # A query reverted mid-run is left alone: it no longer asks to materialize.
@@ -102,7 +97,9 @@ class PublishQueryableTableInputs(PrepareQueryableTableInputs):
     staged_folder_path: str = dataclasses.field(kw_only=True)
 
 
+@tracer.start_as_current_span("prepare_queryable_table.stage_files")
 async def _stage_files(inputs: PrepareQueryableTableInputs, saved_query: DataWarehouseSavedQuery, logger) -> str:
+    trace.get_current_span().set_attribute("file_count", len(inputs.file_uris))
     queryable_folder = saved_query.table.queryable_folder if saved_query.table else None
     await logger.adebug(
         f"Copying query files to S3: folder_path={saved_query.folder_path} table_name={saved_query.storage_name} "
@@ -127,10 +124,22 @@ async def _publish_table(
 ) -> PrepareQueryableTableResult:
     await logger.ainfo("Preparing table for querying")
     create_result = await create_table_from_saved_query(
-        inputs.job_id, inputs.saved_query_id, inputs.team_id, folder_path
+        inputs.job_id,
+        inputs.saved_query_id,
+        inputs.team_id,
+        folder_path,
+        row_count=None if inputs.incremental else inputs.row_count,
     )
+    if not create_result.published:
+        await logger.ainfo(
+            "skipped_publish_of_older_staged_folder",
+            saved_query_id=str(saved_query.id),
+            table_id=str(create_result.table.id),
+            staged_folder=folder_path,
+        )
 
-    await _update_saved_query_with_table(inputs, saved_query, create_result.table)
+    with tracer.start_as_current_span("prepare_queryable_table.link_table"):
+        await _update_saved_query_with_table(saved_query, create_result.table)
     await logger.ainfo(f"Updated saved query row count: id={saved_query.id} row_count={inputs.row_count}")
 
     return PrepareQueryableTableResult(

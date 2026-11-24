@@ -20,7 +20,7 @@ import { FLAG_EVALUATIONS_MODE_LABELS, featureFlagsStaffToolsLogic } from './fea
 const MODE_DESCRIPTIONS: Record<FlagEvaluationsModeEnumApi, string> = {
     0: 'Every reader of $feature_flag_called reads the events table.',
     1: "The Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to $feature_flag_called, and the home page flag call and enrollment counts read the flag_evaluations table. So does a HogQL query that pins $feature_flag_called to flag keys within the table's coverage. Other queries, including default experiment exposures, read the events table. Event pickers hide $feature_flag_called. New action steps on it are refused, and so are new cohort criteria on it that the cohort calculation would read from the events table. While the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, all of this uses the events table instead.",
-    2: "Reads as mode 1. Ingestion also stops writing $feature_flag_called to the events table for the teams it copies to flag_evaluations. HogQL queries read flag_evaluations for any date range and fail when they can't, queries that mix flag calls with other events read both tables, realtime cohorts refuse new $feature_flag_called criteria, and flags keep no last called time unless it syncs from flag_evaluations.",
+    2: "Reads as mode 1. Ingestion also stops writing $feature_flag_called to the events table for the teams it copies to flag_evaluations, unless the organization keeps writing it there. The events copy starts when that takes effect and holds no earlier calls, so a read that moves back to events misses the calls only the flag_evaluations table holds. With the events writes kept, every reader still behaves as described here, and FLAG_EVALUATIONS_READS_FORCE_EVENTS moves the organization back to the events table. HogQL queries read flag_evaluations for any date range and fail when they can't, queries that mix flag calls with other events read both tables, realtime cohorts refuse new $feature_flag_called criteria, and flags keep no last called time unless it syncs from flag_evaluations.",
 }
 
 export function StaffFlagEvaluationsModeModal(): JSX.Element {
@@ -38,7 +38,7 @@ export function StaffFlagEvaluationsModeModal(): JSX.Element {
         applyFlagEvaluationsMode,
     } = useActions(featureFlagsStaffToolsLogic)
 
-    const { mode, allowDowngrade } = flagEvaluationsModeRequest
+    const { mode, allowDowngrade, keepWritingFlagCallsToEvents } = flagEvaluationsModeRequest
 
     const columns: LemonTableColumns<StaffOrganizationModeChangeApi> = [
         { title: 'Organization', dataIndex: 'organization_name' },
@@ -119,12 +119,24 @@ export function StaffFlagEvaluationsModeModal(): JSX.Element {
                 </LemonField.Pure>
 
                 {mode === FlagEvaluationsModeEnumApi.Number2 && (
-                    <LemonBanner type="warning">
-                        For the teams ingestion copies to flag_evaluations, it writes $feature_flag_called only there,
-                        so a failed write loses the event. Teams in INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS still
-                        write to the events table, and so does every team while INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED
-                        is on.
-                    </LemonBanner>
+                    <>
+                        {!keepWritingFlagCallsToEvents && (
+                            <LemonBanner type="warning">
+                                For the teams ingestion copies to flag_evaluations, it writes $feature_flag_called only
+                                there, so a failed write loses the event. Teams in
+                                INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS still write to the events table, and so does
+                                every team while INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED is on.
+                            </LemonBanner>
+                        )}
+                        <LemonCheckbox
+                            checked={keepWritingFlagCallsToEvents}
+                            onChange={(checked) =>
+                                setFlagEvaluationsModeRequest({ keepWritingFlagCallsToEvents: checked })
+                            }
+                            disabledReason={applyingReason}
+                            label="Keep writing $feature_flag_called to the events table"
+                        />
+                    </>
                 )}
 
                 <LemonCheckbox

@@ -1,0 +1,280 @@
+.DashboardV2__canvas {
+    min-width: 0;
+
+    // Room below the last row, so a tile can be dragged under everything.
+    padding-bottom: 30vh;
+}
+
+.DashboardV2__card {
+    width: 100%;
+    height: 100%;
+}
+
+.DashboardV2__handle {
+    .DashboardV2__grid--editable & {
+        cursor: grab;
+    }
+}
+
+// Edit controls show only for the tile under the pointer. Pure CSS, so hovering costs no render.
+.DashboardV2__chrome {
+    opacity: 0;
+    transition: opacity 100ms;
+
+    @media (prefers-reduced-motion: reduce) {
+        transition: none;
+    }
+}
+
+.DashboardV2__tile:hover > .DashboardV2__card .DashboardV2__chrome,
+.DashboardV2__tile:hover > .DashboardV2__menu-trigger > .DashboardV2__card .DashboardV2__chrome,
+.DashboardV2__tile:focus-within > .DashboardV2__card .DashboardV2__chrome,
+.DashboardV2__tile:focus-within > .DashboardV2__menu-trigger > .DashboardV2__card .DashboardV2__chrome,
+.DashboardV2__section-header:hover .DashboardV2__chrome,
+.DashboardV2__section-header:focus-within .DashboardV2__chrome {
+    opacity: 1;
+}
+
+.DashboardV2__float-toolbar {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    z-index: 1;
+}
+
+.DashboardV2__section {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+}
+
+.DashboardV2__section-header {
+    display: flex;
+    flex-shrink: 0;
+    gap: 4px;
+    align-items: center;
+
+    // One grid row tall with one grid gap below (GRID.rowPx and GRID.gapPx), which keeps the section's rows on
+    // the rows of the grid around it.
+    height: 32px;
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--color-border-primary);
+}
+
+.DashboardV2__section-body {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+}
+
+.DashboardV2__section-empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    border: 1px dashed var(--color-border-primary);
+    border-radius: var(--radius);
+}
+
+.DashboardV2__grid {
+    // An empty grid still needs height to take a drop: one row (GRID.rowPx), or all of the section it is in.
+    min-height: 32px;
+
+    .DashboardV2__section-body > & {
+        min-height: 100%;
+    }
+
+    .react-grid-placeholder,
+    .DashboardV2__drop-preview {
+        background: color-mix(in oklab, var(--color-accent) 14%, transparent);
+        border: 1px dashed var(--color-accent);
+        border-radius: var(--radius-lg, var(--radius));
+        opacity: 1;
+    }
+
+    // The tile is over another grid, which shows the landing spot. This grid's own spot would be a second one.
+    &--tile-away > .react-grid-layout > .react-grid-placeholder {
+        display: none;
+    }
+
+    .react-grid-item.react-draggable-dragging > .DashboardV2__card,
+    .react-grid-item.react-draggable-dragging > .DashboardV2__menu-trigger > .DashboardV2__card,
+    .react-grid-item.react-draggable-dragging > .DashboardV2__section {
+        box-shadow: var(--shadow-elevation-3000);
+        opacity: 0.92;
+    }
+
+    // Each tile is its own stacking layer. A tile dragged out of a section must stay above the tiles that come
+    // after that section, so every tile holding the dragged one rises with it.
+    .react-grid-item:has(.react-draggable-dragging),
+    .react-grid-item:has(.resizing) {
+        z-index: 3;
+    }
+
+    // Resize handles are grab zones on the right and bottom edges, shown only by the cursor. The corner alone draws a
+    // grip, inside the tile, so no bar runs along a tile's side.
+    // The selectors are this long, and each edge resets its own transform, to win over the grid library's own
+    // handle styles, which rotate each handle.
+    .react-grid-item > .react-resizable-handle {
+        position: absolute;
+        width: auto;
+        height: auto;
+        padding: 0;
+        margin: 0;
+        background: none;
+        opacity: 0;
+        transition: opacity 100ms;
+
+        &::after {
+            position: absolute;
+            inset: auto;
+            width: auto;
+            height: auto;
+            content: '';
+            background: var(--color-accent);
+            border: 0;
+            border-radius: 2px;
+        }
+
+        &:hover {
+            opacity: 1;
+        }
+
+        // The grid library shows every handle of a hovered tile. Only the edge under the pointer should show.
+        &:not(:hover) {
+            opacity: 0;
+        }
+
+        &.react-resizable-handle-e {
+            inset: 0 -6px 12px auto;
+            width: 12px;
+            cursor: ew-resize;
+            transform: none;
+
+            &::after {
+                display: none;
+            }
+        }
+
+        &.react-resizable-handle-w {
+            inset: 0 auto 12px -6px;
+            width: 12px;
+            cursor: ew-resize;
+            transform: none;
+
+            &::after {
+                display: none;
+            }
+        }
+
+        &.react-resizable-handle-sw {
+            inset: auto auto -6px -6px;
+            width: 18px;
+            height: 18px;
+            cursor: nesw-resize;
+            transform: none;
+
+            &::after {
+                display: none;
+            }
+        }
+
+        &.react-resizable-handle-s {
+            inset: auto 12px -6px 0;
+            height: 12px;
+            cursor: ns-resize;
+            transform: none;
+
+            &::after {
+                display: none;
+            }
+        }
+
+        &.react-resizable-handle-se {
+            inset: auto 0 0 auto;
+            width: 16px;
+            height: 16px;
+            cursor: nwse-resize;
+            transform: none;
+
+            &::after {
+                right: 4px;
+                bottom: 4px;
+                width: 8px;
+                height: 8px;
+                background: none;
+                border-right: 2px solid var(--color-text-tertiary, currentColor);
+                border-bottom: 2px solid var(--color-text-tertiary, currentColor);
+                border-radius: 0 0 3px;
+            }
+        }
+    }
+
+    // Over a resize edge, or while resizing, the whole tile is outlined instead of the edge.
+    .react-grid-item:has(> .react-resizable-handle:hover),
+    .react-grid-item.resizing {
+        > .DashboardV2__card,
+        > .DashboardV2__menu-trigger > .DashboardV2__card {
+            outline: 2px solid var(--color-accent);
+            outline-offset: -1px;
+        }
+    }
+
+    // The edge being dragged stays lit while the pointer runs ahead of it.
+    .react-grid-item.resizing > .react-resizable-handle:not(:hover) {
+        opacity: 1;
+    }
+
+    // Both classes are named so this wins over the grid library's own transition rules.
+    @media (prefers-reduced-motion: reduce) {
+        .react-grid-item.cssTransforms,
+        .react-grid-item.react-grid-placeholder {
+            transition: none;
+        }
+    }
+}
+
+// A bar on the side a dragged tab will land, drawn outside the trigger so quill's own styles leave it alone.
+.DashboardV2__tab--insert-before,
+.DashboardV2__tab--insert-after {
+    position: relative;
+
+    &::after {
+        position: absolute;
+        top: 15%;
+        bottom: 15%;
+        width: 2px;
+        content: '';
+        background: var(--color-accent);
+        border-radius: 1px;
+    }
+}
+
+.DashboardV2__tab--insert-before::after {
+    left: -1px;
+}
+
+.DashboardV2__tab--insert-after::after {
+    right: -1px;
+}
+
+.DashboardV2__tab--drop-target {
+    border-radius: var(--radius);
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+}
+
+// A tile's title sits on its content without quill's divider, so a dashboard of small tiles reads as less boxed in.
+.DashboardV2__card > .quill-card__header {
+    padding-bottom: 0;
+    border-bottom: 0;
+}
+
+// Markdown headings in a text tile carry LemonMarkdown's rule underneath; a tile already frames its text.
+.DashboardV2__card .LemonMarkdown :is(h1, h2) {
+    padding-bottom: 0;
+    border-bottom: 0;
+}

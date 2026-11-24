@@ -125,10 +125,10 @@ A receiver may resolve it further, for example a change of `deleted` from false 
 
 `changes_between` compares every model field except the ones in `common_field_exclusions` (ids, timestamps, `team`, `created_by`, and similar).
 Four registries tune it per scope.
-Core keeps them in `activity_log.py` for scopes whose model has no product owner.
+Core keeps them in `activity_log.py` for shared scopes and scopes without clear model ownership.
 Product configs must use exactly `products/<name>/backend/activity_log_config.py`, even when the model lives in a subdirectory.
 Other product config names and locations will not load by convention.
-A core model's config sits beside it, as in `posthog/models/oauth_activity_log_config.py`, and belongs in that model's `owners.yaml` rule's `match` list.
+Place a core config beside its model so it inherits the model's owners. If the ownership rule lists explicit files, add the config to its `match` list.
 That placement is the point: `posthog/models/owners.yaml` and `products/<name>/product.yaml` then give the tuning to the team that owns the model, instead of to whoever owns the activity log.
 `activity_log.py` merges those modules at import and raises if one scope is tuned in two places, and `posthog/test/repo_invariants/test_activity_log_config_ownership.py` fails when a module's owners and its model's owners do not overlap.
 
@@ -142,19 +142,14 @@ The registries are:
 The config setting names are `FIELD_EXCLUSIONS`, `FIELD_NAME_OVERRIDES`, `FIELD_WITH_MASKED_CONTENTS`, and `SIGNAL_EXCLUSIONS`.
 Omit unused settings; the invariant test rejects other uppercase names so a typo cannot silently drop tuning.
 
-Until the discovery follow-up lands, register a config in `posthog/models/activity_logging/activity_log_config_registry.py` with an import and an entry in `MODULES`.
-This core list is temporary and imports product internals that their facades do not export.
-DevEx plans to replace product registration with `posthog.products.load_product_modules("activity_log_config")`.
-That loader checks installed product apps for the named submodule on disk and imports it only where it exists, without walking the tree.
-Core already uses it for routes, scopes, data freshness, webhook consumers, integrations, and Temporal registration.
-The follow-up removes the registry file, its AST guard, and the completeness check; the owner-match check stays.
+Installed product apps load their config automatically through `posthog.products.load_product_modules("activity_log_config")`.
+If the product narrows its `backend:contract-check` inputs, include `backend/activity_log_config.py` in its `turbo.json` so config changes run the shared backend tests.
+For a core model, add an import and a `MODULES` entry in `posthog/models/activity_logging/activity_log_config_registry.py`.
+The registry is intentionally unowned so model teams can register their configs without a review from the activity-log owners.
+Keep config modules data only because Django loads them during setup in every process.
 
-That file holds nothing but those two things, and `posthog/models/owners.yaml` marks it `owners: null`, so a product registering its own tuning does not wait on the activity log's owners.
-The merge and its check for a scope tuned twice stay in `activity_log.py`, which the activity log's team owns and reviews.
-`posthog/test/repo_invariants/test_activity_log_config_ownership.py` scans `posthog/`, `products/`, and `ee/` to catch unregistered configs and product configs with an incorrect name or location.
-It also guards the registry's contents and ownership, rejects unknown setting names, and checks that config owners match model owners.
-A separate merge test fails when a scope is tuned twice.
-A config module holds no imports, because its contents are merged at `django.setup()` in every process.
+`posthog/test/repo_invariants/test_activity_log_config_ownership.py` checks that every config in the tree loads, uses supported settings, and shares an owner with the models it tunes.
+`activity_log.py` raises at startup if two modules define the same setting for a scope.
 
 `changes_between` also reads named reverse relations.
 Exclude relations that hold execution results or storage bookkeeping, such as a notebook's widget snapshots.
@@ -319,6 +314,7 @@ Unlike `client`, they are evidence of which credential made a change.
 
 - A credential without a user clears any user the middleware took from a session cookie. The row has `user=None` and `is_system=True`, and it keeps the credential.
 - `impersonated_by_id` holds the staff user behind an impersonated session or an OAuth token minted during impersonation.
+- A PSAK bulk person deletion writes one `Person / bulk_delete_requested` entry after input validation and before deletion starts. The standard request context supplies the key ID and IP. This records the request, not successful completion; no credential context is passed to background deletion jobs.
 - The fields are null outside a request. A row written inside a request that recorded no credential has `credential_type` `unattributed`: the request was anonymous, or its authentication class records nothing.
 - Customers can read `credential_type` and some ids. `ActivityLogSerializer` in `posthog/api/advanced_activity_logs/viewset.py` serves the `activity_log` and `advanced_activity_logs` endpoints. It returns `credential_type`, and `credential_id` only for the types in `CUSTOMER_VISIBLE_CREDENTIAL_ID_TYPES` (`session`, `personal_api_key`, `project_secret_key`). It returns null for every other type and for impersonated rows, whose session belongs to the staff user. `ActivityLog.customer_visible_credential_id` applies that rule. The advanced serializer also builds `$activity_log_entry_created` for customer destinations. The CSV export serializer (`ActivityLogFlatExportSerializer`) carries the same two values in its last columns. The OCSF schema puts `credential_type` under `unmapped`, a session id in `actor.session.uid`, and a key id in `actor.session.credential_uid`.
 - `impersonated_by_id` is internal everywhere. The notifications serializer leaves out all three fields.

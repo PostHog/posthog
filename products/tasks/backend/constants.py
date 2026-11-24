@@ -13,6 +13,16 @@ from products.tasks.backend import model_catalog
 PR_STATES = ("open", "draft", "merged", "closed")
 CI_STATUSES = ("passing", "failing", "pending", "none")
 
+# Keep backend validation and drain retry decisions aligned with the agent's
+# RETRYABLE_UPSTREAM_ERROR_CLASSIFICATIONS in adapters/error-classification.ts.
+UPSTREAM_RETRYABLE_ERROR_CATEGORIES = (
+    "upstream_stream_terminated",
+    "upstream_connection_error",
+    "upstream_timeout",
+    "upstream_provider_failure",
+    "upstream_rate_limited",
+)
+
 TASK_DESCRIPTION_PREVIEW_LENGTH = 1000
 
 # Host prefix of the PR URLs written to ``TaskRun.output['pr_url']`` — GitHub's ``html_url``.
@@ -38,6 +48,7 @@ MCP_EXEC_SKILLS_FEATURE_FLAG = "mcp-exec-skills"
 # `interaction_origin` of eval harness runs; becomes the `x-posthog-mcp-consumer` value "eval".
 EVAL_INTERACTION_ORIGIN = "eval"
 MODAL_VM_SANDBOX_FEATURE_FLAG = "tasks-modal-vm-sandbox"
+AGENT_EGRESS_ENROLLMENT_FEATURE_FLAG = "tasks-agent-egress-enrollment"
 # Gates the nightly prebaked dev-stack image bake (see logic/services/dev_stack_image.py).
 DEV_STACK_IMAGE_BAKE_FEATURE_FLAG = "tasks-dev-stack-image-bake"
 # Routes a plain default-template run onto the hogland (Firecracker) sandbox backend.
@@ -220,6 +231,7 @@ TASK_SESSION_MAX_SIZE_BYTES = 10 * 1024 * 1024
 
 OVERLAP_CLONE_BOOT_FEATURE_FLAG = "tasks-overlap-clone-boot"
 DESKTOP_WORKSPACE_WARM_FEATURE_FLAG = "task-cloud-desktop-workspace-warm"
+BAKED_REPO_CLONE_FEATURE_FLAG = "tasks-baked-repo-clone"
 # Kill switch: rtk command-output compression is on by default in cloud sandboxes;
 # enabling this flag disables it fleet-wide — over any per-run override — without
 # an image rebuild.
@@ -227,10 +239,8 @@ RTK_DISABLED_FEATURE_FLAG = "tasks-rtk-disabled"
 BENJAMIN_FEATURE_FLAG = "task-cloud-run-benjamin-plus"
 AGENT_SERVER_SHADOW_FEATURE_FLAG = "agent-server-shadow-observer"
 CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG = "posthog-code-claude-own-subscription-cloud"
-CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG = "posthog-code-codex-own-subscription-cloud"
 OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAGS: dict[str, str] = {
     "claude": CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
-    "codex": CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
 }
 # The plan name a person reads when a subscription run is refused. Every layer that gates,
 # refuses, or explains one of these runs takes the name from here.
@@ -474,6 +484,7 @@ RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS: frozenset[str] = frozenset(
         "AI_GATEWAY_TOKEN_CAP_USD",
         "AI_GATEWAY_PRODUCT",
         "AI_GATEWAY_AI_STAGE",
+        "POSTHOG_TASK_RUN_POLICY",
         "POSTHOG_RESUME_RUN_ID",
         "POSTHOG_AGENT_OTEL_LOGS_URL",
         "POSTHOG_AGENT_OTEL_LOGS_TOKEN",

@@ -1,22 +1,17 @@
+import { prettifyScoutSkillName } from '@posthog/agent-contracts/scout-names'
+
 import { errorTrackingSignalHeaderLine } from './errorTracking'
 
 /**
- * Prettifies a scout skill slug for display: strips the `signals-scout-` prefix, turns separators
- * into spaces, and Sentence-cases the result (e.g. `signals-scout-error-tracking` → "Error tracking").
- * Returns null for a bare `signals-scout` / empty slug so callers can fall back.
+ * The fallback name for a scout slug (`signals-scout-mcp-tool-calls` → "MCP tool calls"). Returns null for
+ * a bare/empty `signals-scout` slug so callers can fall back. Prefer the team's display name when a caller
+ * can look it up.
  */
-export function scoutDisplayName(skillName: string | null | undefined): string | null {
-    if (!skillName) {
+export function scoutNameFromSlug(skillName: string | null | undefined): string | null {
+    if (!skillName || /^signals-scout-?$/.test(skillName)) {
         return null
     }
-    const rest = skillName
-        .replace(/^signals-scout-?/, '')
-        .replace(/[-_]/g, ' ')
-        .trim()
-    if (!rest) {
-        return null
-    }
-    return rest.charAt(0).toUpperCase() + rest.slice(1)
+    return prettifyScoutSkillName(skillName)
 }
 
 // Products whose every signal type reads the same.
@@ -42,8 +37,14 @@ const SOURCE_LINE_BY_PAIR = new Map<string, string>([
     ['analytics/alert_firing', 'Product analytics · Alert firing'],
 ])
 
-/** Human-readable "Product · Signal type" line for inbox / debug signal cards. */
-export function signalCardSourceLine(signal: { source_product: string; source_type: string; extra?: unknown }): string {
+/**
+ * Human-readable "Product · Signal type" line for inbox / debug signal cards. Pass `scoutNames` (skill
+ * name → display name) so a scout's team-set name wins over its prettified slug.
+ */
+export function signalCardSourceLine(
+    signal: { source_product: string; source_type: string; extra?: unknown },
+    scoutNames?: Readonly<Record<string, string>>
+): string {
     const { source_product, source_type } = signal
 
     if (source_product === 'error_tracking') {
@@ -52,7 +53,7 @@ export function signalCardSourceLine(signal: { source_product: string; source_ty
     if (source_product === 'signals_scout') {
         const extra = signal.extra as { skill_name?: unknown } | undefined
         const skillName = typeof extra?.skill_name === 'string' ? extra.skill_name : undefined
-        const name = scoutDisplayName(skillName)
+        const name = (skillName && scoutNames?.[skillName]) || scoutNameFromSlug(skillName)
         return name ? `Scout · ${name}` : 'Scout · Cross-source finding'
     }
     const known =

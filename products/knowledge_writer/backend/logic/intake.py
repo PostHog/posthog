@@ -1,36 +1,55 @@
 import dataclasses
 from uuid import UUID
 
-from django.db import IntegrityError
+from django.db import IntegrityError, connection
 
 import structlog
 from pydantic import TypeAdapter, ValidationError
 
+from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.contracts import TaskDetailDTO
 
-from ..facade.contracts import AdapterVerdict, DocsRequest, IntakeOutcome, InvalidAdapterVerdict
-from ..feature_flags import is_agent_launch_enabled, open_pull_requests_flag_state
+from ..facade.contracts import AdapterVerdict, IntakeOutcome, InvalidAdapterVerdict
+from ..feature_flags import is_agent_launch_enabled
 from ..settings import WriterSettings, writer_settings
 from .caps import (
     OPEN_PULL_REQUEST_CAP,
-    WriterRerunTaken,
-    WriterSectionBusy,
+    WriterCapReached,
     alert_cap_reached,
     daily_run_cap_reached,
-    in_flight_writer_runs,
+    in_flight_writer_run_count,
 )
-from .launch import start_writer
-from .pull_requests import capture_writer_event, open_writer_pull_requests, source_repository_github
-from .records import HELD_REQUESTS_STATE_KEY, WriterPullRequest, request_json, stored_request
+from .grounding import read_source_diff
+from .launch import rules_file_paths, start_writer
+from .pull_requests import (
+    GITHUB_READ_ERRORS,
+    OpenPullRequestsUnavailable,
+    capture_writer_event,
+    docs_github,
+    open_writer_pull_requests,
+    source_github,
+    source_repository_github,
+)
+from .records import (
+    BASE_SHA_STATE_KEY,
+    LEGACY_HELD_REQUESTS_STATE_KEY,
+    PULL_REQUEST_STATE_KEY,
+    DocsRequest,
+    source_change_of,
+    stored_request,
+    task_request,
+)
 from .routing import route_request
+from .server_commit import DocsCommitFailed, base_tree, docs_branch_head
 
 logger = structlog.get_logger(__name__)
 
 VERDICT_EVENT = "knowledge_writer verdict"
+MAX_RULES_FILE_BYTES = 256 * 1024
+MAX_RULES_TOTAL_BYTES = 1024 * 1024
 
 _verdict_validator = TypeAdapter(AdapterVerdict)
 
@@ -66,16 +85,22 @@ def intake_outcome(verdict: AdapterVerdict, *, team_id: int) -> IntakeOutcome:
     writer = writer_settings()
     if writer is None or writer.team_id != team_id:
         return IntakeOutcome(status="unconfigured")
+    outcome = launch_outcome(verdict, writer, team_id=team_id)
     capture_verdict(verdict, team_id=team_id)
+    return outcome
+
+
+def launch_outcome(verdict: AdapterVerdict, writer: WriterSettings, *, team_id: int) -> IntakeOutcome:
     if verdict.request is None:
         return IntakeOutcome(status="no_docs")
-    return launch_request(verdict.request, writer=writer)
+    return launch_request(verdict.request, writer, team_id=team_id)
 
 
-def launch_request(request: DocsRequest, *, writer: WriterSettings) -> IntakeOutcome:
-    team_id = writer.team_id
+def launch_request(
+    request: DocsRequest, writer: WriterSettings, *, team_id: int, replacing_task_id: UUID | None = None
+) -> IntakeOutcome:
     existing_task = tasks_facade.get_task_by_origin_key(team_id, request.dedupe_id)
-    if existing_task is not None and not latest_run_failed(existing_task):
+    if existing_task is not None and existing_task.id != replacing_task_id:
         return IntakeOutcome(status="duplicate", task_id=existing_task.id)
     team = Team.objects.get(id=team_id)
     if not is_agent_launch_enabled(team):
@@ -86,145 +111,155 @@ def launch_request(request: DocsRequest, *, writer: WriterSettings) -> IntakeOut
     routing = route_request(request, team_id=team_id, github=source_repository_github(team_id))
     if routing.is_every_page_in_source_repository:
         return IntakeOutcome(status="docs_in_source_repo")
-    in_flight = in_flight_writer_runs(writer)
-    busy_task_id = in_flight.busy_task_id_by_section.get(routing.section) if routing.section else None
-    if busy_task_id is not None:
-        hold_request(busy_task_id, request, team_id)
-        return IntakeOutcome(status="section_busy", task_id=busy_task_id)
-    open_pull_requests = open_writer_pull_requests(writer)
+    try:
+        base_sha = docs_base_sha(writer)
+        open_pull_requests = open_writer_pull_requests(writer)
+        rules_text_by_path = (
+            {} if base_sha is None else docs_rules_texts(writer, base_sha, rules_file_paths(request, routing, writer))
+        )
+    except (*GITHUB_READ_ERRORS, OpenPullRequestsUnavailable, DocsCommitFailed) as error:
+        raise WriterLaunchDeferred("the docs repository could not be read") from error
+    if base_sha is None:
+        return IntakeOutcome(status="unconfigured")
     if open_pull_requests is None:
-        raise WriterLaunchDeferred("open writer pull requests could not be listed")
-    joinable = pull_request_to_join(open_pull_requests, routing.section)
-    is_opening_pull_requests = open_pull_requests_flag_state(team)
-    if joinable is not None and is_opening_pull_requests is None:
-        raise WriterLaunchDeferred("the open pull requests flag could not be read")
-    joining = joinable if is_opening_pull_requests else None
-    if joining is None and len(open_pull_requests) + in_flight.unpublished_runs >= OPEN_PULL_REQUEST_CAP:
-        alert_cap_reached("open_pull_request", team_id=team_id, dedupe_id=request.dedupe_id)
+        alert_cap_reached("open_pull_request_lookup", team_id=team_id, dedupe_id=request.dedupe_id)
         return IntakeOutcome(status="capped")
+    listed_open_count = len(open_pull_requests)
+    source_change = source_change_of(request)
     try:
         task_id = start_writer(
             request,
             routing,
             team=team,
             writer=writer,
-            joining=joining,
-            rerun_task_id=existing_task.id if existing_task is not None else None,
+            base_sha=base_sha,
+            source_diff=read_source_diff(source_github(team_id, source_change, writer.docs_repository), source_change),
+            rules_text_by_path=rules_text_by_path,
+            before_task_create=lambda: admit_launch(writer, listed_open_count, request, replacing_task_id),
         )
+    except WriterCapReached:
+        alert_cap_reached("open_pull_request", team_id=team_id, dedupe_id=request.dedupe_id)
+        return IntakeOutcome(status="capped")
     except IntegrityError:
         return IntakeOutcome(status="duplicate")
-    except WriterSectionBusy as busy:
-        hold_request(busy.busy_task_id, request, team_id)
-        return IntakeOutcome(status="section_busy", task_id=busy.busy_task_id)
-    except (WriterRerunTaken, tasks_facade.TaskDoneError, tasks_facade.TaskRunAlreadyLiveError):
-        return IntakeOutcome(status="duplicate", task_id=existing_task.id if existing_task is not None else None)
-    if joining is not None:
-        return IntakeOutcome(status="joined", task_id=task_id, pull_request_url=joining.url)
     return IntakeOutcome(status="started", task_id=task_id)
 
 
-def hold_request(task_id: UUID, request: DocsRequest, team_id: int) -> None:
-    def append(current: object) -> tuple[object, None]:
-        held = current if isinstance(current, list) else []
-        if any(isinstance(entry, dict) and entry.get("dedupe_id") == request.dedupe_id for entry in held):
-            return held, None
-        return [*held, request_json.dump_python(request, mode="json")], None
-
-    tasks_facade.update_task_state_entry(task_id, team_id, HELD_REQUESTS_STATE_KEY, append)
-    logger.info("knowledge_writer_request_held", task_id=str(task_id), team_id=team_id, dedupe_id=request.dedupe_id)
-
-
-def start_held_requests(team_id: int) -> None:
+def relaunch_run_without_base(task_run_id: UUID, *, team_id: int) -> bool:
     writer = writer_settings()
-    if writer is None or writer.team_id != team_id:
-        return
-    held_task_ids = tasks_facade.owner_origin_task_ids_with_state_entry(
-        team_id=team_id,
-        created_by_id=writer.user_id,
-        origin_product=tasks_facade.TaskOriginProduct.KNOWLEDGE_WRITER,
-        key=HELD_REQUESTS_STATE_KEY,
-    )
-    busy_task_ids = set(in_flight_writer_runs(writer).busy_task_id_by_section.values())
-    for task_id in held_task_ids - busy_task_ids:
-        start_requests_held_on(task_id, writer)
-
-
-def start_requests_held_on(task_id: UUID, writer: WriterSettings) -> None:
-    team_id = writer.team_id
-    while held := held_requests(task_id, team_id):
-        request = held[0]
-        outcome = launch_held_request(task_id, request, writer)
-        if outcome is None or outcome.status in ("capped", "shadow"):
-            return
-        if outcome.status == "section_busy" and outcome.task_id == task_id:
-            return
-        remove_held_request(task_id, request.dedupe_id, team_id)
-        if outcome.status in ("started", "joined") and outcome.task_id is not None:
-            move_held_requests(task_id, outcome.task_id, team_id)
-            return
-
-
-def held_requests(task_id: UUID, team_id: int) -> list[DocsRequest]:
-    held = tasks_facade.read_task_state_entry(task_id, team_id, HELD_REQUESTS_STATE_KEY)
-    if not isinstance(held, list):
-        return []
-    parsed: list[DocsRequest] = []
-    for entry in held:
-        try:
-            parsed.append(stored_request(entry))
-        except ValidationError:
-            logger.warning("knowledge_writer_held_request_unreadable", task_id=str(task_id), team_id=team_id)
-    return parsed
-
-
-def remove_held_request(task_id: UUID, dedupe_id: str, team_id: int) -> None:
-    def remove(current: object) -> tuple[object, None]:
-        held = current if isinstance(current, list) else []
-        kept = [entry for entry in held if not (isinstance(entry, dict) and entry.get("dedupe_id") == dedupe_id)]
-        return kept or None, None
-
-    tasks_facade.update_task_state_entry(task_id, team_id, HELD_REQUESTS_STATE_KEY, remove)
-
-
-def move_held_requests(from_task_id: UUID, to_task_id: UUID, team_id: int) -> None:
-    if from_task_id == to_task_id:
-        return
-    for request in held_requests(from_task_id, team_id):
-        hold_request(to_task_id, request, team_id)
-        remove_held_request(from_task_id, request.dedupe_id, team_id)
-
-
-def sweep_held_requests() -> None:
-    writer = writer_settings()
-    if writer is None:
-        return
-    start_held_requests(writer.team_id)
-
-
-def launch_held_request(held_on_task_id: UUID, request: DocsRequest, writer: WriterSettings) -> IntakeOutcome | None:
-    log = logger.bind(held_on_task_id=str(held_on_task_id), team_id=writer.team_id, dedupe_id=request.dedupe_id)
+    run = tasks_facade.get_task_run(task_run_id, team_id)
+    if writer is None or writer.team_id != team_id or run is None:
+        return False
+    if run.task_origin_product != tasks_facade.TaskOriginProduct.KNOWLEDGE_WRITER:
+        return False
+    if tasks_facade.read_task_state_entry(run.task_id, team_id, BASE_SHA_STATE_KEY) is not None:
+        return False
+    if tasks_facade.read_task_state_entry(run.task_id, team_id, PULL_REQUEST_STATE_KEY) is not None:
+        return False
     try:
-        outcome = launch_request(request, writer=writer)
-    except Exception as error:
-        log.warning("knowledge_writer_held_request_failed", error_type=type(error).__name__)
-        capture_exception(error, {"team_id": writer.team_id, "dedupe_id": request.dedupe_id})
-        return None
-    log.info(
-        "knowledge_writer_held_request_launched",
+        request = task_request(run.task_id, team_id)
+    except ValidationError:
+        return False
+    outcome = launch_request(request, writer, team_id=team_id, replacing_task_id=run.task_id)
+    logger.info(
+        "knowledge_writer_run_relaunched",
+        task_run_id=str(task_run_id),
+        team_id=team_id,
+        dedupe_id=request.dedupe_id,
         status=outcome.status,
         task_id=str(outcome.task_id) if outcome.task_id else None,
     )
-    return outcome
+    return outcome.status in ("started", "duplicate")
 
 
-def pull_request_to_join(open_pull_requests: list[WriterPullRequest], section: str | None) -> WriterPullRequest | None:
-    if not section:
+def drain_legacy_held_requests() -> None:
+    writer = writer_settings()
+    if writer is None:
+        return
+    held_task_ids = tasks_facade.owner_origin_task_ids_with_state_entry(
+        team_id=writer.team_id,
+        created_by_id=writer.user_id,
+        origin_product=tasks_facade.TaskOriginProduct.KNOWLEDGE_WRITER,
+        key=LEGACY_HELD_REQUESTS_STATE_KEY,
+    )
+    for task_id in held_task_ids:
+        if not relaunch_requests_held_on(task_id, writer):
+            return
+
+
+def relaunch_requests_held_on(task_id: UUID, writer: WriterSettings) -> bool:
+    held = tasks_facade.read_task_state_entry(task_id, writer.team_id, LEGACY_HELD_REQUESTS_STATE_KEY)
+    for entry in held if isinstance(held, list) else []:
+        if not is_held_entry_settled(task_id, entry, writer):
+            return False
+        remove_held_entry(task_id, entry, writer.team_id)
+    return True
+
+
+def is_held_entry_settled(task_id: UUID, entry: object, writer: WriterSettings) -> bool:
+    log = logger.bind(held_on_task_id=str(task_id), team_id=writer.team_id)
+    try:
+        request = stored_request(entry)
+    except ValidationError:
+        log.warning("knowledge_writer_held_request_unreadable")
+        return True
+    try:
+        outcome = launch_request(request, writer, team_id=writer.team_id)
+    except Exception as error:
+        log.warning("knowledge_writer_held_request_failed", error_type=type(error).__name__)
+        capture_exception(error, {"team_id": writer.team_id, "dedupe_id": request.dedupe_id})
+        return False
+    log.info("knowledge_writer_held_request_launched", dedupe_id=request.dedupe_id, status=outcome.status)
+    return outcome.status not in ("capped", "shadow")
+
+
+def remove_held_entry(task_id: UUID, entry: object, team_id: int) -> None:
+    def remove(current: object) -> tuple[object, None]:
+        held = current if isinstance(current, list) else []
+        return [kept for kept in held if kept != entry] or None, None
+
+    tasks_facade.update_task_state_entry(task_id, team_id, LEGACY_HELD_REQUESTS_STATE_KEY, remove)
+
+
+def admit_launch(
+    writer: WriterSettings, open_pull_request_count: int, request: DocsRequest, replacing_task_id: UUID | None
+) -> None:
+    admit_under_open_pull_request_cap(writer, open_pull_request_count)
+    if replacing_task_id is not None:
+        tasks_facade.release_task_origin_key(writer.team_id, request.dedupe_id)
+
+
+def admit_under_open_pull_request_cap(writer: WriterSettings, open_pull_request_count: int) -> None:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            [f"knowledge-writer-open-pull-request-cap:{writer.team_id}:{writer.user_id}"],
+        )
+    if open_pull_request_count + in_flight_writer_run_count(writer) >= OPEN_PULL_REQUEST_CAP:
+        raise WriterCapReached("open_pull_request")
+
+
+def docs_base_sha(writer: WriterSettings) -> str | None:
+    github = docs_github(writer.team_id, writer.docs_repository.split("/", 1)[0], priority=Priority.NORMAL)
+    if github is None:
         return None
-    return next((pull_request for pull_request in open_pull_requests if pull_request.section == section), None)
+    return docs_branch_head(github, writer.docs_repository)
 
 
-def latest_run_failed(task: TaskDetailDTO) -> bool:
-    return task.latest_run is not None and task.latest_run.status == tasks_facade.TaskRunStatus.FAILED
+def docs_rules_texts(writer: WriterSettings, base_sha: str, rules_paths: frozenset[str]) -> dict[str, str]:
+    github = docs_github(writer.team_id, writer.docs_repository.split("/", 1)[0], priority=Priority.NORMAL)
+    if github is None:
+        return {}
+    texts = base_tree(github, writer.docs_repository, base_sha, rules_paths, max_text_bytes=MAX_RULES_FILE_BYTES).texts
+    kept_texts: dict[str, str] = {}
+    kept_bytes = 0
+    for path in sorted(texts, key=lambda rules_path: (rules_path.count("/"), rules_path)):
+        text = texts[path]
+        if text is None or kept_bytes + len(text.encode()) > MAX_RULES_TOTAL_BYTES:
+            continue
+        kept_texts[path] = text
+        kept_bytes += len(text.encode())
+    return kept_texts
 
 
 def capture_verdict(verdict: AdapterVerdict, *, team_id: int) -> None:

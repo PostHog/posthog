@@ -84,7 +84,7 @@ export function ScoutSettingsButton({
                         })
                         setIsOpen(true)
                     }}
-                    aria-label={`${config.skill_name} settings`}
+                    aria-label={`${scoutDisplayName(config)} settings`}
                 >
                     {showLabel ? 'Settings' : null}
                 </LemonButton>

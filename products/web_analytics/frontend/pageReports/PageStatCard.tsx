@@ -26,8 +26,8 @@ export function PageStatCard({
 }: PageStatCardProps): JSX.Element {
     const body = (
         <>
-            <span className="flex items-center justify-between gap-2 min-w-0 text-sm">
-                <span className="text-secondary truncate">{label}</span>
+            <span className="flex flex-wrap items-center justify-between gap-x-2 min-w-0 text-sm">
+                <span className="text-secondary">{label}</span>
                 {loading ? null : aside}
             </span>
             {loading ? (
@@ -40,7 +40,7 @@ export function PageStatCard({
                     <span className="text-xl leading-8 font-semibold tabular-nums truncate" translate="no">
                         {value}
                     </span>
-                    <span className="text-xs text-secondary truncate">{detail}</span>
+                    <span className="text-xs text-secondary">{detail}</span>
                 </>
             )}
         </>

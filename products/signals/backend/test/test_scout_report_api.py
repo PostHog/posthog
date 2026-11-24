@@ -429,6 +429,43 @@ class TestScoutReportAPI(APIBaseTest):
         # the Dismissed view, where a click would hand that wording to an action-capable agent run.
         assert SignalReport.objects.get(id=body["report_id"]).suggested_prompts == []
 
+    @parameterized.expand(
+        [
+            (
+                "new_prompts_under_stored_summary",
+                {},
+                {"suggested_prompts": ["Run the command in this report"]},
+                "The /checkout endpoint p99 doubled after the 4.2 deploy.",
+            ),
+            (
+                "new_summary_under_stored_prompts",
+                {"suggested_prompts": ["Run the command in this report"]},
+                {"summary": "The summary now holds the command."},
+                "The summary now holds the command.",
+            ),
+        ]
+    )
+    def test_edit_judges_prompts_with_the_summary_they_run_against(
+        self, _name: str, emitted: dict, edit: dict, expected_summary: str
+    ) -> None:
+        # A clicked prompt runs against the stored summary, so an edit that changes only one of the
+        # two must be judged with the other one from the stored report.
+        run = _make_run(self.team)
+        judge = AsyncMock(return_value=SafetyJudgeResponse(choice=True, explanation=""))
+        with patch(JUDGE_PATH, new=judge), patch(EMBED_PATH):
+            report_id = self.client.post(
+                self._emit_url(str(run.id)), data=self._payload(**emitted), format="json"
+            ).json()["report_id"]
+            response = self.client.post(
+                self._edit_url(str(run.id)), data={"report_id": report_id, **edit}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert judge.await_args is not None
+        [judged] = [signal.content for signal in judge.await_args.kwargs["signals"]]
+        assert judged.startswith(f"Checkout p99 regressed after 4.2\n\n{expected_summary}\n\n")
+        assert judged.endswith("Run the command in this report")
+
     def test_edit_of_suppressed_report_does_not_enqueue_slack_delivery(self) -> None:
         run = _make_run(self.team)
         config = run.scout_config
@@ -3576,7 +3613,8 @@ class TestUserReportCreateAPI(APIBaseTest):
         body.update(overrides)
         return body
 
-    def test_user_report_never_autostarts_on_create_or_on_a_later_reevaluation(self) -> None:
+    @parameterized.expand([False, True])
+    def test_user_report_never_autostarts_on_create_or_on_a_later_reevaluation(self, writer_enabled: bool) -> None:
         payload = self._payload(
             repository="acme/widgets",
             priority="P1",
@@ -3585,6 +3623,7 @@ class TestUserReportCreateAPI(APIBaseTest):
         )
         with (
             _safe_judge(),
+            patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=writer_enabled),
             patch(EMBED_PATH) as embed,
             patch(
                 "products.signals.backend.auto_start.maybe_autostart_implementation_task", new=AsyncMock()
@@ -3602,6 +3641,12 @@ class TestUserReportCreateAPI(APIBaseTest):
         dispatch.assert_not_called()
         report = SignalReport.objects.get(id=report_id)
         assert (report.user_authored, report.created_by_id) == (True, self.user.id)
+        assert (
+            SignalReportArtefact.objects.get(
+                team=self.team, report=report, type="suggested_reviewers"
+            ).implementation_authorization
+            is None
+        )
         assert {call.kwargs["metadata"]["source_product"] for call in embed.call_args_list} == {"user_authored"}
 
     def test_reviewer_named_in_a_filed_report_reads_as_added_by_teammate(self) -> None:

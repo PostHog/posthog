@@ -8,6 +8,7 @@ import posthoganalytics
 
 from posthog.email import (
     EmailDeliveryError,
+    WorkflowsEmailError,
     is_email_available,
     is_smtp_email_service_available,
     raise_if_delivery_rejected,
@@ -105,7 +106,7 @@ def deliver_task_digest(team_id: int, user_id: int, digest_date: str) -> None:
             raise_if_delivery_rejected(campaign_key, config.user.email)
         except EmailDeliveryError:
             pass
-        except (ConnectionError, TimeoutError, OSError):
+        except (ConnectionError, TimeoutError, OSError, WorkflowsEmailError):
             MessagingRecord.objects.filter(pk=record.pk, sent_at__isnull=True).update(campaign_count=attempt)
             outcome = "temporary_failure" if attempt < MAX_SEND_ATTEMPTS else "retries_exhausted"
         else:

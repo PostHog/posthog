@@ -35,12 +35,15 @@ describe('servicePageLogic', () => {
                     endpointsRequests.push(new URL(request.url).searchParams)
                     return [200, EMPTY_HEALTH]
                 },
+                '/api/projects/:teamId/apm/dependencies/': () => [200, { edges: [], truncated: false }],
+                '/api/projects/:teamId/apm/deployments/': () => [200, { results: [], service: 'checkout' }],
                 '/api/projects/:teamId/apm/endpoints/': ({ request }) => {
                     endpointsRequests.push(new URL(request.url).searchParams)
                     return [200, EMPTY_HEALTH]
                 },
             },
             post: {
+                '/api/projects/:teamId/tracing/spans/latency_percentiles/': () => [200, { results: [] }],
                 '/api/projects/:teamId/tracing/spans/attribute-breakdown/': async ({ request }) => {
                     const { query } = (await request.json()) as { query: { breakdownKey: string } }
                     // This team writes its environment under the legacy `env` key only.
@@ -63,7 +66,6 @@ describe('servicePageLogic', () => {
         })
         initKeaTests()
         sparklineSpy = jest.spyOn(api.tracing, 'sparkline').mockResolvedValue({ results: [] })
-        jest.spyOn(api.tracing, 'latencyHeatmap').mockResolvedValue({ results: [] })
         jest.spyOn(api.tracing, 'listSpans').mockResolvedValue({ results: [], hasMore: false })
     })
 

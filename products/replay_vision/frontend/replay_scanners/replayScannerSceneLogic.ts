@@ -1,8 +1,9 @@
-import { MakeLogicType, actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
+import { InsightVizRenderer } from '~/queries/Query/queryNodeRenderers'
 import { Breadcrumb } from '~/types'
 
 import { VISION_ROOT_BREADCRUMB } from '../utils/breadcrumbs'
@@ -73,6 +74,10 @@ export type replayScannerSceneLogicType = MakeLogicType<
 
 export const replayScannerSceneLogic = kea<replayScannerSceneLogicType>([
     path(['products', 'replay_vision', 'frontend', 'replay_scanners', 'replayScannerSceneLogic']),
+
+    afterMount(() => {
+        void InsightVizRenderer.preload()
+    }),
 
     actions({
         setScannerId: (scannerId: string) => ({ scannerId }),

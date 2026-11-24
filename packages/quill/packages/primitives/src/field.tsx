@@ -1,11 +1,14 @@
+import './field.css'
+
 import { cva, type VariantProps } from 'class-variance-authority'
 import * as React from 'react'
 import { useMemo } from 'react'
 
-import './field.css'
+import { FieldDisabledReasonProvider, ReasonLabel } from './disabled-reason'
 import { Label } from './label'
 import { cn } from './lib/utils'
 import { Separator } from './separator'
+import { hasTooltipContent } from './with-tooltip'
 
 const FieldSet = React.forwardRef<HTMLFieldSetElement, React.ComponentProps<'fieldset'>>(function FieldSet(
     { className, ...props },
@@ -101,18 +104,20 @@ const FieldContent = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'
     )
 })
 
-const FieldLabel = React.forwardRef<React.ComponentRef<typeof Label>, React.ComponentProps<typeof Label>>(
-    function FieldLabel({ className, ...props }, ref) {
-        return (
-            <Label
-                ref={ref}
-                data-slot="field-label"
-                className={cn('quill-field__label group/field-label peer/field-label flex w-fit gap-2', className)}
-                {...props}
-            />
-        )
+const FieldLabel = React.forwardRef<
+    React.ComponentRef<typeof Label>,
+    React.ComponentProps<typeof Label> & {
+        /** Disables the control this label wraps, such as in a choice card, with the tooltip on the whole label. */
+        disabledReason?: React.ReactNode
     }
-)
+>(function FieldLabel({ disabledReason, ...props }, ref) {
+    const reasonId = React.useId()
+    return (
+        <FieldDisabledReasonProvider value={hasTooltipContent(disabledReason) ? reasonId : null}>
+            <ReasonLabel ref={ref} disabledReason={disabledReason} reasonId={reasonId} {...props} />
+        </FieldDisabledReasonProvider>
+    )
+})
 
 const FieldTitle = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(function FieldTitle(
     { className, ...props },

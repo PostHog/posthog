@@ -28,6 +28,7 @@ from products.warehouse_sources.sources.sdk import (
     BoundedRetry,
     ResumableSourceManager,
     SourceResponse,
+    flatten_nested,
     frozen,
     make_tracked_session,
 )
@@ -39,7 +40,6 @@ TRANSPORT_RETRY = BoundedRetry(
     allowed_methods=frozenset({"POST"}),
     raise_on_status=False,
 )
-_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 # Inventory type names and OpsItem data keys are dynamic, so retain them in one JSON column.
 _JSON_COLUMNS = frozenset({"Data", "OperationalData"})
 # DescribeInstancePatchStates accepts at most this many nodes in one request.
@@ -223,21 +223,8 @@ def page_child_payloads(
     ]
 
 
-def _flatten(obj: dict[str, Any], prefix: str = "") -> dict[str, Any]:
-    row: dict[str, Any] = {}
-    for key, value in obj.items():
-        column = prefix + _CAMEL_BOUNDARY.sub("_", key).lower()
-        if key in _JSON_COLUMNS and not prefix:
-            row[column] = json.dumps(value)
-        elif isinstance(value, dict):
-            row.update(_flatten(value, column + "_"))
-        else:
-            row[column] = value
-    return row
-
-
 def normalize_row(item: dict[str, Any], endpoint: SystemsManagerEndpoint, region: str) -> dict[str, Any]:
-    row = _flatten(item)
+    row = flatten_nested({key: json.dumps(value) if key in _JSON_COLUMNS else value for key, value in item.items()})
     row["region"] = region
     for name in endpoint.timestamps:
         value = row.get(name)

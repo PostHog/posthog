@@ -21,6 +21,24 @@ class TestGetRows:
         assert isinstance(result.raised, Exception)
         assert result.paths == ["/v1/tasks"]
 
+    @pytest.mark.parametrize(
+        "endpoint, expected_non_retryable",
+        [
+            # A job catalog 404 means the company is not on Job catalog 2.0, which a retry cannot fix.
+            ("job_roles", True),
+            ("job_families", True),
+            ("tasks", False),
+        ],
+    )
+    def test_not_found_is_non_retryable_only_for_the_job_catalog(
+        self, endpoint: str, expected_non_retryable: bool
+    ) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(status=404, json={"error": "not found"})])
+
+        assert isinstance(result.raised, Exception)
+        non_retryable_errors = HiBobSource().get_non_retryable_errors()
+        assert any(key in str(result.raised) for key in non_retryable_errors) is expected_non_retryable
+
 
 class TestEmployeeHistoryTables:
     @pytest.mark.parametrize(
@@ -292,12 +310,233 @@ class TestWorkLocations:
         assert "repeated cursor" in str(result.raised)
 
 
+class TestJobCatalog:
+    @pytest.mark.parametrize(
+        "endpoint, path, data_key, prefix",
+        [
+            ("job_roles", "/v1/job-catalog/job-roles", "JobRoleEntries", "/jobRole"),
+            ("job_families", "/v1/job-catalog/job-families", "JobFamilyEntries", "/jobFamily"),
+        ],
+    )
+    @pytest.mark.parametrize("nested", [False, True], ids=["bare_entries", "list_wrapped_entries"])
+    def test_unwraps_values_and_follows_query_cursor(
+        self, endpoint: str, path: str, data_key: str, prefix: str, nested: bool
+    ) -> None:
+        first = {f"{prefix}/id": {"value": 101, "humanReadable": "101"}, f"{prefix}/name": {"value": "Engineer"}}
+        second = {f"{prefix}/id": {"value": 102}, f"{prefix}/name": "Designer", f"{prefix}/description": None}
+
+        def entries(entry: dict[str, Any]) -> list[Any]:
+            return [[entry]] if nested else [entry]
+
+        result = _driver().run(
+            endpoint,
+            [
+                ScriptedResponse(json={data_key: entries(first), "response_metadata": {"next_cursor": "c2"}}),
+                ScriptedResponse(json={data_key: entries(second), "response_metadata": {"next_cursor": None}}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"id": 101, "name": "Engineer"},
+            {"id": 102, "name": "Designer", "description": None},
+        ]
+        assert [(request.method, request.path) for request in result.requests] == [("GET", path)] * 2
+        assert result.queries == [{"limit": ("100",)}, {"limit": ("100",), "cursor": ("c2",)}]
+
+
+class TestGoals:
+    def test_unwraps_fields_and_follows_next_cursor_in_body(self) -> None:
+        result = _driver().run(
+            "goals",
+            [
+                ScriptedResponse(
+                    json={
+                        "items": [
+                            {
+                                "objectType": "goal",
+                                "fields": {
+                                    "id": {"value": 1},
+                                    "status": {"value": "onTrack"},
+                                    "progress": {"value": 40},
+                                },
+                            }
+                        ],
+                        "nextCursor": "g2",
+                    }
+                ),
+                ScriptedResponse(
+                    json={"items": [{"objectType": "goal", "fields": {"id": {"value": 2}}}], "nextCursor": None}
+                ),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": 1, "status": "onTrack", "progress": 40}, {"id": 2}]
+        assert [(request.method, request.path) for request in result.requests] == [
+            ("POST", "/v1/goals/goals/search")
+        ] * 2
+        first_body, second_body = (request.json() for request in result.requests)
+        assert "cursor" not in first_body
+        assert {"id", "hasKeyResults", "weight"} <= set(first_body["fields"])
+        assert second_body["cursor"] == "g2"
+
+    def test_key_results_fan_out_only_over_goals_with_key_results(self) -> None:
+        def goal(goal_id: int, has_key_results: bool | None) -> dict[str, Any]:
+            fields: dict[str, Any] = {"id": {"value": goal_id}}
+            if has_key_results is not None:
+                fields["hasKeyResults"] = {"value": has_key_results}
+            return {"objectType": "goal", "fields": fields}
+
+        result = _driver().run(
+            "goal_key_results",
+            [
+                ScriptedResponse(json={"items": [goal(1, True), goal(2, False)], "nextCursor": "g2"}),
+                ScriptedResponse(json={"items": [goal(3, None)], "nextCursor": None}),
+                ScriptedResponse(
+                    json={
+                        "items": [
+                            {
+                                "objectType": "keyResult",
+                                "fields": {
+                                    "id": {"value": 10},
+                                    "goalId": {"value": 1},
+                                    "currentValue": {"value": True},
+                                },
+                            }
+                        ]
+                    }
+                ),
+                # The goalId field is optional in the response, so the row still gets its goal.
+                ScriptedResponse(json={"items": [{"objectType": "keyResult", "fields": {"id": {"value": 30}}}]}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": 10, "goalId": 1, "currentValue": True}, {"id": 30, "goalId": 3}]
+        assert result.response is not None
+        assert result.response.primary_keys == ["goalId", "id"]
+        assert result.paths == [
+            "/v1/goals/goals/search",
+            "/v1/goals/goals/search",
+            "/v1/goals/goals/key-results/search",
+            "/v1/goals/goals/key-results/search",
+        ]
+        assert result.requests[1].json()["cursor"] == "g2"
+        assert [request.json()["filters"] for request in result.requests[2:]] == [
+            [{"fieldId": "goalId", "operator": "equals", "values": ["1"]}],
+            [{"fieldId": "goalId", "operator": "equals", "values": ["3"]}],
+        ]
+        assert "goalId" in result.requests[2].json()["fields"]
+
+
+class TestEmployeeActualPayments:
+    def test_batches_employee_ids_and_follows_pagination_cursor(self) -> None:
+        employees = [{"id": str(1000 + index)} for index in range(201)]
+        payment = {"employeeId": "1000", "id": 5, "payType": "Bonus", "amount": {"value": 250.5, "currency": "EUR"}}
+        result = _driver().run(
+            "employee_actual_payments",
+            [
+                ScriptedResponse(json={"employees": employees}),
+                ScriptedResponse(json={"results": [payment], "response_metadata": {"next_cursor": "p2"}}),
+                ScriptedResponse(json={"results": [], "response_metadata": {"next_cursor": None}}),
+                ScriptedResponse(
+                    json={"results": [{**payment, "employeeId": "1200", "id": 6}], "response_metadata": {}}
+                ),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(row["employeeId"], row["id"]) for row in result.rows] == [("1000", 5), ("1200", 6)]
+        assert result.response is not None
+        assert result.response.primary_keys == ["employeeId", "id"]
+        assert result.paths == ["/v1/people/search"] + ["/v1/people/actual-payments/search"] * 3
+        bodies = [request.json() for request in result.requests[1:]]
+        assert [len(body["filters"][0]["values"]) for body in bodies] == [200, 200, 1]
+        assert bodies[2]["filters"][0]["values"] == ["1200"]
+        assert [body["pagination"] for body in bodies] == [
+            {"limit": 200},
+            {"limit": 200, "cursor": "p2"},
+            {"limit": 200},
+        ]
+
+    def test_rejects_repeated_cursor(self) -> None:
+        stalled = {"results": [], "response_metadata": {"next_cursor": "stalled"}}
+        result = _driver().run(
+            "employee_actual_payments",
+            [
+                ScriptedResponse(json={"employees": [{"id": "1"}]}),
+                ScriptedResponse(json=stalled),
+                ScriptedResponse(json=stalled),
+            ],
+        )
+
+        assert isinstance(result.raised, ValueError)
+        assert "repeated cursor" in str(result.raised)
+
+
+class TestTimeOffPolicies:
+    def test_policy_types_read_details_per_name(self) -> None:
+        result = _driver().run(
+            "time_off_policy_types",
+            [
+                ScriptedResponse(json={"policyTypes": ["Holiday", "Sick / unpaid"]}),
+                ScriptedResponse(json={"name": "Holiday", "activity": "paidTimeoff", "unit": "days"}),
+                ScriptedResponse(json={"activity": "unpaidTimeoff", "unit": "hours"}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"name": "Holiday", "activity": "paidTimeoff", "unit": "days"},
+            {"name": "Sick / unpaid", "activity": "unpaidTimeoff", "unit": "hours"},
+        ]
+        assert result.paths == [
+            "/v1/timeoff/policy-types",
+            "/v1/timeoff/policy-types/Holiday",
+            "/v1/timeoff/policy-types/Sick%20%2F%20unpaid",
+        ]
+
+    def test_policies_fan_out_over_types_and_names(self) -> None:
+        result = _driver().run(
+            "time_off_policies",
+            [
+                ScriptedResponse(json={"policyTypes": ["Holiday", "Sick"]}),
+                ScriptedResponse(json={"policyNames": ["UK holiday", "US holiday"]}),
+                ScriptedResponse(json={"name": "UK holiday", "allowance": 25, "unit": "days"}),
+                ScriptedResponse(json={"allowance": 15, "unit": "days"}),
+                ScriptedResponse(json={"policyNames": []}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"name": "UK holiday", "allowance": 25, "unit": "days", "policyTypeName": "Holiday"},
+            {"name": "US holiday", "allowance": 15, "unit": "days", "policyTypeName": "Holiday"},
+        ]
+        assert result.response is not None
+        assert result.response.primary_keys == ["policyTypeName", "name"]
+        assert [(request.path, dict(request.query)) for request in result.requests] == [
+            ("/v1/timeoff/policy-types", {}),
+            ("/v1/timeoff/policies/names", {"policyTypeName": ("Holiday",)}),
+            ("/v1/timeoff/policies", {"policyName": ("UK holiday",)}),
+            ("/v1/timeoff/policies", {"policyName": ("US holiday",)}),
+            ("/v1/timeoff/policies/names", {"policyTypeName": ("Sick",)}),
+        ]
+
+    def test_auth_error_fails_loud(self) -> None:
+        result = _driver().run("time_off_policies", [ScriptedResponse(status=401, json={"error": "unauthorized"})])
+
+        assert isinstance(result.raised, Exception)
+        assert result.paths == ["/v1/timeoff/policy-types"]
+
+
 class TestHiBobSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
         if endpoint == "named_lists":
             payload: Any = []
-        elif endpoint == "time_off_calendars":
+        elif endpoint in ("time_off_calendars", "employee_actual_payments"):
             payload = {"employees": []}
         else:
             payload = {}

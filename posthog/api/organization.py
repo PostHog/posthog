@@ -51,6 +51,7 @@ from posthog.models import Organization, OrganizationIPRestrictions, User
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_external_project_link import OrganizationExternalProjectLink
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team.team import Team
 from posthog.models.uploaded_media import UploadedMedia
@@ -62,6 +63,7 @@ from posthog.permissions import (
     TimeSensitiveActionPermission,
     extract_organization,
     get_authenticator_scoped_organization_ids,
+    request_subject,
 )
 from posthog.rate_limit import PostHogAIAccessRequestIPThrottle, PostHogAIAccessRequestUserThrottle
 from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_role_access_migration
@@ -70,9 +72,12 @@ from posthog.tasks.email import send_posthog_ai_access_request
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_safe_cache, safe_cache_set
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 from products.access_control.backend.models.role import Role
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action
+from products.authorization.backend.presentation.querysets import filter_projects
 from products.legal_documents.backend.facade.api import SIGNED_BAA_ANNOTATION, annotate_signed_baa, has_signed_baa
 
 
@@ -99,14 +104,11 @@ class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
         if request.method in permissions.SAFE_METHODS:
             return True
-        # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`
         organization = extract_organization(object, view)
-        min_level = (
-            OrganizationMembership.Level.OWNER if request.method == "DELETE" else OrganizationMembership.Level.ADMIN
-        )
-        return (
-            OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization).level
-            >= min_level
+        return authorization.check(
+            resource=Resource.organization(organization.id),
+            action=Action.DELETE if request.method == "DELETE" else Action.EDIT,
+            subject=request_subject(request),
         )
 
 
@@ -179,6 +181,10 @@ MEMBER_NOTICE_ALLOWED_TAGS = {"a", "b", "br", "code", "em", "i", "li", "ol", "p"
 MEMBER_NOTICE_ALLOWED_ATTRIBUTES = {"a": {"href", "title"}}
 MEMBER_NOTICE_MAX_LENGTH = 1000
 
+AI_DATA_PROCESSING_LOCKED_MESSAGE = (
+    "AI data processing is locked for this organization by admin request. Contact PostHog support to change this."
+)
+
 
 def sanitize_member_notice_html(message: str) -> str:
     return nh3.clean(
@@ -219,6 +225,16 @@ class OrganizationMemberNoticeField(serializers.JSONField):
         serializer = OrganizationMemberNoticeSerializer(data=data)
         serializer.is_valid(raise_exception=True)
         return serializer.validated_data
+
+
+class OrganizationExternalProjectLinkSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(read_only=True, help_text="Name shown for the project in the project switcher.")
+    url = serializers.URLField(read_only=True, help_text="Full URL of the project on the other PostHog instance.")
+
+    class Meta:
+        model = OrganizationExternalProjectLink
+        fields = ("id", "name", "url")
+        read_only_fields = fields
 
 
 class OrganizationTeamBasicSerializer(TeamBasicSerializer):
@@ -287,6 +303,11 @@ class OrganizationSerializer(
     ip_restrictions_warning = serializers.SerializerMethodField(
         help_text="A warning when the current request's IP address is not in the saved allowlist.",
     )
+    external_project_links = OrganizationExternalProjectLinkSerializer(
+        many=True,
+        read_only=True,
+        help_text="Projects on other PostHog instances, such as another cloud region, shown in the project switcher. Set by PostHog staff.",
+    )
 
     class Meta:
         model = Organization
@@ -317,6 +338,7 @@ class OrganizationSerializer(
             "member_notice",
             "member_count",
             "is_ai_data_processing_approved",
+            "is_ai_data_processing_locked",
             "is_ai_training_opted_in",
             "is_ai_training_locked",
             "is_ai_training_cta_shown",
@@ -330,10 +352,12 @@ class OrganizationSerializer(
             "ip_restrictions",
             "ip_restrictions_enabled",
             "ip_restrictions_warning",
+            "external_project_links",
         ]
         read_only_fields = [
             "id",
             "ip_restrictions_warning",
+            "external_project_links",
             "slug",
             "created_at",
             "updated_at",
@@ -349,12 +373,14 @@ class OrganizationSerializer(
             "is_active",
             "is_not_active_reason",
             "is_pending_deletion",
+            "is_ai_data_processing_locked",
             "is_ai_training_locked",
             "is_ai_training_cta_shown",
             "has_signed_baa",
             "uses_most_specific_access_resolution",
         ]
         extra_kwargs = {
+            "name": {"help_text": "Name of the organization."},
             "slug": {
                 "required": False,
             },  # slug is not required here as it's generated automatically for new organizations
@@ -401,6 +427,16 @@ class OrganizationSerializer(
         ip_restrictions = validated_data.pop("ip_restrictions", None)
         ip_restrictions_enabled = validated_data.pop("ip_restrictions_enabled", None)
         with transaction.atomic():
+            # Support can lock AI off while this request is in flight. Read the stored consent under a row
+            # lock so an approval cannot slip past the lock, and so saving the stale instance cannot undo it.
+            instance.is_ai_data_processing_locked, instance.is_ai_data_processing_approved = (
+                # nosemgrep: hot-parent-row-select-for-update -- the organization row is the resource being changed
+                Organization.objects.select_for_update()
+                .filter(pk=instance.pk)
+                .values_list("is_ai_data_processing_locked", "is_ai_data_processing_approved")
+                .get()
+            )
+            self.validate_is_ai_data_processing_approved(validated_data.get("is_ai_data_processing_approved"))
             instance = super().update(instance, validated_data, *args, **kwargs)
             if ip_restrictions is not None or ip_restrictions_enabled is not None:
                 defaults: dict[str, Any] = {}
@@ -428,7 +464,7 @@ class OrganizationSerializer(
     @tracer.start_as_current_span("organization_serializer.membership_level")
     def get_membership_level(self, organization: Organization) -> OrganizationMembership.Level | None:
         membership = self.user_permissions.organization_memberships.get(organization.pk)
-        return OrganizationMembership.Level(membership.level) if membership is not None else None
+        return OrganizationMembership.Level(membership.effective_level) if membership is not None else None
 
     @extend_schema_field(serializers.DateTimeField(allow_null=True))
     def get_membership_joined_at(self, organization: Organization) -> str | None:
@@ -444,8 +480,15 @@ class OrganizationSerializer(
         return _cached_per_user_org("teams", user_id, str(instance.id), lambda: self._fetch_visible_teams(instance))
 
     def _fetch_visible_teams(self, instance: Organization) -> list[dict[str, Any]]:
+        # Typed as `User`, but anonymous and service principals also reach here. They hold no
+        # membership, so they see no team.
+        user: object = self.user_permissions.user
+        if not isinstance(user, User) or user.pk is None:
+            return []
+        if (access := self.user_access_control) is not None:
+            authorization.reuse_current_rules(access, self.user_permissions)
         visible_teams = (
-            visible_teams_for_user(instance, self.user_access_control, self.user_permissions)
+            filter_projects(instance.teams.all(), organization_id=instance.id, subject=Subject(user_id=user.pk))
             .select_related("project")
             .prefetch_related(
                 Prefetch(
@@ -584,6 +627,16 @@ class OrganizationSerializer(
                     "You must upgrade your plan to configure public sharing settings.",
                     code="payment_required",
                 )
+        return value
+
+    def validate_is_ai_data_processing_approved(self, value: bool | None) -> bool | None:
+        if (
+            self.instance
+            and value
+            and not self.instance.is_ai_data_processing_approved
+            and self.instance.is_ai_data_processing_locked
+        ):
+            raise serializers.ValidationError(AI_DATA_PROCESSING_LOCKED_MESSAGE, code="locked")
         return value
 
     def validate_is_ai_training_opted_in(self, value: bool | None) -> bool | None:
@@ -794,7 +847,9 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         user = cast(User, self.request.user)
         # The serializer reads `ip_restrictions` for every organization in a list response. Load the
         # config up front so each row does not add its own reverse one-to-one query.
-        queryset = user.organizations.all().select_related("ip_restrictions_config")
+        queryset = (
+            user.organizations.all().select_related("ip_restrictions_config").prefetch_related("external_project_links")
+        )
         # Organization scopes only: these endpoints refuse a team-scoped credential outright in
         # `APIScopePermission`, so narrowing by its teams' organizations would only turn that 403 into a 404.
         if scoped_organizations := get_authenticator_scoped_organization_ids(self.request.successful_authenticator):
@@ -828,6 +883,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def perform_destroy(self, organization: Organization):
         from ee.billing.billing_manager import BillingManager
+        from ee.billing.billing_types import BillingProvider
 
         # Check if bulk deletion operations are disabled via environment variable
         # Organizations contain teams, so we need to block organization deletion too
@@ -843,6 +899,13 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 billing_manager = BillingManager(license)
                 billing = billing_manager.get_billing(organization)
                 if billing.get("has_active_subscription"):
+                    if billing.get("billing_provider") == BillingProvider.VERCEL:
+                        raise exceptions.ValidationError(
+                            "Billing for this organization is managed by Vercel. "
+                            "To end the subscription, uninstall the PostHog integration from your Vercel team, "
+                            "then delete the organization. If you no longer have access to that Vercel team, "
+                            "disconnect Vercel in Settings > Organization > Integrations instead."
+                        )
                     raise exceptions.ValidationError(
                         "Cannot delete organization with an active subscription. "
                         "Please cancel your subscription first in the billing page."
@@ -895,7 +958,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         organization = self.get_object()
         user = cast(User, request.user)
-        user_role = user.organization_memberships.get(organization=organization).level
+        user_role = user.organization_memberships.get(organization=organization).effective_level
 
         for field, event_name in setting_events:
             if field in request.data:
@@ -926,6 +989,12 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return super().partial_update(request, *args, **kwargs)
 
     def perform_create(self, serializer):
+        # The new organization would sit outside the token's scope, so the token could never use it.
+        if get_authenticator_scoped_organization_ids(self.request.successful_authenticator):
+            raise exceptions.PermissionDenied(
+                "Access limited to specific organizations can't create a new organization. "
+                "Use an API key or connection with access to all organizations."
+            )
         # Set user context for activity logging
         with ImpersonatedContext(self.request):
             super().perform_create(serializer)
@@ -963,16 +1032,21 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def request_ai_access(self, request: Request, **kwargs) -> Response:
         """Notify organization admins that a member is requesting PostHog AI be enabled."""
-        organization = self.organization
+        organization = self.get_object()
         user = cast(User, request.user)
 
         # Nothing to request if PostHog AI is already enabled for the org.
         if organization.is_ai_data_processing_approved:
             raise exceptions.ValidationError("PostHog AI is already enabled for this organization.")
 
+        if organization.is_ai_data_processing_locked:
+            raise exceptions.ValidationError(AI_DATA_PROCESSING_LOCKED_MESSAGE, code="locked")
+
         # Members only — admins can enable PostHog AI themselves, so there's nobody to ask.
-        membership = OrganizationMembership.objects.filter(user=user, organization=organization).first()
-        if membership is None or membership.level >= OrganizationMembership.Level.ADMIN:
+        resource, subject = Resource.organization(organization.id), request_subject(request)
+        if not authorization.check(resource=resource, action=Action.VIEW, subject=subject) or authorization.check(
+            resource=resource, action=Action.EDIT, subject=subject
+        ):
             raise exceptions.PermissionDenied("Only members can request access; admins can enable PostHog AI directly.")
 
         send_posthog_ai_access_request.delay(
@@ -1027,14 +1101,9 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def data_freshness(self, request: Request, **kwargs) -> Response:
         """When each project in the organization last received data, broken down by kind of data."""
-        organization = self.organization
-        user = cast(User, request.user)
-        # `self.user_access_control` is scoped to the user's current organization, which on this route isn't
-        # necessarily the one being requested - so build one for the organization actually in the URL
-        visible_teams = visible_teams_for_user(
-            organization,
-            UserAccessControl(user=user, organization_id=str(organization.id)),
-            UserPermissions(user=user),
+        organization = self.get_object()
+        visible_teams = filter_projects(
+            organization.teams.all(), organization_id=organization.id, subject=Subject(user_id=request.user.pk)
         ).only("id", "project_id", "ingested_event")
         results = get_organization_data_freshness(str(organization.id), list(visible_teams))
         return Response(

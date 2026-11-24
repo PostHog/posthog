@@ -88,6 +88,17 @@ describe('trendsChartTransforms', () => {
             expect(series.color).toBe(RED)
         })
 
+        it.each([
+            ['previous', 'Previous'],
+            ['current', undefined],
+        ])('tags a compare-%s series in the legend with %s', (compare_label, expected) => {
+            const series = buildMainTrendsSeries(makeResult({ compare: true, compare_label }), 0, {
+                getColor: () => RED,
+            })
+
+            expect(series.legendTag).toBe(expected)
+        })
+
         it('sets a dashed in-progress tail on active series and skips it on compare-previous', () => {
             const data = [1, 2, 3, 4, 5, 6, 7]
             const opts = { getColor: () => RED, incompletenessOffsetFromEnd: -2 }

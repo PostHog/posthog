@@ -2,6 +2,7 @@ import { type ComponentType, type ReactElement, useEffect, useState } from 'reac
 import { ScrollView, Text, View } from 'react-native'
 import { useAuthStore } from '@/auth/authStore'
 import { ProjectSheet } from '@/features/projects/ProjectSheet'
+import { InternalUsersToggle } from '@/features/settings/InternalUsersToggle'
 import type { PostHogStatus } from '@/features/status/usePostHogStatus'
 import { track } from '@/lib/analytics'
 import { FloatingCard } from '@/ui/FloatingCard'
@@ -33,6 +34,7 @@ interface NavMenuProps {
         /** Null while the navigation pin slot is retired. */
         pin: { pinned: boolean; onToggle: () => void } | null
         onOpenWeb: (() => void) | null
+        showInternalUsersToggle: boolean
     } | null
     onClose: () => void
     status: PostHogStatus
@@ -190,6 +192,9 @@ export function NavMenu({
                             <View style={[styles.divider, styles.sectionDivider]} />
                             {navList ? (
                                 <>
+                                    {navList.showInternalUsersToggle ? (
+                                        <InternalUsersToggle testID="web-exclude-internal-users" />
+                                    ) : null}
                                     {navList.pin ? (
                                         <MenuRow
                                             label={navList.pin.pinned ? 'Unpin from navigation' : 'Pin to navigation'}

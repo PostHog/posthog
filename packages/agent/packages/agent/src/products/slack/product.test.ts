@@ -19,13 +19,18 @@ const question: QuestionRequest = {
 
 async function configure(
   launchOptions: Record<string, unknown>,
-  originProduct?: string,
+  interactionOrigin?: string,
   services: ProductServices = {
     sendReply: vi.fn().mockResolvedValue(undefined),
   },
 ): Promise<SessionBehavior> {
   return slackProduct().configureSession({
-    launch: { taskId: "task-1", runId: "run-1", originProduct, launchOptions },
+    launch: {
+      taskId: "task-1",
+      runId: "run-1",
+      interactionOrigin,
+      launchOptions,
+    },
     services,
   });
 }
@@ -146,7 +151,7 @@ describe("Slack product", () => {
       "slack",
       { slack_thread_url: "https://example.com/t" },
       true,
-      "*Created with [PostHog](https://posthog.com?ref=pr) from a [Slack thread](https://example.com/t)*",
+      "*Created by [PostHog Slack Bot](https://posthog.com/slack?ref=pr) from a [Slack thread](https://example.com/t)*",
     ],
     [
       "workflow",

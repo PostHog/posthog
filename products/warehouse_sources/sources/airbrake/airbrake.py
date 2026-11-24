@@ -5,7 +5,6 @@ from typing import Any, Optional
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.sources.airbrake.settings import (
     AIRBRAKE_ENDPOINTS,
@@ -16,7 +15,9 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
     make_tracked_session,
-    retry_with_deadline,
+    raise_for_retryable_status,
+    raise_for_status_redacted,
+    vendor_retry,
 )
 
 AIRBRAKE_BASE_URL = "https://api.airbrake.io"
@@ -39,10 +40,6 @@ GROUP_STATS_MAX_GROUPS_PER_SYNC = 10_000
 STATS_BUCKETS_PER_REQUEST = 100
 
 
-class AirbrakeRetryableError(Exception):
-    pass
-
-
 @dataclasses.dataclass(frozen=False)
 class AirbrakeResumeConfig:
     # Next page to fetch within the current collection.
@@ -63,37 +60,22 @@ def _format_start_time(value: Any) -> str:
     return str(value)
 
 
-@retry_with_deadline(
-    retry=retry_if_exception_type(
-        (
-            AirbrakeRetryableError,
-            requests.ReadTimeout,
-            requests.ConnectionError,
-            requests.exceptions.ChunkedEncodingError,
-        )
-    ),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
+@vendor_retry()
 def _fetch_page(
     session: requests.Session, url: str, params: dict[str, Any], logger: FilteringBoundLogger
 ) -> dict[str, Any]:
     response = session.get(url, params=params, timeout=60)
 
     # Airbrake returns 429 on quota exhaustion; explicit request rate limits aren't documented.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise AirbrakeRetryableError(f"Airbrake API error (retryable): status={response.status_code}, url={url}")
+    raise_for_retryable_status(response, vendor="Airbrake", url=url)
 
     if not response.ok:
         # 404 is expected during fan-out (a project/group deleted mid-sync) and handled by callers.
         log = logger.warning if response.status_code == 404 else logger.error
         log(f"Airbrake API error: status={response.status_code}, body={response.text}, url={url}")
-        # Not raise_for_status(): its message embeds response.url, which carries the ?key=
-        # credential, and the message is persisted into job errors and logs. `url` is query-free.
-        raise requests.HTTPError(
-            f"{response.status_code} Client Error: {response.reason} for url: {url}", response=response
-        )
+        # The response URL carries the ?key= credential, and the message is persisted into job
+        # errors and logs, so the message is built from the query-free `url`.
+        raise_for_status_redacted(response, url=url)
 
     return response.json()
 

@@ -8,25 +8,27 @@ from products.warehouse_sources.sources.sdk import IncrementalField, frozen
 #   "project"       -> one request per project the token can see
 #   "organization"  -> one request per organization the token can see
 #   "invoice"       -> one request per (organization, invoice) pair (two-level fan-out)
-#   "two_level"     -> organization -> intermediate list -> child, driven by ``two_level`` below
+#   "two_level"     -> organization or project -> intermediate list -> child, driven by ``two_level`` below
 FanOut = Literal["none", "project", "organization", "invoice", "two_level"]
 
 
 @frozen
 class TwoLevelFanOut:
-    """Describes a generic organization -> intermediate-list -> child fan-out.
+    """Describes a generic top parent -> intermediate-list -> child fan-out.
 
-    Organizations are the top parent. ``intermediate_path`` (carrying ``{organization_id}``) is
-    fetched once per organization; the endpoint's ``path_template`` is then fetched once per
-    intermediate row, binding each placeholder in ``child_params`` from that row.
+    ``intermediate_path`` (carrying ``{organization_id}`` or ``{project}``) is fetched once per top
+    parent; the endpoint's ``path_template`` is then fetched once per intermediate row, binding each
+    placeholder in ``child_params`` from that row.
     """
 
     intermediate_name: str
     intermediate_path: str
     intermediate_data_key: str
     # child path placeholder -> field on the intermediate row it resolves from. The resolved value
-    # is also stamped onto each child row so composite primary keys stay unique table-wide.
+    # is also stamped onto each child row under the field name, so composite primary keys stay
+    # unique table-wide.
     child_params: dict[str, str]
+    top_parent: Literal["organization", "project"] = "organization"
 
 
 @frozen
@@ -187,6 +189,50 @@ AIVEN_ENDPOINTS: dict[str, AivenEndpointConfig] = {
         # `organization_id` scopes the key so identical invoice numbers across organizations don't collide.
         primary_keys=["organization_id", "invoice_number", "service_id", "line_type", "begin_time", "end_time"],
         partition_key="begin_time",
+    ),
+    # Two-level fan-out: per organization, per billing group. Credits offset the invoices synced above.
+    "billing_group_credits": AivenEndpointConfig(
+        name="billing_group_credits",
+        fan_out="two_level",
+        path_template="/billing-group/{billing_group_id}/credits",
+        data_key="credits",
+        # Credits carry no id; the credit code is only documented as unique within a billing group.
+        primary_keys=["billing_group_id", "code"],
+        partition_key="start_time",
+        two_level=TwoLevelFanOut(
+            intermediate_name="billing_groups",
+            intermediate_path="/organization/{organization_id}/billing-groups",
+            intermediate_data_key="billing_groups",
+            child_params={"billing_group_id": "billing_group_id"},
+        ),
+    ),
+    # Two-level fan-out: per project, per service. Integration edges (metrics/log shipping, etc.).
+    "service_integrations": AivenEndpointConfig(
+        name="service_integrations",
+        fan_out="two_level",
+        path_template="/project/{project}/service/{service_name}/integration",
+        data_key="service_integrations",
+        # An integration is listed under each service it connects, so the queried service is part of
+        # the key to keep one row per (service, integration) pair.
+        primary_keys=["project_name", "service_name", "service_integration_id"],
+        two_level=TwoLevelFanOut(
+            intermediate_name="services",
+            intermediate_path="/project/{project}/service",
+            intermediate_data_key="services",
+            child_params={"project": "project_name", "service_name": "service_name"},
+            top_parent="project",
+        ),
+    ),
+    # Per-project plan catalogue: resolves the `service_type`/`plan` identifiers carried on services.
+    # `/project/{project}/service_types` returns every type with its plans in one response, which
+    # avoids one `/service-types/{service_type}/plans` request per service type.
+    "service_plans": AivenEndpointConfig(
+        name="service_plans",
+        fan_out="project",
+        path_template="/project/{project}/service_types",
+        data_key="service_types.*.service_plans[*]",
+        primary_keys=["project_name", "service_type", "service_plan"],
+        should_sync_default=False,
     ),
     # Global Aiven cloud/region catalogue. Not account-specific, so off by default.
     "clouds": AivenEndpointConfig(

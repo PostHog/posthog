@@ -128,7 +128,7 @@ def get_rows(
         wait=wait_exponential_jitter(initial=2, max=90),
         reraise=True,
     )
-    def fetch(url: str) -> dict[str, Any]:
+    def fetch(url: str, empty_on_not_found: bool = False) -> dict[str, Any]:
         nonlocal token
         response = session.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=REQUEST_TIMEOUT_SECONDS)
 
@@ -140,6 +140,10 @@ def get_rows(
 
         if response.status_code == 429 or response.status_code >= 500:
             raise TaboolaRetryableError(f"Taboola API error (retryable): status={response.status_code}, url={url}")
+
+        if response.status_code == 404 and empty_on_not_found:
+            logger.debug(f"Taboola: {url} returned 404, treating it as empty")
+            return {}
 
         if not response.ok:
             logger.error(f"Taboola API error: status={response.status_code}, body={response.text[:500]}, url={url}")
@@ -154,7 +158,8 @@ def get_rows(
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
     if config.kind == "entity":
-        items = results_of(fetch(f"{account_base}{config.path}"))
+        base = account_base if config.account_scoped else TABOOLA_API_BASE_URL
+        items = results_of(fetch(f"{base}{config.path}", empty_on_not_found=config.empty_on_not_found))
         if items:
             yield items
         return

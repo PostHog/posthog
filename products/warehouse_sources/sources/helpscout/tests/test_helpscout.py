@@ -295,6 +295,7 @@ class TestFanout:
             ("v2", "mailbox_fields", "mailboxes", "mailboxes/42/fields", HELP_SCOUT_API_BASE, {}),
             # Mailbox fields have no v3 route, so a v3 pin keeps parent and child on v2.
             ("v3", "mailbox_fields", "mailboxes", "mailboxes/42/fields", HELP_SCOUT_API_BASE, {}),
+            ("v3", "team_members", "teams", "teams/42/members", HELP_SCOUT_API_BASE, {}),
         ],
     )
     def test_parent_and_child_endpoints(
@@ -319,7 +320,11 @@ class TestFanout:
 
     @pytest.mark.parametrize(
         "endpoint,parent,parent_key",
-        [("threads", "conversations", "conversation_id"), ("mailbox_fields", "mailboxes", "mailbox_id")],
+        [
+            ("threads", "conversations", "conversation_id"),
+            ("mailbox_fields", "mailboxes", "mailbox_id"),
+            ("team_members", "teams", "team_id"),
+        ],
     )
     def test_child_rows_carry_the_parent_id(self, endpoint: str, parent: str, parent_key: str) -> None:
         result = _run(
@@ -392,6 +397,85 @@ class TestHappinessRatingsReport:
         assert result.requests[0].param("page") == "3"
         assert result.requests[0].param("end") == "2024-05-01T00:00:00Z"
         assert result.rows == [{"id": 3, "threadid": 30}]
+
+
+class TestUserConversationHistoryReport:
+    def test_walks_each_users_report_and_collapses_repeated_conversations(self) -> None:
+        result = _run(
+            "user_conversation_history",
+            [
+                _page("users", [{"id": 1}, {"id": 2}]),
+                _report_page([{"id": 10}, {"id": 11}], page=1, pages=2),
+                # A conversation the user replied to twice repeats, here across a page boundary.
+                _report_page([{"id": 11}, {"id": 12}], page=2, pages=2),
+                # User 2 starts with user 1's last conversation, which is a separate row.
+                _report_page([{"id": 12}], page=1, pages=1),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(row["user_id"], row["id"]) for row in result.rows] == [(1, 10), (1, 11), (1, 12), (2, 12)]
+        assert result.paths == ["/v2/users"] + ["/v2/reports/user/conversation-history"] * 3
+        reports = result.requests[1:]
+        assert [(request.param("user"), request.param("page")) for request in reports] == [
+            ("1", "1"),
+            ("1", "2"),
+            ("2", "1"),
+        ]
+        end = reports[0].param("end")
+        assert end is not None
+        for request in reports:
+            assert request.param("start") == "2011-01-01T00:00:00Z"
+            assert request.param("end") == end
+            assert request.param("sortField") == "number"
+            assert request.param("sortOrder") == "ASC"
+        assert result.saved_states and all(state.report_end == end for state in result.saved_states)
+
+    def test_resume_drops_a_repeat_split_across_the_checkpoint(self) -> None:
+        state = {
+            "completed": [],
+            "current": "/reports/user/conversation-history?user=1",
+            "child_state": {"page": 2},
+        }
+        result = _run(
+            "user_conversation_history",
+            [_page("users", [{"id": 1}]), _report_page([{"id": 11}, {"id": 12}], page=2, pages=2)],
+            resume_state=HelpScoutResumeConfig(
+                fanout_state=state, report_end="2024-05-01T00:00:00Z", last_report_key=[1, 11]
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"user_id": 1, "id": 12}]
+        assert result.requests[1].param("page") == "2"
+
+    def test_checkpoint_carries_the_last_row_key(self) -> None:
+        result = _run(
+            "user_conversation_history",
+            [
+                _page("users", [{"id": 1}]),
+                _report_page([{"id": 10}, {"id": 11}], page=1, pages=2),
+                _report_page([{"id": 12}], page=2, pages=2),
+            ],
+        )
+
+        assert result.raised is None
+        page_two = next(s for s in result.saved_states if s.fanout_state and s.fanout_state["child_state"])
+        assert page_two.fanout_state is not None and page_two.fanout_state["child_state"] == {"page": 2}
+        assert page_two.last_report_key == [1, 11]
+
+    def test_resume_keeps_the_saved_window(self) -> None:
+        state = {"completed": ["/reports/user/conversation-history?user=1"], "current": None, "child_state": None}
+        result = _run(
+            "user_conversation_history",
+            [_page("users", [{"id": 1}, {"id": 2}]), _report_page([{"id": 20}], page=1, pages=1)],
+            resume_state=HelpScoutResumeConfig(fanout_state=state, report_end="2024-05-01T00:00:00Z"),
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"user_id": 2, "id": 20}]
+        assert result.requests[1].param("user") == "2"
+        assert result.requests[1].param("end") == "2024-05-01T00:00:00Z"
 
 
 class TestSourceResponseShape:

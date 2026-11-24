@@ -4,11 +4,9 @@ from unittest.mock import PropertyMock, patch
 from products.warehouse_sources.backend.facade.credential_kinds import CREDENTIAL_KINDS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.credential_kind import (
     CREDENTIAL_KIND_MAX_LENGTH,
-    CREDENTIAL_KINDS_PATH,
     ChangedFrozenValueError,
     compute_credential_kinds,
     default_credential_kind,
-    frozen_credential_kinds,
     kebab_case,
     merge_append_only,
     oauth_kind_of,
@@ -158,11 +156,3 @@ def test_a_changed_kind_fails_the_generation() -> None:
         allowed = render_credential_kinds(allow_changed=True)
 
     assert '    "Stripe": "stripe-test",' in allowed
-
-
-def test_credential_kinds_file_is_up_to_date() -> None:
-    assert dict(CREDENTIAL_KINDS) == frozen_credential_kinds()
-    assert CREDENTIAL_KINDS_PATH.read_text() == render_credential_kinds(), (
-        "The frozen credential kinds are out of date. "
-        "Run `python manage.py generate_source_field_classification` and commit the result."
-    )

@@ -2,12 +2,13 @@ import json
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Any, NoReturn, Optional
 
 import requests
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.sources.sdk import (
+    DEFAULT_RETRY,
     RESTClientNonRetryableError,
     RESTClientRetryableError,
     ResumableSourceManager,
@@ -20,12 +21,13 @@ from products.warehouse_sources.sources.sdk import (
 from products.warehouse_sources.sources.zoho_crm.settings import (
     AUDITED_TIME_FIELD,
     CUSTOM_MODULE_GENERATED_TYPES,
+    DEAL_CONTACT_ROLES_ENDPOINT,
+    DEAL_ID_FIELD,
     DEAL_TIMELINE_ENDPOINT,
     DEALS_MODULE,
     MODIFIED_TIME_FIELD,
     PIPELINE_LAYOUT_ID_FIELD,
     PIPELINES_ENDPOINT,
-    TIMELINE_DEAL_ID_FIELD,
     ZohoCRMEndpointConfig,
     endpoint_config,
 )
@@ -66,6 +68,9 @@ MAX_PAGE = 2000 // PAGE_SIZE
 # several field slices walked in lockstep and merged per page.
 MAX_FIELDS_PER_REQUEST = 50
 REQUEST_TIMEOUT_SECONDS = 60
+# Contact roles only answer with the contact fields the request names. The role and the contact id
+# always come back.
+CONTACT_ROLE_FIELDS = "Full_Name,Email"
 
 # Shown when the refresh-token exchange is rejected. The raw Zoho `error` code (e.g. `invalid_code`)
 # is kept on the exception for logs but never surfaced to users, who can't act on it.
@@ -115,6 +120,15 @@ def _with_zoho_error_detail(error: requests.HTTPError) -> requests.HTTPError:
 
     detail = f"{code}: {message}".rstrip(": ") if code else message
     return ZohoCRMApiError(f"{error} ({detail})", response=response)
+
+
+def _raise_with_zoho_error_detail(error: requests.HTTPError) -> NoReturn:
+    detailed = _with_zoho_error_detail(error)
+    if detailed is error:
+        # `raise error from error` makes the error its own cause, and Temporal's failure
+        # converter recurses on the cause chain until it hits RecursionError.
+        raise error
+    raise detailed from error
 
 
 class ZohoCRMAuthError(Exception):
@@ -180,10 +194,17 @@ def chunk_fields(names: list[str], size: int = MAX_FIELDS_PER_REQUEST) -> list[l
     return [names[index : index + size] for index in range(0, len(names), size)]
 
 
+# `DEFAULT_RETRY` retries only GET, HEAD, and OPTIONS. The token exchange is a POST, so a 5xx from
+# the accounts host would otherwise fail the run on the first attempt. Repeating a refresh-token
+# exchange is safe, because each exchange only mints a new access token.
+ZOHO_RETRY = DEFAULT_RETRY.new(allowed_methods=frozenset(DEFAULT_RETRY.allowed_methods or ()) | {"POST"})
+
+
 class ZohoCRMClient:
     """Minimal Zoho CRM client: refresh-token auth, regional hosts, JSON GETs.
 
-    Status-code retries (429/5xx) come from the tracked session, so nothing retries here.
+    Status-code retries (429/5xx) come from the tracked session, for the token POST too (see
+    `ZOHO_RETRY`), so nothing retries here.
     """
 
     def __init__(
@@ -205,7 +226,9 @@ class ZohoCRMClient:
         # capture: Zoho responses carry raw CRM records (contacts, notes, emails, phone numbers,
         # free-text) and the token exchange returns the access token in a bare `access_token`
         # field — content the name-based scrubbers can't reliably redact.
-        self._session = make_tracked_session(redact_values=(client_secret, refresh_token), capture=False)
+        self._session = make_tracked_session(
+            retry=ZOHO_RETRY, redact_values=(client_secret, refresh_token), capture=False
+        )
         self._access_token: Optional[str] = None
 
     @property
@@ -275,7 +298,7 @@ def readable_field_names(client: ZohoCRMClient, api_version: str, module: str) -
     try:
         response = client.get(f"/crm/{api_version}/settings/fields", params={"module": module})
     except requests.HTTPError as e:
-        raise _with_zoho_error_detail(e) from e
+        _raise_with_zoho_error_detail(e)
     if response.status_code in NO_CONTENT_STATUSES:
         return []
 
@@ -307,7 +330,7 @@ def _fetch_page(
     try:
         response = client.get(f"/crm/{api_version}/{path}", params=params, headers=headers)
     except requests.HTTPError as e:
-        raise _with_zoho_error_detail(e) from e
+        _raise_with_zoho_error_detail(e)
     if response.status_code in NO_CONTENT_STATUSES:
         return [], {}
 
@@ -364,6 +387,9 @@ def get_rows(
             logger,
             db_incremental_field_last_value if should_use_incremental_field else None,
         )
+        return
+    if endpoint == DEAL_CONTACT_ROLES_ENDPOINT:
+        yield from get_deal_contact_role_rows(client, api_version, resumable_source_manager, logger)
         return
 
     config = endpoint_config(endpoint)
@@ -477,25 +503,28 @@ def _compare_ids(left: str, right: str) -> int:
     return (left > right) - (left < right)
 
 
-def get_deal_timeline_rows(
+@dataclasses.dataclass(frozen=True)
+class DealChildRequest:
+    """A list endpoint read once per deal, at `/Deals/{deal_id}/{path}`."""
+
+    endpoint: str
+    path: str
+    data_key: str
+    # Sent on every page.
+    params: dict[str, str]
+    # Sent only on a page without a page token.
+    first_page_params: dict[str, str]
+
+
+def get_deal_child_rows(
     client: ZohoCRMClient,
     api_version: str,
     resumable_source_manager: ResumableSourceManager[ZohoCRMResumeConfig],
     logger: FilteringBoundLogger,
-    db_incremental_field_last_value: Optional[Any] = None,
+    child: DealChildRequest,
+    deal_headers: Optional[dict[str, str]] = None,
 ) -> Iterator[list[dict[str, Any]]]:
-    """Timeline entries of every deal, read one deal at a time.
-
-    An incremental run reads only the deals modified since the watermark, and only their
-    entries since then. An entry that does not change the deal itself, such as a note added
-    to it, does not move `Modified_Time`, so an incremental run can miss it until the deal next
-    changes.
-    """
-    deal_headers: dict[str, str] = {}
-    timeline_params: dict[str, str] = {"sort_by": AUDITED_TIME_FIELD}
-    if db_incremental_field_last_value is not None:
-        deal_headers["If-Modified-Since"] = format_modified_since(db_incremental_field_last_value)
-        timeline_params["filters"] = _timeline_filters(db_incremental_field_last_value, datetime.now(UTC))
+    """Rows of `child` for every deal, read one deal at a time, each tagged with its deal id."""
     # Only the id is needed. An id sort keeps page boundaries still while deals change mid-sync.
     deal_params = {
         "per_page": str(PAGE_SIZE),
@@ -534,16 +563,16 @@ def get_deal_timeline_rows(
                     child_token = ""
                 resume_deal_id = ""
             while True:
-                request_params = dict(timeline_params)
+                request_params = dict(child.params)
                 if child_token:
                     request_params["page_token"] = child_token
                 else:
-                    request_params["per_page"] = str(PAGE_SIZE)
-                entries, timeline_info = _fetch_page(
-                    client, api_version, f"{DEALS_MODULE}/{deal_id}/__timeline", "__timeline", request_params
+                    request_params.update(child.first_page_params)
+                rows, child_info = _fetch_page(
+                    client, api_version, f"{DEALS_MODULE}/{deal_id}/{child.path}", child.data_key, request_params
                 )
-                next_child = str(timeline_info.get("next_page_token") or "")
-                child_token = next_child if timeline_info.get("more_records") else ""
+                next_child = str(child_info.get("next_page_token") or "")
+                child_token = next_child if child_info.get("more_records") else ""
                 resumable_source_manager.save_state(
                     ZohoCRMResumeConfig(
                         page=page,
@@ -552,8 +581,8 @@ def get_deal_timeline_rows(
                         child_page_token=child_token,
                     )
                 )
-                if entries:
-                    yield [{**entry, TIMELINE_DEAL_ID_FIELD: deal_id} for entry in entries]
+                if rows:
+                    yield [{**row, DEAL_ID_FIELD: deal_id} for row in rows]
                 else:
                     resumable_source_manager.safe_point()
                 if not child_token:
@@ -566,7 +595,7 @@ def get_deal_timeline_rows(
         if not page_token and page > MAX_PAGE:
             logger.warning(
                 "Zoho CRM stopped paginating at the 2000-record page limit without a next page token",
-                endpoint=DEAL_TIMELINE_ENDPOINT,
+                endpoint=child.endpoint,
                 page=page,
             )
             break
@@ -574,12 +603,70 @@ def get_deal_timeline_rows(
     resumable_source_manager.clear_state()
 
 
+def get_deal_timeline_rows(
+    client: ZohoCRMClient,
+    api_version: str,
+    resumable_source_manager: ResumableSourceManager[ZohoCRMResumeConfig],
+    logger: FilteringBoundLogger,
+    db_incremental_field_last_value: Optional[Any] = None,
+) -> Iterator[list[dict[str, Any]]]:
+    """Timeline entries of every deal.
+
+    An incremental run reads only the deals modified since the watermark, and only their
+    entries since then. An entry that does not change the deal itself, such as a note added
+    to it, does not move `Modified_Time`, so an incremental run can miss it until the deal next
+    changes.
+    """
+    deal_headers: dict[str, str] = {}
+    timeline_params: dict[str, str] = {"sort_by": AUDITED_TIME_FIELD}
+    if db_incremental_field_last_value is not None:
+        deal_headers["If-Modified-Since"] = format_modified_since(db_incremental_field_last_value)
+        timeline_params["filters"] = _timeline_filters(db_incremental_field_last_value, datetime.now(UTC))
+    yield from get_deal_child_rows(
+        client,
+        api_version,
+        resumable_source_manager,
+        logger,
+        # Zoho refuses `per_page` next to `page_token` on the timeline.
+        DealChildRequest(
+            endpoint=DEAL_TIMELINE_ENDPOINT,
+            path="__timeline",
+            data_key="__timeline",
+            params=timeline_params,
+            first_page_params={"per_page": str(PAGE_SIZE)},
+        ),
+        deal_headers,
+    )
+
+
+def get_deal_contact_role_rows(
+    client: ZohoCRMClient,
+    api_version: str,
+    resumable_source_manager: ResumableSourceManager[ZohoCRMResumeConfig],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    """Contacts of every deal with the role each plays on it. Each row's `id` is the contact id."""
+    yield from get_deal_child_rows(
+        client,
+        api_version,
+        resumable_source_manager,
+        logger,
+        DealChildRequest(
+            endpoint=DEAL_CONTACT_ROLES_ENDPOINT,
+            path="Contact_Roles",
+            data_key="data",
+            params={"fields": CONTACT_ROLE_FIELDS},
+            first_page_params={},
+        ),
+    )
+
+
 def list_custom_modules(client: ZohoCRMClient, api_version: str) -> list[str]:
     """API names of the org's custom and linking modules that Get Records can read."""
     try:
         response = client.get(f"/crm/{api_version}/settings/modules")
     except requests.HTTPError as e:
-        raise _with_zoho_error_detail(e) from e
+        _raise_with_zoho_error_detail(e)
     if response.status_code in NO_CONTENT_STATUSES:
         return []
     body = _parse_json_body(response) or {}

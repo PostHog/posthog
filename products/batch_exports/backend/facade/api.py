@@ -320,17 +320,30 @@ def get_run_failure(run_id: UUID | str, team_id: int) -> contracts.BatchExportRu
 
 def get_teams_with_billable_rows_exported(begin: dt.datetime, end: dt.datetime) -> list[contracts.TeamTotal]:
     """Sum the rows each team exported through billable runs that finished in the period."""
+    return _sum_billable_runs_by_team(begin, end, "records_completed")
+
+
+def get_teams_with_billable_bytes_exported(begin: dt.datetime, end: dt.datetime) -> list[contracts.TeamTotal]:
+    """Sum the bytes each team exported through billable runs that finished in the period.
+
+    `bytes_exported` counts the files as uploaded, after encoding and compression, so this is
+    the egress of the runs.
+    """
+    return _sum_billable_runs_by_team(begin, end, "bytes_exported")
+
+
+def _sum_billable_runs_by_team(begin: dt.datetime, end: dt.datetime, field: str) -> list[contracts.TeamTotal]:
     completed_runs = BatchExportRun.objects.filter(
         finished_at__gte=begin,
-        finished_at__lte=end,
+        finished_at__lt=end,
         status=BatchExportRun.Status.COMPLETED,
     )
     rows = (
         exclude_non_billable_runs(completed_runs)
         .values(team_id=Coalesce(F("batch_export__team_id"), F("batch_export_on_demand__team_id")))
-        # A run that recorded no count leaves records_completed null, so a team whose runs are
-        # all null would sum to null. Coalesce keeps every total an integer.
-        .annotate(total=Coalesce(Sum("records_completed"), 0))
+        # A run that recorded no count leaves the field null, so a team whose runs are all null
+        # would sum to null. Coalesce keeps every total an integer.
+        .annotate(total=Coalesce(Sum(field), 0))
     )
     return [contracts.TeamTotal(team_id=row["team_id"], total=row["total"]) for row in rows]
 
