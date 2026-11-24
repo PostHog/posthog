@@ -138,7 +138,7 @@ function copyPublicAssets(): void {
     const buttonSoundsSrc = resolve('.', 'node_modules', 'button-sounds', 'assets')
     const buttonSoundsDest = resolve('.', 'dist', 'button-sounds')
     mkdirSync(buttonSoundsDest, { recursive: true })
-    for (const file of ['hi75-soft.mp3', 'tonal-on.mp3', 'tonal-off.mp3']) {
+    for (const file of ['hi75-soft.mp3', 'lock-closed.mp3', 'lock-open.mp3']) {
         copyFileSync(join(buttonSoundsSrc, file), join(buttonSoundsDest, file))
     }
     console.info('✅ Copied button sounds to dist/button-sounds')

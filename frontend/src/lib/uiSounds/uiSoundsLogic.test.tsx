@@ -56,6 +56,6 @@ describe('uiSoundsLogic', () => {
         logic.actions.setUiSoundsEnabled(true)
         pressSwitch()
 
-        await waitFor(() => expect(mockPlayedSounds).toEqual(['hi75-soft', 'tonal-on']))
+        await waitFor(() => expect(mockPlayedSounds).toEqual(['hi75-soft', 'lock-closed']))
     })
 })

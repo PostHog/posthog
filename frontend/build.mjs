@@ -372,7 +372,7 @@ function copyEmojibaseData() {
 }
 
 // uiSoundsLogic loads these from /static/button-sounds, so keep them in sync with playUiSound.ts and the Vite plugin.
-const BUTTON_SOUND_FILES = ['hi75-soft.mp3', 'tonal-on.mp3', 'tonal-off.mp3']
+const BUTTON_SOUND_FILES = ['hi75-soft.mp3', 'lock-closed.mp3', 'lock-open.mp3']
 
 function copyButtonSounds() {
     const from = path.resolve(__dirname, 'node_modules', 'button-sounds', 'assets')

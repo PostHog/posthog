@@ -7,8 +7,8 @@ const SOUNDS_PATH = '/static/button-sounds'
 
 const SOUND_NAMES: Record<UiSound, SoundName> = {
     click: 'hi75-soft',
-    'toggle-on': 'tonal-on',
-    'toggle-off': 'tonal-off',
+    'toggle-on': 'lock-closed',
+    'toggle-off': 'lock-open',
 }
 
 const VOLUME = 0.3
