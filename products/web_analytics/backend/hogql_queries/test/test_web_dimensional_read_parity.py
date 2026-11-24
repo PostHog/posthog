@@ -582,18 +582,6 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
     @parameterized.expand(
         [
             ("no_filter", [], [3, 4, 3]),
-            # Like v2, the overview maps a page filter to the entry page. Only user_c's session has an entry
-            # page in this fixture, because the entry page comes from $current_url.
-            (
-                "pathname_exact",
-                [EventPropertyFilter(key="$pathname", value="/blog", operator=PropertyOperator.EXACT)],
-                [1, 1, 1],
-            ),
-            (
-                "pathname_contains",
-                [EventPropertyFilter(key="$pathname", value="blo", operator=PropertyOperator.ICONTAINS)],
-                [1, 1, 1],
-            ),
         ]
     )
     def test_overview_dimensional_matches_v2(self, _name, properties, expected_counts):
@@ -851,6 +839,11 @@ SITE_HOST = "example.com"
 LIVE = WebAnalyticsQueryModifiers(useDimensionalTables=False)
 
 
+def _rounded(value: float | None) -> float | None:
+    # Live averages per session and dimensional divides two sums, so equal rates can differ in the last bits.
+    return round(value, 9) if value is not None else None
+
+
 def _host(value, operator=PropertyOperator.EXACT) -> EventPropertyFilter:
     return EventPropertyFilter(key="$host", value=value, operator=operator)
 
@@ -921,11 +914,7 @@ class TestOverviewDimensionalHostParity(WebAnalyticsPreAggregatedTestBase):
         ) as mock_execute:
             response = runner.calculate()
         query_types = [call.kwargs["query_type"] for call in mock_execute.call_args_list]
-        tiles = {
-            item.key: (item.value, item.previous)
-            for item in response.results
-            if item.key in ("visitors", "views", "sessions", "bounce rate")
-        }
+        tiles = {item.key: (_rounded(item.value), _rounded(item.previous)) for item in response.results}
         return query_types, tiles
 
     @parameterized.expand(
@@ -942,6 +931,7 @@ class TestOverviewDimensionalHostParity(WebAnalyticsPreAggregatedTestBase):
                 [_host(APP_HOST), EventPropertyFilter(key="$device_type", value="Desktop")],
                 (2, 3, 2, 0.0),
             ),
+            ("no_matching_session", [_host("unknown.example.com")], (0, 0, 0, None)),
         ]
     )
     def test_overview_dimensional_matches_live(self, _name, properties, expected):
@@ -951,10 +941,12 @@ class TestOverviewDimensionalHostParity(WebAnalyticsPreAggregatedTestBase):
 
         assert "web_overview_dimensional_query" not in live_types
         assert dimensional_types == ["web_overview_dimensional_query"]
-        assert dimensional == pytest.approx(live), f"{_name}\nlive={live}\ndimensional={dimensional}"
+        assert dimensional == live, f"{_name}\nlive={live}\ndimensional={dimensional}"
         visitors, views, sessions, bounce_rate = expected
         assert [dimensional[key][0] for key in ("visitors", "views", "sessions")] == [visitors, views, sessions]
-        assert dimensional["bounce rate"][0] == (pytest.approx(bounce_rate) if bounce_rate is not None else None)
+        assert dimensional["bounce rate"][0] == _rounded(bounce_rate)
+        if sessions == 0:
+            assert dimensional["session duration"][0] is None
 
     def test_overview_previous_period_matches_live(self):
         # The current day is empty and the previous day holds every session, so the previous values come from
@@ -965,5 +957,20 @@ class TestOverviewDimensionalHostParity(WebAnalyticsPreAggregatedTestBase):
         dimensional_types, dimensional = self._run(OPT_IN, properties, date_range, compare=True)
 
         assert dimensional_types == ["web_overview_dimensional_query"]
-        assert dimensional == pytest.approx(live), f"live={live}\ndimensional={dimensional}"
+        assert dimensional == live, f"live={live}\ndimensional={dimensional}"
         assert [dimensional[key][1] for key in ("visitors", "views", "sessions")] == [3, 4, 3]
+
+    @parameterized.expand(
+        [
+            ("entry_page", "/"),
+            ("page_viewed_after_entry", "/pricing"),
+        ]
+    )
+    def test_overview_page_filter_reads_live(self, _name, pathname):
+        date_range = DateRange(date_from=DATE_FROM, date_to=DATE_TO)
+        properties = [EventPropertyFilter(key="$pathname", value=pathname)]
+        _live_types, live = self._run(LIVE, properties, date_range, compare=False)
+        dimensional_types, dimensional = self._run(OPT_IN, properties, date_range, compare=False)
+
+        assert "web_overview_dimensional_query" not in dimensional_types
+        assert dimensional == live

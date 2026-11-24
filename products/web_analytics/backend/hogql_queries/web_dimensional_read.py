@@ -294,12 +294,8 @@ class DimensionalWebOverviewQueryBuilder(DimensionalTablesMixin, WebOverviewPreA
             """,
             placeholders={
                 "table": ast.Field(chain=[self.bounces_table]),
-                "duration_current": self._safe_avg_sessions(
-                    "total_session_duration_state", "total_session_count_state", periods.current_period
-                ),
-                "duration_previous": self._safe_avg_sessions(
-                    "total_session_duration_state", "total_session_count_state", periods.previous_period
-                ),
+                "duration_current": self._average_duration(periods.current_period),
+                "duration_previous": self._average_duration(periods.previous_period),
                 "bounce_current": self._bounce_rate(periods.current_period),
                 "bounce_previous": self._bounce_rate(periods.previous_period),
             },
@@ -333,12 +329,19 @@ class DimensionalWebOverviewQueryBuilder(DimensionalTablesMixin, WebOverviewPreA
     def _bounce_rate(self, period_filter: ast.Expr) -> ast.Expr:
         # Only sessions with a bounce value count, as live's avgIf over `$is_bounce` skips NULL. A session
         # without a pageview (an app session with only $screen events) has none under the default bounce mode.
-        eligible = self._sum_merge_if("bounce_eligible_sessions_state", period_filter)
+        return self._average_or_null("bounces_count_state", "bounce_eligible_sessions_state", period_filter)
+
+    def _average_duration(self, period_filter: ast.Expr) -> ast.Expr:
+        return self._average_or_null("total_session_duration_state", "total_session_count_state", period_filter)
+
+    def _average_or_null(self, sum_state: str, count_state: str, period_filter: ast.Expr) -> ast.Expr:
+        # NULL when no session counts, as live's avgIf returns, so the tile shows no value instead of 0.
+        count = self._sum_merge_if(count_state, period_filter)
         return ast.Call(
             name="if",
             args=[
-                ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=eligible, right=ast.Constant(value=0)),
-                ast.Call(name="divide", args=[self._sum_merge_if("bounces_count_state", period_filter), eligible]),
+                ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=count, right=ast.Constant(value=0)),
+                ast.Call(name="divide", args=[self._sum_merge_if(sum_state, period_filter), count]),
                 ast.Constant(value=None),
             ],
         )
