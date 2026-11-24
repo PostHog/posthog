@@ -6,11 +6,14 @@ from posthog.models import ActivityLog
 from posthog.models.utils import hash_key_value, mask_key_value
 
 from products.conversations.backend.models import SigningSecret
-from products.conversations.backend.services.signing_secrets import retire_leaked_signing_secret
+from products.conversations.backend.services.signing_secrets import (
+    SigningSecretRetirement,
+    retire_leaked_signing_secret,
+)
 
 
-def _retire(team_id: int, token: str) -> None:
-    retire_leaked_signing_secret(team_id, hash_key_value(token), mask_key_value(token))
+def _retire(team_id: int, token: str) -> SigningSecretRetirement:
+    return retire_leaked_signing_secret(team_id, hash_key_value(token), mask_key_value(token))
 
 
 class TestRetireLeakedSigningSecret(BaseTest):
@@ -27,8 +30,9 @@ class TestRetireLeakedSigningSecret(BaseTest):
     def test_replaces_active_secret_and_logs_the_change(self):
         row = SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret="phs_leaked")
 
-        _retire(self.team.id, "phs_leaked")
+        retirement = _retire(self.team.id, "phs_leaked")
 
+        self.assertEqual(retirement, SigningSecretRetirement(replaced=True, grace_window_ended=False))
         row.refresh_from_db()
         self.assertNotEqual(row.secret, "phs_leaked")
         self.assertTrue(row.rotated_independently)
@@ -48,8 +52,10 @@ class TestRetireLeakedSigningSecret(BaseTest):
             rotated_independently=True,
         )
 
-        _retire(self.team.id, "phs_leaked")
+        retirement = _retire(self.team.id, "phs_leaked")
 
+        # Rotated one hour ago, so the 48h grace window was still accepting the value.
+        self.assertEqual(retirement, SigningSecretRetirement(replaced=False, grace_window_ended=True))
         row.refresh_from_db()
         self.assertEqual(row.secret, "phs_rotated_fresh")
         self.assertIsNone(row.previous_secret)
@@ -59,8 +65,9 @@ class TestRetireLeakedSigningSecret(BaseTest):
     def test_leaves_an_unrelated_row_untouched(self):
         row = SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret="phs_unrelated")
 
-        _retire(self.team.id, "phs_leaked")
+        retirement = _retire(self.team.id, "phs_leaked")
 
+        self.assertEqual(retirement, SigningSecretRetirement(replaced=False, grace_window_ended=False))
         row.refresh_from_db()
         self.assertEqual(row.secret, "phs_unrelated")
         self.assertFalse(row.rotated_independently)

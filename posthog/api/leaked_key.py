@@ -91,8 +91,7 @@ class PublicLeakedKeyReport(APIView):
             "immediately and the owner is notified by email. This includes an expired OAuth "
             "access token: the paired refresh token it protects may still be live. A legacy "
             "feature flags secure API key is matched through its migrated project secret API "
-            "key row; it cannot be rotated automatically, so its project admins get an email "
-            "to rotate it.\n\n"
+            "key row and rolled like any other project secret API key.\n\n"
             'This endpoint only checks the region it is running on. `"found": false` does not '
             "guarantee the token is safe. If you're not sure which region issued it, check "
             "both: https://app.posthog.com/api/revoke_leaked_key and "

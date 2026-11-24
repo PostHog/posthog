@@ -2418,6 +2418,33 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         )
         assert message.html_body
 
+    @parameterized.expand([(True, False), (False, True), (False, False)])
+    def test_project_secret_key_exposed_email_carries_signing_secret_replacement(
+        self, MockEmailMessage: MagicMock, replaced: bool, grace_window_ended: bool
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        key, _ = create_project_secret_api_key(team=self.team, created_by=self.user, label="Production key")
+
+        send_project_secret_api_key_exposed(
+            self.team.id,
+            key.id,
+            "phs_...abcd",
+            "",
+            signing_secret_replaced=replaced,
+            grace_window_ended=grace_window_ended,
+        )
+
+        assert len(mocked_email_messages) == 1
+        message = mocked_email_messages[0]
+        # Cloud sends render from message.properties alone (the Workflows template), so
+        # the flags must reach them, and the Django paragraphs must track them too.
+        assert message.properties["signing_secret_replaced"] is replaced
+        assert message.properties["grace_window_ended"] is grace_window_ended
+        assert ("We replaced it" in message.html_body) is replaced
+        assert ("We removed it immediately" in message.html_body) is grace_window_ended
+
     def test_send_project_secret_api_key_exposed_respects_opt_out(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 

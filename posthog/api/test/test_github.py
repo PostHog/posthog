@@ -559,6 +559,7 @@ class TestProjectSecretAPIKeySecretAlert(APIBaseTest):
             RevokedTeamSecretToken.objects.for_team(self.team.id).filter(secure_value=hash_key_value(token)).exists()
         )
         mock_psak_exposed.assert_called_once()
+        self.assertTrue(mock_psak_exposed.call_args.kwargs["signing_secret_replaced"])
 
     @patch("posthog.api.github.verify_github_signature")
     @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")

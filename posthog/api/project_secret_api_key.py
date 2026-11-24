@@ -244,16 +244,24 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
 
 
 def roll_project_secret_api_key_and_notify(project_secret_api_key: ProjectSecretAPIKey, more_info: str) -> None:
-    """Single entry point for exposure-driven rolls (GitHub secret scanning, Django admin).
+    """Single entry point for exposure-driven rolls: GitHub secret scanning, the public
+    leaked-key report, and the Django admin console.
 
     The key is rolled even when no admin can be emailed: invalidating the leaked value
-    takes priority over notification delivery.
+    takes priority over notification delivery. A value that also serves as the team's
+    conversations widget signing secret gets that secret replaced too, and the old hash
+    is recorded in RevokedTeamSecretToken, so this is only for exposures, not for a
+    routine roll.
     """
     # Lazy: conversations imports posthog.api modules at load time.
-    from products.conversations.backend.services.signing_secrets import retire_leaked_signing_secret
+    from products.conversations.backend.services.signing_secrets import (
+        SigningSecretRetirement,
+        retire_leaked_signing_secret,
+    )
 
     old_mask_value = project_secret_api_key.mask_value or ""
     old_secure_value = project_secret_api_key.secure_value
+    retirement = SigningSecretRetirement(replaced=False, grace_window_ended=False)
     # One transaction: once the roll commits, the old hash is gone from the PSAK, so a
     # retried report could never retire a signing secret still carrying the leaked value.
     with transaction.atomic():
@@ -263,14 +271,19 @@ def roll_project_secret_api_key_and_notify(project_secret_api_key: ProjectSecret
             team_id = project_secret_api_key.team_id
             # The leaked value must stop verifying widget identity too: migration 0056 copied
             # legacy team tokens into SigningSecret, so a never-rotated team still holds it there.
-            retire_leaked_signing_secret(team_id, old_secure_value, old_mask_value)
+            retirement = retire_leaked_signing_secret(team_id, old_secure_value, old_mask_value)
             # Recorded so a rerun of the #63111 backfill cannot re-mint a mirror row for a
             # plaintext column value whose rolled PSAK no longer carries its hash.
             RevokedTeamSecretToken.objects.for_team(team_id).get_or_create(
                 team_id=team_id, secure_value=old_secure_value
             )
     send_project_secret_api_key_exposed(
-        project_secret_api_key.team_id, project_secret_api_key.id, old_mask_value, more_info
+        project_secret_api_key.team_id,
+        project_secret_api_key.id,
+        old_mask_value,
+        more_info,
+        signing_secret_replaced=retirement.replaced,
+        grace_window_ended=retirement.grace_window_ended,
     )
 
 

@@ -167,8 +167,7 @@ class ProjectSecretApiKeysPanel(Panel):
                 danger=True,
                 description=(
                     "The key gets a new value, so whatever uses the old one stops working, and the project's "
-                    "admins get an email. A key that mirrors the team's legacy secret token is deleted instead, "
-                    "and the email asks the admins to rotate that token."
+                    "admins get an email."
                 ),
                 form_class=_exposed_key_form(keys),
                 undo_hint="This cannot be undone. The project's admins create or roll a key in project settings.",

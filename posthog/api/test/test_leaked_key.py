@@ -32,6 +32,8 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value,
 from posthog.rate_limit import LeakedKeyReportThrottle
 from posthog.test.api_keys import create_project_secret_api_key
 
+from products.conversations.backend.models import SigningSecret
+
 
 class TestPublicLeakedKeyReport(APIBaseTest):
     # Every case must exercise the anonymous path this endpoint exists to serve. With the
@@ -125,7 +127,12 @@ class TestPublicLeakedKeyReport(APIBaseTest):
 
             def assert_owner_notified() -> None:
                 mock_send_project_secret_api_key_exposed.assert_called_once_with(
-                    self.team.id, project_secret_api_key.id, mask_key_value(token), PUBLIC_REPORT_MORE_INFO
+                    self.team.id,
+                    project_secret_api_key.id,
+                    mask_key_value(token),
+                    PUBLIC_REPORT_MORE_INFO,
+                    signing_secret_replaced=False,
+                    grace_window_ended=False,
                 )
         elif kind == "oauth_access_token":
             oauth_app = self._create_oauth_app()
@@ -191,10 +198,12 @@ class TestPublicLeakedKeyReport(APIBaseTest):
     @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")
     def test_leaked_legacy_team_token_rolls_its_mirror_row(self, mock_psak_exposed) -> None:
         # A legacy Team.secret_api_token value exists only as its backfilled PSAK mirror
-        # row (#63111); the report must still revoke it through that row.
+        # row (#63111); the report must still revoke it through that row, including the
+        # copy migration 0056 left in the team's widget signing secret.
         token = "phs_legacy_team_secret_token_with_migrated_row"
         row, _ = create_project_secret_api_key(team=self.team, label="Migrated legacy secret API key", value=token)
         old_secure_value = row.secure_value
+        signing_secret = SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret=token)
 
         response = self._post(token)
 
@@ -202,7 +211,26 @@ class TestPublicLeakedKeyReport(APIBaseTest):
         self.assertEqual(response.json(), {"found": True, "type": "project_secret_api_key"})
         row.refresh_from_db()
         self.assertNotEqual(row.secure_value, old_secure_value)
+        signing_secret.refresh_from_db()
+        self.assertNotEqual(signing_secret.secret, token)
         mock_psak_exposed.assert_called_once()
+        self.assertTrue(mock_psak_exposed.call_args.kwargs["signing_secret_replaced"])
+
+    @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")
+    def test_failed_signing_secret_retirement_rolls_back_the_roll(self, mock_psak_exposed) -> None:
+        # The roll must not outlive a failed retirement, so a retried report still finds
+        # the leaked value and can finish the job.
+        key, token = create_project_secret_api_key(team=self.team, created_by=self.user)
+
+        with patch(
+            "products.conversations.backend.services.signing_secrets.retire_leaked_signing_secret",
+            side_effect=Exception("retirement failed"),
+        ):
+            response = self._post(token)
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertIsNotNone(find_project_secret_api_key(token))
+        mock_psak_exposed.assert_not_called()
 
     def test_expired_oauth_access_token_still_revokes_the_paired_refresh_token(self) -> None:
         # An expired access token can't authenticate on its own, but revoking still

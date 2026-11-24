@@ -2182,7 +2182,12 @@ def send_personal_api_keys_changed_by_org_admin(
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def send_project_secret_api_key_exposed(
-    team_id: int, project_secret_api_key_id: str, old_mask_value: str, more_info: str
+    team_id: int,
+    project_secret_api_key_id: str,
+    old_mask_value: str,
+    more_info: str,
+    signing_secret_replaced: bool = False,
+    grace_window_ended: bool = False,
 ) -> None:
     if not is_email_available(with_absolute_urls=True):
         return
@@ -2205,6 +2210,9 @@ def send_project_secret_api_key_exposed(
             "more_info": more_info,
             "mask_value": old_mask_value,
             "url": f"{settings.SITE_URL}/project/{team.pk}/settings/environment-secret-api-keys",
+            "conversations_settings_url": f"{settings.SITE_URL}/project/{team.pk}/settings/environment-conversations",
+            "signing_secret_replaced": signing_secret_replaced,
+            "grace_window_ended": grace_window_ended,
             **get_email_team_and_org_context(team=team),
         },
     )

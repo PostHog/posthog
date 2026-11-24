@@ -72,9 +72,10 @@ def find_project_secret_api_key(token: str) -> Optional["ProjectSecretAPIKey"]:
 
 
 class RevokedTeamSecretToken(models.Model):
-    """Hash of a legacy team secret token whose migrated PSAK mirror row (#63111) was
-    deleted by leak revocation. The pre-drop rerun of the backfill reads these, so a
-    leaked token that was never rotated does not get a fresh mirror row.
+    """Hash a project secret API key carried before leak revocation rolled it (#63111).
+    The pre-drop rerun of the backfill reads these, so a leaked legacy token whose
+    mirror row was rolled does not get a fresh mirror row minted from the plaintext
+    still in the column.
 
     EnvironmentScopedManager: tokens are environment-scoped, and canonical-team
     resolution would file or look up a child environment's hash under its root.

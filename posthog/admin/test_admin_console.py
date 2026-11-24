@@ -2064,7 +2064,9 @@ class TestAdminConsoleApiKeys(BaseTest):
         assert rolled.status_code == 302
         key.refresh_from_db()
         assert key.secure_value != old_secure_value
-        psak_exposed.assert_called_once_with(self.team.id, key.id, ANY, "")
+        psak_exposed.assert_called_once_with(
+            self.team.id, key.id, ANY, "", signing_secret_replaced=False, grace_window_ended=False
+        )
 
     @parameterized.expand([("personal", "personalapikey"), ("project_secret", "projectsecretapikey")])
     def test_an_old_roll_url_lands_on_the_panel_of_the_key_owner(self, kind: str, model_name: str) -> None:
