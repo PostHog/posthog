@@ -1,4 +1,5 @@
 import os
+import time
 import asyncio
 import threading
 
@@ -20,15 +21,35 @@ logger = structlog.get_logger(__name__)
 DRAIN_TIMEOUT_SECONDS = 3
 EXIT_WAIT_SECONDS = DRAIN_TIMEOUT_SECONDS + 1
 
+# Also bounds how long sends keep using a rotated token.
+TOKEN_CACHE_TTL_SECONDS = 300
+_MAX_CACHED_TEAMS = 10_000
+
 _lock = threading.Lock()
 _pid: int | None = None
 _producer: InternalLogsProducer | None = None
 _loop: asyncio.AbstractEventLoop | None = None
+_token_lock = threading.Lock()
+_token_cache: dict[int, tuple[float, str]] = {}
 
 
 def _read_api_token(team_id: int) -> str | None:
-    # shortcut: one Postgres read for each request to capture-logs, add a cache when a high-volume source uses this
-    return Team.objects.filter(id=team_id).values_list("api_token", flat=True).first()
+    with _token_lock:
+        cached = _token_cache.get(team_id)
+        if cached is not None and cached[0] > time.monotonic():
+            return cached[1]
+
+    token = Team.objects.filter(id=team_id).values_list("api_token", flat=True).first()
+    if token is None:
+        return None
+
+    with _token_lock:
+        if len(_token_cache) >= _MAX_CACHED_TEAMS:
+            soonest_to_expire = sorted(_token_cache, key=lambda cached_id: _token_cache[cached_id][0])
+            for evicted_id in soonest_to_expire[: _MAX_CACHED_TEAMS // 2]:
+                del _token_cache[evicted_id]
+        _token_cache[team_id] = (time.monotonic() + TOKEN_CACHE_TTL_SECONDS, token)
+    return token
 
 
 async def _api_token(team_id: int) -> str | None:

@@ -13,6 +13,7 @@ from aioresponses import CallbackResult, aioresponses
 from posthog.internal_logs import send_internal_log
 
 from products.logs.backend import internal_logs_thread
+from products.logs.backend.internal_logs_thread import _read_api_token
 
 URL = "http://capture-logs.test/i/v1/logs"
 THREAD_NAME = "internal-logs-producer"
@@ -124,3 +125,14 @@ def test_send_in_a_forked_child_starts_its_own_loop(
 
     assert arrived.wait(WAIT_SECONDS)
     assert _records(bodies) == [("parent", 17), ("child", 17)]
+
+
+@pytest.mark.django_db
+def test_read_api_token_reads_postgres_once_per_team_within_the_ttl(
+    monkeypatch: pytest.MonkeyPatch, team: Any, django_assert_num_queries: Any
+) -> None:
+    monkeypatch.setattr(internal_logs_thread, "_token_cache", {})
+
+    with django_assert_num_queries(1):
+        assert _read_api_token(team.id) == team.api_token
+        assert _read_api_token(team.id) == team.api_token
