@@ -369,6 +369,11 @@ export function emailDocumentFromValue(value: { html?: string | null; design?: D
     return { document: candidate as EmailDocument, stale: false }
 }
 
+/** Whether the document in a saved or exported design leaves the email's plain text as it is. */
+export function keepsOwnPlainText(design: DesignLike): boolean {
+    return design?.[EMAIL_DOCUMENT_DESIGN_KEY]?.doc?.attrs?.ownPlainText === true
+}
+
 /** A brand new email has nothing the new editor could lose. */
 export function isBlankEmail(value: { html?: string | null; design?: DesignLike } | null | undefined): boolean {
     return !value?.html && !value?.design

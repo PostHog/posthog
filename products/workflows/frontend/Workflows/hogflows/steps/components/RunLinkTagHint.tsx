@@ -17,7 +17,7 @@ export function RunLinkTagHint(): JSX.Element | null {
         <span className="text-xs text-secondary" data-attr="workflows-run-link-tag-hint">
             <span>
                 {enabled
-                    ? 'Tracked clicks on links to the domain you send from are connected to the sessions they start, including session replays when recording is on.'
+                    ? 'Tracked clicks on links to the main domain you send from, or any of its subdomains, are connected to the sessions they start, including session replays when recording is on.'
                     : "Tracked link clicks aren't connected to sessions or session replays."}
             </span>{' '}
             <Link

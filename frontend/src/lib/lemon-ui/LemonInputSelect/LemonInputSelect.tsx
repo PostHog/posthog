@@ -132,7 +132,10 @@ export interface LemonInputSelectOption<T = string> {
     value?: T
 }
 
-export type LemonInputSelectAction = SideAction & Pick<LemonButtonPropsBase, 'children'>
+export type LemonInputSelectAction = SideAction &
+    Pick<LemonButtonPropsBase, 'children'> & {
+        closesDropdown?: boolean
+    }
 
 export type LemonInputSelectProps<T = string> = Pick<
     // NOTE: We explicitly pick rather than omit to ensure these components aren't used incorrectly
@@ -959,7 +962,15 @@ export function LemonInputSelect<T = string>({
                                 size="small"
                                 className="flex-1"
                                 disabledReason={action?.disabledReason}
-                                onClick={action?.onClick}
+                                onClick={(event) => {
+                                    if (action.closesDropdown) {
+                                        // Otherwise the dropdown's click handler marks it focused, and it reopens on blur.
+                                        event.stopPropagation()
+                                        popoverFocusRef.current = false
+                                        setShowPopover(false)
+                                    }
+                                    action.onClick?.(event)
+                                }}
                             >
                                 {action?.children}
                             </LemonButton>
