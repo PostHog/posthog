@@ -10,6 +10,7 @@ import {
     PROVISIONING_STATUS_TAG_TYPES,
     oauthAppActions,
 } from '../oauthAppProvisioningStatus'
+import { PROVISIONING_REVIEW_EXPLAINER } from './oauthApplicationLabels'
 import { oauthApplicationLogic } from './oauthApplicationLogic'
 import { OAuthAppReviewNoteForm } from './OAuthAppReviewNoteForm'
 import { OAuthAppReviewProgress } from './OAuthAppReviewProgress'
@@ -17,7 +18,7 @@ import { OAuthAppReviewTimeline } from './OAuthAppReviewTimeline'
 
 export function OAuthApplicationReview({ app }: { app: OrganizationOAuthApplicationDetailApi }): JSX.Element {
     const { contactSupport } = useActions(oauthApplicationLogic({ id: app.id }))
-    const { takesANote, needsSupport, canRequestVerification } = oauthAppActions(app)
+    const { takesANote, needsSupport } = oauthAppActions(app)
     const review = app.provisioning_review
 
     return (
@@ -28,33 +29,21 @@ export function OAuthApplicationReview({ app }: { app: OrganizationOAuthApplicat
                     {PROVISIONING_STATUS_LABELS[app.provisioning_status]}
                 </LemonTag>
             </div>
-            <p className="m-0 text-secondary">{PROVISIONING_STATUS_NEXT_STEPS[app.provisioning_status]}</p>
+            <p className="m-0 text-secondary">{PROVISIONING_REVIEW_EXPLAINER}</p>
+            <p className="m-0">{PROVISIONING_STATUS_NEXT_STEPS[app.provisioning_status]}</p>
             {review && <OAuthAppReviewProgress review={review} />}
             {review && <OAuthAppReviewTimeline events={review.timeline} />}
             {takesANote && <OAuthAppReviewNoteForm app={app} />}
-            {(needsSupport || canRequestVerification) && (
-                <div className="flex flex-wrap gap-2">
-                    {needsSupport && (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            onClick={() => contactSupport('review')}
-                            data-attr="oauth-app-review-contact-support"
-                        >
-                            Contact support about this review
-                        </LemonButton>
-                    )}
-                    {canRequestVerification && (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            onClick={() => contactSupport('verification')}
-                            data-attr="oauth-app-request-verification"
-                            tooltip="People who connect an unverified application to PostHog see a warning that PostHog has not verified it."
-                        >
-                            Request verification
-                        </LemonButton>
-                    )}
+            {needsSupport && (
+                <div>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={() => contactSupport('review')}
+                        data-attr="oauth-app-review-contact-support"
+                    >
+                        Contact support about this review
+                    </LemonButton>
                 </div>
             )}
         </section>

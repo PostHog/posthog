@@ -6,6 +6,7 @@ import { OrganizationOAuthApplicationDetailApi } from '~/generated/core/api.sche
 
 import { PROVISIONING_STATUS_NEXT_STEPS, oauthAppActions } from '../oauthAppProvisioningStatus'
 import { QuillProvisioningStatusBadge } from '../QuillProvisioningStatusBadge'
+import { PROVISIONING_REVIEW_EXPLAINER } from './oauthApplicationLabels'
 import { oauthApplicationLogic } from './oauthApplicationLogic'
 import { QuillOAuthAppReviewNoteForm } from './QuillOAuthAppReviewNoteForm'
 import { QuillOAuthAppReviewProgress } from './QuillOAuthAppReviewProgress'
@@ -13,7 +14,7 @@ import { QuillOAuthAppReviewTimeline } from './QuillOAuthAppReviewTimeline'
 
 export function QuillOAuthApplicationReview({ app }: { app: OrganizationOAuthApplicationDetailApi }): JSX.Element {
     const { contactSupport } = useActions(oauthApplicationLogic({ id: app.id }))
-    const { takesANote, needsSupport, canRequestVerification } = oauthAppActions(app)
+    const { takesANote, needsSupport } = oauthAppActions(app)
     const review = app.provisioning_review
 
     return (
@@ -25,32 +26,23 @@ export function QuillOAuthApplicationReview({ app }: { app: OrganizationOAuthApp
                 <QuillProvisioningStatusBadge status={app.provisioning_status} />
             </div>
             <Text size="sm" variant="muted" render={<p className="m-0" />}>
+                {PROVISIONING_REVIEW_EXPLAINER}
+            </Text>
+            <Text size="sm" render={<p className="m-0" />}>
                 {PROVISIONING_STATUS_NEXT_STEPS[app.provisioning_status]}
             </Text>
             {review && <QuillOAuthAppReviewProgress review={review} />}
             {review && <QuillOAuthAppReviewTimeline events={review.timeline} />}
             {takesANote && <QuillOAuthAppReviewNoteForm app={app} />}
-            {(needsSupport || canRequestVerification) && (
-                <div className="flex flex-wrap gap-2">
-                    {needsSupport && (
-                        <Button
-                            variant="outline"
-                            onClick={() => contactSupport('review')}
-                            data-attr="oauth-app-review-contact-support"
-                        >
-                            Contact support about this review
-                        </Button>
-                    )}
-                    {canRequestVerification && (
-                        <Button
-                            variant="outline"
-                            onClick={() => contactSupport('verification')}
-                            data-attr="oauth-app-request-verification"
-                            tooltip="People who connect an unverified application to PostHog see a warning that PostHog has not verified it."
-                        >
-                            Request verification
-                        </Button>
-                    )}
+            {needsSupport && (
+                <div>
+                    <Button
+                        variant="outline"
+                        onClick={() => contactSupport('review')}
+                        data-attr="oauth-app-review-contact-support"
+                    >
+                        Contact support about this review
+                    </Button>
                 </div>
             )}
         </section>

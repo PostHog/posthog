@@ -12,6 +12,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { oauthApplicationLogic } from './oauthApplicationLogic'
 import { QuillOAuthApplicationRegistration } from './QuillOAuthApplicationRegistration'
 import { QuillOAuthApplicationReview } from './QuillOAuthApplicationReview'
+import { QuillOAuthApplicationVerification } from './QuillOAuthApplicationVerification'
 
 export function QuillOAuthApplicationPage(): JSX.Element {
     const { application, applicationLoading, applicationLoadFailed, applicationNotFound } =
@@ -50,7 +51,13 @@ export function QuillOAuthApplicationPage(): JSX.Element {
                 </div>
             ) : (
                 <div className="max-w-200 flex flex-col gap-6">
-                    <QuillOAuthApplicationReview app={application} />
+                    {application.provisioning_status !== 'not_a_partner' && (
+                        <>
+                            <QuillOAuthApplicationReview app={application} />
+                            <Separator />
+                        </>
+                    )}
+                    <QuillOAuthApplicationVerification app={application} />
                     <Separator />
                     <QuillOAuthApplicationRegistration
                         clientId={application.client_id ?? ''}

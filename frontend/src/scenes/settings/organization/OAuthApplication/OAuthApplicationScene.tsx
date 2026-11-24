@@ -14,6 +14,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { OAuthApplicationLogicProps, oauthApplicationLogic } from './oauthApplicationLogic'
 import { OAuthApplicationRegistration } from './OAuthApplicationRegistration'
 import { OAuthApplicationReview } from './OAuthApplicationReview'
+import { OAuthApplicationVerification } from './OAuthApplicationVerification'
 import { QuillOAuthApplicationPage } from './QuillOAuthApplicationPage'
 
 export const scene: SceneExport<OAuthApplicationLogicProps> = {
@@ -57,7 +58,13 @@ export function OAuthApplicationScene(): JSX.Element {
                 </div>
             ) : (
                 <div className="max-w-200 flex flex-col gap-6">
-                    <OAuthApplicationReview app={application} />
+                    {application.provisioning_status !== 'not_a_partner' && (
+                        <>
+                            <OAuthApplicationReview app={application} />
+                            <LemonDivider />
+                        </>
+                    )}
+                    <OAuthApplicationVerification app={application} />
                     <LemonDivider />
                     <OAuthApplicationRegistration
                         clientId={application.client_id ?? ''}
