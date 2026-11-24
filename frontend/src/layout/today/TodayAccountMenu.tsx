@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconExternal, IconGear, IconLeave } from '@posthog/icons'
 import {
@@ -19,6 +19,7 @@ import { userLogic } from 'scenes/userLogic'
 import { newEventsTableLogic } from '~/layout/navigation/newEventsTableLogic'
 
 import { TodayHelpMenuItems } from './TodayHelpMenuItems'
+import { todayHelpMenuRedirectLogic } from './todayHelpMenuRedirectLogic'
 import { todayMenuLinkItem } from './todayMenuLinkItem'
 import { SEVERITY_INDICATOR } from './todayRailSeverity'
 import { todayRailStatusLogic } from './todayRailStatusLogic'
@@ -27,6 +28,7 @@ import { TodayStaffSubMenu } from './TodayStaffSubMenu'
 
 /** The account menu, on the rail or in the phone layout's sidebar footer. */
 export function TodayAccountMenu({ placement = 'rail' }: { placement?: 'rail' | 'phone-footer' }): JSX.Element {
+    useMountedLogic(todayHelpMenuRedirectLogic)
     const { user } = useValues(userLogic)
     const { logout } = useActions(userLogic)
     const { isAccountMenuOpen } = useValues(newAccountMenuLogic)

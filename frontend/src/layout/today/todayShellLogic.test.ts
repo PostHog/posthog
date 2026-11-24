@@ -1,6 +1,5 @@
 import { router } from 'kea-router'
 
-import { newAccountMenuLogic } from 'lib/components/Account/newAccountMenuLogic'
 import { helpMenuLogic } from 'lib/components/HelpMenu/helpMenuLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -23,6 +22,11 @@ describe('todayShellLogic', () => {
     beforeEach(() => {
         localStorage.clear()
         initKeaTests()
+    })
+
+    it('does not mount the help menu, which loads the health summary, so shared pages make no team-scoped call', () => {
+        todayShellLogic().mount()
+        expect(helpMenuLogic.isMounted()).toBe(false)
     })
 
     test.each([
@@ -269,39 +273,6 @@ describe('todayShellLogic', () => {
 
             router.actions.push('/project/1/data-management/events')
             expect(logic.values.activePane).toBe(enabled ? 'data' : 'products')
-        }
-    )
-
-    const openFromNavSwitch = (): void => helpMenuLogic.actions.setHelpMenuOpen(true)
-    const openFromShortcut = (): void => helpMenuLogic.actions.toggleHelpMenu()
-    const DESKTOP = 1280
-    const PHONE = 390
-    test.each([
-        { opener: 'the nav switch', openHelp: openFromNavSwitch, enabled: true, width: DESKTOP, accountOpen: true },
-        { opener: 'the nav switch', openHelp: openFromNavSwitch, enabled: false, width: DESKTOP, accountOpen: false },
-        { opener: 'the nav switch', openHelp: openFromNavSwitch, enabled: true, width: PHONE, accountOpen: false },
-        { opener: 'the ? shortcut', openHelp: openFromShortcut, enabled: true, width: DESKTOP, accountOpen: true },
-        { opener: 'the ? shortcut', openHelp: openFromShortcut, enabled: false, width: DESKTOP, accountOpen: false },
-        { opener: 'the ? shortcut', openHelp: openFromShortcut, enabled: true, width: PHONE, accountOpen: false },
-    ])(
-        'opening help from $opener with today-rail-nav $enabled at $width px opens the account menu: $accountOpen',
-        ({ openHelp, enabled, width, accountOpen }) => {
-            const originalWidth = window.innerWidth
-            Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
-            try {
-                const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: enabled }
-                featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
-                todayShellLogic().mount()
-                newAccountMenuLogic.mount()
-
-                openHelp()
-
-                expect(newAccountMenuLogic.values.isAccountMenuOpen).toBe(accountOpen)
-                // The phone layout opens the help menu itself, as its More sheet.
-                expect(helpMenuLogic.values.isHelpMenuOpen).toBe(!accountOpen)
-            } finally {
-                Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
-            }
         }
     )
 
