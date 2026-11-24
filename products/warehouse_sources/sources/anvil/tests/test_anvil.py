@@ -169,17 +169,27 @@ class TestOrganizationListEndpoints:
 
 class TestOrganizationOffsetListEndpoints:
     @pytest.mark.parametrize(
-        "pages,resume_state,expected_offsets,expected_eids",
+        "pages,resume_state,expected_offsets,expected_eids,expected_checkpoints",
         [
             # 0-based numbering: offset 1 is the second page.
-            ([["t1", "t2"], ["t3"]], None, [None, 1], ["t1", "t2", "t3"]),
+            ([["t1", "t2"], ["t3"]], None, [None, 1], ["t1", "t2", "t3"], [1]),
             # 1-based numbering: offset 1 repeats the first page, offset 2 is the second.
-            ([["t1", "t2"], ["t1", "t2"], ["t3"]], None, [None, 1, 2], ["t1", "t2", "t3"]),
+            ([["t1", "t2"], ["t1", "t2"], ["t3"]], None, [None, 1, 2], ["t1", "t2", "t3"], [1, 2]),
             # A full last page needs one more request to see the end.
-            ([["t1", "t2"], []], None, [None, 1], ["t1", "t2"]),
-            ([["t1"]], None, [None], ["t1"]),
-            # A saved page number would depend on the unknown base, so the parent restarts.
-            ([["t1"]], AnvilResumeConfig(next_offset=3, parent_eid="o1"), [None], ["t1"]),
+            ([["t1", "t2"], []], None, [None, 1], ["t1", "t2"], [1]),
+            ([["t1"]], None, [None], ["t1"], []),
+            # Resume continues at the saved offset and yields only rows after it.
+            ([["t5"]], AnvilResumeConfig(next_offset=3, parent_eid="o1"), [3], ["t5"], []),
+            # Resume at offset 1 on a 1-based server: the first page is read again but not yielded.
+            (
+                [["t1", "t2"], ["t1", "t2"], ["t3"]],
+                AnvilResumeConfig(next_offset=1, parent_eid="o1"),
+                [None, 1, 2],
+                ["t3"],
+                [2],
+            ),
+            # Resume at offset 1 on a 0-based server: offset 1 is the second page.
+            ([["t1", "t2"], ["t3"]], AnvilResumeConfig(next_offset=1, parent_eid="o1"), [None, 1], ["t3"], []),
         ],
     )
     def test_walks_pages_whatever_the_page_numbering_base(
@@ -188,6 +198,7 @@ class TestOrganizationOffsetListEndpoints:
         resume_state: AnvilResumeConfig | None,
         expected_offsets: list[int | None],
         expected_eids: list[str],
+        expected_checkpoints: list[int],
     ) -> None:
         responses = [_org_eids("o1")] + [_org_list("etchTemplates", [{"eid": eid} for eid in page]) for page in pages]
 
@@ -200,6 +211,9 @@ class TestOrganizationOffsetListEndpoints:
         assert "etchTemplates(limit: $limit, offset: $offset)" in template_requests[0].json()["query"]
         assert [request.json()["variables"].get("offset") for request in template_requests] == expected_offsets
         assert all(request.json()["variables"]["limit"] == 2 for request in template_requests)
+        assert [(state.next_offset, state.parent_eid) for state in result.saved_states] == [
+            (offset, "o1") for offset in expected_checkpoints
+        ]
 
     @pytest.mark.parametrize(
         "pages",

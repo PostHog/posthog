@@ -237,12 +237,18 @@ def _iter_offset_list_pages(
 
     Anvil documents `offset` as a page number without saying whether numbering starts at 0 or
     1, so the walk requests the first page without `offset`, then pages 1, 2, ... and drops
-    eids it already yielded: when numbering starts at 1, page 1 repeats the first page. The
-    walk always restarts its parent on resume (`resume_offset` is unused and every
-    `next_offset` is None), because a saved page number would depend on that base.
+    eids it already yielded: when numbering starts at 1, page 1 repeats the first page. Each
+    `next_offset` is the offset this walk requests next, so a resume continues the same
+    numbering whatever its base.
     """
     seen: set[str] = set()
-    offset: int | None = None
+    offset = resume_offset
+    if resume_offset == 1:
+        # Offset 1 can repeat the first page, which the interrupted run already yielded; read it
+        # again only to know its eids.
+        first_page = unwrap(execute(query, {**variables, "limit": PAGE_SIZE})) or []
+        seen.update(item["eid"] for item in first_page if item.get("eid"))
+
     while True:
         page_variables: dict[str, Any] = {**variables, "limit": PAGE_SIZE}
         if offset is not None:
@@ -261,11 +267,12 @@ def _iter_offset_list_pages(
             )
         seen.update(item["eid"] for item in new_items if item.get("eid"))
 
-        yield new_items, None
+        next_offset = (1 if offset is None else offset + 1) if len(items) >= PAGE_SIZE else None
+        yield new_items, next_offset
 
-        if len(items) < PAGE_SIZE:
+        if next_offset is None:
             return
-        offset = 1 if offset is None else offset + 1
+        offset = next_offset
 
 
 def _list_organization_eids(execute: _Execute) -> list[str]:
