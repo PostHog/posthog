@@ -43,6 +43,7 @@ export function MCPAnalyticsUser(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name={distinctId}
+                className="ph-no-capture"
                 description={null}
                 resourceType={{ type: 'mcp_analytics' }}
                 forceBackTo={{
