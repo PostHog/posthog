@@ -447,6 +447,11 @@ class TestCustomerioConditions(SimpleTestCase):
                 [{"key": "seats", "operator": "regex", "type": "person", "value": "^5$"}],
             ),
             (
+                "empty value",
+                {"type": "attribute", "field": "plan", "operator": "!eq", "value": ""},
+                [{"key": "plan", "operator": "is_not", "type": "person", "value": ""}],
+            ),
+            (
                 "boolean",
                 {"type": "attribute", "field": "beta", "operator": "eq", "value": "true"},
                 [{"key": "beta", "operator": "regex", "type": "person", "value": "^[tT][rR][uU][eE]$"}],

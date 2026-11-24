@@ -178,9 +178,11 @@ def property_filters(leaf: dict[str, Any], property_type: str, *, negate: bool =
 
 def _ignoring_case(item: dict[str, Any]) -> dict[str, Any]:
     # Customer.io compares attribute values without case, and saves "DE" as "de".
-    if item["operator"] not in ("exact", "is_not") or not isinstance(item.get("value"), str):
+    value = item.get("value")
+    # A pattern never matches an empty value, so an empty one stays a plain comparison.
+    if item["operator"] not in ("exact", "is_not") or not isinstance(value, str) or not value:
         return item
-    pattern = "".join(_any_case(character) for character in item["value"])
+    pattern = "".join(_any_case(character) for character in value)
     return {**item, "operator": "regex" if item["operator"] == "exact" else "not_regex", "value": f"^{pattern}$"}
 
 
