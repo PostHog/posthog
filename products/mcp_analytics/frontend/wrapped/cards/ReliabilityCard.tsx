@@ -3,7 +3,7 @@ import { IconStar, IconWarning } from '@posthog/icons'
 import { cn } from 'lib/utils/css-classes'
 
 import type { MCPWrappedReliabilityCardApi } from '../../generated/api.schemas'
-import { errorLine, formatPercent, formatSuccessRate, reliabilityLine } from '../storyCards'
+import { errorLine, formatCallCount, formatPercent, reliabilityLine, toolNameSize } from '../storyCards'
 import { WrappedCard } from '../WrappedCard'
 
 function ToolAward({
@@ -35,7 +35,15 @@ function ToolAward({
                 {label}
             </div>
             <div className="flex items-end justify-between gap-3">
-                <span className="min-w-0 truncate font-mono text-xl font-bold">{tool}</span>
+                <span
+                    className={cn(
+                        'line-clamp-2 min-w-0 break-all font-mono font-bold',
+                        toolNameSize(tool, ['text-xl', 'text-base', 'text-sm'])
+                    )}
+                    title={tool}
+                >
+                    {tool}
+                </span>
                 <span className="shrink-0 text-right leading-none">
                     <span className="block text-2xl font-bold tabular-nums">{value}</span>
                     <span className="text-xs opacity-75">{unit}</span>
@@ -51,9 +59,7 @@ export function ReliabilityCard({ card }: { card: MCPWrappedReliabilityCardApi }
     return (
         <WrappedCard cardKey="reliability" kicker="Reliability">
             <div className="MCPWrapped__pop flex flex-wrap items-baseline gap-x-2">
-                <span className="text-6xl font-bold leading-none tabular-nums">
-                    {formatSuccessRate(card.success_rate)}
-                </span>
+                <span className="text-6xl font-bold leading-none tabular-nums">{formatPercent(card.success_rate)}</span>
                 <span className="text-2xl font-bold">error-free</span>
             </div>
             <p className="MCPWrapped__rise m-0 text-base">
@@ -67,10 +73,10 @@ export function ReliabilityCard({ card }: { card: MCPWrappedReliabilityCardApi }
                             label="Your MVP"
                             icon={<IconStar className="size-4" />}
                             tool={mvp.tool}
-                            value={formatSuccessRate(1 - mvp.error_rate)}
+                            value={formatPercent(1 - mvp.error_rate)}
                             unit="success"
                             tone="good"
-                            detail={`Handled ${mvp.calls.toLocaleString('en-US')} calls like a champ.`}
+                            detail={`Handled ${formatCallCount(mvp.calls)} calls like a champ.`}
                         />
                     )}
                     {struggling && (
@@ -81,7 +87,7 @@ export function ReliabilityCard({ card }: { card: MCPWrappedReliabilityCardApi }
                             value={formatPercent(struggling.error_rate)}
                             unit="errors"
                             tone="bad"
-                            detail={`Had a few rough days across ${struggling.calls.toLocaleString('en-US')} calls.`}
+                            detail={`Had a few rough days across ${formatCallCount(struggling.calls)} calls.`}
                         />
                     )}
                 </div>

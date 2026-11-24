@@ -6,7 +6,8 @@ import {
     chartMonths,
     formatCallCount,
     errorLine,
-    formatSuccessRate,
+    formatDuration,
+    formatPercent,
     reliabilityLine,
     peakMultiple,
     rushHourLine,
@@ -109,12 +110,28 @@ describe('storyCards', () => {
     })
 
     it.each([
-        [1, '100%'],
-        [0.9999, '99.9%'],
-        [0.996, '99.6%'],
+        [0, '0%'],
+        [0.0004, '<0.1%'],
+        [0.04, '4%'],
+        [0.0512, '5.1%'],
         [0.964, '96%'],
-    ])('shows a success rate of %d as %s', (rate, expected) => {
-        expect(formatSuccessRate(rate)).toBe(expected)
+        [0.99, '99%'],
+        [0.996, '99.6%'],
+        [0.9999, '99.9%'],
+        [1, '100%'],
+    ])('shows a share of %d as %s, never rounding to 0% or 100% unless it is', (share, expected) => {
+        expect(formatPercent(share)).toBe(expected)
+    })
+
+    it.each([
+        [0.3, '<1 ms'],
+        [379, '379 ms'],
+        [999.6, '1.0 s'],
+        [7100, '7.1 s'],
+        [61_234, '1.0 min'],
+        [3_600_000, '1.0 h'],
+    ])('shows a duration of %d ms as %s', (ms, expected) => {
+        expect(formatDuration(ms)).toBe(expected)
     })
 
     it.each([

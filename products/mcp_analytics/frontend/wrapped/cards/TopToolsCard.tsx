@@ -1,8 +1,7 @@
 import { cn } from 'lib/utils/css-classes'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import type { MCPWrappedTopToolsCardApi } from '../../generated/api.schemas'
-import { formatPercent } from '../storyCards'
+import { formatCallCount, formatCompact, formatPercent, toolNameSize } from '../storyCards'
 import { WrappedCard } from '../WrappedCard'
 
 export function TopToolsCard({
@@ -18,11 +17,16 @@ export function TopToolsCard({
         <WrappedCard cardKey="top_tools" kicker="Your most-called tool">
             {top && (
                 <>
-                    <div className="MCPWrapped__pop break-all font-mono text-4xl font-bold leading-tight">
+                    <div
+                        className={cn(
+                            'MCPWrapped__pop break-all font-mono font-bold leading-tight',
+                            toolNameSize(top.tool, ['text-4xl', 'text-3xl', 'text-2xl'])
+                        )}
+                    >
                         {top.tool}
                     </div>
                     <p className="MCPWrapped__rise m-0 text-base">
-                        <strong className="block">Agents reached for it {humanFriendlyNumber(top.calls)} times.</strong>
+                        <strong className="block">Agents reached for it {formatCallCount(top.calls)} times.</strong>
                         That's {formatPercent(top.calls / totalCalls)} of all tool calls.
                     </p>
                 </>
@@ -35,8 +39,10 @@ export function TopToolsCard({
                         style={{ animationDelay: `${index * 80}ms` }}
                     >
                         <span className="font-bold">{index + 1}</span>
-                        <span className="truncate font-mono">{tool.tool}</span>
-                        <span>{humanFriendlyNumber(tool.calls)}</span>
+                        <span className="truncate font-mono" title={tool.tool}>
+                            {tool.tool}
+                        </span>
+                        <span title={`${tool.calls.toLocaleString('en-US')} calls`}>{formatCompact(tool.calls)}</span>
                         <span className="col-span-2 col-start-2 h-3 overflow-hidden rounded-full bg-white/20">
                             <span
                                 className={cn(

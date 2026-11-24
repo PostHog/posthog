@@ -1,5 +1,3 @@
-import { humanFriendlyNumber } from 'lib/utils/numbers'
-
 import type { ArchetypeEnumApi, MCPWrappedCardsApi, MCPWrappedMonthApi } from '../generated/api.schemas'
 
 export type WrappedCardKey =
@@ -89,20 +87,32 @@ export function formatCallCount(calls: number): string {
     return calls < 1_000_000 ? calls.toLocaleString('en-US') : formatCompact(calls)
 }
 
+/**
+ * A share as a percentage that stays honest at both ends: a small non-zero share never reads as 0%,
+ * and a share short of everything never reads as 100%.
+ */
 export function formatPercent(share: number): string {
-    const percent = share * 100
-    return `${percent >= 10 || percent === 0 ? Math.round(percent) : percent.toFixed(1)}%`
-}
-
-/** A success rate that never rounds up to a perfect 100% while any call failed. */
-export function formatSuccessRate(rate: number): string {
-    if (rate >= 1) {
+    if (share <= 0) {
+        return '0%'
+    }
+    if (share >= 1) {
         return '100%'
     }
-    if (rate >= 0.99) {
-        return `${Math.min(99.9, Math.floor(rate * 1000) / 10)}%`
+    const percent = share * 100
+    if (percent < 0.1) {
+        return '<0.1%'
     }
-    return formatPercent(rate)
+    if (percent < 10) {
+        return `${trimZero(percent.toFixed(1))}%`
+    }
+    if (percent >= 99) {
+        return `${trimZero(Math.min(99.9, Math.floor(percent * 10) / 10).toFixed(1))}%`
+    }
+    return `${Math.round(percent)}%`
+}
+
+function trimZero(value: string): string {
+    return value.endsWith('.0') ? value.slice(0, -2) : value
 }
 
 /** One line on how reliable the server was, from the share of calls that returned without an error. */
@@ -130,8 +140,25 @@ export function errorLine(rate: number): string {
         : `${errorsPer100} in every 100 tool calls hit an error.`
 }
 
+/** A text size for a tool name, stepping down as it gets longer so long names stay on two lines or fewer. */
+export function toolNameSize(name: string, sizes: readonly [string, string, string]): string {
+    return name.length <= 14 ? sizes[0] : name.length <= 24 ? sizes[1] : sizes[2]
+}
+
 export function formatDuration(ms: number): string {
-    return ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms)} ms`
+    if (ms < 1) {
+        return '<1 ms'
+    }
+    if (ms < 999.5) {
+        return `${Math.round(ms)} ms`
+    }
+    if (ms < 59_950) {
+        return `${(ms / 1000).toFixed(1)} s`
+    }
+    if (ms < 3_597_000) {
+        return `${(ms / 60_000).toFixed(1)} min`
+    }
+    return `${(ms / 3_600_000).toFixed(1)} h`
 }
 
 export function formatHour(weekday: number, hour: number): string {
@@ -187,12 +214,12 @@ export function peakMultiple(heat: readonly number[]): string | null {
 
 /** The tiles on the share card: only values from cards the project actually has, six at most. */
 export function shareTiles(cards: MCPWrappedCardsApi): ShareTile[] {
-    const tiles: ShareTile[] = [{ label: 'Tool calls', value: humanFriendlyNumber(cards.tool_calls.total_calls) }]
+    const tiles: ShareTile[] = [{ label: 'Tool calls', value: formatCallCount(cards.tool_calls.total_calls) }]
     const topTool = cards.top_tools.tools[0]
     if (topTool) {
         tiles.push({ label: 'Top tool', value: topTool.tool })
     }
-    tiles.push({ label: 'Error-free calls', value: formatSuccessRate(cards.reliability.success_rate) })
+    tiles.push({ label: 'Error-free calls', value: formatPercent(cards.reliability.success_rate) })
     const topApp = cards.apps?.shares.find((share) => share.name !== OTHER)
     if (topApp) {
         tiles.push({ label: 'Top app', value: topApp.name })
