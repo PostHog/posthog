@@ -13,7 +13,7 @@ resolved query.
 
 import json
 from collections import Counter
-from collections.abc import Callable, Collection, Iterator
+from collections.abc import Callable, Collection, Iterator, Mapping
 from datetime import UTC, date, datetime, time, timedelta, tzinfo
 from fractions import Fraction
 from functools import partial
@@ -207,6 +207,7 @@ def swap_flag_calls(
     resolve: Resolve[_T_AST],
     *,
     scope: FlagCallScope | None = None,
+    enclosing_ctes: Mapping[str, ast.CTE] | None = None,
 ) -> FlagCallSwap[_T_AST]:
     """`node` resolved with `resolve`, with each `events` scan that `can_read_flag_evaluations` accepts reading
     `posthog.flag_evaluations` instead. When the flag-call union is on, each other scan that reads flag calls with
@@ -238,7 +239,9 @@ def swap_flag_calls(
     only flag calls from `events`, such as a body that filters with `matchesAction`.
 
     Before any rule reads the query, each `matchesAction` call on an `events` scan becomes the condition of its
-    action, as the resolver would expand it. The rules then see the events that the action names.
+    action, as the resolver would expand it. The rules then see the events that the action names. `enclosing_ctes`
+    holds the CTEs that the resolver puts in scope around a saved view's body, so that a CTE named `posthog.events`
+    there does not count as the events table.
 
     `read_flag_calls_in_lazy_join` runs this on the subquery of a lazy join, with `scope` naming that join. A swap
     with a `scope` records no literal spans, because that part's offsets are not offsets in the query text.
@@ -250,7 +253,7 @@ def swap_flag_calls(
     database = swap_database(context)
     if database is None:
         return FlagCallSwap(source=node, resolved=resolve(node))
-    node = _flag_called_lists_as_arrays(_matches_action_expanded(node, context))
+    node = _flag_called_lists_as_arrays(_matches_action_expanded(node, context, enclosing_ctes or {}))
     if names_flag_called_event(node):
         swap = _resolve_with_swaps(node, context, resolve, database, scope)
     else:
@@ -1071,10 +1074,10 @@ def _as_expr(value: list | tuple, source: ast.Constant) -> ast.Expr:
     return container(start=source.start, end=source.end, exprs=items)
 
 
-def _matches_action_expanded(node: _T_AST, context: HogQLContext) -> _T_AST:
+def _matches_action_expanded(node: _T_AST, context: HogQLContext, enclosing_ctes: Mapping[str, ast.CTE]) -> _T_AST:
     """`node` with each `matchesAction` call on an `events` scan replaced by the condition of its action. The
     resolver builds the same condition in the same scope, so the query selects the same rows."""
-    finder = _MatchesActionFinder()
+    finder = _MatchesActionFinder(enclosing_ctes)
     finder.visit(node)
     if not finder.events_aliases:
         return node
@@ -1148,8 +1151,9 @@ class ScanVisitor(SyntaxVisitor):
 class _MatchesActionFinder(ScanVisitor):
     """The alias of the `events` table that each `matchesAction` call reads, by the id of the call."""
 
-    def __init__(self) -> None:
+    def __init__(self, enclosing_ctes: Mapping[str, ast.CTE]) -> None:
         super().__init__()
+        self.ctes = dict(enclosing_ctes)
         self.scope_alias: str | None = None
         self.events_aliases: dict[int, str] = {}
 

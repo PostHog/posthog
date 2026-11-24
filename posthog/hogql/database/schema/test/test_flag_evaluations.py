@@ -1465,6 +1465,16 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 [],
             ),
             (
+                "mode_2_flag_calls_and_other_events_under_an_enclosing_cte_named_posthog_events",
+                {
+                    "calls": "SELECT distinct_id FROM events WHERE event IN ('$feature_flag_called', '$pageview') "
+                    "AND timestamp >= now() - INTERVAL 7 DAY"
+                },
+                "WITH `posthog.events` AS (SELECT 1 AS x) SELECT distinct_id FROM calls",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                ["probe-distinct-id"],
+            ),
+            (
                 "mode_2_under_an_enclosing_cte_named_events",
                 {"calls": "SELECT distinct_id FROM events WHERE event = '$feature_flag_called'"},
                 "WITH events AS (SELECT distinct_id, event FROM posthog.flag_evaluations) SELECT distinct_id FROM calls",
