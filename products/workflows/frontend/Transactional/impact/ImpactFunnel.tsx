@@ -1,31 +1,53 @@
 import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
 
-import { Link, Tooltip } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
-import { urls } from 'scenes/urls'
 
-import { ImpactStep, stepBarPercents } from './impactSteps'
+import { emailImpactLogic } from './emailImpactLogic'
+import { ImpactStep, ImpactStepKey, stepBarPercents } from './impactSteps'
+import { LinkTrackingPrompt } from './LinkTrackingPrompt'
 
-export function ImpactFunnel({ steps }: { steps: ImpactStep[] }): JSX.Element {
+const STEPS_REPLACED_BY_LINK_TRACKING_PROMPT: ImpactStepKey[] = ['session', 'converted']
+
+export function ImpactFunnel({
+    steps,
+    showsLinkTrackingPrompt,
+}: {
+    steps: ImpactStep[]
+    showsLinkTrackingPrompt: boolean
+}): JSX.Element {
     const barPercents = stepBarPercents(steps)
     return (
         <ol className="m-0 p-0 list-none grid grid-cols-6 gap-2" data-attr="email-impact-funnel">
-            {steps.map((step, index) => (
-                <li key={step.key} className="flex flex-col gap-1 min-w-0">
-                    <StepBar step={step} percent={barPercents[index]} />
-                    <span className="text-xs text-secondary truncate" title={step.label}>
-                        {step.label}
-                    </span>
-                    <StepValue step={step} />
-                    <StepShare step={step} />
-                </li>
-            ))}
+            {steps.map((step, index) =>
+                showsLinkTrackingPrompt && STEPS_REPLACED_BY_LINK_TRACKING_PROMPT.includes(step.key) ? null : (
+                    <li key={step.key} className="flex flex-col gap-1 min-w-0">
+                        <StepBar step={step} percent={barPercents[index]} />
+                        <span className="text-xs text-secondary truncate" title={step.label}>
+                            {step.label}
+                        </span>
+                        <StepValue step={step} />
+                        <StepShare step={step} />
+                    </li>
+                )
+            )}
+            {showsLinkTrackingPrompt && <LinkTrackingPrompt />}
         </ol>
     )
 }
 
 function StepBar({ step, percent }: { step: ImpactStep; percent: number | null }): JSX.Element {
+    if (step.missingFixedByEvent) {
+        return (
+            <div className="h-28 rounded bg-surface-secondary flex items-center justify-center p-1">
+                <FunnelEventPicker />
+            </div>
+        )
+    }
     return (
         <div className="h-28 rounded bg-surface-secondary flex items-end overflow-hidden">
             {percent !== null && percent > 0 && (
@@ -39,23 +61,31 @@ function StepBar({ step, percent }: { step: ImpactStep; percent: number | null }
     )
 }
 
-function StepValue({ step }: { step: ImpactStep }): JSX.Element {
+function FunnelEventPicker(): JSX.Element {
+    const { event } = useValues(emailImpactLogic)
+    const { pickEvent } = useActions(emailImpactLogic)
+    return (
+        <TaxonomicPopover<string>
+            size="small"
+            type="secondary"
+            className="max-w-full"
+            truncate
+            groupType={TaxonomicFilterGroupType.Events}
+            groupTypes={[TaxonomicFilterGroupType.CustomEvents, TaxonomicFilterGroupType.Events]}
+            value={event ?? undefined}
+            placeholder="Pick an event"
+            onChange={(value) => pickEvent(value ? String(value) : null, 'funnel')}
+            data-attr="email-impact-funnel-event"
+        />
+    )
+}
+
+function StepValue({ step }: { step: ImpactStep }): JSX.Element | null {
     if (step.value !== null) {
         return <span className="font-semibold text-base">{humanFriendlyNumber(step.value)}</span>
     }
-    if (step.missingFixedByLinkTagging) {
-        return (
-            <Tooltip title={step.missingDetail}>
-                <Link
-                    className="text-xs"
-                    to={urls.settings('environment-workflows', 'workflows-email-run-link-tag')}
-                    target="_blank"
-                    data-attr="email-impact-link-tagging-settings-link"
-                >
-                    {step.missing}
-                </Link>
-            </Tooltip>
-        )
+    if (step.missingFixedByEvent) {
+        return null
     }
     return (
         <Explained detail={step.missingDetail} className="text-xs text-secondary">

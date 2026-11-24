@@ -13,6 +13,7 @@ export interface ImpactStep {
     missing?: string
     missingDetail?: string
     missingFixedByLinkTagging?: boolean
+    missingFixedByEvent?: boolean
     share: number | null
     shareOf?: string
     shareDetail?: string
@@ -134,7 +135,14 @@ function trackedStep(
 function conversionStep(impact: TransactionalEmailImpactApi, event: string | null): ImpactStep {
     const conversions = impact.after_click
     if (!event || !conversions) {
-        return { key: 'converted', label: 'Converted', value: null, share: null, missing: 'Pick an event' }
+        return {
+            key: 'converted',
+            label: 'Converted',
+            value: null,
+            share: null,
+            missing: 'Pick an event',
+            missingFixedByEvent: true,
+        }
     }
     if (conversions.sends === 0) {
         return { key: 'converted', label: event, value: null, share: null, ...noClickToFollow(impact) }

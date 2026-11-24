@@ -162,23 +162,21 @@ describe('MessageTemplate', () => {
 
     it.each([
         ['a sensitive template, whose links are never tagged', true, 'Not measured', false],
-        ['any other template', false, 'Needs link tagging', true],
-    ])(
-        "links the Impact tab's session step to the link tagging setting only for %s",
-        async (_, sensitive, label, offered) => {
-            useMocks({
-                get: {
-                    '/api/environments/:team_id/messaging_templates/:id/': { ...PASSWORD_RESET_WITH_DRAFT, sensitive },
-                    '/api/projects/:team_id/transactional_email_log/impact/': IMPACT,
-                },
-            })
-            await renderAs(AccessControlLevel.Editor, PASSWORD_RESET_WITH_DRAFT.name, { impact: true })
+        ['any other template', false, 'Link tracking is off', true],
+    ])('offers to turn on link tracking from the Impact tab only for %s', async (_, sensitive, label, offered) => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/messaging_templates/:id/': { ...PASSWORD_RESET_WITH_DRAFT, sensitive },
+                '/api/projects/:team_id/transactional_email_log/impact/': IMPACT,
+            },
+        })
+        await renderAs(AccessControlLevel.Editor, PASSWORD_RESET_WITH_DRAFT.name, { impact: true })
 
-            fireEvent.click(screen.getByText('Impact'))
+        fireEvent.click(screen.getByText('Impact'))
 
-            expect(!!(await screen.findByText(label)).closest('a')).toBe(offered)
-        }
-    )
+        expect(await screen.findByText(label)).toBeInTheDocument()
+        expect(!!screen.queryByText('Turn on for project')).toBe(offered)
+    })
 
     it.each([
         ['the transactional library', urls.transactionalTemplate(TEMPLATE_ID)],

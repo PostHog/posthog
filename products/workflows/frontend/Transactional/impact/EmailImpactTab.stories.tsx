@@ -74,6 +74,12 @@ const Template: StoryFn<{
                 ]
             },
         },
+        patch: {
+            '/api/projects/:id': async ({ request }: { request: Request }) => {
+                const { workflows_config } = (await request.json()) as Partial<typeof team>
+                return [200, { ...team, workflows_config: { ...team.workflows_config, ...workflows_config } }]
+            },
+        },
     })
     const { loadCurrentTeamSuccess } = useActions(teamLogic)
     const { setEvent } = useActions(emailImpactLogic({ workflowId: WORKFLOW_ID }))

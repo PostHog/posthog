@@ -2,11 +2,16 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
+import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+
+import { OrganizationMembershipLevel } from 'lib/constants'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { mockEventDefinitions, mockGetEventDefinitionsFrom } from '~/test/mocks'
 import { TeamType } from '~/types'
 
 import type { TransactionalEmailImpactApi } from 'products/messaging/frontend/generated/api.schemas'
@@ -16,6 +21,12 @@ import { EmailImpactTab } from './EmailImpactTab'
 import { ImpactFunnelCard } from './ImpactFunnelCard'
 
 const { ToastContainer } = jest.requireActual('react-toastify')
+
+// react-virtualized renders no rows without real DOM measurements.
+jest.mock('lib/components/AutoSizer', () => ({
+    AutoSizer: ({ renderProp }: { renderProp: (size: { height: number; width: number }) => React.ReactNode }) =>
+        renderProp({ height: 400, width: 400 }),
+}))
 
 const IMPACT: TransactionalEmailImpactApi = {
     sent: 10,
@@ -68,25 +79,126 @@ describe('ImpactFunnelCard', () => {
     }
 
     it.each([
-        ['tagging is off', false, false, 'Needs link tagging', true],
+        ['tagging is off', false, false, 'Link tracking is off', true],
         ['tagging is on', true, false, 'Not measured yet', false],
         ['the project never set tagging', undefined, false, 'Not measured yet', false],
         ['the email protects sensitive data', false, true, 'Not measured', false],
         ['the email protects sensitive data while tagging is on', true, true, 'Not measured', false],
     ])(
-        "links the session step to the project's link tagging setting only when it would help, when %s",
-        async (_, enabled, sensitive, label, linked) => {
+        'offers to turn on link tracking in place of the session and conversion steps only when it would help, when %s',
+        async (_, enabled, sensitive, shown, prompted) => {
+            const capture = jest.spyOn(posthog, 'capture')
             initKeaTests(true, teamWithLinkTagging(enabled))
             answer = [200, IMPACT]
             renderCard(sensitive)
 
-            const step = await screen.findByText(label)
-            expect(step.closest('a')?.getAttribute('href') ?? null).toEqual(
-                linked ? expect.stringMatching(/\/settings\/environment-workflows#workflows-email-run-link-tag$/) : null
+            expect(await screen.findByText(shown)).toBeInTheDocument()
+            expect(!!screen.queryByText('Turn on for project')).toBe(prompted)
+            expect(!!screen.queryByText('Started a session')).toBe(!prompted)
+            expect(!!screen.queryByText('Converted')).toBe(!prompted)
+            expect(capture).toHaveBeenCalledWith(
+                'transactional email impact loaded',
+                expect.objectContaining({ shows_link_tracking_prompt: prompted })
             )
-            expect(step.closest('a')?.getAttribute('target') ?? null).toBe(linked ? '_blank' : null)
         }
     )
+
+    it.each([
+        ['turns it on for the project and shows both steps again', [200, null], 'Not measured yet', true],
+        [
+            'says why when saving fails, and offers it again',
+            [500, { detail: 'Saving failed' }],
+            /Saving failed$/,
+            false,
+        ],
+    ] as const)('turns on link tracking from the funnel: %s', async (_, saveAnswer, outcome, turnedOn) => {
+        const capture = jest.spyOn(posthog, 'capture')
+        const team = teamWithLinkTagging(false)
+        const patches: Partial<TeamType>[] = []
+        let answerSave: () => void = () => {}
+        const saved = new Promise<void>((resolve) => (answerSave = resolve))
+        useMocks({
+            patch: {
+                '/api/projects/:id': async ({ request }) => {
+                    patches.push((await request.json()) as Partial<TeamType>)
+                    await saved
+                    const [status, body] = saveAnswer
+                    return [
+                        status,
+                        body ?? {
+                            ...team,
+                            workflows_config: { ...team.workflows_config, ...patches[0].workflows_config },
+                        },
+                    ]
+                },
+            },
+        })
+        initKeaTests(true, team)
+        answer = [200, IMPACT]
+        renderCard()
+
+        fireEvent.click(await screen.findByText('Turn on for project'))
+
+        await waitFor(() =>
+            expect(patches).toEqual([{ workflows_config: { email_workflow_run_link_tag_enabled: true } }])
+        )
+        expect(screen.getByText('Turn on for project').closest('button')).toHaveAttribute('aria-disabled', 'true')
+        answerSave()
+
+        expect((await screen.findAllByText(outcome))[0]).toBeInTheDocument()
+        expect(!!screen.queryByText('Converted')).toBe(turnedOn)
+        expect(
+            screen.queryByText('Turn on for project')?.closest('button')?.getAttribute('aria-disabled') ?? null
+        ).toBe(turnedOn ? null : 'false')
+        expect(
+            capture.mock.calls.filter(([name]) => name === 'transactional email impact link tracking turned on')
+        ).toHaveLength(turnedOn ? 1 : 0)
+    })
+
+    it("keeps link tracking off for someone who can't change project settings", async () => {
+        const patches: unknown[] = []
+        useMocks({ patch: { '/api/projects/:id': async ({ request }) => [200, patches.push(await request.json())] } })
+        initKeaTests(true, {
+            ...teamWithLinkTagging(false),
+            effective_membership_level: OrganizationMembershipLevel.Member,
+        })
+        answer = [200, IMPACT]
+        renderCard()
+
+        const button = (await screen.findByText('Turn on for project')).closest('button')
+        expect(button).toHaveAttribute('aria-disabled', 'true')
+        fireEvent.click(button as HTMLButtonElement)
+
+        const logic = emailImpactLogic({ workflowId: 'workflow-1' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.linkTrackingTurningOn).toBe(false)
+        expect(screen.getByText('Link tracking is off')).toBeInTheDocument()
+        expect(patches).toEqual([])
+    })
+
+    it('picks the conversion event from the empty conversion step', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        useMocks({
+            get: {
+                '/api/projects/:team/event_definitions': mockGetEventDefinitionsFrom([
+                    { ...mockEventDefinitions[0], id: 'plan-upgraded', name: 'plan upgraded' },
+                ]),
+            },
+        })
+        initKeaTests(true, teamWithLinkTagging(true))
+        answer = [200, IMPACT]
+        renderCard()
+
+        fireEvent.click(await screen.findByTestId('email-impact-funnel-event'))
+        fireEvent.click(await screen.findByText('plan upgraded'))
+
+        expect(await screen.findByText('From send to "plan upgraded"')).toBeInTheDocument()
+        expect(emailImpactLogic({ workflowId: 'workflow-1' }).values.event).toBe('plan upgraded')
+        expect(capture).toHaveBeenCalledWith('transactional email impact event picked', {
+            source: 'funnel',
+            cleared: false,
+        })
+    })
 
     it("shows a template's new sensitivity on a mounted Impact tab", async () => {
         initKeaTests(true, teamWithLinkTagging(false))
@@ -97,7 +209,7 @@ describe('ImpactFunnelCard', () => {
             </Provider>
         )
         const { rerender } = render(tab(false))
-        await screen.findByText('Needs link tagging')
+        await screen.findByText('Link tracking is off')
 
         rerender(tab(true))
 

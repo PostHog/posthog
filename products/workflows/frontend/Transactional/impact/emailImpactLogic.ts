@@ -40,6 +40,8 @@ export interface EmailImpactLogicProps {
     alwaysSensitive?: boolean
 }
 
+export type ConversionEventSource = 'event-bar' | 'funnel'
+
 export const IMPACT_DATE_RANGES = [
     { value: 1, label: 'Last 24 hours' },
     { value: 7, label: 'Last 7 days' },
@@ -60,7 +62,9 @@ export interface emailImpactLogicValues {
     impactLoading: boolean
     lift: ImpactLift | null
     linkTagging: LinkTagging
+    linkTrackingTurningOn: boolean
     replayEnabled: boolean
+    showsLinkTrackingPrompt: boolean
     steps: ImpactStep[] | null
     untrackedNote: string | null
 }
@@ -73,6 +77,21 @@ export interface emailImpactLogicActions {
     ) => {
         currentTeam: TeamPublicType | null
         payload?: any
+    } // teamLogic
+    updateCurrentTeam: (payload: Partial<TeamType>) => Partial<TeamType> // teamLogic
+    updateCurrentTeamFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    } // teamLogic
+    updateCurrentTeamSuccess: (
+        currentTeam: TeamPublicType | TeamType,
+        payload?: Partial<TeamType>
+    ) => {
+        currentTeam: TeamPublicType | TeamType
+        payload?: Partial<TeamType>
     } // teamLogic
     loadImpact: (_: void) => void
     loadImpactFailure: (
@@ -89,6 +108,13 @@ export interface emailImpactLogicActions {
         impact: TransactionalEmailImpactApi | null
         payload?: void
     }
+    pickEvent: (
+        event: string | null,
+        source: ConversionEventSource
+    ) => {
+        event: string | null
+        source: ConversionEventSource
+    }
     setAlwaysSensitive: (alwaysSensitive: boolean) => {
         alwaysSensitive: boolean
     }
@@ -97,6 +123,9 @@ export interface emailImpactLogicActions {
     }
     setEvent: (event: string | null) => {
         event: string | null
+    }
+    turnOnLinkTracking: () => {
+        value: true
     }
 }
 
@@ -115,6 +144,7 @@ export interface emailImpactLogicMeta {
             event: string | null,
             linkTagging: LinkTagging
         ) => ImpactStep[] | null
+        showsLinkTrackingPrompt: (funnelState: ImpactFunnelState, steps: ImpactStep[] | null) => boolean
         lift: (impact: TransactionalEmailImpactApi | null) => ImpactLift | null
         followedNote: (impact: TransactionalEmailImpactApi | null) => string | null
         untrackedNote: (impact: TransactionalEmailImpactApi | null) => string | null
@@ -164,10 +194,15 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
     path((key) => ['products', 'workflows', 'frontend', 'Transactional', 'impact', 'emailImpactLogic', key]),
     connect(() => ({
         values: [teamLogic, ['currentTeamId', 'currentTeam']],
-        actions: [teamLogic, ['loadCurrentTeamSuccess']],
+        actions: [
+            teamLogic,
+            ['loadCurrentTeamSuccess', 'updateCurrentTeam', 'updateCurrentTeamSuccess', 'updateCurrentTeamFailure'],
+        ],
     })),
     actions({
         setEvent: (event: string | null) => ({ event }),
+        pickEvent: (event: string | null, source: ConversionEventSource) => ({ event, source }),
+        turnOnLinkTracking: true,
         setDays: (days: number) => ({ days }),
         setAlwaysSensitive: (alwaysSensitive: boolean) => ({ alwaysSensitive }),
     }),
@@ -177,6 +212,14 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
         alwaysSensitive: [!!props.alwaysSensitive, { setAlwaysSensitive: (_, { alwaysSensitive }) => alwaysSensitive }],
         event: [null as string | null, { persist: true }, { setEvent: (_, { event }) => event }],
         days: [30 as number, { setDays: (_, { days }) => days }],
+        linkTrackingTurningOn: [
+            false,
+            {
+                turnOnLinkTracking: () => true,
+                updateCurrentTeamSuccess: () => false,
+                updateCurrentTeamFailure: () => false,
+            },
+        ],
         impactError: [
             null as string | null,
             {
@@ -251,6 +294,11 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
                 linkTagging: LinkTagging
             ): ImpactStep[] | null => (impact ? impactSteps(impact, event, linkTagging) : null),
         ],
+        showsLinkTrackingPrompt: [
+            (s) => [s.funnelState, s.steps],
+            (funnelState: ImpactFunnelState, steps: ImpactStep[] | null): boolean =>
+                funnelState === 'ready' && !!steps?.some((step) => step.missingFixedByLinkTagging),
+        ],
         lift: [
             (s) => [s.impact],
             (impact: TransactionalEmailImpactApi | null): ImpactLift | null => (impact ? impactLift(impact) : null),
@@ -268,8 +316,22 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             (currentTeam: TeamType | TeamPublicType | null): boolean => !!currentTeam?.session_recording_opt_in,
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, selectors }) => ({
         setEvent: () => actions.loadImpact(),
+        pickEvent: ({ event, source }) => {
+            // pinned: analytics event name - renaming breaks dashboards
+            posthog.capture('transactional email impact event picked', { source, cleared: !event })
+            actions.setEvent(event)
+        },
+        turnOnLinkTracking: () => {
+            actions.updateCurrentTeam({ workflows_config: { email_workflow_run_link_tag_enabled: true } })
+        },
+        updateCurrentTeamSuccess: (_, __, ___, previousState) => {
+            if (selectors.linkTrackingTurningOn(previousState)) {
+                // pinned: analytics event name - renaming breaks dashboards
+                posthog.capture('transactional email impact link tracking turned on')
+            }
+        },
         setDays: () => actions.loadImpact(),
         loadCurrentTeamSuccess: () => {
             if (!values.impact && !values.impactLoading) {
@@ -283,6 +345,7 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
                     has_event: !!values.event,
                     days: values.days,
                     has_untracked_sends: impact.untracked > 0,
+                    shows_link_tracking_prompt: values.showsLinkTrackingPrompt,
                 })
             }
         },
