@@ -27,7 +27,6 @@ export interface SkillCatalogServiceOptions extends SkillArchiveCacheOptions {
     warmupTimeoutMs?: number
     warmupRetryMs?: number
     omnibusSkills?: OmnibusSkillsCache
-    /** Which skills of the release `learn` may serve. Defaults to the served-skills list. */
     isListed?: (name: string) => boolean
 }
 
@@ -40,7 +39,6 @@ class SkillArchiveIntegrityError extends Error {}
  *
  * The catalog keeps only the listed skills of the release. The rest are written for
  * PostHog's own jobs, and no caller of `learn` may load them.
- *
  * Requests only ever read `getCatalog()` from memory. Startup blocks on the first
  * load, then `start()` runs a background poller that adopts a newer shared
  * archive and refreshes the shared copy when it is stale. A failed refresh or a
@@ -102,7 +100,6 @@ export class SkillCatalogService {
         return this.catalog
     }
 
-    /** True for every skill in the release, listed or not. A caller with an installed copy holds them all. */
     isInRelease(name: string): boolean {
         return this.releaseSkillNames.has(name)
     }

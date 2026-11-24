@@ -31,7 +31,6 @@ import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 import { makeToolExecutorState, mockApi } from '../shared/test-utils'
 
-// A served skill with no flag and no consumer limit, taken from the real list so an edit to the list cannot break these cases.
 const OPEN_SERVED_SKILL = Object.entries(servedSkillsJson.skills).find(
     ([, entry]) => Object.keys(entry).length === 0
 )![0]

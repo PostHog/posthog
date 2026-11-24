@@ -242,7 +242,6 @@ export class RequestStateResolver {
         // resolves — so the tool-definition scan can't discover it; join it in explicitly.
         // MCP_EXEC_SKILLS_FEATURE_FLAG gates the `learn` skill commands, MCP_INBOX_FIRST_FLAG a prompt section,
         // and MCP_TIME_SERIES_CHARTS_FLAG the chart data block on tool results.
-        // A served skill can name a flag of its own, which no tool may declare.
         const allFlagKeys = [
             ...new Set([
                 ...getRequiredFeatureFlags(),

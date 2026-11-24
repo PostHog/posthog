@@ -973,10 +973,10 @@ export class ToolExecutor {
     /**
      * What this connection knows about the built-in PostHog skill catalog.
      *
-     * Read from the skills the server loads at startup, not from the `learn`
+     * Read from the catalog the server loads at startup, not from the `learn`
      * catalog: that one is undefined exactly when the `learn` command is off, which
      * is the case where an agent told to load a built-in skill has nowhere else to
-     * go. A release that never loaded reports every name as absent, so the message
+     * go. A catalog that never loaded reports every name as absent, so the message
      * falls back to the store's own.
      *
      * A connection with `learn` is told to run it, so only a skill `learn` serves
