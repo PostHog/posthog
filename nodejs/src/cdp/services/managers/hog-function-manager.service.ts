@@ -188,7 +188,8 @@ export class HogFunctionManagerService {
                     [id],
                     'fetchHogFunction'
                 )
-            ).rows
+            ).rows,
+            runsForDeactivatedOrganizations
         )
 
         this.sanitize(items)
