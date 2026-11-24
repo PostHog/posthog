@@ -11,7 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 ER_ACCESS_DENIED = 1045
 ER_SPECIFIC_ACCESS_DENIED = 1227
 ER_TABLEACCESS_DENIED = 1142
-_CONNECTION_CODES = frozenset({2003, 2006, 2013})
+CONNECTION_ERROR_CODES = frozenset({2003, 2006, 2013})
 
 
 def _code(exc: BaseException) -> int | None:
@@ -30,7 +30,7 @@ def classify_mysql_cdc_error(exc: BaseException) -> CDCErrorCategory | None:
         return CDCErrorCategory.AUTH_FAILED
     if code in (ER_SPECIFIC_ACCESS_DENIED, ER_TABLEACCESS_DENIED):
         return CDCErrorCategory.PERMISSION_DENIED
-    if code in _CONNECTION_CODES:
+    if code in CONNECTION_ERROR_CODES:
         return CDCErrorCategory.CONNECTION_FAILED
     return None
 

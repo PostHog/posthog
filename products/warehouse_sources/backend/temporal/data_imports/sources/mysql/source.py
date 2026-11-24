@@ -711,12 +711,17 @@ class MySQLSource(
         team_id: int | None = None,
     ) -> list[str]:
         """Validate MySQL CDC prerequisites against a live connection, before the source exists."""
+        from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.adapter import (
+            MANAGEMENT_READ_TIMEOUT_SECONDS,
+        )
         from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.prerequisite_validator import (
             validate_cdc_prerequisites,
         )
 
         # `require_ssl` keeps signature parity with Postgres; MySQL SSL is governed by `config.using_ssl`.
-        with self.get_implementation.connect(config, team_id=team_id, autocommit=True) as conn:
+        with self.get_implementation.connect(
+            config, read_timeout=MANAGEMENT_READ_TIMEOUT_SECONDS, team_id=team_id, autocommit=True
+        ) as conn:
             return validate_cdc_prerequisites(conn, tables=tables, database=_configured_schema(config))
 
     def validate_credentials(

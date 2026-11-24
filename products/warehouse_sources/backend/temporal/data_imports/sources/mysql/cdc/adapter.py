@@ -40,13 +40,21 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Management reads are short. A server that stops answering must not hold a status request or the lag sweep
+# for the five minutes a snapshot read waits.
+MANAGEMENT_READ_TIMEOUT_SECONDS = 30
+
 
 @dataclasses.dataclass(frozen=True)
 class MySQLManagementConnection:
-    """A management connection, with the epoch of the stream the source stores (0 before it has one)."""
+    """A management connection, with the stream the source stores (None before it has one)."""
 
     conn: pymysql.Connection
-    epoch: int
+    stream: BinlogPosition | None
+
+    @property
+    def epoch(self) -> int:
+        return self.stream.epoch if self.stream is not None else 0
 
 
 class MySQLCDCAdapter:
@@ -62,7 +70,8 @@ class MySQLCDCAdapter:
         raise NotImplementedError("The MySQL binlog reader is not available yet")
 
     def current_position(self, conn: MySQLManagementConnection) -> str:
-        return binlog.visible_position(conn.conn, conn.epoch).serialize()
+        base = conn.stream.base if conn.stream is not None else None
+        return binlog.visible_position(conn.conn, conn.epoch, base).serialize()
 
     @contextmanager
     def management_connection(
@@ -73,9 +82,11 @@ class MySQLCDCAdapter:
         source_impl = MySQLSource()
         config = source_impl.parse_config(SourceInputsStore.load(source))
         stored = self.parse_cdc_config(source).position
-        epoch = BinlogPosition.deserialize(stored).epoch if stored else 0
-        with source_impl.get_implementation.connect(config, team_id=source.team_id, autocommit=True) as conn:
-            yield MySQLManagementConnection(conn=conn, epoch=epoch)
+        stream = BinlogPosition.deserialize(stored) if stored else None
+        with source_impl.get_implementation.connect(
+            config, read_timeout=MANAGEMENT_READ_TIMEOUT_SECONDS, team_id=source.team_id, autocommit=True
+        ) as conn:
+            yield MySQLManagementConnection(conn=conn, stream=stream)
 
     def validate_prerequisites(
         self,

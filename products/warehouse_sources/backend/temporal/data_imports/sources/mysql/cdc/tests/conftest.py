@@ -10,6 +10,8 @@ ROOT_PASSWORD = "root-test-password"
 CDC_USER = "posthog_cdc"
 CDC_PASSWORD = "cdc-test-password"
 DATABASE = "app"
+# Left out of the binlog by the server's options.
+UNLOGGED_DATABASE = "unlogged"
 
 
 @pytest.fixture(scope="session")
@@ -17,7 +19,7 @@ def mysql_server() -> Iterator[MySqlContainer]:
     container = (
         MySqlContainer("mysql:8.0", root_password=ROOT_PASSWORD, dbname=DATABASE)
         .with_env("MYSQL_INITDB_SKIP_TZINFO", "1")
-        .with_command("--binlog-row-metadata=FULL --server-id=1")
+        .with_command("--binlog-row-metadata=FULL --server-id=1 --binlog-ignore-db=" + UNLOGGED_DATABASE)
     )
     container.start()
     try:

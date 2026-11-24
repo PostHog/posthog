@@ -7,6 +7,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.
     CDC_PASSWORD,
     CDC_USER,
     DATABASE,
+    UNLOGGED_DATABASE,
     cdc_user,
     connect,
     global_variable,
@@ -26,10 +27,18 @@ def tables(root_conn):
 
 
 class TestValidateCDCPrerequisites:
-    def _validate(self, mysql_server, tables=("keyed",), database=DATABASE, grants=_ALL_GRANTS) -> list[str]:
+    def _validate(
+        self, mysql_server, tables=("keyed",), database=DATABASE, grants=_ALL_GRANTS, role_grants=None
+    ) -> list[str]:
         root = connect(mysql_server)
         try:
             with cdc_user(root, grants):
+                if role_grants:
+                    with root.cursor() as cur:
+                        cur.execute("CREATE ROLE IF NOT EXISTS 'cdc_reader'")
+                        cur.execute(f"GRANT {role_grants} ON *.* TO 'cdc_reader'")
+                        cur.execute(f"GRANT 'cdc_reader' TO '{CDC_USER}'@'%'")
+                        cur.execute(f"SET DEFAULT ROLE 'cdc_reader' TO '{CDC_USER}'@'%'")
                 conn = connect(mysql_server, CDC_USER, CDC_PASSWORD)
                 try:
                     return validate_cdc_prerequisites(conn, tables=list(tables), database=database)
@@ -64,3 +73,22 @@ class TestValidateCDCPrerequisites:
         [error] = self._validate(mysql_server, tables=("keyed", "unkeyed"))
         assert f"{DATABASE}.unkeyed" in error
         assert f"{DATABASE}.keyed," not in error
+
+    def test_grants_held_through_a_default_role_pass(self, mysql_server):
+        assert self._validate(mysql_server, grants="", role_grants=_ALL_GRANTS) == []
+
+    def test_database_left_out_of_the_binlog_is_named(self, mysql_server, root_conn):
+        with root_conn.cursor() as cur:
+            cur.execute(f"CREATE DATABASE {UNLOGGED_DATABASE}")
+            cur.execute(f"CREATE TABLE {UNLOGGED_DATABASE}.keyed (id INT PRIMARY KEY)")
+        try:
+            errors = self._validate(
+                mysql_server, tables=(f"{UNLOGGED_DATABASE}.keyed", f"{DATABASE}.keyed"), database=None
+            )
+        finally:
+            with root_conn.cursor() as cur:
+                cur.execute(f"DROP DATABASE {UNLOGGED_DATABASE}")
+        [error] = [error for error in errors if "out of the binary log" in error]
+        assert error.endswith(
+            f"databases out of the binary log, so their changes can't be captured: {UNLOGGED_DATABASE}. Remove them from binlog-ignore-db, or add them to binlog-do-db."
+        )

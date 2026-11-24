@@ -5,12 +5,16 @@ from __future__ import annotations
 import time
 import random
 import threading
+from typing import Any
 
 import pymysql
 
 from posthog.dataclasses import frozen
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.position import BinlogPosition
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.position import (
+    BinlogPosition,
+    BinlogStreamOutgrownError,
+)
 
 # ER_MASTER_FATAL_ERROR_READING_BINLOG: the server can't serve the requested position, most often because
 # the file was purged.
@@ -18,7 +22,7 @@ ER_BINLOG_UNAVAILABLE = 1236
 # A replica id is a 32-bit unsigned number. Stay above the low ids DBAs hand out to their own replicas.
 _SERVER_ID_RANGE = (1 << 24, (1 << 32) - 1)
 _VISIBILITY_TIMEOUT_SECONDS = 60.0
-# INNODB_TRX serves a cache that refreshes only once it has gone unread for 0.1 s, so polls must be further apart.
+# Further apart than the 0.1 s INNODB_TRX needs to go unread before it refreshes its cache.
 _VISIBILITY_POLL_SECONDS = 0.2
 
 
@@ -64,30 +68,57 @@ def server_uuid(conn: pymysql.Connection) -> str:
     return str(row[0]) if row else ""
 
 
-def visible_position(conn: pymysql.Connection, epoch: int) -> BinlogPosition:
+def visible_position(conn: pymysql.Connection, epoch: int, base: int | None = None) -> BinlogPosition:
     """The end of the binlog, once every change at or below it is visible to a new read.
 
     MySQL writes a transaction to the binlog before InnoDB commits it, so a transaction can sit below the
     end of the binlog and still be invisible. Every such transaction is open when the position is read, so
     waiting for the writing transactions open then to end closes the gap. Reading them needs PROCESS.
+    ``base`` is the first file of the stream the position belongs to, None for a new stream.
     """
-    file, offset = binlog_status(conn)
-    with conn.cursor() as cur:
-        # A transaction that changed no row writes nothing to the binlog, so a long read can't hold this up.
-        cur.execute("SELECT trx_id FROM information_schema.INNODB_TRX WHERE trx_rows_modified > 0")
-        open_ids = [row[0] for row in cur.fetchall()]
     deadline = time.monotonic() + _VISIBILITY_TIMEOUT_SECONDS
+    file, offset = binlog_status(conn)
+    open_ids = _writing_transactions(conn, deadline)
     while open_ids:
         placeholders = ", ".join(["%s"] * len(open_ids))
         with conn.cursor() as cur:
             cur.execute(f"SELECT trx_id FROM information_schema.INNODB_TRX WHERE trx_id IN ({placeholders})", open_ids)
+            # A cached list can only hold transactions that have since ended, which costs a poll, not a change.
             open_ids = [row[0] for row in cur.fetchall()]
         if not open_ids:
             break
-        if time.monotonic() >= deadline:
-            raise BinlogPositionNotVisibleError(f"{len(open_ids)} transactions stayed open past the position")
-        threading.Event().wait(_VISIBILITY_POLL_SECONDS)
-    return BinlogPosition.at(epoch, file, offset)
+        _wait_or_raise(deadline, f"{len(open_ids)} transactions stayed open past the position")
+    return BinlogPosition.at(epoch, file, offset, base=base)
+
+
+def _writing_transactions(conn: pymysql.Connection, deadline: float) -> list[Any]:
+    """Ids of the InnoDB transactions that have written rows, from a list taken after this call started.
+
+    INNODB_TRX serves a cache that refreshes only once it has gone unread for 0.1 s, so another session that
+    reads it often can keep serving a list from before the position was read. A snapshot transaction opened
+    here proves the list is newer once the list contains it.
+    """
+    with conn.cursor() as cur:
+        cur.execute("SELECT CONNECTION_ID()")
+        (own_thread,) = cur.fetchone()
+        cur.execute("START TRANSACTION WITH CONSISTENT SNAPSHOT")
+        try:
+            while True:
+                cur.execute("SELECT trx_id, trx_mysql_thread_id, trx_rows_modified FROM information_schema.INNODB_TRX")
+                rows = cur.fetchall()
+                if any(thread == own_thread for _, thread, _ in rows):
+                    # A transaction that changed no row writes nothing to the binlog, so a long read can't hold
+                    # this up.
+                    return [trx_id for trx_id, thread, modified in rows if thread != own_thread and modified > 0]
+                _wait_or_raise(deadline, "The server kept serving a cached transaction list")
+        finally:
+            cur.execute("COMMIT")
+
+
+def _wait_or_raise(deadline: float, reason: str) -> None:
+    if time.monotonic() >= deadline:
+        raise BinlogPositionNotVisibleError(reason)
+    threading.Event().wait(_VISIBILITY_POLL_SECONDS)
 
 
 def require_readable(conn: pymysql.Connection, position: BinlogPosition, expected_server_uuid: str) -> None:
@@ -136,6 +167,6 @@ def unused_server_id(conn: pymysql.Connection) -> int:
 
 
 def is_stream_lost_error(exc: BaseException) -> bool:
-    if isinstance(exc, BinlogStreamLostError):
+    if isinstance(exc, BinlogStreamLostError | BinlogStreamOutgrownError):
         return True
     return isinstance(exc, pymysql.err.OperationalError) and bool(exc.args) and exc.args[0] == ER_BINLOG_UNAVAILABLE

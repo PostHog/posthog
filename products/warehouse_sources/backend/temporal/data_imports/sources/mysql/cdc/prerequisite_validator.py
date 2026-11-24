@@ -14,6 +14,8 @@ import pymysql
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.errors import CONNECTION_ERROR_CODES
+
 # Column names in the binlog's row metadata arrived in 8.0.1 (`binlog_row_metadata`).
 MIN_MYSQL_VERSION = (8, 0, 1)
 MIN_RETENTION_HOURS = 24
@@ -40,11 +42,13 @@ def validate_cdc_prerequisites(conn: pymysql.Connection, tables: list[str], data
         # Everything below reads variables an unsupported server may not have.
         return version_errors
 
+    resolved = resolve_tables(tables, database)
     errors: list[str] = []
     errors.extend(_check_binlog_settings(conn))
+    errors.extend(_check_binlog_filters(conn, {table.database for table in resolved} or {database or ""}))
     errors.extend(_check_grants(conn))
     errors.extend(_check_retention(conn))
-    errors.extend(_check_tables_have_primary_keys(conn, resolve_tables(tables, database)))
+    errors.extend(_check_tables_have_primary_keys(conn, resolved))
     return errors
 
 
@@ -117,6 +121,29 @@ def _check_binlog_settings(conn: pymysql.Connection) -> list[str]:
     return errors
 
 
+def _check_binlog_filters(conn: pymysql.Connection, databases: set[str]) -> list[str]:
+    """Databases the server leaves out of the binlog (``binlog-do-db`` / ``binlog-ignore-db``)."""
+    with conn.cursor() as cur:
+        try:
+            cur.execute("SHOW BINARY LOG STATUS")
+        except pymysql.err.ProgrammingError:
+            cur.execute("SHOW MASTER STATUS")
+        columns = [str(column[0]).lower() for column in cur.description or []]
+        row = cur.fetchone()
+    if row is None:
+        return []
+    status = dict(zip(columns, row))
+    do_db = {name.strip() for name in str(status.get("binlog_do_db") or "").split(",") if name.strip()}
+    ignore_db = {name.strip() for name in str(status.get("binlog_ignore_db") or "").split(",") if name.strip()}
+    excluded = sorted(db for db in databases if db and (db in ignore_db or (do_db and db not in do_db)))
+    if not excluded:
+        return []
+    return [
+        f"The server leaves these databases out of the binary log, so their changes can't be captured: "
+        f"{', '.join(excluded)}. Remove them from binlog-ignore-db, or add them to binlog-do-db."
+    ]
+
+
 def _check_grants(conn: pymysql.Connection) -> list[str]:
     with conn.cursor() as cur:
         cur.execute("SHOW GRANTS FOR CURRENT_USER()")
@@ -138,14 +165,12 @@ def _check_grants(conn: pymysql.Connection) -> list[str]:
 
 
 def is_rds(conn: pymysql.Connection) -> bool:
-    """RDS and Aurora keep their own binlog retention, which overrides the server variable."""
-    return bool(
-        _scalar(
-            conn,
-            "SELECT COUNT(*) FROM information_schema.ROUTINES "
-            "WHERE ROUTINE_SCHEMA = 'mysql' AND ROUTINE_NAME = 'rds_show_configuration'",
-        )
-    )
+    """RDS and Aurora keep their own binlog retention, which overrides the server variable.
+
+    Read from server variables, which every user can read, unlike the RDS procedures' catalog rows.
+    """
+    values = _variables(conn, ["basedir", "aurora_version"])
+    return "rdsdbbin" in values.get("basedir", "") or "aurora_version" in values
 
 
 def retention_hours(conn: pymysql.Connection) -> float | None:
@@ -171,11 +196,14 @@ def _rds_retention_hours(conn: pymysql.Connection) -> float:
 
 
 def _check_retention(conn: pymysql.Connection) -> list[str]:
+    rds = is_rds(conn)
     try:
-        rds = is_rds(conn)
         hours = _rds_retention_hours(conn) if rds else retention_hours(conn)
-    except pymysql.err.MySQLError:
-        return []
+    except pymysql.err.MySQLError as e:
+        if e.args and e.args[0] in CONNECTION_ERROR_CODES:
+            raise
+        grant = " Run: GRANT EXECUTE ON PROCEDURE mysql.rds_show_configuration TO '<user>'@'%';" if rds else ""
+        return [f"Couldn't read how long the server keeps binary logs: {e}.{grant}"]
     if hours is None or hours >= MIN_RETENTION_HOURS:
         return []
     if rds:

@@ -39,6 +39,36 @@ class TestVisiblePosition:
         assert not reader.is_alive()
         assert result[0].file == binlog.binlog_status(root_conn)[0]
 
+    def test_a_transaction_list_cached_before_the_position_is_not_trusted(
+        self, mysql_server, root_conn, table, monkeypatch
+    ):
+        monkeypatch.setattr(binlog, "_VISIBILITY_TIMEOUT_SECONDS", 2.0)
+        # A session that reads INNODB_TRX more often than every 0.1 s keeps its cache from refreshing.
+        first_read, stop = threading.Event(), threading.Event()
+
+        def keep_reading() -> None:
+            conn = connect(mysql_server)
+            try:
+                while not stop.is_set():
+                    _execute(conn, "SELECT COUNT(*) FROM information_schema.INNODB_TRX")
+                    first_read.set()
+            finally:
+                conn.close()
+
+        reader = threading.Thread(target=keep_reading)
+        reader.start()
+        writer = connect(mysql_server)
+        try:
+            assert first_read.wait(timeout=10)
+            _execute(writer, "BEGIN", f"INSERT INTO {table} VALUES (1, 'a')")
+            with pytest.raises(binlog.BinlogPositionNotVisibleError):
+                binlog.visible_position(root_conn, epoch=0)
+        finally:
+            stop.set()
+            reader.join(timeout=10)
+            _execute(writer, "ROLLBACK")
+            writer.close()
+
 
 class TestRequireReadable:
     def test_position_in_a_purged_file_is_lost(self, root_conn, table):
