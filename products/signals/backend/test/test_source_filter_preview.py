@@ -163,14 +163,27 @@ class TestSourceFilterPreview(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unknown_field", "category = 'Core'", None, "invalid_expression"),
-            ("no_linear_import", "project_name = 'Core'", None, "not_connected"),
-            ("first_sync_pending", "project_name = 'Core'", "no_table", "not_synced"),
-            ("import_lacks_a_bound_column", "project_name = 'Core'", "no_labels_column", "incompatible_table"),
+            ("unknown_field", "category = 'Core'", None, "invalid_expression", ("unknown_field", 0, 8)),
+            ("syntax", "project_name = ", None, "invalid_expression", ("syntax", 15, 15)),
+            ("type", "priority = 'high'", None, "invalid_expression", ("type", 0, 17)),
+            ("no_linear_import", "project_name = 'Core'", None, "not_connected", (None, None, None)),
+            ("first_sync_pending", "project_name = 'Core'", "no_table", "not_synced", (None, None, None)),
+            (
+                "import_lacks_a_bound_column",
+                "project_name = 'Core'",
+                "no_labels_column",
+                "incompatible_table",
+                (None, None, None),
+            ),
         ]
     )
     def test_preview_reports_why_it_has_no_records(
-        self, _name: str, expression: str, linear_import: str | None, expected_status: str
+        self,
+        _name: str,
+        expression: str,
+        linear_import: str | None,
+        expected_status: str,
+        expected_error: tuple[str | None, int | None, int | None],
     ) -> None:
         if linear_import == "no_table":
             source = ExternalDataSource.objects.create(
@@ -189,6 +202,7 @@ class TestSourceFilterPreview(ClickhouseTestMixin, APIBaseTest):
 
         assert preview["status"] == expected_status
         assert preview["total_count"] == 0
+        assert (preview["error_code"], preview["error_start"], preview["error_end"]) == expected_error
 
     def test_preview_is_refused_where_the_filter_cannot_be_saved(self) -> None:
         with patch("products.signals.backend.source_filters.feature_enabled_or_false", return_value=False):
