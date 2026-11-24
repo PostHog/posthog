@@ -16,8 +16,8 @@ describe("getReasoningEffortOptions", () => {
   const values = (modelId: string) =>
     getReasoningEffortOptions(modelId).map((o) => o.value);
 
-  it.each(["gpt-5.5", "gpt-5.5-codex", "openai/gpt-5.5", "GPT-5.5"])(
-    "offers Extra high for the gpt-5.5 family (%s)",
+  it.each(["gpt-5.5", "gpt-5.3-codex", "openai/gpt-5.5", "GPT-5.5"])(
+    "offers Extra high where the gateway lists it (%s)",
     (modelId) => {
       expect(values(modelId)).toEqual(["low", "medium", "high", "xhigh"]);
     },
@@ -34,10 +34,17 @@ describe("getReasoningEffortOptions", () => {
     expect(values(modelId)).toEqual(["low", "medium", "high", "xhigh", "max"]);
   });
 
-  it.each(["gpt-5.3-codex", "gpt-5.1", "o3"])(
+  it.each(["gpt-5.1", "o3"])(
     "caps at High for other models (%s)",
     (modelId) => {
       expect(values(modelId)).toEqual(["low", "medium", "high"]);
+    },
+  );
+
+  it.each(["gpt-5.5-codex", "gpt-9-imaginary"])(
+    "offers no efforts for a model the gateway does not list (%s)",
+    (modelId) => {
+      expect(values(modelId)).toEqual([]);
     },
   );
 

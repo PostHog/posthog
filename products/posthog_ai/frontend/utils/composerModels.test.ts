@@ -7,8 +7,9 @@ import {
     RuntimeAdapterEnumApi,
     TaskRuntimeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
-import { DEFAULT_MODEL_BY_RUNTIME_ADAPTER, MODELS } from 'products/tasks/frontend/modelCatalog.generated'
+import { DEFAULT_MODEL_BY_RUNTIME_ADAPTER } from 'products/tasks/frontend/modelCatalog.generated'
 
+import { TEST_MODEL_LISTING } from '../logics/modelCatalogueFixture'
 import {
     buildRunCreateRequest,
     getCapabilityLadder,
@@ -79,14 +80,7 @@ describe('composerModels', () => {
     it.each([RuntimeAdapterEnumApi.Claude, RuntimeAdapterEnumApi.Codex])(
         'selects the shared default for %s before the capability ladder',
         (adapter) => {
-            const catalogue: ModelChoiceApi[] = MODELS.map((model) => ({
-                runtime_adapter: model.runtimeAdapter as RuntimeAdapterEnumApi,
-                model: model.id,
-                display_name: model.label,
-                supported_efforts: [...model.reasoningEfforts] as ReasoningEffortEnumApi[],
-                offered: true,
-            }))
-            const model = getDefaultModelForRuntimeAdapter(catalogue, adapter, null)
+            const model = getDefaultModelForRuntimeAdapter(TEST_MODEL_LISTING.models, adapter, null)
 
             expect(model).toBe(DEFAULT_MODEL_BY_RUNTIME_ADAPTER[adapter])
         }

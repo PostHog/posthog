@@ -2,10 +2,10 @@
 // products/tasks/backend/model_catalog.py.
 // Regenerate with `hogli build:projections`. Do not edit.
 //
-// The single definition of how a task agent run is configured: harness,
-// runtime adapter, model, and reasoning effort, plus what each model
-// costs. The backend validates a run against this same data, so a picker
-// built on this file can only offer a selection the API will accept.
+// The choices a task agent run is configured with: harness, runtime
+// adapter, reasoning tiers, default models, slider rungs and the model
+// families a picker offers. No model is listed here. A model's own facts
+// come from the AI gateway listing.
 
 export type RuntimeAdapter = 'claude' | 'codex'
 
@@ -56,74 +56,8 @@ export const REASONING_EFFORT_LABELS: Record<ReasoningEffort, string> = {
 /** A value for each runtime adapter. */
 export type ByRuntimeAdapter<T> = Record<RuntimeAdapter, T>
 
-/** Efforts per adapter, absent where the adapter has no fallback. */
-type FallbackEfforts = Partial<ByRuntimeAdapter<readonly ReasoningEffort[]>>
-
-export interface LongContextCost {
-    aboveInputTokens: number
-    inputPerMtok: number
-    outputPerMtok: number
-}
-
-export interface ModelCost {
-    inputPerMtok: number
-    outputPerMtok: number
-    longContext?: LongContextCost
-}
-
-export interface CatalogModel {
-    id: string
-    runtimeAdapter: RuntimeAdapter
-    /** Empty for a model with no effort control: render no dropdown. */
-    reasoningEfforts: readonly ReasoningEffort[]
-    /**
-     * What a picker shows. Resolved when this file is generated, so every
-     * surface names a model the same way without carrying a formatter.
-     */
-    label: string
-    /**
-     * Feature flag a person needs before a picker offers this model. Absent
-     * means generally available. Governs display only — the server decides
-     * whether a run may use it.
-     */
-    accessFlag?: string
-    /**
-     * Base list price in US dollars per million tokens. Absent for a model no
-     * public price list covers, which a picker shows with no cost at all.
-     */
-    cost?: ModelCost
-    /**
-     * Per-token cost against Claude Sonnet 5, ready to render: `2.5×`,
-     * `≈0.55×`, or `1× base`. Prefixed when input and output rates diverge
-     * enough that one number flatters either. Absent whenever `cost` is.
-     */
-    costMultiplier?: string
-    /**
-     * The rates behind the multiplier, ready to render. Absent whenever
-     * `cost` is.
-     */
-    costSummary?: string
-    /**
-     * Runs with the 1M-token context window. Absent means it does not, and a
-     * picker offers no window choice.
-     */
-    supports1MContext?: boolean
-    /**
-     * Runs in fast mode. Absent means it does not, and a picker offers no
-     * fast-mode toggle.
-     */
-    supportsFastMode?: boolean
-    /**
-     * Superseded: no picker offers it, and a session already pinned to it
-     * still runs and still reads its name and cost from here.
-     */
-    retired?: boolean
-}
-
-/** The model `1×` refers to. */
+/** The model a cost multiplier of `1×` refers to. */
 export const COST_BASELINE_MODEL = 'claude-sonnet-5'
-
-export const COST_BASELINE_LABEL = 'Claude Sonnet 5'
 
 /** Which vendor API each runtime adapter speaks. */
 export const PROVIDER_BY_RUNTIME_ADAPTER: ByRuntimeAdapter<string> = {
@@ -133,431 +67,41 @@ export const PROVIDER_BY_RUNTIME_ADAPTER: ByRuntimeAdapter<string> = {
 
 export const RUNTIME_ADAPTERS: readonly RuntimeAdapter[] = ['claude', 'codex']
 
-export const MODELS: readonly CatalogModel[] = [
-    {
-        id: '@cf/zai-org/glm-5.2',
-        runtimeAdapter: 'claude',
-        reasoningEfforts: ['high', 'max'],
-        label: 'GLM-5.2',
-        cost: {
-            inputPerMtok: 1.4,
-            outputPerMtok: 4.4,
-        },
-        costMultiplier: '≈0.57×',
-        costSummary: 'Input $1.40 · Output $4.40 per 1M tokens',
-        retired: true,
-    },
-    {
-        id: 'zai-org/glm-5.2',
-        runtimeAdapter: 'claude',
-        reasoningEfforts: ['high', 'max'],
-        label: 'GLM-5.2',
-        cost: {
-            inputPerMtok: 1.4,
-            outputPerMtok: 4.4,
-        },
-        costMultiplier: '≈0.57×',
-        costSummary: 'Input $1.40 · Output $4.40 per 1M tokens',
-        retired: true,
-    },
-    {
-        id: 'zai-org/glm-5.3',
-        runtimeAdapter: 'claude',
-        reasoningEfforts: ['high', 'max'],
-        label: 'GLM-5.3',
-        cost: {
-            inputPerMtok: 1.4,
-            outputPerMtok: 4.4,
-        },
-        costMultiplier: '≈0.57×',
-        costSummary: 'Input $1.40 · Output $4.40 per 1M tokens',
-    },
-    {
-        id: 'zai-org/glm-5.3-flash',
-        runtimeAdapter: 'claude',
-        reasoningEfforts: ['high', 'max'],
-        label: 'GLM-5.3 Flash',
-        cost: {
-            inputPerMtok: 0.15,
-            outputPerMtok: 0.5,
-        },
-        costMultiplier: '≈0.06×',
-        costSummary: 'Input $0.15 · Output $0.50 per 1M tokens',
-    },
-    {
-        id: 'moonshotai/kimi-k3',
-        runtimeAdapter: 'claude',
-        reasoningEfforts: [],
-        label: 'Kimi K3',
-        cost: {
-            inputPerMtok: 3,
-            outputPerMtok: 15,
-        },
-        costMultiplier: '1.5×',
-        costSummary: 'Input $3 · Output $15 per 1M tokens',
-        retired: true,
-    },
-    {
-        id: 'moonshotai/kimi-k3.1-pro',
-        runtimeAdapter: 'claude',
-        reasoningEfforts: [],
-        label: 'Kimi K3.1 Pro',
-        cost: {
-            inputPerMtok: 2,
-            outputPerMtok: 10,
-        },
-        costMultiplier: '1×',
-        costSummary: 'Input $2 · Output $10 per 1M tokens',
-    },
-    {
-        id: 'deepseek-ai/deepseek-v4-flash-0731',
-        runtimeAdapter: 'claude',
-        reasoningEfforts: [],
-        label: 'DeepSeek V4 Flash',
-        cost: {
-            inputPerMtok: 0.13,
-            outputPerMtok: 0.26,
-        },
-        costMultiplier: '≈0.05×',
-        costSummary: 'Input $0.13 · Output $0.26 per 1M tokens',
-        retired: true,
-    },
-    {
-        id: 'deepseek-ai/deepseek-v4.1-flash-1017',
-        runtimeAdapter: 'claude',
-        reasoningEfforts: [],
-        label: 'DeepSeek V4.1 Flash',
-        cost: {
-            inputPerMtok: 0.3,
-            outputPerMtok: 1.2,
-        },
-        costMultiplier: '≈0.14×',
-        costSummary: 'Input $0.30 · Output $1.20 per 1M tokens',
-    },
-    {
-        id: 'deepseek-ai/deepseek-v4.1-flash-1017-fast',
-        runtimeAdapter: 'claude',
-        reasoningEfforts: [],
-        label: 'DeepSeek V4.1 Flash Fast',
-        cost: {
-            inputPerMtok: 0.6,
-            outputPerMtok: 2.4,
-        },
-        costMultiplier: '≈0.27×',
-        costSummary: 'Input $0.60 · Output $2.40 per 1M tokens',
-    },
-    {
-        id: 'claude-opus-4-5',
-        runtimeAdapter: 'claude',
-        reasoningEfforts: ['low', 'medium', 'high'],
-        label: 'Claude Opus 4.5',
-        cost: {
-            inputPerMtok: 5,
-            outputPerMtok: 25,
-        },
-        costMultiplier: '2.5×',
-        costSummary: 'Input $5 · Output $25 per 1M tokens',
-        retired: true,
-    },
-    {
-        id: 'claude-opus-4-6',
-        runtimeAdapter: 'claude',
-        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
-        label: 'Claude Opus 4.6',
-        cost: {
-            inputPerMtok: 5,
-            outputPerMtok: 25,
-        },
-        costMultiplier: '2.5×',
-        costSummary: 'Input $5 · Output $25 per 1M tokens',
-        retired: true,
-    },
-    {
-        id: 'claude-opus-4-7',
-        runtimeAdapter: 'claude',
-        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
-        label: 'Claude Opus 4.7',
-        cost: {
-            inputPerMtok: 5,
-            outputPerMtok: 25,
-        },
-        costMultiplier: '2.5×',
-        costSummary: 'Input $5 · Output $25 per 1M tokens',
-        supports1MContext: true,
-        supportsFastMode: true,
-        retired: true,
-    },
-    {
-        id: 'claude-opus-4-8',
-        runtimeAdapter: 'claude',
-        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
-        label: 'Claude Opus 4.8',
-        cost: {
-            inputPerMtok: 5,
-            outputPerMtok: 25,
-        },
-        costMultiplier: '2.5×',
-        costSummary: 'Input $5 · Output $25 per 1M tokens',
-        supports1MContext: true,
-        supportsFastMode: true,
-    },
-    {
-        id: 'claude-opus-5',
-        runtimeAdapter: 'claude',
-        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
-        label: 'Claude Opus 5',
-        cost: {
-            inputPerMtok: 5,
-            outputPerMtok: 25,
-        },
-        costMultiplier: '2.5×',
-        costSummary: 'Input $5 · Output $25 per 1M tokens',
-        supports1MContext: true,
-        supportsFastMode: true,
-    },
-    {
-        id: 'claude-opus-5-5',
-        runtimeAdapter: 'claude',
-        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
-        label: 'Claude Opus 5.5',
-        cost: {
-            inputPerMtok: 4,
-            outputPerMtok: 20,
-        },
-        costMultiplier: '2×',
-        costSummary: 'Input $4 · Output $20 per 1M tokens',
-        supports1MContext: true,
-        supportsFastMode: true,
-    },
-    {
-        id: 'claude-fable-5',
-        runtimeAdapter: 'claude',
-        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
-        label: 'Claude Fable 5',
-        cost: {
-            inputPerMtok: 10,
-            outputPerMtok: 50,
-        },
-        costMultiplier: '5×',
-        costSummary: 'Input $10 · Output $50 per 1M tokens',
-        supports1MContext: true,
-    },
-    {
-        id: 'claude-fable-5-1',
-        runtimeAdapter: 'claude',
-        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
-        label: 'Claude Fable 5.1',
-        cost: {
-            inputPerMtok: 10,
-            outputPerMtok: 50,
-        },
-        costMultiplier: '5×',
-        costSummary: 'Input $10 · Output $50 per 1M tokens',
-        supports1MContext: true,
-    },
-    {
-        id: 'claude-fable-5-2',
-        runtimeAdapter: 'claude',
-        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
-        label: 'Claude Fable 5.2',
-        cost: {
-            inputPerMtok: 8,
-            outputPerMtok: 40,
-        },
-        costMultiplier: '4×',
-        costSummary: 'Input $8 · Output $40 per 1M tokens',
-        supports1MContext: true,
-    },
-    {
-        id: 'claude-sonnet-5-5',
-        runtimeAdapter: 'claude',
-        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
-        label: 'Claude Sonnet 5.5',
-        cost: {
-            inputPerMtok: 2,
-            outputPerMtok: 10,
-        },
-        costMultiplier: '1×',
-        costSummary: 'Input $2 · Output $10 per 1M tokens',
-        supports1MContext: true,
-    },
-    {
-        id: 'claude-sonnet-5',
-        runtimeAdapter: 'claude',
-        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
-        label: 'Claude Sonnet 5',
-        cost: {
-            inputPerMtok: 2,
-            outputPerMtok: 10,
-        },
-        costMultiplier: '1×',
-        costSummary: 'Input $2 · Output $10 per 1M tokens',
-        supports1MContext: true,
-    },
-    {
-        id: 'claude-sonnet-4-6',
-        runtimeAdapter: 'claude',
-        reasoningEfforts: ['low', 'medium', 'high'],
-        label: 'Claude Sonnet 4.6',
-        cost: {
-            inputPerMtok: 3,
-            outputPerMtok: 15,
-        },
-        costMultiplier: '1.5×',
-        costSummary: 'Input $3 · Output $15 per 1M tokens',
-        supports1MContext: true,
-        retired: true,
-    },
-    {
-        id: 'gpt-5',
-        runtimeAdapter: 'codex',
-        reasoningEfforts: ['low', 'medium', 'high'],
-        label: 'GPT-5',
-    },
-    {
-        id: 'gpt-5.5',
-        runtimeAdapter: 'codex',
-        reasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
-        label: 'GPT-5.5',
-        cost: {
-            inputPerMtok: 5,
-            outputPerMtok: 30,
-        },
-        costMultiplier: '≈2.8×',
-        costSummary: 'Input $5 · Output $30 per 1M tokens',
-    },
-    {
-        id: 'gpt-5.6-sol',
-        runtimeAdapter: 'codex',
-        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
-        label: 'GPT-5.6 Sol',
-        cost: {
-            inputPerMtok: 5,
-            outputPerMtok: 30,
-        },
-        costMultiplier: '≈2.8×',
-        costSummary: 'Input $5 · Output $30 per 1M tokens',
-    },
-    {
-        id: 'gpt-5.6-terra',
-        runtimeAdapter: 'codex',
-        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
-        label: 'GPT-5.6 Terra',
-        cost: {
-            inputPerMtok: 2.5,
-            outputPerMtok: 15,
-        },
-        costMultiplier: '≈1.4×',
-        costSummary: 'Input $2.50 · Output $15 per 1M tokens',
-    },
-    {
-        id: 'gpt-5.6-luna',
-        runtimeAdapter: 'codex',
-        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
-        label: 'GPT-5.6 Luna',
-        cost: {
-            inputPerMtok: 1,
-            outputPerMtok: 6,
-        },
-        costMultiplier: '≈0.55×',
-        costSummary: 'Input $1 · Output $6 per 1M tokens',
-    },
-    {
-        id: 'gpt-6-astra',
-        runtimeAdapter: 'codex',
-        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
-        label: 'GPT-6 Astra',
-        cost: {
-            inputPerMtok: 10,
-            outputPerMtok: 50,
-        },
-        costMultiplier: '5×',
-        costSummary: 'Input $10 · Output $50 per 1M tokens',
-    },
-    {
-        id: 'gpt-6-sol',
-        runtimeAdapter: 'codex',
-        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
-        label: 'GPT-6 Sol',
-        cost: {
-            inputPerMtok: 2,
-            outputPerMtok: 10,
-        },
-        costMultiplier: '1×',
-        costSummary: 'Input $2 · Output $10 per 1M tokens',
-    },
-    {
-        id: 'gpt-6.1-sol',
-        runtimeAdapter: 'codex',
-        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
-        label: 'GPT-6.1 Sol',
-        cost: {
-            inputPerMtok: 2,
-            outputPerMtok: 10,
-            longContext: {
-                aboveInputTokens: 272000,
-                inputPerMtok: 4,
-                outputPerMtok: 15,
-            },
-        },
-        costMultiplier: '1× base',
-        costSummary: 'Per 1M tokens: $2 input/$10 output to 272K; $4 input/$15 output above',
-    },
-    {
-        id: 'gpt-6.2-sol',
-        runtimeAdapter: 'codex',
-        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
-        label: 'GPT-6.2 Sol',
-        cost: {
-            inputPerMtok: 2,
-            outputPerMtok: 10,
-        },
-        costMultiplier: '1×',
-        costSummary: 'Input $2 · Output $10 per 1M tokens',
-    },
-    {
-        id: 'gpt-6.2-astra',
-        runtimeAdapter: 'codex',
-        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
-        label: 'GPT-6.2 Astra',
-        cost: {
-            inputPerMtok: 8,
-            outputPerMtok: 40,
-        },
-        costMultiplier: '4×',
-        costSummary: 'Input $8 · Output $40 per 1M tokens',
-    },
-    {
-        id: 'gpt-6.1-terra',
-        runtimeAdapter: 'codex',
-        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
-        label: 'GPT-6.1 Terra',
-        cost: {
-            inputPerMtok: 1,
-            outputPerMtok: 5,
-            longContext: {
-                aboveInputTokens: 272000,
-                inputPerMtok: 2,
-                outputPerMtok: 7.5,
-            },
-        },
-        costMultiplier: '0.5× base',
-        costSummary: 'Per 1M tokens: $1 input/$5 output to 272K; $2 input/$7.50 output above',
-        retired: true,
-    },
-    {
-        id: 'gpt-6-luna',
-        runtimeAdapter: 'codex',
-        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
-        label: 'GPT-6 Luna',
-        cost: {
-            inputPerMtok: 0.1,
-            outputPerMtok: 0.5,
-        },
-        costMultiplier: '0.05×',
-        costSummary: 'Input $0.10 · Output $0.50 per 1M tokens',
-    },
+/** The gateway model families a picker offers. A listing row with no family
+    stands as a family of its own, named by its id. */
+export const OFFERED_MODEL_FAMILIES: readonly string[] = [
+    'claude-fable',
+    'claude-opus',
+    'claude-sonnet',
+    'deepseek-ai/deepseek-v4.1-flash-1017',
+    'deepseek-ai/deepseek-v4.1-flash-1017-fast',
+    'glm',
+    'glm-flash',
+    'gpt',
+    'gpt-astra',
+    'gpt-luna',
+    'gpt-sol',
+    'gpt-terra',
+    'kimi-pro',
 ]
+
+/** How many versions of one family a picker offers, newest first. */
+export const OFFERED_VERSIONS_PER_FAMILY = 2
+
+/** Models a token may still call that no picker offers. */
+export const NEVER_OFFERED_MODELS: readonly string[] = [
+    'deepseek-ai/deepseek-v4-flash-0731',
+    'gpt-5-mini',
+    'gpt-5.3-codex',
+    'gpt-5.4',
+    'gpt-6.1-terra',
+    'moonshotai/kimi-k3',
+    'zai-org/glm-5.2',
+]
+
+/** The feature flag a person needs before a picker offers a family. Empty
+    while no family is behind a rollout. */
+export const MODEL_FAMILY_ACCESS_FLAGS: Readonly<Record<string, string>> = {}
 
 /** The model a run uses when it pins none. */
 export const DEFAULT_MODEL_BY_RUNTIME_ADAPTER: ByRuntimeAdapter<string> = {
@@ -573,8 +117,8 @@ export interface CapabilityNotch {
 type CapabilityLadders = ByRuntimeAdapter<readonly CapabilityNotch[]>
 
 /** The Faster → Smarter rungs each harness offers, cheapest first. Filter them
-    against what the gateway serves before rendering, so a rung naming a retired
-    model drops out instead of becoming a stop that fails on send. */
+    against what the gateway serves before rendering, so a rung naming a model
+    the gateway no longer lists drops out instead of failing on send. */
 export const CAPABILITY_LADDER_BY_RUNTIME_ADAPTER: CapabilityLadders = {
     claude: [
         {
@@ -624,66 +168,4 @@ export const CAPABILITY_LADDER_BY_RUNTIME_ADAPTER: CapabilityLadders = {
             effort: 'max',
         },
     ],
-}
-
-export interface ModelFamily {
-    runtimeAdapter: RuntimeAdapter
-    prefix: string
-    reasoningEfforts: readonly ReasoningEffort[]
-}
-
-// Depths a whole family exposes, used when no exact id matches. OpenAI ships
-// vendor-flavoured variants the gateway never lists (`gpt-5.5-codex`), and a
-// local session can drive one. The longest matching prefix wins, so the
-// declaration order below is free.
-export const FAMILY_REASONING_EFFORTS: readonly ModelFamily[] = [
-    {
-        runtimeAdapter: 'codex',
-        prefix: 'gpt-6-astra',
-        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
-    },
-    {
-        runtimeAdapter: 'codex',
-        prefix: 'gpt-6-sol',
-        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
-    },
-    {
-        runtimeAdapter: 'codex',
-        prefix: 'gpt-6.1-sol',
-        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
-    },
-    {
-        runtimeAdapter: 'codex',
-        prefix: 'gpt-6.2-sol',
-        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
-    },
-    {
-        runtimeAdapter: 'codex',
-        prefix: 'gpt-6.2-astra',
-        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
-    },
-    {
-        runtimeAdapter: 'codex',
-        prefix: 'gpt-6-luna',
-        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
-    },
-    {
-        runtimeAdapter: 'codex',
-        prefix: 'gpt-5.6',
-        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
-    },
-    {
-        runtimeAdapter: 'codex',
-        prefix: 'gpt-5.5',
-        reasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
-    },
-]
-
-// What a runtime accepts for a model neither an id nor a family claims.
-// Codex passes any `gpt-*` identifier through, so an id the gateway starts
-// serving before it is listed here still runs. Claude is absent on
-// purpose: an unnamed model there yields no efforts, which is what makes
-// validation reject it.
-export const FALLBACK_REASONING_EFFORTS: FallbackEfforts = {
-    codex: ['low', 'medium', 'high'],
 }

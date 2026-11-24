@@ -25,6 +25,9 @@ export interface GatewayModel {
   allowed?: boolean;
   // Request formats the Go gateway accepts; absent on Python gateway rows.
   api_shapes?: string[];
+  name?: string;
+  family?: string;
+  release_date?: string;
 }
 
 type ModelFamily = "anthropic" | "openai" | "cloudflare" | "baseten";

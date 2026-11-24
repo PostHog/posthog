@@ -65,6 +65,7 @@ export {
   DEFAULT_GATEWAY_MODEL,
   formatGatewayModelName,
   formatModelId,
+  GATEWAY_LISTING_META_KEY,
   type GatewayModel,
   type GatewayModelRow,
   gatewayModelRowsFromTaskModels,
@@ -87,6 +88,7 @@ export {
   normalizeGatewayModelsResponse,
   PAID_PLAN_REQUIRED_REASON,
   pickAllowedModel,
+  rememberGatewayListingFrom,
   TASK_MODELS_FETCH_TIMEOUT_MS,
   taskModelsUrl,
 } from "./cloud-task-models";

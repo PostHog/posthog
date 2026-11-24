@@ -2,12 +2,17 @@ import type { Adapter } from "./adapter";
 import { getCustomCloud, isCustomCloudHost } from "./custom-cloud";
 import { CODEX_MODE_PRESETS } from "./execution-modes";
 import {
-  catalogModelFor,
-  isOfferedModel,
-  labelForModel,
-  normalizeModelId,
+  ANTHROPIC_MESSAGES_SHAPE,
+  adapterForListedModel,
+  DEFAULT_MODEL_BY_RUNTIME_ADAPTER,
+  knownGatewayModels,
+  type ListedModel,
+  listedModelFor,
+  listedName,
+  OPENAI_RESPONSES_SHAPE,
+  offeredModelsOf,
+  rememberGatewayModels,
 } from "./model-catalog";
-import { MODELS, type RuntimeAdapter } from "./model-catalog.generated";
 import {
   customModelMeta,
   modelHarnessMeta,
@@ -15,19 +20,18 @@ import {
 } from "./models";
 import { getReasoningEffortOptions } from "./reasoning-effort";
 
-export interface GatewayModel {
-  id: string;
+export interface GatewayModel extends ListedModel {
   owned_by: string;
   context_window: number;
   supports_streaming: boolean;
   supports_vision: boolean;
   allowed: boolean;
   restriction_reason?: string | null;
-  api_shapes?: string[];
 }
 
-export const ANTHROPIC_MESSAGES_SHAPE = "anthropic-messages";
-export const OPENAI_RESPONSES_SHAPE = "openai-responses";
+export { ANTHROPIC_MESSAGES_SHAPE, OPENAI_RESPONSES_SHAPE };
+
+export const GATEWAY_LISTING_META_KEY = "posthog/gatewayListing";
 
 interface GatewayModelsResponse {
   data?: unknown[];
@@ -55,6 +59,7 @@ export interface CloudTaskConfigOption {
   options: CloudTaskConfigSelectOption[];
   category: "mode" | "model" | "thought_level";
   description: string;
+  _meta?: Record<string, unknown>;
 }
 
 export interface CloudTaskModePreset {
@@ -65,7 +70,7 @@ export interface CloudTaskModePreset {
 
 export const DEFAULT_GATEWAY_MODEL = "claude-opus-5-5";
 
-export const DEFAULT_CODEX_MODEL = "gpt-6-sol";
+export const DEFAULT_CODEX_MODEL = DEFAULT_MODEL_BY_RUNTIME_ADAPTER.codex;
 
 const CLAUDE_MODE_PRESETS: readonly CloudTaskModePreset[] = [
   {
@@ -130,6 +135,39 @@ function isGatewayModel(value: unknown): value is Partial<GatewayModel> & {
   );
 }
 
+function isString(value: unknown): value is string {
+  return typeof value === "string";
+}
+
+function listedFacts(row: object): Partial<ListedModel> {
+  const { name, family, release_date, reasoning, pricing } = row as {
+    name?: unknown;
+    family?: unknown;
+    release_date?: unknown;
+    reasoning?: { efforts?: unknown } | null;
+    pricing?: { prompt?: unknown; completion?: unknown } | null;
+  };
+  const efforts = reasoning?.efforts;
+  const price = (value: unknown): number | undefined =>
+    Number(value) > 0
+      ? Number((Number(value) * 1_000_000).toFixed(6))
+      : undefined;
+  return {
+    ...(isString(name) ? { name } : {}),
+    ...(isString(family) ? { family } : {}),
+    ...(isString(release_date) ? { release_date } : {}),
+    ...(reasoning !== undefined
+      ? {
+          reasoning_efforts: Array.isArray(efforts)
+            ? efforts.filter(isString)
+            : [],
+        }
+      : {}),
+    input_per_mtok: price(pricing?.prompt),
+    output_per_mtok: price(pricing?.completion),
+  };
+}
+
 export function normalizeGatewayModelsResponse(value: unknown): GatewayModel[] {
   const response = value as GatewayModelsResponse;
   const entries = Array.isArray(value)
@@ -140,25 +178,21 @@ export function normalizeGatewayModelsResponse(value: unknown): GatewayModel[] {
         ? response.models
         : [];
 
-  return entries
-    .filter(isGatewayModel)
-    .filter((model) => isOfferedModel(model.id))
-    .map((model) => ({
-      id: model.id,
-      owned_by: model.owned_by ?? "",
-      context_window: model.context_window ?? 0,
-      supports_streaming: model.supports_streaming ?? false,
-      supports_vision: model.supports_vision ?? false,
-      allowed: model.allowed !== false,
-      restriction_reason: model.restriction_reason ?? null,
-      ...(Array.isArray(model.api_shapes)
-        ? {
-            api_shapes: model.api_shapes.filter(
-              (shape): shape is string => typeof shape === "string",
-            ),
-          }
-        : {}),
-    }));
+  const models = entries.filter(isGatewayModel).map((model) => ({
+    id: model.id,
+    owned_by: model.owned_by ?? "",
+    context_window: model.context_window ?? 0,
+    supports_streaming: model.supports_streaming ?? false,
+    supports_vision: model.supports_vision ?? false,
+    allowed: model.allowed !== false,
+    restriction_reason: model.restriction_reason ?? null,
+    ...(Array.isArray(model.api_shapes)
+      ? { api_shapes: model.api_shapes.filter(isString) }
+      : {}),
+    ...listedFacts(model),
+  }));
+  rememberGatewayModels(models);
+  return offeredModelsOf(models);
 }
 
 export type GatewayModelRow = Pick<
@@ -169,16 +203,26 @@ export type GatewayModelRow = Pick<
   | "allowed"
   | "restriction_reason"
   | "api_shapes"
->;
+  | "name"
+> & { reasoning?: { efforts: string[] } };
 
 interface TaskModelChoice {
   runtime_adapter?: unknown;
   model?: unknown;
+  display_name?: unknown;
+  supported_efforts?: unknown;
   context_window?: unknown;
   allowed?: unknown;
 }
 
 export const TASK_MODELS_FETCH_TIMEOUT_MS = 10_000;
+
+// The Go gateway lists each PostHog-hosted model on all three of these.
+const SERVED_MODEL_SHAPES = [
+  "openai-chat-completions",
+  OPENAI_RESPONSES_SHAPE,
+  ANTHROPIC_MESSAGES_SHAPE,
+];
 
 export function taskModelsUrl(apiHost: string, projectId: number): string {
   return `${apiHost.replace(/\/+$/, "")}/api/projects/${projectId}/tasks/models/`;
@@ -189,7 +233,7 @@ function taskModelRow(choice: TaskModelChoice): GatewayModelRow | null {
   const id = choice.model;
   const runtimeAdapter =
     choice.runtime_adapter === "codex" ? "codex" : "claude";
-  const served = isServedModelId(id);
+  const served = isServedModelId(id, runtimeAdapter);
   const allowed = choice.allowed !== false;
   return {
     id,
@@ -202,15 +246,17 @@ function taskModelRow(choice: TaskModelChoice): GatewayModelRow | null {
       typeof choice.context_window === "number" ? choice.context_window : 0,
     allowed,
     restriction_reason: allowed ? null : PAID_PLAN_REQUIRED_REASON,
-    ...(served
-      ? {}
-      : {
-          api_shapes: [
-            runtimeAdapter === "codex"
-              ? OPENAI_RESPONSES_SHAPE
-              : ANTHROPIC_MESSAGES_SHAPE,
-          ],
-        }),
+    ...(isString(choice.display_name) ? { name: choice.display_name } : {}),
+    ...(Array.isArray(choice.supported_efforts)
+      ? { reasoning: { efforts: choice.supported_efforts.filter(isString) } }
+      : {}),
+    api_shapes: served
+      ? SERVED_MODEL_SHAPES
+      : [
+          runtimeAdapter === "codex"
+            ? OPENAI_RESPONSES_SHAPE
+            : ANTHROPIC_MESSAGES_SHAPE,
+        ],
   };
 }
 
@@ -272,50 +318,40 @@ export function isBasetenModel(model: GatewayModel): boolean {
   return isDeepseekModelId(model.id) || model.owned_by === "baseten";
 }
 
-export function isServedModelId(modelId: string): boolean {
+export function isServedModelId(
+  modelId: string,
+  adapter: Adapter | undefined = listedAdapter(modelId),
+): boolean {
   return (
     isModalModelId(modelId) ||
     isDeepseekModelId(modelId) ||
     (modelId.includes("/") &&
       !isAnthropicModelId(modelId) &&
       !isCloudflareModelId(modelId) &&
-      catalogModelFor(modelId)?.runtimeAdapter === "claude")
+      adapter === "claude")
   );
 }
 
-function catalogAllowsAdapter(
-  modelId: string,
-  adapter: RuntimeAdapter,
-): boolean {
-  const normalized = normalizeModelId(modelId);
-  const adapters = MODELS.filter((entry) => entry.id === normalized).map(
-    (entry) => entry.runtimeAdapter,
-  );
-  return adapters.length === 0 || adapters.includes(adapter);
+function listedAdapter(modelId: string): Adapter | undefined {
+  const listed = listedModelFor(modelId);
+  return listed && adapterForListedModel(listed);
 }
 
 export function isClaudeAdapterModel(model: GatewayModel): boolean {
-  if (!catalogAllowsAdapter(model.id, "claude")) {
-    return false;
-  }
-  if (model.api_shapes) {
-    return model.api_shapes.includes(ANTHROPIC_MESSAGES_SHAPE);
+  if (model.api_shapes?.length) {
+    return adapterForListedModel(model) === "claude";
   }
   return (
     isAnthropicModel(model) ||
     isCloudflareModel(model) ||
     isModalModel(model) ||
-    isBasetenModel(model) ||
-    catalogModelFor(model.id)?.runtimeAdapter === "claude"
+    isBasetenModel(model)
   );
 }
 
 export function isCodexAdapterModel(model: GatewayModel): boolean {
-  if (!catalogAllowsAdapter(model.id, "codex")) {
-    return false;
-  }
-  if (model.api_shapes) {
-    return model.api_shapes.includes(OPENAI_RESPONSES_SHAPE);
+  if (model.api_shapes?.length) {
+    return adapterForListedModel(model) === "codex";
   }
   return isOpenAIModel(model);
 }
@@ -326,7 +362,7 @@ export function isClaudeAdapterModelId(modelId: string): boolean {
     isCloudflareModelId(modelId) ||
     isModalModelId(modelId) ||
     isDeepseekModelId(modelId) ||
-    catalogModelFor(modelId)?.runtimeAdapter === "claude"
+    listedAdapter(modelId) === "claude"
   );
 }
 
@@ -387,46 +423,27 @@ function stripProviderPrefix(modelId: string): string {
   return modelId;
 }
 
-function formatProviderModelName(modelId: string): string {
-  const [acronym, version, ...suffix] = modelId.split("-");
-  if (!KNOWN_ACRONYMS.has(acronym.toLowerCase())) return modelId.toLowerCase();
-  const head = version
-    ? `${acronym.toUpperCase()}-${version}`
-    : acronym.toUpperCase();
-  const tail = suffix.map(
-    (word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase(),
+export function formatGatewayModelName(model: GatewayModel): string {
+  return (
+    listedName(model) ?? formatModelId(model.id.split("/").pop() ?? model.id)
   );
-  return [head, ...tail].join(" ");
 }
 
-export function formatGatewayModelName(model: GatewayModel): string {
-  // The catalog names the models whose derived name reads wrong, so web and desktop show
-  // the same string for them; everything else still goes through the formatters below.
-  const displayName = labelForModel(model.id);
-  if (displayName) {
-    return displayName;
-  }
-  if (isCloudflareModel(model) || isBasetenModel(model)) {
-    return formatProviderModelName(model.id.split("/").pop() ?? model.id);
-  }
-  if (isModalModel(model)) {
-    return formatModelId(model.id.split("/").pop() ?? model.id);
-  }
-  if (isOpenAIModel(model)) {
-    return formatProviderModelName(stripProviderPrefix(model.id));
-  }
-  return formatModelId(model.id);
+function titled(word: string): string {
+  if (/^[0-9.]+$/.test(word)) return word;
+  return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
 }
 
 export function formatModelId(modelId: string): string {
   const cleanId = stripProviderPrefix(modelId).replace(/(\d)-(\d)/g, "$1.$2");
-  return cleanId
-    .split(/[-_]/)
-    .map((word) => {
-      if (/^[0-9.]+$/.test(word)) return word;
-      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
-    })
-    .join(" ");
+  const [first, version, ...rest] = cleanId.split(/[-_]/);
+  if (!KNOWN_ACRONYMS.has(first.toLowerCase())) {
+    return cleanId.split(/[-_]/).map(titled).join(" ");
+  }
+  const head = version
+    ? `${first.toUpperCase()}-${version}`
+    : first.toUpperCase();
+  return [head, ...rest.map(titled)].join(" ");
 }
 
 function getAdapterModels(
@@ -616,6 +633,7 @@ export function buildCloudTaskConfigOptions(
       options: modelOptions,
       category: "model",
       description: "Choose which model the agent should use",
+      _meta: { [GATEWAY_LISTING_META_KEY]: knownGatewayModels() },
     },
   ];
 
@@ -636,6 +654,19 @@ export function buildCloudTaskConfigOptions(
   }
 
   return configOptions;
+}
+
+export function rememberGatewayListingFrom(
+  options: ReadonlyArray<{
+    category?: string | null;
+    _meta?: Record<string, unknown> | null;
+  }>,
+): void {
+  const listing = options.find((option) => option.category === "model")
+    ?._meta?.[GATEWAY_LISTING_META_KEY];
+  if (Array.isArray(listing)) {
+    rememberGatewayModels(listing as ListedModel[]);
+  }
 }
 
 export const PAID_PLAN_REQUIRED_REASON = "paid_plan_required";

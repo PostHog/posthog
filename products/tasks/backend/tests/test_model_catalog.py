@@ -1,16 +1,16 @@
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from unittest.mock import patch
 
 from parameterized import parameterized
-from syrupy.extensions.json import JSONSnapshotExtension
 
 from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import get_required_model_flag
 from products.tasks.backend.facade.model_catalogue import (
     FREE_TIER_PIN_KEY,
     GatewayModel,
+    ModelChoice,
     available_model_choices,
     plan_model_choices,
     runtime_adapter_for,
@@ -18,80 +18,19 @@ from products.tasks.backend.facade.model_catalogue import (
 from products.tasks.backend.facade.model_listing_testing import serve_gateway_listing
 from products.tasks.backend.logic.services import gateway_model_pin
 from products.tasks.backend.models import Task
-from products.tasks.backend.temporal.process_task.utils import (
-    ReasoningEffort,
-    RuntimeAdapter,
-    get_reasoning_effort_error,
-)
+from products.tasks.backend.temporal.process_task.utils import ReasoningEffort, get_reasoning_effort_error
+
+if TYPE_CHECKING:
+    from posthog.llm.gateway_client import Product
+
+_FAMILY_PRODUCTS = sorted(model_catalog.PRODUCT_MODEL_FAMILIES)
 
 
-def _resolved_catalog() -> dict[str, Any]:
-    """The catalog as data, read back through the public resolver rather than the tables.
-
-    Every value here is what a caller actually gets, so the snapshot moves when resolution
-    changes even if the literals did not.
-    """
-    return {
-        "reasoning_efforts": list(model_catalog.REASONING_EFFORTS),
-        "runtimes": [
-            {"runtime": option.runtime, "runtime_adapter": option.runtime_adapter, "label": option.label}
-            for option in model_catalog.RUNTIME_OPTIONS
-        ],
-        "runtime_adapters": {
-            adapter: {
-                "provider": model_catalog.PROVIDER_BY_RUNTIME_ADAPTER[adapter],
-                "default_model": model_catalog.DEFAULT_MODEL_BY_RUNTIME_ADAPTER[adapter],
-                "fallback_reasoning_efforts": list(
-                    model_catalog.FALLBACK_REASONING_EFFORTS_BY_RUNTIME_ADAPTER.get(adapter, ())
-                ),
-                "models": {
-                    model_id: {
-                        "reasoning_efforts": list(model_catalog.reasoning_efforts_for(adapter, model_id)),
-                        "cost_multiplier": model_catalog.cost_multiplier_label(model_id),
-                        "supports_1m_context": model_catalog.supports_1m_context(model_id),
-                        "supports_fast_mode": model_catalog.supports_fast_mode(model_id),
-                        "offered": model_catalog.is_offered_model(model_id),
-                    }
-                    for model_id in model_catalog.models_for_runtime_adapter(adapter)
-                },
-            }
-            for adapter in model_catalog.RUNTIME_ADAPTERS
-        },
-        "model_families": [
-            {"runtime_adapter": adapter, "prefix": prefix, "reasoning_efforts": list(efforts)}
-            for adapter, prefix, efforts in model_catalog.FAMILY_REASONING_EFFORTS
-        ],
-        "reasoning_effort_labels": dict(model_catalog.REASONING_EFFORT_LABELS),
-        "capability_ladders": {
-            adapter: [{"model": notch.model, "effort": notch.effort} for notch in ladder]
-            for adapter, ladder in model_catalog.CAPABILITY_LADDER_BY_RUNTIME_ADAPTER.items()
-        },
-    }
+def _offered(product: str) -> dict[str, ModelChoice]:
+    return {choice.model: choice for choice in available_model_choices(cast("Product", product))}
 
 
-def test_every_model_resolves_to_the_recorded_triple(snapshot) -> None:
-    # The parametrized cases below pin the resolution rules; this pins the whole answer for
-    # every model at once, so a change to a shared effort tuple, a default, or a provider
-    # lands in review as a readable data diff instead of one line of Python.
-    # Refresh with: pytest products/tasks/backend/tests/test_model_catalog.py --snapshot-update
-    assert _resolved_catalog() == snapshot(extension_class=JSONSnapshotExtension)
-
-
-def test_every_runtime_adapter_has_catalog_models() -> None:
-    for adapter in RuntimeAdapter:
-        assert model_catalog.models_for_runtime_adapter(adapter.value), (
-            f"runtime adapter '{adapter.value}' has no models in the catalog, so every picker "
-            f"and validator would treat it as serving nothing"
-        )
-
-
-def test_every_catalog_effort_is_a_known_reasoning_effort() -> None:
-    known = {effort.value for effort in ReasoningEffort}
-    used = {effort for entry in model_catalog.MODELS for effort in entry.reasoning_efforts}
-    assert used <= known, f"catalog names efforts the ReasoningEffort enum lacks: {sorted(used - known)}"
-
-
-def test_reasoning_effort_enum_covers_the_catalog() -> None:
+def test_reasoning_effort_enum_covers_every_tier() -> None:
     assert set(model_catalog.REASONING_EFFORTS) <= {effort.value for effort in ReasoningEffort}
 
 
@@ -101,15 +40,16 @@ def test_every_effort_has_a_label() -> None:
     )
 
 
-def test_every_ladder_rung_is_one_a_run_can_actually_use() -> None:
-    # A surface filters the ladder against what the gateway serves, which cannot hide a rung
-    # the catalog itself contradicts — that one reaches the picker and fails on send.
+@pytest.mark.parametrize("product", _FAMILY_PRODUCTS)
+def test_every_ladder_rung_is_one_a_picker_offers(product: str) -> None:
+    offered = _offered(product)
     for adapter, ladder in model_catalog.CAPABILITY_LADDER_BY_RUNTIME_ADAPTER.items():
         for notch in ladder:
-            assert notch.model in model_catalog.models_for_runtime_adapter(adapter), (
-                f"'{adapter}' ladder names '{notch.model}', which that adapter does not drive"
+            choice = offered.get(notch.model)
+            assert choice is not None and choice.runtime_adapter == adapter, (
+                f"'{adapter}' ladder names '{notch.model}', which '{product}' does not offer on that adapter"
             )
-            assert notch.effort in model_catalog.reasoning_efforts_for(adapter, notch.model), (
+            assert notch.effort in choice.supported_efforts, (
                 f"'{notch.model}' does not support '{notch.effort}', so that rung's run would be rejected"
             )
 
@@ -130,33 +70,6 @@ def test_every_runtime_adapter_is_offered_exactly_once() -> None:
 
 
 @pytest.mark.parametrize(
-    "adapter,model,expected",
-    [
-        ("claude", "claude-sonnet-4-6", ("low", "medium", "high")),
-        ("claude", "moonshotai/kimi-k3", ()),
-        ("claude", "claude-imaginary-9", ()),
-        ("claude", "anthropic/claude-sonnet-4-6", ("low", "medium", "high")),
-        ("codex", "GPT-5.5", ("low", "medium", "high", "xhigh")),
-        ("codex", "gpt-5.5-codex", ("low", "medium", "high", "xhigh")),
-        ("codex", "gpt-9", ("low", "medium", "high")),
-        ("codex", "gpt-5.6-sol", ("low", "medium", "high", "xhigh", "max")),
-    ],
-    ids=[
-        "exact_id",
-        "no_effort_control",
-        "unknown_claude_model_has_no_fallback",
-        "provider_qualified_id",
-        "uppercase_id",
-        "codex_family_variant",
-        "unknown_codex_model_falls_back",
-        "exact_id_beats_family",
-    ],
-)
-def test_efforts_resolve_by_id_then_family_then_adapter(adapter: str, model: str, expected: tuple[str, ...]) -> None:
-    assert model_catalog.reasoning_efforts_for(adapter, model) == expected
-
-
-@pytest.mark.parametrize(
     "model,provider_efforts,expected",
     [
         ("gpt-9-sol", ["low", "medium", "high", "xhigh", "max"], ("low", "medium", "high", "xhigh", "max")),
@@ -173,79 +86,51 @@ def test_efforts_resolve_by_id_then_family_then_adapter(adapter: str, model: str
     ],
     ids=[
         "every_tier",
-        "tiers_the_catalog_lacks_are_dropped",
-        "catalog_order",
+        "tiers_a_picker_lacks_are_dropped",
+        "tier_order",
         "no_effort_control",
         "claude_with_xhigh_gains_ultracode",
         "claude_without_xhigh",
         "hosted_model_with_xhigh_gains_nothing",
     ],
 )
-def test_provider_efforts_map_onto_catalog_tiers(
+def test_provider_efforts_map_onto_the_reasoning_tiers(
     model: str, provider_efforts: list[str], expected: tuple[str, ...]
 ) -> None:
     assert model_catalog.reasoning_efforts_from_provider(model, provider_efforts) == expected
 
 
-def test_default_model_is_one_the_catalog_serves() -> None:
+@pytest.mark.parametrize("product", _FAMILY_PRODUCTS)
+def test_every_default_model_is_one_a_picker_offers(product: str) -> None:
+    offered = _offered(product)
     for adapter, model in model_catalog.DEFAULT_MODEL_BY_RUNTIME_ADAPTER.items():
-        assert model in model_catalog.models_for_runtime_adapter(adapter), (
-            f"the default model for '{adapter}' is not in its catalog, so a run that pins no model "
-            f"would resolve to one validation rejects"
+        choice = offered.get(model)
+        assert choice is not None and choice.runtime_adapter == adapter, (
+            f"the default model for '{adapter}' is not one '{product}' offers, so a run that pins no model "
+            f"would start on one its picker cannot show"
         )
 
 
-def test_cost_baseline_is_a_model_the_catalog_prices() -> None:
-    assert model_catalog.cost_for_model(model_catalog.COST_BASELINE_MODEL) is not None, (
-        f"the cost baseline '{model_catalog.COST_BASELINE_MODEL}' carries no cost, so every multiplier "
-        f"raises and no picker can render"
-    )
+def test_the_cost_baseline_is_listed_with_a_price() -> None:
+    choices = available_model_choices("posthog_code", include_unoffered=True)
+    baseline = next(choice for choice in choices if choice.model == model_catalog.COST_BASELINE_MODEL)
+
+    assert baseline.cost_multiplier == "1×"
 
 
 @pytest.mark.parametrize(
-    "model,expected",
+    "cost,expected",
     [
-        ("claude-sonnet-5", "1×"),
-        ("claude-opus-5", "2.5×"),
-        ("anthropic/claude-opus-5", "2.5×"),
-        ("gpt-5.6-sol", "≈2.8×"),
-        ("gpt-6.1-sol", "1× base"),
-        ("zai-org/glm-5.3-flash", "≈0.06×"),
-        ("gpt-5", None),
-        ("claude-imaginary-9", None),
-    ],
-    ids=[
-        "baseline_is_one",
-        "input_and_output_agree",
-        "provider_qualified_id",
-        "diverging_rates_are_approximate",
-        "tiered_model_marks_base_rate",
-        "cheap_model_keeps_two_decimals",
-        "unpriced_model",
-        "unknown_model",
+        pytest.param(model_catalog.ModelCost(2, 10), "1×", id="baseline_is_one"),
+        pytest.param(model_catalog.ModelCost(5, 25), "2.5×", id="input_and_output_agree"),
+        pytest.param(model_catalog.ModelCost(5, 30), "≈2.8×", id="diverging_rates_are_approximate"),
+        pytest.param(model_catalog.ModelCost(5, 20), "≈2.2×", id="a_half_rounds_to_even"),
+        pytest.param(model_catalog.ModelCost(0.15, 0.5), "≈0.06×", id="cheap_model_keeps_two_decimals"),
+        pytest.param(model_catalog.ModelCost(30, 150), "15×", id="a_large_multiple_drops_the_decimal"),
     ],
 )
-def test_cost_multiplier_reads_against_the_baseline(model: str, expected: str | None) -> None:
-    assert model_catalog.cost_multiplier_label(model) == expected
-
-
-def test_tiered_cost_summary_describes_both_rates() -> None:
-    cost = model_catalog.cost_for_model("gpt-6.1-sol")
-    assert cost is not None
-    assert model_catalog.format_cost_rates(cost) == (
-        "Per 1M tokens: $2 input/$10 output to 272K; $4 input/$15 output above"
-    )
-
-
-def test_labels_are_set_only_where_the_derived_name_is_wrong() -> None:
-    # A pin that the formatter would produce anyway is dead weight that outlives the
-    # formatter improving, so assert the property rather than restating the six strings.
-    for entry in model_catalog.MODELS:
-        if entry.label is None:
-            continue
-        assert entry.label != model_catalog.format_model_id(entry.id), (
-            f"'{entry.id}' pins the label the formatter already derives; drop the pin"
-        )
+def test_cost_multiplier_reads_against_the_baseline(cost: model_catalog.ModelCost, expected: str) -> None:
+    assert model_catalog.cost_multiplier_label_for_cost(cost, model_catalog.ModelCost(2, 10)) == expected
 
 
 _BASELINE = GatewayModel(

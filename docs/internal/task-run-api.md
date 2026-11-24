@@ -104,9 +104,9 @@ Without an authenticated GitHub token, the agent can still read public repositor
 
 Task runs accept `gpt-6.1-sol` with the `codex` runtime adapter and `low`, `medium`, `high`, `xhigh`, or `max` reasoning effort.
 The bundled Codex 0.165.0 runtime supports this model with ChatGPT subscription billing.
-The task model catalog supplies the web and Desktop pickers with the model name, reasoning levels, and public price comparison.
-The backend takes those facts, and the runtime adapter, from the AI gateway listing instead.
-Each product names the model families it allows, such as `gpt-sol` or `claude-opus`, in `products/tasks/backend/logic/services/gateway_model_pin.py`.
+A model's name, runtime adapter, reasoning levels and public price comparison come from the AI gateway listing.
+The backend reads the listing and serves its answer to the web and mobile pickers at `GET /api/projects/:id/tasks/models/`. PostHog Desktop and its agent read the listing themselves.
+Each product names the model families it allows, such as `gpt-sol` or `claude-opus`, in `products/tasks/backend/model_catalog.py`.
 A model the gateway lists in one of those families can run, and its gateway token can call it.
 A model the gateway does not list cannot run on a product that names families.
 Backend pickers offer the two newest versions of each family. Older versions leave those pickers, and a run's gateway token can still call them.

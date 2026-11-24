@@ -6,11 +6,9 @@ import type { ModelInfo } from "@earendil-works/pi-coding-agent";
 import {
   type CloudRegion,
   formatGatewayModelName,
+  normalizeGatewayModelsResponse,
 } from "@posthog/agent-contracts";
-import {
-  isOfferedModel,
-  labelForModel,
-} from "@posthog/agent-contracts/model-catalog";
+import { labelForModel } from "@posthog/agent-contracts/model-catalog";
 import {
   fetchPosthogGatewayModels,
   type GatewayModel,
@@ -47,12 +45,14 @@ export function resolvePosthogPiModelCatalog(
   gatewayModels: GatewayModel[],
   region: CloudRegion,
 ): PiModelCatalogEntry[] {
+  const offered = new Set(
+    normalizeGatewayModelsResponse(gatewayModels).map((model) => model.id),
+  );
   return resolveModelConfigsFromGatewayModels(gatewayModels, region)
-    .filter((model) => isOfferedModel(model.id))
+    .filter((model) => gatewayModels.length === 0 || offered.has(model.id))
     .map((model) => ({
       provider: "posthog",
       id: model.id,
-      // Catalog name first, so Pi reads the same as every other picker.
       name: labelForModel(model.id) ?? piModelDisplayName(model),
       isDefault: model.id === DEFAULT_PI_MODEL_ID,
       contextWindow: model.contextWindow,

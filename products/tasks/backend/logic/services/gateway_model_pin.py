@@ -6,7 +6,14 @@ from typing import TYPE_CHECKING, Any
 from posthog.dataclasses import frozen
 
 from products.tasks.backend.logic.services.gateway_models import GatewayModel, known_gateway_models, list_gateway_models
-from products.tasks.backend.model_catalog import gateway_model_id, normalize_model_id
+from products.tasks.backend.model_catalog import (
+    MODEL_FAMILY_ACCESS_FLAGS,
+    OFFERED_VERSIONS_PER_FAMILY,
+    PRODUCT_MODEL_FAMILIES,
+    RESERVED_MODEL_PRODUCTS as _RESERVED_MODEL_PRODUCTS,
+    gateway_model_id,
+    normalize_model_id,
+)
 
 if TYPE_CHECKING:
     from posthog.llm.gateway_client import Product
@@ -18,58 +25,6 @@ GATEWAY_FAMILY_MODELS_STATE_KEY = "ai_gateway_family_models"
 # The agent SDK calls these on its own: haiku as its small fast model, and the sonnet the explore
 # subagent's bare `sonnet` alias resolves to.
 SDK_IMPLICIT_MODELS: tuple[str, ...] = ("claude-haiku-4-5", "claude-sonnet-4-5")
-
-_AGENT_MODEL_FAMILIES: frozenset[str] = frozenset(
-    {
-        "claude-fable",
-        "claude-opus",
-        "claude-sonnet",
-        "gpt",
-        "gpt-astra",
-        "gpt-luna",
-        "gpt-sol",
-        "gpt-terra",
-        "kimi-pro",
-    }
-)
-
-# The gateway lists the DeepSeek models under no family, so each one stands as a family of its own.
-_HOSTED_MODEL_FAMILIES: frozenset[str] = frozenset(
-    {
-        "glm",
-        "glm-flash",
-        "deepseek-ai/deepseek-v4.1-flash-1017",
-        "deepseek-ai/deepseek-v4.1-flash-1017-fast",
-    }
-)
-
-PRODUCT_MODEL_FAMILIES: dict[str, frozenset[str]] = {
-    "posthog_ai": _AGENT_MODEL_FAMILIES,
-    "account_audit": _AGENT_MODEL_FAMILIES,
-    "autoresearch": _AGENT_MODEL_FAMILIES,
-    "background_agents": _AGENT_MODEL_FAMILIES,
-    "posthog_code": _AGENT_MODEL_FAMILIES | _HOSTED_MODEL_FAMILIES,
-    "review_hog": _AGENT_MODEL_FAMILIES | _HOSTED_MODEL_FAMILIES,
-    "slack_app": _AGENT_MODEL_FAMILIES,
-    "workflows": _AGENT_MODEL_FAMILIES,
-}
-
-_RESERVED_MODEL_PRODUCTS: dict[str, frozenset[str]] = {
-    # Superseded by Kimi K3.1 Pro and DeepSeek V4.1 Flash. Runs already pinned to them keep working.
-    "moonshotai/kimi-k3": frozenset(PRODUCT_MODEL_FAMILIES),
-    "deepseek-ai/deepseek-v4-flash-0731": frozenset({"posthog_code", "review_hog"}),
-    # The free tier and older PostHog Desktop builds call these.
-    "zai-org/glm-5.2": frozenset({"posthog_code"}),
-    "gpt-5.4": frozenset({"posthog_code"}),
-    "gpt-5.3-codex": frozenset({"posthog_code"}),
-    "gpt-5-mini": frozenset({"posthog_code"}),
-    # Only ReviewHog's arm-set trial and the first-report model experiment call it.
-    "gpt-6.1-terra": frozenset({"review_hog", "signals_scout"}),
-}
-
-MODEL_FAMILY_ACCESS_FLAGS: dict[str, str] = {}
-
-OFFERED_VERSIONS_PER_FAMILY = 2
 
 # The Go gateway refuses a pin longer than this at mint.
 MAX_GATEWAY_PIN_LENGTH = 64

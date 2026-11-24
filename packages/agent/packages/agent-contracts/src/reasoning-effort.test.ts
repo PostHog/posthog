@@ -1,10 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
   getCapabilityLadder,
+  getReasoningEffortOptions,
   isSupportedReasoningEffort,
 } from "./reasoning-effort";
+import { rememberSavedGatewayListing } from "./testing/saved-gateway-listing";
 
 describe("isSupportedReasoningEffort", () => {
+  beforeEach(() => {
+    rememberSavedGatewayListing();
+  });
+
   it.each([
     ["codex", "gpt-5.5", "xhigh", true],
     ["codex", "gpt-5.6-sol", "max", true],
@@ -14,12 +20,18 @@ describe("isSupportedReasoningEffort", () => {
     ["claude", "claude-sonnet-4-6", "xhigh", false],
     ["claude", "@cf/zai-org/glm-5.2", "high", true],
     ["claude", "@cf/zai-org/glm-5.2", "max", true],
-    ["claude", "@cf/zai-org/glm-5.2", "medium", false],
+    ["claude", "@cf/zai-org/glm-5.2", "medium", true],
+    ["claude", "@cf/zai-org/glm-5.2", "ultracode", false],
+    ["codex", "@cf/zai-org/glm-5.2", "high", false],
     ["claude", "zai-org/glm-5.3", "high", true],
     ["claude", "zai-org/glm-5.3", "max", true],
     ["claude", "zai-org/glm-5.3", "medium", false],
     ["claude", "zai-org/glm-5.3-flash", "high", true],
-    ["claude", "zai-org/glm-5.3-flash", "medium", false],
+    ["claude", "zai-org/glm-5.3-flash", "medium", true],
+    ["codex", "gpt-5.5-codex", "low", true],
+    ["codex", "gpt-5.5-codex", "ultracode", false],
+    ["claude", "claude-opus-9", "ultracode", true],
+    ["claude", "gpt-5.5", "high", false],
     ["claude", "claude-opus-4-8", "minimal", false],
     ["claude", "claude-opus-5", "ultracode", true],
     ["claude", "claude-fable-5-1", "ultracode", true],
@@ -35,6 +47,30 @@ describe("isSupportedReasoningEffort", () => {
       );
     },
   );
+});
+
+describe("getReasoningEffortOptions", () => {
+  beforeEach(() => {
+    rememberSavedGatewayListing();
+  });
+
+  it.each([
+    [
+      "claude",
+      "claude-opus-5-5",
+      ["low", "medium", "high", "xhigh", "max", "ultracode"],
+    ],
+    ["codex", "gpt-5.5", ["low", "medium", "high", "xhigh"]],
+    ["claude", "zai-org/glm-5.3", ["low", "high", "max"]],
+    ["claude", "zai-org/glm-5.3-flash", null],
+    ["claude", "claude-haiku-4-5", null],
+    ["codex", "gpt-5.5-codex", null],
+    ["claude", "gpt-5.5", null],
+  ] as const)("lists %s %s efforts as %j", (adapter, modelId, expected) => {
+    const efforts = getReasoningEffortOptions(adapter, modelId);
+
+    expect(efforts?.map((option) => option.value) ?? null).toEqual(expected);
+  });
 });
 
 describe("getCapabilityLadder", () => {

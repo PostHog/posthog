@@ -1,19 +1,17 @@
-"""The models a task agent run may use, and what each one supports.
+"""The choices a task agent run is configured with.
 
-This module is the single definition of how a run is configured: which harness runs it,
-which runtime adapter, model, and reasoning effort it uses, the model each adapter falls
-back to when a run pins none, and what each model costs relative to the rest. Every
-surface that offers or validates a selection derives from here:
+The hand-made half of model configuration: the runtime adapters and reasoning tiers, which
+model families each product may call, how many versions of a family a picker offers, the
+default models and the slider rungs. A model's own facts (its adapter, name, reasoning
+efforts, context window and price) are not here. They come from the AI gateway listing,
+through ``products.tasks.backend.logic.services.model_catalogue``.
 
-- the backend, for which models a product offers, the default models and the slider rungs. It reads a
-  model's adapter, name, reasoning efforts and cost from the AI gateway listing instead, through
-  ``products.tasks.backend.logic.services.model_catalogue``;
-- the web composer and settings, through ``products/tasks/frontend/modelCatalog.generated.ts``;
-- the desktop app and its agent, through ``@posthog/agent-contracts/model-catalog``.
-
-Both TypeScript projections are emitted by ``products/tasks/scripts/model_catalog_projection.py`` and are
-checked for drift by `hogli build:projections --check` in CI. After editing this file, run
-`hogli build:projections` and commit the result.
+The TypeScript sides read the same choices from two generated files,
+``products/tasks/frontend/modelCatalog.generated.ts`` and
+``packages/agent/packages/agent-contracts/src/model-catalog.generated.ts``. Both are emitted by
+``products/tasks/scripts/model_catalog_projection.py`` and checked for drift by
+`hogli build:projections --check` in CI. After editing this file, run `hogli build:projections`
+and commit the result.
 
 Keep this module free of Django and of anything outside the standard library. The
 generator loads it by filesystem path with ``runpy``, which bypasses ``posthog``'s package
@@ -68,19 +66,7 @@ REASONING_EFFORT_LABELS: dict[str, str] = {
     ULTRACODE: "Ultracode",
 }
 
-_STANDARD = (LOW, MEDIUM, HIGH)
-_THROUGH_MAX = (*_STANDARD, XHIGH, MAX)
-_EXTENDED = (*_THROUGH_MAX, ULTRACODE)
-# The GLM family exposes two thinking depths rather than the full ladder.
-_GLM = (HIGH, MAX)
-_NO_EFFORT: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True, kw_only=True)
-class LongContextCost:
-    above_input_tokens: int
-    input_per_mtok: float
-    output_per_mtok: float
+_THROUGH_MAX = (LOW, MEDIUM, HIGH, XHIGH, MAX)
 
 
 @dataclass(frozen=True)
@@ -93,7 +79,6 @@ class ModelCost:
 
     input_per_mtok: float
     output_per_mtok: float
-    long_context: LongContextCost | None = None
 
 
 @dataclass(frozen=True)
@@ -118,249 +103,60 @@ RUNTIME_OPTIONS: tuple[RuntimeOption, ...] = (
 )
 
 
-@dataclass(frozen=True)
-class CatalogModel:
-    """One model a run may use.
-
-    ``reasoning_efforts`` is empty for a model with no effort control. That is an answer,
-    not missing metadata: a picker renders such a model without an effort dropdown, and a
-    run must not send an effort for it.
-
-    ``label`` is set only where deriving the name from the id gets it wrong. Each surface
-    formats an id it has no label for, and those formatters disagree on vendor-qualified
-    ids, so a model whose name matters is named here once instead of in each picker.
-
-    ``access_flag`` names the feature flag a person needs before a picker offers the model,
-    and ``None`` means generally available. It decides what a picker *shows*: this file is
-    checked in and the desktop app auto-updates into it, so it is readable by anyone and can
-    be stale. Whether a run may actually use the model stays a server question, answered by
-    ``get_model_access_error`` on every write path.
-
-    ``cost`` is ``None`` where no public price list covers the model, and a picker then shows
-    it with no cost rather than a guessed one.
-
-    ``supports_1m_context`` and ``supports_fast_mode`` are the two run options a model either
-    takes or rejects. A surface offers the toggle only where the model answers yes, and drops
-    the option from the request everywhere else, so a model that never learns it here runs at
-    the default context window with fast mode off.
-
-    ``retired`` marks a model no picker offers any more, while a session already pinned to it
-    still starts and still resolves its name, cost and efforts. Superseded models stay listed
-    here for that reason rather than being deleted.
-
-    Both gates fail closed, so clear ``access_flag`` when the rollout reaches everyone. A flag
-    left behind keeps the model away from every caller the flag service cannot answer for, and
-    from every surface that reads flags before they load.
-    """
-
-    id: str
-    runtime_adapter: str
-    reasoning_efforts: tuple[str, ...]
-    label: str | None = None
-    access_flag: str | None = None
-    cost: ModelCost | None = None
-    supports_1m_context: bool = False
-    supports_fast_mode: bool = False
-    retired: bool = False
-    context_window: int = 0
-
-
-# Rates a model family lists at. Sources, checked 2026-09-17: Anthropic and OpenAI publish
-# theirs; the models PostHog serves through Cloudflare, Baseten and Modal are quoted at what
-# the gateway bills, pinned in
-# `services/llm-gateway/src/llm_gateway/rate_limiting/model_cost_overrides.py`.
-_GLM_COST = ModelCost(1.4, 4.4)
-_GLM_FLASH_COST = ModelCost(0.15, 0.5)
-_KIMI_COST = ModelCost(3, 15)
-_KIMI_K31_PRO_COST = ModelCost(2, 10)
-_DEEPSEEK_COST = ModelCost(0.13, 0.26)
-_DEEPSEEK_V4_1_FLASH_COST = ModelCost(0.3, 1.2)
-_DEEPSEEK_V4_1_FLASH_FAST_COST = ModelCost(0.6, 2.4)
-_OPUS_COST = ModelCost(5, 25)
-_OPUS_5_5_COST = ModelCost(4, 20)
-_FABLE_COST = ModelCost(10, 50)
-_FABLE_5_2_COST = ModelCost(8, 40)
-_SONNET_COST = ModelCost(2, 10)
-_SONNET_4_COST = ModelCost(3, 15)
-_GPT_PRO_COST = ModelCost(5, 30)
-_GPT_MID_COST = ModelCost(2.5, 15)
-_GPT_LIGHT_COST = ModelCost(1, 6)
-_GPT_FRONTIER_COST = ModelCost(10, 50)
-_GPT_6_SOL_COST = ModelCost(2, 10)
-_GPT_6_2_ASTRA_COST = ModelCost(8, 40)
-_GPT_6_1_SOL_COST = ModelCost(
-    2,
-    10,
-    long_context=LongContextCost(above_input_tokens=272_000, input_per_mtok=4, output_per_mtok=15),
+AGENT_MODEL_FAMILIES: frozenset[str] = frozenset(
+    {
+        "claude-fable",
+        "claude-opus",
+        "claude-sonnet",
+        "gpt",
+        "gpt-astra",
+        "gpt-luna",
+        "gpt-sol",
+        "gpt-terra",
+        "kimi-pro",
+    }
 )
-_GPT_6_1_TERRA_COST = ModelCost(
-    1,
-    5,
-    long_context=LongContextCost(above_input_tokens=272_000, input_per_mtok=2, output_per_mtok=7.5),
-)
-_GPT_6_LUNA_COST = ModelCost(0.1, 0.5)
 
-MODELS: tuple[CatalogModel, ...] = (
-    # GLM 5.2 is Cloudflare-served and driven through the `claude` adapter: the LLM gateway
-    # exposes it over its Anthropic-Messages surface and translates the `@cf/` id upstream,
-    # so the `anthropic` provider is the intended routing rather than a direct Anthropic call.
-    CatalogModel(
-        "@cf/zai-org/glm-5.2", CLAUDE, _GLM, label="GLM-5.2", cost=_GLM_COST, retired=True, context_window=262_144
-    ),
-    CatalogModel(
-        "zai-org/glm-5.2", CLAUDE, _GLM, label="GLM-5.2", cost=_GLM_COST, retired=True, context_window=262_144
-    ),
-    CatalogModel("zai-org/glm-5.3", CLAUDE, _GLM, label="GLM-5.3", cost=_GLM_COST, context_window=1_000_000),
-    CatalogModel(
-        "zai-org/glm-5.3-flash", CLAUDE, _GLM, label="GLM-5.3 Flash", cost=_GLM_FLASH_COST, context_window=1_000_000
-    ),
-    CatalogModel(
-        "moonshotai/kimi-k3",
-        CLAUDE,
-        _NO_EFFORT,
-        label="Kimi K3",
-        cost=_KIMI_COST,
-        retired=True,
-        context_window=1_048_576,
-    ),
-    CatalogModel(
-        "moonshotai/kimi-k3.1-pro",
-        CLAUDE,
-        _NO_EFFORT,
-        label="Kimi K3.1 Pro",
-        cost=_KIMI_K31_PRO_COST,
-        context_window=1_048_576,
-    ),
-    CatalogModel(
-        "deepseek-ai/deepseek-v4-flash-0731",
-        CLAUDE,
-        _NO_EFFORT,
-        label="DeepSeek V4 Flash",
-        cost=_DEEPSEEK_COST,
-        context_window=1_048_000,
-        retired=True,
-    ),
-    CatalogModel(
+# The gateway lists the DeepSeek models under no family, so each one stands as a family of its own.
+HOSTED_MODEL_FAMILIES: frozenset[str] = frozenset(
+    {
+        "glm",
+        "glm-flash",
         "deepseek-ai/deepseek-v4.1-flash-1017",
-        CLAUDE,
-        _NO_EFFORT,
-        label="DeepSeek V4.1 Flash",
-        cost=_DEEPSEEK_V4_1_FLASH_COST,
-        context_window=1_048_000,
-    ),
-    CatalogModel(
         "deepseek-ai/deepseek-v4.1-flash-1017-fast",
-        CLAUDE,
-        _NO_EFFORT,
-        label="DeepSeek V4.1 Flash Fast",
-        cost=_DEEPSEEK_V4_1_FLASH_FAST_COST,
-        context_window=1_048_000,
-    ),
-    CatalogModel("claude-opus-4-5", CLAUDE, _STANDARD, cost=_OPUS_COST, retired=True, context_window=200_000),
-    CatalogModel("claude-opus-4-6", CLAUDE, _THROUGH_MAX, cost=_OPUS_COST, retired=True, context_window=1_000_000),
-    CatalogModel(
-        "claude-opus-4-7",
-        CLAUDE,
-        _EXTENDED,
-        cost=_OPUS_COST,
-        supports_1m_context=True,
-        supports_fast_mode=True,
-        retired=True,
-        context_window=1_000_000,
-    ),
-    CatalogModel(
-        "claude-opus-4-8",
-        CLAUDE,
-        _EXTENDED,
-        cost=_OPUS_COST,
-        supports_1m_context=True,
-        supports_fast_mode=True,
-        context_window=1_000_000,
-    ),
-    CatalogModel(
-        "claude-opus-5",
-        CLAUDE,
-        _EXTENDED,
-        cost=_OPUS_COST,
-        supports_1m_context=True,
-        supports_fast_mode=True,
-        context_window=1_000_000,
-    ),
-    CatalogModel(
-        "claude-opus-5-5",
-        CLAUDE,
-        _EXTENDED,
-        cost=_OPUS_5_5_COST,
-        supports_1m_context=True,
-        supports_fast_mode=True,
-        context_window=1_000_000,
-    ),
-    CatalogModel(
-        "claude-fable-5", CLAUDE, _EXTENDED, cost=_FABLE_COST, supports_1m_context=True, context_window=1_000_000
-    ),
-    CatalogModel(
-        "claude-fable-5-1", CLAUDE, _EXTENDED, cost=_FABLE_COST, supports_1m_context=True, context_window=1_000_000
-    ),
-    CatalogModel(
-        "claude-fable-5-2", CLAUDE, _EXTENDED, cost=_FABLE_5_2_COST, supports_1m_context=True, context_window=1_000_000
-    ),
-    CatalogModel(
-        "claude-sonnet-5-5", CLAUDE, _EXTENDED, cost=_SONNET_COST, supports_1m_context=True, context_window=1_000_000
-    ),
-    CatalogModel(
-        "claude-sonnet-5", CLAUDE, _EXTENDED, cost=_SONNET_COST, supports_1m_context=True, context_window=1_000_000
-    ),
-    CatalogModel(
-        "claude-sonnet-4-6",
-        CLAUDE,
-        _STANDARD,
-        cost=_SONNET_4_COST,
-        supports_1m_context=True,
-        retired=True,
-        context_window=1_000_000,
-    ),
-    # No cost: the gateway does not serve bare `gpt-5` to a task run, so there is no rate
-    # anyone can check it against.
-    CatalogModel("gpt-5", CODEX, _STANDARD, context_window=400_000),
-    CatalogModel("gpt-5.5", CODEX, (*_STANDARD, XHIGH), cost=_GPT_PRO_COST, context_window=1_050_000),
-    CatalogModel("gpt-5.6-sol", CODEX, _THROUGH_MAX, cost=_GPT_PRO_COST, context_window=1_050_000),
-    CatalogModel("gpt-5.6-terra", CODEX, _THROUGH_MAX, cost=_GPT_MID_COST, context_window=1_050_000),
-    CatalogModel("gpt-5.6-luna", CODEX, _THROUGH_MAX, cost=_GPT_LIGHT_COST, context_window=1_050_000),
-    CatalogModel("gpt-6-astra", CODEX, _THROUGH_MAX, cost=_GPT_FRONTIER_COST, context_window=1_050_000),
-    CatalogModel("gpt-6-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_SOL_COST, context_window=1_050_000),
-    CatalogModel("gpt-6.1-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_1_SOL_COST, context_window=1_050_000),
-    CatalogModel("gpt-6.2-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_SOL_COST, context_window=1_050_000),
-    CatalogModel("gpt-6.2-astra", CODEX, _THROUGH_MAX, cost=_GPT_6_2_ASTRA_COST, context_window=1_050_000),
-    # Only ReviewHog's arm-set trial and the first-report model experiment pin it. `retired` is the catalog's state for a model no picker offers
-    # that still runs when pinned, which keeps it out of the Slack picker too, since that picker ignores access flags.
-    CatalogModel(
-        "gpt-6.1-terra", CODEX, _THROUGH_MAX, cost=_GPT_6_1_TERRA_COST, retired=True, context_window=1_050_000
-    ),
-    CatalogModel("gpt-6-luna", CODEX, _THROUGH_MAX, cost=_GPT_6_LUNA_COST, context_window=1_050_000),
+    }
 )
 
-# Depths a whole model family exposes, used when no exact id matches. OpenAI ships
-# vendor-flavoured variants the gateway never lists (`gpt-5.5-codex`), and a desktop session
-# running against the user's own subscription can drive one, so the tier a family supports has
-# to answer for those too. The longest matching prefix wins, so declaration order is free.
-FAMILY_REASONING_EFFORTS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
-    (CODEX, "gpt-6-astra", _THROUGH_MAX),
-    (CODEX, "gpt-6-sol", _THROUGH_MAX),
-    (CODEX, "gpt-6.1-sol", _THROUGH_MAX),
-    (CODEX, "gpt-6.2-sol", _THROUGH_MAX),
-    (CODEX, "gpt-6.2-astra", _THROUGH_MAX),
-    (CODEX, "gpt-6-luna", _THROUGH_MAX),
-    (CODEX, "gpt-5.6", _THROUGH_MAX),
-    (CODEX, "gpt-5.5", (*_STANDARD, XHIGH)),
-)
-
-# What a runtime accepts for a model neither an id nor a family claims. Codex passes any
-# `gpt-*` identifier through to the runtime, so an id the gateway starts serving before it is
-# listed here still runs, at the depths every Codex model supports. Claude is absent on
-# purpose: an unnamed model there yields no efforts, which is what makes validation reject one.
-FALLBACK_REASONING_EFFORTS_BY_RUNTIME_ADAPTER: dict[str, tuple[str, ...]] = {
-    CODEX: _STANDARD,
+PRODUCT_MODEL_FAMILIES: dict[str, frozenset[str]] = {
+    "posthog_ai": AGENT_MODEL_FAMILIES,
+    "account_audit": AGENT_MODEL_FAMILIES,
+    "autoresearch": AGENT_MODEL_FAMILIES,
+    "background_agents": AGENT_MODEL_FAMILIES,
+    "posthog_code": AGENT_MODEL_FAMILIES | HOSTED_MODEL_FAMILIES,
+    "review_hog": AGENT_MODEL_FAMILIES | HOSTED_MODEL_FAMILIES,
+    "slack_app": AGENT_MODEL_FAMILIES,
+    "workflows": AGENT_MODEL_FAMILIES,
 }
+
+RESERVED_MODEL_PRODUCTS: dict[str, frozenset[str]] = {
+    # Superseded by Kimi K3.1 Pro and DeepSeek V4.1 Flash. Runs already pinned to them keep working.
+    "moonshotai/kimi-k3": frozenset(PRODUCT_MODEL_FAMILIES),
+    "deepseek-ai/deepseek-v4-flash-0731": frozenset({"posthog_code", "review_hog"}),
+    # The free tier and older PostHog Desktop builds call these.
+    "zai-org/glm-5.2": frozenset({"posthog_code"}),
+    "gpt-5.4": frozenset({"posthog_code"}),
+    "gpt-5.3-codex": frozenset({"posthog_code"}),
+    "gpt-5-mini": frozenset({"posthog_code"}),
+    # Only ReviewHog's arm-set trial and the first-report model experiment call it.
+    "gpt-6.1-terra": frozenset({"review_hog", "signals_scout"}),
+}
+
+MODEL_FAMILY_ACCESS_FLAGS: dict[str, str] = {}
+
+OFFERED_VERSIONS_PER_FAMILY = 2
+
+# The desktop app and its agent trim the gateway listing themselves, so they read this product's families.
+CLIENT_LISTING_PRODUCT = "posthog_code"
 
 # Applied when a run or a loop leaves the model unset: blank means "let PostHog pick", so the
 # choice can improve without rewriting anything stored.
@@ -375,7 +171,7 @@ class CapabilityNotch:
     """One stop on a picker's Faster → Smarter slider: a model and the depth it runs at.
 
     The rungs are a curated ordering over two dimensions, chosen so each is worth its extra
-    cost over the one below, rather than anything derivable from the rest of the catalog.
+    cost over the one below, rather than anything derivable from the gateway listing.
     """
 
     model: str
@@ -407,45 +203,10 @@ RUNTIME_ADAPTERS: tuple[str, ...] = tuple(PROVIDER_BY_RUNTIME_ADAPTER)
 
 RUNTIMES: tuple[str, ...] = tuple(dict.fromkeys(option.runtime for option in RUNTIME_OPTIONS))
 
-# The catalog keyed the two ways it gets read. Built once from MODELS, which stays the
-# only place a model is written down.
-_MODEL_BY_ID: dict[str, CatalogModel] = {model.id: model for model in MODELS}
-_MODEL_IDS_BY_RUNTIME_ADAPTER: dict[str, tuple[str, ...]] = {
-    adapter: tuple(model.id for model in MODELS if model.runtime_adapter == adapter) for adapter in RUNTIME_ADAPTERS
-}
-
-
-def models_for_runtime_adapter(runtime_adapter: str) -> tuple[str, ...]:
-    """The model ids one adapter drives, in catalog order."""
-    return _MODEL_IDS_BY_RUNTIME_ADAPTER.get(runtime_adapter, ())
-
-
-def runtime_adapter_for_model(model_id: str | None) -> str | None:
-    """Which adapter drives this model, whichever spelling the caller sends.
-
-    ``None`` when the catalog lists no adapter for it. The adapter is a property of the
-    model rather than an independent choice, so deriving it is what keeps a
-    ``(runtime_adapter, model)`` pair from disagreeing with itself.
-    """
-    if not model_id:
-        return None
-    model = _MODEL_BY_ID.get(normalize_model_id(model_id))
-    return model.runtime_adapter if model else None
-
 
 def runtime_adapter_for_api_shapes(api_shapes: Iterable[str]) -> str | None:
     served = set(api_shapes)
     return next((adapter for adapter, shape in API_SHAPE_BY_RUNTIME_ADAPTER.items() if shape in served), None)
-
-
-def serves_model(runtime_adapter: str, model_id: str | None) -> bool:
-    """Whether this adapter drives the model, whichever spelling the caller sends.
-
-    Resolving the id rather than testing it against ``models_for_runtime_adapter``, whose
-    entries are raw catalog ids: the gateway serves some models provider-qualified, so an
-    allowlist built that way rejects a spelling every resolver here accepts.
-    """
-    return runtime_adapter_for_model(model_id) == runtime_adapter
 
 
 def normalize_model_id(model_id: str) -> str:
@@ -481,41 +242,6 @@ def model_line(model_id: str) -> str:
     return _VERSION_SEGMENT.sub("", normalize_model_id(model_id))
 
 
-def access_flag_for_model(model_id: str) -> str | None:
-    """The feature flag a person needs before a picker offers this model, or ``None``."""
-    model = _MODEL_BY_ID.get(normalize_model_id(model_id))
-    return model.access_flag if model else None
-
-
-def is_offered_model(model_id: str) -> bool:
-    """Whether a picker may offer this model.
-
-    The catalog is the offer list, so a model it does not name is not offered however the
-    gateway answers. A retired model stays here to keep a pinned session running and to name
-    and price it, which is a different question from whether a person may choose it now.
-    """
-    model = _MODEL_BY_ID.get(normalize_model_id(model_id))
-    return model is not None and not model.retired
-
-
-def supports_1m_context(model_id: str) -> bool:
-    """Whether this model runs with the 1M-token context window, ``False`` for one the catalog omits."""
-    model = _MODEL_BY_ID.get(normalize_model_id(model_id))
-    return model.supports_1m_context if model else False
-
-
-def supports_fast_mode(model_id: str) -> bool:
-    """Whether this model runs in fast mode, ``False`` for one the catalog omits."""
-    model = _MODEL_BY_ID.get(normalize_model_id(model_id))
-    return model.supports_fast_mode if model else False
-
-
-def label_for_model(model_id: str) -> str | None:
-    """The name this catalog pins for a model id, or ``None`` to let the caller derive one."""
-    model = _MODEL_BY_ID.get(normalize_model_id(model_id))
-    return model.label if model else None
-
-
 _MODEL_ACRONYMS: dict[str, str] = {"gpt": "GPT", "glm": "GLM"}
 
 
@@ -545,18 +271,6 @@ def format_model_id(model_id: str) -> str:
     return " ".join([head, *(_titled(word) for word in words[2:])])
 
 
-def display_name_for_model(model_id: str) -> str:
-    """The name a picker shows for a model.
-
-    The catalog's own name where it pins one, and the name derived from the id everywhere
-    else. Every surface resolves a display name through here, so a model reads the same in
-    the web composer, the Slack picker, and the desktop app.
-    """
-    normalized = normalize_model_id(model_id)
-    model = _MODEL_BY_ID.get(normalized)
-    return (model.label if model else None) or format_model_id(normalized)
-
-
 # A mid-range anchor, so both the cheap end and the expensive end read as a useful ratio.
 COST_BASELINE_MODEL = "claude-sonnet-5"
 
@@ -565,25 +279,11 @@ COST_BASELINE_MODEL = "claude-sonnet-5"
 _COST_RATIO_TOLERANCE = 0.1
 
 
-def cost_for_model(model_id: str) -> ModelCost | None:
-    """What this model lists at, or ``None`` when no public rate covers it."""
-    model = _MODEL_BY_ID.get(normalize_model_id(model_id))
-    return model.cost if model else None
-
-
-def _baseline_cost() -> ModelCost:
-    baseline = cost_for_model(COST_BASELINE_MODEL)
-    if baseline is None:
-        raise RuntimeError(f"the cost baseline {COST_BASELINE_MODEL!r} must carry a cost")
-    return baseline
-
-
-def cost_multiplier_for(cost: ModelCost, baseline: ModelCost | None = None) -> tuple[float, bool]:
+def cost_multiplier_for(cost: ModelCost, baseline: ModelCost) -> tuple[float, bool]:
     """This model's per-token cost relative to the baseline, and whether it is approximate.
 
     Input and output rarely scale together, so one multiplier is the mean of both ratios.
     """
-    baseline = baseline or _baseline_cost()
     input_ratio = cost.input_per_mtok / baseline.input_per_mtok
     output_ratio = cost.output_per_mtok / baseline.output_per_mtok
     spread = abs(input_ratio - output_ratio) / max(input_ratio, output_ratio)
@@ -600,59 +300,16 @@ def _format_multiplier(multiplier: float) -> str:
     return str(round(multiplier, 2))
 
 
-def cost_multiplier_label(model_id: str) -> str | None:
-    """The multiplier a picker shows, such as `2.5×`, `≈0.55×`, or `1× base`.
-
-    Resolved here so the web composer, the Slack picker and the desktop app cannot quote one
-    model differently.
-    """
-    cost = cost_for_model(model_id)
-    return None if cost is None else cost_multiplier_label_for_cost(cost)
-
-
-def cost_multiplier_label_for_cost(cost: ModelCost, baseline: ModelCost | None = None) -> str:
+def cost_multiplier_label_for_cost(cost: ModelCost, baseline: ModelCost) -> str:
     multiplier, approximate = cost_multiplier_for(cost, baseline)
-    base_label = f"{'≈' if approximate else ''}{_format_multiplier(multiplier)}×"
-    return f"{base_label} base" if cost.long_context else base_label
+    return f"{'≈' if approximate else ''}{_format_multiplier(multiplier)}×"
 
 
 def format_cost_rates(cost: ModelCost) -> str:
-    """The rates behind a multiplier, including a long-context tier when one exists."""
-
     def money(amount: float) -> str:
         return f"${amount:.0f}" if float(amount).is_integer() else f"${amount:.2f}"
 
-    base_rates = f"Input {money(cost.input_per_mtok)} · Output {money(cost.output_per_mtok)} per 1M tokens"
-    if cost.long_context is None:
-        return base_rates
-
-    tier = cost.long_context
-    threshold = f"{tier.above_input_tokens // 1_000}K"
-    base_context_rates = f"{money(cost.input_per_mtok)} input/{money(cost.output_per_mtok)} output"
-    long_context_rates = f"{money(tier.input_per_mtok)} input/{money(tier.output_per_mtok)} output"
-    return f"Per 1M tokens: {base_context_rates} to {threshold}; {long_context_rates} above"
-
-
-def reasoning_efforts_for(runtime_adapter: str, model_id: str) -> tuple[str, ...]:
-    """The efforts this model may run at, empty when it takes no effort at all.
-
-    Resolved in three steps: the exact id, then the family it belongs to, then what the
-    adapter accepts generally. Codex passes any ``gpt-*`` identifier through, so a newly
-    served id still runs, while Claude has no fallback and yields nothing — which is what
-    makes validation reject it.
-    """
-    normalized = normalize_model_id(model_id)
-    exact = _MODEL_BY_ID.get(normalized)
-    if exact and exact.runtime_adapter == runtime_adapter:
-        return exact.reasoning_efforts
-    families = [
-        (prefix, efforts)
-        for adapter, prefix, efforts in FAMILY_REASONING_EFFORTS
-        if adapter == runtime_adapter and normalized.startswith(prefix)
-    ]
-    if families:
-        return max(families, key=lambda family: len(family[0]))[1]
-    return FALLBACK_REASONING_EFFORTS_BY_RUNTIME_ADAPTER.get(runtime_adapter, ())
+    return f"Input {money(cost.input_per_mtok)} · Output {money(cost.output_per_mtok)} per 1M tokens"
 
 
 def reasoning_efforts_from_provider(model_id: str, provider_efforts: Iterable[str]) -> tuple[str, ...]:
@@ -661,44 +318,3 @@ def reasoning_efforts_from_provider(model_id: str, provider_efforts: Iterable[st
     if XHIGH in listed and is_anthropic_served_model(model_id):
         return (*efforts, ULTRACODE)
     return efforts
-
-
-__all__ = [
-    "ANTHROPIC",
-    "CAPABILITY_LADDER_BY_RUNTIME_ADAPTER",
-    "CLAUDE",
-    "CODEX",
-    "COST_BASELINE_MODEL",
-    "DEFAULT_MODEL_BY_RUNTIME_ADAPTER",
-    "FALLBACK_REASONING_EFFORTS_BY_RUNTIME_ADAPTER",
-    "MODELS",
-    "OPENAI",
-    "PROVIDER_BY_RUNTIME_ADAPTER",
-    "REASONING_EFFORTS",
-    "REASONING_EFFORT_LABELS",
-    "access_flag_for_model",
-    "RUNTIME_ADAPTERS",
-    "CapabilityNotch",
-    "CatalogModel",
-    "ModelCost",
-    "cost_for_model",
-    "cost_multiplier_for",
-    "cost_multiplier_label",
-    "cost_multiplier_label_for_cost",
-    "format_cost_rates",
-    "is_offered_model",
-    "label_for_model",
-    "model_line",
-    "models_for_runtime_adapter",
-    "normalize_model_id",
-    "display_name_for_model",
-    "format_model_id",
-    "gateway_model_id",
-    "reasoning_efforts_for",
-    "reasoning_efforts_from_provider",
-    "runtime_adapter_for_api_shapes",
-    "runtime_adapter_for_model",
-    "serves_model",
-    "supports_1m_context",
-    "supports_fast_mode",
-]

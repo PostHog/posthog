@@ -8,9 +8,6 @@ import type {
     RuntimeAdapterApi,
 } from '@/api/tasks'
 
-// Ports of `products/posthog_ai/frontend/utils/composerModels.ts` and `composerModes.ts`, with the catalogue
-// data from `products/tasks/frontend/modelCatalog.generated.ts`. Keep them in step with those files.
-
 export interface PinnedModel {
     runtimeAdapter: RuntimeAdapterApi
     model: string
@@ -45,67 +42,9 @@ export const EFFORT_LABELS: Record<ReasoningEffortApi, string> = {
     ultracode: 'Ultracode',
 }
 
-export const COST_BASELINE_LABEL = 'Claude Sonnet 5'
-
 const DEFAULT_EFFORT: ReasoningEffortApi = 'high'
 
-const FALLBACK_EFFORTS: ReasoningEffortApi[] = ['low', 'medium', 'high']
-
-// `GET tasks/models/` does not filter these, and no picker may offer them.
-const RETIRED_MODEL_IDS: ReadonlySet<string> = new Set([
-    '@cf/zai-org/glm-5.2',
-    'claude-opus-4-5',
-    'claude-opus-4-6',
-    'claude-opus-4-7',
-    'claude-sonnet-4-6',
-])
-
 const PROVIDER_PREFIXES = ['anthropic/', 'openai/']
-
-export const STATIC_CATALOGUE: ModelChoiceApi[] = [
-    {
-        runtime_adapter: 'claude',
-        model: 'claude-opus-5-5',
-        display_name: 'Claude Opus 5.5',
-        supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
-        cost_multiplier: '2×',
-    },
-    {
-        runtime_adapter: 'claude',
-        model: 'claude-sonnet-5-5',
-        display_name: 'Claude Sonnet 5.5',
-        supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
-        cost_multiplier: '1×',
-    },
-    {
-        runtime_adapter: 'claude',
-        model: 'claude-fable-5-1',
-        display_name: 'Claude Fable 5.1',
-        supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
-        cost_multiplier: '5×',
-    },
-    {
-        runtime_adapter: 'claude',
-        model: 'moonshotai/kimi-k3',
-        display_name: 'Kimi K3',
-        supported_efforts: [],
-        cost_multiplier: '1.5×',
-    },
-    {
-        runtime_adapter: 'codex',
-        model: 'gpt-6.1-sol',
-        display_name: 'GPT-6.1 Sol',
-        supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
-        cost_multiplier: '1× base',
-    },
-    {
-        runtime_adapter: 'codex',
-        model: 'gpt-6-luna',
-        display_name: 'GPT-6 Luna',
-        supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
-        cost_multiplier: '0.05×',
-    },
-]
 
 // A stored run or default can carry a provider-qualified id for a model the catalogue lists bare.
 function normalizeModelId(model: string): string {
@@ -114,15 +53,10 @@ function normalizeModelId(model: string): string {
     return prefix ? normalized.slice(prefix.length) : normalized
 }
 
-/**
- * The models a picker lists: everything still offered, plus `keepModel` when the catalogue has since retired it, so
- * a stored default keeps its display name. Port of the web's `pickerModels`.
- */
+/** The offered models, plus `keepModel` when it is no longer offered, so a stored default keeps its name. */
 export function offeredModels(catalogue: readonly ModelChoiceApi[], keepModel?: string | null): ModelChoiceApi[] {
     const kept = catalogueEntry(catalogue, keepModel)
-    return catalogue.filter(
-        (option) => !RETIRED_MODEL_IDS.has(normalizeModelId(option.model)) || option.model === kept?.model
-    )
+    return catalogue.filter((option) => option.offered || option.model === kept?.model)
 }
 
 export function catalogueEntry(
@@ -137,7 +71,7 @@ export function catalogueEntry(
 }
 
 function effortsForModel(catalogue: readonly ModelChoiceApi[], model: string | null | undefined): ReasoningEffortApi[] {
-    return catalogueEntry(catalogue, model)?.supported_efforts ?? FALLBACK_EFFORTS
+    return catalogueEntry(catalogue, model)?.supported_efforts ?? []
 }
 
 /** Clamps an effort carried over from another model to one this model accepts, as the backend rejects the rest. */
@@ -341,9 +275,7 @@ export function buildHandoffRunRequest(
 }
 
 export function modelDisplayName(catalogue: readonly ModelChoiceApi[], model: string): string {
-    return (
-        catalogueEntry(catalogue, model)?.display_name ?? catalogueEntry(STATIC_CATALOGUE, model)?.display_name ?? model
-    )
+    return catalogueEntry(catalogue, model)?.display_name ?? model
 }
 
 function effortLabel(effort: string | null | undefined): string | undefined {

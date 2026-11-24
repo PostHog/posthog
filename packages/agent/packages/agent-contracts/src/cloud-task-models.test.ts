@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   adapterForModelId,
   applyAllowedModels,
@@ -24,7 +24,9 @@ import {
   pickAllowedModel,
 } from "./cloud-task-models";
 import { configureCustomCloud } from "./custom-cloud";
+import { forgetGatewayModels } from "./model-catalog";
 import { isCustomModelOption } from "./models";
+import { rememberSavedGatewayListing } from "./testing/saved-gateway-listing";
 
 const model = (
   id: string,
@@ -52,18 +54,27 @@ describe("formatGatewayModelName", () => {
     [model("zai-org/glm-5.3-flash", "baseten"), "GLM-5.3 Flash"],
     [
       model("deepseek-ai/deepseek-v4-flash-0731", "baseten"),
-      "DeepSeek V4 Flash",
+      "Deepseek V4 Flash 0731",
     ],
     [
       model("@cf/meta/llama-3.1-8b-instruct", "cloudflare"),
-      "llama-3.1-8b-instruct",
+      "Llama 3.1.8b Instruct",
     ],
+    [
+      { ...model("claude-haiku-4-5"), name: "Claude Haiku 4.5 (latest)" },
+      "Claude Haiku 4.5",
+    ],
+    [{ ...model("gpt-9-nova", "openai"), name: "Nova" }, "Nova"],
   ])("formats $id", (gatewayModel, expected) => {
     expect(formatGatewayModelName(gatewayModel)).toBe(expected);
   });
 });
 
 describe("normalizeGatewayModelsResponse", () => {
+  beforeEach(() => {
+    forgetGatewayModels();
+  });
+
   it("passes through the gateway's advertised context window unmodified", () => {
     const models = normalizeGatewayModelsResponse([
       model("zai-org/glm-5.3", "baseten"),
@@ -82,20 +93,26 @@ describe("normalizeGatewayModelsResponse", () => {
 });
 
 describe("gatewayModelRowsFromTaskModels", () => {
+  beforeEach(() => {
+    forgetGatewayModels();
+  });
+
   it.each([
-    ["claude", "claude-opus-5-5", true, "claude", true],
-    ["codex", "gpt-6-sol", true, "codex", true],
-    ["claude", "zai-org/glm-5.3", true, "claude", true],
-    ["claude", "claude-opus-5-5", false, "claude", false],
+    ["claude", "claude-opus-5-5", true, "claude", true, "anthropic"],
+    ["codex", "gpt-6-sol", true, "codex", true, "openai"],
+    ["claude", "zai-org/glm-5.3", true, "claude", true, "posthog"],
+    ["claude", "claude-opus-5-5", false, "claude", false, "anthropic"],
   ])(
     "offers a %s model %s (allowed=%s) on the %s picker",
-    (runtimeAdapter, id, allowed, adapter, expectedAllowed) => {
+    (runtimeAdapter, id, allowed, adapter, expectedAllowed, owner) => {
       const models = normalizeGatewayModelsResponse(
         gatewayModelRowsFromTaskModels({
           models: [
             {
               runtime_adapter: runtimeAdapter,
               model: id,
+              display_name: "Listed name",
+              supported_efforts: ["low", "high"],
               context_window: 1000000,
               allowed,
             },
@@ -106,7 +123,14 @@ describe("gatewayModelRowsFromTaskModels", () => {
       const filter =
         adapter === "codex" ? isCodexAdapterModel : isClaudeAdapterModel;
       expect(models.filter(filter)).toMatchObject([
-        { id, context_window: 1000000, allowed: expectedAllowed },
+        {
+          id,
+          owned_by: owner,
+          context_window: 1000000,
+          allowed: expectedAllowed,
+          name: "Listed name",
+          reasoning_efforts: ["low", "high"],
+        },
       ]);
     },
   );
@@ -198,7 +222,7 @@ describe("model classification", () => {
     ).toBe(false);
   });
 
-  it("keeps a model on the adapter the catalog assigns even when shapes allow both", () => {
+  it("puts a row that speaks both shapes on the Claude adapter, as the backend does", () => {
     const everyShape = [
       "openai-chat-completions",
       "openai-responses",
@@ -210,10 +234,9 @@ describe("model classification", () => {
       ),
     ).toBe(false);
     expect(
-      isClaudeAdapterModel(model("gpt-5.5", "openai", true, everyShape)),
-    ).toBe(false);
-    expect(
-      isCodexAdapterModel(model("gpt-5.5", "openai", true, everyShape)),
+      isClaudeAdapterModel(
+        model("zai-org/glm-5.3", "posthog", true, everyShape),
+      ),
     ).toBe(true);
     expect(
       isCodexAdapterModel(
@@ -222,12 +245,17 @@ describe("model classification", () => {
     ).toBe(true);
   });
 
-  it("recognizes served models the gateway owns by their catalog adapter", () => {
-    const gatewayModel = model("zai-org/glm-5.3", "posthog");
-    expect(isClaudeAdapterModel(gatewayModel)).toBe(true);
+  it("classifies a row without api shapes by its owner", () => {
     expect(isCodexAdapterModel(model("gpt-5.4", "openai"))).toBe(true);
-    expect(isClaudeAdapterModelId("zai-org/glm-5.3-flash")).toBe(true);
     expect(isClaudeAdapterModel(model("gpt-5.4", "posthog"))).toBe(false);
+    expect(isClaudeAdapterModel(model("zai-org/glm-5.3", "baseten"))).toBe(
+      true,
+    );
+  });
+
+  it("recognizes served models by the adapter the listing gives them", () => {
+    rememberSavedGatewayListing();
+    expect(isClaudeAdapterModelId("zai-org/glm-5.3-flash")).toBe(true);
     expect(isClaudeAdapterModelId("gpt-5.4")).toBe(false);
     expect(isServedModelId("zai-org/glm-5.3")).toBe(true);
     expect(isServedModelId("moonshotai/kimi-k3.1-pro")).toBe(true);
@@ -268,13 +296,17 @@ describe("pickAllowedModel", () => {
 });
 
 describe("buildCloudTaskConfigOptions", () => {
+  beforeEach(() => {
+    rememberSavedGatewayListing();
+  });
+
   it("builds Claude options with restrictions and reasoning policy", () => {
     const options = buildCloudTaskConfigOptions(
       [
         model("gpt-5.5", "openai"),
         model("claude-opus-4-7", "anthropic"),
         model("claude-opus-5-5", "anthropic", false),
-        model("@cf/zai-org/glm-5.2", "cloudflare"),
+        model("zai-org/glm-5.3", "baseten"),
       ],
       "claude",
     );
@@ -283,10 +315,10 @@ describe("buildCloudTaskConfigOptions", () => {
       { id: "mode", currentValue: "plan" },
       {
         id: "model",
-        currentValue: "@cf/zai-org/glm-5.2",
+        currentValue: "zai-org/glm-5.3",
         options: [
           { value: "claude-opus-4-7" },
-          { value: "@cf/zai-org/glm-5.2" },
+          { value: "zai-org/glm-5.3" },
           {
             value: "claude-opus-5-5",
             _meta: { "posthog.code/restrictedModel": true },
@@ -296,7 +328,7 @@ describe("buildCloudTaskConfigOptions", () => {
       {
         id: "effort",
         currentValue: "high",
-        options: [{ value: "high" }, { value: "max" }],
+        options: [{ value: "low" }, { value: "high" }, { value: "max" }],
       },
     ]);
     expect(options.map((option) => option.id)).toEqual([
@@ -311,7 +343,7 @@ describe("buildCloudTaskConfigOptions", () => {
       [
         model("claude-opus-4-8"),
         model("gpt-5.6", "openai"),
-        model("gpt-6-sol", "openai"),
+        model("gpt-6.2-sol", "openai"),
       ],
       "codex",
     );
@@ -320,8 +352,8 @@ describe("buildCloudTaskConfigOptions", () => {
       { id: "mode", currentValue: "auto" },
       {
         id: "model",
-        currentValue: "gpt-6-sol",
-        options: [{ value: "gpt-5.6" }, { value: "gpt-6-sol" }],
+        currentValue: "gpt-6.2-sol",
+        options: [{ value: "gpt-5.6" }, { value: "gpt-6.2-sol" }],
       },
       {
         id: "reasoning_effort",
@@ -386,7 +418,7 @@ describe("buildCloudTaskConfigOptions", () => {
     expect(claudeModelOptions).toEqual([
       expect.objectContaining({
         value: "deepseek-ai/deepseek-v4-flash-0731",
-        name: "DeepSeek V4 Flash",
+        name: "Deepseek V4 Flash 0731",
       }),
     ]);
 

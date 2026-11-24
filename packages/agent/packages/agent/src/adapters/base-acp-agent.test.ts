@@ -42,7 +42,7 @@ describe("BaseAcpAgent", () => {
   it("offers gateway-advertised Baseten models to Claude sessions", async () => {
     vi.mocked(fetchGatewayModels).mockResolvedValue([
       {
-        id: "claude-opus-4-8",
+        id: "claude-opus-5-5",
         owned_by: "anthropic",
         context_window: 1_000_000,
         supports_streaming: true,
@@ -70,7 +70,7 @@ describe("BaseAcpAgent", () => {
     expect(result.options).toContainEqual(
       expect.objectContaining({
         value: "deepseek-ai/deepseek-v4-flash-0731",
-        name: "DeepSeek V4 Flash",
+        name: "Deepseek V4 Flash 0731",
       }),
     );
   });
@@ -80,7 +80,7 @@ describe("BaseAcpAgent", () => {
     async (requestedModel) => {
       vi.mocked(fetchGatewayModels).mockResolvedValue([
         {
-          id: "claude-opus-4-8",
+          id: "claude-opus-5-5",
           owned_by: "anthropic",
           context_window: 1_000_000,
           supports_streaming: true,
@@ -122,7 +122,7 @@ describe("BaseAcpAgent", () => {
   it("falls back when the gateway cannot serve the saved model on Messages", async () => {
     vi.mocked(fetchGatewayModels).mockResolvedValue([
       {
-        id: "claude-opus-4-8",
+        id: "claude-opus-5-5",
         owned_by: "anthropic",
         context_window: 1_000_000,
         supports_streaming: true,
@@ -148,7 +148,7 @@ describe("BaseAcpAgent", () => {
       "token",
     );
 
-    expect(result.currentModelId).toBe("claude-opus-4-8");
+    expect(result.currentModelId).toBe("claude-opus-5-5");
     expect(result.options).not.toContainEqual(
       expect.objectContaining({ value: "zai-org/glm-5.3" }),
     );
@@ -157,7 +157,7 @@ describe("BaseAcpAgent", () => {
   it("falls back when the gateway lists the saved native model without Messages", async () => {
     vi.mocked(fetchGatewayModels).mockResolvedValue([
       {
-        id: "claude-opus-4-8",
+        id: "claude-opus-5-5",
         owned_by: "anthropic",
         context_window: 1_000_000,
         supports_streaming: true,
@@ -183,7 +183,7 @@ describe("BaseAcpAgent", () => {
       "token",
     );
 
-    expect(result.currentModelId).toBe("claude-opus-4-8");
+    expect(result.currentModelId).toBe("claude-opus-5-5");
     expect(result.options).not.toContainEqual(
       expect.objectContaining({ value: "claude-sonnet-5" }),
     );
@@ -192,7 +192,7 @@ describe("BaseAcpAgent", () => {
   it("keeps a saved native Anthropic id the gateway omits as a custom option", async () => {
     vi.mocked(fetchGatewayModels).mockResolvedValue([
       {
-        id: "claude-opus-4-8",
+        id: "claude-opus-5-5",
         owned_by: "anthropic",
         context_window: 1_000_000,
         supports_streaming: true,
@@ -220,7 +220,7 @@ describe("BaseAcpAgent", () => {
   it("keeps a saved session on retired moonshotai/kimi-k3", async () => {
     vi.mocked(fetchGatewayModels).mockResolvedValue([
       {
-        id: "claude-opus-4-8",
+        id: "claude-opus-5-5",
         owned_by: "anthropic",
         context_window: 1_000_000,
         supports_streaming: true,
@@ -247,7 +247,7 @@ describe("BaseAcpAgent", () => {
 
   it("offers retired moonshotai/kimi-k3 only to the session that runs it", async () => {
     vi.mocked(fetchGatewayModels).mockResolvedValue(
-      ["claude-opus-4-8", "moonshotai/kimi-k3", "moonshotai/kimi-k3.1-pro"].map(
+      ["claude-opus-5-5", "moonshotai/kimi-k3", "moonshotai/kimi-k3.1-pro"].map(
         (id) => ({
           id,
           owned_by: id.startsWith("claude") ? "anthropic" : "modal",
@@ -272,7 +272,7 @@ describe("BaseAcpAgent", () => {
     );
 
     expect(fresh.options.map((option) => option.value)).toEqual(
-      expect.arrayContaining(["claude-opus-4-8", "moonshotai/kimi-k3.1-pro"]),
+      expect.arrayContaining(["claude-opus-5-5", "moonshotai/kimi-k3.1-pro"]),
     );
     expect(fresh.options).not.toContainEqual(
       expect.objectContaining({ value: "moonshotai/kimi-k3" }),
@@ -294,7 +294,7 @@ describe("BaseAcpAgent", () => {
     async (savedModel) => {
       vi.mocked(fetchGatewayModels).mockResolvedValue([
         {
-          id: "claude-opus-4-8",
+          id: "claude-opus-5-5",
           owned_by: "anthropic",
           context_window: 1_000_000,
           supports_streaming: true,
@@ -311,7 +311,7 @@ describe("BaseAcpAgent", () => {
         "token",
       );
 
-      expect(result.currentModelId).toBe("claude-opus-4-8");
+      expect(result.currentModelId).toBe("claude-opus-5-5");
       expect(result.options).not.toContainEqual(
         expect.objectContaining({ value: savedModel }),
       );
@@ -319,7 +319,7 @@ describe("BaseAcpAgent", () => {
         expect.any(String),
         expect.objectContaining({
           requestedModel: savedModel,
-          fallbackModel: "claude-opus-4-8",
+          fallbackModel: "claude-opus-5-5",
         }),
       );
     },

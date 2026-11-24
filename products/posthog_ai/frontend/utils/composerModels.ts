@@ -24,14 +24,6 @@ export interface ComposerEffortOption {
     label: string
 }
 
-// What a thinking model supports at minimum. Only reached for a model the catalogue does not describe, which now means
-// a run started on a model since retired from the catalog.
-const FALLBACK_EFFORTS: ReasoningEffortEnumApi[] = [
-    ReasoningEffortEnumApi.Low,
-    ReasoningEffortEnumApi.Medium,
-    ReasoningEffortEnumApi.High,
-]
-
 export const DEFAULT_COMPOSER_MODEL = DEFAULT_MODEL_BY_RUNTIME_ADAPTER.claude
 export const PI_DEFAULT_MODEL = 'gpt-5.6-terra'
 
@@ -57,7 +49,7 @@ export function getEffortsForModel(
     catalogue: ModelChoiceApi[],
     model: string | null | undefined
 ): ComposerEffortOption[] {
-    const efforts = catalogueEntry(catalogue, model)?.supported_efforts ?? FALLBACK_EFFORTS
+    const efforts = catalogueEntry(catalogue, model)?.supported_efforts ?? []
     return efforts.map((value) => ({ value, label: EFFORT_LABELS[value] ?? value }))
 }
 

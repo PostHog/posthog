@@ -23,6 +23,7 @@ import type { StoredLogEntry } from '../types/wireTypes'
 import { uploadRunAttachments, uploadStagedTaskAttachments } from '../utils/artifactUpload'
 import { contextItemLine } from '../utils/posthogContextBlock'
 import { composerAttachmentsLogic } from './composerAttachmentsLogic'
+import { loadTestModelCatalogue } from './modelCatalogueFixture'
 import { runCancellationLogic } from './runCancellationLogic'
 import { runInteractionLogic } from './runInteractionLogic'
 import { runStreamLogic } from './runStreamLogic'
@@ -234,6 +235,7 @@ describe('runInteractionLogic', () => {
         ;(tasksWarmResumeCreate as jest.Mock).mockResolvedValue({ task_id: TASK_ID, run_id: 'warm-run' })
         window.localStorage.clear()
         initKeaTests()
+        loadTestModelCatalogue()
         project = projectLogic()
         project.mount()
         toolEvents = toolStreamEventsLogic()

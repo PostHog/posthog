@@ -1,6 +1,6 @@
 import type { ModelChoiceApi } from '@/api/tasks'
+import { DEMO_MODEL_CATALOGUE } from '@/demo/models'
 
-import { STATIC_CATALOGUE } from '../handoff/runOptions'
 import {
     type ChatRunOptions,
     chatRunOptionsFromConfig,
@@ -10,7 +10,7 @@ import {
 } from './chatRunOptions'
 import type { SessionRunConfig } from './session/sessionRun'
 
-const CATALOGUE: ModelChoiceApi[] = STATIC_CATALOGUE
+const CATALOGUE: ModelChoiceApi[] = DEMO_MODEL_CATALOGUE
 
 describe('chat run options', () => {
     test.each<[string, ChatRunOptions['model'], string]>([
@@ -24,6 +24,11 @@ describe('chat run options', () => {
             'a model without efforts',
             { runtimeAdapter: 'claude', model: 'moonshotai/kimi-k3', reasoningEffort: null },
             'Kimi K3',
+        ],
+        [
+            'a model the list does not describe',
+            { runtimeAdapter: 'claude', model: 'claude-opus-4-1', reasoningEffort: 'high' },
+            'claude-opus-4-1 · High',
         ],
         [
             'a Codex model',
