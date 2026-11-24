@@ -69,7 +69,7 @@ class ContactList:
     invalid_skipped: int = 0
 
 
-def new_people_step(provider_label: str) -> ImportStepSpec:
+def new_people_step(provider_label: str, feature_flag: str | None = None) -> ImportStepSpec:
     return ImportStepSpec(
         key=NEW_PEOPLE_STEP,
         label="New people from contacts",
@@ -80,6 +80,7 @@ def new_people_step(provider_label: str) -> ImportStepSpec:
         ),
         needs=("contacts",),
         counts_as_events=True,
+        feature_flag=feature_flag,
     )
 
 
@@ -143,6 +144,7 @@ def _add_properties(row: dict[str, str], properties: Mapping[str, Any]) -> int:
         text = _property_text(value)
         if (
             not text
+            or not name
             or name in row
             or len(name) > MAX_PROPERTY_NAME_LENGTH
             or name.startswith("$")
@@ -200,8 +202,8 @@ def save_contact_lists(
     if result.people:
         notes.append(
             f"{_contacts(result.people)} to send, {result.new_people:,} of them new people. This cohort and the ones "
-            "below hold exactly these contacts once PostHog has processed them, usually within a few minutes. "
-            "Anyone no longer on a list leaves its cohort."
+            "below hold exactly these contacts, except any who unsubscribed, once PostHog has processed them, usually "
+            "within a few minutes. Anyone no longer on a list leaves its cohort."
         )
     if result.skipped_new_people:
         notes.append(
