@@ -74,6 +74,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     MISSING_INTEGRATION_DETAIL,
     DestinationConfigurationError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.key_prefix import (
+    run_object_prefix,
+)
 
 if TYPE_CHECKING:
     from types_aiobotocore_s3.client import S3Client
@@ -290,7 +293,6 @@ class S3DestinationWriter:
         config = ctx.config or {}
         self._bucket: str = (config.get("bucket") or config.get("bucket_name") or "").strip().strip("/")
         self._region: str = (config.get("region") or "").strip()
-        self._prefix: str = (config.get("prefix") or "").strip("/")
         self._use_virtual_style_addressing = bool(config.get("use_virtual_style_addressing"))
         self._compression: ParquetCompression = config.get("compression") or DEFAULT_COMPRESSION
 
@@ -325,8 +327,7 @@ class S3DestinationWriter:
     # --- keys -------------------------------------------------------------------------
 
     def _run_prefix(self) -> str:
-        parts = [p for p in (self._prefix, self._ctx.table_name, self._ctx.run_uuid) if p]
-        return f"{'/'.join(parts)}/"
+        return run_object_prefix(self._ctx)
 
     def _object_key(self, batch_index: int) -> str:
         return f"{self._run_prefix()}part-{batch_index:04d}.parquet"
@@ -430,7 +431,7 @@ class S3DestinationWriter:
         if first is None:
             # No record batches at all. An empty object is not a readable parquet file, so
             # write nothing rather than something a reader would choke on.
-            return BatchWriteOutcome(rows_written=0)
+            return BatchWriteOutcome(rows_written=0, bytes_written=0)
 
         stats = _WriteStats()
         key = self._object_key(ctx.batch_index)

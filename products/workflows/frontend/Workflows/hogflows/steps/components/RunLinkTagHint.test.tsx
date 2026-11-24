@@ -43,9 +43,11 @@ describe('<RunLinkTagHint />', () => {
 
         render(<RunLinkTagHint />)
 
-        expect(screen.getByText('Turn it on in settings').closest('a')).toHaveAttribute(
+        const anchor = screen.getByText('Turn it on in settings').closest('a')
+        expect(anchor).toHaveAttribute(
             'href',
             expect.stringMatching(/\/settings\/environment-workflows#workflows-email-run-link-tag$/)
         )
+        expect(anchor).toHaveAttribute('target', '_blank')
     })
 })

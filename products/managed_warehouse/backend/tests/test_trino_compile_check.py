@@ -26,6 +26,7 @@ from products.managed_warehouse.backend.tasks import run_trino_compile_check_tas
 from products.managed_warehouse.backend.trino_compile_check import (
     TrinoCompileCheckReport,
     TrinoCompileCheckStage,
+    _explain_statement,
     check_trino_compile,
     missing_upstream_saved_query_id,
 )
@@ -101,10 +102,10 @@ class TestTrinoCompileCheck(BaseTest):
         [
             ("without_values", "a_good", "EXPLAIN SELECT ", '"events_current"', "events_current", False),
             (
-                "with_values",
+                "with_string_constants",
                 "d_bound",
-                "EXPLAIN EXECUTE IMMEDIATE 'SELECT ",
-                " USING 'it''s', 'b'",
+                "EXPLAIN SELECT ",
+                "= 'b')))",
                 "events_current",
                 False,
             ),
@@ -382,3 +383,9 @@ LETTER_UPSTREAM_ID = uuid.UUID("af1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0")
 )
 def test_missing_upstream_saved_query_id(message: str | None, expected: str | None) -> None:
     assert missing_upstream_saved_query_id(7, message) == expected
+
+
+def test_explain_binds_values_through_execute_immediate() -> None:
+    assert (
+        _explain_statement("SELECT 'a' = ?", ["it's"]) == "EXPLAIN EXECUTE IMMEDIATE 'SELECT ''a'' = ?' USING 'it''s'"
+    )

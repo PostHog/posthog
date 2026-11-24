@@ -431,6 +431,7 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   message_category_id?: string | null | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
                   run_link_tag_enabled?: boolean | undefined
+                  sensitive?: boolean | undefined
                   skip_frequency_cap?: boolean | undefined
                   template_id: 'template-email'
                   template_uuid?: string | undefined
@@ -782,6 +783,7 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   message_category_id?: string | null | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
                   run_link_tag_enabled?: boolean | undefined
+                  sensitive?: boolean | undefined
                   skip_frequency_cap?: boolean | undefined
                   template_id: 'template-email'
                   template_uuid?: string | undefined

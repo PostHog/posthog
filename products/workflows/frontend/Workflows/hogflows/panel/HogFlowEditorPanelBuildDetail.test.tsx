@@ -2,7 +2,10 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -96,10 +99,9 @@ async function renderEmailStep(): Promise<ReturnType<typeof render>> {
     logic = workflowLogic(props)
     logic.mount()
     await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
-    const editorLogic = hogFlowEditorLogic(props)
-    editorLogic.mount()
+    router.actions.push(urls.workflow(WORKFLOW_ID, 'workflow'), { node: EMAIL_NODE_ID })
+    hogFlowEditorLogic(props).mount()
     await expectLogic(optOutCategoriesLogic()).toDispatchActions(['loadCategoriesSuccess'])
-    editorLogic.actions.setSelectedNodeId(EMAIL_NODE_ID)
 
     return render(
         <Provider>

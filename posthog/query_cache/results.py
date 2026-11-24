@@ -1,6 +1,7 @@
+import threading
 from collections import Counter
 from collections.abc import Iterator, Sequence
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Optional
@@ -36,8 +37,25 @@ _prefetched_values: ContextVar[dict[str, list[Optional[bytes]]] | None] = Contex
     "query_cache_prefetched_values", default=None
 )
 
-# Blob fetches run in parallel, so a board of S3-backed entries waits about as long as its slowest blob.
+# Blob fetches run in parallel, so a board of S3-backed entries waits about as long as its slowest blob. The pool is
+# shared by every request in the process, so concurrent board loads queue for these threads instead of each starting
+# their own.
 _PREFETCH_S3_CONCURRENCY = 8
+
+_prefetch_executor: Optional[ThreadPoolExecutor] = None
+_prefetch_executor_lock = threading.Lock()
+
+
+def _get_prefetch_executor() -> ThreadPoolExecutor:
+    # Created on first use so the threads start in the serving process, not in a pre-fork parent.
+    global _prefetch_executor
+    if _prefetch_executor is None:
+        with _prefetch_executor_lock:
+            if _prefetch_executor is None:
+                _prefetch_executor = ThreadPoolExecutor(
+                    max_workers=_PREFETCH_S3_CONCURRENCY, thread_name_prefix="query-cache-prefetch"
+                )
+    return _prefetch_executor
 
 
 @contextmanager
@@ -69,12 +87,36 @@ def _read_values(cache_keys: Sequence[str], *, team_id: int) -> dict[str, list[O
     pointers = [(key, value) for key, value in values.items() if value is not None and is_s3_pointer(value)]
     if pointers:
         # A resolved blob is the decompressed payload, which decode_stored_value returns as it is on lookup.
-        with ThreadPoolExecutor(max_workers=min(len(pointers), _PREFETCH_S3_CONCURRENCY)) as pool:
-            payloads = pool.map(
-                lambda pointer: decode_stored_value(pointer[1], team_id=team_id, cache_key=pointer[0]), pointers
-            )
-            values.update(zip((key for key, _ in pointers), payloads))
+        values.update(_read_blobs(pointers, team_id=team_id))
     return {key: [value] * lookups[key] for key, value in values.items()}
+
+
+def _read_blobs(pointers: Sequence[tuple[str, bytes]], *, team_id: int) -> dict[str, Optional[bytes]]:
+    # A request keeps at most one pool's worth of reads queued, so a board with many blobs takes turns with the
+    # requests that arrive after it instead of making them wait for every one of its reads.
+    executor = _get_prefetch_executor()
+    waiting = iter(pointers)
+    in_flight: dict[Future[Optional[bytes]], str] = {}
+    resolved: dict[str, Optional[bytes]] = {}
+
+    def submit_next() -> None:
+        pointer = next(waiting, None)
+        if pointer is not None:
+            key, value = pointer
+            in_flight[executor.submit(decode_stored_value, value, team_id=team_id, cache_key=key)] = key
+
+    try:
+        for _ in range(_PREFETCH_S3_CONCURRENCY):
+            submit_next()
+        while in_flight:
+            done, _ = wait(in_flight, return_when=FIRST_COMPLETED)
+            for future in done:
+                resolved[in_flight.pop(future)] = future.result()
+                submit_next()
+    finally:
+        for future in in_flight:
+            future.cancel()
+    return resolved
 
 
 def fetch_entry(cache_key: str, team_id: int) -> Optional[CachedEntry]:

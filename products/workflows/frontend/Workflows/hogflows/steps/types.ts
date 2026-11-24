@@ -392,6 +392,8 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             utm_tags_enabled: z.boolean().optional(),
             // When false, this email's clicks aren't connected to sessions. Keep in sync with nodejs/src/cdp/schema/hogflow.ts.
             run_link_tag_enabled: z.boolean().optional(),
+            // When true, PostHog stores a placeholder for the body and keeps no subject or variables. Keep in sync with nodejs/src/cdp/schema/hogflow.ts.
+            sensitive: z.boolean().optional(),
             // When true, a marketing send ignores the team's frequency cap. Keep in sync with nodejs/src/cdp/schema/hogflow.ts.
             skip_frequency_cap: z.boolean().optional(),
             // Templates that replace the default tag values. An empty value keeps the default.

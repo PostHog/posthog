@@ -10,25 +10,36 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { TeamType } from '~/types'
 
 import { WorkflowsRunLinkTagSettings } from './WorkflowsRunLinkTagSettings'
 
 describe('<WorkflowsRunLinkTagSettings />', () => {
-    let patchBodies: Record<string, unknown>[]
+    let patchBodies: Partial<TeamType>[]
+    let storedTeam: TeamType
+
+    const bootWith = (team: TeamType): void => {
+        storedTeam = team
+        initKeaTests(true, team)
+    }
 
     beforeEach(() => {
         patchBodies = []
         useMocks({
             patch: {
                 '/api/environments/:team_id/': async ({ request }) => {
-                    const body = (await request.json()) as Record<string, unknown>
+                    const body = (await request.json()) as Partial<TeamType>
                     patchBodies.push(body)
-                    return [200, { ...MOCK_DEFAULT_TEAM, ...body }]
+                    return [
+                        200,
+                        {
+                            ...storedTeam,
+                            workflows_config: { ...storedTeam.workflows_config, ...body.workflows_config },
+                        },
+                    ]
                 },
             },
         })
-        initKeaTests()
-        teamLogic.mount()
     })
 
     afterEach(() => {
@@ -39,7 +50,7 @@ describe('<WorkflowsRunLinkTagSettings />', () => {
         { stored: undefined, shownOn: true, saved: false },
         { stored: false, shownOn: false, saved: true },
     ])('stored $stored shows on=$shownOn, and a click sends only $saved', async ({ stored, shownOn, saved }) => {
-        teamLogic.actions.loadCurrentTeamSuccess({
+        bootWith({
             ...MOCK_DEFAULT_TEAM,
             workflows_config: {
                 capture_workflows_engagement_events: true,
@@ -56,10 +67,13 @@ describe('<WorkflowsRunLinkTagSettings />', () => {
         await waitFor(() => expect(patchBodies).toHaveLength(1))
         expect(patchBodies[0]).toEqual({ workflows_config: { email_workflow_run_link_tag_enabled: saved } })
         await waitFor(() => expect(toggle).toHaveAttribute('aria-checked', String(saved)))
+        expect(teamLogic.values.currentTeam?.workflows_config).toEqual(
+            expect.objectContaining({ email_utm_tags_enabled: true, email_workflow_run_link_tag_enabled: saved })
+        )
     })
 
     it('is disabled with the reason for a member below project admin', async () => {
-        teamLogic.actions.loadCurrentTeamSuccess({
+        bootWith({
             ...MOCK_DEFAULT_TEAM,
             effective_membership_level: OrganizationMembershipLevel.Member,
         })

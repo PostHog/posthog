@@ -32,8 +32,11 @@ def string_split(first: str, **extra: Any) -> dict:
     return config(experiment(variants=variants, **extra), return_type="string", default_value=None)
 
 
-NULL_KEY_DETAIL = 'The variant key "null" is reserved. Choose another key.'
-NULL_KEY_ATTR = "filters__rules__0__variants__0__key"
+FIRST_KEY_ATTR = "filters__rules__0__variants__0__key"
+
+
+def reserved_key_detail(key: str) -> str:
+    return f'The variant key "{key}" is reserved. Choose another key.'
 
 
 def keyed_split(first_key: str, return_type: str = "boolean", **extra: Any) -> dict:
@@ -166,20 +169,24 @@ class TestExperimentRules(AdmittedV2TestCase):
         flag.refresh_from_db()
         assert (flag.filters, flag.active, flag.version) == (replacement, True, 5)
 
-    @parameterized.expand([("boolean",), ("string",)])
-    def test_create_rejects_a_null_variant_key(self, return_type: str) -> None:
+    @parameterized.expand([("boolean", "null"), ("string", "null"), ("boolean", "true"), ("string", "false")])
+    def test_create_rejects_a_reserved_variant_key(self, return_type: str, key: str) -> None:
         with admit_v2(self.team.id, creation=True):
-            submitted = keyed_split("null", return_type, rule_id=None, seed=None)
+            submitted = keyed_split(key, return_type, rule_id=None, seed=None)
             response = self.post_flag({"key": "split-v2", "filters": submitted})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         body = response.json()
-        assert (body["code"], body["attr"], body["detail"]) == ("invalid_input", NULL_KEY_ATTR, NULL_KEY_DETAIL)
+        assert (body["code"], body["attr"], body["detail"]) == (
+            "invalid_input",
+            FIRST_KEY_ATTR,
+            reserved_key_detail(key),
+        )
         assert not FeatureFlag.objects.filter(team=self.team, key="split-v2").exists()
 
     @parameterized.expand(
         [
-            ("boolean", keyed_split("control"), keyed_split("null"), NULL_KEY_ATTR),
-            ("string", keyed_split("control", "string"), keyed_split("null", "string"), NULL_KEY_ATTR),
+            ("boolean", keyed_split("control"), keyed_split("null"), FIRST_KEY_ATTR),
+            ("string", keyed_split("control", "string"), keyed_split("null", "string"), FIRST_KEY_ATTR),
             (
                 # A held key stays with its rule's experiment, so a new rule cannot take it over.
                 "held_by_another_rule",
@@ -198,7 +205,7 @@ class TestExperimentRules(AdmittedV2TestCase):
         response = self.patch_flag(flag, {"version": 3, "filters": submitted})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         body = response.json()
-        assert (body["code"], body["attr"], body["detail"]) == ("invalid_input", attr, NULL_KEY_DETAIL)
+        assert (body["code"], body["attr"], body["detail"]) == ("invalid_input", attr, reserved_key_detail("null"))
         flag.refresh_from_db()
         assert (flag.filters, flag.version) == (stored, 3)
 

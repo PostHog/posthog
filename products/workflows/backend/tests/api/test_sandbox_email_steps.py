@@ -554,14 +554,17 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
             ("flag_off", False, False, OWN_EMAIL_STEP_ID, "PostHog test sender isn't available"),
             ("organization_blocked", True, True, OWN_EMAIL_STEP_ID, "can't use the PostHog test sender"),
             ("step_id_the_provider_cannot_tag", True, False, "welcome:email", "Add a new email step"),
+            ("sensitive_step", True, False, OWN_EMAIL_STEP_ID, "This step is sensitive", True),
         ]
     )
     def test_the_email_patch_refuses_a_switch_the_sandbox_sender_cannot_take(
-        self, _name: str, enabled: bool, blocked: bool, step_id: str, refusal: str
+        self, _name: str, enabled: bool, blocked: bool, step_id: str, refusal: str, sensitive: bool = False
     ) -> None:
         if blocked:
             SandboxSenderOrganizationBlock.objects.create(organization=self.organization, reason="test")
         own_step = _own_email_step(self._verified_sender().id, step_id=step_id)
+        if sensitive:
+            own_step["config"]["sensitive"] = True
         flow = HogFlow.objects.create(team=self.team, name="Flow", status="draft", actions=[_trigger(), own_step])
 
         with _flag(enabled):
@@ -645,6 +648,7 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
                 "email_sandbox",
                 {"integrationId": None, "email": []},
             ),
+            ("mcp_sensitive_step", {"HTTP_X_POSTHOG_CLIENT": "mcp"}, True, False, "function_email", None, True),
             (
                 "mcp_with_the_run_link_tag_off",
                 {"HTTP_X_POSTHOG_CLIENT": "mcp"},
@@ -652,6 +656,7 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
                 False,
                 "function_email",
                 None,
+                False,
                 {"run_link_tag_enabled": False},
             ),
         ]
@@ -664,11 +669,14 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         verified: bool,
         expected_type: str,
         sender: Any = None,
+        sensitive: bool = False,
         config: dict | None = None,
     ) -> None:
         if verified:
             self._verified_sender()
         step = _own_email_step(None)
+        if sensitive:
+            step["config"]["sensitive"] = True
         if sender is not None:
             step["config"]["inputs"]["email"]["value"]["from"] = sender
         step["config"].update(config or {})

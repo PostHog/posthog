@@ -122,7 +122,7 @@ export interface evaluationPreviewLogicValues {
     everyTestErrored: boolean
     rows: EvaluationSampleTrafficItemApi[]
     samples: EvaluationSampleTrafficItemApi[] | null
-    samplesError: boolean
+    samplesError: string | null
     samplesKey: string
     samplesLoading: boolean
     testDiscarded: boolean
@@ -323,11 +323,12 @@ export const evaluationPreviewLogic = kea<evaluationPreviewLogicType>([
     })),
     reducers({
         samplesError: [
-            false,
+            null as string | null,
             {
-                loadSamples: () => false,
-                loadSamplesSuccess: () => false,
-                loadSamplesFailure: () => true,
+                loadSamples: () => null,
+                loadSamplesSuccess: () => null,
+                loadSamplesFailure: (_, { errorObject }) =>
+                    evaluationErrorMessage(errorObject, "Couldn't load matching traffic."),
             },
         ],
         testError: [

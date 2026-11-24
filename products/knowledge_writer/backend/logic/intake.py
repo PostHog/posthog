@@ -23,7 +23,7 @@ from .caps import (
     in_flight_writer_run_count,
 )
 from .grounding import read_source_diff
-from .launch import start_writer
+from .launch import rules_file_paths, start_writer
 from .pull_requests import (
     GITHUB_READ_ERRORS,
     OpenPullRequestsUnavailable,
@@ -43,11 +43,13 @@ from .records import (
     task_request,
 )
 from .routing import route_request
-from .server_commit import docs_branch_head
+from .server_commit import DocsCommitFailed, base_tree, docs_branch_head
 
 logger = structlog.get_logger(__name__)
 
 VERDICT_EVENT = "knowledge_writer verdict"
+MAX_RULES_FILE_BYTES = 256 * 1024
+MAX_RULES_TOTAL_BYTES = 1024 * 1024
 
 _verdict_validator = TypeAdapter(AdapterVerdict)
 
@@ -112,7 +114,10 @@ def launch_request(
     try:
         base_sha = docs_base_sha(writer)
         open_pull_requests = open_writer_pull_requests(writer)
-    except (*GITHUB_READ_ERRORS, OpenPullRequestsUnavailable) as error:
+        rules_text_by_path = (
+            {} if base_sha is None else docs_rules_texts(writer, base_sha, rules_file_paths(request, routing, writer))
+        )
+    except (*GITHUB_READ_ERRORS, OpenPullRequestsUnavailable, DocsCommitFailed) as error:
         raise WriterLaunchDeferred("the docs repository could not be read") from error
     if base_sha is None:
         return IntakeOutcome(status="unconfigured")
@@ -128,7 +133,8 @@ def launch_request(
             team=team,
             writer=writer,
             base_sha=base_sha,
-            source_diff=read_source_diff(source_github(team_id, source_change), source_change),
+            source_diff=read_source_diff(source_github(team_id, source_change, writer.docs_repository), source_change),
+            rules_text_by_path=rules_text_by_path,
             before_task_create=lambda: admit_launch(writer, listed_open_count, request, replacing_task_id),
         )
     except WriterCapReached:
@@ -238,6 +244,22 @@ def docs_base_sha(writer: WriterSettings) -> str | None:
     if github is None:
         return None
     return docs_branch_head(github, writer.docs_repository)
+
+
+def docs_rules_texts(writer: WriterSettings, base_sha: str, rules_paths: frozenset[str]) -> dict[str, str]:
+    github = docs_github(writer.team_id, writer.docs_repository.split("/", 1)[0], priority=Priority.NORMAL)
+    if github is None:
+        return {}
+    texts = base_tree(github, writer.docs_repository, base_sha, rules_paths, max_text_bytes=MAX_RULES_FILE_BYTES).texts
+    kept_texts: dict[str, str] = {}
+    kept_bytes = 0
+    for path in sorted(texts, key=lambda rules_path: (rules_path.count("/"), rules_path)):
+        text = texts[path]
+        if text is None or kept_bytes + len(text.encode()) > MAX_RULES_TOTAL_BYTES:
+            continue
+        kept_texts[path] = text
+        kept_bytes += len(text.encode())
+    return kept_texts
 
 
 def capture_verdict(verdict: AdapterVerdict, *, team_id: int) -> None:
