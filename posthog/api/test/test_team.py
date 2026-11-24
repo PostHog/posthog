@@ -4803,6 +4803,12 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
                 ["legacy"],
                 {"mobile": {"maskAllText": True}},
             ],
+            [
+                "invalid stored mobile keys dropped",
+                {"mobile": {"maskAllText": True}},
+                {"mobile": {"maskAllImages": "yes", "unknown": True}},
+                {"mobile": {"maskAllText": True}},
+            ],
         ]
     )
     def test_merge_session_recording_masking_config(

@@ -329,7 +329,13 @@ def merge_session_recording_masking_config(requested: dict | None, existing: obj
     merged = {key: value for key, value in web_source.items() if key != "mobile"}
 
     stored_mobile = stored.get("mobile")
-    mobile = {**(stored_mobile if isinstance(stored_mobile, dict) else {}), **requested.get("mobile", {})}
+    # Keep only valid stored keys, so a value saved outside the API cannot fail the next round trip.
+    kept_mobile = (
+        {k: v for k, v in stored_mobile.items() if k in MASKING_CONFIG_MOBILE_KEYS and isinstance(v, bool)}
+        if isinstance(stored_mobile, dict)
+        else {}
+    )
+    mobile = {**kept_mobile, **requested.get("mobile", {})}
     if mobile:
         merged["mobile"] = mobile
     return merged
