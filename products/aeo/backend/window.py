@@ -80,7 +80,7 @@ def _parse_day(value: str, tz: ZoneInfo, now: dt.datetime, *, field: str) -> dt.
     if not _RELATIVE_DAY.fullmatch(value):
         try:
             parser.isoparse(value)
-        except ValueError:
+        except (ValueError, OverflowError):
             raise InvalidDateRangeError(field, f"'{value}' is not a valid {field}. {_FORMAT_HELP}")
     try:
         return relative_date_parse(value, tz, now=now).date()
