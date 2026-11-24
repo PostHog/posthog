@@ -6,9 +6,10 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import Database, JoinIntoModel
 from posthog.hogql.errors import QueryError, ResolutionCycleError, ResolutionDepthExceededError
 from posthog.hogql.parser import parse_select
+from posthog.hogql.printer.utils import prepare_and_print_ast
 from posthog.hogql.resolver import resolve_types
 
 from products.data_modeling.backend.facade.contracts import ModelRenameBlocked, ModelRenameJoin, ModelRenameRefusedError
@@ -757,6 +758,31 @@ class TestRenameModelReferences(BaseTest):
             "select other.back.id as id from other",
         ]:
             assert self._resolves(query), query
+
+    def test_renamed_catalog_points_joins_into_the_model_at_its_new_name(self):
+        columns = {"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}}
+        for name in ["src", "other"]:
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team, name=name, query={"query": "select 1 as id"}, columns=columns
+            )
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="other",
+            source_table_key="id",
+            joining_table_name="src",
+            joining_table_key="id",
+            field_name="back",
+        )
+        database = Database.create_for(team=self.team).with_model_renamed(
+            "src",
+            "target",
+            joins_into_model=[JoinIntoModel(source_table_name="other", field_name="back", joining_table_name="target")],
+        )
+        context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True, database=database)
+
+        printed, _ = prepare_and_print_ast(parse_select("select other.back.id from other"), context, "clickhouse")
+
+        assert "other__back" in printed, printed
 
     @parameterized.expand(
         [

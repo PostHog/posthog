@@ -10,7 +10,7 @@ from django.db.models import Q, QuerySet
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql.compilation import CompilationBudget, compilation_budget
-from posthog.hogql.database.database import Database, is_authored_model
+from posthog.hogql.database.database import Database, JoinIntoModel, is_authored_model
 from posthog.hogql.errors import BaseHogQLError, CompilationBudgetExceededError
 
 from posthog.dataclasses import frozen
@@ -213,10 +213,23 @@ def _readers_hiding_a_name(
 
 
 def _renamed_catalog(
-    database: Database, old_name: str, new_name: str, rewritten_queries: dict[str, str]
+    database: Database,
+    old_name: str,
+    new_name: str,
+    rewritten_queries: dict[str, str],
+    renamed_joins: list[ModelRenameJoin],
 ) -> Database | None:
+    joins_into_model = [
+        JoinIntoModel(
+            source_table_name=join.source_table_name_after,
+            field_name=join.field_name,
+            joining_table_name=join.joining_table_name_after,
+        )
+        for join in renamed_joins
+        if join.joining_table_name_after != join.joining_table_name_before
+    ]
     try:
-        return database.with_model_renamed(old_name, new_name, rewritten_queries)
+        return database.with_model_renamed(old_name, new_name, rewritten_queries, joins_into_model)
     except KeyError:
         return None
 
@@ -298,9 +311,9 @@ def _compute_within_budget(team: Team, saved_query_id: uuid.UUID, new_name: str,
                     serving[rewrite.dependent.pk] = None
         rewritten_queries = {rewrite.dependent.name: rewrite.after for rewrite in spliced}
         # Every rewrite is checked as if all of them landed: a rename applies only when none is blocked.
-        renamed_database = _renamed_catalog(database, renamed.name, new_name, rewritten_queries)
+        renamed_database = _renamed_catalog(database, renamed.name, new_name, rewritten_queries, renamed_joins)
         renamed_serving_database = (
-            _renamed_catalog(serving_database, renamed.name, new_name, rewritten_queries)
+            _renamed_catalog(serving_database, renamed.name, new_name, rewritten_queries, renamed_joins)
             if serving_database is not None
             else None
         )
@@ -340,7 +353,9 @@ def _compute_within_budget(team: Team, saved_query_id: uuid.UUID, new_name: str,
         )
     if renamed_joins:
         blocked.extend(
-            _renamed_join_destinations(renamed, renamed_joins, _renamed_catalog(database, renamed.name, new_name, {}))
+            _renamed_join_destinations(
+                renamed, renamed_joins, _renamed_catalog(database, renamed.name, new_name, {}, renamed_joins)
+            )
         )
 
     join_fingerprint = [
