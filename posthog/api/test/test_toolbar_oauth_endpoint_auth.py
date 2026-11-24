@@ -369,7 +369,6 @@ class TestToolbarOAuthScopesConfig(SimpleTestCase):
         "heatmap:read",
         "element:read",
         "event_definition:read",
-        "event_definition:write",
         "uploaded_media:write",
         "user:read",
     ]
