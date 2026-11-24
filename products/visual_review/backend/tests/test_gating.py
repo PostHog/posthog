@@ -23,7 +23,7 @@ from parameterized import parameterized
 from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
 from products.visual_review.backend.facade.enums import ReviewState, RunStatus, RunType, SnapshotResult
-from products.visual_review.backend.logic import approvals, artifact_store, repos, runs, toleration
+from products.visual_review.backend.logic import approvals, artifact_store, gating, repos, runs, toleration
 from products.visual_review.backend.models import QuarantinedIdentifier, Run
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
@@ -141,6 +141,7 @@ class TestGatingInvariants:
         assert gate_passes is expected_gate_passes
         # The detail read counts in SQL; recompute applies `_is_unresolved` in Python.
         assert api.get_run(run.id, team_id=self.team.id).summary.unresolved == recompute_result["unresolved"]
+        assert gating.count_hidden_by_quarantine(run) == gating._hidden_by_quarantine(list(run.snapshots.all()))
 
     @parameterized.expand(GATE_CASES)
     def test_raw_counts_reflect_classifier_truth(self, _name, result, action, _expected_gate, expected_changed_count):

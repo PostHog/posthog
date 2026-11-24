@@ -18,6 +18,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
+from products.feature_flags.backend.models import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
 
@@ -303,6 +304,95 @@ class TestResourceTransferTransfer(APIBaseTest):
         data = response.json()
         assert data["count"] >= 1
         assert any(r["kind"] == "Insight" for r in data["created_resources"])
+
+    @parameterized.expand(
+        [
+            (
+                "reserved_key",
+                {"multivariate": {"variants": [{"key": "control"}, {"key": "false"}]}},
+                'The variant key "false" is reserved. Choose another key.',
+            ),
+            (
+                "keyless",
+                {"multivariate": {"variants": [{"key": "control"}, {"rollout_percentage": 50}]}},
+                "multivariate.variants[1].key must be a string.",
+            ),
+            (
+                "v2_reserved_string_value",
+                {"version": 2, "return_type": "string", "default_value": "false", "rules": []},
+                'filters.default_value: Must be null or a non-empty string other than "false", "null", "true", '
+                "$false or $true.",
+            ),
+            ("v2_missing_fields", {"version": 2}, "filters.return_type: This field is required."),
+            (
+                "v2_null_rule",
+                {"version": 2, "return_type": "string", "default_value": "ok", "rules": [None]},
+                "filters.rules[0]: Must be an object.",
+            ),
+        ]
+    )
+    def test_transfer_refuses_a_flag_with_a_variant_a_new_flag_may_not_store(
+        self, _name: str, filters: dict[str, Any], detail: str
+    ) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, key="split")
+        # FeatureFlag.save() refuses a keyless variant, so the stored row is written with QuerySet.update.
+        FeatureFlag.objects.filter(pk=flag.pk).update(filters=filters)
+
+        response = self.client.post(
+            self._transfer_url(),
+            {
+                "source_team_id": self.team.pk,
+                "destination_team_id": self.dest_team.pk,
+                "resource_kind": "FeatureFlag",
+                "resource_id": str(flag.pk),
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"] == detail
+        assert not FeatureFlag.objects.filter(team=self.dest_team).exists()
+
+    def test_transfer_copies_a_valid_v2_flag(self) -> None:
+        experiment_rule = {
+            "id": "d3e4f5a6-b7c8-4d9e-a0f1-2b3c4d5e6f70",
+            "seed": "c0ffee00-1a2b-4c3d-9e8f-5a6b7c8d9e0f",
+            "rule_type": "experiment",
+            "targeting": {"properties": []},
+            "paused": False,
+            "rollout_percentage": 50,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "variants": [
+                {"key": "control", "weight": 50, "value": "off"},
+                {"key": "test", "weight": 50, "value": "on"},
+            ],
+        }
+        targeted_rule = {
+            "id": "3f3b7a9e-8f2e-4f4b-9c7d-2a1e5b6c8d90",
+            "rule_type": "targeted_release",
+            "targeting": {"properties": []},
+            "value": "on",
+        }
+        filters = {
+            "version": 2,
+            "return_type": "string",
+            "default_value": "off",
+            "rules": [experiment_rule, targeted_rule],
+        }
+        flag = FeatureFlag.objects.create(team=self.team, key="v2-flag", filters=filters)
+
+        response = self.client.post(
+            self._transfer_url(),
+            {
+                "source_team_id": self.team.pk,
+                "destination_team_id": self.dest_team.pk,
+                "resource_kind": "FeatureFlag",
+                "resource_id": str(flag.pk),
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert FeatureFlag.objects.get(team=self.dest_team).filters == filters
 
     def test_transfer_with_substitution_uses_existing_resource(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")

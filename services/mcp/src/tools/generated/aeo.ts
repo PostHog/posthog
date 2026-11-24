@@ -261,7 +261,8 @@ const aeoKeywordsModifiersGet = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_keywords/modifiers/`,
             query: {
                 branded: params.branded,
-                days: params.days,
+                date_from: params.date_from,
+                date_to: params.date_to,
                 engine: params.engine,
                 keyword: params.keyword,
                 topic: params.topic,
@@ -286,7 +287,8 @@ const aeoKeywordsReportGet = (): ToolBase<ReturnType<typeof AeoKeywordsReportGet
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_keywords/report/`,
             query: {
                 branded: params.branded,
-                days: params.days,
+                date_from: params.date_from,
+                date_to: params.date_to,
                 engine: params.engine,
                 topic: params.topic,
             },
@@ -418,7 +420,8 @@ const aeoPromptsCitationsList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/citations/`,
             query: {
                 branded: params.branded,
-                days: params.days,
+                date_from: params.date_from,
+                date_to: params.date_to,
                 domain: params.domain,
                 engine: params.engine,
                 include_answer_text: params.include_answer_text,
@@ -512,7 +515,8 @@ const aeoPromptsList = (): ToolBase<
             query: {
                 active: params.active,
                 branded: params.branded,
-                days: params.days,
+                date_from: params.date_from,
+                date_to: params.date_to,
                 engine: params.engine,
                 include_archived: params.include_archived,
                 limit: params.limit,
@@ -554,7 +558,8 @@ const aeoPromptsOverviewGet = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/overview/`,
             query: {
                 branded: params.branded,
-                days: params.days,
+                date_from: params.date_from,
+                date_to: params.date_to,
                 engine: params.engine,
                 topic: params.topic,
             },
@@ -581,7 +586,8 @@ const aeoPromptsRankingsGet = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/rankings/`,
             query: {
                 branded: params.branded,
-                days: params.days,
+                date_from: params.date_from,
+                date_to: params.date_to,
                 engine: params.engine,
                 topic: params.topic,
             },

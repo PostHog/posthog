@@ -26,6 +26,8 @@ import {
   entryTime,
   normalizeMethod,
   strAttr,
+  toolFailureReason,
+  toolNameAttribute,
   usageAttributes,
 } from "./otel-attributes";
 import type { StoredNotification } from "./types";
@@ -262,6 +264,7 @@ export class RunTraceBuilder {
     const parentContext = this.turnContext ?? this.rootContext;
     const attributes: Attributes = { tool_kind: kind };
     if (toolCallId) attributes.tool_call_id = toolCallId;
+    strAttr(attributes, "tool_name", toolNameAttribute(update));
 
     const span = this.tracer.startSpan(
       // Kind (read/edit/execute/...) is a small enum, so per-kind span names
@@ -276,7 +279,7 @@ export class RunTraceBuilder {
     // which would otherwise report a known outcome as unterminated.
     const status = update.status;
     if (status === "completed" || status === "failed") {
-      this.settleTool(span, status, time);
+      this.settleTool(span, status, update, time);
       return context;
     }
     if (toolCallId) {
@@ -292,9 +295,13 @@ export class RunTraceBuilder {
   private settleTool(
     span: Span,
     status: "completed" | "failed",
+    update: Record<string, unknown>,
     time: Date,
   ): void {
     span.setAttribute("tool_status", status);
+    if (status === "failed") {
+      span.setAttribute("tool_failure_reason", toolFailureReason(update));
+    }
     span.setStatus({
       code: status === "failed" ? SpanStatusCode.ERROR : SpanStatusCode.OK,
     });
@@ -311,7 +318,7 @@ export class RunTraceBuilder {
 
     const status = update.status;
     if (status === "completed" || status === "failed") {
-      this.settleTool(open.span, status, time);
+      this.settleTool(open.span, status, update, time);
       this.toolSpans.delete(toolCallId);
     }
     return open.context;

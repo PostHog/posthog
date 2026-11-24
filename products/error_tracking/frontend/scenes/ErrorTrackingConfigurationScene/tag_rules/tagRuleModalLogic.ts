@@ -304,7 +304,7 @@ export const tagRuleModalLogic = kea<tagRuleModalLogicType>([
             LemonDialog.open({
                 title: 'Remove this tag from existing issues?',
                 description:
-                    'The filters now read different event properties, so saving removes this tag from every issue that has it. New issues get the tag when their first exception matches the new filters.',
+                    'The filters now read different event properties, so saving removes this tag from every issue that has it. New issues get the tag when their first exception matches the new filters. Other issues get it back in the next daily check if they had a matching exception in the past day. Filters on the exception list check only the first exception.',
                 primaryButton: { children: 'Save', status: 'danger', onClick: () => actions.persistRule() },
                 secondaryButton: { children: 'Cancel' },
             })

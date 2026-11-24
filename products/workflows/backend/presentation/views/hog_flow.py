@@ -235,7 +235,9 @@ from products.workflows.backend.facade.email_design import (
 )
 from products.workflows.backend.facade.email_health import (
     email_domain_sharers,
+    email_infrastructure_health_enabled,
     fetch_aws_tenant_reputation,
+    fetch_email_infrastructure_health,
     fetch_email_totals_by_source,
     fetch_isp_metrics,
     fold_email_totals,
@@ -3326,6 +3328,80 @@ class IspSendingHealthSerializer(serializers.Serializer):
     )
 
 
+class EmailSendingNextTierSerializer(serializers.Serializer):
+    """What the project needs to do for the daily tier check to raise its allowance one step."""
+
+    emails_per_day = serializers.IntegerField(read_only=True, help_text="How many emails the next tier allows per day.")
+    daily_target = serializers.IntegerField(
+        read_only=True, help_text="Emails the project must send in a day for that day to count toward the next tier."
+    )
+    days_required = serializers.IntegerField(
+        read_only=True, help_text="Separate days the project must reach daily_target on."
+    )
+    days_reached = serializers.IntegerField(
+        read_only=True,
+        help_text="Days since the last tier change the project reached daily_target on, up to days_required.",
+    )
+    not_before = serializers.DateTimeField(
+        read_only=True,
+        help_text="The earliest time the next tier can be granted, counted from the last tier change or, before any change, from project creation.",
+    )
+
+
+class EmailSendingRecentRatesSerializer(serializers.Serializer):
+    """Rates over the short window the daily tier check demotes on, with the limits it applies."""
+
+    window_days = serializers.IntegerField(read_only=True, help_text="Days the rates cover.")
+    emails_sent = serializers.IntegerField(read_only=True, help_text="Workflow emails sent in the window.")
+    bounce_rate = serializers.FloatField(read_only=True, help_text="Hard bounces divided by emails sent, from 0 to 1.")
+    complaint_rate = serializers.FloatField(
+        read_only=True, help_text="Spam complaints divided by emails sent, from 0 to 1."
+    )
+    complaints = serializers.IntegerField(
+        read_only=True,
+        help_text="Spam complaints received in the window, including complaints about emails sent before it.",
+    )
+    max_bounce_rate = serializers.FloatField(read_only=True, help_text="Bounce rate above which the allowance drops.")
+    max_complaint_rate = serializers.FloatField(
+        read_only=True, help_text="Spam complaint rate above which the allowance drops."
+    )
+    bounces_within_limits = serializers.BooleanField(
+        read_only=True,
+        help_text="False when the daily check would lower the allowance because of bounces. A window with too few "
+        "emails to judge counts as within limits.",
+    )
+    complaints_within_limits = serializers.BooleanField(
+        read_only=True,
+        help_text="False when the daily check would lower the allowance because of spam complaints. A window with too "
+        "few emails and complaints to judge counts as within limits.",
+    )
+
+
+EMAIL_SENDING_ALLOWANCE_CHANGE_REASONS = [
+    "clean_and_used",
+    "trusted_account",
+    "inactive",
+    "rates_above_threshold",
+    "workflow_auto_paused",
+    "ses_reputation_high",
+    "ses_tenant_paused",
+    "staff_suspension",
+    "staff_set",
+]
+
+
+class EmailSendingAllowanceChangeSerializer(serializers.Serializer):
+    changed_at = serializers.DateTimeField(read_only=True, help_text="When the allowance changed.")
+    previous_emails_per_day = serializers.IntegerField(
+        read_only=True, help_text="Emails allowed per day before the change."
+    )
+    emails_per_day = serializers.IntegerField(read_only=True, help_text="Emails allowed per day after the change.")
+    reason = serializers.CharField(
+        read_only=True,
+        help_text="Why the allowance changed. One of: " + ", ".join(EMAIL_SENDING_ALLOWANCE_CHANGE_REASONS) + ".",
+    )
+
+
 class EmailSendingAllowanceSerializer(serializers.Serializer):
     """How much workflow email this project may send, and how much of that it has used."""
 
@@ -3352,6 +3428,49 @@ class EmailSendingAllowanceSerializer(serializers.Serializer):
         allow_null=True,
         help_text="The largest audience a single email batch may reach when its sending rate limit is slow enough. "
         "Null when no rate limit raises max_batch_audience.",
+    )
+    next_tier = EmailSendingNextTierSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="How to reach the next tier. Null at the top tier or when PostHog set the tier by hand.",
+    )
+    recent_rates = EmailSendingRecentRatesSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="The rates the daily tier check demotes on. Null when PostHog set the tier by hand.",
+    )
+    recent_changes = EmailSendingAllowanceChangeSerializer(
+        many=True, read_only=True, help_text="Allowance changes from the last 90 days, newest first, at most 5."
+    )
+
+
+class EmailInfrastructureHealthSerializer(serializers.Serializer):
+    """How email from every project in this PostHog region fared, from AWS SES's own delivery data."""
+
+    emails_sent_at_least = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "A lower bound on the emails sent during the window, rounded down to one significant figure "
+            "(1,234,567 sent reads as 1,000,000). The exact count is not exposed."
+        ),
+    )
+    delivery_rate = serializers.FloatField(
+        read_only=True,
+        help_text=(
+            "Emails the recipients' mailbox providers accepted, divided by emails sent (0-1), rounded down "
+            "to 0.001. Acceptance is not inbox placement."
+        ),
+    )
+    bounce_rate = serializers.FloatField(
+        read_only=True,
+        help_text="Hard (permanent) bounces divided by emails sent (0-1), rounded up to 0.0001.",
+    )
+    complaint_rate = serializers.FloatField(
+        read_only=True,
+        help_text=(
+            "Spam complaints divided by deliveries to mailbox providers that report complaints (0-1), "
+            "rounded up to 0.0001."
+        ),
     )
 
 
@@ -3423,6 +3542,15 @@ class TeamEmailReputationResponseSerializer(serializers.Serializer):
             "The project's sending tier, what it allows, and how much of it has been used; null when the "
             "caller lacks project-wide workflow access. Tiers grow on their own as the project builds a clean "
             "sending record."
+        ),
+    )
+    infrastructure = EmailInfrastructureHealthSerializer(
+        allow_null=True,
+        read_only=True,
+        help_text=(
+            "Sending health across every project in this PostHog region over the last 30 whole days, which "
+            "all send through the same infrastructure. Null when AWS is unreachable or has no data, or "
+            "while the feature is not yet released to this project."
         ),
     )
 
@@ -8146,6 +8274,12 @@ class HogFlowViewSet(
                     # Same gate again: the allowance is project-wide, so an object-level grant is
                     # not enough to read it.
                     "sending_allowance": team_email_sending_allowance(self.team_id) if can_read_all_workflows else None,
+                    # Not project data, so no access gate: it covers every project in the region.
+                    "infrastructure": (
+                        fetch_email_infrastructure_health(self.REPUTATION_WINDOW_DAYS)
+                        if email_infrastructure_health_enabled(self.team)
+                        else None
+                    ),
                 }
             ).data
         )

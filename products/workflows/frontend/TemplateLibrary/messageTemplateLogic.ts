@@ -878,7 +878,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             try {
                 const updated = await messagingTemplatesPartialUpdate(String(values.currentTeamIdStrict), props.id, {
                     // The form type still allows the legacy 'hog' templating, which templates never use.
-                    draft_content: content as MessageTemplateContentApi,
+                    draft_content: { ...content, email: omitNullDesign(content.email) } as MessageTemplateContentApi,
                 })
                 actions.saveDraftDone(content, updated.updated_at)
             } catch {
