@@ -4,6 +4,7 @@ import typing as t
 import datetime as dt
 
 from django.db import connection
+from django.utils import timezone
 
 import grpc.aio
 import temporalio.common
@@ -14,7 +15,7 @@ from posthog.dataclasses import frozen
 from posthog.models import ProxyRecord
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.common.utils import on_asyncify_pool
+from posthog.temporal.common.utils import asyncify, on_asyncify_pool
 from posthog.temporal.proxy_service.cloudflare import (
     CloudflareAPIError,
     delete_custom_hostname,
@@ -26,6 +27,7 @@ from posthog.temporal.proxy_service.common import (
     UpdateProxyRecordInputs,
     activity_update_proxy_record,
     get_grpc_client,
+    is_cloudflare_proxy,
     is_cloudflare_proxy_by_cname,
     use_gateway_api,
 )
@@ -124,7 +126,7 @@ async def delete_managed_proxy(inputs: DeleteManagedProxyInputs):
         if e.code() == grpc.StatusCode.INVALID_ARGUMENT:
             raise NonRetriableException("invalid argument") from e
         if e.code() == grpc.StatusCode.NOT_FOUND:
-            raise NonRetriableException("not found") from e
+            return
         raise
 
 
@@ -169,6 +171,25 @@ async def delete_cloudflare_proxy(inputs: DeleteManagedProxyInputs):
                 raise NonRetriableException(f"Cloudflare API errors: {'; '.join(errors)}")
 
     await on_asyncify_pool(delete_resources)()
+
+
+@activity.defn
+@asyncify
+def record_proxy_deletion_failure(inputs: DeleteManagedProxyInputs) -> None:
+    from posthog.managed_proxy import cloudflare_proxy_lock  # noqa: PLC0415
+
+    with cloudflare_proxy_lock(inputs.proxy_record_id):
+        records = ProxyRecord.objects.filter(
+            organization_id=inputs.organization_id, pk=inputs.proxy_record_id, status=ProxyRecord.Status.DELETING
+        )
+        record = records.first()
+        if record is None:
+            return
+        # Cloudflare reconciliation must still know that the proxy was meant to be deleted.
+        failed_status = ProxyRecord.Status.DELETING if is_cloudflare_proxy(record) else ProxyRecord.Status.ERRORING
+        records.update(
+            status=failed_status, message="Could not delete the proxy. Try again.", updated_at=timezone.now()
+        )
 
 
 @workflow.defn(name="delete-proxy")
@@ -229,17 +250,22 @@ class DeleteManagedProxyWorkflow(PostHogWorkflow):
             )
 
         except Exception:
-            # Something went wrong - set the record to error state
-            await temporalio.workflow.execute_activity(
-                activity_update_proxy_record,
-                UpdateProxyRecordInputs(
-                    organization_id=inputs.organization_id,
-                    proxy_record_id=inputs.proxy_record_id,
-                    status=ProxyRecord.Status.ERRORING.value,
-                ),
-                start_to_close_timeout=dt.timedelta(seconds=60),
-                retry_policy=temporalio.common.RetryPolicy(
-                    maximum_attempts=10,
-                ),
-            )
+            if workflow.patched("record-proxy-deletion-failure"):
+                await temporalio.workflow.execute_activity(
+                    record_proxy_deletion_failure,
+                    inputs,
+                    start_to_close_timeout=dt.timedelta(seconds=60),
+                    retry_policy=temporalio.common.RetryPolicy(maximum_attempts=10),
+                )
+            else:
+                await temporalio.workflow.execute_activity(
+                    activity_update_proxy_record,
+                    UpdateProxyRecordInputs(
+                        organization_id=inputs.organization_id,
+                        proxy_record_id=inputs.proxy_record_id,
+                        status=ProxyRecord.Status.ERRORING.value,
+                    ),
+                    start_to_close_timeout=dt.timedelta(seconds=60),
+                    retry_policy=temporalio.common.RetryPolicy(maximum_attempts=10),
+                )
             raise

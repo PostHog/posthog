@@ -44,7 +44,8 @@ def _restore_cloudflare_proxy(record: ProxyRecord) -> None:
         update_cloudflare_proxy_root_redirect(record.domain, record.root_redirect_url)
 
 
-def _deprovision_cloudflare_proxy(record: ProxyRecord) -> None:
+def deprovision_cloudflare_proxy(record: ProxyRecord) -> None:
+    """Clean up a suspended proxy while the caller holds its reconciliation lock."""
     if record.cloudflare_deprovisioned:
         return
     hostname = get_custom_hostname_by_domain(record.domain)
@@ -104,7 +105,7 @@ def reconcile_cloudflare_proxy(
                 return True
 
         if not active:
-            _deprovision_cloudflare_proxy(record)
+            deprovision_cloudflare_proxy(record)
             return False
 
         _restore_cloudflare_proxy(record)
