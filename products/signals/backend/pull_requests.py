@@ -21,7 +21,7 @@ from products.signals.backend.report_content_gates import team_report_monitoring
 
 if TYPE_CHECKING:
     from products.signals.backend.implementation_pr import ImplementationPr
-    from products.signals.backend.report_assignments import PullRequestDetails
+    from products.signals.backend.report_assignments import MergerLookups, PullRequestDetails
 
 logger = structlog.get_logger(__name__)
 
@@ -88,8 +88,9 @@ def reconcile_reports_for_pull_request(*, team_id: int, pr_id: str) -> None:
             .filter(team_id=team_id, id__in=report_ids)
             .order_by("id")
         )
+        merger_lookups: MergerLookups = {}
         for report in reports:
-            apply_report_completion(report)
+            apply_report_completion(report, merger_lookups=merger_lookups)
             schedule_report_replacements(team_id, str(report.id))
 
 
@@ -257,7 +258,7 @@ def _repair_missing_merge_times(report: SignalReport, prs: Sequence["Implementat
         )
 
 
-def apply_report_completion(report: SignalReport) -> None:
+def apply_report_completion(report: SignalReport, *, merger_lookups: "MergerLookups | None" = None) -> None:
     from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
     from products.signals.backend.report_assignments import _apply_pr_report_state
     from products.signals.backend.supersession import pending_replacement
@@ -273,7 +274,13 @@ def apply_report_completion(report: SignalReport) -> None:
         merged_prs = [pr for pr in prs if pr.state == "merged"]
         merge_times = [pr.merged_at for pr in merged_prs if pr.merged_at is not None]
         merged_at = max(merge_times) if merge_times and len(merge_times) == len(merged_prs) else None
-        _apply_pr_report_state(report, state, merged_at=merged_at, prs=[pr for pr in prs if pr.state == state])
+        _apply_pr_report_state(
+            report,
+            state,
+            merged_at=merged_at,
+            prs=[pr for pr in prs if pr.state == state],
+            merger_lookups=merger_lookups,
+        )
         if (
             state == "merged"
             and merged_at is None
@@ -406,8 +413,9 @@ def update_pull_request_state(
         from products.signals.backend.inbox_push_notifications import schedule_pull_request_ready_push
 
         schedule_pull_request_ready_push(pr, previous_state=previous_state)
+        merger_lookups: MergerLookups = {}
         for report in reports:
-            apply_report_completion(report)
+            apply_report_completion(report, merger_lookups=merger_lookups)
         return len(reports)
 
 

@@ -166,6 +166,7 @@ class TestCaptureStatusChangeAnalytics(BaseTest):
                 "pr_attacher",
             ),
             ("merge_ignores_a_login_another_account_holds", "merged", None, None, None, "other_account", None, None),
+            ("merge_ignores_a_merger_with_no_github_id", "merged", None, None, None, "no_id", None, None),
         ]
     )
     def test_pr_state_transition_credits_work_owner_as_system_actor(
