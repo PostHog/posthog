@@ -39,7 +39,7 @@ from products.tasks.backend.logic.services.gateway_model_pin import (
     model_allowed_by_product_pin,
 )
 from products.tasks.backend.logic.services.run_actor import is_slack_interaction_state
-from products.tasks.backend.logic.services.sandbox_config import MAX_SANDBOX_TTL_SECONDS
+from products.tasks.backend.logic.services.sandbox_config import MAX_SANDBOX_TTL_SECONDS, sandbox_ai_gateway_worker_url
 
 if TYPE_CHECKING:
     from posthog.llm.gateway_client import AIGatewayConfig
@@ -345,8 +345,8 @@ def token_cap_usd(team_id: int, ai_product: str) -> str:
 
 
 def revoke_scoped_token(token: str, *, gateway_config: "AIGatewayConfig | None" = None) -> None:
-    gateway_url = gateway_config.url if gateway_config is not None else settings.SANDBOX_AI_GATEWAY_URL
-    base_url = (gateway_url or "").rstrip("/").removesuffix("/v1")
+    gateway_url = gateway_config.url if gateway_config is not None else sandbox_ai_gateway_worker_url()
+    base_url = gateway_url.rstrip("/").removesuffix("/v1")
     mint_key = gateway_config.api_key if gateway_config is not None else settings.SANDBOX_AI_GATEWAY_MINT_KEY
     if not base_url or not mint_key:
         raise GatewayNotConfiguredError("The AI gateway mint configuration is required to revoke a private token")
@@ -435,8 +435,8 @@ def mint_scoped_token(
     backoff. Private callers require an acknowledged capture pin and fail closed on None.
     `raise_on_failure` preserves retryability for callers that cannot use a fallback gateway.
     """
-    gateway_url = gateway_config.url if gateway_config is not None else settings.SANDBOX_AI_GATEWAY_URL
-    base_url = (gateway_url or "").rstrip("/").removesuffix("/v1")
+    gateway_url = gateway_config.url if gateway_config is not None else sandbox_ai_gateway_worker_url()
+    base_url = gateway_url.rstrip("/").removesuffix("/v1")
     mint_key = gateway_config.api_key if gateway_config is not None else settings.SANDBOX_AI_GATEWAY_MINT_KEY
     if not base_url or not mint_key:
         return None
