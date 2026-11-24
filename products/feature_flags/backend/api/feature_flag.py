@@ -2042,10 +2042,6 @@ class FeatureFlagSerializer(
     def _readable_flags(self, queryset: QuerySet[FeatureFlag]) -> QuerySet[FeatureFlag]:
         """Narrow a flag queryset to the flags the caller can read, as the retrieve and keys endpoints do."""
         request = self.context.get("request")
-        # An approved change was validated against its author's access when submitted, so the approver's own
-        # access does not narrow it.
-        if self.context.get("approval_apply"):
-            return queryset
         user = getattr(request, "user", None)
         if user is not None and user.is_anonymous:
             return queryset.none()

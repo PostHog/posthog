@@ -278,34 +278,6 @@ class TestFeatureFlagDependencyRuntime(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
 
-    @parameterized.expand([("direct_write", False, False), ("approved_replay", True, True)])
-    def test_approval_replay_does_not_narrow_dependencies_to_the_approvers_access(
-        self, _name: str, approval_apply: bool, expect_valid: bool
-    ) -> None:
-
-        from rest_framework.test import APIRequestFactory
-
-        from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
-
-        hidden = self._hidden_flag_as_member("hidden_dependency", "all")
-        dependent = self._flag("dependent", "all")
-        request = APIRequestFactory().patch("/")
-        request.user = self._create_user("approver@posthog.com", level=1)
-        context = {
-            "request": request,
-            "team": self.team,
-            "team_id": self.team.id,
-            "project_id": self.team.project_id,
-            "get_team": lambda: self.team,
-            "approval_apply": approval_apply,
-        }
-
-        serializer = FeatureFlagSerializer(
-            instance=dependent, data={"filters": _depends_on(hidden.id)}, partial=True, context=context
-        )
-
-        assert serializer.is_valid() is expect_valid, serializer.errors
-
     @parameterized.expand([("plus_sign", "+{id}"), ("space", " {id}"), ("underscore", "{id}_0"), ("arabic_digit", "٧")])
     def test_adding_a_non_canonical_flag_reference_is_rejected(self, _name: str, template: str) -> None:
         target = self._flag("target", "all")
