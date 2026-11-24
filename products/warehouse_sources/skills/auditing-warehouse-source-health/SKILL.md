@@ -35,7 +35,7 @@ them if they appear, but route them to the relevant team rather than diagnosing 
 | --------------------------------------------- | ------------------------------------------------------------------ |
 | `data-warehouse-data-health-issues-retrieve`  | One-shot: all failed/degraded items across the whole pipeline      |
 | `external-data-sources-list`                  | All sources with status and latest error                           |
-| `external-data-schemas-list`                  | All schemas with status, last_synced_at, latest_error              |
+| `external-data-schemas-list`                  | All schemas with status, last_checked_at, latest_error             |
 | `external-data-sources-webhook-info-retrieve` | Check per-source webhook state (not covered by data-health-issues) |
 
 The `data-health-issues` endpoint aggregates across the whole pipeline — it's the fastest path to a summary. Filter
@@ -115,8 +115,31 @@ The exact format is less important than: prioritized, grouped, actionable, and h
 If the user wants more than just "what's on fire" — e.g. "what else should I look at?" — cross-check:
 
 **Stale but "Completed" schemas:**
-Call `external-data-schemas-list` and look for schemas with old `last_synced_at` relative to their `sync_frequency`.
-A schema on `1hour` frequency that last synced 3 days ago is effectively broken even if status says `Completed`.
+Call `external-data-schemas-list` with `compact: false`, because the compact rows leave out `sync_frequency`. For each
+enabled `Completed` schema, compare `last_checked_at` with `sync_frequency`. `last_checked_at` is the start of the last
+successful sync, including syncs that found no new rows. A schema on `1hour` frequency with a `last_checked_at` from 3
+days ago is effectively broken, even if status says `Completed`.
+
+Do not judge staleness by `last_synced_at`. It moves only when a sync loads new rows. A quiet source, such as a table
+with few writes, can have an old `last_synced_at` while every sync succeeds. Report that as "no new data", not as a
+broken sync.
+
+`last_checked_at` is null until the first successful sync. For a schema whose last successful sync ran before PostHog
+recorded `last_checked_at`, the API returns `last_synced_at` in its place. So when `last_checked_at` is null, or is old
+and equal to `last_synced_at`, check the job history before you call the schema broken. Query
+`system.source_sync_jobs` with `execute-sql`:
+
+```sql
+SELECT status, rows_synced, created_at, finished_at, latest_error
+FROM system.source_sync_jobs
+WHERE schema_id = '<schema id>'
+ORDER BY created_at DESC
+LIMIT 10
+```
+
+- Recent `Completed` jobs, some with `rows_synced = 0` → the sync works and the source is quiet. This is not an issue.
+- No recent jobs → no sync runs. Report the schema as stale.
+- Recent `Failed` jobs → report the latest error and hand off to `diagnosing-failed-warehouse-syncs`.
 
 **Sources with zero sync activity:**
 Sources where every schema has `should_sync: false` or `status = Paused`. These were set up and then abandoned —
@@ -163,6 +186,8 @@ Any fix should be confirmed explicitly before executing.
   (or will be, once they try to sync again). The user needs to understand the blast radius.
 - **Billing limits aren't technical problems.** Flag them but route to billing / quota discussion, not to a
   recovery action.
+- **An old `last_synced_at` alone does not prove a failed sync.** It moves only when new rows load. Judge staleness
+  with `last_checked_at`, and check the job history when that field is null or a legacy value.
 - **`data-health-issues` only surfaces active failures.** For staleness or abandoned sources you need to cross-check
   the list endpoints. Only do this when the user explicitly asks for a deeper audit.
 - **Webhook health is separate from schema health.** The data-health endpoint doesn't know about webhook state.
