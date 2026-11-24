@@ -38,6 +38,40 @@ function OutputRow({
     )
 }
 
+function OutputFooter({
+    dataframeResult,
+    isEditable,
+    returnVariable,
+    onReturnVariableChange,
+    footerExtra,
+}: Pick<
+    NotebookJupyterCellOutputProps,
+    'dataframeResult' | 'isEditable' | 'returnVariable' | 'onReturnVariableChange' | 'footerExtra'
+>): JSX.Element | null {
+    if (!isEditable || (!dataframeResult && !footerExtra)) {
+        return null
+    }
+    return (
+        <OutputRow className="MarkdownNotebook__jupyter-output-area--muted flex flex-wrap items-center gap-3">
+            {dataframeResult && (
+                <label className="flex items-center gap-1.5 text-xxs">
+                    <span>Saved as</span>
+                    <input
+                        type="text"
+                        className="w-44 px-1 text-xxs font-mono bg-transparent rounded border border-transparent hover:border-primary focus:border-primary focus:outline-none text-secondary"
+                        value={returnVariable}
+                        onChange={(event) => onReturnVariableChange(event.target.value)}
+                        placeholder="Output dataframe name"
+                        aria-label="Output dataframe name"
+                        spellCheck={false}
+                    />
+                </label>
+            )}
+            {footerExtra}
+        </OutputRow>
+    )
+}
+
 /**
  * A code cell's output area in Jupyter mode: printed streams first, then the cell's value under an
  * `Out[n]:` prompt, the way Jupyter orders stream, display, and execute-result outputs.
@@ -68,7 +102,7 @@ export function NotebookJupyterCellOutput({
     const hasValueRow = !!resultText || (!!dataframeResult && !runError)
     const leadingPrompt = interactivePrompt && !hasValueRow ? { prompt: outPrompt } : {}
 
-    if (!status && !result?.stdout && !result?.stderr && !runError && !hasValue) {
+    if (!status && !result?.stdout && !result?.stderr && !runError && !hasValue && !footerExtra) {
         return interactivePrompt ? <OutputRow prompt={outPrompt}>{null}</OutputRow> : null
     }
 
@@ -126,23 +160,13 @@ export function NotebookJupyterCellOutput({
                     )}
                 </OutputRow>
             ) : null}
-            {dataframeResult && isEditable ? (
-                <OutputRow className="MarkdownNotebook__jupyter-output-area--muted flex flex-wrap items-center gap-3">
-                    <label className="flex items-center gap-1.5 text-xxs">
-                        <span>Saved as</span>
-                        <input
-                            type="text"
-                            className="w-44 px-1 text-xxs font-mono bg-transparent rounded border border-transparent hover:border-primary focus:border-primary focus:outline-none text-secondary"
-                            value={returnVariable}
-                            onChange={(event) => onReturnVariableChange(event.target.value)}
-                            placeholder="Output dataframe name"
-                            aria-label="Output dataframe name"
-                            spellCheck={false}
-                        />
-                    </label>
-                    {footerExtra}
-                </OutputRow>
-            ) : null}
+            <OutputFooter
+                dataframeResult={dataframeResult}
+                isEditable={isEditable}
+                returnVariable={returnVariable}
+                onReturnVariableChange={onReturnVariableChange}
+                footerExtra={footerExtra}
+            />
         </div>
     )
 }
