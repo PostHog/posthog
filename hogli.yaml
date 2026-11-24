@@ -919,10 +919,6 @@ quality:
     lint:skills:
         cmd: python -m products.posthog_ai.scripts.build_skills --lint
         description: Validate agent skill sources (syntax, frontmatter, depth constraints)
-    report:skills:
-        cmd: python -m products.posthog_ai.scripts.build_skills --report
-        description: Report on the skills the MCP learn command serves (pointers to
-            unserved skills, flag mismatches, size, bot commits)
     lint:python:fix:
         cmd: ./bin/ruff.sh check --fix
         description: Fix Python code quality issues
