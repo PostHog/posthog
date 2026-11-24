@@ -44,8 +44,6 @@ class SkillLinter:
     def run(self) -> bool:
         """Run every check and report. Returns True if all checks pass."""
         self._check_names()
-        if not (self.repo_root / skill_audience.SERVED_SKILLS_FILE).is_file():
-            print("WARNING: MCP served-skills list not found; skipping the audience check.", file=sys.stderr)
         self.errors.extend(skill_audience._check_skill_audience(self.repo_root, self.skills))
         tool_names = tool_references._load_mcp_tool_names(self.repo_root)
         if tool_names is None:
