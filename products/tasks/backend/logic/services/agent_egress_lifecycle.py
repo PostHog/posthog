@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from products.tasks.backend.logic.services.agent_egress import AgentEgressRegistry
 from products.tasks.backend.logic.services.agent_egress_probe import (
     AGENT_EGRESS_CAPABILITY_REFRESH_SECONDS,
+    AgentEgressProbeCertificate,
     AgentEgressProbeConfig,
     AgentEgressProbeIssuer,
 )
@@ -47,6 +48,7 @@ class AgentEgressExecution(BaseModel):
     previous_relay_name: str | None = None
     owns_sandbox: bool = True
     capability_refresh_at: float = 0
+    certificate_refresh_at: float = 0
     closed: bool = False
     closed_executions: dict[str, float] = Field(default_factory=dict)
 
@@ -65,7 +67,11 @@ class AgentEgressLifecycle:
         self.execution_id = execution_id
         self.workflow_run_id = workflow_run_id
         self.provisioning_deadline = provisioning_deadline
-        self.config_sha256 = hashlib.sha256(config.model_dump_json().encode()).hexdigest()
+        self.config_sha256 = hashlib.sha256(
+            config.model_dump_json(
+                exclude={"renew_relay_certificate"} if not config.renew_relay_certificate else set()
+            ).encode()
+        ).hexdigest()
         self.registry = AgentEgressRegistry(region=settings.AGENT_EGRESS_REGION)
 
     @property
@@ -203,12 +209,41 @@ class AgentEgressLifecycle:
                 ),
             )
 
+    def _issuer(self) -> AgentEgressProbeIssuer:
+        return AgentEgressProbeIssuer(
+            certificate=self.config.client_ca_file.read_bytes(), private_key=self.config.client_ca_key_file.read_bytes()
+        )
+
+    def _save_certificate(self, issued: AgentEgressProbeCertificate) -> None:
+        self._renew()
+        with transaction.atomic():
+            run = self._run(locked=True)
+            state = self._read(run)
+            if state.closed:
+                raise ValueError("The egress execution has ended")
+            now = timezone.now().timestamp()
+            self._save(
+                run,
+                state.model_copy(update={"certificate_refresh_at": (now + issued.expires_at.timestamp()) / 2}),
+            )
+
+    def _renew_certificate(self, probe: ModalEgressProbe) -> None:
+        self._active()
+        registration = self.registry.lookup(
+            team_id=self.config.team_id, run_id=self.config.run_id, execution_id=self.execution_id
+        )
+        if registration is None:
+            self._active()
+            raise ValueError("The execution no longer has egress authority")
+        issued = self._issuer().issue(probe.certificate_request(), relay_key_sha256=registration.relay_key_sha256)
+        self._renew()
+        probe.renew_certificate(issued.certificate)
+        self._save_certificate(issued)
+
     def prepare(self) -> str:
         state = self._claim()
         config = self.config
-        issuer = AgentEgressProbeIssuer(
-            certificate=config.client_ca_file.read_bytes(), private_key=config.client_ca_key_file.read_bytes()
-        )
+        issuer = self._issuer()
         if state.previous_sandbox_id:
             if state.previous_relay_name:
                 ModalEgressProbe.close_relay(state.previous_sandbox_id, state.previous_relay_name)
@@ -243,7 +278,11 @@ class AgentEgressLifecycle:
                 current.model_copy(update={"sandbox_id": probe.sandbox.id, "sidecar_id": probe.sidecar.object_id}),
             )
         issued = issuer.issue(probe.certificate_request())
-        probe.start_relay(certificate=issued.certificate, server_ca=config.server_ca_file.read_text())
+        probe.start_relay(
+            certificate=issued.certificate,
+            server_ca=config.server_ca_file.read_text(),
+            client_ca=config.client_ca_file.read_text() if config.renew_relay_certificate else None,
+        )
         self._active()
         run = config.eligible_run()
         actor = get_task_run_credential_user(run.task, run.state, raise_on_error=True)
@@ -262,13 +301,22 @@ class AgentEgressLifecycle:
         )
         self._check_provisioning_deadline()
         self._publish(probe)
+        if config.renew_relay_certificate:
+            self._save_certificate(issued)
         return probe.sandbox.id
 
     def renew(self) -> None:
         self._renew()
         state = self._active()
-        if state.capability_refresh_at <= timezone.now().timestamp():
-            self._publish(self._connect(state))
+        now = timezone.now().timestamp()
+        refresh_certificate = self.config.renew_relay_certificate and state.certificate_refresh_at <= now
+        refresh_capability = state.capability_refresh_at <= now
+        if refresh_certificate or refresh_capability:
+            probe = self._connect(state)
+            if refresh_certificate:
+                self._renew_certificate(probe)
+            if refresh_capability:
+                self._publish(probe)
 
     def probe(self) -> dict[int, int]:
         state = self._active()

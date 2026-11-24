@@ -2949,9 +2949,6 @@ presentation-uses-facade	products.experiments.backend.presentation.views	product
 presentation-uses-facade	products.experiments.backend.presentation.views	products.experiments.backend.setup_context	1
 presentation-uses-facade	products.experiments.backend.presentation.views	products.feature_flags.backend.models.evaluation_context	1
 presentation-uses-facade	products.experiments.backend.presentation.views	products.feature_flags.backend.models.feature_flag	1
-presentation-uses-facade	products.experiments.backend.presentation.web_experiments	products.experiments.backend.models.experiment	1
-presentation-uses-facade	products.experiments.backend.presentation.web_experiments	products.experiments.backend.models.team_experiments_config	1
-presentation-uses-facade	products.experiments.backend.presentation.web_experiments	products.experiments.backend.models.web_experiment	1
 presentation-uses-facade	products.exports.backend.routes	products.exports.backend.api.exports	1
 presentation-uses-facade	products.feature_flags.backend.routes	products.feature_flags.backend.api.feature_flag	1
 presentation-uses-facade	products.feature_flags.backend.routes	products.feature_flags.backend.api.flag_value	1
