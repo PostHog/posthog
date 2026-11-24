@@ -8,7 +8,6 @@ from posthog.clickhouse.kafka_engine import (
 )
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_BILLING_USAGE_RECORDS
-from posthog.run_mode import RunMode, run_mode
 
 BILLING_USAGE_RECORDS_TABLE = "billing_usage_records"
 SHARDED_BILLING_USAGE_RECORDS_TABLE = f"sharded_{BILLING_USAGE_RECORDS_TABLE}"
@@ -94,14 +93,8 @@ ENGINE = {
 
 
 # kafka_num_consumers is per node. One consumer reads its partitions in partition order, so when it
-# falls behind, its last partition takes all of the lag. US runs two consumers on each node, with
-# two partitions each. The other deployments keep one consumer, and their SQL does not change.
-def billing_usage_records_consumer_settings() -> str:
-    if run_mode() is not RunMode.CLOUD_US:
-        return ""
-    return f", kafka_num_consumers = {kafka_num_consumers(2)}, kafka_thread_per_consumer = 1"
-
-
+# falls behind, its last partition takes all of the lag. Each node runs two consumers, and each
+# consumer has its own thread.
 def KAFKA_BILLING_USAGE_RECORDS_TABLE_SQL() -> str:
     return f"""
 CREATE TABLE IF NOT EXISTS {KAFKA_BILLING_USAGE_RECORDS_TABLE}
@@ -115,7 +108,10 @@ ENGINE = {
             named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_SHARED_NAMED_COLLECTION,
         )
     }
-SETTINGS date_time_input_format = 'best_effort'{billing_usage_records_consumer_settings()}
+SETTINGS date_time_input_format = 'best_effort',
+         kafka_num_consumers = {kafka_num_consumers(2)},
+         kafka_thread_per_consumer = 1,
+         kafka_skip_broken_messages = 100
 """
 
 
